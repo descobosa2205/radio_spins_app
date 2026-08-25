@@ -776,6 +776,21 @@ class DiscoProject(Base):
     closed_by_nick = Column(Text)
     registros_done_at = Column(DateTime(timezone=True))
     registros_done_by_nick = Column(Text)
+    # ---- FECHA DE LANZAMIENTO CONFIRMADA por REGISTROS (bloque de tareas de AUDIO).
+    # La fecha del proyecto es una intención; la que vale es la que confirma Registros, que además
+    # fija la FECHA MÁXIMA DE ENTREGA de materiales. Ver `DiscoProjectDateRequest`.
+    release_date_confirmed_at = Column(DateTime(timezone=True))
+    release_date_confirmed_by_nick = Column(Text)
+    materials_due_date = Column(Date)
+    # Aviso de la fecha máxima al productor / al artista, y el recordatorio automático (una vez).
+    materials_notified_at = Column(DateTime(timezone=True))
+    materials_notified_to = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    materials_reminder_at = Column(DateTime(timezone=True))
+    # ---- PRODUCCIÓN: quién la hace (es a quien se le reclaman los materiales) y el resto de lo
+    # pactado —fee, presupuesto, %, mezcla, máster, grabación de voces y su logística— en
+    # `production_payload` (JSONB), que no necesita una columna por dato.
+    producer_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    production_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     # Hoja de ruta (mismo motor que las actividades) y bolsa de gastos.
     roadmap_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     roadmap_public_token = Column(Text)
@@ -786,6 +801,8 @@ class DiscoProject(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     artist = relationship("Artist")
+    # Quien PRODUCE el proyecto (un tercero): es a quien se le pide subir los materiales.
+    producer = relationship("Promoter", foreign_keys=[producer_promoter_id])
     # La canción de la que es un VIDEOCLIP (cuando sale de un tema ya publicado).
     # ⚠️ `foreign_keys` es obligatorio: hay DOS caminos a `songs` (esta y `release_song_id`, la del
     # lanzamiento que ha creado el proyecto) y SQLAlchemy no sabe cuál es sin decírselo.
@@ -795,6 +812,48 @@ class DiscoProject(Base):
 
     __table_args__ = (
         Index("idx_disco_projects_artist", "artist_id", "status"),
+    )
+
+
+class DiscoProjectDateRequest(Base):
+    """SOLICITUD A REGISTROS de que confirme la FECHA DE LANZAMIENTO de un proyecto.
+
+    Poner una fecha en el proyecto es una intención; la que vale es la que **confirma Registros**,
+    que al confirmarla fija además la **fecha máxima de entrega de materiales**. Cada solicitud queda
+    aquí (con su histórico): la primera y cada CAMBIO de fecha posterior (`is_change`).
+
+    · `kind` = lo que se le pide: **EXACT** (una fecha), **RANGE** (una franja), **ASAP** (lo antes
+      posible) o **NONE** (todavía sin fecha, que la ponga Registros).
+    · `status`: PENDIENTE → CONFIRMADA (o ANULADA si se pide un cambio antes de que la contesten).
+    """
+
+    __tablename__ = "disco_project_date_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="CASCADE"),
+                        nullable=False)
+    kind = Column(Text, nullable=False, server_default=text("'EXACT'"))
+    proposed_date = Column(Date)
+    range_start = Column(Date)
+    range_end = Column(Date)
+    note = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
+    is_change = Column(Boolean, nullable=False, server_default=text("false"))
+    # Lo que contesta Registros: la fecha que vale y hasta cuándo hay para entregar materiales.
+    confirmed_date = Column(Date)
+    materials_due_date = Column(Date)
+    decided_note = Column(Text)
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    decided_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    decided_by_nick = Column(Text)
+    decided_at = Column(DateTime(timezone=True))
+
+    project = relationship("DiscoProject")
+
+    __table_args__ = (
+        Index("idx_disco_date_requests_project", "project_id", "status"),
     )
 
 
@@ -11242,6 +11301,42 @@ def ensure_disco_projects_schema():
             ADD COLUMN IF NOT EXISTS registros_done_by_nick text;
         """,
         "ALTER TABLE IF EXISTS disco_project_tracks ADD COLUMN IF NOT EXISTS is_existing boolean NOT NULL DEFAULT false;",
+        # FECHA confirmada por Registros, fecha máxima de entrega de materiales y su aviso, y la
+        # PRODUCCIÓN del proyecto (quién la hace + lo pactado en JSONB).
+        """
+        ALTER TABLE IF EXISTS disco_projects
+            ADD COLUMN IF NOT EXISTS release_date_confirmed_at timestamptz,
+            ADD COLUMN IF NOT EXISTS release_date_confirmed_by_nick text,
+            ADD COLUMN IF NOT EXISTS materials_due_date date,
+            ADD COLUMN IF NOT EXISTS materials_notified_at timestamptz,
+            ADD COLUMN IF NOT EXISTS materials_notified_to jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS materials_reminder_at timestamptz,
+            ADD COLUMN IF NOT EXISTS producer_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS production_payload jsonb NOT NULL DEFAULT '{}'::jsonb;
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS disco_project_date_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            project_id uuid NOT NULL REFERENCES disco_projects(id) ON DELETE CASCADE,
+            kind text NOT NULL DEFAULT 'EXACT',
+            proposed_date date,
+            range_start date,
+            range_end date,
+            note text,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            is_change boolean NOT NULL DEFAULT false,
+            confirmed_date date,
+            materials_due_date date,
+            decided_note text,
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_nick text,
+            requested_at timestamptz DEFAULT now(),
+            decided_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            decided_by_nick text,
+            decided_at timestamptz
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_disco_date_requests_project ON disco_project_date_requests(project_id, status);",
         # PROVISIONAL: lo que ha creado un proyecto y todavía se está preparando.
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",

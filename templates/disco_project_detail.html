@@ -136,14 +136,69 @@
      cuanto se hace. En un SINGLE CON VIDEOCLIP se leen partidas —lo del single a la izquierda, lo
      del videoclip a la derecha— y lo del LANZAMIENTO, que es de los dos, debajo y a todo el ancho
      (el reparto lo hace `_disco_project_task_groups`). #}
+  {# Cada tarea dice EN QUÉ ESTADO está (`state`): pendiente, esperando a otro, bloqueada por el
+     paso anterior o HECHA (y entonces se queda a la vista con el dato que se fijó). Las que se
+     resuelven en un pop-up llevan su botón; las de tarde en tarde, sus tres puntitos. #}
   {% macro lista_tareas(items, vacio) %}
     <div class="list-group list-group-flush">
       {% for t in items %}
-        <a class="list-group-item list-group-item-action d-flex align-items-center gap-3" href="{{ t.url }}">
-          <span class="oa-row__icon"><i class="fa {{ t.icon }}"></i></span>
-          <span class="flex-grow-1">{{ t.label }}</span>
-          <span class="badge {{ 'text-bg-danger' if t.urgent else 'text-bg-warning text-dark' }}">Pendiente</span>
-        </a>
+        {% set st = t.state or 'todo' %}
+        {% set clicable = (st in ('todo', 'blocked')) and t.url and not t.action_label and not t.modal %}
+        <{{ 'a' if clicable else 'div' }} class="list-group-item {{ 'list-group-item-action' if clicable else '' }} d-flex align-items-center gap-3 flex-wrap"
+           {% if clicable %}href="{{ t.url }}"{% endif %}
+           {% if t.sub %}style="padding-left:2.6rem;"{% endif %}>
+          <span class="oa-row__icon {{ 'text-success' if st == 'done' else ('text-muted' if st in ('blocked', 'wait') else '') }}">
+            <i class="fa {{ 'fa-circle-check' if st == 'done' else ('fa-lock' if st == 'blocked' else t.icon) }}"></i>
+          </span>
+          <span class="flex-grow-1" style="min-width:12rem;">
+            <span class="fw-semibold {{ 'text-muted' if st == 'done' else '' }}">{{ t.label }}</span>
+            {% if t.value %}<span class="d-block small fw-semibold">{{ t.value }}</span>{% endif %}
+            {% if t.hint %}<span class="d-block small text-muted">{{ t.hint }}</span>{% endif %}
+          </span>
+          {% if st == 'done' %}
+            <span class="badge text-bg-success">Hecho</span>
+          {% elif st == 'wait' %}
+            <span class="badge text-bg-info text-dark"><i class="fa fa-hourglass-half me-1"></i>Esperando</span>
+          {% elif st == 'blocked' %}
+            <span class="badge text-bg-light border text-muted"><i class="fa fa-lock me-1"></i>Bloqueada</span>
+          {% else %}
+            <span class="badge {{ 'text-bg-danger' if t.urgent else 'text-bg-warning text-dark' }}">Pendiente</span>
+          {% endif %}
+          {% if CAN_EDIT and t.action_label %}
+            {% if t.modal %}
+              <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="{{ t.modal }}">
+                <i class="fa {{ t.icon }} me-1"></i>{{ t.action_label }}</button>
+            {% elif t.url %}
+              <a class="btn btn-sm btn-danger" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label }}</a>
+            {% endif %}
+          {% endif %}
+          {% if CAN_EDIT and t.menu %}
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"
+                      data-bs-display="static" title="Más"><i class="fa fa-ellipsis"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                {% for m in t.menu %}
+                  <li>
+                    {% if m.modal %}
+                      <button class="dropdown-item{{ ' text-danger' if m.danger else '' }}" type="button"
+                              data-bs-toggle="modal" data-bs-target="{{ m.modal }}">
+                        <i class="fa {{ m.icon }} fa-fw me-1"></i>{{ m.label }}</button>
+                    {% elif m.post %}
+                      <form method="post" action="{{ m.post }}">
+                        <input type="hidden" name="next" value="{{ request.full_path }}">
+                        <button class="dropdown-item{{ ' text-danger' if m.danger else '' }}">
+                          <i class="fa {{ m.icon }} fa-fw me-1"></i>{{ m.label }}</button>
+                      </form>
+                    {% elif m.url %}
+                      <a class="dropdown-item{{ ' text-danger' if m.danger else '' }}" href="{{ m.url }}">
+                        <i class="fa {{ m.icon }} fa-fw me-1"></i>{{ m.label }}</a>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+        </{{ 'a' if clicable else 'div' }}>
       {% else %}
         <div class="list-group-item text-success py-4 text-center">
           <i class="fa fa-circle-check me-1"></i>{{ vacio }}
@@ -186,6 +241,9 @@
       {{ lista_tareas(tasks, 'No queda nada pendiente en este proyecto.') }}
     </div>
   {% endif %}
+
+  {# LOS POP-UPS de los pasos de audio (fecha, plazo de entrega y producción). #}
+  {% if CAN_EDIT and has_audio %}{% include '_disco_project_steps.html' %}{% endif %}
 
 {% elif tab == 'informacion' %}
   {# INFORMACIÓN · los datos del proyecto y su lista de temas, editables aquí mismo. #}

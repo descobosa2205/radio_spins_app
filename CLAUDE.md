@@ -653,9 +653,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   busca elementos de menos de 60 px con 3+ líneas y ≤4 caracteres por línea.
 
 - **DISCOGRÁFICA · PROYECTOS** (ago 2026): donde se PREPARA el material discográfico —álbumes, EPs,
-  singles y videoclips—, en su propia pestaña (`/discografica?section=proyectos`). Modelos
-  **`DiscoProject`** + **`DiscoProjectTrack`** + **`DiscoProjectMaterial`**
-  (`ensure_disco_projects_schema`). ⚠️ Un proyecto NO es el lanzamiento (eso son `Album`/`Song`
+  singles y videoclips—, en su propia pestaña (`/discografica?section=proyectos`). **`DiscoProject`** + **`DiscoProjectTrack`** +
+  **`DiscoProjectDateRequest`** (`ensure_disco_projects_schema`). ⚠️ **No existe ningún
+  `DiscoProjectMaterial`**: los materiales se suben en la ficha del lanzamiento (`SongMaterial`). ⚠️ Un proyecto NO es el lanzamiento (eso son `Album`/`Song`
   cuando ya existen): es el trabajo previo.
   · **La pantalla**: los ARTISTAS con proyectos activos y su número; al pinchar uno, los suyos
   (`?proj_artist=<id>`, y los archivados con `?proj_archivados=1`).
@@ -803,6 +803,61 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ La sección nueva hay que añadirla a la **lista blanca de `section`** de `discografica_view`, al
   catálogo de permisos (`discografica.proyectos`) y a los DOS mapeos de endpoints (los suyos se
   llaman `disco_project_*`, fuera del prefijo `discografica_`).
+
+- **PROYECTO DISCOGRÁFICO · LAS TAREAS DE AUDIO VAN POR PASOS** (ago 2026). Cuando el proyecto lleva
+  audio (`_disco_project_has_audio`: todos menos un videoclip suelto), las primeras tareas son un
+  proceso, no una lista de avisos, y **las hechas se quedan a la vista con el dato que se fijó**
+  (`state` = todo · wait · blocked · done; la macro `lista_tareas` de `disco_project_detail.html`
+  pinta el estado, el botón de su pop-up y sus tres puntitos).
+  · **1 · Confirmar disponibilidad de fecha** → ⚠️ **la fecha del proyecto es una INTENCIÓN; la que
+  vale es la que confirma REGISTROS**. Se le pide con `disco_project_date_request` diciendo qué
+  queremos (`DISCO_DATE_REQUEST_KINDS`: esta fecha · una franja · lo antes posible · todavía sin
+  fecha) y queda en **`DiscoProjectDateRequest`** (una viva por proyecto; pedir otra anula la
+  anterior). Mientras esperan, la tarea sale «Esperando» con **Volver a pedirlo** / **Anular**.
+  Cambiar una fecha ya confirmada es el MISMO proceso (`is_change`), desde los tres puntitos.
+  · **2 · Fecha máxima de entrega** → la fija REGISTROS **al confirmar la fecha, en el mismo
+  formulario** (`registros_release_date_confirm`, pantalla `/registros/fechas`): sin plazo no se
+  puede avisar a nadie, así que van juntas a propósito. Si confirman otra fecha, se le dice a quien
+  lo pidió, se actualiza el proyecto y **el aviso del plazo que se hubiera mandado deja de valer**.
+  Después, la tarea es **notificar al productor (o al artista)**: `disco_project_materials_notify`
+  manda el correo con el logo de **PIES** arriba a la derecha, «Fecha máxima de entrega de
+  materiales» centrado, la cabecera del lanzamiento y el botón **Subir materiales**, que es el
+  **enlace de entrega de masters de siempre** (`_disco_project_delivery_links` crea el que falte:
+  no se inventa otro sitio para subir materiales).
+  ⚠️ La tarea sale **BLOQUEADA** mientras no se sepa quién produce: es a quien se le avisa.
+  ⚠️ **Recordatorio automático** a `DISCO_MATERIALS_REMINDER_DAYS` (2) días del plazo si los másters
+  no están subidos: `_disco_materials_reminder_sweep`, **una sola vez** (`materials_reminder_at`) —
+  uno que insiste todos los días deja de leerse—. Va en su cron (`/cron/materiales-proyecto`) y
+  también dentro del cron diario de documentos, para no depender de otra tarea en el servidor.
+  · **3 · Producción y sus subtareas**: quién produce (+ fee, «sin fee» o presupuesto, y su % —con
+  «no lo sé todavía», que **deja el % como subtarea abierta a propósito**—), quién mezcla, quién
+  masteriza (el productor, un tercero, o un tercero que gestiona el productor) y **quién graba las
+  voces** (con su coste, fecha, lugar —estudio del productor / casa del artista / otro, con la
+  dirección autocompletable— y su **logística**, que al marcarla le sale como tarea a la persona de
+  producción elegida). Todo se guarda con `disco_project_production_save` por secciones
+  (`section=producer|mix|master|vocals`) en **`DiscoProject.production_payload`** (JSONB); quien
+  produce sí es columna (`producer_promoter_id`) porque es a quien se le reclaman los materiales.
+  Estado en **`_disco_production_state`**, pop-ups en `templates/_disco_project_steps.html`.
+  ⚠️ En esos pop-ups, los paneles que dependen de una elección van con **`data-dp-when`** y los
+  ocultos **se deshabilitan** (un campo oculto se envía igual), y el valor de las tarjetas viaja por
+  un oculto que lo ESPEJA (`data-dp-mirror`).
+  ⚠️ **A quién se avisa en Registros**: `_registros_user_ids` (con `_profile_in_department`, y si
+  nadie tiene Registros cae al Sello y luego a dirección). **No** vale `_department_user_ids`: ese lee
+  `departments` en crudo y una fila donde quedó guardado como TEXTO no casa con nada, así que esa
+  persona no recibiría el aviso sin dar ningún error (por eso `disco_project_close` también lo usa ya).
+  ⚠️ `_notify_user` **no avisa a uno mismo**: si quien pide la fecha es la única persona de Registros
+  no le llega nada, pero la solicitud **no se pierde** (sigue en `/registros/fechas`).
+  ⚠️ **Bug de orden arreglado de paso**: la tarea «cierra el proyecto» se decidía ANTES de añadir «la
+  hoja de ruta está vacía» y «sin bolsa», así que salía a la vez que ellas. Ahora se decide al final
+  y solo si no queda **nada** pendiente.
+  ⚠️ Lo nuevo del contexto de la ficha (`date_state`, `production`, `materials_recipients`,
+  `promoters`, `production_people`, `has_audio`) hay que quitarlo del contexto de la **bolsa**
+  (`bag_ctx`) o `render_template` revienta con «got multiple values».
+  · **PENDIENTE (siguientes lotes)**: subir demo vinculada al proyecto · portada (nosotros / artista /
+  tercero, con foto, idea, solicitud, PSD+JPG y **aprobación del artista**) · otras creatividades
+  (encargo a diseño con formatos y tamaños) · **IDs** de plataformas (subirlos o pedírselos al
+  artista) · **plan de lanzamiento** (estrategia, acciones, marketing, promoción, contenidos y
+  cronograma, con el OK de dirección y sello y los **recordatorios de publicación**).
 
 - **DISCOGRÁFICA · DEMOS** (ago 2026): las maquetas que se están valorando, en su propia sección
   (`/discografica?section=demos`). Modelo **`SongDemo`** (`ensure_song_demos_schema`).

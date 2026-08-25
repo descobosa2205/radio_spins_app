@@ -170,6 +170,7 @@ from models import (
     PlaylistItem,
     DiscoProject,
     DiscoProjectTrack,
+    DiscoProjectDateRequest,
     SongCertification,
     SongProductionContract,
     SongStatus,
@@ -813,7 +814,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -19844,11 +19845,299 @@ def _disco_project_agenda(session_db, project, milestones) -> dict:
     }
 
 
+# =========================================================
+# TAREAS DE AUDIO DE UN PROYECTO DISCOGRÁFICO
+# ---------------------------------------------------------
+# ⚠️⚠️ Poner una fecha en el proyecto es una INTENCIÓN. La fecha que vale es la que **confirma
+# REGISTROS**, que al confirmarla fija además la **FECHA MÁXIMA DE ENTREGA de materiales**. De ahí
+# salen las dos primeras tareas de audio, y en ese orden:
+#   1 Confirmar disponibilidad de fecha  →  2 Fecha máxima de entrega (avisar al productor / artista)
+# Cambiar una fecha ya confirmada es el MISMO proceso otra vez (`is_change`), así que vuelve a estar
+# pendiente hasta que Registros conteste.
+# =========================================================
+DISCO_DATE_REQUEST_KINDS = (
+    ("EXACT", "Esta fecha", "fa-calendar-day", "Confirmar el día que hemos puesto."),
+    ("RANGE", "Una franja de días", "fa-calendar-week", "Nos vale cualquier día de ese rango."),
+    ("ASAP", "Lo antes posible", "fa-bolt", "Que la pongan en cuanto se pueda."),
+    ("NONE", "Todavía sin fecha", "fa-calendar-xmark", "Sin fecha: que Registros proponga una."),
+)
+DISCO_DATE_REQUEST_LABELS = {k: l for k, l, _i, _h in DISCO_DATE_REQUEST_KINDS}
+# Cuántos días antes de la fecha máxima de entrega se manda el recordatorio automático.
+DISCO_MATERIALS_REMINDER_DAYS = 2
+
+
+def _long_date_es(day) -> str:
+    """«lunes 3 de junio de 2026» — la fecha como se dice. Punto único (lo usan los avisos)."""
+    return _vacation_long_date(day)
+
+
+def _registros_user_ids(session_db) -> list[str]:
+    """Quién es REGISTROS: a quien se le pide confirmar una fecha de lanzamiento.
+
+    ⚠️ Se lee con `_profile_in_department` (contra el catálogo), NO buscando la cadena dentro de la
+    lista: hay perfiles con los departamentos guardados como TEXTO y recorrerlos con un `for` da
+    LETRAS, así que esa persona no casaría con nada y desaparecería **sin dar ningún error**.
+    ⚠️ Si NADIE tiene Registros se cae al SELLO y, si tampoco, a dirección: mejor que lo vea alguien
+    de más que dejar la petición sin dueño."""
+    fuera = _inactive_user_ids(session_db)
+    try:
+        perfiles = session_db.query(UserProfile).all()
+    except Exception:
+        app.logger.exception("[proyectos] no se pudo resolver el personal de registros")
+        return []
+
+    def _quienes(*deps):
+        salida = []
+        for prof in perfiles:
+            uid = str(getattr(prof, "user_id", "") or "")
+            if not uid or to_uuid(uid) in fuera:
+                continue
+            if _profile_in_department(prof, *deps):
+                salida.append(uid)
+        return salida
+
+    for deps in (("Registros",), ("Sello",), ("Dirección",)):
+        quienes = _quienes(*deps)
+        if quienes:
+            return quienes
+    return []
+
+
+def _disco_date_request_open(session_db, project):
+    """La solicitud de fecha que está esperando respuesta de Registros (o None)."""
+    if project is None:
+        return None
+    try:
+        return (session_db.query(DiscoProjectDateRequest)
+                .filter(DiscoProjectDateRequest.project_id == project.id,
+                        func.upper(func.coalesce(DiscoProjectDateRequest.status, "")) == "PENDIENTE")
+                .order_by(DiscoProjectDateRequest.requested_at.desc()).first())
+    except Exception:
+        app.logger.exception("[proyectos] no se pudo leer la solicitud de fecha")
+        return None
+
+
+def _disco_date_request_label(r) -> str:
+    """QUÉ se le ha pedido a Registros, en una línea."""
+    if r is None:
+        return ""
+    kind = (getattr(r, "kind", "") or "EXACT").upper()
+    if kind == "EXACT" and getattr(r, "proposed_date", None):
+        return "Confirmar el %s" % r.proposed_date.strftime("%d/%m/%Y")
+    if kind == "RANGE":
+        ini = (r.range_start.strftime("%d/%m/%Y") if r.range_start else "?")
+        fin = (r.range_end.strftime("%d/%m/%Y") if r.range_end else "?")
+        return "Entre %s y %s" % (ini, fin)
+    if kind == "ASAP":
+        return "Lo antes posible"
+    return "Sin fecha: que propongan una"
+
+
+def _disco_date_state(session_db, project) -> dict:
+    """EN QUÉ PUNTO está la fecha de lanzamiento y la entrega de materiales.
+
+    Punto único: lo usan las tareas del proyecto, la pantalla de Registros y los avisos."""
+    pend = _disco_date_request_open(session_db, project)
+    fecha = getattr(project, "release_date", None)
+    vence = getattr(project, "materials_due_date", None)
+    confirmada = bool(getattr(project, "release_date_confirmed_at", None) and fecha)
+    hoy = today_local()
+    return {
+        "confirmed": confirmada,
+        "date": fecha,
+        "date_label": (fecha.strftime("%d/%m/%Y") if fecha else ""),
+        "date_long": _long_date_es(fecha),
+        "confirmed_by": (getattr(project, "release_date_confirmed_by_nick", "") or ""),
+        "confirmed_at": getattr(project, "release_date_confirmed_at", None),
+        "due_date": vence,
+        "due_label": (vence.strftime("%d/%m/%Y") if vence else ""),
+        "due_long": _long_date_es(vence),
+        "due_days_left": ((vence - hoy).days if vence else None),
+        "pending": pend,
+        "pending_id": (str(pend.id) if pend is not None else ""),
+        "pending_label": _disco_date_request_label(pend),
+        "pending_is_change": bool(getattr(pend, "is_change", False)) if pend is not None else False,
+        "pending_since": (pend.requested_at if pend is not None else None),
+        "notified_at": getattr(project, "materials_notified_at", None),
+        "notified_to": list(getattr(project, "materials_notified_to", None) or []),
+        "reminder_at": getattr(project, "materials_reminder_at", None),
+    }
+
+
+# ---------------------------------------------------------
+# PRODUCCIÓN del proyecto (quién produce, mezcla, máster y graba las voces)
+# ---------------------------------------------------------
+# Lo pactado vive en `DiscoProject.production_payload` (JSONB): no hace falta una columna por dato y
+# así se puede crecer sin tocar el esquema. Quien PRODUCE sí es una columna (`producer_promoter_id`):
+# es a quien se le reclaman los materiales.
+DISCO_PROD_FEE_MODES = (
+    ("FEE", "Fee de producción", "fa-euro-sign"),
+    ("NO_FEE", "Sin fee", "fa-ban"),
+    ("BUDGET", "Por presupuesto", "fa-file-invoice-dollar"),
+)
+DISCO_PROD_PCT_MODES = (
+    ("PCT", "Con porcentaje", "fa-percent"),
+    ("NONE", "Sin porcentaje", "fa-ban"),
+    ("UNKNOWN", "No lo sé todavía", "fa-circle-question"),
+)
+DISCO_PROD_WHO_MODES = (
+    ("PRODUCER", "El productor", "fa-sliders"),
+    ("THIRD", "Un tercero", "fa-user-plus"),
+    ("THIRD_VIA_PRODUCER", "Un tercero, lo gestiona el productor", "fa-user-tie"),
+)
+DISCO_PROD_COST_MODES = (
+    ("AMOUNT", "Con coste", "fa-euro-sign"),
+    ("IN_FEE", "Incluido en el fee del productor", "fa-file-signature"),
+    ("IN_BUDGET", "Incluido en el presupuesto de producción", "fa-file-invoice-dollar"),
+    ("NONE", "Sin coste", "fa-ban"),
+)
+DISCO_VOCALS_MODES = (
+    ("PRODUCER", "Las graba el productor", "fa-sliders"),
+    ("THIRD", "Las graba un tercero", "fa-user-plus"),
+    ("ARTIST", "El artista se las graba", "fa-microphone"),
+)
+DISCO_VOCALS_PLACES = (
+    ("PRODUCER_STUDIO", "Estudio del productor", "fa-sliders"),
+    ("ARTIST_HOME", "En casa del artista", "fa-house"),
+    ("OTHER", "Otro estudio", "fa-location-dot"),
+)
+
+
+def _disco_prod(project) -> dict:
+    """Lo pactado de producción de este proyecto (siempre un dict)."""
+    data = getattr(project, "production_payload", None)
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def _disco_prod_money(value) -> str:
+    """Un importe del payload, tal como se enseña (o vacío)."""
+    try:
+        d = _parse_optional_decimal(value)
+    except Exception:
+        d = None
+    return (format_eur(d) if d is not None else "")
+
+
+def _disco_production_state(session_db, project) -> dict:
+    """Las SUBTAREAS de producción: qué está decidido y qué falta.
+
+    · producción → quién produce + su fee (o presupuesto) + su % (o «no lo sé todavía», que deja la
+      subtarea abierta a propósito).
+    · mezcla y máster → quién y cómo se paga.
+    · voces → quién las graba, cuánto cuesta, cuándo y dónde, y si hace falta logística (que se le
+      pide a alguien de producción y le sale como tarea suya)."""
+    prod = _disco_prod(project)
+    productor = None
+    if getattr(project, "producer_promoter_id", None):
+        productor = session_db.get(Promoter, project.producer_promoter_id)
+
+    def _tercero(pk):
+        try:
+            return session_db.get(Promoter, to_uuid(str(pk))) if pk else None
+        except Exception:
+            return None
+
+    fee_mode = (prod.get("fee_mode") or "").upper()
+    pct_mode = (prod.get("pct_mode") or "").upper()
+    voces = prod.get("vocals") or {}
+    logistica_user = None
+    if voces.get("logistics_user_id"):
+        try:
+            logistica_user = (session_db.query(UserProfile)
+                              .filter(UserProfile.user_id == to_uuid(str(voces["logistics_user_id"])))
+                              .first())
+        except Exception:
+            logistica_user = None
+    filas = {
+        "producer": {
+            "promoter": productor,
+            "name": ((productor.nick or productor.name) if productor else ""),
+            "logo_url": (getattr(productor, "logo_url", "") or ""),
+            "fee_mode": fee_mode,
+            "fee_label": dict((k, l) for k, l, _i in DISCO_PROD_FEE_MODES).get(fee_mode, ""),
+            "fee_amount": (prod.get("fee_amount") or ""),
+            "fee_amount_label": _disco_prod_money(prod.get("fee_amount")),
+            "budget_amount": (prod.get("budget_amount") or ""),
+            "budget_amount_label": _disco_prod_money(prod.get("budget_amount")),
+            "pct_mode": pct_mode,
+            "pct": (prod.get("pct") or ""),
+            "done": bool(productor is not None and fee_mode),
+            # ⚠️ «No lo sé todavía» deja el % como subtarea abierta a propósito.
+            "pct_pending": bool(productor is not None and pct_mode in ("", "UNKNOWN")),
+        },
+    }
+    for clave in ("mix", "master"):
+        d = prod.get(clave) or {}
+        modo = (d.get("mode") or "").upper()
+        tercero = _tercero(d.get("promoter_id"))
+        filas[clave] = {
+            "mode": modo,
+            "mode_label": dict((k, l) for k, l, _i in DISCO_PROD_WHO_MODES).get(modo, ""),
+            "promoter": tercero,
+            "name": (((tercero.nick or tercero.name) if tercero else "")
+                     or (filas["producer"]["name"] if modo == "PRODUCER" else "")),
+            "cost_mode": (d.get("cost_mode") or "").upper(),
+            "cost_label": dict((k, l) for k, l, _i in DISCO_PROD_COST_MODES).get(
+                (d.get("cost_mode") or "").upper(), ""),
+            "amount": (d.get("amount") or ""),
+            "amount_label": _disco_prod_money(d.get("amount")),
+            "done": bool(modo and (modo == "PRODUCER" or tercero is not None)
+                         and (d.get("cost_mode") or "")),
+        }
+    modo_v = (voces.get("mode") or "").upper()
+    tercero_v = _tercero(voces.get("promoter_id"))
+    lugar = (voces.get("place_mode") or "").upper()
+    filas["vocals"] = {
+        "mode": modo_v,
+        "mode_label": dict((k, l) for k, l, _i in DISCO_VOCALS_MODES).get(modo_v, ""),
+        "promoter": tercero_v,
+        "name": ((tercero_v.nick or tercero_v.name) if tercero_v else ""),
+        "cost_mode": (voces.get("cost_mode") or "").upper(),
+        "cost_label": dict((k, l) for k, l, _i in DISCO_PROD_COST_MODES).get(
+            (voces.get("cost_mode") or "").upper(), ""),
+        "amount": (voces.get("amount") or ""),
+        "amount_label": _disco_prod_money(voces.get("amount")),
+        "date": (voces.get("date") or ""),
+        "date_label": (_parse_iso_date_safe(voces.get("date")).strftime("%d/%m/%Y")
+                       if _parse_iso_date_safe(voces.get("date")) else ""),
+        "place_mode": lugar,
+        "place_label": dict((k, l) for k, l, _i in DISCO_VOCALS_PLACES).get(lugar, ""),
+        "place_name": (voces.get("place_name") or ""),
+        "place_address": (voces.get("place_address") or ""),
+        "logistics": bool(voces.get("logistics")),
+        "logistics_note": (voces.get("logistics_note") or ""),
+        "logistics_user_id": (voces.get("logistics_user_id") or ""),
+        "logistics_nick": ((getattr(logistica_user, "nick", "") or "") if logistica_user else ""),
+        "done": bool(modo_v and (modo_v != "THIRD" or tercero_v is not None)
+                     and (voces.get("cost_mode") or "")),
+    }
+    pendientes = [k for k in ("producer", "mix", "master", "vocals") if not filas[k]["done"]]
+    if filas["producer"]["pct_pending"]:
+        pendientes.append("pct")
+    filas["pending"] = pendientes
+    filas["all_done"] = not pendientes
+    return filas
+
+def _disco_project_has_audio(project) -> bool:
+    """¿Este proyecto lleva AUDIO? Todos menos un videoclip suelto (ahí el audio ya existe).
+
+    Mismo criterio que las categorías de gasto de su bolsa («Producción audio»)."""
+    return (getattr(project, "kind", None) or "").upper() != "VIDEOCLIP"
+
+
 def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list[dict]:
     """LAS TAREAS PENDIENTES del proyecto: lo que falta para poder lanzarlo.
 
     Es lo que se ve debajo del calendario. Cada tarea dice qué falta y lleva a donde se arregla; una
-    tarea desaparece sola en cuanto eso está hecho (un aviso es «esto te está esperando»)."""
+    tarea desaparece sola en cuanto eso está hecho (un aviso es «esto te está esperando»).
+
+    ⚠️ Las de **AUDIO** van por PASOS y en orden, y las hechas **se quedan a la vista** con el dato
+    que se fijó (la fecha confirmada, la fecha máxima de entrega…), porque son el estado del
+    lanzamiento y no solo una casilla: `state` = todo | wait | blocked | done.
+
+    Forma de cada tarea: `key`, `label`, `icon`, `group` (a qué pertenece: single / video /
+    lanzamiento), `state`, y según el caso `value` (lo fijado), `hint`, `url`, `action_label`,
+    `modal` (el pop-up que la resuelve), `menu` (los tres puntitos) y `sub` (es una subtarea)."""
     kind = (getattr(project, "kind", None) or "").upper()
     etiqueta, _i = _disco_project_kind_meta(kind)
     url_info = url_for("disco_project_detail", project_id=project.id, tab="informacion")
@@ -19856,13 +20145,120 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     url_hoja = url_for("disco_project_detail", project_id=project.id, tab="hoja-ruta")
     tareas = []
 
-    def tarea(clave, texto, url, icono="fa-circle-exclamation", urgente=False, grupo="lanzamiento"):
+    def tarea(clave, texto, url, icono="fa-circle-exclamation", urgente=False, grupo="lanzamiento",
+              **extra):
         # `grupo` = a QUÉ pertenece la tarea (la obra, el vídeo o el lanzamiento, que es de los dos).
         # Solo se usa para partir la lista en un single CON videoclip (`_disco_project_task_groups`).
-        tareas.append({"key": clave, "label": texto, "url": url, "icon": icono, "urgent": urgente,
-                       "group": grupo})
+        fila = {"key": clave, "label": texto, "url": url, "icon": icono, "urgent": urgente,
+                "group": grupo, "state": "todo", "sub": False}
+        fila.update(extra)
+        tareas.append(fila)
 
-    if not getattr(project, "release_date", None):
+    # ================= AUDIO · paso 1: la FECHA la confirma REGISTROS =================
+    lleva_audio = _disco_project_has_audio(project)
+    fechas = _disco_date_state(session_db, project) if lleva_audio else {}
+    if lleva_audio:
+        if fechas["confirmed"]:
+            menu = [{"label": "Cambiar fecha", "icon": "fa-calendar-plus", "modal": "#dpDateModal"}]
+            tarea("fecha_ok", "Confirmar disponibilidad de fecha", "", "fa-calendar-check",
+                  state="done",
+                  value="%s%s" % (fechas["date_long"] or fechas["date_label"],
+                                  (" · lo confirmó %s" % fechas["confirmed_by"]) if fechas["confirmed_by"] else ""),
+                  menu=menu)
+        elif fechas["pending"] is not None:
+            tarea("fecha_ok", ("Cambio de fecha pendiente de confirmar" if fechas["pending_is_change"]
+                               else "Confirmar disponibilidad de fecha"), "", "fa-hourglass-half",
+                  state="wait",
+                  hint="Registros lo tiene que confirmar · %s" % fechas["pending_label"],
+                  menu=[{"label": "Volver a pedirlo", "icon": "fa-rotate",
+                         "post": url_for("disco_project_date_remind", project_id=project.id)},
+                        {"label": "Anular la solicitud", "icon": "fa-xmark", "danger": True,
+                         "post": url_for("disco_project_date_cancel", project_id=project.id)}])
+        else:
+            tarea("fecha_ok", "Confirmar disponibilidad de fecha", "", "fa-calendar-day", True,
+                  hint="Se le pide a Registros que confirme la fecha de lanzamiento",
+                  action_label="Solicitar confirmación", modal="#dpDateModal")
+
+    # ================= AUDIO · paso 2: la FECHA MÁXIMA DE ENTREGA de materiales =================
+    prod = _disco_production_state(session_db, project) if lleva_audio else {}
+    if lleva_audio and fechas["confirmed"]:
+        if not fechas["due_date"]:
+            tarea("entrega", "Fecha máxima de entrega", "", "fa-calendar-xmark", True,
+                  hint="Registros confirmó la fecha pero no fijó el plazo de entrega",
+                  menu=[{"label": "Pedir el plazo a Registros", "icon": "fa-rotate",
+                         "post": url_for("disco_project_date_remind", project_id=project.id)}])
+        elif not fechas["notified_at"]:
+            # ⚠️ No se puede avisar sin saber A QUIÉN: primero hay que decir quién produce.
+            bloqueada = not prod.get("producer", {}).get("promoter")
+            tarea("entrega", "Fecha máxima de entrega", "", "fa-truck-fast", not bloqueada,
+                  state=("blocked" if bloqueada else "todo"),
+                  value=fechas["due_long"] or fechas["due_label"],
+                  hint=("Antes hay que configurar quién produce (es a quien se le avisa)"
+                        if bloqueada else "Avisar al productor o al artista del plazo"),
+                  action_label=(None if bloqueada else "Notificar el plazo"),
+                  modal=("#dpProducerModal" if bloqueada else "#dpMaterialsNotifyModal"))
+        else:
+            quien = " · ".join([str(x.get("name") or x.get("email") or "")
+                               for x in (fechas["notified_to"] or [])][:3])
+            tarea("entrega", "Fecha máxima de entrega", "", "fa-truck-fast", state="done",
+                  value="%s%s" % (fechas["due_long"] or fechas["due_label"],
+                                  (" · avisado %s" % quien) if quien else ""),
+                  menu=[{"label": "Volver a notificar el plazo", "icon": "fa-paper-plane",
+                         "modal": "#dpMaterialsNotifyModal"}])
+
+    # ================= AUDIO · paso 3: la PRODUCCIÓN y sus subtareas =================
+    if lleva_audio:
+        p = prod.get("producer") or {}
+        if prod.get("all_done"):
+            tarea("produccion", "Producción", "", "fa-sliders", state="done",
+                  value="La produce %s%s" % (p.get("name") or "—",
+                                             (" · %s" % p.get("fee_amount_label")) if p.get("fee_amount_label") else ""),
+                  menu=[{"label": "Cambiar la producción", "icon": "fa-pen", "modal": "#dpProducerModal"}])
+        else:
+            tarea("produccion", "Producción", "", "fa-sliders", True, grupo="single",
+                  hint="Quién produce, quién mezcla, quién masteriza y quién graba las voces")
+            # --- subtareas, en el orden en que se deciden
+            if not p.get("done"):
+                tarea("prod_quien", "Quién va a realizar la producción", "", "fa-user-tie",
+                      grupo="single", sub=True, action_label="Configurar", modal="#dpProducerModal",
+                      hint="El productor y su fee (o el presupuesto)")
+            else:
+                tarea("prod_quien", "Quién va a realizar la producción", "", "fa-user-tie",
+                      grupo="single", sub=True, state="done",
+                      value="%s · %s%s" % (p.get("name") or "—", p.get("fee_label") or "",
+                                           (" %s" % (p.get("fee_amount_label") or p.get("budget_amount_label") or "")).rstrip()),
+                      menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": "#dpProducerModal"}])
+                if p.get("pct_pending"):
+                    tarea("prod_pct", "Fijar el porcentaje de producción", "", "fa-percent",
+                          grupo="single", sub=True, action_label="Fijar el %",
+                          modal="#dpProducerModal",
+                          hint="Quedó en «no lo sé todavía»")
+            for clave, texto in (("mix", "Quién va a realizar la mezcla"),
+                                 ("master", "Quién va a realizar el máster")):
+                d = prod.get(clave) or {}
+                modal = "#dpMixModal" if clave == "mix" else "#dpMasterModal"
+                if d.get("done"):
+                    tarea("prod_%s" % clave, texto, "", "fa-sliders", grupo="single", sub=True,
+                          state="done",
+                          value="%s%s" % (d.get("name") or d.get("mode_label") or "—",
+                                          (" · %s" % (d.get("amount_label") or d.get("cost_label") or "")).rstrip(" ·")),
+                          menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": modal}])
+                else:
+                    tarea("prod_%s" % clave, texto, "", "fa-sliders", grupo="single", sub=True,
+                          action_label="Configurar", modal=modal)
+            v = prod.get("vocals") or {}
+            if v.get("done"):
+                detalle = " · ".join([x for x in [v.get("mode_label"), v.get("name"),
+                                                  v.get("date_label"), v.get("place_label")] if x])
+                tarea("prod_voces", "Grabación de voces", "", "fa-microphone", grupo="single",
+                      sub=True, state="done", value=detalle,
+                      menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": "#dpVocalsModal"}])
+            else:
+                tarea("prod_voces", "Grabación de voces", "", "fa-microphone", grupo="single",
+                      sub=True, action_label="Configurar", modal="#dpVocalsModal")
+
+    # ================= El resto de lo que ya se pedía =================
+    if not getattr(project, "release_date", None) and not lleva_audio:
         tarea("fecha", "Falta la fecha de lanzamiento", url_info, "fa-calendar-day", True)
     temas = list(getattr(project, "tracks", None) or [])
     if kind in DISCO_TRACKLIST_KINDS:
@@ -19895,9 +20291,6 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                       grupo="single")
         if _disco_project_missing_videoclip(session_db, project):
             tarea("videoclip", "Falta el videoclip", destino, "fa-film", grupo="video")
-    if getattr(project, "closed_at", None) is None and not tareas:
-        tarea("cerrar", "Todo listo: cierra el proyecto para pasar a distribución y registro",
-              url_info, "fa-flag-checkered")
     try:
         if not (_roadmap_load(project).get("agenda") or []):
             tarea("hoja", "La hoja de ruta está vacía", url_hoja, "fa-route")
@@ -19906,6 +20299,10 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     if bag is None:
         tarea("bolsa", "Sin bolsa de gastos",
               url_for("disco_project_detail", project_id=project.id, tab="bolsa"), "fa-sack-dollar")
+    # Cerrar el proyecto: solo cuando NO queda nada pendiente de verdad.
+    if getattr(project, "closed_at", None) is None and not [t for t in tareas if t["state"] != "done"]:
+        tarea("cerrar", "Todo listo: cierra el proyecto para pasar a distribución y registro",
+              url_info, "fa-flag-checkered")
     return tareas
 
 
@@ -20613,6 +21010,15 @@ def disco_project_detail(project_id):
         agenda_data = _disco_project_agenda(session_db, project, hitos) if tab == "calendario" else None
         tareas = (_disco_project_tasks(session_db, project, bag=bag, release=release)
                   if tab == "calendario" else [])
+        # Lo que necesitan los pop-ups de los PASOS de audio (solo en su pestaña): en qué punto está
+        # la fecha, lo pactado de producción, a quién se avisaría del plazo y con qué terceros y
+        # personas de producción se rellenan los selectores.
+        fechas_estado = _disco_date_state(session_db, project) if tab == "calendario" else None
+        produccion = _disco_production_state(session_db, project) if tab == "calendario" else None
+        destinatarios = (_disco_materials_recipients(session_db, project)
+                         if (tab == "calendario" and _disco_project_has_audio(project)) else [])
+        terceros = (session_db.query(Promoter).order_by(Promoter.nick.asc()).all()
+                    if tab == "calendario" else [])
         # En un single CON videoclip las tareas se leen partidas (single | videoclip) y lo del
         # lanzamiento, que es de los dos, debajo.
         grupos_tareas = _disco_project_task_groups(project, tareas)
@@ -20625,7 +21031,8 @@ def disco_project_detail(project_id):
             # «got multiple values for keyword argument 'bag'».
             for clave in ("today", "tab", "row", "project", "project_tabs", "milestones", "tracks",
                           "physical_labels", "roadmap_ctx", "CAN_EDIT", "bag", "tasks",
-                          "task_groups",
+                          "task_groups", "date_state", "production", "materials_recipients",
+                          "promoters", "production_people", "has_audio",
                           "agenda_data", "release", "release_songs"):
                 bag_ctx.pop(clave, None)
         return render_template(
@@ -20642,6 +21049,19 @@ def disco_project_detail(project_id):
             physical_formats=DISCO_PHYSICAL_FORMATS,
             release=release,
             release_songs=(_disco_project_release_songs(session_db, project) if tab == "materiales" else []),
+            date_state=fechas_estado,
+            production=produccion,
+            materials_recipients=destinatarios,
+            promoters=terceros,
+            production_people=(_production_people(session_db) if tab == "calendario" else []),
+            date_kinds=DISCO_DATE_REQUEST_KINDS,
+            prod_fee_modes=DISCO_PROD_FEE_MODES,
+            prod_pct_modes=DISCO_PROD_PCT_MODES,
+            prod_who_modes=DISCO_PROD_WHO_MODES,
+            prod_cost_modes=DISCO_PROD_COST_MODES,
+            vocals_modes=DISCO_VOCALS_MODES,
+            vocals_places=DISCO_VOCALS_PLACES,
+            has_audio=_disco_project_has_audio(project),
             bag=bag,
             roadmap_ctx=roadmap_ctx,
             CAN_EDIT=can_edit_discografica(),
@@ -20793,7 +21213,10 @@ def disco_project_close(project_id):
         _disco_project_set_provisional(session_db, project, False)
         # Y le llega a REGISTROS, que es quien lo cumplimenta y sube lo que falte.
         release = _disco_project_release(session_db, project)
-        _notify_users(session_db, _department_user_ids(session_db, "Registros"), "REGISTROS",
+        # ⚠️ Con `_registros_user_ids` (no `_department_user_ids`): ese lee `departments` en crudo y
+        # una fila donde quedó guardado como TEXTO no casa con nada, así que esa persona no recibiría
+        # el aviso **sin dar ningún error**. Y si nadie tiene Registros, cae al sello / dirección.
+        _notify_users(session_db, _registros_user_ids(session_db), "REGISTROS",
                       "Cumplimentar y subir materiales: %s" % _disco_project_title(project),
                       " · ".join([x for x in [(getattr(project.artist, "name", None) or ""),
                                               (release.get("label") or "")] if x]),
@@ -20841,6 +21264,665 @@ def disco_project_registros_done(project_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(url_for("disco_project_detail", project_id=project_id, tab="materiales")))
+
+
+# ---------------------------------------------------------
+# ENLACE PARA SUBIR MATERIALES · el de siempre (entrega de masters), uno por tema
+# ---------------------------------------------------------
+def _disco_project_delivery_links(session_db, project, *, create: bool = False) -> list[dict]:
+    """Los enlaces de ENTREGA DE MASTERS de los temas del lanzamiento, para el botón «Subir
+    materiales» del aviso del plazo.
+
+    Es el enlace público de siempre (`SongMasterDeliveryLink` → `public_song_master_delivery`): no se
+    inventa otro sitio para subir materiales. Con `create=True` se genera el que falte, pidiendo los
+    materiales de audio de siempre (`SONG_DELIVERY_LEGACY_MATERIALS`)."""
+    canciones = _disco_project_release_songs(session_db, project)
+    salida = []
+    for cancion in canciones:
+        link = (session_db.query(SongMasterDeliveryLink)
+                .filter(SongMasterDeliveryLink.song_id == cancion.id,
+                        SongMasterDeliveryLink.status == "ACTIVE")
+                .order_by(SongMasterDeliveryLink.created_at.desc()).first())
+        if link is None and create:
+            link = SongMasterDeliveryLink(
+                song_id=cancion.id, token=uuid.uuid4().hex,
+                sections_json=["MASTERS"],
+                materials_json=list(SONG_DELIVERY_LEGACY_MATERIALS),
+                fields_json={}, status="ACTIVE", data={},
+                requested_by_user_id=_safe_uuid((_current_user_state() or {}).get("user_id")),
+                requested_by_nick=((_current_user_state() or {}).get("nick") or None),
+            )
+            session_db.add(link)
+            session_db.flush()
+        if link is not None:
+            salida.append({"song_id": str(cancion.id), "title": (cancion.title or "").strip(),
+                           "url": _song_delivery_public_url(link)})
+    return salida
+
+
+def _disco_project_email_ctx(session_db, project) -> dict:
+    """La CABECERA del proyecto para un correo (la misma que la de una canción o un álbum: portada,
+    título, intérpretes, fecha y la etiqueta de qué es)."""
+    release = _disco_project_release(session_db, project)
+    artista = getattr(project, "artist", None) or (
+        session_db.get(Artist, project.artist_id) if getattr(project, "artist_id", None) else None)
+    etiqueta, _icono = _disco_project_kind_meta((getattr(project, "kind", None) or "").upper())
+    portada = (release.get("cover_url") or "").strip()
+    return {
+        "title": (_disco_project_title(project) or (getattr(project, "title", "") or "—")),
+        "artist_name": (getattr(artista, "name", "") or ""),
+        "cover_url": portada or (getattr(artista, "photo_url", "") or ""),
+        "badge_label": (release.get("label") or etiqueta),
+        "kind_label": etiqueta,
+        "release_label": (project.release_date.strftime("%d/%m/%Y")
+                          if getattr(project, "release_date", None) else "—"),
+        "brand": _pies_brand_assets(session_db),
+    }
+
+
+def _disco_materials_email_html(session_db, project, *, reminder: bool = False,
+                                links: list[dict] | None = None, note: str = "") -> str:
+    """El correo de la FECHA MÁXIMA DE ENTREGA de materiales (y su recordatorio).
+
+    Estilo de la casa: el logo de **PIES** arriba a la DERECHA (lo discográfico es de PIES), el
+    **título centrado** debajo, la **cabecera del proyecto** como en el resto de correos y, debajo,
+    el texto y el botón **Subir materiales** a la derecha.
+    ⚠️ Estilos EN LÍNEA: los clientes de correo se comen las hojas de estilo."""
+    ctx = _disco_project_email_ctx(session_db, project)
+    fechas = _disco_date_state(session_db, project)
+    esc = lambda v: html.escape("" if v is None else str(v))
+    marca = ctx.get("brand") or {}
+    logo = _absolute_media_url(marca.get("logo_url") or "")
+    logo_html = ("" if not logo else
+                 '<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" '
+                 'style="border-collapse:collapse;"><tr><td align="right">'
+                 '<img src="%s" alt="%s" style="display:inline-block;max-width:180px;max-height:64px;'
+                 'object-fit:contain;"></td></tr></table>'
+                 % (esc(logo), esc(marca.get("company_name") or "PIES")))
+    portada = _absolute_media_url(ctx.get("cover_url") or "")
+    celda_portada = ("" if not portada else
+                     '<td width="124" valign="top"><img src="%s" alt="" style="display:block;'
+                     'width:104px;height:104px;object-fit:cover;border-radius:14px;'
+                     'border:1px solid #e5e7eb;background:#fff;"></td>' % esc(portada))
+    titulo = ("Recordatorio plazo de entrega materiales" if reminder
+              else "Fecha máxima de entrega de materiales")
+    que_es = (ctx.get("kind_label") or "lanzamiento").lower()
+    if reminder:
+        dias = fechas.get("due_days_left")
+        cuanto = ("hoy" if dias == 0 else ("1 día" if dias == 1 else "%s días" % dias)
+                  if dias is not None and dias >= 0 else "muy poco")
+        cuerpo = ("Recuerda que quedan <strong>%s</strong> para finalizar el plazo de entrega de los "
+                  "materiales del %s <strong>%s</strong>. Por favor, sube los materiales lo antes "
+                  "posible para no retrasar el lanzamiento. Gracias."
+                  % (esc(cuanto), esc(que_es), esc(ctx.get("title"))))
+    else:
+        cuerpo = ("Buenas, te confirmamos que ya se ha fijado el <strong>%s</strong> para el "
+                  "lanzamiento del %s <strong>%s</strong>, por lo que necesitaríamos tener subidos "
+                  "los masters y materiales antes del <strong>%s</strong>."
+                  % (esc(fechas.get("date_long") or fechas.get("date_label")), esc(que_es),
+                     esc(ctx.get("title")), esc(fechas.get("due_long") or fechas.get("due_label"))))
+    nota_html = ("" if not (note or "").strip() else
+                 '<div style="margin:0 0 18px;padding:14px 16px;border-radius:14px;background:#f8fafc;'
+                 'border:1px solid #e5e7eb;font-size:14px;line-height:1.7;color:#374151;">%s</div>'
+                 % esc(note.strip()).replace("\n", "<br/>"))
+    botones = []
+    for fila in (links or []):
+        etiqueta_btn = ("Subir materiales" if len(links or []) == 1
+                        else "Subir materiales · %s" % (fila.get("title") or "tema"))
+        botones.append('<a href="%s" style="display:inline-block;margin:6px 0 0 8px;padding:13px 22px;'
+                       'border-radius:999px;background:#E33D48;color:#fff;font-size:15px;'
+                       'font-weight:700;text-decoration:none;">%s</a>'
+                       % (esc(fila.get("url")), esc(etiqueta_btn)))
+    botones_html = ("" if not botones else
+                    '<div style="margin-top:22px;text-align:right;">%s</div>' % "".join(botones))
+    return """
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:20px;overflow:hidden;">
+        <div style="padding:24px 30px 8px;">
+          %s
+          <div style="margin-top:14px;font-size:26px;line-height:1.15;font-weight:700;color:#111827;text-align:center;">%s</div>
+        </div>
+        <div style="padding:18px 30px 28px;">
+          <div style="border:1px solid #e5e7eb;border-radius:18px;padding:18px;background:#fcfcfd;">
+            <table role="presentation" width="100%%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+              <tr>
+                %s
+                <td valign="top" style="%s">
+                  <div style="font-size:22px;line-height:1.2;font-weight:700;color:#111827;">%s</div>
+                  <div style="margin-top:8px;font-size:14px;color:#4b5563;"><strong>Artista:</strong> %s</div>
+                  <div style="margin-top:10px;">
+                    <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#f3f4f6;color:#111827;font-size:13px;"><strong>Lanzamiento:</strong> %s</span>
+                    <span style="display:inline-block;margin-left:6px;padding:6px 10px;border-radius:999px;background:#111827;color:#ffffff;font-size:13px;">%s</span>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </div>
+          <div style="height:22px;"></div>
+          <div style="font-size:20px;font-weight:700;color:#111827;margin:0 0 12px;">Fecha máxima de entrega</div>
+          %s
+          <p style="margin:0 0 14px;font-size:15px;line-height:1.75;color:#111827;">%s</p>
+          %s
+        </div>
+      </div>
+    </div>
+    """ % (logo_html, esc(titulo), celda_portada,
+           ("padding-left:16px;" if celda_portada else ""), esc(ctx.get("title")),
+           esc(ctx.get("artist_name") or "—"), esc(ctx.get("release_label")),
+           esc(ctx.get("badge_label")), nota_html, cuerpo, botones_html)
+
+
+def _disco_materials_recipients(session_db, project) -> list[dict]:
+    """A QUIÉN se le avisa del plazo de entrega: al PRODUCTOR y, si no hay, al ARTISTA.
+
+    El productor es un tercero (su correo y su teléfono salen de su ficha); del artista se usan las
+    cuentas configuradas para lo DISCOGRÁFICO (`_artist_notification_emails`, canal DISCOGRAFICA)."""
+    filas = []
+    productor = (session_db.get(Promoter, project.producer_promoter_id)
+                 if getattr(project, "producer_promoter_id", None) else None)
+    if productor is not None:
+        filas.append({"role": "Productor",
+                      "name": ((productor.nick or productor.name or "").strip()),
+                      "email": ((getattr(productor, "email", "") or "").strip()),
+                      "phone": ((getattr(productor, "phone", "") or "").strip()),
+                      "promoter_id": str(productor.id)})
+    try:
+        correos = _artist_notification_emails(session_db, project.artist_id, "DISCOGRAFICA") or []
+    except Exception:
+        app.logger.exception("[proyectos] no se pudieron resolver los correos del artista")
+        correos = []
+    nombre_artista = (getattr(getattr(project, "artist", None), "name", "") or "El artista")
+    for correo in correos:
+        if not correo or any((f.get("email") or "").lower() == str(correo).lower() for f in filas):
+            continue
+        filas.append({"role": "Artista", "name": nombre_artista, "email": str(correo), "phone": ""})
+    return _notify_apply_prefs(session_db, filas)
+
+
+@app.post("/discografica/proyectos/<project_id>/fecha/solicitar", endpoint="disco_project_date_request")
+@admin_required
+def disco_project_date_request(project_id):
+    """PIDE a REGISTROS que confirme la fecha de lanzamiento (o un CAMBIO de la que ya estaba).
+
+    Se le manda lo que queremos: esta fecha, una franja, lo antes posible o todavía sin fecha. Hasta
+    que Registros contesta, la tarea se queda «pendiente de confirmar»."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para pedir la fecha de lanzamiento.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        kind = (request.form.get("date_kind") or "EXACT").strip().upper()
+        if kind not in DISCO_DATE_REQUEST_LABELS:
+            kind = "EXACT"
+        propuesta = parse_optional_date(request.form.get("proposed_date"))
+        ini = parse_optional_date(request.form.get("range_start"))
+        fin = parse_optional_date(request.form.get("range_end"))
+        if kind == "EXACT" and not propuesta:
+            flash("Pon la fecha que quieres que confirmen.", "warning")
+            return redirect(destino)
+        if kind == "RANGE" and not (ini and fin):
+            flash("Pon el principio y el final de la franja.", "warning")
+            return redirect(destino)
+        if kind == "RANGE" and fin < ini:
+            ini, fin = fin, ini
+        # Una sola solicitud viva: si había otra esperando, se anula (esta la sustituye).
+        anterior = _disco_date_request_open(session_db, project)
+        es_cambio = bool(getattr(project, "release_date_confirmed_at", None))
+        if anterior is not None:
+            anterior.status = "ANULADA"
+            anterior.decided_at = _now_madrid()
+            es_cambio = es_cambio or bool(anterior.is_change)
+        estado = _current_user_state() or {}
+        fila = DiscoProjectDateRequest(
+            project_id=project.id, kind=kind,
+            proposed_date=(propuesta if kind == "EXACT" else None),
+            range_start=(ini if kind == "RANGE" else None),
+            range_end=(fin if kind == "RANGE" else None),
+            note=((request.form.get("note") or "").strip() or None),
+            status="PENDIENTE", is_change=es_cambio,
+            requested_by_user_id=_safe_uuid(estado.get("user_id")),
+            requested_by_nick=(estado.get("nick") or estado.get("email") or None),
+        )
+        session_db.add(fila)
+        session_db.flush()
+        # La fecha del proyecto refleja lo que se PIDE (sigue sin confirmar hasta que contesten).
+        if kind == "EXACT" and propuesta:
+            project.release_date = propuesta
+            _disco_project_sync_release(session_db, project)
+        project.release_date_confirmed_at = None
+        project.release_date_confirmed_by_nick = None
+        project.updated_at = _now_madrid()
+        _disco_date_notify_registros(session_db, project, fila)
+        session_db.commit()
+        flash("Solicitud enviada a Registros: %s." % _disco_date_request_label(fila).lower(), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[proyectos] no se pudo pedir la fecha")
+        flash("No se pudo enviar la solicitud: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_date_notify_registros(session_db, project, fila) -> None:
+    """Aviso a REGISTROS de que hay una fecha por confirmar (o un cambio)."""
+    titulo = ("Cambio de fecha de lanzamiento: %s" if getattr(fila, "is_change", False)
+              else "Confirmar fecha de lanzamiento: %s") % _disco_project_title(project)
+    cuerpo = " · ".join([x for x in [
+        (getattr(getattr(project, "artist", None), "name", None) or ""),
+        _disco_date_request_label(fila),
+        ((fila.note or "").strip()[:120] if getattr(fila, "note", None) else ""),
+    ] if x])
+    _notify_users(session_db, _registros_user_ids(session_db), "REGISTROS", titulo, cuerpo,
+                  url=url_for("registros_release_dates_view"),
+                  ref_type="DISCO_DATE", ref_id=str(project.id))
+
+
+@app.post("/discografica/proyectos/<project_id>/fecha/recordar", endpoint="disco_project_date_remind")
+@admin_required
+def disco_project_date_remind(project_id):
+    """Volver a pedirle a Registros que conteste (mismo aviso, otra vez)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        fila = _disco_date_request_open(session_db, project) if project is not None else None
+        if project is None or fila is None:
+            flash("No hay ninguna solicitud esperando respuesta.", "info")
+        else:
+            _disco_date_notify_registros(session_db, project, fila)
+            session_db.commit()
+            flash("Se le ha vuelto a avisar a Registros.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo avisar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("disco_project_detail", project_id=project_id, tab="calendario")))
+
+
+@app.post("/discografica/proyectos/<project_id>/fecha/anular", endpoint="disco_project_date_cancel")
+@admin_required
+def disco_project_date_cancel(project_id):
+    """Anular la solicitud de fecha (se pidió por error o ya no toca)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        fila = _disco_date_request_open(session_db, project) if project is not None else None
+        if fila is not None:
+            fila.status = "ANULADA"
+            fila.decided_at = _now_madrid()
+            _notify_resolve(session_db, "DISCO_DATE", str(project.id))
+            session_db.commit()
+            flash("Solicitud anulada.", "success")
+        else:
+            flash("No había ninguna solicitud viva.", "info")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo anular: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("disco_project_detail", project_id=project_id, tab="calendario")))
+
+
+# ---------------------------------------------------------
+# REGISTROS · las fechas de lanzamiento que hay que confirmar
+# ---------------------------------------------------------
+def _registros_date_requests(session_db, *, limit: int = 60) -> list[dict]:
+    """Las solicitudes de fecha que esperan respuesta de Registros, con lo que hace falta para
+    contestarlas (qué es, de quién y qué se pide)."""
+    filas = (session_db.query(DiscoProjectDateRequest)
+             .options(joinedload(DiscoProjectDateRequest.project).joinedload(DiscoProject.artist))
+             .filter(func.upper(func.coalesce(DiscoProjectDateRequest.status, "")) == "PENDIENTE")
+             .order_by(DiscoProjectDateRequest.requested_at.asc()).limit(limit).all())
+    salida = []
+    for r in filas:
+        p = r.project
+        if p is None:
+            continue
+        etiqueta, icono = _disco_project_kind_meta((p.kind or "").upper())
+        release = _disco_project_release(session_db, p)
+        salida.append({
+            "id": str(r.id),
+            "project_id": str(p.id),
+            "title": _disco_project_title(p),
+            "artist": (getattr(p.artist, "name", "") or ""),
+            "artist_photo": (getattr(p.artist, "photo_url", "") or ""),
+            "cover_url": (release.get("cover_url") or ""),
+            "kind_label": etiqueta,
+            "kind_icon": icono,
+            "kind": (r.kind or "EXACT").upper(),
+            "kind_request_label": _disco_date_request_label(r),
+            "proposed_date": (r.proposed_date.isoformat() if r.proposed_date else ""),
+            "range_start": (r.range_start.isoformat() if r.range_start else ""),
+            "range_end": (r.range_end.isoformat() if r.range_end else ""),
+            "note": (r.note or ""),
+            "is_change": bool(r.is_change),
+            "requested_by": (r.requested_by_nick or ""),
+            "requested_at": r.requested_at,
+            "requested_label": (r.requested_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                                if r.requested_at else ""),
+            "url": url_for("disco_project_detail", project_id=p.id, tab="calendario"),
+            "confirm_url": url_for("registros_release_date_confirm", req_id=str(r.id)),
+        })
+    return salida
+
+
+@app.get("/registros/fechas", endpoint="registros_release_dates_view")
+@admin_required
+def registros_release_dates_view():
+    """Pantalla de REGISTROS: las fechas de lanzamiento por confirmar.
+
+    Al confirmar una hay que fijar **la fecha máxima de entrega de materiales**: las dos cosas van
+    juntas (es lo que hace que el proyecto pueda avisar al productor)."""
+    session_db = db()
+    try:
+        return render_template("registros_fechas.html",
+                               rows=_registros_date_requests(session_db),
+                               back_url=safe_next_or(url_for("registros_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/registros/fechas/<req_id>/confirmar", endpoint="registros_release_date_confirm")
+@admin_required
+def registros_release_date_confirm(req_id):
+    """REGISTROS confirma (o cambia) la fecha de lanzamiento y fija el PLAZO DE ENTREGA.
+
+    ⚠️ Las dos fechas van juntas a propósito: sin plazo de entrega no se puede avisar a nadie. Si la
+    fecha que confirman NO es la que se pidió, se le dice a quien lo pidió y se actualiza el
+    proyecto."""
+    if not (has_access_key("registros", edit=True, include_descendants=True)
+            or can_edit_discografica() or is_master()):
+        return forbid("No tienes permisos para confirmar fechas de lanzamiento.")
+    session_db = db()
+    destino = url_for("registros_release_dates_view")
+    try:
+        fila = session_db.get(DiscoProjectDateRequest, to_uuid(req_id))
+        if fila is None:
+            flash("Esa solicitud ya no existe.", "warning")
+            return redirect(destino)
+        project = session_db.get(DiscoProject, fila.project_id)
+        if project is None:
+            flash("El proyecto ya no existe.", "warning")
+            return redirect(destino)
+        fecha = parse_optional_date(request.form.get("confirmed_date"))
+        vence = parse_optional_date(request.form.get("materials_due_date"))
+        if not fecha:
+            flash("Pon la fecha de lanzamiento que confirmas.", "warning")
+            return redirect(destino)
+        if not vence:
+            flash("Pon la fecha máxima de entrega de materiales.", "warning")
+            return redirect(destino)
+        if vence > fecha:
+            flash("El plazo de entrega no puede ser posterior al lanzamiento.", "warning")
+            return redirect(destino)
+        estado = _current_user_state() or {}
+        pedida = fila.proposed_date
+        fila.status = "CONFIRMADA"
+        fila.confirmed_date = fecha
+        fila.materials_due_date = vence
+        fila.decided_note = ((request.form.get("decided_note") or "").strip() or None)
+        fila.decided_by_user_id = _safe_uuid(estado.get("user_id"))
+        fila.decided_by_nick = (estado.get("nick") or estado.get("email") or None)
+        fila.decided_at = _now_madrid()
+        project.release_date = fecha
+        project.release_date_confirmed_at = _now_madrid()
+        project.release_date_confirmed_by_nick = fila.decided_by_nick
+        project.materials_due_date = vence
+        # Si cambia la fecha, el aviso del plazo que se hubiera mandado ya no vale.
+        project.materials_notified_at = None
+        project.materials_notified_to = []
+        project.materials_reminder_at = None
+        project.updated_at = _now_madrid()
+        _disco_project_sync_release(session_db, project)
+        # Se lo decimos a quien lo pidió (y se dice si la fecha ha cambiado).
+        cambio = bool(pedida and fecha != pedida)
+        cuerpo = ("Confirmada el %s (se había pedido el %s). Entrega de materiales antes del %s."
+                  % (fecha.strftime("%d/%m/%Y"), pedida.strftime("%d/%m/%Y"), vence.strftime("%d/%m/%Y"))
+                  if cambio else
+                  "Confirmada el %s. Entrega de materiales antes del %s."
+                  % (fecha.strftime("%d/%m/%Y"), vence.strftime("%d/%m/%Y")))
+        if fila.requested_by_user_id:
+            _notify_user(session_db, fila.requested_by_user_id, "REGISTROS",
+                         ("Fecha de lanzamiento CAMBIADA: %s" if cambio
+                          else "Fecha de lanzamiento confirmada: %s") % _disco_project_title(project),
+                         cuerpo,
+                         url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                         ref_type="DISCO_DATE_OK", ref_id=str(project.id))
+        _notify_resolve(session_db, "DISCO_DATE", str(project.id))
+        session_db.commit()
+        flash("Fecha confirmada: %s · materiales antes del %s."
+              % (fecha.strftime("%d/%m/%Y"), vence.strftime("%d/%m/%Y")), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[registros] no se pudo confirmar la fecha")
+        flash("No se pudo confirmar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/materiales/notificar", endpoint="disco_project_materials_notify")
+@admin_required
+def disco_project_materials_notify(project_id):
+    """Avisa del PLAZO DE ENTREGA de materiales al productor (o al artista), por su canal."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para avisar del plazo de entrega.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        fechas = _disco_date_state(session_db, project)
+        if not (fechas["confirmed"] and fechas["due_date"]):
+            flash("Primero tiene que estar confirmada la fecha y fijado el plazo de entrega.",
+                  "warning")
+            return redirect(destino)
+        marcados = {x.strip().lower() for x in request.form.getlist("to[]") if (x or "").strip()}
+        filas = [f for f in _disco_materials_recipients(session_db, project)
+                 if (not marcados) or ((f.get("email") or "").lower() in marcados)]
+        extra = [x.strip() for x in (request.form.get("extra_emails") or "").replace(";", ",").split(",")
+                 if x.strip()]
+        for correo in extra:
+            filas.append({"role": "Añadido", "name": "", "email": correo, "phone": "",
+                          "channel": "EMAIL"})
+        if not filas:
+            flash("No hay a quién avisar: configura el productor o los correos del artista.",
+                  "warning")
+            return redirect(destino)
+        enlaces = _disco_project_delivery_links(session_db, project, create=True)
+        nota = (request.form.get("note") or "").strip()
+        html_cuerpo = _disco_materials_email_html(session_db, project, links=enlaces, note=nota)
+        asunto = "Fecha máxima de entrega de materiales · %s" % _disco_project_title(project)
+        sms = ("Fecha máxima de entrega de materiales de %s: %s. Sube los materiales aquí: %s"
+               % (_disco_project_title(project), fechas["due_label"],
+                  (enlaces[0]["url"] if enlaces else "")))
+        salieron, fallos = [], []
+        for f in filas:
+            ok, err = _notify_send_row(session_db, f, subject=asunto, html=html_cuerpo,
+                                       sms_text=sms, kind="DISCOGRAFICA")
+            (salieron if ok else fallos).append(dict(f, error=(err or "")))
+        if salieron:
+            project.materials_notified_at = _now_madrid()
+            project.materials_notified_to = [{"name": f.get("name") or "", "role": f.get("role") or "",
+                                              "email": f.get("email") or "",
+                                              "phone": f.get("phone") or ""} for f in salieron]
+            project.updated_at = _now_madrid()
+        session_db.commit()
+        if salieron and not fallos:
+            flash("Avisados: %s." % ", ".join([(f.get("name") or f.get("email")) for f in salieron]),
+                  "success")
+        elif salieron:
+            flash("Avisados %d, pero no salió para: %s."
+                  % (len(salieron), ", ".join([(f.get("email") or f.get("phone") or "?") for f in fallos])),
+                  "warning")
+        else:
+            flash("No se pudo avisar: %s" % (fallos[0].get("error") if fallos else "sin destinatarios"),
+                  "danger")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[proyectos] no se pudo avisar del plazo de entrega")
+        flash("No se pudo avisar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_materials_reminder_sweep() -> dict:
+    """RECORDATORIO AUTOMÁTICO del plazo de entrega: a `DISCO_MATERIALS_REMINDER_DAYS` días de la
+    fecha máxima, si los materiales no están subidos, se le vuelve a escribir al productor.
+
+    ⚠️ **Una sola vez** (`materials_reminder_at`): un recordatorio que insiste todos los días deja de
+    leerse. Y solo a quien ya se avisó del plazo (si nunca se avisó, lo que falta es avisar)."""
+    session_db = db()
+    salida = {"mirados": 0, "avisados": 0}
+    try:
+        hoy = today_local()
+        limite = hoy + timedelta(days=DISCO_MATERIALS_REMINDER_DAYS)
+        proyectos = (session_db.query(DiscoProject)
+                     .options(joinedload(DiscoProject.artist))
+                     .filter(DiscoProject.materials_due_date.isnot(None),
+                             DiscoProject.materials_due_date >= hoy,
+                             DiscoProject.materials_due_date <= limite,
+                             DiscoProject.materials_notified_at.isnot(None),
+                             DiscoProject.materials_reminder_at.is_(None),
+                             func.upper(func.coalesce(DiscoProject.status, "")) == "ACTIVO")
+                     .all())
+        for project in proyectos:
+            salida["mirados"] += 1
+            try:
+                if _disco_project_missing_masters(session_db, project) <= 0:
+                    continue          # ya están subidos: no se recuerda nada
+                enlaces = _disco_project_delivery_links(session_db, project, create=True)
+                html_cuerpo = _disco_materials_email_html(session_db, project, reminder=True,
+                                                          links=enlaces)
+                asunto = "Recordatorio plazo de entrega materiales · %s" % _disco_project_title(project)
+                sms = ("Recordatorio: quedan pocos días para entregar los materiales de %s. %s"
+                       % (_disco_project_title(project), (enlaces[0]["url"] if enlaces else "")))
+                alguno = False
+                for f in (list(project.materials_notified_to or []) or
+                          _disco_materials_recipients(session_db, project)):
+                    fila = dict(f)
+                    fila.setdefault("channel", "EMAIL")
+                    ok, _err = _notify_send_row(session_db, fila, subject=asunto, html=html_cuerpo,
+                                                sms_text=sms, kind="DISCOGRAFICA")
+                    alguno = alguno or bool(ok)
+                if alguno:
+                    project.materials_reminder_at = _now_madrid()
+                    salida["avisados"] += 1
+            except Exception:
+                app.logger.exception("[proyectos] recordatorio de materiales de %s", project.id)
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[proyectos] barrido de recordatorios de materiales")
+    finally:
+        session_db.close()
+    return salida
+
+
+@app.post("/discografica/proyectos/<project_id>/produccion", endpoint="disco_project_production_save")
+@admin_required
+def disco_project_production_save(project_id):
+    """Guarda la PRODUCCIÓN del proyecto, sección a sección (`section`): quién produce, quién mezcla,
+    quién masteriza y quién graba las voces.
+
+    Lo pactado vive en `DiscoProject.production_payload`; quien produce es una columna porque es a
+    quien se le reclaman los materiales."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para configurar la producción.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        seccion = (request.form.get("section") or "producer").strip().lower()
+        prod = _disco_prod(project)
+        f = request.form
+
+        def _pk(campo):
+            return _safe_uuid((f.get(campo) or "").strip())
+
+        def _importe(campo):
+            d = _parse_optional_decimal(f.get(campo))
+            return (str(d) if d is not None else "")
+
+        if seccion == "producer":
+            project.producer_promoter_id = _pk("producer_promoter_id")
+            modo = (f.get("fee_mode") or "").strip().upper()
+            prod["fee_mode"] = modo if modo in dict((k, 1) for k, _l, _i in DISCO_PROD_FEE_MODES) else ""
+            prod["fee_amount"] = (_importe("fee_amount") if prod["fee_mode"] == "FEE" else "")
+            prod["budget_amount"] = (_importe("budget_amount") if prod["fee_mode"] == "BUDGET" else "")
+            pct_modo = (f.get("pct_mode") or "").strip().upper()
+            prod["pct_mode"] = pct_modo if pct_modo in dict((k, 1) for k, _l, _i in DISCO_PROD_PCT_MODES) else ""
+            prod["pct"] = (_importe("pct") if prod["pct_mode"] == "PCT" else "")
+        elif seccion in ("mix", "master"):
+            modo = (f.get("mode") or "").strip().upper()
+            coste = (f.get("cost_mode") or "").strip().upper()
+            prod[seccion] = {
+                "mode": modo if modo in dict((k, 1) for k, _l, _i in DISCO_PROD_WHO_MODES) else "",
+                "promoter_id": (str(_pk("promoter_id")) if modo in ("THIRD", "THIRD_VIA_PRODUCER")
+                                and _pk("promoter_id") else ""),
+                "cost_mode": coste if coste in dict((k, 1) for k, _l, _i in DISCO_PROD_COST_MODES) else "",
+                "amount": (_importe("amount") if coste == "AMOUNT" else ""),
+            }
+        elif seccion == "vocals":
+            modo = (f.get("mode") or "").strip().upper()
+            coste = (f.get("cost_mode") or "").strip().upper()
+            lugar = (f.get("place_mode") or "").strip().upper()
+            logistica = _truthy(f.get("logistics"))
+            prod["vocals"] = {
+                "mode": modo if modo in dict((k, 1) for k, _l, _i in DISCO_VOCALS_MODES) else "",
+                "promoter_id": (str(_pk("promoter_id")) if modo == "THIRD" and _pk("promoter_id") else ""),
+                "cost_mode": coste if coste in dict((k, 1) for k, _l, _i in DISCO_PROD_COST_MODES) else "",
+                "amount": (_importe("amount") if coste == "AMOUNT" else ""),
+                "date": ((parse_optional_date(f.get("date")) or "") and
+                         parse_optional_date(f.get("date")).isoformat()),
+                "place_mode": lugar if lugar in dict((k, 1) for k, _l, _i in DISCO_VOCALS_PLACES) else "",
+                "place_name": ((f.get("place_name") or "").strip() if lugar == "OTHER" else ""),
+                "place_address": ((f.get("place_address") or "").strip() if lugar == "OTHER" else ""),
+                "logistics": logistica,
+                "logistics_note": ((f.get("logistics_note") or "").strip() if logistica else ""),
+                "logistics_user_id": ((f.get("logistics_user_id") or "").strip() if logistica else ""),
+            }
+        else:
+            flash("No sé qué parte de la producción guardar.", "warning")
+            return redirect(destino)
+        project.production_payload = prod
+        project.updated_at = _now_madrid()
+        # LOGÍSTICA de la grabación: le sale como tarea a quien se elija de producción.
+        if seccion == "vocals":
+            voces = prod.get("vocals") or {}
+            if voces.get("logistics") and voces.get("logistics_user_id"):
+                _notify_user(session_db, voces["logistics_user_id"], "PRODUCCION",
+                             "Logística de grabación: %s" % _disco_project_title(project),
+                             (voces.get("logistics_note") or "")[:200]
+                             or "Hay que montar la logística de la grabación de voces.",
+                             url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                             ref_type="DISCO_VOCALS", ref_id=str(project.id))
+            else:
+                _notify_resolve(session_db, "DISCO_VOCALS", str(project.id))
+        session_db.commit()
+        flash("Producción guardada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[proyectos] no se pudo guardar la producción")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
 
 
 @app.post("/discografica/proyectos/<project_id>/bolsa", endpoint="disco_project_bag")
@@ -54109,7 +55191,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -54526,7 +55608,10 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "contratacion.conciertos"
     if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare",
                     "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed",
-                    "registros_isrc_export_xlsx", "registros_isrc_export_pdf"}:
+                    "registros_isrc_export_xlsx", "registros_isrc_export_pdf",
+                    # Las FECHAS DE LANZAMIENTO que Registros confirma (con su plazo de entrega de
+                    # materiales): es trabajo de Registros, no de Discográfica.
+                    "registros_release_dates_view", "registros_release_date_confirm"}:
         return "registros.pendiente"
     if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
         return "fotos"
@@ -55177,6 +56262,8 @@ def _resolve_request_resource_key() -> str | None:
             "gastos": "contabilidad",
         }
         return mapping.get(tab, "discografica.canciones")
+    if endpoint in {"registros_release_dates_view", "registros_release_date_confirm"}:
+        return "registros.pendiente"
     if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare",
                     "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed",
                     "registros_isrc_export_xlsx", "registros_isrc_export_pdf"}:
@@ -82478,6 +83565,21 @@ def cron_song_delivery_reminders():
     return jsonify({"ok": True, **_song_delivery_reminders_sweep()})
 
 
+@app.get("/cron/materiales-proyecto", endpoint="cron_disco_materials_reminders")
+def cron_disco_materials_reminders():
+    """Cron diario: recuerda el PLAZO DE ENTREGA de materiales de los proyectos discográficos.
+
+    ⚠️ Insiste UNA sola vez (a `DISCO_MATERIALS_REMINDER_DAYS` días de la fecha máxima) y solo si los
+    másters no están subidos. Va también dentro del cron diario de documentos, para no depender de
+    otra tarea en el servidor."""
+    clave = (request.args.get("key") or "").strip()
+    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
+                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
+    if not esperada or clave != esperada:
+        abort(404)
+    return jsonify({"ok": True, **_disco_materials_reminder_sweep()})
+
+
 @app.get("/cron/documentos-caducados", endpoint="cron_expired_documents")
 def cron_expired_documents():
     """Cron diario: avisa por correo a quien tenga el DNI, el carnet o el pasaporte caducado."""
@@ -82489,7 +83591,10 @@ def cron_expired_documents():
     # Se aprovecha el mismo paso diario para recordar las entregas de masters pendientes: así no
     # hace falta configurar otro cron en el servidor (el suyo propio existe igualmente).
     return jsonify({"ok": True, **_person_docs_expired_sweep(),
-                    "entregas_masters": _song_delivery_reminders_sweep()})
+                    "entregas_masters": _song_delivery_reminders_sweep(),
+                    # Y el recordatorio del PLAZO DE ENTREGA de materiales de un proyecto (a
+                    # DISCO_MATERIALS_REMINDER_DAYS días de la fecha máxima, una sola vez).
+                    "materiales_proyecto": _disco_materials_reminder_sweep()})
 
 
 @app.post("/documentos/pedir", endpoint="person_doc_request_send")

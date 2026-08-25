@@ -1,0 +1,423 @@
+{# ============================================================================================
+   LOS POP-UPS DE LOS PASOS DE AUDIO de un proyecto discográfico.
+   Cada tarea de la lista abre el suyo (`modal` de la tarea) y guarda con su propio endpoint:
+     · #dpDateModal            → pedir a REGISTROS que confirme la fecha (o cambiarla)
+     · #dpMaterialsNotifyModal → avisar del PLAZO DE ENTREGA al productor / al artista
+     · #dpProducerModal        → quién produce (+ fee o presupuesto + %)
+     · #dpMixModal / #dpMasterModal → quién mezcla / quién masteriza (+ cómo se paga)
+     · #dpVocalsModal          → grabación de voces (quién, coste, cuándo, dónde y logística)
+   ⚠️ Las tarjetas de elección son las de siempre (`.activity-choice-card` + `initVisualChoiceCards`)
+   y los paneles que dependen de una elección se muestran con `data-dp-when`, que gestiona el JS del
+   final de este parcial (por delegación, así da igual cuándo se pinte el modal).
+   ============================================================================================ #}
+{% macro elige(name, value, icon, label, checked=false, hint='') %}
+  <div class="col-6 col-md-3">
+    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if checked %} is-selected{% endif %}">
+      <input class="form-check-input visually-hidden" type="radio" name="{{ name }}" value="{{ value }}" {% if checked %}checked{% endif %}>
+      <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+      <span class="fw-semibold small d-block">{{ label }}</span>
+      {% if hint %}<span class="small text-muted d-block mt-1">{{ hint }}</span>{% endif %}
+    </label>
+  </div>
+{% endmacro %}
+
+{% macro tercero(select_id, name, selected_id='') %}
+  <div class="input-group">
+    <select id="{{ select_id }}" name="{{ name }}" class="form-select select-providers">
+      <option value="">— Elige el tercero —</option>
+      {% for p in (promoters or []) %}
+        <option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}"
+                {% if selected_id and selected_id|string == p.id|string %}selected{% endif %}>{{ p.nick or p.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+            data-target="{{ select_id }}" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+  </div>
+{% endmacro %}
+
+{% macro coste(prefijo, actual='', importe='') %}
+  <div class="row g-2">
+    {% for key, label, icon in prod_cost_modes %}
+      {{ elige(prefijo ~ 'cost_mode', key, icon, label, actual|upper == key) }}
+    {% endfor %}
+  </div>
+  <div class="row g-2 mt-2" data-dp-when="{{ prefijo }}cost_mode=AMOUNT">
+    <div class="col-12 col-md-4">
+      <label class="form-label">Importe sin IVA</label>
+      <input class="form-control" name="{{ prefijo }}amount" inputmode="decimal" value="{{ importe }}" placeholder="0,00">
+    </div>
+  </div>
+{% endmacro %}
+
+{# ---------------------------------------------------------------- 1 · FECHA DE LANZAMIENTO #}
+<div class="modal fade" id="dpDateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_date_request', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-calendar-check me-2 text-danger"></i>
+            {{ 'Cambiar la fecha de lanzamiento' if (date_state and date_state.confirmed) else 'Confirmar disponibilidad de fecha' }}</h5>
+          <div class="text-muted small">
+            Se le pide a <strong>Registros</strong> que confirme la fecha. Al confirmarla fijan también
+            hasta cuándo hay para entregar los materiales.
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">¿Qué les pedimos?</label>
+        <div class="row g-2">
+          {% for key, label, icon, hint in date_kinds %}
+            {{ elige('date_kind', key, icon, label, loop.first, hint) }}
+          {% endfor %}
+        </div>
+        <div class="row g-3 mt-3" data-dp-when="date_kind=EXACT">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Fecha de lanzamiento</label>
+            <input type="date" class="form-control" name="proposed_date"
+                   value="{{ project.release_date.isoformat() if project.release_date else '' }}">
+          </div>
+        </div>
+        <div class="row g-3 mt-1" data-dp-when="date_kind=RANGE">
+          <div class="col-6 col-md-4">
+            <label class="form-label">Desde</label>
+            <input type="date" class="form-control" name="range_start">
+          </div>
+          <div class="col-6 col-md-4">
+            <label class="form-label">Hasta</label>
+            <input type="date" class="form-control" name="range_end">
+          </div>
+        </div>
+        <div class="mt-3">
+          <label class="form-label">Nota para Registros <span class="text-muted">(opcional)</span></label>
+          <textarea class="form-control" name="note" rows="2"
+                    placeholder="Lo que tengan que saber para decidir la fecha"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Enviar la solicitud</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ------------------------------------------------- 2 · AVISAR DEL PLAZO DE ENTREGA DE MATERIALES #}
+<div class="modal fade" id="dpMaterialsNotifyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_materials_notify', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-truck-fast me-2 text-danger"></i>Notificar la fecha máxima de entrega</h5>
+          <div class="text-muted small">
+            {% if date_state and date_state.due_date %}
+              Lanzamiento el <strong>{{ date_state.date_long }}</strong> · materiales antes del
+              <strong>{{ date_state.due_long }}</strong>.
+            {% endif %}
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if materials_recipients %}
+          <label class="form-label">¿A quién?</label>
+          <div class="d-grid gap-2">
+            {% for f in materials_recipients %}
+              <label class="d-flex align-items-center gap-2 border rounded p-2">
+                <input class="form-check-input m-0" type="checkbox" name="to[]" value="{{ f.email|lower }}" checked
+                       {% if not f.email %}disabled{% endif %}>
+                <span class="flex-grow-1 min-w-0">
+                  <span class="fw-semibold">{{ f.name or f.email or '—' }}</span>
+                  <span class="badge text-bg-light border ms-1">{{ f.role }}</span>
+                  <span class="d-block small text-muted text-truncate">
+                    {{ f.email or 'sin correo' }}{% if f.phone %} · {{ f.phone }}{% endif %}
+                  </span>
+                </span>
+                <span class="badge {{ 'text-bg-primary' if (f.channel or 'EMAIL') == 'SMS' else 'text-bg-secondary' }}">
+                  <i class="fa {{ 'fa-comment-sms' if (f.channel or 'EMAIL') == 'SMS' else 'fa-envelope' }} me-1"></i>
+                  {{ 'SMS' if (f.channel or 'EMAIL') == 'SMS' else 'Correo' }}
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-warning mb-2">
+            <i class="fa fa-triangle-exclamation me-1"></i>No hay a quién avisar todavía: configura el
+            productor o los correos de comunicaciones del artista.
+          </div>
+        {% endif %}
+        <div class="row g-3 mt-1">
+          <div class="col-12 col-md-6">
+            <label class="form-label">Otros correos <span class="text-muted">(opcional)</span></label>
+            <input class="form-control" name="extra_emails" placeholder="uno@correo.com, otro@correo.com">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Nota <span class="text-muted">(opcional)</span></label>
+            <textarea class="form-control" name="note" rows="2" placeholder="Lo que quieras añadir al aviso"></textarea>
+          </div>
+        </div>
+        <div class="form-text mt-2">
+          El aviso lleva la cabecera del lanzamiento y el botón <strong>Subir materiales</strong> (el
+          enlace de entrega de masters de cada tema). A {{ 2 }} días del plazo, si no están subidos, se
+          manda un recordatorio automático.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" {% if not materials_recipients %}disabled{% endif %}>
+          <i class="fa fa-paper-plane me-1"></i>Notificar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- 3 · QUIÉN PRODUCE #}
+{% set p = (production.producer if production else {}) %}
+<div class="modal fade" id="dpProducerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_production_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="section" value="producer">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-user-tie me-2 text-danger"></i>Quién va a realizar la producción</h5>
+          <div class="text-muted small">El productor es a quien se le reclaman los materiales.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Productor</label>
+        {{ tercero('dpProducerPick', 'producer_promoter_id', project.producer_promoter_id) }}
+
+        <label class="form-label mt-3">¿Cómo se paga?</label>
+        <div class="row g-2">
+          {% for key, label, icon in prod_fee_modes %}
+            {{ elige('fee_mode', key, icon, label, (p.fee_mode or '') == key) }}
+          {% endfor %}
+        </div>
+        <div class="row g-3 mt-2" data-dp-when="fee_mode=FEE">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Fee de producción (sin IVA)</label>
+            <input class="form-control" name="fee_amount" inputmode="decimal" value="{{ p.fee_amount or '' }}" placeholder="0,00">
+          </div>
+        </div>
+        <div class="row g-3 mt-1" data-dp-when="fee_mode=BUDGET">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Presupuesto total (sin IVA)</label>
+            <input class="form-control" name="budget_amount" inputmode="decimal" value="{{ p.budget_amount or '' }}" placeholder="0,00">
+          </div>
+        </div>
+
+        <label class="form-label mt-3">¿Tiene porcentaje de producción?</label>
+        <div class="row g-2">
+          {% for key, label, icon in prod_pct_modes %}
+            {{ elige('pct_mode', key, icon, label, (p.pct_mode or '') == key) }}
+          {% endfor %}
+        </div>
+        <div class="row g-3 mt-2" data-dp-when="pct_mode=PCT">
+          <div class="col-6 col-md-3">
+            <label class="form-label">Porcentaje</label>
+            <div class="input-group">
+              <input class="form-control" name="pct" inputmode="decimal" value="{{ p.pct or '' }}" placeholder="0">
+              <span class="input-group-text">%</span>
+            </div>
+          </div>
+        </div>
+        <div class="form-text mt-2">
+          «No lo sé todavía» deja el porcentaje como subtarea pendiente de producción.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- 4 y 5 · MEZCLA y MÁSTER #}
+{% for seccion, titulo, icono, modal_id in [
+      ('mix', 'Quién va a realizar la mezcla', 'fa-sliders', 'dpMixModal'),
+      ('master', 'Quién va a realizar el máster', 'fa-compact-disc', 'dpMasterModal')] %}
+  {% set d = (production[seccion] if production else {}) %}
+  <div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <form class="modal-content" method="post" action="{{ url_for('disco_project_production_save', project_id=project.id) }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="hidden" name="section" value="{{ seccion }}">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title"><i class="fa {{ icono }} me-2 text-danger"></i>{{ titulo }}</h5>
+            <div class="text-muted small">Si lo gestiona el productor, los avisos le llegan a él.</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            {% for key, label, icon in prod_who_modes %}
+              {{ elige(seccion ~ '_mode_ui', key, icon, label, (d.mode or '') == key) }}
+            {% endfor %}
+          </div>
+          {# El valor que viaja es `mode`; el radio de arriba solo pinta las tarjetas. #}
+          <input type="hidden" name="mode" value="{{ d.mode or '' }}" data-dp-mirror="{{ seccion }}_mode_ui">
+          <div class="mt-3" data-dp-when="{{ seccion }}_mode_ui=THIRD,THIRD_VIA_PRODUCER">
+            <label class="form-label">¿Quién?</label>
+            {{ tercero('dp' ~ seccion ~ 'Pick', 'promoter_id', d.promoter_id) }}
+          </div>
+          <label class="form-label mt-3">¿Cómo se paga?</label>
+          {{ coste('', d.cost_mode or '', d.amount or '') }}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endfor %}
+
+{# ---------------------------------------------------------------- 6 · GRABACIÓN DE VOCES #}
+{% set v = (production.vocals if production else {}) %}
+<div class="modal fade" id="dpVocalsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_production_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="section" value="vocals">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-microphone me-2 text-danger"></i>Grabación de voces</h5>
+          <div class="text-muted small">Quién las graba, cuánto cuesta, cuándo y dónde.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">¿Quién graba las voces?</label>
+        <div class="row g-2">
+          {% for key, label, icon in vocals_modes %}
+            {{ elige('vocals_mode_ui', key, icon, label, (v.mode or '') == key) }}
+          {% endfor %}
+        </div>
+        <input type="hidden" name="mode" value="{{ v.mode or '' }}" data-dp-mirror="vocals_mode_ui">
+        <div class="mt-3" data-dp-when="vocals_mode_ui=THIRD">
+          <label class="form-label">¿Quién las graba?</label>
+          {{ tercero('dpVocalsPick', 'promoter_id', v.promoter_id) }}
+        </div>
+
+        <label class="form-label mt-3">¿Cuánto cuesta?</label>
+        {{ coste('', v.cost_mode or '', v.amount or '') }}
+
+        <div class="row g-3 mt-3">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Fecha de grabación</label>
+            <input type="date" class="form-control" name="date" value="{{ v.date or '' }}">
+          </div>
+        </div>
+        <label class="form-label mt-3">¿Dónde?</label>
+        <div class="row g-2">
+          {% for key, label, icon in vocals_places %}
+            {{ elige('place_mode_ui', key, icon, label, (v.place_mode or '') == key) }}
+          {% endfor %}
+        </div>
+        <input type="hidden" name="place_mode" value="{{ v.place_mode or '' }}" data-dp-mirror="place_mode_ui">
+        <div class="row g-3 mt-2" data-dp-when="place_mode_ui=OTHER">
+          <div class="col-12 col-md-5">
+            <label class="form-label">Estudio</label>
+            <input class="form-control" name="place_name" value="{{ v.place_name or '' }}" placeholder="Nombre del estudio">
+          </div>
+          <div class="col-12 col-md-7">
+            <label class="form-label">Dirección</label>
+            <span data-address-autocomplete class="d-block position-relative">
+              <input class="form-control" name="place_address" data-addr="full" autocomplete="off"
+                     value="{{ v.place_address or '' }}" placeholder="Empieza a escribir la calle…">
+            </span>
+          </div>
+        </div>
+
+        <label class="form-label mt-3">¿Hace falta logística para la grabación?</label>
+        <div class="row g-2">
+          <div class="col-6 col-md-3">
+            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if v.logistics %} is-selected{% endif %}">
+              <input class="form-check-input visually-hidden" type="radio" name="logistics_ui" value="1" {% if v.logistics %}checked{% endif %}>
+              <i class="fa fa-people-carry-box d-block fs-3 mb-2 text-dark"></i>
+              <span class="fw-semibold small d-block">Sí, hay que montarla</span>
+            </label>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if not v.logistics %} is-selected{% endif %}">
+              <input class="form-check-input visually-hidden" type="radio" name="logistics_ui" value="0" {% if not v.logistics %}checked{% endif %}>
+              <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
+              <span class="fw-semibold small d-block">No hace falta</span>
+            </label>
+          </div>
+        </div>
+        <input type="hidden" name="logistics" value="{{ '1' if v.logistics else '0' }}" data-dp-mirror="logistics_ui">
+        <div class="row g-3 mt-2" data-dp-when="logistics_ui=1">
+          <div class="col-12 col-md-5">
+            <label class="form-label">¿Quién de producción se encarga?</label>
+            <select class="form-select" name="logistics_user_id">
+              <option value="">— Elige a la persona —</option>
+              {# `_production_people` devuelve {id, name, photo_url, in_production}. #}
+              {% for u in (production_people or []) %}
+                <option value="{{ u.id }}" {% if v.logistics_user_id and v.logistics_user_id|string == u.id|string %}selected{% endif %}>
+                  {{ u.name }}{% if not u.in_production %} (fuera de producción){% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Le sale como tarea pendiente en cuanto se guarde.</div>
+          </div>
+          <div class="col-12 col-md-7">
+            <label class="form-label">Qué hace falta</label>
+            <textarea class="form-control" name="logistics_note" rows="3"
+                      placeholder="Viaje, hotel, transporte del equipo…">{{ v.logistics_note or '' }}</textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+/* Paneles que dependen de una elección (`data-dp-when="campo=VALOR[,VALOR2]"`) + los ocultos que
+   ESPEJAN el radio de las tarjetas (`data-dp-mirror="campo"`), para que al servidor le llegue el
+   valor con el nombre que espera.
+   ⚠️ Va por DELEGACIÓN en el documento: estos modales se pintan con la página, pero un `change` de
+   Select2 o del ayudante de tarjetas puede llegar en cualquier momento. */
+(function () {
+  function valorDe(nombre, raiz) {
+    var el = (raiz || document).querySelector('input[name="' + nombre + '"]:checked');
+    return el ? (el.value || '') : '';
+  }
+  function sincroniza(raiz) {
+    var ambito = raiz || document;
+    ambito.querySelectorAll('[data-dp-mirror]').forEach(function (h) {
+      var v = valorDe(h.dataset.dpMirror, h.closest('form') || document);
+      if (v !== '') h.value = v;
+    });
+    ambito.querySelectorAll('[data-dp-when]').forEach(function (panel) {
+      var partes = (panel.dataset.dpWhen || '').split('=');
+      var nombre = (partes[0] || '').trim();
+      var quiere = (partes[1] || '').split(',').map(function (x) { return x.trim(); });
+      var actual = valorDe(nombre, panel.closest('form') || document);
+      var visible = quiere.indexOf(actual) >= 0;
+      panel.classList.toggle('d-none', !visible);
+      // ⚠️ Un campo OCULTO se envía igual: se deshabilita para que no llegue al servidor (y un
+      // `required` invisible no impida enviar el formulario).
+      panel.querySelectorAll('input,select,textarea').forEach(function (i) { i.disabled = !visible; });
+    });
+  }
+  document.addEventListener('change', function (ev) {
+    if (ev.target && ev.target.matches('input[type="radio"]')) sincroniza(document);
+  });
+  document.addEventListener('DOMContentLoaded', function () { sincroniza(document); });
+  if (document.readyState !== 'loading') sincroniza(document);
+  // Al abrir un modal se vuelve a sincronizar (por si se pintó oculto).
+  document.querySelectorAll('.modal').forEach(function (m) {
+    m.addEventListener('show.bs.modal', function () { setTimeout(function () { sincroniza(m); }, 0); });
+  });
+})();
+</script>

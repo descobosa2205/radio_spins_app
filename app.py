@@ -20172,6 +20172,28 @@ def _disco_project_demo_visible(session_db, project) -> bool:
         return False
 
 
+def _album_project_demos(session_db, album_id):
+    """Las maquetas del proyecto que creó este ÁLBUM (o EP), mientras le falten másters.
+
+    ⚠️ Un proyecto de álbum NO tiene `release_song_id` (crea un `Album`), así que sus maquetas no se
+    veían en ninguna ficha: se ven aquí, que es donde está su lanzamiento."""
+    if not album_id:
+        return []
+    try:
+        salida = []
+        for p in (session_db.query(DiscoProject)
+                  .filter(DiscoProject.album_id == album_id).all()):
+            if not _disco_project_demo_visible(session_db, p):
+                continue
+            salida.extend(session_db.query(SongDemo)
+                          .filter(SongDemo.project_id == p.id)
+                          .order_by(SongDemo.created_at.desc()).all())
+        return salida
+    except Exception:
+        app.logger.exception("[albumes] no se pudieron leer las maquetas del proyecto")
+        return []
+
+
 def _song_project_demos(session_db, song_id):
     """Las maquetas de las que se ve en la ficha de una CANCIÓN: las del proyecto que la creó, y solo
     mientras a ese proyecto le falten másters."""
@@ -29484,6 +29506,9 @@ def discografica_album_detail(album_id):
         artist=artist,
         tab=tab,
         edit=edit,
+        # La MAQUETA del proyecto que creó este álbum: se ve mientras no haya másters.
+        project_demos=[_demo_row_payload(session_db, d)
+                       for d in _album_project_demos(session_db, album.id)],
         product_codes=product_codes,
         track_rows=track_rows,
         material_groups=material_groups,

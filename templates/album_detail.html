@@ -901,6 +901,39 @@
 
   {% elif tab == 'materiales' %}
 
+    {# LA MAQUETA del proyecto que creó este álbum: se ve MIENTRAS NO HAYA MÁSTERS; en cuanto se
+       suben desaparece de aquí y se queda en Demos. #}
+    {% if project_demos %}
+      <div class="ficha-section mb-3">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-compact-disc"></i>Maquetas del proyecto</h6>
+          <span class="text-muted small">Se dejan de ver aquí en cuanto se suban los másters.</span>
+        </div>
+        <div class="ficha-section__body">
+          <div class="d-grid gap-2">
+            {% for d in project_demos %}
+              <div class="d-flex align-items-center gap-3 border rounded p-2 flex-wrap">
+                <img src="{{ d.cover_url or DEFAULT_COVER_URL }}" alt=""
+                     style="width:52px;height:52px;border-radius:10px;object-fit:cover;">
+                <span class="flex-grow-1 min-w-0">
+                  <span class="fw-semibold d-block text-truncate">{{ d.title }}</span>
+                  <span class="small text-muted text-truncate d-block">{{ d.who or '' }}</span>
+                </span>
+                {% if d.audio_url %}
+                  <span class="mat-chip mat-chip--bare" data-chip-src="{{ d.audio_url }}">
+                    <i class="fa fa-play"></i></span>
+                {% endif %}
+                <a class="btn btn-sm btn-outline-secondary"
+                   href="{{ url_for('discografica_view', section='demos', demo_artist=(d.artist_id or 'none')) }}">
+                  <i class="fa fa-arrow-right me-1"></i>Ver en Demos</a>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+
     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
       <div>
         <h5 class="m-0">Materiales</h5>

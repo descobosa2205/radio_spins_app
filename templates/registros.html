@@ -15,6 +15,14 @@
     <li class="nav-item"><a class="nav-link {% if tab=='isrc' %}active{% endif %}"
        href="{{ url_for('registros_view', tab='isrc', isrc_tab='repertorio') }}">ISRC</a></li>
   {% endif %}
+  {# FECHAS DE LANZAMIENTO por confirmar: es trabajo de Registros y hasta ahora solo se llegaba por
+     el aviso de la campanita. Con su contador, para que se vea si hay algo esperando. #}
+  <li class="nav-item ms-auto">
+    <a class="nav-link" href="{{ url_for('registros_release_dates_view') }}">
+      <i class="fa fa-calendar-check me-1"></i>Fechas de lanzamiento
+      {% if pending_release_dates %}<span class="badge text-bg-danger ms-1">{{ pending_release_dates }}</span>{% endif %}
+    </a>
+  </li>
 </ul>
 
 {% macro registro_media_card(item, action_kind='') %}

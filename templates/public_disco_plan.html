@@ -151,6 +151,9 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{# ⚠️ El calendario lo DIBUJA este JS: el parcial solo deja el JSON en el HTML. Sin él, la página
+   pública se quedaba en «Cargando agenda…». #}
+<script src="{{ url_for('static', filename='js/agenda_calendar.js') }}"></script>
 <script>
   /* Los datos de cada contenido, para el pop-up. */
   var PDP = {{ (state.contents or [])|map(attribute='id')|list|tojson }};

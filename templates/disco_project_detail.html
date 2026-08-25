@@ -392,7 +392,7 @@
           <span class="flex-grow-1 min-w-0">
             <span class="fw-semibold d-block text-truncate">{{ pr.title or 'Promoción' }}</span>
             <span class="small text-muted d-block text-truncate">
-              {{ [pr.kind_label, pr.subtitle, pr.date]|select|join(' · ') }}</span>
+              {{ [pr.kind_label, pr.subtitle, (pr.date.strftime('%d/%m/%Y') if pr.date else '')]|select|join(' · ') }}</span>
           </span>
           {% if pr.status_label %}<span class="badge {{ pr.status_badge or 'text-bg-light border' }}">{{ pr.status_label }}</span>{% endif %}
           {% if pr.detail_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ pr.detail_url }}"><i class="fa fa-arrow-right"></i></a>{% endif %}

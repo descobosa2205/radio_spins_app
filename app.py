@@ -21718,10 +21718,10 @@ def _disco_materials_recipients(session_db, project) -> list[dict]:
     productor = (session_db.get(Promoter, project.producer_promoter_id)
                  if getattr(project, "producer_promoter_id", None) else None)
     if productor is not None:
+        correo_p, tel_p = _promoter_email_phone(productor)
         filas.append({"role": "Productor",
                       "name": ((productor.nick or productor.name or "").strip()),
-                      "email": ((getattr(productor, "email", "") or "").strip()),
-                      "phone": ((getattr(productor, "phone", "") or "").strip()),
+                      "email": correo_p, "phone": tel_p,
                       "promoter_id": str(productor.id)})
     try:
         correos = _artist_notification_emails(session_db, project.artist_id, "DISCOGRAFICA") or []
@@ -21872,6 +21872,16 @@ def disco_project_date_cancel(project_id):
 # ---------------------------------------------------------
 # REGISTROS · las fechas de lanzamiento que hay que confirmar
 # ---------------------------------------------------------
+def _registros_pending_dates_count(session_db) -> int:
+    """Cuántas fechas de lanzamiento esperan respuesta de Registros (para su pestaña)."""
+    try:
+        return int(session_db.query(func.count(DiscoProjectDateRequest.id))
+                   .filter(func.upper(func.coalesce(DiscoProjectDateRequest.status, "")) == "PENDIENTE")
+                   .scalar() or 0)
+    except Exception:
+        return 0
+
+
 def _registros_date_requests(session_db, *, limit: int = 60) -> list[dict]:
     """Las solicitudes de fecha que esperan respuesta de Registros, con lo que hace falta para
     contestarlas (qué es, de quién y qué se pide)."""
@@ -22289,11 +22299,29 @@ def _disco_artwork_candidates(session_db, project) -> list[dict]:
             for persona in (session_db.query(ArtistPerson)
                             .filter(ArtistPerson.artist_id == artista.id).all()):
                 p = (session_db.get(Promoter, persona.promoter_id) if persona.promoter_id else None)
-                añade(_artist_person_full_name(persona), (getattr(p, "email", "") or ""),
+                correo_i, tel_i = _promoter_email_phone(p)
+                añade(_artist_person_full_name(persona), correo_i,
                       (getattr(p, "logo_url", "") or ""), "INTEGRANTE",
-                      promoter_id=getattr(p, "id", None), telefono=(getattr(p, "phone", "") or ""))
+                      promoter_id=getattr(p, "id", None), telefono=tel_i)
         except Exception:
             app.logger.exception("[portada] no se pudieron leer los integrantes")
+    # Y los COLABORADORES del lanzamiento (los otros intérpretes): la portada también es suya.
+    try:
+        release = _disco_project_release(session_db, project)
+        if release and release.get("kind") == "SONG":
+            cancion = session_db.get(Song, to_uuid(release["id"]))
+            for fila in (_song_interpreter_rows_map(session_db, [cancion.id]).get(str(cancion.id), [])
+                         if cancion else []):
+                otro = (getattr(fila, "artist", None) or getattr(fila, "promoter", None))
+                nombre = (getattr(otro, "name", None) or getattr(otro, "nick", None) or "").strip()
+                if not nombre or nombre == getattr(artista, "name", ""):
+                    continue
+                correo_c, tel_c = _promoter_email_phone(getattr(fila, "promoter", None))
+                añade(nombre, correo_c, (getattr(otro, "photo_url", None)
+                                         or getattr(otro, "logo_url", None) or ""),
+                      "COLABORADOR", telefono=tel_c)
+    except Exception:
+        app.logger.exception("[portada] no se pudieron leer los colaboradores")
     return salida
 
 
@@ -22610,10 +22638,10 @@ def disco_project_artwork_request(project_id):
         destinatarios = []
         if (fila.who or "").upper() == "THIRD" and fila.promoter_id:
             p = session_db.get(Promoter, fila.promoter_id)
-            if p is not None and (getattr(p, "email", "") or "").strip():
+            correo_t, tel_t = _promoter_email_phone(p)
+            if p is not None and (correo_t or tel_t):
                 destinatarios.append({"name": (p.nick or p.name or ""),
-                                      "email": (p.email or "").strip(),
-                                      "phone": (getattr(p, "phone", "") or "").strip()})
+                                      "email": correo_t, "phone": tel_t})
         extra = [x.strip() for x in (request.form.get("extra_emails") or "").replace(";", ",").split(",")
                  if x.strip()]
         for correo in extra:
@@ -23701,10 +23729,48 @@ def _disco_plan_agenda(session_db, project, plan_state) -> dict:
                                    content_id=c.get("id")),
                "content_id": c.get("id")})
     ini, fin = min(fechas), max(fechas)
-    return {"activities": actividades, "artists": [], "kinds": [], "holidays": [],
+    # ⚠️⚠️ Los TIPOS hay que emitirlos: el calendario filtra con `activeKinds`, que sale de esta
+    # lista, así que con `kinds: []` **no se pinta nada** (bug real: el cronograma salía vacío).
+    usados = []
+    for a in actividades:
+        if a["kind"] not in usados:
+            usados.append(a["kind"])
+        meta = AGENDA_KIND_META.get(a["kind"], {})
+        a.setdefault("icon", meta.get("icon", "fa-circle"))
+        a.setdefault("kind_color", meta.get("color", "#6c757d"))
+        a.setdefault("kind_label", meta.get("label", ""))
+        a.setdefault("artist_ids", [])
+        a.setdefault("artist_color", AGENDA_MINE_COLOR)
+        a.setdefault("status_label", "")
+        a.setdefault("status_class", "")
+        a.setdefault("cover_url", "")
+        a.setdefault("url", "")
+    return {"activities": actividades, "artists": [],
+            "kinds": [{"key": k, "label": AGENDA_KIND_META.get(k, {}).get("label", k),
+                       "icon": AGENDA_KIND_META.get(k, {}).get("icon", "fa-circle"),
+                       "color": AGENDA_KIND_META.get(k, {}).get("color", "#6c757d")}
+                      for k in AGENDA_KIND_ORDER if k in usados],
+            "holidays": [],
             "today": hoy.isoformat(),
             "start": (ini - timedelta(days=ini.weekday())).isoformat(),
             "end": (fin + timedelta(days=7)).isoformat()}
+
+
+def _disco_plan_row_or_none(session_db, project, model, row_id):
+    """Una fila del plan (acción o contenido) **de este proyecto**.
+
+    ⚠️ Sin esta comprobación, el id de otro proyecto se aceptaba tal cual: quien puede editar
+    discográfica podía tocar (o borrar) lo de un proyecto que no está mirando."""
+    try:
+        fila = session_db.get(model, to_uuid(row_id)) if row_id else None
+    except Exception:
+        return None
+    if fila is None or project is None:
+        return None
+    plan = session_db.get(DiscoReleasePlan, fila.plan_id)
+    if plan is None or str(plan.project_id) != str(project.id):
+        return None
+    return fila
 
 
 @app.post("/discografica/proyectos/<project_id>/plan", endpoint="disco_plan_save")
@@ -23750,7 +23816,7 @@ def disco_plan_action_save(project_id):
         plan = _disco_plan(session_db, project, create=True)
         f = request.form
         aid = (f.get("action_id") or "").strip()
-        fila = (session_db.get(DiscoReleasePlanAction, to_uuid(aid)) if aid else None)
+        fila = _disco_plan_row_or_none(session_db, project, DiscoReleasePlanAction, aid)
         if fila is None:
             n = len(plan.actions or [])
             fila = DiscoReleasePlanAction(plan_id=plan.id, position=n)
@@ -23819,7 +23885,8 @@ def disco_plan_action_delete(project_id, action_id):
         return forbid("No tienes permisos.")
     session_db = db()
     try:
-        fila = session_db.get(DiscoReleasePlanAction, to_uuid(action_id))
+        fila = _disco_plan_row_or_none(session_db, _disco_project_or_404(session_db, project_id),
+                                       DiscoReleasePlanAction, action_id)
         if fila is not None:
             if fila.bag_expense_id:
                 gasto = session_db.get(BagExpense, fila.bag_expense_id)
@@ -23854,7 +23921,7 @@ def disco_plan_content_save(project_id):
         plan = _disco_plan(session_db, project, create=True)
         f = request.form
         cid = (f.get("content_id") or "").strip()
-        fila = (session_db.get(DiscoReleaseContent, to_uuid(cid)) if cid else None)
+        fila = _disco_plan_row_or_none(session_db, project, DiscoReleaseContent, cid)
         if fila is None:
             fila = DiscoReleaseContent(plan_id=plan.id, position=len(plan.contents or []))
             session_db.add(fila)
@@ -23914,7 +23981,8 @@ def disco_plan_content_delete(project_id, content_id):
         return forbid("No tienes permisos.")
     session_db = db()
     try:
-        fila = session_db.get(DiscoReleaseContent, to_uuid(content_id))
+        fila = _disco_plan_row_or_none(session_db, _disco_project_or_404(session_db, project_id),
+                                       DiscoReleaseContent, content_id)
         if fila is not None:
             session_db.delete(fila)
             session_db.commit()
@@ -23939,7 +24007,8 @@ def disco_plan_content_move(project_id, content_id):
         return jsonify({"ok": False, "error": "Sin permisos."}), 403
     session_db = db()
     try:
-        fila = session_db.get(DiscoReleaseContent, to_uuid(content_id))
+        fila = _disco_plan_row_or_none(session_db, _disco_project_or_404(session_db, project_id),
+                                       DiscoReleaseContent, content_id)
         if fila is None:
             return jsonify({"ok": False, "error": "Ese contenido ya no existe."}), 404
         crudo = (request.form.get("date") or "").strip()
@@ -24040,8 +24109,9 @@ def _disco_plan_reminder_candidates(session_db, project, plan) -> list[dict]:
             for persona in (session_db.query(ArtistPerson)
                             .filter(ArtistPerson.artist_id == artista.id).all()):
                 p = (session_db.get(Promoter, persona.promoter_id) if persona.promoter_id else None)
-                añade(_artist_person_full_name(persona), (getattr(p, "email", "") or ""),
-                      (getattr(p, "phone", "") or ""), "INTEGRANTE", (getattr(p, "logo_url", "") or ""))
+                correo_i, tel_i = _promoter_email_phone(p)
+                añade(_artist_person_full_name(persona), correo_i, tel_i, "INTEGRANTE",
+                      (getattr(p, "logo_url", "") or ""))
         except Exception:
             app.logger.exception("[plan] integrantes del artista")
     # COLABORADORES: los otros intérpretes del lanzamiento.
@@ -24049,10 +24119,18 @@ def _disco_plan_reminder_candidates(session_db, project, plan) -> list[dict]:
         release = _disco_project_release(session_db, project)
         if release and release.get("kind") == "SONG":
             cancion = session_db.get(Song, to_uuid(release["id"]))
-            for fila in _song_interpreter_rows_map(session_db, [cancion.id]).get(str(cancion.id), []) if cancion else []:
-                nombre = (fila.get("name") or "").strip()
-                if nombre and nombre != getattr(artista, "name", ""):
-                    añade(nombre, fila.get("email") or "", "", "COLABORADOR", fila.get("photo_url") or "")
+            # ⚠️ `_song_interpreter_rows_map` devuelve objetos ORM (`SongInterpreter`), NO dicts:
+            # tratarlos con `.get()` reventaba y los colaboradores no entraban nunca.
+            for fila in (_song_interpreter_rows_map(session_db, [cancion.id]).get(str(cancion.id), [])
+                         if cancion else []):
+                otro = (getattr(fila, "artist", None) or getattr(fila, "promoter", None))
+                nombre = (getattr(otro, "name", None) or getattr(otro, "nick", None)
+                          or getattr(fila, "name", None) or "").strip()
+                if not nombre or nombre == getattr(artista, "name", ""):
+                    continue
+                correo_c, tel_c = _promoter_email_phone(getattr(fila, "promoter", None))
+                añade(nombre, correo_c, tel_c, "COLABORADOR",
+                      (getattr(otro, "photo_url", None) or getattr(otro, "logo_url", None) or ""))
     except Exception:
         app.logger.exception("[plan] colaboradores del lanzamiento")
     # DIGITAL de la casa (departamento «Redes sociales»).
@@ -24106,10 +24184,14 @@ def _disco_plan_content_email_html(session_db, project, plan, contenido, *, intr
                 % (esc(c.get("when_label")), esc(c.get("title")), esc(c.get("networks_label"))))
         jefe_html = ""
         if jefe:
+            foto = _absolute_media_url(jefe.get("photo_url") or "")
             jefe_html = ('<div style="margin:14px 0;font-size:14px;color:#374151;">Si no quieres '
-                         'recibir los avisos, habla con <a href="mailto:%s" style="color:#E33D48;'
+                         'recibir los avisos, habla con %s<a href="mailto:%s" style="color:#E33D48;'
                          'font-weight:700;text-decoration:none;">%s</a>.</div>'
-                         % (esc(jefe.get("email") or ""), esc(jefe.get("name") or "")))
+                         % (("" if not foto else
+                            '<img src="%s" alt="" style="width:26px;height:26px;border-radius:50%%;'
+                            'object-fit:cover;vertical-align:middle;margin-right:6px;">' % esc(foto)),
+                            esc(jefe.get("email") or ""), esc(jefe.get("name") or "")))
         cuerpo = ('<div style="font-size:20px;font-weight:700;margin:0 0 10px;">Cronograma de publicaciones</div>'
                   '<p style="font-size:15px;line-height:1.7;">Te compartimos el cronograma de '
                   'publicaciones para el lanzamiento. Te iremos avisando antes de cada publicación '
@@ -24124,6 +24206,9 @@ def _disco_plan_content_email_html(session_db, project, plan, contenido, *, intr
     else:
         mini = _absolute_media_url(contenido.get("thumb_url") or "")
         detalle = []
+        if contenido.get("description"):
+            detalle.append('<div style="margin-top:8px;color:#374151;">%s</div>'
+                           % esc(contenido["description"]))
         if contenido.get("copy_text"):
             detalle.append('<div style="margin-top:10px;"><strong>Copy:</strong><div style="white-space:pre-wrap;">%s</div></div>'
                            % esc(contenido["copy_text"]))
@@ -24136,8 +24221,10 @@ def _disco_plan_content_email_html(session_db, project, plan, contenido, *, intr
         if contenido.get("networks_label"):
             detalle.append('<div style="margin-top:8px;"><strong>Dónde:</strong> %s</div>'
                            % esc(contenido["networks_label"]))
+        # ⚠️ Este trozo NO pasa por el operador `%` (va concatenado), así que aquí el porcentaje va
+        # SIMPLE: con `%%` salía literal en el correo.
         cuerpo = ('<div style="font-size:20px;font-weight:700;margin:0 0 10px;">Es el momento de publicar</div>'
-                  '<table role="presentation" cellspacing="0" cellpadding="0" style="width:100%%;"><tr>'
+                  '<table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;"><tr>'
                   + ("" if not mini else
                      '<td width="130" valign="top"><a href="%s"><img src="%s" alt="" '
                      'style="width:112px;height:112px;object-fit:cover;border-radius:12px;'
@@ -24229,9 +24316,12 @@ def disco_plan_reminders(project_id):
                                      "channel": (c.get("channel") or "EMAIL")} for c in gente]
         plan.reminders_enabled = True
         # Los contenidos que NO se quieren avisar se desactivan (se pueden volver a activar).
+        # ⚠️ Se manda SIEMPRE la lista completa de contenidos (`content_all[]`), así que lo que no
+        # venga marcado está DESMARCADO a propósito: con «si no hay ninguno, todos» desmarcarlos
+        # todos los reactivaba.
         avisar = {x.strip() for x in f.getlist("content[]") if (x or "").strip()}
         for c in (plan.contents or []):
-            c.active = (str(c.id) in avisar) if avisar else True
+            c.active = str(c.id) in avisar
         if not plan.public_token:
             plan.public_token = _uuid_token()
         session_db.flush()
@@ -24357,10 +24447,15 @@ def public_disco_plan(token):
         if project is None:
             abort(404)
         estado = _disco_plan_state(session_db, project)
+        agenda = _disco_plan_agenda(session_db, project, estado)
+        # ⚠️ Fuera de casa NO se arrastra nada: sin `move_url`, el calendario no lo deja mover (y no
+        # se ofrece un gesto que acabaría en un 403).
+        for a in agenda.get("activities", []):
+            a.pop("move_url", None)
         return render_template("public_disco_plan.html",
                                ctx=_disco_project_email_ctx(session_db, project),
                                project=project, plan=plan, state=estado,
-                               agenda_data=_disco_plan_agenda(session_db, project, estado),
+                               agenda_data=agenda,
                                manager=_disco_plan_product_manager(session_db, project))
     finally:
         session_db.close()
@@ -26470,6 +26565,20 @@ CONCERT_CONTACT_ROLES = [
 ]
 CONCERT_CONTACT_ROLE_KEYS = [k for k, _l, _i in CONCERT_CONTACT_ROLES]
 CONCERT_CONTACT_ROLE_META = {k: {"label": l, "icon": i} for k, l, i in CONCERT_CONTACT_ROLES}
+
+
+def _promoter_email_phone(promoter) -> tuple[str, str]:
+    """El CORREO y el TELÉFONO de un tercero. Punto único.
+
+    ⚠️⚠️ En `Promoter` esos campos se llaman **`contact_email`** y **`contact_phone`**: `p.email` y
+    `p.phone` **no existen**, así que un `getattr(p, "email", "")` devuelve siempre "" y el aviso no
+    le llega a nadie **sin dar ningún error** (bug real: el productor no recibía el plazo de entrega
+    y al tercero de la portada no se le mandaba la solicitud)."""
+    if promoter is None:
+        return "", ""
+    correo = (getattr(promoter, "contact_email", None) or getattr(promoter, "email", None) or "").strip()
+    telefono = (getattr(promoter, "contact_phone", None) or getattr(promoter, "phone", None) or "").strip()
+    return correo, telefono
 
 
 def _promoter_contact_name(contact) -> str:
@@ -33888,8 +33997,9 @@ def booking_request_rejection_send(rid):
         telefono = (r.contact_phone or "").strip()
         if not correo and r.promoter_id:
             p = session_db.get(Promoter, r.promoter_id)
-            correo = (getattr(p, "email", "") or "").strip()
-            telefono = telefono or (getattr(p, "phone", "") or "").strip()
+            correo_p, tel_p = _promoter_email_phone(p)
+            correo = correo_p
+            telefono = telefono or tel_p
         if not correo and not telefono:
             flash("No hay correo ni teléfono de quien la pidió: comunícaselo tú y marca la tarea.",
                   "warning")
@@ -33964,8 +34074,9 @@ def _peticion_accept_contact(session_db, r, concert=None) -> dict:
         p = session_db.get(Promoter, pk)
         if p is None:
             continue
-        correo = correo or (getattr(p, "email", "") or "").strip()
-        telefono = telefono or (getattr(p, "phone", "") or "").strip()
+        correo_p, tel_p = _promoter_email_phone(p)
+        correo = correo or correo_p
+        telefono = telefono or tel_p
         nombre = nombre or (getattr(p, "name", "") or getattr(p, "nick", "") or "").strip()
     return {"name": nombre, "email": correo, "phone": telefono,
             "logo_url": (chip.get("logo_url") or ""), "icon": (chip.get("icon") or "fa-user"),
@@ -51730,9 +51841,13 @@ def registros_view():
                 artist_id=(request.args.get('artist_id') or ''),
                 year=(request.args.get('year') or ''),
                 config_subtab=(_sub if _sub in ('isrc', 'album_refs') else 'isrc'))
-            return render_template('registros.html', tab=tab, isrc_only=True, **ctx)
+            return render_template('registros.html', tab=tab, isrc_only=True,
+                                   pending_release_dates=_registros_pending_dates_count(session_db),
+                                   **ctx)
         ctx = _build_registros_context(session_db)
-        return render_template('registros.html', tab=tab, **ctx)
+        return render_template('registros.html', tab=tab,
+                               pending_release_dates=_registros_pending_dates_count(session_db),
+                               **ctx)
     finally:
         session_db.close()
 
@@ -101069,7 +101184,7 @@ def _agenda_color_for(i: int) -> str:
     r, g, b = colorsys.hls_to_rgb(tono / 360.0, 0.42, 0.62)
     return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
 
-AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "promocion", "medios", "cumple", "vacaciones", "otro", "bloqueo"]
+AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "promocion", "medios", "cumple", "vacaciones", "contenido", "otro", "bloqueo"]
 AGENDA_KIND_META = {
     "concierto":   {"label": "Conciertos",      "icon": "fa-music",           "color": "#E33D48"},
     "festival":    {"label": "Festivales",      "icon": "fa-star",            "color": "#6f42c1"},
@@ -101081,6 +101196,8 @@ AGENDA_KIND_META = {
     # ⚠️ Los CUMPLEAÑOS van en el ROJO DE LA CASA (el mismo del «Calendario general»), no en rosa:
     # son cosas de la casa y así se ven igual en todas partes.
     "cumple":      {"label": "Cumpleaños",      "icon": "fa-cake-candles",    "color": AGENDA_OFFICE_COLOR},
+    # Las PUBLICACIONES del plan de lanzamiento (el cronograma de contenidos).
+    "contenido":   {"label": "Publicaciones",   "icon": "fa-photo-film",      "color": "#00b894"},
     "otro":        {"label": "Otros",           "icon": "fa-thumbtack",       "color": "#0d6efd"},
     "bloqueo":     {"label": "Bloqueos",        "icon": "fa-ban",             "color": "#6c757d"},
     # Los días propios de cada uno (vacaciones, días libres, no laborables y festivos). No son de

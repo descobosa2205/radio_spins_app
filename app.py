@@ -21517,7 +21517,7 @@ def _disco_date_notify_registros(session_db, project, fila) -> None:
         _disco_date_request_label(fila),
         ((fila.note or "").strip()[:120] if getattr(fila, "note", None) else ""),
     ] if x])
-    _notify_users(session_db, _registros_user_ids(session_db), "REGISTROS", titulo, cuerpo,
+    _notify_users(session_db, _registros_user_ids(session_db), "FECHA_LANZAMIENTO", titulo, cuerpo,
                   url=url_for("registros_release_dates_view"),
                   ref_type="DISCO_DATE", ref_id=str(project.id))
 
@@ -21691,7 +21691,7 @@ def registros_release_date_confirm(req_id):
                   "Confirmada el %s. Entrega de materiales antes del %s."
                   % (fecha.strftime("%d/%m/%Y"), vence.strftime("%d/%m/%Y")))
         if fila.requested_by_user_id:
-            _notify_user(session_db, fila.requested_by_user_id, "REGISTROS",
+            _notify_user(session_db, fila.requested_by_user_id, "FECHA_LANZAMIENTO",
                          ("Fecha de lanzamiento CAMBIADA: %s" if cambio
                           else "Fecha de lanzamiento confirmada: %s") % _disco_project_title(project),
                          cuerpo,
@@ -85847,6 +85847,9 @@ NOTIFICATION_KIND_META = {
     "VENTA": ("Hay que sacarla a la venta", "fa-ticket"),
     "CONTABILIDAD": ("Hay algo nuevo que contabilizar", "fa-calculator"),
     "REGISTROS": ("Hay un lanzamiento que cumplimentar", "fa-clipboard-list"),
+    # La FECHA de lanzamiento que Registros tiene que confirmar (y su respuesta). Va aparte de
+    # REGISTROS para que la campanita diga de qué es: son dos trabajos distintos.
+    "FECHA_LANZAMIENTO": ("Fecha de lanzamiento por confirmar", "fa-calendar-check"),
     "AGENDA": ("Cambio en la agenda", "fa-calendar-day"),
 }
 

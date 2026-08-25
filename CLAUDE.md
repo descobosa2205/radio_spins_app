@@ -847,6 +847,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   persona no recibiría el aviso sin dar ningún error (por eso `disco_project_close` también lo usa ya).
   ⚠️ `_notify_user` **no avisa a uno mismo**: si quien pide la fecha es la única persona de Registros
   no le llega nada, pero la solicitud **no se pierde** (sigue en `/registros/fechas`).
+  ⚠️ El aviso lleva su propio kind **`FECHA_LANZAMIENTO`** (en `NOTIFICATION_KIND_META`, con su
+  etiqueta y su icono): un kind que no esté en ese catálogo se guarda igual pero sale en la campanita
+  **sin etiqueta ni icono**. Y el canal del artista es **`DISCOGRAFICA`** —una clave exacta y en
+  mayúsculas—: `_artist_notification_emails` con un canal mal escrito devuelve **[] en silencio**.
   ⚠️ **Bug de orden arreglado de paso**: la tarea «cierra el proyecto» se decidía ANTES de añadir «la
   hoja de ruta está vacía» y «sin bolsa», así que salía a la vez que ellas. Ahora se decide al final
   y solo si no queda **nada** pendiente.

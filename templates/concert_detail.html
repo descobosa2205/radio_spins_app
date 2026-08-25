@@ -242,6 +242,9 @@
 </div>
 
 <ul class="nav nav-tabs ficha-tabs mb-0">
+  {# INICIO: las tareas de la actividad paso a paso (como en un proyecto discográfico), con quién
+     tiene cada una y la campanita para reclamársela. #}
+  <li class="nav-item"><a class="nav-link {% if tab == 'inicio' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='inicio') }}"><i class="fa fa-list-check me-1"></i>Inicio</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Ficha de contratación</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'invitations' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">Invitaciones</a></li>
   {% if show_repertorio_tab %}<li class="nav-item"><a class="nav-link {% if tab == 'repertorio' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='repertorio') }}">Repertorio</a></li>{% endif %}
@@ -257,7 +260,103 @@
 </ul>
 
 <div class="ficha-tabpane">
-  {% if tab == 'general' %}
+  {% if tab == 'inicio' %}
+  {# ---------- INICIO · el proceso PASO A PASO de esta actividad ----------
+     Cada paso dice si está hecho, si está pendiente o si está BLOQUEADO (y por qué), y de quién es.
+     Lo que tiene otra persona se le puede reclamar con la campanita: le llega un aviso diciendo
+     quién se lo pide y qué tarea es. #}
+    <div class="card">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <strong><i class="fa fa-list-check me-2 text-muted"></i>Tareas pendientes</strong>
+        <span class="d-flex align-items-center gap-2">
+          {% if task_board and task_board.pending %}
+            <span class="badge text-bg-danger">{{ task_board.pending }} pendiente{{ '' if task_board.pending == 1 else 's' }}</span>
+          {% elif task_board and task_board.total %}
+            <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Todo hecho</span>
+          {% endif %}
+          {% if task_board and task_board.request_url %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ task_board.request_url }}"
+               title="Ver la petición de la que salió"><i class="fa fa-inbox me-1"></i>La petición</a>
+          {% endif %}
+        </span>
+      </div>
+      <div class="list-group list-group-flush">
+        {% for t in (task_board.rows if task_board else []) %}
+          <div class="list-group-item d-flex align-items-center gap-3 flex-wrap">
+            <span class="oa-row__icon {{ 'text-success' if t.state == 'done' else ('text-muted' if t.state == 'blocked' else '') }}">
+              <i class="fa {{ 'fa-circle-check' if t.state == 'done' else ('fa-lock' if t.state == 'blocked' else t.icon) }}"></i>
+            </span>
+            <span class="flex-grow-1" style="min-width:12rem;">
+              <span class="fw-semibold {{ 'text-decoration-line-through text-muted' if t.state == 'done' else '' }}">{{ t.phase }}. {{ t.label }}</span>
+              <span class="d-block small text-muted">
+                {% if t.state == 'done' %}
+                  Hecho{% if t.at_label %} · {{ t.at_label }}{% endif %}{% if t.by %} · {{ t.by }}{% endif %}{% if t.note %} · {{ t.note }}{% endif %}
+                {% elif t.state == 'blocked' %}
+                  {{ t.blocked_reason }}
+                {% elif t.generic %}
+                  {# No es de una persona: es del departamento (contratación / ticketing). #}
+                  Del departamento
+                {% else %}
+                  {% if t.hint %}{{ t.hint }} · {% endif %}{{ 'Es tuya' if t.mine else 'La tiene ' ~ (t.owner_nick or '—') }}{% if t.contact %} · {{ t.contact }}{% endif %}
+                {% endif %}
+              </span>
+            </span>
+            {% if t.state == 'done' %}
+              <span class="badge text-bg-success">Hecho</span>
+            {% elif t.state == 'blocked' %}
+              <span class="badge text-bg-light border text-muted">Bloqueada</span>
+            {% else %}
+              <span class="badge text-bg-warning text-dark">Pendiente</span>
+              {% if t.mine %}
+                {# Es tuya: aquí mismo se hace. #}
+                {% if t.key == 'configurar' %}
+                  <a class="btn btn-sm btn-danger" href="{{ t.url }}"><i class="fa fa-sliders me-1"></i>Configurar evento</a>
+                {% elif t.key == 'artista_ok' %}
+                  <form method="post" action="{{ t.done_url }}" class="d-inline">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn-sm btn-warning" data-confirm="¿El artista ha confirmado la fecha y que lo quiere hacer?">
+                      <i class="fa fa-check me-1"></i>El artista lo confirma</button>
+                  </form>
+                {% elif t.key == 'promotor' %}
+                  {% if t.send_url %}
+                  <form method="post" action="{{ t.send_url }}" class="d-inline">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn-sm btn-warning"
+                            data-confirm="Se le va a confirmar a {{ t.who or 'quien la pidió' }} que la actividad sale adelante. ¿Seguir?">
+                      <i class="fa fa-paper-plane me-1"></i>Confirmar</button>
+                  </form>
+                  {% endif %}
+                  {% if t.done_url %}
+                  <form method="post" action="{{ t.done_url }}" class="d-inline">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he confirmado</button>
+                  </form>
+                  {% endif %}
+                {% elif t.url %}
+                  <a class="btn btn-sm btn-warning" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Hacerlo' }}</a>
+                {% endif %}
+              {% endif %}
+              {# LA CAMPANITA: reclamársela a quien la tiene. #}
+              {% if t.nudge_url %}
+                <form method="post" action="{{ t.nudge_url }}" class="d-inline">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <button class="btn btn-sm btn-outline-danger" title="Reclamar la tarea a {{ t.owner_nick }}"
+                          data-confirm="Se le va a avisar a {{ t.owner_nick }} de que termine «{{ t.label }}». ¿Seguir?">
+                    <i class="fa fa-bell"></i></button>
+                </form>
+              {% endif %}
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="list-group-item text-muted py-4 text-center">
+            <i class="fa fa-circle-check text-success me-1"></i>Esta actividad no tiene tareas del
+            proceso de peticiones. Lo que falte se ve en su ficha y en los botones de arriba.
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  {% elif tab == 'general' %}
     <div id="concert-general-zone" data-inline-zone>
 
     {% if CAN_EDIT_CONCERTS %}

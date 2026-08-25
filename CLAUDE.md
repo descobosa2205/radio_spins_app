@@ -1477,6 +1477,36 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   asistente sale cumplimentado también al pulsar el botón a mano) y `autoopen` —que lo pone
   `?configurar=1`— es lo único que decide si se abre solo al entrar.
 
+- **FICHA DE ACTIVIDAD · pestaña «INICIO» con el proceso paso a paso** (ago 2026): la PRIMERA
+  pestaña de la ficha, igual que las tareas pendientes de un proyecto discográfico. Motor
+  **`_concert_task_board`** (solo se calcula en su pestaña): las **fases de la petición**
+  (`_peticion_accept_tasks`) con su estado —**hecha** (con cuándo y quién), **pendiente** o
+  **bloqueada** (con el motivo)— más **lo propio de la actividad** (pendiente de confirmar, sin
+  contrato, pendiente de anunciar, sin activar la venta y —si no viene de una petición— activar
+  producción e informar al artista), que son «del departamento» y por eso no llevan dueño.
+  · **LA CAMPANITA** (`concert_task_nudge`, `POST /conciertos/<cid>/tareas/<key>/reclamar`):
+  reclamar una tarea a quien la tiene. Le llega un aviso **«X te reclama una tarea · X te pide que
+  por favor termines «\<tarea\>», que está pendiente»** con enlace a esta pestaña. No cambia nada de
+  la actividad: solo avisa. Solo sale cuando la tarea **es de otra persona** y no está bloqueada; a
+  uno mismo no se le reclama y una tarea sin dueño no se puede reclamar (se dice por qué).
+  ⚠️ El endpoint va en **`SUPPORT_ACTION_ENDPOINTS`**: reclamar es transversal (lo hace producción,
+  el sello, dirección…), no solo contratación.
+  ⚠️ La pestaña nueva hay que añadirla a la **lista blanca de `tab`** de `concert_detail_view`: si no,
+  cae en «general» y el panel no se pinta **sin dar ningún error**.
+
+- ⚠️ **LAS PETICIONES QUE YA ESTABAN APROBADAS vuelven al proceso** (`_peticion_stub_backfill_once`,
+  marca `peticion_stub_backfill_v1`, ago 2026): el aprobado ANTIGUO creaba un borrador vacío y no
+  dejaba constancia de la aprobación, así que esas peticiones **no reclamaban nada** (ni «Petición
+  aprobada» ni configurar el evento). El arreglo puntual **borra el borrador vacío**
+  (`_concert_is_untouched_stub`: BORRADOR, sin pasar por el asistente y sin bolsa, entradas, cachés,
+  contratos, cartelería, presupuesto, pagos, invitaciones ni hoja de ruta) y le sella `accepted_at`,
+  con lo que la petición vuelve a «pendiente de configurar».
+  ⚠️ Lo que ya está configurado NO se toca: una actividad con trabajo hecho no vuelve atrás.
+
+- **DIRECCIÓN también tiene su módulo de tareas en Inicio** (ago 2026): en
+  `_home_activity_phase_tasks`, quien es dirección (`estado["role"] == 10`) ve **todas** las
+  actividades con fases pendientes; el resto, las que pidió o las que aprobó.
+
 - **LA FICHA DE UNA PETICIÓN SE LEE COMO LA DE UNA ACTIVIDAD** (ago 2026): `ficha-hero` (foto del
   artista, antetítulo «Petición · \<tipo\> · Con/Sin caché», estado y —si ya se aceptó— «Ya es una
   actividad»; la línea de datos con iconos) + **arriba a la derecha QUIÉN LO PIDE** con su foto o su

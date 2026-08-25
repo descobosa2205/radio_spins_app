@@ -2673,6 +2673,113 @@
   })();
 </script>
 <script>
+  /* ============ PRECUMPLIMENTAR el asistente (una PETICIÓN APROBADA que se configura) ============
+     La página deja el payload en `window.CONCERT_WIZARD_PREFILL` y aquí se vuelca en los pasos, así
+     que el asistente se abre «como si se añadiera uno nuevo» pero con lo que ya se sabe de la
+     petición. Al terminarlo, la actividad queda creada y ligada a esa petición (`peticion_id`).
+     ⚠️ Se aplica DESPUÉS de `shown.bs.modal`: los Select2 del recinto y del promotor se crean ahí,
+     y antes de eso no se les puede meter nada. */
+  (function () {
+    var pre = window.CONCERT_WIZARD_PREFILL;
+    if (!pre || !pre.enabled) return;
+
+    function setRadio(name, value) {
+      if (value === undefined || value === null || value === '') return;
+      var el = document.querySelector('input[name="' + name + '"][value="' + value + '"]');
+      if (el) { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    function setVal(sel, value) {
+      var el = document.querySelector(sel);
+      if (el && value) { el.value = value; el.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    function pickSelect2(sel, id, label, logo) {
+      var el = document.querySelector(sel);
+      if (!el || !id) return;
+      if (!el.querySelector('option[value="' + id + '"]')) {
+        var o = document.createElement('option');
+        o.value = id; o.textContent = label || '';
+        if (logo) { o.dataset.logo = logo; o.dataset.photo = logo; }
+        el.appendChild(o);
+      }
+      el.value = id;
+      try { if (window.jQuery) jQuery(el).val(id).trigger('change'); }
+      catch (e) { el.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+
+    function apply() {
+      var form = document.getElementById('concertWizardForm') ||
+                 document.querySelector('#concertWizardModal form');
+      // La petición de la que sale: al crear la actividad se enlazan.
+      if (form && pre.peticion_id && !form.querySelector('input[name="peticion_id"]')) {
+        var h = document.createElement('input');
+        h.type = 'hidden'; h.name = 'peticion_id'; h.value = pre.peticion_id;
+        form.appendChild(h);
+      }
+      // 1 · Artista y tipo de actividad.
+      if (pre.artist_id) {
+        var selA = document.getElementById('wizard_artist_id');
+        if (selA) {
+          if (window.jQuery && jQuery(selA).data('select2')) jQuery(selA).val([pre.artist_id]).trigger('change');
+          else Array.prototype.forEach.call(selA.options, function (o) { if (o.value === pre.artist_id) o.selected = true; });
+        }
+      }
+      setRadio('activity_type', pre.activity_type);
+      // 2 · Fecha y sitio.
+      setVal('#wizard_date', pre.date);
+      if (pre.venue_id) {
+        pickSelect2('#wizard_venue_id', pre.venue_id, pre.venue_label || '');
+      } else if (pre.municipality || pre.province) {
+        // Sin recinto: se apaga «Conozco el recinto» y se rellenan municipio y provincia.
+        var knows = document.getElementById('wizard_knows_venue');
+        if (knows && knows.checked) { knows.checked = false; knows.dispatchEvent(new Event('change', { bubbles: true })); }
+        setVal('#wizard_manual_municipality', pre.municipality);
+        setVal('#wizard_manual_province', pre.province);
+      }
+      // 3 · Qué es (la descripción que se escribió al pedirlo).
+      setVal('#wizard_activity_description', pre.description);
+      // 4 · Promotor: quien lo pidió (se pinta con su foto o su logo, como si se hubiera buscado).
+      if (pre.promoter_id) {
+        pickSelect2('#wizard_promoter_search', pre.promoter_id, pre.promoter_name || '', pre.promoter_logo || '');
+      }
+      // 5 · ¿Tiene caché? y el importe orientativo que traía la petición.
+      setRadio('has_cache', (pre.has_cache ? '1' : '0'));
+      if (pre.has_cache && pre.fee_amount) {
+        var amt = document.querySelector('#wizardCaches input[name="cache_amount[]"]');
+        if (amt && !amt.value) { amt.value = pre.fee_amount; amt.dispatchEvent(new Event('input', { bubbles: true })); }
+      }
+      // 6 · Lo que cubre el promotor (el mismo módulo que en la petición).
+      var pc = pre.promoter_costs || {};
+      if (pc.enabled && (pc.items || []).length) {
+        setRadio('promoter_costs_enabled', '1');
+        (pc.items || []).forEach(function (it) {
+          var key = (it.key || '').toUpperCase();
+          var chk = document.querySelector('.wizard-pc-item[value="' + key + '"]');
+          if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change', { bubbles: true })); }
+          if (it.note) setVal('[name="promoter_cost_note_' + key + '"]', it.note);
+          if (it.managed_by) setRadio('promoter_cost_managed_' + key, it.managed_by);
+          if (it.max_amount) setVal('[name="promoter_cost_max_' + key + '"]', it.max_amount);
+        });
+      }
+    }
+
+    function go() {
+      var modalEl = document.getElementById('concertWizardModal');
+      if (!modalEl || typeof bootstrap === 'undefined') { return setTimeout(go, 80); }
+      // El propio asistente crea sus Select2 en `shown`: se vuelca DESPUÉS (este listener se
+      // registra más tarde, así que corre detrás del suyo).
+      // El volcado se registra SIEMPRE (así el asistente sale cumplimentado tanto si se abre solo
+      // como si se pulsa «Configurar evento»); abrirlo por su cuenta solo con `autoopen`.
+      modalEl.addEventListener('shown.bs.modal', function once() {
+        modalEl.removeEventListener('shown.bs.modal', once);
+        try { apply(); } catch (e) { console && console.warn && console.warn('prefill', e); }
+      });
+      if (pre.autoopen) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+    if (document.readyState !== 'loading') go();
+    else document.addEventListener('DOMContentLoaded', go);
+  })();
+</script>
+<script>
   /* Auto-apertura del asistente con artista preseleccionado (desde el botón + de la agenda:
      .../conciertos?open_wizard=1&wizard_artist=<id>). */
   (function () {

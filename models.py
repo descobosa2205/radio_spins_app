@@ -4911,6 +4911,10 @@ class BookingRequest(Base):
     # quedan tres cosas por hacer —confirmar al promotor, informar al artista y activar la
     # producción—. Las dos últimas se miran en la propia actividad; la primera se apunta aquí.
     accepted_at = Column(DateTime(timezone=True))
+    # Fase 1 de la actividad: hablar con el ARTISTA (la fecha y que lo quiere hacer). Es una
+    # conversación, no un correo: se marca a mano y hasta entonces no se confirma nada al promotor.
+    artist_agreed_at = Column(DateTime(timezone=True))
+    artist_agreed_by_nick = Column(Text)
     acceptance_notified_at = Column(DateTime(timezone=True))
     acceptance_notified_by_nick = Column(Text)
     payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
@@ -9349,6 +9353,8 @@ def ensure_activities_grouping_schema():
         # Aceptarla tampoco la termina: desde `accepted_at`, a quien la pidió le quedan las tareas de
         # confirmar al promotor, informar al artista y activar la producción.
         "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS accepted_at timestamptz;",
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS artist_agreed_at timestamptz;",
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS artist_agreed_by_nick text;",
         "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS acceptance_notified_at timestamptz;",
         "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS acceptance_notified_by_nick text;",
     ]

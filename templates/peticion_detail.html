@@ -51,6 +51,13 @@
 
 {# ---------- Los botones, justo debajo de la cabecera ---------- #}
 <div class="ficha-quick mb-3">
+  {# APROBADA y sin configurar: lo primero es CONFIGURAR la actividad (el asistente de siempre, con
+     lo de la petición ya puesto). Al terminarlo queda creada. #}
+  {% if can_configure %}
+    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#concertWizardModal">
+      <i class="fa fa-sliders me-1"></i>Configurar evento
+    </button>
+  {% endif %}
   {% if is_open %}
     <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#peticionAcceptModal">
       <i class="fa fa-circle-check me-1"></i>Aceptar petición
@@ -105,6 +112,17 @@
     <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he comunicado</button>
   </form>
 </div>
+{% endif %}
+
+{% if can_configure %}
+  <div class="alert alert-success d-flex align-items-center gap-2 flex-wrap">
+    <i class="fa fa-circle-check"></i>
+    <span class="flex-grow-1"><strong>Petición aprobada.</strong>
+      Configura la actividad para crearla: se abre el asistente de siempre con lo que ya sabemos.</span>
+    <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#concertWizardModal">
+      <i class="fa fa-sliders me-1"></i>Configurar evento
+    </button>
+  </div>
 {% endif %}
 
 {% if row.concert_id %}
@@ -251,5 +269,14 @@
 {% endif %}
 
 {% include '_peticion_wizard_modal.html' %}
+
+{# EL ASISTENTE DE ACTIVIDAD, aquí mismo: «Configurar evento» lo abre ya cumplimentado con lo de la
+   petición. ⚠️ El payload se emite ANTES del include: el JS del asistente lo lee al cargarse. #}
+{% if wizard_available %}
+  {% if wizard_prefill %}
+  <script>window.CONCERT_WIZARD_PREFILL = {{ wizard_prefill|tojson }};</script>
+  {% endif %}
+  {% include '_concert_wizard_modal.html' %}
+{% endif %}
 
 {% endblock %}

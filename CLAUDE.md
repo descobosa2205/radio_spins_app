@@ -1428,45 +1428,54 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   quien puede entrar en ella.
   ⚠️ Lo que hay que HACER va primero en el módulo: comunicar un rechazo es una tarea, no seguimiento.
 
-- ⚠️⚠️ **AL ACEPTARLA, LA PETICIÓN PASA A SER LA ACTIVIDAD, y el trabajo va POR FASES** (ago 2026).
-  Cuando contratación acepta (p. ej. un **evento promocional**), lo que hay ya **no es una petición**:
-  es la actividad, y lo que falta se lee y se hace **en su ficha**. Va por fases, **en orden**, y
-  **cada fase es de quien le toca** (`PETICION_ACCEPT_PHASES`, punto único
-  **`_peticion_accept_tasks`**, que usan el módulo de Inicio, la ficha de la actividad y la de la
-  petición, así que los tres dicen lo mismo):
-  · **1 · Avisar al artista** — de **CONTRATACIÓN** (de quien la aprobó, `reviewed_by_user_id`). Es el
-  aviso de siempre (`_concert_notice_state` + `concert_artist_notice_view`), con sus mismas excepciones
-  (un EVENTO no es de ningún artista y el histórico no genera trabajo): `_peticion_artist_notice_pending`.
-  · **2 · Confirmar al promotor** — de **QUIEN LA PIDIÓ** (`BookingRequest.acceptance_notified_at`),
-  con **Confirmar** (`booking_request_acceptance_send`, correo o SMS con
-  `_peticion_acceptance_email_html`; solo si el aviso sale marca la fase) y **«Ya se lo he
-  confirmado»** (`booking_request_acceptance_notified`).
-  ⚠️⚠️ **ESTA FASE ESTÁ BLOQUEADA HASTA QUE EL ARTISTA ESTÉ AVISADO**: no se le compromete una fecha
-  a nadie de fuera sin que el artista lo sepa. Se ve con un candado y el motivo, y **lo comprueba
-  también el SERVIDOR** en los dos endpoints (esconder el botón no basta).
-  · **3 · Activar producción** — de quien la pidió (`_concert_production_pending`).
-  ⚠️ Cada fase se decide mirando el **estado de verdad**, no una marca aparte, así que **desaparece
-  sola** en cuanto se hace (la regla de `_notify_resolve`).
-  ⚠️ **Las fases que NO son tuyas se ven en gris con el nombre de quien las tiene**: así se sabe a qué
-  se está esperando y por qué tu botón todavía no se puede pulsar. Quién es dirección se lee de
-  `estado["role"]`, **no de `is_master()`** (ese saca el rol de la sesión y sin sesión cae a 10, con lo
-  que TODAS las fases saldrían «mías»).
+- ⚠️⚠️ **APROBAR UNA PETICIÓN NO CREA NADA: la devuelve para CONFIGURARLA, y luego va POR FASES**
+  (ago 2026). Cuando contratación aprueba (p. ej. un **evento promocional**), la petición vuelve a
+  **QUIEN LA PIDIÓ** y a partir de ahí todo el trabajo es suyo. **`booking_request_approve` YA NO crea
+  ningún borrador**: antes creaba un `Concert` con una fecha inventada (`today_local()`) que había que
+  arreglar a mano. La actividad **la crea el asistente al terminar de configurarla**.
+  Las fases son las de `PETICION_ACCEPT_PHASES` (punto único **`_peticion_accept_tasks`**, que usan el
+  módulo de Inicio, la ficha de la actividad y la de la petición, así que los tres dicen lo mismo),
+  **en orden y cada una bloqueada hasta que la anterior esté hecha**:
+  · **1 · Configurar el evento** — mientras no exista la actividad (`concert_id`). Sale con la
+  etiqueta **«Petición aprobada»** y el botón **«Configurar evento»**, que abre **el asistente de
+  siempre** (`_concert_wizard_modal.html`, los mismos pasos que al añadir una actividad nueva) **ya
+  cumplimentado** con lo de la petición: **`_peticion_wizard_prefill`** → `window.CONCERT_WIZARD_PREFILL`
+  (artista, tipo, fecha, recinto o municipio+provincia, quien lo pidió como promotor, ¿tiene caché? y
+  su importe si era un número, lo que cubre el promotor y la descripción). Al terminarlo,
+  **`_wizard_link_peticion`** ata la actividad a su petición (`concert_id`) y cierra el aviso.
+  · **2 · Confirmar con el artista** (la fecha y que lo quiere hacer) — `BookingRequest.artist_agreed_at`,
+  endpoint `booking_request_artist_agreed`. Es una **conversación**, no un correo: se marca a mano.
+  · **3 · Confirmar al promotor** — `acceptance_notified_at` (`booking_request_acceptance_send`, correo
+  o SMS con `_peticion_acceptance_email_html`; solo si el aviso sale marca la fase, o
+  `..._notified` para «ya se lo he confirmado»).
+  ⚠️⚠️ **BLOQUEADA hasta que el artista haya dicho que sí**: no se compromete una fecha con nadie de
+  fuera antes. Lo comprueba también el **SERVIDOR** en los dos endpoints (esconder el botón no basta).
+  · **4 · Activar producción + Informar al artista** — LAS DOS A LA VEZ, y bloqueadas hasta la 3. El
+  aviso formal al artista va **al final**, cuando ya está todo comprometido. Al activar la producción
+  la actividad pasa a las tareas de **PRODUCCIÓN** y **deja de estar** en las de quien la pidió (la
+  fase desaparece sola en cuanto hay responsable).
+  ⚠️ Cada fase se decide mirando el **estado de verdad**, no una marca aparte, así que desaparece sola
+  al hacerse (la regla de `_notify_resolve`), y con la última la fila se va del módulo.
+  ⚠️ **Todas las fases son de quien la pidió**: contratación acaba su parte al aprobarla. El mecanismo
+  de dueños sigue puesto (`owner`/`owner_nick`/`mine`) y lo que **no es tuyo** se ve en gris con el
+  nombre de quien lo tiene. Quién es dirección se lee de `estado["role"]`, **no de `is_master()`**
+  (ese saca el rol de la sesión y sin sesión cae a 10: todas las fases saldrían «mías»).
   · **Dónde se ve**: módulo de Inicio **«Actividades por cerrar»** (`HOME_ACTIVITY_PHASES` ←
-  `_home_activity_phase_tasks`, en el bloque de «lo suyo», que se lee como la ACTIVIDAD: foto del
-  artista, icono del tipo, fecha, lugar) · la **barra de botones de la ficha de la actividad**
-  (`_concert_promoter_confirm_state` → «Confirmar al promotor», al lado del aviso al artista y de
-  activar producción, que ya estaban) · y la **ficha de la petición**, donde solo se enseña **por qué
-  fase va** (el trabajo se hace en la actividad).
-  ⚠️ En **«Mis peticiones»** una petición aceptada ya **NO** sale como tarea: es seguimiento (con
-  «Ver la actividad» en sus tres puntitos). Al aceptarla dejó de ser una petición.
-  ⚠️ **`booking_request_approve` pone la actividad a nombre de QUIEN PIDIÓ**
-  (`Concert.created_by_user_id`), no de quien la aprueba: activar la producción es tarea de quien crea
-  la actividad, así que le sale también en «Activar la producción» sin ningún caso especial. Y el aviso
-  que le llega lleva **a la ficha de la actividad**, no a la de la petición.
-  ⚠️ **Corte automático con `BookingRequest.accepted_at`** (se sella al aceptar): lo aceptado ANTES de
-  que esto existiera no reclama nada —mismo criterio que `PITCH_TASK_FROM`, pero sin fecha a mano—.
-  ⚠️ Los dos endpoints van en **`REQUEST_ANY_ENDPOINTS`** (como los del rechazo): la fase es de quien
-  pidió, que no tiene por qué llevar contratación, y cada uno comprueba dentro que la petición es suya.
+  `_home_activity_phase_tasks`, en el bloque de «lo suyo»; la fila se monta con la **actividad** y,
+  mientras no esté configurada, con los datos de la **petición**) · la **barra de botones de la ficha
+  de la actividad** (`_concert_peticion_phases` → «El artista lo confirma» y «Confirmar al promotor»;
+  activar producción e informar al artista ya tenían el suyo) · y la **ficha de la petición**, con el
+  aviso «Petición aprobada» + «Configurar evento» y, después, por qué fase va.
+  ⚠️ Una petición con fases pendientes **no sale en «Mis peticiones»**: está en «Actividades por
+  cerrar». Ahí vuelve solo cuando ya no hay nada que hacer, como seguimiento.
+  ⚠️ **Corte automático con `BookingRequest.accepted_at`**: lo aprobado ANTES de que esto existiera no
+  reclama nada (mismo criterio que `PITCH_TASK_FROM`, pero sin fecha a mano).
+  ⚠️ Los tres endpoints van en **`REQUEST_ANY_ENDPOINTS`**: la fase es de quien pidió, que no tiene por
+  qué llevar contratación, y cada uno comprueba dentro que la petición es suya.
+  ⚠️ El precumplimentado se aplica **después de `shown.bs.modal`**: los Select2 del recinto y del
+  promotor se crean ahí y antes no se les puede meter nada. El payload se emite **siempre** (así el
+  asistente sale cumplimentado también al pulsar el botón a mano) y `autoopen` —que lo pone
+  `?configurar=1`— es lo único que decide si se abre solo al entrar.
 
 - **LA FICHA DE UNA PETICIÓN SE LEE COMO LA DE UNA ACTIVIDAD** (ago 2026): `ficha-hero` (foto del
   artista, antetítulo «Petición · \<tipo\> · Con/Sin caché», estado y —si ya se aceptó— «Ya es una

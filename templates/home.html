@@ -632,7 +632,7 @@ document.addEventListener('click', function (ev) {
       <i class="fa fa-list-check text-danger me-2"></i>Actividades por cerrar
       <span class="badge text-bg-warning text-dark ms-1">{{ HOME_ACTIVITY_PHASES|length }}</span>
     </span>
-    <span class="text-muted small">Por orden: avisar al artista → confirmar al promotor → activar la producción.</span>
+    <span class="text-muted small">Por orden: configurar → confirmar con el artista → confirmar al promotor → producción e informar.</span>
   </div>
   <div class="list-group list-group-flush">
     {% for a in HOME_ACTIVITY_PHASES %}
@@ -661,13 +661,33 @@ document.addEventListener('click', function (ev) {
           {% for t in a.tasks %}
             {% if not t.mine %}
               {# No es tuya: se ve a qué se está esperando y quién lo tiene. #}
-              <span class="badge text-bg-light border text-muted"
-                    title="Lo tiene {{ t.owner_nick }}">
+              <span class="badge text-bg-light border text-muted" title="Lo tiene {{ t.owner_nick }}">
                 <i class="fa fa-hourglass-half me-1"></i>{{ t.phase }}. {{ t.label }} · {{ t.owner_nick }}</span>
             {% elif t.blocked %}
+              {# BLOQUEADA: se ve el candado y POR QUÉ (el orden de las fases importa). #}
               <span class="badge text-bg-light border text-muted" title="{{ t.blocked_reason }}">
                 <i class="fa fa-lock me-1"></i>{{ t.phase }}. {{ t.label }}</span>
               <span class="badge text-bg-light border text-truncate" style="max-width:320px">{{ t.blocked_reason }}</span>
+            {% elif t.key == 'configurar' %}
+              {# FASE 1: la actividad todavía no existe. El botón abre el asistente ya cumplimentado
+                 con lo que se pidió; al terminarlo queda creada. #}
+              <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.phase }}. {{ t.label }}</span>
+              <span class="ctask__actions d-inline-flex gap-2 ms-1">
+                <a class="btn btn-sm btn-danger" href="{{ t.url }}">
+                  <i class="fa fa-sliders me-1"></i>{{ t.action_label }}</a>
+              </span>
+            {% elif t.key == 'artista_ok' %}
+              {# FASE 2: hablarlo con el artista. Es una conversación: se marca a mano. #}
+              <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.phase }}. {{ t.label }}</span>
+              {% if t.hint %}<span class="badge text-bg-light border">{{ t.hint }}</span>{% endif %}
+              <span class="ctask__actions d-inline-flex gap-2 ms-1">
+                <form method="post" action="{{ t.done_url }}" class="d-inline">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <button class="btn btn-sm btn-warning"
+                          data-confirm="¿El artista ha confirmado la fecha y que lo quiere hacer?">
+                    <i class="fa fa-check me-1"></i>El artista lo confirma</button>
+                </form>
+              </span>
             {% elif t.key == 'promotor' %}
               <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.phase }}. {{ t.label }}</span>
               {% if t.contact %}<span class="badge text-bg-light border"><i class="fa fa-at me-1"></i>{{ t.contact }}</span>{% endif %}
@@ -689,8 +709,9 @@ document.addEventListener('click', function (ev) {
                 {% endif %}
               </span>
             {% else %}
+              {# FASE 4 (las dos a la par): activar producción e informar al artista. #}
               <a class="badge text-bg-warning text-dark text-decoration-none ctask__actions" href="{{ t.url }}">
-                <i class="fa {{ t.icon }} me-1"></i>{{ t.phase }}. {{ t.label }}{% if t.note %} · {{ t.note }}{% endif %}</a>
+                <i class="fa {{ t.icon }} me-1"></i>{{ t.phase }}. {{ t.action_label or t.label }}{% if t.note %} · {{ t.note }}{% endif %}</a>
             {% endif %}
           {% endfor %}
         </div>

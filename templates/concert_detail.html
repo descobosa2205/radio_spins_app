@@ -467,6 +467,43 @@
                           <button class="btn btn-sm btn-outline-success">Marcar cobrado</button>
                         </form>
                       {% endif %}
+      {# LOS TRES PUNTITOS de la factura: sustituirla (si se subió la que no
+         era) o eliminarla. ⚠️ Al eliminarla, un pago que estuviera marcado
+         como cobrado vuelve a pendiente: no se puede dar por cobrado sin
+         factura. #}
+      {% if row.has_invoice %}
+        <div class="dropdown d-inline">
+          <button class="btn btn-sm btn-outline-secondary" type="button"
+                  data-bs-toggle="dropdown" data-bs-display="static" title="Más">
+            <i class="fa fa-ellipsis"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><h6 class="dropdown-header">{{ row.invoice_name or 'Factura' }}</h6></li>
+            <li>
+              <a class="dropdown-item" href="{{ row.invoice_url }}" target="_blank" rel="noopener">
+                <i class="fa fa-file-pdf fa-fw me-1"></i>Ver la factura</a>
+            </li>
+            <li>
+              <form method="post" action="{{ url_for('concert_payment_upload_invoice', cid=concert.id, payment_idx=row.idx) }}"
+                    enctype="multipart/form-data" class="invoice-upload-form">
+                <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">
+                <input type="file" name="invoice_file" accept="application/pdf" class="d-none invoice-file-input">
+                <button type="button" class="dropdown-item trigger-invoice-upload">
+                  <i class="fa fa-pen fa-fw me-1"></i>Editar (subir otra)</button>
+              </form>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <form method="post" action="{{ url_for('concert_payment_delete_invoice', cid=concert.id, payment_idx=row.idx) }}">
+                <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">
+                <button class="dropdown-item text-danger"
+                        data-confirm="¿Eliminar la factura de este pago?{% if row.collected_at %} El pago volverá a estar pendiente de cobrar.{% endif %}">
+                  <i class="fa fa-trash fa-fw me-1"></i>Eliminar la factura</button>
+              </form>
+            </li>
+          </ul>
+        </div>
+      {% endif %}
                     </div>
                   </td>
                 </tr>

@@ -3892,6 +3892,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   es un concierto ya no ofrece tipos de concierto: pregunta **«¿Tiene caché?»** (mismo campo
   `sale_type`, valores VENDIDO/GRATUITO, que es lo que el resto de la app espera).
 
+- ⚠️⚠️ **UNA ACTUACIÓN EN UN FESTIVAL ES UN CONCIERTO** (bug real, ago 2026). No es lo mismo:
+  · `Concert.activity_type = 'FESTIVAL'` = **el concierto de nuestro artista DENTRO del festival de
+  otro** → va en el listado de **Conciertos**, con la etiqueta «Festival» al lado del tipo de venta.
+  · un **`CycleFestival`** (kind FESTIVAL/CICLO) = **un festival o ciclo que organizamos NOSOTROS**,
+  que vive en su pestaña y cuyas fechas se enganchan por **`cycle_festival_id`**.
+  Antes el listado de conciertos EXCLUÍA `activity_type='FESTIVAL'` y `_contracting_activity_tabs`
+  mandaba esas actividades a «Festivales y ciclos» solo por el tipo, así que **una actuación en un
+  festival ajeno no salía en ningún listado de contratación**. Ahora la exclusión del listado (y la
+  del recuento de la rejilla de artistas) ya no lleva FESTIVAL, y a «Festivales y ciclos» se va
+  **solo con `cycle_festival_id`** (una fecha de un contenedor nuestro sale en las DOS pestañas, que
+  es correcto: es una fecha del ciclo y es un concierto).
+  ⚠️ La rama de `festivales-ciclos` que filtraba por `activity_type == 'FESTIVAL'` dentro de
+  `contracting_view` es **código muerto** (antes de llegar ahí ya hace `return _render_cycle_festivals()`).
+
+- **FACTURAS DE UN PAGO · tres puntitos con editar y eliminar** (ago 2026): las facturas que se suben
+  en el plan de facturación/cobro (`Concert.payment_terms_json[i]`: `invoice_url`, `invoice_name`,
+  `invoiced_at`) llevan al final un menú **⋯** con **Ver la factura** · **Editar (subir otra)** —
+  reutiliza `concert_payment_upload_invoice`, que sobreescribe— y **Eliminar la factura**
+  (`concert_payment_delete_invoice`). Está en los DOS sitios donde se ven: la pestaña **Facturación**
+  de Contratación (`concerts.html`) y el plan de facturación **dentro de la actividad**
+  (`concert_detail.html`); el menú solo se pinta si hay factura (`row.has_invoice`).
+  ⚠️ Al eliminarla, un pago que estuviera **marcado como cobrado vuelve a pendiente**: la regla de la
+  casa es que no se puede dar por cobrado un pago sin factura, así que dejarlo cobrado y sin factura
+  sería dejarlo diciendo algo que no es. El archivo de Storage no se borra: se suelta el vínculo.
+
 - **Otras actividades · filtros por tipo y listado por sujeto** (ago 2026, `contracting_view` +
   `templates/contratacion.html`): arriba, **etiquetas de TIPO con su icono** (`type_chips` sobre
   `OTHER_ACTIVITY_TYPE_KEYS` = evento promocional · TV · marca · otros, con contador y acumulables

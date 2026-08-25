@@ -187,6 +187,11 @@
         <div class="fw-semibold text-truncate">{{ c.festival_name or (c.artist.name if c.artist else 'Concierto') }}</div>
         <div class="small text-muted text-truncate">{% if not drill_artist and c.artist %}{{ c.artist.name }} · {% endif %}{{ c.location_summary or (c.venue.name if c.venue else 'Sin recinto') }}</div>
       </div>
+      {# Una actuación DENTRO DEL FESTIVAL DE OTRO es un concierto y va en este listado, pero se ve
+         con su etiqueta: no es lo mismo que un festival nuestro (eso es un ciclo/festival aparte). #}
+      {% if (c.activity_type or 'CONCIERTO')|upper == 'FESTIVAL' %}
+        <span class="badge text-bg-light border flex-shrink-0" title="Actuación dentro de un festival"><i class="fa fa-star me-1"></i>Festival</span>
+      {% endif %}
       <span class="badge text-bg-light border flex-shrink-0">{{ c.sale_type_label }}</span>
       {% with cs_id=c.id, cs_status=c.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
     </a>

@@ -3588,6 +3588,8 @@ def _normalize_payment_term(row: dict | None, idx: int = 0) -> dict:
         'badge': badge,
         'can_upload_invoice': status == 'PENDING_INVOICE',
         'can_mark_collected': status == 'PENDING_COLLECTION',
+        # ¿Hay factura subida? Entonces se puede sustituir o eliminar (los tres puntitos).
+        'has_invoice': bool(data.get('invoice_url')),
     }
 
 
@@ -36344,7 +36346,12 @@ def concerts_page():
         if active_tab == "vista":
             q = q.filter(
                 ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
-                ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
+                # ⚠️ FESTIVAL **NO** se excluye: una actividad de tipo festival es el CONCIERTO del
+                # artista DENTRO del festival de otro, así que es un concierto y va en este listado
+                # (con su etiqueta «Festival»). Lo que es nuestro festival o ciclo es un
+                # `CycleFestival` y vive en su pestaña; sus fechas se enganchan por
+                # `cycle_festival_id`, no por el tipo de actividad.
+                ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
                 # Las actividades de un EVENTO viven en su propia pestaña, no aquí.
                 Concert.event_id.is_(None),
             )
@@ -36443,7 +36450,8 @@ def concerts_page():
                 s.query(Concert.artist_id, func.count(Concert.id))
                 .filter(
                     ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
-                    ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
+                    # Mismo criterio que el listado: las de FESTIVAL son conciertos (ver arriba).
+                    ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
                     Concert.event_id.is_(None),      # los eventos tienen su pestaña
                 ).group_by(Concert.artist_id).all()
             )
@@ -38364,6 +38372,45 @@ def concert_payment_upload_invoice(cid, payment_idx):
     except Exception as exc:
         session.rollback()
         flash(f'Error subiendo la factura: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(safe_next_or(url_for('concerts_view', tab='facturacion')))
+
+
+@app.post('/conciertos/<cid>/pagos/<int:payment_idx>/factura/eliminar', endpoint='concert_payment_delete_invoice')
+@admin_required
+def concert_payment_delete_invoice(cid, payment_idx):
+    """ELIMINAR la factura de un pago (por si se subió la que no era).
+
+    ⚠️ Si el pago estaba marcado como COBRADO, se le quita también la marca: la regla de la casa es
+    que no se puede dar por cobrado un pago sin factura, así que dejarlo cobrado y sin factura sería
+    dejar el pago diciendo algo que no es. El archivo en Storage no se borra (puede estar referenciado
+    desde otro sitio); lo que se suelta es el vínculo del pago."""
+    if not (is_master() or can_edit_concerts() or can_view_economics()):
+        return forbid('Tu usuario no tiene permisos para tocar facturas.')
+    session = db()
+    try:
+        concert = session.get(Concert, to_uuid(cid))
+        if not concert:
+            flash('Concierto no encontrado.', 'warning')
+            return redirect(url_for('concerts_view', tab='facturacion'))
+        rows = list(getattr(concert, 'payment_terms_json', None) or [])
+        if payment_idx < 0 or payment_idx >= len(rows):
+            flash('Pago no encontrado.', 'warning')
+            return redirect(safe_next_or(url_for('concerts_view', tab='facturacion')))
+        row = dict(rows[payment_idx] or {})
+        estaba_cobrado = bool(row.get('collected_at'))
+        for k in ('invoice_url', 'invoice_name', 'invoice_original_name', 'invoiced_at'):
+            row.pop(k, None)
+        row.pop('collected_at', None)
+        rows[payment_idx] = row
+        concert.payment_terms_json = rows
+        session.commit()
+        flash('Factura eliminada.%s' % (' El pago vuelve a estar pendiente de cobrar.'
+                                       if estaba_cobrado else ''), 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'No se pudo eliminar la factura: {exc}', 'danger')
     finally:
         session.close()
     return redirect(safe_next_or(url_for('concerts_view', tab='facturacion')))
@@ -55978,12 +56025,15 @@ def _contracting_activity_tabs(c) -> list[str]:
     tabs = []
     if sale == "GIRAS_COMPRADAS" or act == "GIRA" or getattr(c, "purchased_tour_id", None):
         tabs.append("giras-compradas")
-    if act == "FESTIVAL" or getattr(c, "cycle_festival_id", None):
+    # ⚠️ A «Festivales y ciclos» van SOLO las fechas de un contenedor NUESTRO (`cycle_festival_id`).
+    # El tipo de actividad FESTIVAL no basta: eso es el concierto del artista dentro del festival de
+    # OTRO, y por tanto un concierto (bug real: no salía en ningún listado de contratación).
+    if getattr(c, "cycle_festival_id", None):
         tabs.append("festivales-ciclos")
     if act in ("EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"):
         tabs.append("otras-actividades")
     if (sale not in ("GIRAS_COMPRADAS", "CADIZ")
-            and act not in ("FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS")):
+            and act not in ("GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS")):
         tabs.append("conciertos")
     return tabs or ["conciertos"]
 

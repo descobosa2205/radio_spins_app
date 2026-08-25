@@ -22057,9 +22057,12 @@ def disco_project_materials_notify(project_id):
             flash("Primero tiene que estar confirmada la fecha y fijado el plazo de entrega.",
                   "warning")
             return redirect(destino)
+        # ⚠️ A cada destinatario se le identifica por su correo **o por su teléfono**: si solo se
+        # mirara el correo, a quien únicamente tiene móvil (y va por SMS) no se le podría marcar.
         marcados = {x.strip().lower() for x in request.form.getlist("to[]") if (x or "").strip()}
         filas = [f for f in _disco_materials_recipients(session_db, project)
-                 if (not marcados) or ((f.get("email") or "").lower() in marcados)]
+                 if (not marcados) or ((f.get("email") or "").lower() in marcados)
+                 or ((f.get("phone") or "").lower() in marcados)]
         extra = [x.strip() for x in (request.form.get("extra_emails") or "").replace(";", ",").split(",")
                  if x.strip()]
         for correo in extra:

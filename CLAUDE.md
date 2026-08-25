@@ -863,6 +863,22 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   artista) · **plan de lanzamiento** (estrategia, acciones, marketing, promoción, contenidos y
   cronograma, con el OK de dirección y sello y los **recordatorios de publicación**).
 
+- ⚠️⚠️ **EL CORREO DE UN TERCERO ES `contact_email`, NO `email`** (bug real, ago 2026). En
+  `Promoter` los campos son **`contact_email`** y **`contact_phone`**: `p.email` y `p.phone` **no
+  existen**, así que un `getattr(p, "email", "")` devuelve siempre `""` y el aviso **no le llega a
+  nadie sin dar ningún error** (pasó con el plazo de entrega al productor, con la solicitud de portada
+  al tercero y con los correos de los integrantes). Punto único **`_promoter_email_phone(promoter)`**
+  → `(correo, teléfono)`: usarlo SIEMPRE, nunca leer los campos a mano.
+
+- ⚠️⚠️ **UN CALENDARIO CON `kinds: []` SALE VACÍO** (bug real, ago 2026): `agenda_calendar.js` filtra
+  todo lo que pinta con `activeKinds`, que se construye **con la lista `kinds` del payload**. Un
+  payload propio (como el CRONOGRAMA del plan) tiene que emitir los tipos que trae, con su etiqueta,
+  su icono y su color —y el tipo tiene que estar en **`AGENDA_KIND_META` y en `AGENDA_KIND_ORDER`**
+  (por eso existe ahora el tipo **`contenido`**, «Publicaciones»)—.
+  ⚠️ Y una página **standalone** que use el parcial `_agenda_calendar.html` tiene que **cargar
+  `agenda_calendar.js`** a mano: el parcial solo deja el JSON, quien dibuja es el JS (que en las
+  pantallas de dentro viene de `layout.html`).
+
 - **PROYECTO · SUBIR DEMO y la PORTADA, paso a paso** (ago 2026):
   · **Subir demo**: el pop-up es **el mismo formulario** que la sección Demos (`_demo_form_fields.html`
   + `demo_form.js`) con el proyecto ya puesto; la maqueta queda vinculada (**`SongDemo.project_id`**) y

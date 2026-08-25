@@ -126,8 +126,11 @@
           <div class="d-grid gap-2">
             {% for f in materials_recipients %}
               <label class="d-flex align-items-center gap-2 border rounded p-2">
-                <input class="form-check-input m-0" type="checkbox" name="to[]" value="{{ f.email|lower }}" checked
-                       {% if not f.email %}disabled{% endif %}>
+                {# El valor es el correo o, si solo tiene móvil, el teléfono: así también se puede
+                   marcar a quien va por SMS. #}
+                <input class="form-check-input m-0" type="checkbox" name="to[]"
+                       value="{{ (f.email or f.phone)|lower }}" checked
+                       {% if not (f.email or f.phone) %}disabled{% endif %}>
                 <span class="flex-grow-1 min-w-0">
                   <span class="fw-semibold">{{ f.name or f.email or '—' }}</span>
                   <span class="badge text-bg-light border ms-1">{{ f.role }}</span>

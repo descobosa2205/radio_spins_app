@@ -1,0 +1,190 @@
+{# ============================================================================================
+   EL CRONOGRAMA ONLINE: lo que ve quien recibe los recordatorios (el artista, un colaborador, quien
+   lleva digital). A la IZQUIERDA los contenidos con su hora, sus menciones y su copy —que se copian
+   con un clic— y a la DERECHA el calendario. Siempre AL DÍA: se pinta con lo que hay ahora mismo.
+   ⚠️ Standalone (sin layout: lo abre gente de fuera con su token) y **sin nada de editar**: aquí no
+   se arrastra ni se cambia nada.
+   ============================================================================================ #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cronograma de publicaciones · {{ ctx.title }}</title>
+  <meta property="og:title" content="Cronograma de publicaciones · {{ ctx.title }}">
+  <meta property="og:description" content="Las publicaciones del lanzamiento, con su contenido">
+  {% if ctx.cover_url %}<meta property="og:image" content="{{ ctx.cover_url }}">{% endif %}
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4" style="max-width:1180px;">
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-end">
+        {% if ctx.brand and ctx.brand.logo_url %}
+          <img src="{{ ctx.brand.logo_url }}" alt="" style="max-height:56px;max-width:180px;object-fit:contain;">
+        {% endif %}
+      </div>
+      <h1 class="h3 text-center mt-2 mb-4">Cronograma de publicaciones</h1>
+
+      <div class="d-flex align-items-center gap-3 border rounded-3 p-3 bg-white">
+        {% if ctx.cover_url %}
+          <img src="{{ ctx.cover_url }}" alt="" style="width:88px;height:88px;object-fit:cover;border-radius:14px;border:1px solid #e5e7eb;">
+        {% endif %}
+        <div class="min-w-0">
+          <div class="fs-5 fw-bold text-truncate">{{ ctx.title }}</div>
+          <div class="text-muted small">{{ ctx.artist_name }}</div>
+          <div class="mt-1">
+            <span class="badge text-bg-light border">Lanzamiento: {{ ctx.release_label }}</span>
+            <span class="badge text-bg-dark">{{ ctx.badge_label }}</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="mt-3 mb-1">
+        Te compartimos el cronograma de publicaciones para el lanzamiento. Te iremos avisando antes de
+        cada publicación con el contenido que hay que publicar.
+      </p>
+      {% if manager and manager.name %}
+        <p class="text-muted small">
+          Si no quieres recibir los avisos, habla con
+          {% if manager.photo_url %}<img src="{{ manager.photo_url }}" alt="" data-avatar="1"
+               style="width:24px;height:24px;border-radius:50%;object-fit:cover;vertical-align:middle;">{% endif %}
+          <a href="mailto:{{ manager.email }}">{{ manager.name }}</a>.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="row g-3">
+    {# ---- El listado de contenidos: cada uno con su hora, dónde va y lo que hay que copiar ---- #}
+    <div class="col-12 col-lg-5">
+      <div class="card h-100">
+        <div class="card-header bg-white fw-semibold">
+          <i class="fa fa-photo-film me-2 text-muted"></i>Publicaciones
+        </div>
+        <div class="list-group list-group-flush">
+          {% for c in state.contents %}
+            {% if c.active %}
+              <div class="list-group-item">
+                <div class="d-flex align-items-center gap-3">
+                  <button type="button" class="btn p-0 border-0 bg-transparent flex-shrink-0"
+                          data-pdp-open="{{ c.id }}" title="Ver el contenido">
+                    <span class="d-inline-flex align-items-center justify-content-center"
+                          style="width:56px;height:56px;border-radius:10px;overflow:hidden;background:#f3f4f6;">
+                      {% if c.thumb_url %}<img src="{{ c.thumb_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">
+                      {% else %}<i class="fa fa-image text-muted"></i>{% endif %}
+                    </span>
+                  </button>
+                  <div class="flex-grow-1 min-w-0">
+                    <div class="fw-semibold text-truncate">{{ c.title }}</div>
+                    <div class="small text-muted">{{ c.when_label }}</div>
+                    {% if c.networks_label %}<div class="small">{{ c.networks_label }}</div>{% endif %}
+                  </div>
+                  {% if c.file_url %}
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ c.file_url }}" download
+                       title="Descargar el contenido"><i class="fa fa-download"></i></a>
+                  {% endif %}
+                </div>
+                {% if c.copy_text or c.mentions or c.hashtags %}
+                  <div class="mt-2 small">
+                    {% if c.copy_text %}
+                      <div class="border rounded p-2 mb-1" role="button" data-pdp-copy="{{ c.copy_text }}"
+                           title="Pincha para copiar el texto" style="white-space:pre-wrap;cursor:copy;">{{ c.copy_text }}</div>
+                    {% endif %}
+                    {% if c.mentions %}
+                      <div role="button" data-pdp-copy="{{ c.mentions|join(' ') }}" style="cursor:copy;"
+                           title="Pincha para copiar las menciones">
+                        <i class="fa fa-at me-1 text-muted"></i>{{ c.mentions|join(' ') }}</div>
+                    {% endif %}
+                    {% if c.hashtags %}
+                      <div role="button" data-pdp-copy="{{ c.hashtags|join(' ') }}" style="cursor:copy;"
+                           title="Pincha para copiar los hashtags">
+                        <i class="fa fa-hashtag me-1 text-muted"></i>{{ c.hashtags|join(' ') }}</div>
+                    {% endif %}
+                  </div>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% else %}
+            <div class="list-group-item text-muted">Todavía no hay publicaciones en el cronograma.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    {# ---- El calendario ---- #}
+    <div class="col-12 col-lg-7">
+      <div class="card h-100">
+        <div class="card-body">
+          {% import '_agenda_calendar.html' as agenda with context %}
+          {{ agenda.agenda_calendar(agenda_data, 'artist') }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="text-center text-muted small mt-3">{{ ctx.brand.company_name or 'PIES' }}</div>
+</div>
+
+{# El contenido, a tamaño, en un pop-up (con su descarga). #}
+<div class="modal fade" id="pdpView" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" data-pdp-title></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img data-pdp-img src="" alt="" class="img-fluid rounded-3 d-none">
+        <video data-pdp-video src="" controls class="w-100 rounded-3 d-none"></video>
+        <div class="small text-muted mt-2" data-pdp-when></div>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-danger" data-pdp-dl href="#" download><i class="fa fa-download me-1"></i>Descargar</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  /* Los datos de cada contenido, para el pop-up. */
+  var PDP = {{ (state.contents or [])|map(attribute='id')|list|tojson }};
+  var PDP_DATA = {{ (state.contents or [])|tojson }};
+  document.addEventListener('click', function (ev) {
+    // Copiar el copy, las menciones o los hashtags.
+    var cp = ev.target && ev.target.closest('[data-pdp-copy]');
+    if (cp) {
+      var txt = cp.dataset.pdpCopy || '';
+      if (navigator.clipboard) navigator.clipboard.writeText(txt);
+      cp.classList.add('border-success');
+      setTimeout(function () { cp.classList.remove('border-success'); }, 900);
+      return;
+    }
+    // Ver el contenido a tamaño.
+    var b = ev.target && ev.target.closest('[data-pdp-open]');
+    if (!b) return;
+    var id = b.dataset.pdpOpen;
+    var d = (PDP_DATA || []).filter(function (x) { return String(x.id) === String(id); })[0];
+    if (!d) return;
+    var modal = document.getElementById('pdpView');
+    modal.querySelector('[data-pdp-title]').textContent = d.title || 'Contenido';
+    modal.querySelector('[data-pdp-when]').textContent = d.when_label || '';
+    var img = modal.querySelector('[data-pdp-img]');
+    var vid = modal.querySelector('[data-pdp-video]');
+    var esVideo = /\.(mp4|mov|m4v|webm)(\?|$)/i.test(d.file_url || '');
+    img.classList.toggle('d-none', esVideo || !d.file_url);
+    vid.classList.toggle('d-none', !esVideo);
+    if (esVideo) { vid.src = d.file_url || ''; } else { img.src = d.thumb_url || d.file_url || ''; }
+    var dl = modal.querySelector('[data-pdp-dl]');
+    dl.href = d.file_url || '#';
+    dl.classList.toggle('d-none', !d.file_url);
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+  });
+</script>
+</body>
+</html>

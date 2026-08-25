@@ -1,0 +1,317 @@
+{# ============================================================================================
+   POP-UPS del PLAN DE LANZAMIENTO: una acción, un contenido y los recordatorios de publicación.
+   ⚠️ Los de editar se rellenan desde el botón que los abre (`data-dp-action` / `data-dp-content`
+   con el JSON de la fila): así hay UN solo pop-up para añadir y para editar.
+   ============================================================================================ #}
+
+{# ---------------------------------------------------------------- ACCIÓN #}
+<div class="modal fade" id="dpActionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_plan_action_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="action_id" value="" data-dp-field="id">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-list-check me-2 text-danger"></i>Acción del plan</h5>
+          <div class="text-muted small">Si tiene coste, el importe se lleva a la bolsa del proyecto.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Título</label>
+            <input class="form-control" name="title" required data-dp-field="title">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Descripción</label>
+            <textarea class="form-control" name="description" rows="3" data-dp-field="description"></textarea>
+          </div>
+        </div>
+
+        <label class="form-label mt-3">¿Tiene coste?</label>
+        <div class="row g-2">
+          <div class="col-6 col-md-3">
+            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+              <input class="form-check-input visually-hidden" type="radio" name="cost_mode" value="COST"
+                     data-dp-field="cost_mode" data-dp-value="COST">
+              <i class="fa fa-euro-sign d-block fs-3 mb-2 text-dark"></i>
+              <span class="fw-semibold small d-block">Con coste</span>
+            </label>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white is-selected">
+              <input class="form-check-input visually-hidden" type="radio" name="cost_mode" value="NONE" checked
+                     data-dp-field="cost_mode" data-dp-value="NONE">
+              <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
+              <span class="fw-semibold small d-block">Sin coste</span>
+            </label>
+          </div>
+        </div>
+        <div class="row g-3 mt-2" data-dp-when="cost_mode=COST">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Importe sin IVA</label>
+            <input class="form-control" name="amount" inputmode="decimal" placeholder="0,00" data-dp-field="amount">
+          </div>
+        </div>
+
+        <label class="form-label mt-3">¿Cuándo?</label>
+        <div class="row g-2">
+          {% for key, label, icon in plan_action_kinds %}
+            <div class="col-6 col-md-3">
+              <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{{ ' is-selected' if loop.last }}">
+                <input class="form-check-input visually-hidden" type="radio" name="date_kind" value="{{ key }}"
+                       {% if loop.last %}checked{% endif %} data-dp-field="date_kind" data-dp-value="{{ key }}">
+                <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                <span class="fw-semibold small d-block">{{ label }}</span>
+              </label>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="row g-3 mt-2" data-dp-when="date_kind=DATE,RANGE">
+          <div class="col-6 col-md-4">
+            <label class="form-label">Desde</label>
+            <input type="date" class="form-control" name="start_date" data-dp-field="start_date">
+          </div>
+          <div class="col-6 col-md-4" data-dp-when="date_kind=RANGE">
+            <label class="form-label">Hasta</label>
+            <input type="date" class="form-control" name="end_date" data-dp-field="end_date">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- CONTENIDO #}
+<div class="modal fade" id="dpContentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_plan_content_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="content_id" value="" data-dp-field="id">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-photo-film me-2 text-danger"></i>Contenido</h5>
+          <div class="text-muted small">Cuándo se publica, el copy, las menciones y en qué redes.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-8">
+            <label class="form-label">Título</label>
+            <input class="form-control" name="title" required data-dp-field="title">
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="form-label">Día</label>
+            <input type="date" class="form-control" name="publish_date" data-dp-field="date_value">
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="form-label">Hora</label>
+            <input type="time" class="form-control" name="publish_time" data-dp-field="time_value">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Archivo <span class="text-muted">(la miniatura sale de aquí)</span></label>
+            <input class="form-control" type="file" name="file">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Copy</label>
+            <textarea class="form-control" name="copy_text" rows="4" data-dp-field="copy_text"
+                      placeholder="El texto de la publicación"></textarea>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Menciones obligatorias</label>
+            <input class="form-control" name="mentions" data-dp-field="mentions_text"
+                   placeholder="@artista @sello">
+            <div class="form-text">Solo el @, separadas por espacios.</div>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Hashtags obligatorios</label>
+            <input class="form-control" name="hashtags" data-dp-field="hashtags_text"
+                   placeholder="#nuevosingle #artista">
+          </div>
+        </div>
+        <label class="form-label mt-3">¿Dónde se publica?</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% for key, label, icon in content_networks %}
+            <label class="badge text-bg-light border d-inline-flex align-items-center gap-1 p-2" style="cursor:pointer;">
+              <input class="form-check-input m-0" type="checkbox" name="networks[]" value="{{ key }}"
+                     data-dp-net="{{ key }}">
+              <i class="fa-brands {{ icon }}"></i>{{ label }}
+            </label>
+          {% endfor %}
+        </div>
+        <label class="d-flex align-items-center gap-2 mt-3">
+          <input class="form-check-input m-0" type="checkbox" name="inactive" value="1" data-dp-field="inactive">
+          <span>No avisar de este contenido <span class="text-muted small">(se queda en el plan, pero sin recordatorio)</span></span>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- RECORDATORIOS #}
+<div class="modal fade" id="dpRemindersModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_plan_reminders', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-bell me-2 text-danger"></i>Recordatorios de publicación</h5>
+          <div class="text-muted small">
+            Primero sale el cronograma y después un aviso antes de cada publicación.
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-light border small">
+          <i class="fa fa-circle-info me-1"></i>Solo se avisa de los contenidos que estén
+          <strong>subidos</strong> el día de la publicación: de lo que no se puede publicar no se avisa.
+        </div>
+
+        <label class="form-label">¿De qué publicaciones?</label>
+        <div class="d-grid gap-2">
+          {% for c in (plan.contents if plan else []) %}
+            <label class="d-flex align-items-center gap-2 border rounded p-2">
+              <input class="form-check-input m-0" type="checkbox" name="content[]" value="{{ c.id }}"
+                     {% if c.active %}checked{% endif %}>
+              <span class="flex-shrink-0 d-inline-flex align-items-center justify-content-center"
+                    style="width:36px;height:36px;border-radius:8px;overflow:hidden;background:#f3f4f6;">
+                {% if c.thumb_url %}<img src="{{ c.thumb_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">
+                {% else %}<i class="fa fa-image text-muted small"></i>{% endif %}
+              </span>
+              <span class="flex-grow-1 min-w-0">
+                <span class="fw-semibold d-block text-truncate">{{ c.title }}</span>
+                <span class="small text-muted d-block">{{ c.when_label }}{% if c.networks_label %} · {{ c.networks_label }}{% endif %}</span>
+              </span>
+              {% if not c.uploaded %}<span class="badge text-bg-warning text-dark">sin archivo</span>{% endif %}
+            </label>
+          {% endfor %}
+        </div>
+
+        <label class="form-label mt-3">¿A quién se le avisa?</label>
+        <div class="d-grid gap-2">
+          {% for c in (plan_candidates or []) %}
+            <label class="d-flex align-items-center gap-2 border rounded p-2">
+              <input class="form-check-input m-0" type="checkbox" name="to[]"
+                     value="{{ (c.email or c.phone)|lower }}"
+                     {% if c.role in ('ARTISTA', 'DIGITAL') %}checked{% endif %}
+                     {% if not (c.email or c.phone) %}disabled{% endif %}>
+              {% if c.photo_url %}<img src="{{ c.photo_url }}" alt="" data-avatar="1"
+                   style="width:30px;height:30px;border-radius:50%;object-fit:cover;">{% endif %}
+              <span class="flex-grow-1 min-w-0">
+                <span class="fw-semibold">{{ c.name }}</span>
+                <span class="badge text-bg-light border ms-1">{{ c.role|title }}</span>
+                <span class="d-block small text-muted text-truncate">
+                  {{ c.email or 'sin correo' }}{% if c.phone %} · {{ c.phone }}{% endif %}</span>
+              </span>
+            </label>
+          {% endfor %}
+        </div>
+        <div class="row g-3 mt-2">
+          <div class="col-12 col-md-6">
+            <label class="form-label">Otros correos</label>
+            <input class="form-control" name="extra_emails" placeholder="uno@correo.com">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Aviso antes</label>
+            <div class="input-group">
+              <input class="form-control" type="number" min="1" max="1440" name="minutes"
+                     value="{{ (plan.reminder_minutes if plan else 10) }}">
+              <span class="input-group-text">min</span>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">¿Por dónde?</label>
+            <div class="d-flex gap-3">
+              <label class="d-flex align-items-center gap-1">
+                <input class="form-check-input m-0" type="checkbox" name="by_email" value="1"
+                       {% if not plan or plan.reminder_email %}checked{% endif %}> Correo</label>
+              <label class="d-flex align-items-center gap-1">
+                <input class="form-check-input m-0" type="checkbox" name="by_sms" value="1"
+                       {% if plan and plan.reminder_sms %}checked{% endif %}> SMS</label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        {% if plan and plan.reminders %}
+          <button class="btn btn-outline-danger" name="undo" value="1">
+            <i class="fa fa-bell-slash me-1"></i>Desactivar</button>
+        {% else %}<span></span>{% endif %}
+        <span>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger"><i class="fa fa-bell me-1"></i>Activar</button>
+        </span>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# El motor de paneles condicionales (data-dp-when) es el compartido. #}
+<script src="{{ url_for('static', filename='js/disco_steps.js') }}"></script>
+<script>
+/* Rellenar los pop-ups de EDITAR desde el botón que los abre (data-dp-action / data-dp-content), y
+   arrastrar un contenido en el cronograma para cambiarle el día.
+   ⚠️ Todo por DELEGACIÓN: las filas se repintan al guardar. */
+(function () {
+  function rellena(modalSel, datos) {
+    var modal = document.querySelector(modalSel);
+    if (!modal) return;
+    // Texto y fechas.
+    modal.querySelectorAll('[data-dp-field]').forEach(function (el) {
+      var k = el.dataset.dpField;
+      if (el.type === 'radio') { el.checked = (String(datos[k] || '') === el.dataset.dpValue); }
+      else if (el.type === 'checkbox') { el.checked = !!(k === 'inactive' ? (datos.active === false) : datos[k]); }
+      else { el.value = (datos[k] === undefined || datos[k] === null) ? '' : datos[k]; }
+      if (el.type === 'radio' && el.checked) el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    // Menciones y hashtags viajan como texto.
+    var m = modal.querySelector('[data-dp-field="mentions_text"]');
+    if (m) m.value = (datos.mentions || []).join(' ');
+    var h = modal.querySelector('[data-dp-field="hashtags_text"]');
+    if (h) h.value = (datos.hashtags || []).join(' ');
+    // Redes.
+    modal.querySelectorAll('[data-dp-net]').forEach(function (el) {
+      el.checked = (datos.networks || []).indexOf(el.dataset.dpNet) >= 0;
+    });
+    // Las tarjetas visuales se repintan solas con el change del radio.
+    modal.querySelectorAll('.activity-choice-card').forEach(function (card) {
+      var input = card.querySelector('input[type="radio"]');
+      if (input) card.classList.toggle('is-selected', input.checked);
+    });
+  }
+  document.addEventListener('click', function (ev) {
+    var b = ev.target && ev.target.closest('[data-dp-action]');
+    if (b) { try { rellena('#dpActionModal', JSON.parse(b.dataset.dpAction)); } catch (e) {} }
+    var c = ev.target && ev.target.closest('[data-dp-content]');
+    if (c) { try { rellena('#dpContentModal', JSON.parse(c.dataset.dpContent)); } catch (e) {} }
+  });
+  // Al abrir el pop-up con el botón de AÑADIR (sin datos), se limpia.
+  ['#dpActionModal', '#dpContentModal'].forEach(function (sel) {
+    var modal = document.querySelector(sel);
+    if (!modal) return;
+    modal.addEventListener('show.bs.modal', function (ev) {
+      var origen = ev.relatedTarget;
+      if (origen && (origen.dataset.dpAction || origen.dataset.dpContent)) return;
+      var form = modal.querySelector('form');
+      if (form) form.reset();
+      var id = modal.querySelector('[data-dp-field="id"]');
+      if (id) id.value = '';
+    });
+  });
+
+})();
+</script>

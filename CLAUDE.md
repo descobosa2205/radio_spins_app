@@ -863,6 +863,84 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   artista) · **plan de lanzamiento** (estrategia, acciones, marketing, promoción, contenidos y
   cronograma, con el OK de dirección y sello y los **recordatorios de publicación**).
 
+- **PROYECTO · SUBIR DEMO y la PORTADA, paso a paso** (ago 2026):
+  · **Subir demo**: el pop-up es **el mismo formulario** que la sección Demos (`_demo_form_fields.html`
+  + `demo_form.js`) con el proyecto ya puesto; la maqueta queda vinculada (**`SongDemo.project_id`**) y
+  se ve en la ficha de la canción **mientras no haya másters** (`_song_project_demos` +
+  `_disco_project_demo_visible`) — al subirlos desaparece de ahí y se queda en Demos.
+  ⚠️ `discografica_demo_create` acepta ya **`next`**: antes redirigía SIEMPRE a la sección Demos y te
+  sacaba de la pantalla en la que estabas.
+  · **PORTADA** (`DiscoProjectArtwork`, una por proyecto), en cuatro pasos que son subtareas:
+  **1 ¿quién la hace?** (nosotros / el artista / un tercero, con su importe o sin coste) ·
+  **2 la FOTO y la IDEA** (ya la tiene quien diseña · la subimos · una de las **fotos guardadas del
+  artista** · portada de diseño sin foto; con descripción y ejemplos que se acumulan, y el botón para
+  **pedirle al artista su idea** con su propio enlace) · **3 SOLICITARLA** con su fecha máxima
+  (enlace público `public_disco_artwork_upload`, ⚠️ **obligatorio JPG *y* PSD**; si la hacemos
+  nosotros, además le llega a **Diseño** por la campanita) · **4 APROBACIÓN**
+  (`DiscoProjectArtworkApprover`, **un enlace POR PERSONA** como la supervisión de fotos: el artista,
+  sus integrantes y quien se añada). Cuando **la aprueban todos**, `_disco_artwork_apply_to_release`
+  la deja como portada del lanzamiento (`cover_url` + material COVER de la canción); un rechazo se
+  avisa y hay que rehacerla.
+  ⚠️ Los tres enlaces públicos van en las **tres** listas (`allowed`, `PUBLIC_ENDPOINTS_EXTRA`,
+  `_CSRF_EXEMPT_ENDPOINTS`) y sus tokens son **opacos** (`_uuid_token`), no firmados.
+
+- **PROYECTO · OTRAS CREATIVIDADES e IDs de plataforma** (ago 2026):
+  · **Creatividades** (`DiscoProjectCreative` + `DiscoProjectDesignRequest`): se marcan las que hacen
+  falta del catálogo **`DISCO_CREATIVE_CATALOG`** (cabecera de YouTube, imagen de perfil, canvas, «ya
+  disponible», anuncio con fecha, anuncio próximamente), cada una **con su icono y su tamaño**, y las
+  que llevan formatos se eligen ahí (`DISCO_CREATIVE_FORMATS`: post, historia, publicación horizontal,
+  banner). Las de **«Otra»** se añaden a mano (nombre, tamaño, imagen/vídeo/audio y nota, varias a la
+  vez). El encargo va a **Diseño** con su enlace público para subirlas.
+  ⚠️ **La fecha máxima NUNCA puede ser posterior a dos días antes del lanzamiento**
+  (`DISCO_CREATIVE_DEADLINE_MARGIN_DAYS`): lo comprueba el **servidor**, no solo el `max` del campo.
+  ⚠️ Al desmarcar una pieza **solo se borra si estaba PENDIENTE**: lo ya pedido no se tira.
+  · **IDs de plataforma** (`SongPlatformId` + `SongPlatformIdRequest`): módulo nuevo en los
+  **materiales de la canción**, con el logo de cada plataforma (`SONG_PLATFORM_ID_CATALOG`: Spotify,
+  Apple Music, Amazon Music, YouTube y «todas») y el **hueco vertical (9:16) dibujado**, porque son los
+  gráficos tipo historia. Se suben, se marcan **«no necesario»** (y se deshace) o se le **piden al
+  artista** con su enlace público, que lo explica con el mismo dibujo.
+  ⚠️ Los endpoints `song_platform_id*` se mapean a **`discografica.canciones`** (son de la canción).
+
+- **PROYECTO · PLAN DE LANZAMIENTO** (ago 2026): su propia pestaña
+  (`?tab=lanzamiento`, ⚠️ añadida a `DISCO_PROJECT_TABS`: una pestaña que no esté ahí cae en
+  «calendario» sin dar ningún error), con la **estética de las bolsas** (una sección por bocadillo,
+  `.sim-cat-card`): **Estrategia** · **Acciones** · **Marketing** · **Promoción** · **Contenidos** ·
+  **Cronograma**. Modelos `DiscoReleasePlan` + `DiscoReleasePlanAction` + `DiscoReleaseContent`;
+  estado en **`_disco_plan_state`**.
+  · **Acciones**: título, descripción, ¿coste? (importe sin IVA) y fecha, franja o sin fecha. ⚠️ El
+  coste **se lleva a la BOLSA** del proyecto y se mantiene al día en los dos sentidos
+  (`_disco_plan_action_sync_bag`, `bag_expense_id`): si la acción deja de tener coste, el gasto se
+  retira.
+  · **Marketing y Promoción** no se duplican: se enseña **lo que ya está vinculado al LANZAMIENTO**
+  (su canción o su álbum), que es el mismo dato que se ve en Marketing y en Promoción.
+  · **Contenidos**: archivo (de ahí sale la miniatura), día y **hora**, copy, **menciones obligatorias
+  (solo el @)**, hashtags y las **redes** con su logo (`DISCO_CONTENT_NETWORKS`: Instagram post /
+  historia / post compartido, TikTok, Facebook, X, YouTube y Shorts).
+  · **Cronograma**: el calendario de la casa (`_agenda_calendar.html`) con un payload propio
+  (`_disco_plan_agenda`) que junta el lanzamiento, las acciones, el marketing, la promoción y cada
+  contenido con su hora. **Los contenidos se ARRASTRAN** para cambiarles el día (se mantiene la hora):
+  ⚠️⚠️ para eso se generalizó `agenda_calendar.js` — un ítem que traiga **`move_url`** se puede
+  arrastrar y **se guarda en SU endpoint** (`disco_plan_content_move`); **NO** se le pone `item_id`,
+  que es lo que hace que el lateral pinte una papelera que borraría otra cosa (y el doble clic solo
+  abre el pop-up de agenda si el ítem ES de agenda: `esItemAgenda`).
+  · **APROBACIÓN**: la tarea no se cierra hasta que **dirección Y el sello** dan el OK
+  (`disco_plan_ok`; el de dirección solo lo puede dar dirección).
+  · **RECORDATORIOS DE PUBLICACIÓN** (`disco_plan_reminders`): se activan con el plan aprobado.
+  Se elige de **qué publicaciones** (todas marcadas por defecto; desmarcar deja el contenido en el
+  plan pero sin aviso), **a quién** —el ARTISTA por su canal nuevo **CONTENIDOS**, sus integrantes, los
+  **colaboradores**, quien lleve **digital** (departamento «Redes sociales») y correos a mano—, por
+  **correo, SMS o los dos**, y con **cuánta antelación** (10 minutos por defecto). Al activarlos sale
+  el correo del **Cronograma de publicaciones** (con el nombre y la foto del **jefe de producto** para
+  decirle que no quiere recibirlos) y el cron manda el aviso de cada publicación
+  (`_disco_plan_reminder_sweep`, `/cron/publicaciones`).
+  ⚠️ **Solo se avisa de lo que está SUBIDO y activo**: de lo que no se puede publicar no se avisa. Y
+  **una vez** por contenido (`reminder_at`); si se le cambia el día o la hora, ese sello se borra y el
+  aviso se vuelve a programar sobre lo de AHORA. Un contenido **eliminado no se notifica**.
+  · **El cronograma online** (`public_disco_plan`, `/cronograma/<token>`) es lo que ve quien recibe los
+  avisos: a la izquierda las publicaciones con su hora, su copy, sus menciones y sus hashtags —que se
+  **copian con un clic**— y a la derecha el calendario; cada contenido se abre a tamaño y se descarga.
+  Siempre **al día**: se pinta con lo que hay en ese momento.
+
 - **DISCOGRÁFICA · DEMOS** (ago 2026): las maquetas que se están valorando, en su propia sección
   (`/discografica?section=demos`). Modelo **`SongDemo`** (`ensure_song_demos_schema`).
   · Una demo viene **de un artista NUESTRO** (`origin='ARTIST'` + `artist_id`) o **DE FUERA**

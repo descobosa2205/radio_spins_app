@@ -299,18 +299,33 @@
     /* ---- Notas («otro») y BLOQUEOS: se editan con doble clic y se arrastran para cambiar de fecha.
        Lo demás (conciertos, promociones, cumpleaños…) no: eso se cambia en su ficha. ---- */
     function esEditable(a) {
+      // Los ítems de AGENDA (notas y bloqueos) se editan y se arrastran como siempre.
+      if (a && a.item_id && (a.kind === 'otro' || a.kind === 'bloqueo')) return true;
+      // Y además, cualquier ítem que traiga SU PROPIO `move_url`: así un payload ajeno (p. ej. el
+      // CRONOGRAMA del plan de lanzamiento) puede dejar que se arrastren sus cosas sin fingir que son
+      // ítems de agenda. ⚠️ Esos NO tienen `item_id`, así que no se les pinta la papelera ni se
+      // abren en el pop-up de editar (eso se hace en su ficha).
+      return !!(a && a.move_url);
+    }
+
+    // ¿Es un ítem de AGENDA de verdad (con su item_id) o algo de un payload ajeno?
+    function esItemAgenda(a) {
       return !!(a && a.item_id && (a.kind === 'otro' || a.kind === 'bloqueo'));
     }
 
     function preparaEditable(elem, a) {
       if (!esEditable(a)) return elem;
       elem.classList.add('agenda-event--editable');
-      elem.setAttribute('data-agenda-item', a.item_id);
-      elem.setAttribute('title', 'Doble clic para editarlo · arrástralo para cambiar la fecha');
+      if (esItemAgenda(a)) {
+        elem.setAttribute('data-agenda-item', a.item_id);
+        elem.setAttribute('title', 'Doble clic para editarlo · arrástralo para cambiar la fecha');
+      } else {
+        elem.setAttribute('title', 'Arrástralo para cambiar la fecha');
+      }
       elem.draggable = true;
       elem.addEventListener('dragstart', function (ev) {
         arrastrando = a;
-        try { ev.dataTransfer.setData('text/plain', a.item_id); } catch (e) {}
+        try { ev.dataTransfer.setData('text/plain', a.item_id || a.move_url || ''); } catch (e) {}
         if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
         elem.classList.add('is-dragging');
       });
@@ -320,6 +335,7 @@
         root.querySelectorAll('.agenda-cal__day.is-drop').forEach(function (c) { c.classList.remove('is-drop'); });
       });
       elem.addEventListener('dblclick', function (ev) {
+        if (!esItemAgenda(a)) return;      // lo de un payload ajeno se edita en su ficha
         ev.preventDefault();
         abrirEdicion(a);
       });
@@ -637,6 +653,19 @@
 
     function mueveItem(a, nuevoDia) {
       if (!a || !nuevoDia || nuevoDia === (a.item_start || a.date)) return;
+      // ⚠️ Un ítem de un payload AJENO (con su `move_url`) se guarda en SU endpoint: el de la agenda
+      // no sabe nada de él. Al volver, se recarga para verlo con lo que diga el servidor.
+      if (!esItemAgenda(a) && a.move_url) {
+        var fd = new FormData();
+        fd.append('date', nuevoDia);
+        fetch(a.move_url, {
+          method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (r) { return r.json(); }).then(function (d) {
+          if (!d || !d.ok) { alert((d && d.error) || 'No se pudo cambiar la fecha.'); return; }
+          location.reload();
+        }).catch(function () { alert('No se pudo cambiar la fecha.'); });
+        return;
+      }
       guardaItem(a.item_id, { mover: '1', start_date: nuevoDia }).then(function (d) {
         if (!d || !d.ok) { alert((d && d.error) || 'No se pudo cambiar la fecha.'); return; }
         aplicaEnPantalla(a.item_id, d.item);

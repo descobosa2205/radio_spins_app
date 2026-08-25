@@ -245,6 +245,241 @@
   {# LOS POP-UPS de los pasos de audio (fecha, plazo de entrega y producción). #}
   {% if CAN_EDIT and has_audio %}{% include '_disco_project_steps.html' %}{% endif %}
 
+{% elif tab == 'lanzamiento' %}
+  {# ============================================================================================
+     PLAN DE LANZAMIENTO · la tarea clave. Cada sección en su BOCADILLO (la estética de las bolsas):
+     Estrategia · Acciones · Marketing · Promoción · Contenidos · Cronograma.
+     ⚠️ No se da por aprobado hasta que dirección Y el sello dan el OK; entonces se pueden activar
+     los recordatorios de publicación.
+     ============================================================================================ #}
+  {% set st = plan %}
+
+  {# ---- El OK de dirección y del sello, arriba ---- #}
+  <div class="card mb-3 {{ 'border-success' if (st and st.approved) else 'border-warning' }}">
+    <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+      <div class="flex-grow-1">
+        <div class="fw-semibold">
+          <i class="fa fa-rocket me-1 text-danger"></i>Plan de lanzamiento
+          {% if st and st.approved %}
+            <span class="badge text-bg-success ms-1"><i class="fa fa-circle-check me-1"></i>Aprobado</span>
+          {% else %}
+            <span class="badge text-bg-warning text-dark ms-1">Pendiente del OK</span>
+          {% endif %}
+        </div>
+        <div class="small text-muted">
+          Dirección: {% if st and st.ok_direccion %}<strong>{{ st.ok_direccion_by or 'OK' }}</strong>{% else %}pendiente{% endif %}
+          · Sello: {% if st and st.ok_sello %}<strong>{{ st.ok_sello_by or 'OK' }}</strong>{% else %}pendiente{% endif %}
+        </div>
+      </div>
+      {% if CAN_EDIT %}
+        <form method="post" action="{{ url_for('disco_plan_ok', project_id=project.id) }}" class="d-inline">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <input type="hidden" name="which" value="sello">
+          {% if st and st.ok_sello %}<input type="hidden" name="undo" value="1">{% endif %}
+          <button class="btn btn-sm {{ 'btn-outline-secondary' if (st and st.ok_sello) else 'btn-outline-success' }}">
+            <i class="fa fa-{{ 'rotate-left' if (st and st.ok_sello) else 'check' }} me-1"></i>
+            {{ 'Quitar el OK del sello' if (st and st.ok_sello) else 'OK del sello' }}</button>
+        </form>
+      {% endif %}
+      {% if IS_MASTER %}
+        <form method="post" action="{{ url_for('disco_plan_ok', project_id=project.id) }}" class="d-inline">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <input type="hidden" name="which" value="direccion">
+          {% if st and st.ok_direccion %}<input type="hidden" name="undo" value="1">{% endif %}
+          <button class="btn btn-sm {{ 'btn-outline-secondary' if (st and st.ok_direccion) else 'btn-success' }}">
+            <i class="fa fa-{{ 'rotate-left' if (st and st.ok_direccion) else 'check-double' }} me-1"></i>
+            {{ 'Quitar el OK de dirección' if (st and st.ok_direccion) else 'OK de dirección' }}</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---- ESTRATEGIA ---- #}
+  <div class="sim-cat-card mb-3">
+    <div class="sim-cat-card__head"><span><i class="fa fa-chess me-1"></i>Estrategia</span></div>
+    <div class="sim-cat-card__body">
+      <form method="post" action="{{ url_for('disco_plan_save', project_id=project.id) }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <textarea class="form-control" name="strategy_text" rows="5"
+                  placeholder="Cómo se va a lanzar: en qué nos apoyamos, qué se busca, cómo se cuenta…"
+                  {% if not CAN_EDIT %}disabled{% endif %}>{{ (st.strategy_text if st else '') }}</textarea>
+        {% if CAN_EDIT %}
+          <div class="text-end mt-2"><button class="btn btn-sm btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button></div>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  {# ---- ACCIONES ---- #}
+  <div class="sim-cat-card mb-3">
+    <div class="sim-cat-card__head">
+      <span><i class="fa fa-list-check me-1"></i>Acciones</span>
+      {% if CAN_EDIT %}
+        <button type="button" class="btn btn-sm btn-light border" data-bs-toggle="modal" data-bs-target="#dpActionModal">
+          <i class="fa fa-plus me-1"></i>Añadir acción</button>
+      {% endif %}
+    </div>
+    <div class="sim-cat-card__body">
+      {% for a in (st.actions if st else []) %}
+        <div class="d-flex align-items-center gap-3 border rounded p-2 mb-2 flex-wrap">
+          <span class="flex-grow-1 min-w-0">
+            <span class="fw-semibold d-block">{{ a.title }}</span>
+            {% if a.description %}<span class="small text-muted d-block">{{ a.description }}</span>{% endif %}
+          </span>
+          <span class="badge text-bg-light border"><i class="fa fa-calendar-day me-1"></i>{{ a.when_label }}</span>
+          {% if a.cost_mode == 'COST' %}
+            <span class="badge text-bg-light border"><i class="fa fa-euro-sign me-1"></i>{{ a.amount_label }}</span>
+          {% else %}
+            <span class="badge text-bg-light border text-muted">Sin coste</span>
+          {% endif %}
+          {% if CAN_EDIT %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal"
+                    data-bs-target="#dpActionModal" data-dp-action="{{ a|tojson|forceescape }}">
+              <i class="fa fa-pen"></i></button>
+            <form method="post" action="{{ url_for('disco_plan_action_delete', project_id=project.id, action_id=a.id) }}" class="d-inline">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button class="btn btn-sm btn-outline-danger" data-confirm="¿Eliminar esta acción? Si tenía coste, también se quita de la bolsa.">
+                <i class="fa fa-trash"></i></button>
+            </form>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="text-muted small">Todavía no hay acciones.</div>
+      {% endfor %}
+    </div>
+    {% if st and st.actions %}
+      <div class="sim-cat-card__foot">
+        <span class="text-muted">Coste de las acciones <span class="small">(va a la bolsa)</span></span>
+        <span class="fw-semibold">{{ st.total_cost_label }}</span>
+      </div>
+    {% endif %}
+  </div>
+
+  {# ---- MARKETING (lo que ya está vinculado al lanzamiento) ---- #}
+  <div class="sim-cat-card mb-3">
+    <div class="sim-cat-card__head">
+      <span><i class="fa fa-bullhorn me-1"></i>Marketing</span>
+      <a class="btn btn-sm btn-light border" href="{{ (release.url if release else '#') }}">
+        <i class="fa fa-arrow-up-right-from-square me-1"></i>Añadir desde el lanzamiento</a>
+    </div>
+    <div class="sim-cat-card__body">
+      {% for m in (st.marketing if st else []) %}
+        <div class="d-flex align-items-center gap-3 border rounded p-2 mb-2 flex-wrap">
+          <i class="fa fa-bullhorn text-muted"></i>
+          <span class="flex-grow-1 min-w-0">
+            <span class="fw-semibold d-block text-truncate">{{ m.title or m.name or 'Campaña' }}</span>
+            <span class="small text-muted d-block text-truncate">
+              {{ m.subtitle or m.dates_label or '' }}</span>
+          </span>
+          {% if m.status_label %}<span class="badge text-bg-light border">{{ m.status_label }}</span>{% endif %}
+          {% if m.url %}<a class="btn btn-sm btn-outline-secondary" href="{{ m.url }}"><i class="fa fa-arrow-right"></i></a>{% endif %}
+        </div>
+      {% else %}
+        <div class="text-muted small">Sin acciones de marketing vinculadas todavía.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---- PROMOCIÓN (el plan de prensa vinculado) ---- #}
+  <div class="sim-cat-card mb-3">
+    <div class="sim-cat-card__head"><span><i class="fa fa-microphone-lines me-1"></i>Promoción</span></div>
+    <div class="sim-cat-card__body">
+      {% for pr in (st.promos if st else []) %}
+        <div class="d-flex align-items-center gap-3 border rounded p-2 mb-2 flex-wrap">
+          <i class="fa fa-microphone-lines text-muted"></i>
+          <span class="flex-grow-1 min-w-0">
+            <span class="fw-semibold d-block text-truncate">{{ pr.title or 'Promoción' }}</span>
+            <span class="small text-muted d-block text-truncate">{{ pr.subtitle or pr.dates_label or '' }}</span>
+          </span>
+          {% if pr.status_label %}<span class="badge text-bg-light border">{{ pr.status_label }}</span>{% endif %}
+          {% if pr.url %}<a class="btn btn-sm btn-outline-secondary" href="{{ pr.url }}"><i class="fa fa-arrow-right"></i></a>{% endif %}
+        </div>
+      {% else %}
+        <div class="text-muted small">Sin promociones vinculadas todavía.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---- CONTENIDOS ---- #}
+  <div class="sim-cat-card mb-3">
+    <div class="sim-cat-card__head">
+      <span><i class="fa fa-photo-film me-1"></i>Contenidos</span>
+      {% if CAN_EDIT %}
+        <button type="button" class="btn btn-sm btn-light border" data-bs-toggle="modal" data-bs-target="#dpContentModal">
+          <i class="fa fa-plus me-1"></i>Añadir contenido</button>
+      {% endif %}
+    </div>
+    <div class="sim-cat-card__body">
+      {% for c in (st.contents if st else []) %}
+        <div class="d-flex align-items-center gap-3 border rounded p-2 mb-2 flex-wrap {{ '' if c.active else 'opacity-50' }}">
+          <span class="flex-shrink-0 d-inline-flex align-items-center justify-content-center"
+                style="width:54px;height:54px;border-radius:10px;overflow:hidden;background:#f3f4f6;">
+            {% if c.thumb_url %}<img src="{{ c.thumb_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">
+            {% else %}<i class="fa fa-image text-muted"></i>{% endif %}
+          </span>
+          <span class="flex-grow-1 min-w-0">
+            <span class="fw-semibold d-block text-truncate">{{ c.title }}</span>
+            <span class="small text-muted d-block text-truncate">
+              {{ c.when_label }}{% if c.networks_label %} · {{ c.networks_label }}{% endif %}
+              {%- if not c.uploaded %} · <span class="text-danger">falta el archivo</span>{% endif %}
+            </span>
+            {% if c.mentions or c.hashtags %}
+              <span class="small d-block text-truncate">
+                {{ c.mentions|join(' ') }} {{ c.hashtags|join(' ') }}</span>
+            {% endif %}
+          </span>
+          {% if c.uploaded %}<span class="badge text-bg-success">Subido</span>
+          {% else %}<span class="badge text-bg-warning text-dark">Pendiente</span>{% endif %}
+          {% if CAN_EDIT %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal"
+                    data-bs-target="#dpContentModal" data-dp-content="{{ c|tojson|forceescape }}">
+              <i class="fa fa-pen"></i></button>
+            <form method="post" action="{{ url_for('disco_plan_content_delete', project_id=project.id, content_id=c.id) }}" class="d-inline">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button class="btn btn-sm btn-outline-danger"
+                      data-confirm="¿Eliminar este contenido? Si se elimina, no se notifica.">
+                <i class="fa fa-trash"></i></button>
+            </form>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="text-muted small">Todavía no hay contenidos.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---- CRONOGRAMA ---- #}
+  <div class="sim-cat-card mb-3">
+    <div class="sim-cat-card__head">
+      <span><i class="fa fa-calendar-days me-1"></i>Cronograma</span>
+      <span class="d-flex align-items-center gap-2">
+        {% if st and st.public_url %}
+          <a class="btn btn-sm btn-light border" href="{{ st.public_url }}" target="_blank" rel="noopener">
+            <i class="fa fa-arrow-up-right-from-square me-1"></i>Verlo como lo ven ellos</a>
+        {% endif %}
+        {% if CAN_EDIT and st and st.approved %}
+          <button type="button" class="btn btn-sm {{ 'btn-outline-secondary' if st.reminders else 'btn-danger' }}"
+                  data-bs-toggle="modal" data-bs-target="#dpRemindersModal">
+            <i class="fa fa-bell me-1"></i>{{ 'Recordatorios activados' if st.reminders else 'Activar recordatorios' }}</button>
+        {% endif %}
+      </span>
+    </div>
+    <div class="sim-cat-card__body">
+      {% if plan_agenda %}
+        {% import '_agenda_calendar.html' as agenda with context %}
+        {{ agenda.agenda_calendar(plan_agenda, 'artist') }}
+        <div class="form-text mt-2">
+          <i class="fa fa-hand-pointer me-1"></i>Los contenidos con archivo se pueden <strong>arrastrar</strong>
+          a otro día: se les cambia la fecha y se mantiene la hora.
+        </div>
+      {% else %}
+        <div class="text-muted small">Añade fechas y contenidos para ver el cronograma.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if CAN_EDIT %}{% include '_disco_plan_modals.html' %}{% endif %}
+
 {% elif tab == 'informacion' %}
   {# INFORMACIÓN · los datos del proyecto y su lista de temas, editables aquí mismo. #}
   <form method="post" action="{{ url_for('disco_project_update', project_id=project.id) }}">

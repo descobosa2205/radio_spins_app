@@ -1,4 +1,4 @@
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta, datetime, time as dtime
 import os
 import secrets
 import math
@@ -469,7 +469,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     # aprobación): las abre gente de fuera con su token, sin sesión.
     "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval",
     # Subir las creatividades (diseño) y los IDs de plataforma (el artista).
-    "public_disco_creatives", "public_song_platform_ids",
+    "public_disco_creatives", "public_song_platform_ids", "public_disco_plan",
     "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
     "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource",
     "public_caldav_rootdiscovery",
@@ -828,7 +828,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_creatives", "public_song_platform_ids"}
+    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -6676,6 +6676,9 @@ ARTIST_NOTIFICATION_CHANNELS = [
     ("EDITORIAL", "Editorial", "fa-pen-nib"),
     ("PROMOCION", "Promoción", "fa-bullhorn"),
     ("INVITACIONES", "Invitaciones", "fa-envelope-open-text"),
+    # Los avisos de CONTENIDOS y publicaciones (el cronograma del plan de lanzamiento y el
+    # recordatorio de cada publicación).
+    ("CONTENIDOS", "Contenidos y publicaciones", "fa-photo-film"),
 ]
 # Los canales de aviso de una actividad, por si lleva caché o no.
 ACTIVITY_NOTIFICATION_CHANNELS = ("ACTIVIDADES_CACHE", "ACTIVIDADES_SIN_CACHE")
@@ -19293,6 +19296,10 @@ DISCO_PROJECT_TABS = [
     ("calendario", "Calendario", "fa-calendar-days"),
     ("informacion", "Información", "fa-circle-info"),
     ("materiales", "Materiales", "fa-folder-open"),
+    # EL PLAN DE LANZAMIENTO es la tarea clave: estrategia, acciones, marketing, promoción,
+    # contenidos y su cronograma. ⚠️ Una pestaña que no esté en esta lista cae en «calendario» sin
+    # dar ningún error.
+    ("lanzamiento", "Plan de lanzamiento", "fa-rocket"),
     ("bolsa", "Bolsa", "fa-sack-dollar"),
     ("hoja-ruta", "Hoja de ruta", "fa-route"),
 ]
@@ -20448,6 +20455,42 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                       hint=("Faltan en %d tema(s) · se suben o se le piden al artista"
                             % ids["missing"]))
 
+    # ================= AUDIO · paso 7: el PLAN DE LANZAMIENTO (la tarea clave) =================
+    if lleva_audio:
+        plan_st = _disco_plan_state(session_db, project)
+        url_plan = url_for("disco_project_detail", project_id=project.id, tab="lanzamiento")
+        if not plan_st["exists"] or not (plan_st["strategy_text"] or plan_st["actions"]
+                                        or plan_st["contents"]):
+            tarea("plan", "Plan de lanzamiento", url_plan, "fa-rocket", True,
+                  hint="La estrategia, las acciones, los contenidos y su cronograma",
+                  action_label="Empezar el plan")
+        elif not plan_st["approved"]:
+            faltan = []
+            if not plan_st["ok_direccion"]:
+                faltan.append("dirección")
+            if not plan_st["ok_sello"]:
+                faltan.append("el sello")
+            tarea("plan", "Plan de lanzamiento", url_plan, "fa-rocket", True,
+                  hint="Falta el OK de %s" % " y ".join(faltan),
+                  action_label="Ver el plan")
+        else:
+            tarea("plan", "Plan de lanzamiento", url_plan, "fa-rocket", state="done",
+                  value="Aprobado%s%s" % ((" · dirección: %s" % plan_st["ok_direccion_by"])
+                                          if plan_st["ok_direccion_by"] else "",
+                                          (" · sello: %s" % plan_st["ok_sello_by"])
+                                          if plan_st["ok_sello_by"] else ""),
+                  menu=[{"label": "Ver el plan", "icon": "fa-arrow-right", "url": url_plan}])
+            # Aprobado el plan, lo siguiente es activar los recordatorios de publicación.
+            if plan_st["contents"] and not plan_st["reminders"]:
+                tarea("plan_avisos", "Activar recordatorio de publicaciones", url_plan, "fa-bell",
+                      sub=True, action_label="Activar",
+                      hint="Se avisa antes de cada publicación (solo de lo que esté subido)")
+            elif plan_st["reminders"]:
+                tarea("plan_avisos", "Activar recordatorio de publicaciones", url_plan, "fa-bell",
+                      sub=True, state="done",
+                      value="Activados · aviso %d min antes" % plan_st["reminder_minutes"],
+                      menu=[{"label": "Cambiarlos", "icon": "fa-pen", "url": url_plan}])
+
     # ================= AUDIO · la MAQUETA del proyecto =================
     if lleva_audio:
         demo = _disco_project_demo(session_db, project)
@@ -21226,6 +21269,13 @@ def disco_project_detail(project_id):
                          if (tab == "calendario" and _disco_project_has_audio(project)) else [])
         terceros = (session_db.query(Promoter).order_by(Promoter.nick.asc()).all()
                     if tab == "calendario" else [])
+        # PLAN DE LANZAMIENTO: solo se calcula en su pestaña (recorre acciones, contenidos,
+        # marketing y promoción).
+        plan_state = _disco_plan_state(session_db, project) if tab == "lanzamiento" else None
+        plan_agenda = (_disco_plan_agenda(session_db, project, plan_state)
+                       if tab == "lanzamiento" and plan_state else None)
+        plan_gente = (_disco_plan_reminder_candidates(session_db, project, plan_state.get("plan"))
+                      if (tab == "lanzamiento" and plan_state and plan_state.get("exists")) else [])
         # PORTADA: en qué paso va, a quién se le pide la aprobación y las fotos guardadas del artista
         # (para elegir una como foto de portada).
         portada = _disco_artwork_state(session_db, project) if tab == "calendario" else None
@@ -21256,7 +21306,8 @@ def disco_project_detail(project_id):
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
-                          "project_ids",
+                          "project_ids", "plan", "plan_sections", "plan_agenda",
+                          "plan_action_kinds", "content_networks", "plan_candidates",
                           "agenda_data", "release", "release_songs"):
                 bag_ctx.pop(clave, None)
         return render_template(
@@ -21289,6 +21340,12 @@ def disco_project_detail(project_id):
             creative_formats=DISCO_CREATIVE_FORMATS,
             creative_media=DISCO_CREATIVE_MEDIA,
             project_ids=(_disco_project_ids_state(session_db, project) if tab == "calendario" else None),
+            plan=plan_state,
+            plan_sections=DISCO_PLAN_SECTIONS,
+            plan_agenda=plan_agenda,
+            plan_action_kinds=DISCO_PLAN_ACTION_DATE_KINDS,
+            content_networks=DISCO_CONTENT_NETWORKS,
+            plan_candidates=plan_gente,
             artwork_cost_modes=DISCO_ARTWORK_COST_MODES,
             # El pop-up de «Subir demo» usa el MISMO formulario que la sección Demos.
             demo_artists=(session_db.query(Artist).filter(Artist.event_id.is_(None))
@@ -23428,6 +23485,872 @@ def public_song_platform_ids(token):
             return redirect(url_for("public_song_platform_ids", token=token))
         return render_template("public_song_platform_ids.html", song=cancion, artist=artista,
                                rows=filas, req=peticion, brand=_pies_brand_assets(session_db))
+    finally:
+        session_db.close()
+
+
+# =========================================================
+# PLAN DE LANZAMIENTO · la tarea clave del proyecto
+# ---------------------------------------------------------
+# Vive en su propia pestaña, con la estética de las BOLSAS (una sección por bocadillo):
+#   Estrategia · Acciones · Marketing · Promoción · Contenidos · Cronograma
+# ⚠️ No se da por hecho hasta que **dirección Y sello** dan el OK. Y cuando está aprobado aparece la
+# tarea de **activar los recordatorios de publicación**.
+# =========================================================
+DISCO_PLAN_SECTIONS = (
+    ("estrategia", "Estrategia", "fa-chess"),
+    ("acciones", "Acciones", "fa-list-check"),
+    ("marketing", "Marketing", "fa-bullhorn"),
+    ("promocion", "Promoción", "fa-microphone-lines"),
+    ("contenidos", "Contenidos", "fa-photo-film"),
+    ("cronograma", "Cronograma", "fa-calendar-days"),
+)
+DISCO_PLAN_ACTION_DATE_KINDS = (
+    ("DATE", "Un día", "fa-calendar-day"),
+    ("RANGE", "Una franja", "fa-calendar-week"),
+    ("NONE", "Sin fecha concreta", "fa-calendar-xmark"),
+)
+# Las REDES donde se publica un contenido (con su logo).
+DISCO_CONTENT_NETWORKS = (
+    ("IG_POST", "Instagram · Post", "fa-instagram"),
+    ("IG_STORY", "Instagram · Historia", "fa-instagram"),
+    ("IG_SHARED", "Instagram · Post compartido", "fa-instagram"),
+    ("TIKTOK", "TikTok", "fa-tiktok"),
+    ("FACEBOOK", "Facebook", "fa-facebook"),
+    ("X", "X", "fa-x-twitter"),
+    ("YOUTUBE", "YouTube", "fa-youtube"),
+    ("YT_SHORTS", "YouTube Shorts", "fa-youtube"),
+)
+DISCO_CONTENT_NETWORK_LABELS = {k: l for k, l, _i in DISCO_CONTENT_NETWORKS}
+DISCO_PLAN_REMINDER_DEFAULT_MINUTES = 10
+
+
+def _disco_plan(session_db, project, *, create: bool = False):
+    """El plan de lanzamiento del proyecto (uno por proyecto)."""
+    if project is None:
+        return None
+    fila = (session_db.query(DiscoReleasePlan)
+            .filter(DiscoReleasePlan.project_id == project.id).first())
+    if fila is None and create:
+        fila = DiscoReleasePlan(project_id=project.id,
+                               reminder_minutes=DISCO_PLAN_REMINDER_DEFAULT_MINUTES,
+                               public_token=_uuid_token())
+        session_db.add(fila)
+        session_db.flush()
+    return fila
+
+
+def _disco_plan_content_rows(plan) -> list[dict]:
+    """Los CONTENIDOS del plan, listos para pintar (miniatura, cuándo, copy, menciones, redes)."""
+    salida = []
+    for c in (getattr(plan, "contents", None) or []):
+        cuando = c.publish_at
+        salida.append({
+            "id": str(c.id), "title": (c.title or "Contenido"),
+            "description": (c.description or ""),
+            "file_url": (c.file_url or ""), "file_name": (c.file_name or ""),
+            "thumb_url": (c.thumb_url or c.file_url or ""),
+            "uploaded": bool(c.file_url),
+            "publish_at": cuando,
+            "date_value": (cuando.astimezone(TZ_MADRID).strftime("%Y-%m-%d") if cuando else ""),
+            "time_value": (cuando.astimezone(TZ_MADRID).strftime("%H:%M") if cuando else ""),
+            "when_label": (cuando.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if cuando else "Sin fecha"),
+            "copy_text": (c.copy_text or ""),
+            "mentions": list(c.mentions or []),
+            "hashtags": list(c.hashtags or []),
+            "networks": list(c.networks or []),
+            "networks_label": " · ".join([DISCO_CONTENT_NETWORK_LABELS.get(x, x)
+                                          for x in (c.networks or [])]),
+            "active": bool(c.active),
+            "reminder_at": c.reminder_at,
+        })
+    return salida
+
+
+def _disco_plan_state(session_db, project) -> dict:
+    """Todo lo que necesita la pestaña del plan (y su tarea): secciones, aprobación y recordatorios."""
+    plan = _disco_plan(session_db, project)
+    if plan is None:
+        return {"plan": None, "exists": False, "approved": False, "actions": [], "contents": [],
+                "marketing": [], "promos": [], "total_cost": 0, "ok_direccion": False,
+                "ok_sello": False, "reminders": False, "public_url": ""}
+    acciones = []
+    total = Decimal("0")
+    for a in (plan.actions or []):
+        importe = _money_or_zero(a.amount)
+        if (a.cost_mode or "").upper() == "COST":
+            total += importe
+        acciones.append({
+            "id": str(a.id), "title": (a.title or ""), "description": (a.description or ""),
+            "cost_mode": (a.cost_mode or ""), "amount": (a.amount if a.amount is not None else ""),
+            "amount_label": (format_eur(a.amount) if a.amount is not None else ""),
+            "date_kind": (a.date_kind or "NONE"),
+            "start_date": (a.start_date.isoformat() if a.start_date else ""),
+            "end_date": (a.end_date.isoformat() if a.end_date else ""),
+            "when_label": (("%s → %s" % (a.start_date.strftime("%d/%m/%Y"),
+                                          a.end_date.strftime("%d/%m/%Y")))
+                           if (a.date_kind or "").upper() == "RANGE" and a.start_date and a.end_date
+                           else (a.start_date.strftime("%d/%m/%Y") if a.start_date else "Sin fecha")),
+        })
+    # MARKETING y PROMOCIÓN: lo que ya está vinculado al LANZAMIENTO (su canción o su álbum), que es
+    # lo mismo que se ve en Marketing y en Promoción. No se duplica nada: es el mismo dato.
+    release = _disco_project_release(session_db, project)
+    tipo = ("ALBUM" if release.get("kind") == "ALBUM" else "SONG") if release else ""
+    marketing, promos = [], []
+    if release and release.get("id"):
+        try:
+            marketing = _promotion_entity_promotions(session_db, tipo, release["id"])
+            marketing = [_promotion_display_promotion(r) for r in marketing]
+        except Exception:
+            app.logger.exception("[plan] no se pudo leer el marketing del lanzamiento")
+        try:
+            promos = _promo_rows_for_subject(session_db, tipo, release["id"])
+        except Exception:
+            app.logger.exception("[plan] no se pudieron leer las promociones")
+    contenidos = _disco_plan_content_rows(plan)
+    return {
+        "plan": plan, "exists": True,
+        "strategy_text": (plan.strategy_text or ""),
+        "actions": acciones,
+        "total_cost": total,
+        "total_cost_label": format_eur(total),
+        "marketing": marketing,
+        "promos": promos,
+        "contents": contenidos,
+        "contents_uploaded": len([c for c in contenidos if c["uploaded"]]),
+        "ok_direccion": bool(plan.ok_direccion_at),
+        "ok_direccion_by": (plan.ok_direccion_by_nick or ""),
+        "ok_sello": bool(plan.ok_sello_at),
+        "ok_sello_by": (plan.ok_sello_by_nick or ""),
+        "approved": bool(plan.ok_direccion_at and plan.ok_sello_at),
+        "reminders": bool(plan.reminders_enabled),
+        "reminder_minutes": int(plan.reminder_minutes or DISCO_PLAN_REMINDER_DEFAULT_MINUTES),
+        "reminder_email": bool(plan.reminder_email),
+        "reminder_sms": bool(plan.reminder_sms),
+        "reminder_recipients": list(plan.reminder_recipients or []),
+        "public_url": (_external_url_for("public_disco_plan", token=plan.public_token)
+                       if plan.public_token else ""),
+    }
+
+
+def _disco_plan_agenda(session_db, project, plan_state) -> dict:
+    """El CRONOGRAMA: el calendario de la casa con TODO lo del plan (el lanzamiento, las acciones,
+    las promociones, el marketing y cada contenido con su hora).
+
+    ⚠️ Se reutiliza el componente de agenda (`_agenda_calendar.html`) con un payload propio y **sin
+    `artist_id`**: así las flechas se mueven dentro de lo cargado y no se le piden ventanas al
+    servidor (el cronograma son SUS fechas, no la agenda del artista).
+    ⚠️ Y **sin `item_id`** en nada que no sea un ítem de agenda de verdad: ese campo activa en el
+    lateral una papelera que borraría otra cosa."""
+    hoy = today_local()
+    actividades = []
+    fechas = [hoy]
+
+    def añade(dia, kind, titulo, subtitulo="", imagen="", extra=None):
+        if not dia:
+            return
+        fechas.append(dia)
+        fila = {"date": dia.isoformat(), "end_date": dia.isoformat(), "kind": kind,
+                "title": titulo, "subtitle": subtitulo, "artist_id": "plan",
+                "artist_name": _disco_project_title(project)}
+        if imagen:
+            fila["artist_photo"] = imagen
+        if extra:
+            fila.update(extra)
+        actividades.append(fila)
+
+    release = _disco_project_release(session_db, project)
+    portada = (release.get("cover_url") or "") if release else ""
+    if getattr(project, "release_date", None):
+        añade(project.release_date, "lanzamiento", "Lanzamiento · %s" % _disco_project_title(project),
+              "Fecha de publicación", portada)
+    for a in (plan_state.get("actions") or []):
+        dia = _parse_iso_date_safe(a.get("start_date"))
+        if dia:
+            añade(dia, "otro", a.get("title") or "Acción",
+                  " · ".join([x for x in [a.get("amount_label") or "", a.get("description") or ""] if x])[:90])
+    for m in (plan_state.get("marketing") or []):
+        dia = None
+        for clave in ("start_date", "starts_on", "date"):
+            dia = dia or _parse_iso_date_safe(m.get(clave) if isinstance(m, dict) else None)
+        if dia:
+            añade(dia, "promocion", (m.get("title") if isinstance(m, dict) else "") or "Marketing",
+                  "Marketing")
+    for p in (plan_state.get("promos") or []):
+        dia = _parse_iso_date_safe(p.get("start_date") or p.get("date")) if isinstance(p, dict) else None
+        if dia:
+            añade(dia, "promocion", (p.get("title") if isinstance(p, dict) else "") or "Promoción",
+                  "Promoción")
+    for c in (plan_state.get("contents") or []):
+        cuando = c.get("publish_at")
+        if not cuando:
+            continue
+        dia = cuando.astimezone(TZ_MADRID).date()
+        añade(dia, "contenido", c.get("title") or "Contenido",
+              " · ".join([x for x in [cuando.astimezone(TZ_MADRID).strftime("%H:%M"),
+                                      c.get("networks_label") or ""] if x]),
+              c.get("thumb_url") or portada,
+              # ⚠️ `move_url` (y NO `item_id`): con él el calendario deja ARRASTRARLO y lo guarda en
+              # ESE endpoint. Poner `item_id` en algo que no es un ítem de agenda haría que el
+              # lateral pintara una papelera que borraría otra cosa.
+              {"move_url": url_for("disco_plan_content_move", project_id=project.id,
+                                   content_id=c.get("id")),
+               "content_id": c.get("id")})
+    ini, fin = min(fechas), max(fechas)
+    return {"activities": actividades, "artists": [], "kinds": [], "holidays": [],
+            "today": hoy.isoformat(),
+            "start": (ini - timedelta(days=ini.weekday())).isoformat(),
+            "end": (fin + timedelta(days=7)).isoformat()}
+
+
+@app.post("/discografica/proyectos/<project_id>/plan", endpoint="disco_plan_save")
+@admin_required
+def disco_plan_save(project_id):
+    """Guarda la ESTRATEGIA del plan (el resto de secciones tienen su propio endpoint)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="lanzamiento")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        plan = _disco_plan(session_db, project, create=True)
+        plan.strategy_text = (request.form.get("strategy_text") or "").strip() or None
+        plan.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Estrategia guardada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/accion", endpoint="disco_plan_action_save")
+@admin_required
+def disco_plan_action_save(project_id):
+    """Añade o edita una ACCIÓN del plan. Si tiene coste, el importe se lleva a la BOLSA del proyecto
+    (y si se cambia aquí, se actualiza allí)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="lanzamiento")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        plan = _disco_plan(session_db, project, create=True)
+        f = request.form
+        aid = (f.get("action_id") or "").strip()
+        fila = (session_db.get(DiscoReleasePlanAction, to_uuid(aid)) if aid else None)
+        if fila is None:
+            n = len(plan.actions or [])
+            fila = DiscoReleasePlanAction(plan_id=plan.id, position=n)
+            session_db.add(fila)
+        titulo = (f.get("title") or "").strip()
+        if not titulo:
+            flash("Ponle título a la acción.", "warning")
+            return redirect(destino)
+        fila.title = titulo[:250]
+        fila.description = (f.get("description") or "").strip() or None
+        modo = (f.get("cost_mode") or "NONE").strip().upper()
+        fila.cost_mode = ("COST" if modo == "COST" else "NONE")
+        fila.amount = (_parse_optional_decimal(f.get("amount")) if fila.cost_mode == "COST" else None)
+        kind = (f.get("date_kind") or "NONE").strip().upper()
+        fila.date_kind = kind if kind in ("DATE", "RANGE", "NONE") else "NONE"
+        fila.start_date = (parse_optional_date(f.get("start_date")) if fila.date_kind != "NONE" else None)
+        fila.end_date = (parse_optional_date(f.get("end_date")) if fila.date_kind == "RANGE" else None)
+        session_db.flush()
+        _disco_plan_action_sync_bag(session_db, project, fila)
+        session_db.commit()
+        flash("Acción guardada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudo guardar la acción")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_plan_action_sync_bag(session_db, project, fila) -> None:
+    """El coste de una acción del plan va a la BOLSA del proyecto y se mantiene al día.
+
+    ⚠️ Es el MISMO dinero visto desde dos sitios: si se cambia aquí, se cambia el gasto; si la acción
+    deja de tener coste, el gasto se retira."""
+    try:
+        if (fila.cost_mode or "").upper() != "COST" or fila.amount is None:
+            if fila.bag_expense_id:
+                gasto = session_db.get(BagExpense, fila.bag_expense_id)
+                if gasto is not None:
+                    session_db.delete(gasto)
+                fila.bag_expense_id = None
+            return
+        bag = _ensure_project_bag(session_db, project)
+        if bag is None:
+            return
+        gasto = (session_db.get(BagExpense, fila.bag_expense_id) if fila.bag_expense_id else None)
+        if gasto is None:
+            gasto = BagExpense(bag_id=bag.id, category="MARKETING",
+                               created_by_nick=((_current_user_state() or {}).get("nick") or None))
+            session_db.add(gasto)
+            session_db.flush()
+            fila.bag_expense_id = gasto.id
+        gasto.concept = "Plan de lanzamiento · %s" % (fila.title or "acción")
+        gasto.amount_net = fila.amount
+        gasto.amount_gross = fila.amount
+    except Exception:
+        app.logger.exception("[plan] no se pudo sincronizar el gasto de la acción")
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/accion/<action_id>/eliminar",
+          endpoint="disco_plan_action_delete")
+@admin_required
+def disco_plan_action_delete(project_id, action_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        fila = session_db.get(DiscoReleasePlanAction, to_uuid(action_id))
+        if fila is not None:
+            if fila.bag_expense_id:
+                gasto = session_db.get(BagExpense, fila.bag_expense_id)
+                if gasto is not None:
+                    session_db.delete(gasto)
+            session_db.delete(fila)
+            session_db.commit()
+            flash("Acción eliminada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo eliminar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("disco_project_detail", project_id=project_id,
+                                         tab="lanzamiento")))
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/contenido", endpoint="disco_plan_content_save")
+@admin_required
+def disco_plan_content_save(project_id):
+    """Añade o edita un CONTENIDO del plan: su archivo, cuándo se publica (con hora), el copy, las
+    menciones obligatorias (solo el @), los hashtags y en qué redes va."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="lanzamiento")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        plan = _disco_plan(session_db, project, create=True)
+        f = request.form
+        cid = (f.get("content_id") or "").strip()
+        fila = (session_db.get(DiscoReleaseContent, to_uuid(cid)) if cid else None)
+        if fila is None:
+            fila = DiscoReleaseContent(plan_id=plan.id, position=len(plan.contents or []))
+            session_db.add(fila)
+        fila.title = ((f.get("title") or "").strip() or "Contenido")[:250]
+        fila.description = (f.get("description") or "").strip() or None
+        fila.copy_text = (f.get("copy_text") or "").strip() or None
+        # Las MENCIONES se guardan con su @ (y solo el @: ni URLs ni nombres largos).
+        fila.mentions = [("@" + x.strip().lstrip("@")) for x in
+                         (f.get("mentions") or "").replace(",", " ").split() if x.strip().strip("@")]
+        fila.hashtags = [("#" + x.strip().lstrip("#")) for x in
+                         (f.get("hashtags") or "").replace(",", " ").split() if x.strip().strip("#")]
+        fila.networks = [x.strip().upper() for x in f.getlist("networks[]")
+                         if x.strip().upper() in DISCO_CONTENT_NETWORK_LABELS]
+        dia = parse_optional_date(f.get("publish_date"))
+        hora = (f.get("publish_time") or "").strip()
+        if dia:
+            try:
+                hh, mm = [int(x) for x in (hora or "12:00").split(":")[:2]]
+            except Exception:
+                hh, mm = 12, 0
+            fila.publish_at = datetime.combine(dia, dtime(hour=hh, minute=mm), tzinfo=TZ_MADRID)
+        elif not cid:
+            fila.publish_at = None
+        fs = request.files.get("file")
+        if fs and getattr(fs, "filename", ""):
+            try:
+                fila.file_url = upload_file(fs, "disco_contents")
+                fila.file_name = fs.filename
+                # Miniatura: si es imagen, la propia imagen.
+                if (fs.mimetype or "").startswith("image/"):
+                    fila.thumb_url = fila.file_url
+            except Exception as exc:
+                flash("No se pudo subir el contenido: %s" % exc, "warning")
+        fila.active = not _truthy(f.get("inactive"))
+        session_db.commit()
+        flash("Contenido guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudo guardar el contenido")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/contenido/<content_id>/eliminar",
+          endpoint="disco_plan_content_delete")
+@admin_required
+def disco_plan_content_delete(project_id, content_id):
+    """Elimina un contenido. ⚠️ Si se elimina, **no se notifica**: deja de existir para todos."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        fila = session_db.get(DiscoReleaseContent, to_uuid(content_id))
+        if fila is not None:
+            session_db.delete(fila)
+            session_db.commit()
+            flash("Contenido eliminado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo eliminar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("disco_project_detail", project_id=project_id,
+                                         tab="lanzamiento")))
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/contenido/<content_id>/mover",
+          endpoint="disco_plan_content_move")
+@admin_required
+def disco_plan_content_move(project_id, content_id):
+    """ARRASTRAR un contenido en el cronograma: le cambia el DÍA y le deja la hora que tenía.
+
+    Responde JSON (lo llama el calendario sin recargar)."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
+    try:
+        fila = session_db.get(DiscoReleaseContent, to_uuid(content_id))
+        if fila is None:
+            return jsonify({"ok": False, "error": "Ese contenido ya no existe."}), 404
+        dia = parse_optional_date((request.form.get("date") or request.json.get("date")
+                                   if request.is_json else request.form.get("date")))
+        if not dia:
+            return jsonify({"ok": False, "error": "Falta la fecha."}), 400
+        antigua = fila.publish_at
+        hora = (antigua.astimezone(TZ_MADRID).time() if antigua else dtime(hour=12, minute=0))
+        fila.publish_at = datetime.combine(dia, hora, tzinfo=TZ_MADRID)
+        # ⚠️ Si se mueve, el recordatorio se recalcula sobre la fecha NUEVA (se borra el enviado).
+        fila.reminder_at = None
+        session_db.commit()
+        return jsonify({"ok": True, "when": fila.publish_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudo mover el contenido")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/ok", endpoint="disco_plan_ok")
+@admin_required
+def disco_plan_ok(project_id):
+    """El OK de DIRECCIÓN o del SELLO al plan. ⚠️ Hacen falta LOS DOS para darlo por aprobado."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="lanzamiento")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        plan = _disco_plan(session_db, project, create=True)
+        cual = (request.form.get("which") or "").strip().lower()
+        estado = _current_user_state() or {}
+        quien = (estado.get("nick") or estado.get("email") or "")
+        deshacer = _truthy(request.form.get("undo"))
+        if cual == "direccion":
+            if not is_master():
+                return forbid("El OK de dirección solo lo puede dar dirección.")
+            plan.ok_direccion_at = (None if deshacer else _now_madrid())
+            plan.ok_direccion_by_nick = (None if deshacer else quien)
+        elif cual == "sello":
+            if not (is_master() or can_edit_discografica()):
+                return forbid("El OK del sello lo da el sello.")
+            plan.ok_sello_at = (None if deshacer else _now_madrid())
+            plan.ok_sello_by_nick = (None if deshacer else quien)
+        else:
+            flash("No sé de quién es el OK.", "warning")
+            return redirect(destino)
+        plan.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Anotado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo anotar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+# ---------------------------------------------------------
+# RECORDATORIOS DE PUBLICACIÓN del plan de lanzamiento
+# ---------------------------------------------------------
+# Se activan cuando el plan está aprobado. Primero sale UN correo (o SMS) con el CRONOGRAMA y, después,
+# un aviso antes de cada publicación con el contenido listo para copiar y pegar.
+# ⚠️ Solo se avisa de lo que **está subido** y sigue **activo**: no se recuerda algo que no se puede
+# publicar. Y si se cambia la fecha o la hora, el aviso se recalcula sobre lo de AHORA.
+def _disco_plan_reminder_candidates(session_db, project, plan) -> list[dict]:
+    """A QUIÉN se le pueden mandar los recordatorios de publicación.
+
+    · el ARTISTA, por su canal de **CONTENIDOS** (y si no lo tiene configurado, por el discográfico),
+    · los COLABORADORES (los demás intérpretes del lanzamiento) y los integrantes del artista,
+    · quien lleve **digital** en la oficina (departamento «Redes sociales»),
+    · y quien se añada a mano."""
+    salida, vistos = [], set()
+
+    def añade(nombre, correo, telefono, papel, foto=""):
+        clave = (correo or "").strip().lower() or (telefono or "").strip()
+        if not clave or clave in vistos:
+            return
+        vistos.add(clave)
+        salida.append({"name": (nombre or "").strip() or (correo or telefono or ""),
+                       "email": (correo or "").strip(), "phone": (telefono or "").strip(),
+                       "role": papel, "photo_url": (foto or "")})
+
+    artista = getattr(project, "artist", None) or (
+        session_db.get(Artist, project.artist_id) if project.artist_id else None)
+    if artista is not None:
+        filas = (_artist_notification_recipients(session_db, artista.id, "CONTENIDOS", fallback=False)
+                 or _artist_notification_recipients(session_db, artista.id, "DISCOGRAFICA") or [])
+        for f in filas:
+            añade(f.get("name") or artista.name, f.get("email"), f.get("phone"), "ARTISTA",
+                  (artista.photo_url or ""))
+        try:
+            for persona in (session_db.query(ArtistPerson)
+                            .filter(ArtistPerson.artist_id == artista.id).all()):
+                p = (session_db.get(Promoter, persona.promoter_id) if persona.promoter_id else None)
+                añade(_artist_person_full_name(persona), (getattr(p, "email", "") or ""),
+                      (getattr(p, "phone", "") or ""), "INTEGRANTE", (getattr(p, "logo_url", "") or ""))
+        except Exception:
+            app.logger.exception("[plan] integrantes del artista")
+    # COLABORADORES: los otros intérpretes del lanzamiento.
+    try:
+        release = _disco_project_release(session_db, project)
+        if release and release.get("kind") == "SONG":
+            cancion = session_db.get(Song, to_uuid(release["id"]))
+            for fila in _song_interpreter_rows_map(session_db, [cancion.id]).get(str(cancion.id), []) if cancion else []:
+                nombre = (fila.get("name") or "").strip()
+                if nombre and nombre != getattr(artista, "name", ""):
+                    añade(nombre, fila.get("email") or "", "", "COLABORADOR", fila.get("photo_url") or "")
+    except Exception:
+        app.logger.exception("[plan] colaboradores del lanzamiento")
+    # DIGITAL de la casa (departamento «Redes sociales»).
+    try:
+        for uid in _department_user_ids(session_db, "Redes sociales"):
+            prof = (session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(uid)).first())
+            u = session_db.get(User, to_uuid(uid))
+            añade((getattr(prof, "nick", "") or getattr(u, "email", "")), getattr(u, "email", ""),
+                  _user_sms_phone(prof) if "_user_sms_phone" in globals() else "", "DIGITAL",
+                  (getattr(prof, "photo_url", "") or ""))
+    except Exception:
+        app.logger.exception("[plan] personal de digital")
+    return _notify_apply_prefs(session_db, salida)
+
+
+def _disco_plan_content_email_html(session_db, project, plan, contenido, *, intro: bool = False,
+                                   contents=None, jefe=None) -> str:
+    """Los correos de los recordatorios.
+
+    · `intro=True` → **Cronograma de publicaciones**: la cabecera del lanzamiento, el texto de la
+      casa, con quién hablar para no recibirlos (el jefe de producto, con su foto) y el cronograma
+      entero, con el botón que lleva a verlo online.
+    · si no → **Aviso de publicación**: «es el momento de publicar», con la miniatura, el copy, las
+      menciones y los hashtags listos para copiar."""
+    ctx = _disco_project_email_ctx(session_db, project)
+    esc = lambda v: html.escape("" if v is None else str(v))
+    marca = ctx.get("brand") or {}
+    logo = _absolute_media_url(marca.get("logo_url") or "")
+    logo_html = ("" if not logo else
+                 '<div style="text-align:right;"><img src="%s" alt="" '
+                 'style="max-height:56px;max-width:180px;object-fit:contain;"></div>' % esc(logo))
+    portada = _absolute_media_url(ctx.get("cover_url") or "")
+    cabecera = ('<div style="margin:16px 0;border:1px solid #e5e7eb;border-radius:16px;padding:16px;'
+                'background:#fcfcfd;"><table role="presentation" cellspacing="0" cellpadding="0"><tr>'
+                + ("" if not portada else
+                   '<td width="110" valign="top"><img src="%s" alt="" style="width:92px;height:92px;'
+                   'object-fit:cover;border-radius:12px;border:1px solid #e5e7eb;"></td>' % esc(portada))
+                + '<td valign="top" style="%s"><div style="font-size:20px;font-weight:700;">%s</div>'
+                  '<div style="font-size:14px;color:#4b5563;margin-top:6px;">%s · %s</div></td>'
+                  '</tr></table></div>'
+                % (("padding-left:14px;" if portada else ""), esc(ctx.get("title")),
+                   esc(ctx.get("artist_name")), esc(ctx.get("release_label"))))
+    url_publico = (_external_url_for("public_disco_plan", token=plan.public_token)
+                   if getattr(plan, "public_token", None) else "")
+    if intro:
+        filas = []
+        for c in (contents or []):
+            filas.append(
+                '<tr><td style="padding:8px 10px 8px 0;font-size:14px;white-space:nowrap;">%s</td>'
+                '<td style="padding:8px 0;font-size:14px;">%s<div style="color:#6b7280;font-size:13px;">%s</div></td></tr>'
+                % (esc(c.get("when_label")), esc(c.get("title")), esc(c.get("networks_label"))))
+        jefe_html = ""
+        if jefe:
+            jefe_html = ('<div style="margin:14px 0;font-size:14px;color:#374151;">Si no quieres '
+                         'recibir los avisos, habla con <a href="mailto:%s" style="color:#E33D48;'
+                         'font-weight:700;text-decoration:none;">%s</a>.</div>'
+                         % (esc(jefe.get("email") or ""), esc(jefe.get("name") or "")))
+        cuerpo = ('<div style="font-size:20px;font-weight:700;margin:0 0 10px;">Cronograma de publicaciones</div>'
+                  '<p style="font-size:15px;line-height:1.7;">Te compartimos el cronograma de '
+                  'publicaciones para el lanzamiento. Te iremos avisando antes de cada publicación '
+                  'con el contenido que hay que publicar.</p>' + jefe_html
+                  + '<table style="border-collapse:collapse;width:100%%;">%s</table>' % "".join(filas))
+        titulo = "Cronograma de publicaciones"
+        boton = ("" if not url_publico else
+                 '<div style="margin-top:22px;text-align:right;"><a href="%s" '
+                 'style="display:inline-block;padding:13px 22px;border-radius:999px;background:#E33D48;'
+                 'color:#fff;font-weight:700;text-decoration:none;">Ver el cronograma</a></div>'
+                 % esc(url_publico))
+    else:
+        mini = _absolute_media_url(contenido.get("thumb_url") or "")
+        detalle = []
+        if contenido.get("copy_text"):
+            detalle.append('<div style="margin-top:10px;"><strong>Copy:</strong><div style="white-space:pre-wrap;">%s</div></div>'
+                           % esc(contenido["copy_text"]))
+        if contenido.get("mentions"):
+            detalle.append('<div style="margin-top:8px;"><strong>Menciones:</strong> %s</div>'
+                           % esc(" ".join(contenido["mentions"])))
+        if contenido.get("hashtags"):
+            detalle.append('<div style="margin-top:8px;"><strong>Hashtags:</strong> %s</div>'
+                           % esc(" ".join(contenido["hashtags"])))
+        if contenido.get("networks_label"):
+            detalle.append('<div style="margin-top:8px;"><strong>Dónde:</strong> %s</div>'
+                           % esc(contenido["networks_label"]))
+        cuerpo = ('<div style="font-size:20px;font-weight:700;margin:0 0 10px;">Es el momento de publicar</div>'
+                  '<table role="presentation" cellspacing="0" cellpadding="0" style="width:100%%;"><tr>'
+                  + ("" if not mini else
+                     '<td width="130" valign="top"><a href="%s"><img src="%s" alt="" '
+                     'style="width:112px;height:112px;object-fit:cover;border-radius:12px;'
+                     'border:1px solid #e5e7eb;"></a></td>' % (esc(contenido.get("file_url") or mini), esc(mini)))
+                  + '<td valign="top" style="%s"><div style="font-size:17px;font-weight:700;">%s</div>'
+                    '<div style="color:#6b7280;font-size:13px;">%s</div>%s</td></tr></table>'
+                  % (("padding-left:14px;" if mini else ""), esc(contenido.get("title")),
+                     esc(contenido.get("when_label")), "".join(detalle)))
+        titulo = "Aviso de publicación"
+        boton = ("" if not contenido.get("file_url") else
+                 '<div style="margin-top:22px;text-align:right;"><a href="%s" '
+                 'style="display:inline-block;padding:13px 22px;border-radius:999px;background:#E33D48;'
+                 'color:#fff;font-weight:700;text-decoration:none;">Descargar el contenido</a></div>'
+                 % esc(contenido["file_url"]))
+    return """
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:720px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:24px 30px;">
+        %s
+        <div style="margin-top:10px;font-size:24px;font-weight:700;text-align:center;">%s</div>
+        %s
+        %s
+        %s
+      </div>
+    </div>
+    """ % (logo_html, esc(titulo), cabecera, cuerpo, boton)
+
+
+def _disco_plan_product_manager(session_db, project) -> dict:
+    """El JEFE DE PRODUCTO del artista (quien del SELLO lo lleva): es a quien se le dice que hable si
+    no quiere recibir los avisos."""
+    try:
+        for prof in session_db.query(UserProfile).all():
+            asignados = [str(x) for x in (getattr(prof, "assigned_artist_ids_sello", None) or [])]
+            if str(project.artist_id) in asignados:
+                u = session_db.get(User, prof.user_id)
+                return {"name": (prof.nick or getattr(u, "email", "") or ""),
+                        "email": (getattr(u, "email", "") or ""),
+                        "photo_url": (prof.photo_url or "")}
+    except Exception:
+        app.logger.exception("[plan] no se pudo resolver el jefe de producto")
+    return {}
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/recordatorios", endpoint="disco_plan_reminders")
+@admin_required
+def disco_plan_reminders(project_id):
+    """ACTIVA (o cambia) los recordatorios de publicación: a quién, por dónde y con cuánta antelación.
+
+    Al activarlos sale el correo del CRONOGRAMA; los avisos de cada publicación los manda el cron."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="lanzamiento")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        plan = _disco_plan(session_db, project, create=True)
+        f = request.form
+        if _truthy(f.get("undo")):
+            plan.reminders_enabled = False
+            session_db.commit()
+            flash("Recordatorios desactivados.", "success")
+            return redirect(safe_next_or(destino))
+        if not (plan.ok_direccion_at and plan.ok_sello_at):
+            flash("El plan tiene que estar aprobado por dirección y por el sello.", "warning")
+            return redirect(destino)
+        # A QUIÉN: lo marcado de los candidatos + los correos escritos a mano.
+        marcados = {x.strip().lower() for x in f.getlist("to[]") if (x or "").strip()}
+        gente = [c for c in _disco_plan_reminder_candidates(session_db, project, plan)
+                 if (c.get("email") or "").lower() in marcados or (c.get("phone") or "") in marcados]
+        for correo in [x.strip() for x in (f.get("extra_emails") or "").replace(";", ",").split(",")
+                       if x.strip()]:
+            gente.append({"name": "", "email": correo, "phone": "", "role": "OTRO",
+                          "channel": "EMAIL"})
+        if not gente:
+            flash("Marca a quién se le avisa.", "warning")
+            return redirect(destino)
+        try:
+            minutos = max(1, min(1440, int((f.get("minutes") or DISCO_PLAN_REMINDER_DEFAULT_MINUTES))))
+        except Exception:
+            minutos = DISCO_PLAN_REMINDER_DEFAULT_MINUTES
+        plan.reminder_minutes = minutos
+        plan.reminder_email = _truthy(f.get("by_email")) or not _truthy(f.get("by_sms"))
+        plan.reminder_sms = _truthy(f.get("by_sms"))
+        plan.reminder_recipients = [{"name": c.get("name") or "", "email": c.get("email") or "",
+                                     "phone": c.get("phone") or "", "role": c.get("role") or "",
+                                     "channel": (c.get("channel") or "EMAIL")} for c in gente]
+        plan.reminders_enabled = True
+        # Los contenidos que NO se quieren avisar se desactivan (se pueden volver a activar).
+        avisar = {x.strip() for x in f.getlist("content[]") if (x or "").strip()}
+        for c in (plan.contents or []):
+            c.active = (str(c.id) in avisar) if avisar else True
+        if not plan.public_token:
+            plan.public_token = _uuid_token()
+        session_db.flush()
+        # El primer correo: el CRONOGRAMA.
+        contenidos = [c for c in _disco_plan_content_rows(plan) if c["active"]]
+        jefe = _disco_plan_product_manager(session_db, project)
+        cuerpo = _disco_plan_content_email_html(session_db, project, plan, None, intro=True,
+                                                contents=contenidos, jefe=jefe)
+        asunto = "Recordatorio publicaciones · %s" % _disco_project_title(project)
+        sms = ("Cronograma de publicaciones de %s: %s"
+               % (_disco_project_title(project),
+                  _external_url_for("public_disco_plan", token=plan.public_token)))
+        salieron = []
+        for c in gente:
+            fila = dict(c)
+            if plan.reminder_sms and not plan.reminder_email:
+                fila["channel"] = "SMS"
+            elif plan.reminder_email and not plan.reminder_sms:
+                fila["channel"] = "EMAIL"
+            ok, _err = _notify_send_row(session_db, fila, subject=asunto, html=cuerpo,
+                                        sms_text=sms, kind="DISCOGRAFICA")
+            if ok:
+                salieron.append(fila.get("name") or fila.get("email") or fila.get("phone"))
+            # Con las DOS marcadas se manda por los dos canales.
+            if plan.reminder_email and plan.reminder_sms and (fila.get("channel") or "") != "SMS":
+                otra = dict(fila, channel="SMS")
+                _notify_send_row(session_db, otra, subject=asunto, html=cuerpo, sms_text=sms,
+                                 kind="DISCOGRAFICA")
+        plan.reminders_intro_at = _now_madrid()
+        session_db.commit()
+        flash("Recordatorios activados%s." % ((" · avisados %s" % ", ".join([str(x) for x in salieron]))
+                                              if salieron else ""), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudieron activar los recordatorios")
+        flash("No se pudo activar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_plan_reminder_sweep() -> dict:
+    """El aviso de CADA PUBLICACIÓN, `reminder_minutes` antes de su hora.
+
+    ⚠️ Solo de lo que está **subido** y **activo** (no se avisa de algo que no se puede publicar) y
+    **una vez** por contenido (`reminder_at`). Si se le cambia la fecha o la hora, ese sello se borra
+    y el aviso se vuelve a programar sobre lo de AHORA."""
+    session_db = db()
+    salida = {"mirados": 0, "avisos": 0}
+    try:
+        ahora = _now_madrid()
+        planes = (session_db.query(DiscoReleasePlan)
+                  .filter(DiscoReleasePlan.reminders_enabled.is_(True)).all())
+        for plan in planes:
+            project = session_db.get(DiscoProject, plan.project_id)
+            if project is None:
+                continue
+            gente = list(plan.reminder_recipients or [])
+            if not gente:
+                continue
+            for c in (plan.contents or []):
+                salida["mirados"] += 1
+                if not (c.active and c.file_url and c.publish_at) or c.reminder_at:
+                    continue
+                cuando = c.publish_at
+                if cuando.tzinfo is None:
+                    cuando = cuando.replace(tzinfo=TZ_MADRID)
+                falta = (cuando - ahora).total_seconds() / 60.0
+                if falta > (plan.reminder_minutes or DISCO_PLAN_REMINDER_DEFAULT_MINUTES):
+                    continue          # todavía no toca
+                if falta < -120:
+                    continue          # ya pasó hace rato: no se avisa de algo que ya tocaba
+                fila = [x for x in _disco_plan_content_rows(plan) if str(x["id"]) == str(c.id)]
+                if not fila:
+                    continue
+                cuerpo = _disco_plan_content_email_html(session_db, project, plan, fila[0])
+                asunto = "Es el momento de publicar · %s" % (c.title or "contenido")
+                sms = "Toca publicar «%s». %s %s" % (
+                    (c.title or "contenido"),
+                    " ".join(list(c.mentions or [])[:4]), " ".join(list(c.hashtags or [])[:4]))
+                alguno = False
+                for destinatario in gente:
+                    ok, _err = _notify_send_row(session_db, dict(destinatario), subject=asunto,
+                                                html=cuerpo, sms_text=sms, kind="DISCOGRAFICA")
+                    alguno = alguno or bool(ok)
+                if alguno:
+                    c.reminder_at = _now_madrid()
+                    salida["avisos"] += 1
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[plan] barrido de recordatorios de publicación")
+    finally:
+        session_db.close()
+    return salida
+
+
+@app.get("/cron/publicaciones", endpoint="cron_disco_plan_reminders")
+def cron_disco_plan_reminders():
+    """Cron de los recordatorios de publicación (conviene que corra cada pocos minutos: los avisos
+    van con `reminder_minutes` de antelación)."""
+    clave = (request.args.get("key") or "").strip()
+    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
+                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
+    if not esperada or clave != esperada:
+        abort(404)
+    return jsonify({"ok": True, **_disco_plan_reminder_sweep()})
+
+
+@app.get("/cronograma/<token>", endpoint="public_disco_plan")
+def public_disco_plan(token):
+    """El CRONOGRAMA online: lo que ve quien recibe los recordatorios.
+
+    A la izquierda los contenidos con su hora, sus menciones y su copy (se copian con un clic) y a la
+    derecha el calendario. Siempre **al día**: se pinta con lo que hay ahora mismo."""
+    session_db = db()
+    try:
+        plan = (session_db.query(DiscoReleasePlan)
+                .filter(DiscoReleasePlan.public_token == (token or "").strip()).first())
+        if plan is None:
+            abort(404)
+        project = session_db.get(DiscoProject, plan.project_id)
+        if project is None:
+            abort(404)
+        estado = _disco_plan_state(session_db, project)
+        return render_template("public_disco_plan.html",
+                               ctx=_disco_project_email_ctx(session_db, project),
+                               project=project, plan=plan, state=estado,
+                               agenda_data=_disco_plan_agenda(session_db, project, estado),
+                               manager=_disco_plan_product_manager(session_db, project))
     finally:
         session_db.close()
 
@@ -56797,7 +57720,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_creatives", "public_song_platform_ids", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_creatives", "public_song_platform_ids", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -57256,8 +58179,13 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "discografica.demos"
     if endpoint.startswith("playlist_") and endpoint != "playlisting_view":
         return "discografica.playlists"
-    if endpoint.startswith("disco_project"):
+    if endpoint.startswith("disco_project") or endpoint.startswith("disco_plan"):
+        # ⚠️ El PLAN DE LANZAMIENTO son endpoints `disco_plan_*`, fuera del prefijo `disco_project_`:
+        # sin nombrarlos aquí, un POST suyo solo lo pasaría dirección.
         return "discografica.proyectos"
+    if endpoint.startswith("song_platform_id"):
+        # Los IDs de plataforma son un módulo de los materiales de la CANCIÓN.
+        return "discografica.canciones"
     # Integraciones: Pleo, Cabify, Holded y Chartmetric se configuran ahí (y sus endpoints exigen
     # además dirección o la edición de su sección).
     if (endpoint.startswith("holded_") or endpoint.startswith("pleo_")
@@ -57852,8 +58780,13 @@ def _resolve_request_resource_key() -> str | None:
         return "discografica.playlists"
     # Proyectos discográficos (sus endpoints se llaman `disco_project_*`, fuera del prefijo
     # `discografica_`: sin esto caerían en la sección y no se podrían conceder sueltos).
-    if endpoint.startswith("disco_project"):
+    if endpoint.startswith("disco_project") or endpoint.startswith("disco_plan"):
+        # ⚠️ El PLAN DE LANZAMIENTO son endpoints `disco_plan_*`, fuera del prefijo `disco_project_`:
+        # sin nombrarlos aquí, un POST suyo solo lo pasaría dirección.
         return "discografica.proyectos"
+    if endpoint.startswith("song_platform_id"):
+        # Los IDs de plataforma son un módulo de los materiales de la CANCIÓN.
+        return "discografica.canciones"
     if endpoint == "discografica_song_detail":
         tab = (request.args.get("tab") or "informacion").strip().lower()
         mapping = {

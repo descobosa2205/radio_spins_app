@@ -649,6 +649,9 @@ class SongDemo(Base):
     decided_at = Column(DateTime(timezone=True))
     decided_by_nick = Column(Text)
     song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="SET NULL"))
+    # La maqueta puede salir de un PROYECTO discográfico: mientras no haya másters se ve en la ficha
+    # del lanzamiento; en cuanto se suben, desaparece de ahí y se queda en Demos.
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="SET NULL"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -813,6 +816,275 @@ class DiscoProject(Base):
     __table_args__ = (
         Index("idx_disco_projects_artist", "artist_id", "status"),
     )
+
+
+class DiscoProjectArtwork(Base):
+    """LA PORTADA de un proyecto discográfico: quién la hace, con qué foto y con qué idea.
+
+    Una por proyecto (`project_id` es UNIQUE). El proceso va por pasos:
+      1 ¿quién la hace? (`who`: la hacemos NOSOTROS / la hace el ARTISTA / la hace un TERCERO, y en
+        ese caso con qué condiciones económicas),
+      2 la FOTO de la portada (`photo_mode`: ya la tiene quien diseña · la subimos · una de las fotos
+        guardadas · portada sin foto) y la IDEA (texto + ejemplos), que se le puede pedir al artista,
+      3 SOLICITARLA (a diseño o al tercero) con su fecha máxima: se le manda un enlace público para
+        subirla, y es **obligatorio subirla en JPG y en PSD**,
+      4 y la APROBACIÓN del artista y sus colaboradores (`DiscoProjectArtworkApprover`, un enlace por
+        persona, como la supervisión de fotos).
+    """
+
+    __tablename__ = "disco_project_artwork"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="CASCADE"),
+                        nullable=False, unique=True)
+    who = Column(Text)                       # US | ARTIST | THIRD
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    cost_mode = Column(Text)                 # AMOUNT | NONE
+    amount = Column(Numeric(12, 2))
+    # La FOTO de la portada y la IDEA (con sus ejemplos).
+    photo_mode = Column(Text)                # HAS_IT | UPLOAD | LIBRARY | NO_PHOTO
+    photo_url = Column(Text)
+    idea_text = Column(Text)
+    idea_files = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Pedirle al ARTISTA su idea de portada (su propio enlace y lo que conteste).
+    artist_idea_asked_at = Column(DateTime(timezone=True))
+    artist_idea_token = Column(Text, unique=True)
+    artist_idea_text = Column(Text)
+    artist_idea_files = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    artist_idea_at = Column(DateTime(timezone=True))
+    # La SOLICITUD (a diseño o al tercero) y lo que entregan.
+    status = Column(Text, nullable=False, server_default=text("'CONFIG'"))  # CONFIG|REQUESTED|DELIVERED|APPROVED
+    requested_at = Column(DateTime(timezone=True))
+    requested_by_nick = Column(Text)
+    request_note = Column(Text)
+    due_date = Column(Date)
+    public_token = Column(Text, unique=True)
+    jpg_url = Column(Text)
+    psd_url = Column(Text)
+    delivered_at = Column(DateTime(timezone=True))
+    delivered_by = Column(Text)
+    approval_asked_at = Column(DateTime(timezone=True))
+    approved_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("DiscoProject")
+    promoter = relationship("Promoter")
+    approvers = relationship("DiscoProjectArtworkApprover", back_populates="artwork",
+                             cascade="all, delete-orphan")
+
+
+class DiscoProjectArtworkApprover(Base):
+    """QUIÉN tiene que aprobar la portada. ⚠️ **Un enlace por persona** (como la supervisión de
+    fotos): así cada uno ve y decide lo suyo, y se sabe quién falta."""
+
+    __tablename__ = "disco_project_artwork_approvers"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artwork_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_project_artwork.id", ondelete="CASCADE"),
+                        nullable=False)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    name = Column(Text)
+    email = Column(Text)
+    phone = Column(Text)
+    photo_url = Column(Text)
+    role = Column(Text)                      # ARTISTA | INTEGRANTE | COLABORADOR | OTRO
+    token = Column(Text, nullable=False, unique=True)
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE|APROBADA|RECHAZADA
+    note = Column(Text)
+    decided_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artwork = relationship("DiscoProjectArtwork", back_populates="approvers")
+
+
+class DiscoProjectDesignRequest(Base):
+    """El ENCARGO a diseño de las «otras creatividades» de un proyecto (con su fecha máxima).
+
+    ⚠️ La fecha máxima **nunca** puede ser posterior a dos días antes del lanzamiento: lo valida el
+    servidor (`DISCO_CREATIVE_DEADLINE_MARGIN_DAYS`)."""
+
+    __tablename__ = "disco_project_design_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="CASCADE"),
+                        nullable=False)
+    due_date = Column(Date)
+    note = Column(Text)
+    token = Column(Text, nullable=False, unique=True)
+    status = Column(Text, nullable=False, server_default=text("'SOLICITADA'"))  # SOLICITADA|ENTREGADA
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    submitted_at = Column(DateTime(timezone=True))
+
+    project = relationship("DiscoProject")
+    items = relationship("DiscoProjectCreative", back_populates="request")
+
+
+class DiscoProjectCreative(Base):
+    """Una CREATIVIDAD del proyecto (cabecera de YouTube, canvas, «ya disponible», un anuncio…).
+
+    Las de siempre están en el catálogo (`DISCO_CREATIVE_CATALOG`) con su tamaño y su tipo; las de
+    «Otra» se describen a mano (`custom`). `formats` son los formatos elegidos (post, historia,
+    publicación horizontal, banner)."""
+
+    __tablename__ = "disco_project_creatives"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="CASCADE"),
+                        nullable=False)
+    request_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_project_design_requests.id",
+                                                         ondelete="SET NULL"))
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    kind = Column(Text)                      # clave del catálogo u 'OTRA'
+    label = Column(Text)
+    formats = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    media = Column(Text)                     # IMAGE | VIDEO | AUDIO
+    size_text = Column(Text)
+    note = Column(Text)
+    custom = Column(Boolean, nullable=False, server_default=text("false"))
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE|SOLICITADA|ENTREGADA
+    file_url = Column(Text)
+    file_name = Column(Text)
+    delivered_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("DiscoProject")
+    request = relationship("DiscoProjectDesignRequest", back_populates="items")
+
+
+class SongPlatformId(Base):
+    """Los IDs de PLATAFORMA de una canción (el gráfico vertical de Spotify, Apple, Amazon…).
+
+    Es un módulo más de sus MATERIALES: se sube aquí o se le piden al artista
+    (`SongPlatformIdRequest`). Lo que no haga falta se marca como **no necesario** y deja de pedirse.
+    """
+
+    __tablename__ = "song_platform_ids"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="SET NULL"))
+    platform = Column(Text, nullable=False)   # SPOTIFY | APPLE | AMAZON | YOUTUBE | ALL | otro
+    label = Column(Text)
+    file_url = Column(Text)
+    file_name = Column(Text)
+    not_needed = Column(Boolean, nullable=False, server_default=text("false"))
+    uploaded_at = Column(DateTime(timezone=True))
+    uploaded_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("song_id", "platform", name="uq_song_platform_id"),
+    )
+
+
+class SongPlatformIdRequest(Base):
+    """La PETICIÓN al artista de los IDs de plataforma (su propio enlace público)."""
+
+    __tablename__ = "song_platform_id_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="SET NULL"))
+    platforms = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    token = Column(Text, nullable=False, unique=True)
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE|ENTREGADA
+    note = Column(Text)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    requested_by_nick = Column(Text)
+    submitted_at = Column(DateTime(timezone=True))
+
+
+class DiscoReleasePlan(Base):
+    """EL PLAN DE LANZAMIENTO de un proyecto: la estrategia, las acciones, los contenidos y su
+    cronograma. Es la tarea clave: no se da por hecha hasta que **dirección y sello** dan el OK.
+
+    Los recordatorios de publicación se activan aquí (`reminders_enabled`) y se mandan por correo,
+    por SMS o por los dos, con la antelación que se marque (`reminder_minutes`, 10 por defecto)."""
+
+    __tablename__ = "disco_release_plans"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="CASCADE"),
+                        nullable=False, unique=True)
+    strategy_text = Column(Text)
+    ok_direccion_at = Column(DateTime(timezone=True))
+    ok_direccion_by_nick = Column(Text)
+    ok_sello_at = Column(DateTime(timezone=True))
+    ok_sello_by_nick = Column(Text)
+    # RECORDATORIOS de publicación.
+    reminders_enabled = Column(Boolean, nullable=False, server_default=text("false"))
+    reminder_minutes = Column(Integer, nullable=False, server_default=text("10"))
+    reminder_email = Column(Boolean, nullable=False, server_default=text("true"))
+    reminder_sms = Column(Boolean, nullable=False, server_default=text("false"))
+    reminder_recipients = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    reminders_intro_at = Column(DateTime(timezone=True))
+    public_token = Column(Text, unique=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("DiscoProject")
+    actions = relationship("DiscoReleasePlanAction", back_populates="plan",
+                           cascade="all, delete-orphan",
+                           order_by="DiscoReleasePlanAction.position")
+    contents = relationship("DiscoReleaseContent", back_populates="plan",
+                            cascade="all, delete-orphan",
+                            order_by="DiscoReleaseContent.publish_at")
+
+
+class DiscoReleasePlanAction(Base):
+    """Una ACCIÓN del plan. Si tiene coste, el importe (sin IVA) se lleva a la bolsa del proyecto y
+    se mantiene al día en los dos sentidos (`bag_expense_id`)."""
+
+    __tablename__ = "disco_release_plan_actions"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    plan_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_release_plans.id", ondelete="CASCADE"),
+                     nullable=False)
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    title = Column(Text, nullable=False, server_default=text("''"))
+    description = Column(Text)
+    cost_mode = Column(Text)                 # COST | NONE
+    amount = Column(Numeric(12, 2))
+    bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
+    date_kind = Column(Text)                 # DATE | RANGE | NONE
+    start_date = Column(Date)
+    end_date = Column(Date)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    plan = relationship("DiscoReleasePlan", back_populates="actions")
+
+
+class DiscoReleaseContent(Base):
+    """Un CONTENIDO a publicar: su miniatura, cuándo se publica (con hora), el copy, las menciones
+    obligatorias, los hashtags y en qué redes va.
+
+    ⚠️ El recordatorio solo se manda si el contenido **está subido** (`file_url`) y sigue activo: no
+    se avisa de algo que no se puede publicar."""
+
+    __tablename__ = "disco_release_contents"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    plan_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_release_plans.id", ondelete="CASCADE"),
+                     nullable=False)
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    title = Column(Text, nullable=False, server_default=text("''"))
+    description = Column(Text)
+    file_url = Column(Text)
+    file_name = Column(Text)
+    thumb_url = Column(Text)
+    publish_at = Column(DateTime(timezone=True))
+    copy_text = Column(Text)
+    mentions = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    hashtags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    networks = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    reminder_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    plan = relationship("DiscoReleasePlan", back_populates="contents")
 
 
 class DiscoProjectDateRequest(Base):
@@ -11337,6 +11609,188 @@ def ensure_disco_projects_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_disco_date_requests_project ON disco_project_date_requests(project_id, status);",
+        # ---- PORTADA del proyecto, sus aprobadores, las creatividades y su encargo a diseño.
+        """
+        CREATE TABLE IF NOT EXISTS disco_project_artwork (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            project_id uuid NOT NULL UNIQUE REFERENCES disco_projects(id) ON DELETE CASCADE,
+            who text,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            cost_mode text,
+            amount numeric(12,2),
+            photo_mode text,
+            photo_url text,
+            idea_text text,
+            idea_files jsonb NOT NULL DEFAULT '[]'::jsonb,
+            artist_idea_asked_at timestamptz,
+            artist_idea_token text UNIQUE,
+            artist_idea_text text,
+            artist_idea_files jsonb NOT NULL DEFAULT '[]'::jsonb,
+            artist_idea_at timestamptz,
+            status text NOT NULL DEFAULT 'CONFIG',
+            requested_at timestamptz,
+            requested_by_nick text,
+            request_note text,
+            due_date date,
+            public_token text UNIQUE,
+            jpg_url text,
+            psd_url text,
+            delivered_at timestamptz,
+            delivered_by text,
+            approval_asked_at timestamptz,
+            approved_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS disco_project_artwork_approvers (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artwork_id uuid NOT NULL REFERENCES disco_project_artwork(id) ON DELETE CASCADE,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            name text,
+            email text,
+            phone text,
+            photo_url text,
+            role text,
+            token text NOT NULL UNIQUE,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            note text,
+            decided_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_disco_artwork_approvers ON disco_project_artwork_approvers(artwork_id, status);",
+        """
+        CREATE TABLE IF NOT EXISTS disco_project_design_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            project_id uuid NOT NULL REFERENCES disco_projects(id) ON DELETE CASCADE,
+            due_date date,
+            note text,
+            token text NOT NULL UNIQUE,
+            status text NOT NULL DEFAULT 'SOLICITADA',
+            requested_at timestamptz DEFAULT now(),
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_nick text,
+            submitted_at timestamptz
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_disco_design_requests ON disco_project_design_requests(project_id, status);",
+        """
+        CREATE TABLE IF NOT EXISTS disco_project_creatives (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            project_id uuid NOT NULL REFERENCES disco_projects(id) ON DELETE CASCADE,
+            request_id uuid REFERENCES disco_project_design_requests(id) ON DELETE SET NULL,
+            position integer NOT NULL DEFAULT 0,
+            kind text,
+            label text,
+            formats jsonb NOT NULL DEFAULT '[]'::jsonb,
+            media text,
+            size_text text,
+            note text,
+            custom boolean NOT NULL DEFAULT false,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            file_url text,
+            file_name text,
+            delivered_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_disco_creatives_project ON disco_project_creatives(project_id, position);",
+        # ---- IDs de plataforma de una canción (módulo de sus materiales) y su petición al artista.
+        """
+        CREATE TABLE IF NOT EXISTS song_platform_ids (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            project_id uuid REFERENCES disco_projects(id) ON DELETE SET NULL,
+            platform text NOT NULL,
+            label text,
+            file_url text,
+            file_name text,
+            not_needed boolean NOT NULL DEFAULT false,
+            uploaded_at timestamptz,
+            uploaded_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_song_platform_id UNIQUE (song_id, platform)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS song_platform_id_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            project_id uuid REFERENCES disco_projects(id) ON DELETE SET NULL,
+            platforms jsonb NOT NULL DEFAULT '[]'::jsonb,
+            token text NOT NULL UNIQUE,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            note text,
+            requested_at timestamptz DEFAULT now(),
+            requested_by_nick text,
+            submitted_at timestamptz
+        );
+        """,
+        # ---- PLAN DE LANZAMIENTO: estrategia, acciones y contenidos con su cronograma.
+        """
+        CREATE TABLE IF NOT EXISTS disco_release_plans (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            project_id uuid NOT NULL UNIQUE REFERENCES disco_projects(id) ON DELETE CASCADE,
+            strategy_text text,
+            ok_direccion_at timestamptz,
+            ok_direccion_by_nick text,
+            ok_sello_at timestamptz,
+            ok_sello_by_nick text,
+            reminders_enabled boolean NOT NULL DEFAULT false,
+            reminder_minutes integer NOT NULL DEFAULT 10,
+            reminder_email boolean NOT NULL DEFAULT true,
+            reminder_sms boolean NOT NULL DEFAULT false,
+            reminder_recipients jsonb NOT NULL DEFAULT '[]'::jsonb,
+            reminders_intro_at timestamptz,
+            public_token text UNIQUE,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS disco_release_plan_actions (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            plan_id uuid NOT NULL REFERENCES disco_release_plans(id) ON DELETE CASCADE,
+            position integer NOT NULL DEFAULT 0,
+            title text NOT NULL DEFAULT '',
+            description text,
+            cost_mode text,
+            amount numeric(12,2),
+            bag_expense_id uuid REFERENCES bag_expenses(id) ON DELETE SET NULL,
+            date_kind text,
+            start_date date,
+            end_date date,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_disco_plan_actions ON disco_release_plan_actions(plan_id, position);",
+        """
+        CREATE TABLE IF NOT EXISTS disco_release_contents (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            plan_id uuid NOT NULL REFERENCES disco_release_plans(id) ON DELETE CASCADE,
+            position integer NOT NULL DEFAULT 0,
+            title text NOT NULL DEFAULT '',
+            description text,
+            file_url text,
+            file_name text,
+            thumb_url text,
+            publish_at timestamptz,
+            copy_text text,
+            mentions jsonb NOT NULL DEFAULT '[]'::jsonb,
+            hashtags jsonb NOT NULL DEFAULT '[]'::jsonb,
+            networks jsonb NOT NULL DEFAULT '[]'::jsonb,
+            active boolean NOT NULL DEFAULT true,
+            reminder_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_disco_contents_plan ON disco_release_contents(plan_id, publish_at);",
+        # La MAQUETA puede quedar vinculada a un proyecto (se ve en la ficha del lanzamiento hasta
+        # que se suben los másters).
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES disco_projects(id) ON DELETE SET NULL;",
+
         # PROVISIONAL: lo que ha creado un proyecto y todavía se está preparando.
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",

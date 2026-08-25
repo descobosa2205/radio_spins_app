@@ -171,6 +171,15 @@ from models import (
     DiscoProject,
     DiscoProjectTrack,
     DiscoProjectDateRequest,
+    DiscoProjectArtwork,
+    DiscoProjectArtworkApprover,
+    DiscoProjectDesignRequest,
+    DiscoProjectCreative,
+    SongPlatformId,
+    SongPlatformIdRequest,
+    DiscoReleasePlan,
+    DiscoReleasePlanAction,
+    DiscoReleaseContent,
     SongCertification,
     SongProductionContract,
     SongStatus,
@@ -456,6 +465,9 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_song_delivery_create_publisher",
     "public_photo_approval",
     "public_photo_approval_decide",
+    # Las páginas públicas de la PORTADA de un proyecto (subirla, la idea del artista y su
+    # aprobación): las abre gente de fuera con su token, sin sesión.
+    "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval",
     "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
     "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource",
     "public_caldav_rootdiscovery",
@@ -814,7 +826,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval"}
     if request.endpoint in allowed:
         return
 
@@ -17559,6 +17571,9 @@ def discografica_song_detail(song_id):
         song_income_total_net=song_income_total_net,
         song_income_entries=song_income_entries,
         song_materials=song_materials,
+        # La MAQUETA del proyecto que creó esta canción: se ve aquí **mientras no haya másters** y en
+        # cuanto se suben desaparece de los materiales y se queda en Demos.
+        project_demos=[_demo_row_payload(session_db, d) for d in _song_project_demos(session_db, s.id)],
         isrc_audio=isrc_audio,
         isrc_video=isrc_video,
         videoclip_director=videoclip_director,
@@ -20118,6 +20133,54 @@ def _disco_production_state(session_db, project) -> dict:
     filas["all_done"] = not pendientes
     return filas
 
+def _disco_project_demo(session_db, project):
+    """La MAQUETA vinculada a este proyecto (la última que se subió)."""
+    if project is None:
+        return None
+    try:
+        return (session_db.query(SongDemo)
+                .filter(SongDemo.project_id == project.id)
+                .order_by(SongDemo.created_at.desc()).first())
+    except Exception:
+        app.logger.exception("[proyectos] no se pudo leer la maqueta del proyecto")
+        return None
+
+
+def _disco_project_demo_visible(session_db, project) -> bool:
+    """¿La maqueta se sigue viendo en la ficha del lanzamiento?
+
+    ⚠️ Sí **mientras no haya másters**: en cuanto se suben, la maqueta desaparece de los materiales
+    del lanzamiento y se queda en Demos (es lo que pidió la casa)."""
+    if project is None:
+        return False
+    try:
+        return _disco_project_missing_masters(session_db, project) > 0
+    except Exception:
+        return False
+
+
+def _song_project_demos(session_db, song_id):
+    """Las maquetas de las que se ve en la ficha de una CANCIÓN: las del proyecto que la creó, y solo
+    mientras a ese proyecto le falten másters."""
+    if not song_id:
+        return []
+    try:
+        proyectos = (session_db.query(DiscoProject)
+                     .filter(DiscoProject.release_song_id == song_id).all())
+        salida = []
+        for p in proyectos:
+            if not _disco_project_demo_visible(session_db, p):
+                continue
+            for d in (session_db.query(SongDemo)
+                      .filter(SongDemo.project_id == p.id)
+                      .order_by(SongDemo.created_at.desc()).all()):
+                salida.append(d)
+        return salida
+    except Exception:
+        app.logger.exception("[canciones] no se pudieron leer las maquetas del proyecto")
+        return []
+
+
 def _disco_project_has_audio(project) -> bool:
     """¿Este proyecto lleva AUDIO? Todos menos un videoclip suelto (ahí el audio ya existe).
 
@@ -20256,6 +20319,99 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
             else:
                 tarea("prod_voces", "Grabación de voces", "", "fa-microphone", grupo="single",
                       sub=True, action_label="Configurar", modal="#dpVocalsModal")
+
+    # ================= AUDIO · paso 4: la PORTADA, por pasos =================
+    if lleva_audio:
+        art = _disco_artwork_state(session_db, project)
+        if art["approved"]:
+            tarea("portada_ok", "Portada", "", "fa-image", state="done",
+                  value="Aprobada%s" % ((" · la hizo %s" % art["who_name"]) if art["who_name"] else ""),
+                  menu=[{"label": "Ver la portada", "icon": "fa-image", "url": art["jpg_url"]}]
+                  if art["jpg_url"] else None)
+        else:
+            tarea("portada_ok", "Portada", "", "fa-image", True, grupo="single",
+                  hint="Quién la hace, con qué foto, solicitarla y que la apruebe el artista")
+            # 4.1 · quién la hace
+            if not art["who_done"]:
+                tarea("port_quien", "Gestionar portada", "", "fa-palette", grupo="single", sub=True,
+                      action_label="Elegir", modal="#dpArtworkWhoModal",
+                      hint="¿La hacemos nosotros, el artista o un tercero?")
+            else:
+                tarea("port_quien", "Gestionar portada", "", "fa-palette", grupo="single", sub=True,
+                      state="done",
+                      value=" · ".join([x for x in [art["who_label"], art["who_name"],
+                                                    art["cost_label"]] if x]),
+                      menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": "#dpArtworkWhoModal"}])
+                # 4.2 · la foto y la idea (paso previo a poder solicitarla)
+                if not art["photo_done"]:
+                    tarea("port_foto", "Foto e idea de la portada", "", "fa-images", grupo="single",
+                          sub=True, action_label="Configurar", modal="#dpArtworkPhotoModal",
+                          hint="Es lo que hay que tener antes de solicitarla")
+                else:
+                    menu_foto = [{"label": "Cambiar la foto o la idea", "icon": "fa-pen",
+                                  "modal": "#dpArtworkPhotoModal"},
+                                 {"label": ("Volver a pedir la idea al artista"
+                                            if art["artist_idea_asked"] else
+                                            "Pedir al artista su idea de portada"),
+                                  "icon": "fa-comment-dots", "modal": "#dpArtworkIdeaModal"}]
+                    tarea("port_foto", "Foto e idea de la portada", "", "fa-images", grupo="single",
+                          sub=True, state="done",
+                          value=" · ".join([x for x in [
+                              dict((k, l) for k, l, _i in DISCO_ARTWORK_PHOTO_MODES).get(art["photo_mode"], ""),
+                              ("con idea" if art["idea_text"] else ""),
+                              ("el artista ya contó la suya" if art["artist_idea_text"] else "")] if x]),
+                          menu=menu_foto)
+                    # 4.3 · solicitarla
+                    if not art["requested"]:
+                        tarea("port_pedir", "Solicitar la portada", "", "fa-paper-plane",
+                              grupo="single", sub=True, action_label="Solicitar",
+                              modal="#dpArtworkRequestModal",
+                              hint="Con su fecha máxima de entrega")
+                    elif not art["delivered"]:
+                        tarea("port_pedir", "Solicitar la portada", "", "fa-hourglass-half",
+                              grupo="single", sub=True, state="wait",
+                              hint="Pedida%s · falta que la suban (JPG y PSD)"
+                                   % ((" para el %s" % art["due_label"]) if art["due_label"] else ""),
+                              menu=[{"label": "Volver a solicitarla", "icon": "fa-rotate",
+                                     "modal": "#dpArtworkRequestModal"}])
+                    else:
+                        tarea("port_pedir", "Solicitar la portada", "", "fa-paper-plane",
+                              grupo="single", sub=True, state="done", value="Entregada")
+                        # 4.4 · la aprobación del artista
+                        if art["rejected"]:
+                            tarea("port_ok", "Aprobación de portada", "", "fa-thumbs-down",
+                                  True, grupo="single", sub=True,
+                                  hint="La han rechazado: hay que rehacerla y volver a pedirla",
+                                  action_label="Volver a pedir aprobación",
+                                  modal="#dpArtworkApprovalModal")
+                        elif not art["approval_asked"]:
+                            tarea("port_ok", "Aprobación de portada", "", "fa-thumbs-up",
+                                  grupo="single", sub=True, action_label="Pedir aprobación",
+                                  modal="#dpArtworkApprovalModal",
+                                  hint="Al artista y a sus colaboradores")
+                        else:
+                            tarea("port_ok", "Aprobación de portada", "", "fa-hourglass-half",
+                                  grupo="single", sub=True, state="wait",
+                                  hint="Faltan %d por aprobar" % art["pending_approvers"],
+                                  menu=[{"label": "Volver a pedirla", "icon": "fa-rotate",
+                                         "modal": "#dpArtworkApprovalModal"}])
+
+    # ================= AUDIO · la MAQUETA del proyecto =================
+    if lleva_audio:
+        demo = _disco_project_demo(session_db, project)
+        if demo is not None:
+            tarea("demo", "Subir demo", "", "fa-compact-disc", state="done",
+                  value="«%s»%s" % ((demo.title or "maqueta"),
+                                    (" · se ve en el lanzamiento" if _disco_project_demo_visible(
+                                        session_db, project) else " · en Demos")),
+                  menu=[{"label": "Subir otra maqueta", "icon": "fa-plus", "modal": "#dpDemoModal"},
+                        {"label": "Ver en Demos", "icon": "fa-arrow-right",
+                         "url": url_for("discografica_view", section="demos",
+                                        demo_artist=str(project.artist_id or ""))}])
+        else:
+            tarea("demo", "Subir demo", "", "fa-compact-disc", grupo="single",
+                  action_label="Subir demo", modal="#dpDemoModal",
+                  hint="Queda vinculada al proyecto y se ve en el lanzamiento hasta que haya másters")
 
     # ================= El resto de lo que ya se pedía =================
     if not getattr(project, "release_date", None) and not lleva_audio:
@@ -21019,6 +21175,20 @@ def disco_project_detail(project_id):
                          if (tab == "calendario" and _disco_project_has_audio(project)) else [])
         terceros = (session_db.query(Promoter).order_by(Promoter.nick.asc()).all()
                     if tab == "calendario" else [])
+        # PORTADA: en qué paso va, a quién se le pide la aprobación y las fotos guardadas del artista
+        # (para elegir una como foto de portada).
+        portada = _disco_artwork_state(session_db, project) if tab == "calendario" else None
+        portada_gente = (_disco_artwork_candidates(session_db, project)
+                         if tab == "calendario" else [])
+        fotos_artista = []
+        if tab == "calendario" and project.artist_id:
+            try:
+                fotos_artista = (session_db.query(Photo)
+                                 .filter(Photo.artist_id == project.artist_id,
+                                         func.upper(func.coalesce(Photo.kind, "IMAGE")) == "IMAGE")
+                                 .order_by(Photo.created_at.desc()).limit(48).all())
+            except Exception:
+                app.logger.exception("[portada] no se pudieron leer las fotos del artista")
         # En un single CON videoclip las tareas se leen partidas (single | videoclip) y lo del
         # lanzamiento, que es de los dos, debajo.
         grupos_tareas = _disco_project_task_groups(project, tareas)
@@ -21032,7 +21202,8 @@ def disco_project_detail(project_id):
             for clave in ("today", "tab", "row", "project", "project_tabs", "milestones", "tracks",
                           "physical_labels", "roadmap_ctx", "CAN_EDIT", "bag", "tasks",
                           "task_groups", "date_state", "production", "materials_recipients",
-                          "promoters", "production_people", "has_audio",
+                          "promoters", "production_people", "has_audio", "artwork",
+                          "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "agenda_data", "release", "release_songs"):
                 bag_ctx.pop(clave, None)
         return render_template(
@@ -21055,6 +21226,17 @@ def disco_project_detail(project_id):
             promoters=terceros,
             production_people=(_production_people(session_db) if tab == "calendario" else []),
             date_kinds=DISCO_DATE_REQUEST_KINDS,
+            artwork=portada,
+            artwork_candidates=portada_gente,
+            artist_photos=fotos_artista,
+            artwork_who=DISCO_ARTWORK_WHO,
+            artwork_photo_modes=DISCO_ARTWORK_PHOTO_MODES,
+            artwork_cost_modes=DISCO_ARTWORK_COST_MODES,
+            # El pop-up de «Subir demo» usa el MISMO formulario que la sección Demos.
+            demo_artists=(session_db.query(Artist).filter(Artist.event_id.is_(None))
+                          .order_by(Artist.name.asc()).all() if tab == "calendario" else []),
+            demo_author_roles=DEMO_AUTHOR_ROLES,
+            project_demo=(_disco_project_demo(session_db, project) if tab == "calendario" else None),
             prod_fee_modes=DISCO_PROD_FEE_MODES,
             prod_pct_modes=DISCO_PROD_PCT_MODES,
             prod_who_modes=DISCO_PROD_WHO_MODES,
@@ -21831,6 +22013,751 @@ def _disco_materials_reminder_sweep() -> dict:
     return salida
 
 
+# =========================================================
+# LA PORTADA DE UN PROYECTO · quién la hace, con qué foto, quién la aprueba
+# ---------------------------------------------------------
+# Va por pasos, y cada uno es una subtarea del proyecto:
+#   1 ¿quién la hace? (nosotros / el artista / un tercero, y con qué condiciones)
+#   2 la FOTO y la IDEA (se le puede pedir su idea al artista con su propio enlace)
+#   3 SOLICITARLA con su fecha máxima → enlace público para subirla (⚠️ JPG **y** PSD, obligatorio)
+#   4 la APROBACIÓN del artista y sus colaboradores (un enlace POR PERSONA, como la de fotos)
+# Al aprobarse, la portada pasa a ser la del lanzamiento (su ficha del repertorio).
+# =========================================================
+DISCO_ARTWORK_WHO = (
+    ("US", "La hacemos nosotros", "fa-palette"),
+    ("ARTIST", "La hace el artista", "fa-guitar"),
+    ("THIRD", "La hace un tercero", "fa-user-plus"),
+)
+DISCO_ARTWORK_PHOTO_MODES = (
+    ("HAS_IT", "Ya la tiene quien la diseña", "fa-circle-check"),
+    ("UPLOAD", "La subimos aquí", "fa-upload"),
+    ("LIBRARY", "Una de las fotos guardadas", "fa-images"),
+    ("NO_PHOTO", "Portada de diseño, sin foto", "fa-ban"),
+)
+DISCO_ARTWORK_COST_MODES = (
+    ("AMOUNT", "Con coste", "fa-euro-sign"),
+    ("NONE", "Sin coste", "fa-ban"),
+)
+DISCO_ARTWORK_WHO_LABELS = {k: l for k, l, _i in DISCO_ARTWORK_WHO}
+
+
+def _disco_artwork(session_db, project, *, create: bool = False):
+    """La ficha de la PORTADA de este proyecto (una por proyecto)."""
+    if project is None:
+        return None
+    fila = (session_db.query(DiscoProjectArtwork)
+            .filter(DiscoProjectArtwork.project_id == project.id).first())
+    if fila is None and create:
+        fila = DiscoProjectArtwork(project_id=project.id, status="CONFIG")
+        session_db.add(fila)
+        session_db.flush()
+    return fila
+
+
+def _disco_artwork_upload_url(fila) -> str:
+    """El enlace público donde SE SUBE la portada (diseño o el tercero)."""
+    if fila is None or not getattr(fila, "public_token", None):
+        return ""
+    return _external_url_for("public_disco_artwork_upload", token=fila.public_token)
+
+
+def _disco_artwork_idea_url(fila) -> str:
+    """El enlace donde el ARTISTA cuenta su idea de portada."""
+    if fila is None or not getattr(fila, "artist_idea_token", None):
+        return ""
+    return _external_url_for("public_disco_artwork_idea", token=fila.artist_idea_token)
+
+
+def _disco_artwork_who_name(session_db, fila) -> str:
+    """Quién hace la portada, con nombre (el tercero, el artista o «nosotros»)."""
+    if fila is None:
+        return ""
+    quien = (fila.who or "").upper()
+    if quien == "THIRD":
+        p = (session_db.get(Promoter, fila.promoter_id) if fila.promoter_id else None)
+        return ((p.nick or p.name) if p else "Un tercero")
+    if quien == "ARTIST":
+        proyecto = getattr(fila, "project", None) or session_db.get(DiscoProject, fila.project_id)
+        artista = getattr(proyecto, "artist", None)
+        return (getattr(artista, "name", "") or "El artista")
+    if quien == "US":
+        return "Diseño (nosotros)"
+    return ""
+
+
+def _disco_artwork_state(session_db, project) -> dict:
+    """En qué punto está la portada: qué paso toca y qué falta.
+
+    Punto único de las subtareas y de lo que pinta la ficha."""
+    fila = _disco_artwork(session_db, project)
+    if fila is None:
+        return {"row": None, "who": "", "who_done": False, "photo_done": False,
+                "requested": False, "delivered": False, "approved": False,
+                "approvers": [], "pending_approvers": 0, "rejected": 0}
+    aprobadores = list(getattr(fila, "approvers", None) or [])
+    pendientes = [a for a in aprobadores if (a.status or "PENDIENTE").upper() == "PENDIENTE"]
+    rechazos = [a for a in aprobadores if (a.status or "").upper() == "RECHAZADA"]
+    quien = (fila.who or "").upper()
+    # ¿Está decidido quién la hace? Con un tercero hace falta además saber QUIÉN y sus condiciones.
+    who_done = bool(quien) and (quien != "THIRD" or (fila.promoter_id and (fila.cost_mode or "")))
+    # ¿Está la foto/idea? «Sin foto» y «ya la tiene» también son decisiones tomadas.
+    modo_foto = (fila.photo_mode or "").upper()
+    photo_done = bool(modo_foto) and (modo_foto not in ("UPLOAD", "LIBRARY") or (fila.photo_url or ""))
+    entregada = bool(fila.jpg_url and fila.psd_url)
+    return {
+        "row": fila,
+        "who": quien,
+        "who_label": DISCO_ARTWORK_WHO_LABELS.get(quien, ""),
+        "who_name": _disco_artwork_who_name(session_db, fila),
+        "who_done": who_done,
+        "cost_label": ("Sin coste" if (fila.cost_mode or "").upper() == "NONE"
+                       else (format_eur(fila.amount) if fila.amount is not None else "")),
+        "photo_mode": modo_foto,
+        "photo_done": photo_done,
+        "photo_url": (fila.photo_url or ""),
+        "idea_text": (fila.idea_text or ""),
+        "idea_files": list(fila.idea_files or []),
+        "artist_idea_asked": bool(fila.artist_idea_asked_at),
+        "artist_idea_text": (fila.artist_idea_text or ""),
+        "artist_idea_files": list(fila.artist_idea_files or []),
+        "artist_idea_url": _disco_artwork_idea_url(fila),
+        "requested": bool(fila.requested_at),
+        "due_date": fila.due_date,
+        "due_label": (fila.due_date.strftime("%d/%m/%Y") if fila.due_date else ""),
+        "due_long": _long_date_es(fila.due_date),
+        "upload_url": _disco_artwork_upload_url(fila),
+        "delivered": entregada,
+        "jpg_url": (fila.jpg_url or ""),
+        "psd_url": (fila.psd_url or ""),
+        "approval_asked": bool(fila.approval_asked_at),
+        "approvers": [{"id": str(a.id), "name": (a.name or a.email or "—"),
+                       "email": (a.email or ""), "photo_url": (a.photo_url or ""),
+                       "role": (a.role or ""), "status": (a.status or "PENDIENTE").upper(),
+                       "note": (a.note or ""),
+                       "at_label": (a.decided_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                                    if a.decided_at else "")}
+                      for a in aprobadores],
+        "pending_approvers": len(pendientes),
+        "rejected": len(rechazos),
+        "approved": bool(fila.approved_at),
+    }
+
+
+def _disco_artwork_candidates(session_db, project) -> list[dict]:
+    """A QUIÉN se le pide aprobar la portada: el artista (sus cuentas de comunicaciones), sus
+    INTEGRANTES y los colaboradores del lanzamiento.
+
+    Mismo criterio que la supervisión de fotos: cada uno con su nombre, su foto y su correo."""
+    salida, vistos = [], set()
+
+    def añade(nombre, correo, foto, papel, promoter_id=None, telefono=""):
+        clave = (correo or "").strip().lower() or ("p:%s" % promoter_id if promoter_id else nombre)
+        if not clave or clave in vistos:
+            return
+        vistos.add(clave)
+        salida.append({"name": (nombre or "").strip() or (correo or ""), "email": (correo or "").strip(),
+                       "phone": (telefono or "").strip(), "photo_url": (foto or ""), "role": papel,
+                       "promoter_id": (str(promoter_id) if promoter_id else "")})
+
+    artista = getattr(project, "artist", None) or (
+        session_db.get(Artist, project.artist_id) if project.artist_id else None)
+    if artista is not None:
+        # Las cuentas configuradas para lo DISCOGRÁFICO del artista.
+        try:
+            for fila in (_artist_notification_recipients(session_db, artista.id, "DISCOGRAFICA") or []):
+                añade(fila.get("name") or artista.name, fila.get("email"), (artista.photo_url or ""),
+                      "ARTISTA", telefono=fila.get("phone"))
+        except Exception:
+            app.logger.exception("[portada] no se pudieron leer los contactos del artista")
+        # Y sus INTEGRANTES (cada uno es un tercero con su ficha).
+        try:
+            for persona in (session_db.query(ArtistPerson)
+                            .filter(ArtistPerson.artist_id == artista.id).all()):
+                p = (session_db.get(Promoter, persona.promoter_id) if persona.promoter_id else None)
+                añade(_artist_person_full_name(persona), (getattr(p, "email", "") or ""),
+                      (getattr(p, "logo_url", "") or ""), "INTEGRANTE",
+                      promoter_id=getattr(p, "id", None), telefono=(getattr(p, "phone", "") or ""))
+        except Exception:
+            app.logger.exception("[portada] no se pudieron leer los integrantes")
+    return salida
+
+
+def _disco_artwork_email_html(session_db, project, fila, *, kind: str = "REQUEST",
+                              note: str = "", approver=None) -> str:
+    """Los correos de la PORTADA, todos con el estilo de la casa (logo de PIES arriba a la derecha,
+    título centrado y la cabecera del lanzamiento).
+
+    `kind`: **REQUEST** (solicitarla a diseño o al tercero) · **IDEA** (pedirle al artista su idea) ·
+    **APPROVAL** (pedir la aprobación) — cada uno con su título, su texto y su botón."""
+    ctx = _disco_project_email_ctx(session_db, project)
+    esc = lambda v: html.escape("" if v is None else str(v))
+    marca = ctx.get("brand") or {}
+    logo = _absolute_media_url(marca.get("logo_url") or "")
+    logo_html = ("" if not logo else
+                 '<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" '
+                 'style="border-collapse:collapse;"><tr><td align="right">'
+                 '<img src="%s" alt="%s" style="display:inline-block;max-width:180px;max-height:64px;'
+                 'object-fit:contain;"></td></tr></table>'
+                 % (esc(logo), esc(marca.get("company_name") or "PIES")))
+    portada = _absolute_media_url(ctx.get("cover_url") or "")
+    celda = ("" if not portada else
+             '<td width="124" valign="top"><img src="%s" alt="" style="display:block;width:104px;'
+             'height:104px;object-fit:cover;border-radius:14px;border:1px solid #e5e7eb;"></td>'
+             % esc(portada))
+    titulos = {"REQUEST": "Solicitud de portada", "IDEA": "Idea de portada",
+               "APPROVAL": "Aprobación de portada"}
+    if kind == "IDEA":
+        url = _disco_artwork_idea_url(fila)
+        boton = "Contar mi idea"
+        cuerpo = ("Estamos preparando la portada del %s <strong>%s</strong> y nos gustaría saber qué "
+                  "tienes en la cabeza. Cuéntanos tu idea y, si tienes ejemplos, súbelos."
+                  % (esc((ctx.get("kind_label") or "").lower()), esc(ctx.get("title"))))
+    elif kind == "APPROVAL":
+        url = (_external_url_for("public_disco_artwork_approval", token=approver.token)
+               if approver is not None else "")
+        boton = "Ver y aprobar la portada"
+        cuerpo = ("Ya tenemos la portada del %s <strong>%s</strong>. Échale un ojo y dinos si te "
+                  "parece bien." % (esc((ctx.get("kind_label") or "").lower()), esc(ctx.get("title"))))
+    else:
+        url = _disco_artwork_upload_url(fila)
+        boton = "Subir la portada"
+        plazo = (_long_date_es(fila.due_date) if getattr(fila, "due_date", None) else "")
+        cuerpo = ("Te pedimos la portada del %s <strong>%s</strong>%s. En el enlace tienes la idea, "
+                  "la foto y todo lo que hace falta. ⚠️ Hay que subirla en <strong>JPG y en "
+                  "PSD</strong>."
+                  % (esc((ctx.get("kind_label") or "").lower()), esc(ctx.get("title")),
+                     (", que tiene que estar antes del <strong>%s</strong>" % esc(plazo)) if plazo else ""))
+    nota_html = ("" if not (note or "").strip() else
+                 '<div style="margin:0 0 18px;padding:14px 16px;border-radius:14px;background:#f8fafc;'
+                 'border:1px solid #e5e7eb;font-size:14px;line-height:1.7;color:#374151;">%s</div>'
+                 % esc(note.strip()).replace("\n", "<br/>"))
+    boton_html = ("" if not url else
+                  '<div style="margin-top:22px;text-align:right;">'
+                  '<a href="%s" style="display:inline-block;padding:13px 22px;border-radius:999px;'
+                  'background:#E33D48;color:#fff;font-size:15px;font-weight:700;'
+                  'text-decoration:none;">%s</a></div>' % (esc(url), esc(boton)))
+    return """
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:20px;overflow:hidden;">
+        <div style="padding:24px 30px 8px;">
+          %s
+          <div style="margin-top:14px;font-size:26px;line-height:1.15;font-weight:700;color:#111827;text-align:center;">%s</div>
+        </div>
+        <div style="padding:18px 30px 28px;">
+          <div style="border:1px solid #e5e7eb;border-radius:18px;padding:18px;background:#fcfcfd;">
+            <table role="presentation" width="100%%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+              <tr>
+                %s
+                <td valign="top" style="%s">
+                  <div style="font-size:22px;line-height:1.2;font-weight:700;color:#111827;">%s</div>
+                  <div style="margin-top:8px;font-size:14px;color:#4b5563;"><strong>Artista:</strong> %s</div>
+                  <div style="margin-top:10px;">
+                    <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#f3f4f6;color:#111827;font-size:13px;"><strong>Lanzamiento:</strong> %s</span>
+                    <span style="display:inline-block;margin-left:6px;padding:6px 10px;border-radius:999px;background:#111827;color:#ffffff;font-size:13px;">%s</span>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </div>
+          <div style="height:22px;"></div>
+          %s
+          <p style="margin:0 0 14px;font-size:15px;line-height:1.75;color:#111827;">%s</p>
+          %s
+        </div>
+      </div>
+    </div>
+    """ % (logo_html, esc(titulos.get(kind, "Portada")), celda,
+           ("padding-left:16px;" if celda else ""), esc(ctx.get("title")),
+           esc(ctx.get("artist_name") or "—"), esc(ctx.get("release_label")),
+           esc(ctx.get("badge_label")), nota_html, cuerpo, boton_html)
+
+
+def _disco_artwork_apply_to_release(session_db, project, fila) -> None:
+    """La portada APROBADA pasa a ser la del lanzamiento: se queda en sus materiales.
+
+    ⚠️ Se guarda el JPG (el PSD es el archivo de trabajo): es lo que se enseña en el repertorio, en
+    los correos y en las miniaturas."""
+    jpg = (getattr(fila, "jpg_url", "") or "").strip()
+    if not jpg:
+        return
+    if getattr(project, "album_id", None):
+        album = session_db.get(Album, project.album_id)
+        if album is not None:
+            album.cover_url = jpg
+    cancion_id = getattr(project, "release_song_id", None)
+    if cancion_id:
+        cancion = session_db.get(Song, cancion_id)
+        if cancion is not None:
+            cancion.cover_url = jpg
+            # Y como MATERIAL de la canción (portada principal), que es donde se gestiona.
+            try:
+                ya = (session_db.query(SongMaterial)
+                      .filter(SongMaterial.song_id == cancion.id,
+                              func.upper(func.coalesce(SongMaterial.category, "")) == "COVER",
+                              func.upper(func.coalesce(SongMaterial.slot_key, "")) == "COVER")
+                      .first())
+                if ya is None:
+                    session_db.add(SongMaterial(
+                        song_id=cancion.id, category="COVER", slot_key="COVER",
+                        file_url=jpg, file_name=(os.path.basename(jpg.split("?")[0]) or "portada.jpg"),
+                        validation_status="VALIDATED"))
+                else:
+                    ya.file_url = jpg
+            except Exception:
+                app.logger.exception("[portada] no se pudo guardar como material de la canción")
+
+
+@app.post("/discografica/proyectos/<project_id>/portada/quien", endpoint="disco_project_artwork_who")
+@admin_required
+def disco_project_artwork_who(project_id):
+    """PASO 1 de la portada: quién la hace y, si es un tercero, con qué condiciones."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para gestionar la portada.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        fila = _disco_artwork(session_db, project, create=True)
+        quien = (request.form.get("who") or "").strip().upper()
+        if quien not in DISCO_ARTWORK_WHO_LABELS:
+            flash("Dime quién hace la portada.", "warning")
+            return redirect(destino)
+        fila.who = quien
+        fila.promoter_id = (_safe_uuid((request.form.get("promoter_id") or "").strip())
+                            if quien == "THIRD" else None)
+        if quien == "THIRD":
+            modo = (request.form.get("cost_mode") or "").strip().upper()
+            fila.cost_mode = modo if modo in dict((k, 1) for k, _l, _i in DISCO_ARTWORK_COST_MODES) else None
+            fila.amount = (_parse_optional_decimal(request.form.get("amount"))
+                           if fila.cost_mode == "AMOUNT" else None)
+            if fila.promoter_id is None:
+                flash("Elige (o crea) el tercero que la va a hacer.", "warning")
+                session_db.commit()
+                return redirect(destino)
+        else:
+            fila.cost_mode, fila.amount = None, None
+        fila.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Anotado quién hace la portada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[portada] no se pudo guardar quién la hace")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/portada/foto", endpoint="disco_project_artwork_photo")
+@admin_required
+def disco_project_artwork_photo(project_id):
+    """PASO 2: la FOTO de la portada y la IDEA (con sus ejemplos).
+
+    La foto se sube aquí, se elige de las guardadas del artista, ya la tiene quien diseña, o no hace
+    falta («portada de diseño, sin foto»)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para gestionar la portada.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        fila = _disco_artwork(session_db, project, create=True)
+        modo = (request.form.get("photo_mode") or "").strip().upper()
+        validos = dict((k, 1) for k, _l, _i in DISCO_ARTWORK_PHOTO_MODES)
+        if modo not in validos:
+            flash("Dime qué foto lleva la portada.", "warning")
+            return redirect(destino)
+        fila.photo_mode = modo
+        if modo == "UPLOAD":
+            fs = request.files.get("photo_file")
+            if fs and getattr(fs, "filename", ""):
+                fila.photo_url = upload_image(fs, "disco_artwork")
+        elif modo == "LIBRARY":
+            fila.photo_url = (request.form.get("photo_url") or "").strip() or fila.photo_url
+        else:
+            fila.photo_url = None
+        fila.idea_text = (request.form.get("idea_text") or "").strip() or None
+        # Ejemplos: se ACUMULAN (cada uno es una referencia más).
+        ejemplos = list(fila.idea_files or [])
+        for fs in request.files.getlist("idea_files"):
+            if fs and getattr(fs, "filename", ""):
+                try:
+                    ejemplos.append({"url": upload_file(fs, "disco_artwork"), "name": fs.filename})
+                except Exception as exc:
+                    app.logger.exception("[portada] no se pudo subir un ejemplo")
+                    flash("Un ejemplo no se pudo subir: %s" % exc, "warning")
+        fila.idea_files = ejemplos
+        fila.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Guardada la foto y la idea de la portada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[portada] no se pudo guardar la foto")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/portada/idea-artista", endpoint="disco_project_artwork_idea_ask")
+@admin_required
+def disco_project_artwork_idea_ask(project_id):
+    """Pedirle al ARTISTA su idea de portada (su propio enlace, con texto y ejemplos)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        fila = _disco_artwork(session_db, project, create=True)
+        if not fila.artist_idea_token:
+            fila.artist_idea_token = _uuid_token()
+        session_db.flush()
+        nota = (request.form.get("note") or "").strip()
+        cuerpo = _disco_artwork_email_html(session_db, project, fila, kind="IDEA", note=nota)
+        asunto = "Idea de portada · %s" % _disco_project_title(project)
+        filas = _notify_apply_prefs(session_db,
+                                   _artist_notification_recipients(session_db, project.artist_id,
+                                                                   "DISCOGRAFICA") or [])
+        salieron = []
+        for f in filas:
+            ok, _err = _notify_send_row(session_db, f, subject=asunto, html=cuerpo,
+                                        sms_text="%s: cuéntanos tu idea de portada · %s"
+                                                 % (_disco_project_title(project),
+                                                    _disco_artwork_idea_url(fila)),
+                                        kind="DISCOGRAFICA")
+            if ok:
+                salieron.append(f.get("name") or f.get("email"))
+        if salieron:
+            fila.artist_idea_asked_at = _now_madrid()
+        session_db.commit()
+        if salieron:
+            flash("Pedida la idea de portada a %s." % ", ".join([str(x) for x in salieron]), "success")
+        else:
+            flash(Markup("No se pudo escribir al artista. Puedes mandarle este enlace: "
+                         "<a href='%s'>%s</a>" % (escape(_disco_artwork_idea_url(fila)),
+                                                  escape(_disco_artwork_idea_url(fila)))), "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[portada] no se pudo pedir la idea al artista")
+        flash("No se pudo pedir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/portada/solicitar", endpoint="disco_project_artwork_request")
+@admin_required
+def disco_project_artwork_request(project_id):
+    """PASO 3: SOLICITAR la portada (a diseño o al tercero) con su fecha máxima de entrega."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        fila = _disco_artwork(session_db, project, create=True)
+        estado = _disco_artwork_state(session_db, project)
+        if not estado["who_done"]:
+            flash("Antes hay que decir quién hace la portada.", "warning")
+            return redirect(destino)
+        if not estado["photo_done"]:
+            flash("Antes hay que decidir la foto de la portada.", "warning")
+            return redirect(destino)
+        vence = parse_optional_date(request.form.get("due_date"))
+        if not vence:
+            flash("Pon la fecha máxima de entrega de la portada.", "warning")
+            return redirect(destino)
+        if not fila.public_token:
+            fila.public_token = _uuid_token()
+        fila.due_date = vence
+        fila.request_note = (request.form.get("note") or "").strip() or None
+        fila.requested_at = _now_madrid()
+        fila.requested_by_nick = ((_current_user_state() or {}).get("nick") or None)
+        fila.status = "REQUESTED"
+        session_db.flush()
+        cuerpo = _disco_artwork_email_html(session_db, project, fila, kind="REQUEST",
+                                           note=(fila.request_note or ""))
+        asunto = "Solicitud de portada · %s" % _disco_project_title(project)
+        # ¿A quién? Al TERCERO que la hace, o a DISEÑO si la hacemos nosotros.
+        destinatarios = []
+        if (fila.who or "").upper() == "THIRD" and fila.promoter_id:
+            p = session_db.get(Promoter, fila.promoter_id)
+            if p is not None and (getattr(p, "email", "") or "").strip():
+                destinatarios.append({"name": (p.nick or p.name or ""),
+                                      "email": (p.email or "").strip(),
+                                      "phone": (getattr(p, "phone", "") or "").strip()})
+        extra = [x.strip() for x in (request.form.get("extra_emails") or "").replace(";", ",").split(",")
+                 if x.strip()]
+        for correo in extra:
+            destinatarios.append({"name": "", "email": correo, "phone": ""})
+        salieron = []
+        for f in _notify_apply_prefs(session_db, destinatarios):
+            ok, _err = _notify_send_row(session_db, f, subject=asunto, html=cuerpo,
+                                        sms_text="Portada de %s: súbela aquí %s"
+                                                 % (_disco_project_title(project),
+                                                    _disco_artwork_upload_url(fila)),
+                                        kind="DISCOGRAFICA")
+            if ok:
+                salieron.append(f.get("name") or f.get("email"))
+        # Si la hacemos NOSOTROS, es una tarea de DISEÑO (aviso por la campanita).
+        if (fila.who or "").upper() == "US":
+            _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                          "Portada por hacer: %s" % _disco_project_title(project),
+                          "Entrega antes del %s" % (fila.due_date.strftime("%d/%m/%Y")
+                                                    if fila.due_date else "—"),
+                          url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_ARTWORK", ref_id=str(project.id))
+        enlace = _disco_artwork_upload_url(fila)
+        session_db.commit()
+        if salieron:
+            flash("Portada solicitada · avisado %s." % ", ".join([str(x) for x in salieron]), "success")
+        else:
+            # Nadie a quien escribir (o el correo no salió): se da el enlace para mandarlo a mano.
+            flash(Markup("Portada solicitada. Enlace para subirla: <a href='%s'>%s</a>"
+                         % (escape(enlace), escape(enlace))), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[portada] no se pudo solicitar")
+        flash("No se pudo solicitar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/portada/aprobacion", endpoint="disco_project_artwork_approval")
+@admin_required
+def disco_project_artwork_approval(project_id):
+    """PASO 4: pedir la APROBACIÓN de la portada al artista y a sus colaboradores.
+
+    ⚠️ Un enlace POR PERSONA (como la supervisión de fotos): así cada uno decide lo suyo y se sabe
+    quién falta."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        fila = _disco_artwork(session_db, project, create=True)
+        if not (fila.jpg_url and fila.psd_url):
+            flash("Todavía no está subida la portada (hacen falta el JPG y el PSD).", "warning")
+            return redirect(destino)
+        marcados = {x.strip().lower() for x in request.form.getlist("to[]") if (x or "").strip()}
+        candidatos = [c for c in _disco_artwork_candidates(session_db, project)
+                      if (not marcados) or ((c.get("email") or "").lower() in marcados)]
+        extra = [x.strip() for x in (request.form.get("extra_emails") or "").replace(";", ",").split(",")
+                 if x.strip()]
+        for correo in extra:
+            candidatos.append({"name": "", "email": correo, "phone": "", "photo_url": "",
+                               "role": "OTRO", "promoter_id": ""})
+        if not candidatos:
+            flash("No hay a quién pedirle la aprobación.", "warning")
+            return redirect(destino)
+        nota = (request.form.get("note") or "").strip()
+        ya = {(a.email or "").lower(): a for a in (fila.approvers or [])}
+        salieron, sin_correo = [], []
+        for c in candidatos:
+            correo = (c.get("email") or "").strip()
+            fila_ap = ya.get(correo.lower())
+            if fila_ap is None:
+                fila_ap = DiscoProjectArtworkApprover(
+                    artwork_id=fila.id, name=(c.get("name") or ""), email=correo,
+                    phone=(c.get("phone") or ""), photo_url=(c.get("photo_url") or ""),
+                    role=(c.get("role") or "OTRO"), token=_uuid_token(), status="PENDIENTE",
+                    promoter_id=(_safe_uuid(c.get("promoter_id")) if c.get("promoter_id") else None))
+                session_db.add(fila_ap)
+                session_db.flush()
+            if not correo:
+                sin_correo.append(fila_ap.name or "—")
+                continue
+            cuerpo = _disco_artwork_email_html(session_db, project, fila, kind="APPROVAL",
+                                               note=nota, approver=fila_ap)
+            ok, _err = _send_optional_email([correo],
+                                            "Aprobación de portada · %s" % _disco_project_title(project),
+                                            cuerpo)
+            if ok:
+                salieron.append(fila_ap.name or correo)
+        fila.approval_asked_at = _now_madrid()
+        fila.status = "DELIVERED"
+        session_db.commit()
+        msg = ("Aprobación pedida a %s." % ", ".join([str(x) for x in salieron])) if salieron else \
+              "No se pudo escribir a nadie: comparte los enlaces a mano."
+        if sin_correo:
+            msg += " Sin correo: %s (comparte su enlace)." % ", ".join(sin_correo)
+        flash(msg, "success" if salieron else "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[portada] no se pudo pedir la aprobación")
+        flash("No se pudo pedir la aprobación: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+# ---------------------------------------------------------
+# PÁGINAS PÚBLICAS DE LA PORTADA (cada una con su token)
+# ---------------------------------------------------------
+def _disco_artwork_by_token(session_db, token, campo="public_token"):
+    if not (token or "").strip():
+        return None, None
+    col = getattr(DiscoProjectArtwork, campo)
+    fila = session_db.query(DiscoProjectArtwork).filter(col == token.strip()).first()
+    if fila is None:
+        return None, None
+    return fila, session_db.get(DiscoProject, fila.project_id)
+
+
+@app.route("/portada/<token>", methods=["GET", "POST"], endpoint="public_disco_artwork_upload")
+def public_disco_artwork_upload(token):
+    """Página pública donde diseño (o el tercero) SUBE la portada.
+
+    Enseña la idea, la foto y el plazo. ⚠️ Hay que subirla **en JPG y en PSD**: los dos son
+    obligatorios (el JPG es lo que se ve en todas partes y el PSD el archivo de trabajo)."""
+    session_db = db()
+    try:
+        fila, project = _disco_artwork_by_token(session_db, token)
+        if fila is None or project is None:
+            abort(404)
+        ctx = _disco_project_email_ctx(session_db, project)
+        if request.method == "POST":
+            jpg = request.files.get("jpg_file")
+            psd = request.files.get("psd_file")
+            if not (jpg and getattr(jpg, "filename", "")) or not (psd and getattr(psd, "filename", "")):
+                flash("Hacen falta los dos archivos: el JPG y el PSD.", "warning")
+                return redirect(url_for("public_disco_artwork_upload", token=token))
+            try:
+                fila.jpg_url = upload_image(jpg, "disco_artwork")
+                fila.psd_url = upload_file(psd, "disco_artwork",
+                                           allowed_extensions={".psd", ".psb", ".zip", ".rar"})
+            except Exception as exc:
+                app.logger.exception("[portada] fallo al subir")
+                flash("No se pudo subir: %s" % exc, "danger")
+                return redirect(url_for("public_disco_artwork_upload", token=token))
+            fila.delivered_at = _now_madrid()
+            fila.delivered_by = (request.form.get("who") or "").strip() or None
+            fila.status = "DELIVERED"
+            # Y se avisa a quien la pidió (le toca pedir la aprobación).
+            _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                          "Portada entregada: %s" % _disco_project_title(project),
+                          "Ya se puede pedir la aprobación al artista.",
+                          url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_ARTWORK_OK", ref_id=str(project.id))
+            session_db.commit()
+            return render_template("public_disco_artwork.html", mode="done", ctx=ctx, row=fila,
+                                   project=project)
+        return render_template("public_disco_artwork.html", mode="upload", ctx=ctx, row=fila,
+                               project=project,
+                               idea_files=list(fila.idea_files or []),
+                               artist_files=list(fila.artist_idea_files or []))
+    finally:
+        session_db.close()
+
+
+@app.route("/portada-idea/<token>", methods=["GET", "POST"], endpoint="public_disco_artwork_idea")
+def public_disco_artwork_idea(token):
+    """Página pública donde el ARTISTA cuenta su idea de portada (texto y ejemplos)."""
+    session_db = db()
+    try:
+        fila, project = _disco_artwork_by_token(session_db, token, campo="artist_idea_token")
+        if fila is None or project is None:
+            abort(404)
+        ctx = _disco_project_email_ctx(session_db, project)
+        if request.method == "POST":
+            fila.artist_idea_text = (request.form.get("idea_text") or "").strip() or None
+            ejemplos = list(fila.artist_idea_files or [])
+            for fs in request.files.getlist("idea_files"):
+                if fs and getattr(fs, "filename", ""):
+                    try:
+                        ejemplos.append({"url": upload_file(fs, "disco_artwork"), "name": fs.filename})
+                    except Exception:
+                        app.logger.exception("[portada] ejemplo del artista")
+            fila.artist_idea_files = ejemplos
+            fila.artist_idea_at = _now_madrid()
+            _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                          "El artista ha contado su idea de portada: %s" % _disco_project_title(project),
+                          (fila.artist_idea_text or "")[:160],
+                          url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_ARTWORK_IDEA", ref_id=str(project.id))
+            session_db.commit()
+            return render_template("public_disco_artwork.html", mode="idea_done", ctx=ctx, row=fila,
+                                   project=project)
+        return render_template("public_disco_artwork.html", mode="idea", ctx=ctx, row=fila,
+                               project=project, artist_files=list(fila.artist_idea_files or []))
+    finally:
+        session_db.close()
+
+
+@app.route("/portada-aprobacion/<token>", methods=["GET", "POST"],
+           endpoint="public_disco_artwork_approval")
+def public_disco_artwork_approval(token):
+    """Página pública donde el artista (o un colaborador) APRUEBA o RECHAZA la portada.
+
+    Un enlace por persona: solo ve y decide LO SUYO, y puede cambiar su decisión."""
+    session_db = db()
+    try:
+        ap = (session_db.query(DiscoProjectArtworkApprover)
+              .filter(DiscoProjectArtworkApprover.token == (token or "").strip()).first())
+        if ap is None:
+            abort(404)
+        fila = session_db.get(DiscoProjectArtwork, ap.artwork_id)
+        project = session_db.get(DiscoProject, fila.project_id) if fila is not None else None
+        if fila is None or project is None:
+            abort(404)
+        ctx = _disco_project_email_ctx(session_db, project)
+        if request.method == "POST":
+            decision = (request.form.get("decision") or "").strip().upper()
+            if decision not in ("APROBADA", "RECHAZADA"):
+                flash("Dime si la apruebas o no.", "warning")
+                return redirect(url_for("public_disco_artwork_approval", token=token))
+            ap.status = decision
+            ap.note = (request.form.get("note") or "").strip() or None
+            ap.decided_at = _now_madrid()
+            session_db.flush()
+            todos = list(session_db.query(DiscoProjectArtworkApprover)
+                         .filter(DiscoProjectArtworkApprover.artwork_id == fila.id).all())
+            pendientes = [x for x in todos if (x.status or "PENDIENTE").upper() == "PENDIENTE"]
+            rechazos = [x for x in todos if (x.status or "").upper() == "RECHAZADA"]
+            if not pendientes and not rechazos:
+                # ⚠️ Aprobada por TODOS: pasa a ser la portada del lanzamiento.
+                fila.approved_at = _now_madrid()
+                fila.status = "APPROVED"
+                _disco_artwork_apply_to_release(session_db, project, fila)
+                _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                              "Portada aprobada: %s" % _disco_project_title(project),
+                              "Ya está en los materiales del lanzamiento.",
+                              url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                              ref_type="DISCO_ARTWORK_OK", ref_id=str(project.id))
+            elif rechazos:
+                fila.approved_at = None
+                _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                              "Portada RECHAZADA: %s" % _disco_project_title(project),
+                              "%s: %s" % ((ap.name or ap.email or "—"), (ap.note or "")[:140]),
+                              url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                              ref_type="DISCO_ARTWORK_KO", ref_id=str(project.id))
+            session_db.commit()
+            return render_template("public_disco_artwork.html", mode="approval", ctx=ctx, row=fila,
+                                   project=project, approver=ap, saved=True)
+        return render_template("public_disco_artwork.html", mode="approval", ctx=ctx, row=fila,
+                               project=project, approver=ap, saved=False)
+    finally:
+        session_db.close()
+
+
 @app.post("/discografica/proyectos/<project_id>/produccion", endpoint="disco_project_production_save")
 @admin_required
 def disco_project_production_save(project_id):
@@ -21959,10 +22886,13 @@ def discografica_demo_create():
         row = SongDemo(status="VALORANDO",
                        created_by_user_id=_safe_uuid(estado.get("user_id")),
                        created_by_nick=(estado.get("nick") or ""))
+        # Una maqueta puede salir de un PROYECTO discográfico (el pop-up de «Subir demo» de su ficha):
+        # queda vinculada a él y se ve en la ficha del lanzamiento hasta que haya másters.
+        row.project_id = _safe_uuid((request.form.get("project_id") or "").strip())
         fallos = _demo_apply_form(session_db, row, request.form, request.files)
         if fallos:
             flash(" ".join(fallos), "warning")
-            return redirect(url_for("discografica_view", section="demos"))
+            return redirect(safe_next_or(url_for("discografica_view", section="demos")))
         session_db.add(row)
         session_db.commit()
         flash("Demo añadida.", "success")
@@ -21971,7 +22901,9 @@ def discografica_demo_create():
         flash("No se pudo guardar la demo: %s" % e, "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_view", section="demos"))
+    # ⚠️ Con `next` se vuelve a donde se subió (p. ej. la ficha del proyecto): sin él, el alta
+    # devolvía SIEMPRE a la sección Demos y te sacaba de la pantalla en la que estabas.
+    return redirect(safe_next_or(url_for("discografica_view", section="demos")))
 
 
 @app.post("/discografica/demos/<demo_id>/editar", endpoint="discografica_demo_update")
@@ -55191,7 +56123,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:

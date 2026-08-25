@@ -1,0 +1,226 @@
+{# ============================================================================================
+   PÁGINA PÚBLICA DE LA PORTADA de un proyecto. Standalone (sin layout: la ve gente de fuera), con
+   el estilo de la casa: logo de PIES arriba a la derecha, título centrado y la cabecera del
+   lanzamiento. Un solo archivo para los tres modos (`mode`):
+     · upload  → diseño o el tercero SUBE la portada (JPG y PSD, los dos obligatorios)
+     · idea    → el ARTISTA cuenta su idea (texto + ejemplos)
+     · approval→ el artista o un colaborador APRUEBA o RECHAZA
+   ============================================================================================ #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ {'upload': 'Subir la portada', 'idea': 'Idea de portada', 'approval': 'Aprobación de portada'}.get(mode, 'Portada') }} · {{ ctx.title }}</title>
+  <meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}">
+  {# og: para que al compartir el enlace se vea la portada o la foto del artista #}
+  <meta property="og:title" content="{{ ctx.title }}">
+  <meta property="og:description" content="{{ {'upload': 'Sube la portada', 'idea': 'Cuéntanos tu idea de portada', 'approval': 'Aprueba la portada'}.get(mode, 'Portada') }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4" style="max-width:860px;">
+
+  <div class="card shadow-sm">
+    <div class="card-body p-4">
+      {# Logo de la empresa (PIES) arriba a la DERECHA y el título centrado debajo. #}
+      <div class="d-flex justify-content-end">
+        {% if ctx.brand and ctx.brand.logo_url %}
+          <img src="{{ ctx.brand.logo_url }}" alt="{{ ctx.brand.company_name or 'PIES' }}"
+               style="max-height:56px;max-width:180px;object-fit:contain;">
+        {% endif %}
+      </div>
+      <h1 class="h3 text-center mt-2 mb-4">
+        {% if mode == 'upload' %}Subir la portada
+        {% elif mode in ('idea', 'idea_done') %}Idea de portada
+        {% elif mode == 'approval' %}Aprobación de portada
+        {% else %}Portada{% endif %}
+      </h1>
+
+      {# La cabecera del lanzamiento, como en el correo y en la app. #}
+      <div class="d-flex align-items-center gap-3 border rounded-3 p-3 mb-4 bg-white">
+        {% if ctx.cover_url %}
+          <img src="{{ ctx.cover_url }}" alt="" style="width:88px;height:88px;object-fit:cover;border-radius:14px;border:1px solid #e5e7eb;">
+        {% endif %}
+        <div class="min-w-0">
+          <div class="fs-5 fw-bold text-truncate">{{ ctx.title }}</div>
+          <div class="text-muted small">{{ ctx.artist_name }}</div>
+          <div class="mt-1">
+            <span class="badge text-bg-light border">Lanzamiento: {{ ctx.release_label }}</span>
+            <span class="badge text-bg-dark">{{ ctx.badge_label }}</span>
+          </div>
+        </div>
+      </div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ 'danger' if category == 'danger' else ('warning' if category == 'warning' else 'info') }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      {# ---------------------------------------------------------- SUBIR LA PORTADA #}
+      {% if mode == 'upload' %}
+        {% if row.due_date %}
+          <div class="alert alert-warning">
+            <i class="fa fa-calendar-day me-1"></i>Fecha máxima de entrega:
+            <strong>{{ row.due_date.strftime('%d/%m/%Y') }}</strong>
+          </div>
+        {% endif %}
+        {% if row.jpg_url and row.psd_url %}
+          <div class="alert alert-success">
+            <i class="fa fa-circle-check me-1"></i>Ya nos has enviado la portada. Si quieres cambiarla,
+            vuelve a subirla aquí.
+          </div>
+        {% endif %}
+
+        {# Lo que hace falta para diseñarla: la idea, la foto y los ejemplos. #}
+        <div class="border rounded-3 p-3 mb-3">
+          <div class="fw-semibold mb-2"><i class="fa fa-lightbulb me-1 text-muted"></i>Idea y descripción</div>
+          {% if row.idea_text %}<div style="white-space:pre-wrap;">{{ row.idea_text }}</div>
+          {% else %}<div class="text-muted small">Sin descripción.</div>{% endif %}
+          {% if row.artist_idea_text %}
+            <div class="mt-3 p-3 rounded-3 bg-light">
+              <div class="small text-muted mb-1"><i class="fa fa-guitar me-1"></i>Lo que ha contado el artista</div>
+              <div style="white-space:pre-wrap;">{{ row.artist_idea_text }}</div>
+            </div>
+          {% endif %}
+          {% if idea_files or artist_files %}
+            <div class="d-flex flex-wrap gap-2 mt-3">
+              {% for f in (idea_files or []) + (artist_files or []) %}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ f.url }}" target="_blank" rel="noopener">
+                  <i class="fa fa-paperclip me-1"></i>{{ f.name or 'ejemplo' }}</a>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="border rounded-3 p-3 mb-4">
+          <div class="fw-semibold mb-2"><i class="fa fa-image me-1 text-muted"></i>Foto para la portada</div>
+          {% if row.photo_url %}
+            <img src="{{ row.photo_url }}" alt="" class="img-fluid rounded-3" style="max-height:320px;">
+            <div class="mt-2"><a class="btn btn-sm btn-outline-secondary" href="{{ row.photo_url }}" download>
+              <i class="fa fa-download me-1"></i>Descargar la foto</a></div>
+          {% elif (row.photo_mode or '') == 'NO_PHOTO' %}
+            <div class="text-muted">Portada de diseño: no lleva foto.</div>
+          {% else %}
+            <div class="text-muted">La foto la tienes tú.</div>
+          {% endif %}
+        </div>
+
+        <form method="post" enctype="multipart/form-data" class="border rounded-3 p-3">
+          <div class="fw-semibold mb-2"><i class="fa fa-upload me-1 text-muted"></i>Subir la portada</div>
+          <div class="alert alert-light border small">
+            Hacen falta <strong>los dos archivos</strong>: el <strong>JPG</strong> (es lo que se ve en
+            todas las plataformas) y el <strong>PSD</strong> (el archivo de trabajo).
+          </div>
+          <div class="row g-3">
+            <div class="col-12 col-md-6">
+              <label class="form-label">Portada en JPG</label>
+              <input class="form-control" type="file" name="jpg_file" accept="image/*" required>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Portada en PSD</label>
+              <input class="form-control" type="file" name="psd_file" accept=".psd,.psb,.zip,.rar" required>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">¿Quién la envía? <span class="text-muted">(opcional)</span></label>
+              <input class="form-control" name="who" placeholder="Tu nombre">
+            </div>
+          </div>
+          <div class="text-end mt-3">
+            <button class="btn btn-danger btn-lg"><i class="fa fa-paper-plane me-1"></i>Enviar la portada</button>
+          </div>
+        </form>
+
+      {# ---------------------------------------------------------- LA IDEA DEL ARTISTA #}
+      {% elif mode == 'idea' %}
+        <p class="lead">Cuéntanos cómo te imaginas la portada. Si tienes ejemplos o referencias, súbelos.</p>
+        <form method="post" enctype="multipart/form-data" class="border rounded-3 p-3">
+          <label class="form-label">Tu idea</label>
+          <textarea class="form-control" name="idea_text" rows="6"
+                    placeholder="Colores, estilo, qué te gustaría que se viera…">{{ row.artist_idea_text or '' }}</textarea>
+          <label class="form-label mt-3">Ejemplos <span class="text-muted">(opcional)</span></label>
+          <input class="form-control" type="file" name="idea_files" multiple>
+          {% if artist_files %}
+            <div class="d-flex flex-wrap gap-2 mt-2">
+              {% for f in artist_files %}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ f.url }}" target="_blank" rel="noopener">
+                  <i class="fa fa-paperclip me-1"></i>{{ f.name or 'ejemplo' }}</a>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <div class="text-end mt-3">
+            <button class="btn btn-danger btn-lg"><i class="fa fa-paper-plane me-1"></i>Enviar mi idea</button>
+          </div>
+        </form>
+
+      {# ---------------------------------------------------------- APROBAR LA PORTADA #}
+      {% elif mode == 'approval' %}
+        {% if saved %}
+          <div class="alert alert-success">
+            <i class="fa fa-circle-check me-1"></i>Gracias, {{ approver.name or '' }}. Hemos anotado que
+            {{ 'la apruebas' if (approver.status or '') == 'APROBADA' else 'no te vale' }}.
+            Puedes cambiar tu respuesta desde este mismo enlace.
+          </div>
+        {% endif %}
+        {% if row.jpg_url %}
+          <div class="text-center mb-3">
+            <img src="{{ row.jpg_url }}" alt="Portada" class="img-fluid rounded-3 border" style="max-height:520px;">
+          </div>
+        {% endif %}
+        <form method="post" class="border rounded-3 p-3">
+          <div class="fw-semibold mb-2">¿Te vale esta portada?</div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="activity-choice-card border rounded p-3 text-center w-100 d-block bg-white{{ ' is-selected' if (approver.status or '') == 'APROBADA' }}">
+                <input class="form-check-input visually-hidden" type="radio" name="decision" value="APROBADA"
+                       {% if (approver.status or '') == 'APROBADA' %}checked{% endif %} required>
+                <i class="fa fa-thumbs-up d-block fs-2 mb-2 text-success"></i>
+                <span class="fw-semibold">Sí, me vale</span>
+              </label>
+            </div>
+            <div class="col-6">
+              <label class="activity-choice-card border rounded p-3 text-center w-100 d-block bg-white{{ ' is-selected' if (approver.status or '') == 'RECHAZADA' }}">
+                <input class="form-check-input visually-hidden" type="radio" name="decision" value="RECHAZADA"
+                       {% if (approver.status or '') == 'RECHAZADA' %}checked{% endif %}>
+                <i class="fa fa-thumbs-down d-block fs-2 mb-2 text-danger"></i>
+                <span class="fw-semibold">No, hay que cambiarla</span>
+              </label>
+            </div>
+          </div>
+          <label class="form-label">¿Quieres decirnos algo? <span class="text-muted">(opcional)</span></label>
+          <textarea class="form-control" name="note" rows="3"
+                    placeholder="Lo que cambiarías">{{ approver.note or '' }}</textarea>
+          <div class="text-end mt-3">
+            <button class="btn btn-danger btn-lg"><i class="fa fa-paper-plane me-1"></i>Enviar mi respuesta</button>
+          </div>
+        </form>
+
+      {# ---------------------------------------------------------- HECHO #}
+      {% else %}
+        <div class="alert alert-success text-center">
+          <i class="fa fa-circle-check fa-2x d-block mb-2"></i>
+          <div class="fs-5 fw-semibold">¡Recibido, gracias!</div>
+          <div class="text-muted">Ya lo tenemos. No hace falta que hagas nada más.</div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="text-center text-muted small mt-3">{{ ctx.brand.company_name or 'PIES' }}</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  /* Las tarjetas de sí/no se marcan al pinchar (aquí no hay scripts.js). */
+  document.querySelectorAll('.activity-choice-card').forEach(function (c) {
+    c.addEventListener('click', function () {
+      document.querySelectorAll('.activity-choice-card').forEach(function (o) { o.classList.remove('is-selected'); });
+      c.classList.add('is-selected');
+    });
+  });
+</script>
+</body>
+</html>

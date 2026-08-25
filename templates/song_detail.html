@@ -1366,6 +1366,40 @@
 
   {% elif tab == 'materiales' %}
 
+    {# LA MAQUETA del proyecto que creó esta canción: se ve aquí MIENTRAS NO HAYA MÁSTERS. En cuanto
+       se suben, esta función desaparece de los materiales y la maqueta se queda en Demos. #}
+    {% if project_demos %}
+      <div class="ficha-section mb-3">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-compact-disc"></i>Maqueta del proyecto</h6>
+          <span class="text-muted small">Se deja de ver aquí en cuanto se suba el máster.</span>
+        </div>
+        <div class="ficha-section__body">
+          <div class="d-grid gap-2">
+            {% for d in project_demos %}
+              <div class="d-flex align-items-center gap-3 border rounded p-2 flex-wrap">
+                <img src="{{ d.cover_url or DEFAULT_COVER_URL }}" alt=""
+                     style="width:52px;height:52px;border-radius:10px;object-fit:cover;">
+                <span class="flex-grow-1 min-w-0">
+                  <span class="fw-semibold d-block text-truncate">{{ d.title }}</span>
+                  <span class="small text-muted text-truncate d-block">
+                    {{ d.who or '' }}{% if d.authors_tooltip %} · {{ d.authors_tooltip }}{% endif %}</span>
+                </span>
+                {% if d.audio_url %}
+                  {# La etiqueta de audio del sistema (suena aquí mismo, uno a la vez). #}
+                  <span class="mat-chip mat-chip--bare" data-chip-src="{{ d.audio_url }}">
+                    <i class="fa fa-play"></i></span>
+                {% endif %}
+                <a class="btn btn-sm btn-outline-secondary"
+                   href="{{ url_for('discografica_view', section='demos', demo_artist=(d.artist_id or 'none')) }}">
+                  <i class="fa fa-arrow-right me-1"></i>Ver en Demos</a>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
     {# Menú de compartir + descargar reutilizable (audio o portada). #}
     {% macro mat_share_dl(concept, item, is_cover=False) %}
       <li><h6 class="dropdown-header">Compartir</h6></li>

@@ -381,6 +381,307 @@
   </div>
 </div>
 
+
+{# ---------------------------------------------------------------- 7 · PORTADA · ¿quién la hace? #}
+{% set aw = (artwork.row if artwork else None) %}
+<div class="modal fade" id="dpArtworkWhoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_artwork_who', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-palette me-2 text-danger"></i>Gestionar portada</h5>
+          <div class="text-muted small">¿Quién la hace?</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-2">
+          {% for key, label, icon in artwork_who %}
+            {{ elige('who', key, icon, label, (artwork.who if artwork else '') == key) }}
+          {% endfor %}
+        </div>
+        <div class="mt-3" data-dp-when="who=THIRD">
+          <label class="form-label">¿Quién la diseña?</label>
+          {{ tercero('dpArtworkPick', 'promoter_id', (aw.promoter_id if aw else '')) }}
+          <label class="form-label mt-3">Condiciones</label>
+          <div class="row g-2">
+            {% for key, label, icon in artwork_cost_modes %}
+              {{ elige('cost_mode', key, icon, label, ((aw.cost_mode or '') if aw else '') == key) }}
+            {% endfor %}
+          </div>
+          <div class="row g-3 mt-2" data-dp-when="cost_mode=AMOUNT">
+            <div class="col-12 col-md-4">
+              <label class="form-label">Importe sin IVA</label>
+              <input class="form-control" name="amount" inputmode="decimal"
+                     value="{{ (aw.amount if aw and aw.amount is not none else '') }}" placeholder="0,00">
+            </div>
+          </div>
+        </div>
+        <div class="form-text mt-3">
+          Si la hace el artista no hay que elegir a nadie: ya sabemos quién es.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- 8 · PORTADA · foto e idea #}
+<div class="modal fade" id="dpArtworkPhotoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_project_artwork_photo', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-images me-2 text-danger"></i>Foto e idea de la portada</h5>
+          <div class="text-muted small">Es el paso previo a poder solicitarla.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">¿Qué foto lleva?</label>
+        <div class="row g-2">
+          {% for key, label, icon in artwork_photo_modes %}
+            {{ elige('photo_mode', key, icon, label, (artwork.photo_mode if artwork else '') == key) }}
+          {% endfor %}
+        </div>
+        <div class="mt-3" data-dp-when="photo_mode=UPLOAD">
+          <label class="form-label">Sube la foto</label>
+          <input class="form-control" type="file" name="photo_file" accept="image/*">
+        </div>
+        <div class="mt-3" data-dp-when="photo_mode=LIBRARY">
+          <label class="form-label">Elige una de las fotos guardadas del artista</label>
+          {% if artist_photos %}
+            <div class="d-flex flex-wrap gap-2">
+              {% for ph in artist_photos %}
+                <label class="border rounded position-relative" style="cursor:pointer;">
+                  <input class="form-check-input position-absolute" type="radio" name="photo_url"
+                         value="{{ ph.file_url }}" style="top:.3rem;left:.3rem;"
+                         {% if artwork and artwork.photo_url == ph.file_url %}checked{% endif %}>
+                  <img src="{{ ph.poster_url or ph.file_url }}" alt="" loading="lazy"
+                       style="width:96px;height:96px;object-fit:cover;border-radius:8px;">
+                </label>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-muted small">Este artista todavía no tiene fotos guardadas.</div>
+          {% endif %}
+        </div>
+        <label class="form-label mt-3">Descripción / idea que debe llevar la portada</label>
+        <textarea class="form-control" name="idea_text" rows="4"
+                  placeholder="Qué se quiere ver, estilo, colores, referencias…">{{ (artwork.idea_text if artwork else '') }}</textarea>
+        <label class="form-label mt-3">Ejemplos <span class="text-muted">(se acumulan)</span></label>
+        <input class="form-control" type="file" name="idea_files" multiple>
+        {% if artwork and artwork.idea_files %}
+          <div class="d-flex flex-wrap gap-2 mt-2">
+            {% for f in artwork.idea_files %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ f.url }}" target="_blank" rel="noopener">
+                <i class="fa fa-paperclip me-1"></i>{{ f.name or 'ejemplo' }}</a>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if artwork and artwork.artist_idea_text %}
+          <div class="alert alert-light border mt-3">
+            <div class="small text-muted mb-1"><i class="fa fa-guitar me-1"></i>Lo que ha contado el artista</div>
+            <div style="white-space:pre-wrap;">{{ artwork.artist_idea_text }}</div>
+          </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ------------------------------------------------- 9 · PORTADA · pedirle la idea al artista #}
+<div class="modal fade" id="dpArtworkIdeaModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_artwork_idea_ask', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-comment-dots me-2 text-danger"></i>Pedir al artista su idea de portada</h5>
+          <div class="text-muted small">Le llega su propio enlace para contarla y subir ejemplos.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Nota <span class="text-muted">(opcional)</span></label>
+        <textarea class="form-control" name="note" rows="3" placeholder="Lo que quieras añadirle"></textarea>
+        {% if artwork and artwork.artist_idea_url %}
+          <div class="form-text mt-2">Enlace: <span class="text-break">{{ artwork.artist_idea_url }}</span></div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Pedir la idea</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- 10 · PORTADA · solicitarla #}
+<div class="modal fade" id="dpArtworkRequestModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_artwork_request', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Solicitar la portada</h5>
+          <div class="text-muted small">
+            Se le manda a {{ (artwork.who_name if artwork else 'quien la hace') }} un enlace para subirla
+            en JPG y PSD.
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Fecha máxima de entrega</label>
+            <input type="date" class="form-control" name="due_date" required
+                   value="{{ (aw.due_date.isoformat() if aw and aw.due_date else '') }}">
+          </div>
+          <div class="col-12 col-md-8">
+            <label class="form-label">Otros correos <span class="text-muted">(opcional)</span></label>
+            <input class="form-control" name="extra_emails" placeholder="uno@correo.com, otro@correo.com">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Nota</label>
+            <textarea class="form-control" name="note" rows="3"
+                      placeholder="Lo que tenga que saber quien la diseña">{{ (aw.request_note if aw else '') or '' }}</textarea>
+          </div>
+        </div>
+        {% if artwork and artwork.upload_url %}
+          <div class="form-text mt-2">Enlace para subirla: <span class="text-break">{{ artwork.upload_url }}</span></div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Solicitar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- 11 · PORTADA · aprobación #}
+<div class="modal fade" id="dpArtworkApprovalModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_artwork_approval', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-thumbs-up me-2 text-danger"></i>Aprobación de la portada</h5>
+          <div class="text-muted small">Cada uno recibe SU enlace y decide lo suyo.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if artwork and artwork.jpg_url %}
+          <div class="text-center mb-3">
+            <img src="{{ artwork.jpg_url }}" alt="" class="img-fluid rounded-3 border" style="max-height:240px;">
+          </div>
+        {% endif %}
+        {% if artwork_candidates %}
+          <label class="form-label">¿A quién?</label>
+          <div class="d-grid gap-2">
+            {% for c in artwork_candidates %}
+              <label class="d-flex align-items-center gap-2 border rounded p-2">
+                <input class="form-check-input m-0" type="checkbox" name="to[]" value="{{ (c.email or '')|lower }}"
+                       checked {% if not c.email %}disabled{% endif %}>
+                {% if c.photo_url %}<img src="{{ c.photo_url }}" alt="" data-avatar="1"
+                     style="width:32px;height:32px;border-radius:50%;object-fit:cover;">{% endif %}
+                <span class="flex-grow-1 min-w-0">
+                  <span class="fw-semibold">{{ c.name or c.email }}</span>
+                  <span class="badge text-bg-light border ms-1">{{ c.role|title }}</span>
+                  <span class="d-block small text-muted text-truncate">{{ c.email or 'sin correo' }}</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-warning mb-2">
+            <i class="fa fa-triangle-exclamation me-1"></i>No hay contactos del artista: añade correos
+            abajo o configura sus comunicaciones en su ficha.
+          </div>
+        {% endif %}
+        {% if artwork and artwork.approvers %}
+          <div class="mt-3">
+            <div class="small text-muted mb-1">Ya pedida a:</div>
+            <div class="d-flex flex-wrap gap-2">
+              {% for a in artwork.approvers %}
+                <span class="badge {{ 'text-bg-success' if a.status == 'APROBADA' else ('text-bg-danger' if a.status == 'RECHAZADA' else 'text-bg-light border') }}"
+                      title="{{ a.note }}">
+                  {{ a.name }}{% if a.at_label %} · {{ a.at_label }}{% endif %}</span>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+        <div class="row g-3 mt-1">
+          <div class="col-12 col-md-6">
+            <label class="form-label">Otros correos <span class="text-muted">(opcional)</span></label>
+            <input class="form-control" name="extra_emails" placeholder="uno@correo.com">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Nota <span class="text-muted">(opcional)</span></label>
+            <textarea class="form-control" name="note" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Pedir aprobación</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- 12 · SUBIR UNA DEMO
+   El MISMO formulario que la sección Demos (parcial `_demo_form_fields.html` + `demo_form.js`), con
+   el proyecto ya puesto: la maqueta queda vinculada a él. #}
+<div class="modal fade" id="dpDemoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('discografica_demo_create') }}"
+          data-demo-form
+          data-sign-url="{{ url_for('discografica_demo_sign') }}"
+          data-check-url="{{ url_for('discografica_demo_audio_check') }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="project_id" value="{{ project.id }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-compact-disc me-2 text-danger"></i>Subir demo</h5>
+          <div class="text-muted small">
+            Queda vinculada a este proyecto y se ve en la ficha del lanzamiento hasta que haya másters.
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% with demo_artists = demo_artists, demo_roles = demo_author_roles,
+                demo_author_search_url = url_for('api_search_promoters'), demo_sender_fields = True %}
+          {% include '_demo_form_fields.html' %}
+        {% endwith %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/demo_form.js') }}"></script>
+
 <script>
 /* Paneles que dependen de una elección (`data-dp-when="campo=VALOR[,VALOR2]"`) + los ocultos que
    ESPEJAN el radio de las tarjetas (`data-dp-mirror="campo"`), para que al servidor le llegue el

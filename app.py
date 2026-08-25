@@ -23933,8 +23933,10 @@ def disco_plan_content_move(project_id, content_id):
         fila = session_db.get(DiscoReleaseContent, to_uuid(content_id))
         if fila is None:
             return jsonify({"ok": False, "error": "Ese contenido ya no existe."}), 404
-        dia = parse_optional_date((request.form.get("date") or request.json.get("date")
-                                   if request.is_json else request.form.get("date")))
+        crudo = (request.form.get("date") or "").strip()
+        if not crudo and request.is_json:
+            crudo = ((request.get_json(silent=True) or {}).get("date") or "")
+        dia = parse_optional_date(crudo)
         if not dia:
             return jsonify({"ok": False, "error": "Falta la fecha."}), 400
         antigua = fila.publish_at
@@ -24050,7 +24052,7 @@ def _disco_plan_reminder_candidates(session_db, project, plan) -> list[dict]:
             prof = (session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(uid)).first())
             u = session_db.get(User, to_uuid(uid))
             añade((getattr(prof, "nick", "") or getattr(u, "email", "")), getattr(u, "email", ""),
-                  _user_sms_phone(prof) if "_user_sms_phone" in globals() else "", "DIGITAL",
+                  _user_sms_phone(session_db, uid), "DIGITAL",
                   (getattr(prof, "photo_url", "") or ""))
     except Exception:
         app.logger.exception("[plan] personal de digital")

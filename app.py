@@ -29942,22 +29942,85 @@ def _booking_request_detail(session_db, r) -> dict:
     lugar = _place_label(r.municipality or "", r.province or "", (pay.get("country") or ""),
                          venue=(venue.name if venue else ""))
     act_type = (pay.get("activity_type") or "CONCIERTO").strip().upper()
-    # Solo se muestran los campos con contenido: la ficha enseña lo que hay, no huecos.
-    campos = [
-        ("Asunto", (r.subject or "").strip(), "fa-tag"),
-        ("Fecha pedida", fecha, "fa-calendar-day"),
-        ("Lugar", lugar, "fa-location-dot"),
-        ("Importe orientativo", (r.fee_text or "").strip(), "fa-euro-sign"),
-        ("¿Cómo llegó?", dict(BOOKING_SOURCE_CHOICES).get((r.source or "").upper(), (r.source or "")), "fa-inbox"),
+    act_kind = _activity_kind_key(act_type) or act_type
+    concierto = session_db.get(Concert, r.concert_id) if r.concert_id else None
+    gastos = (pay.get("promoter_costs") or {})
+    gastos_label = " · ".join(
+        "%s%s" % (it.get("label") or it.get("key"),
+                  (" (%s)" % it.get("note")) if (it.get("note") or "").strip() else "")
+        for it in (gastos.get("items") or []))
+
+    # ---- LA FICHA SE LEE COMO LA DE UNA ACTIVIDAD: cabecera + pestañas + secciones, y en cada
+    # sección SOLO lo que corresponde a este tipo de actividad y a cómo se configuró la petición
+    # (nada de huecos vacíos: un campo sin valor no se pinta).
+    def _rows(*filas):
+        return [{"label": l, "value": v, "icon": i}
+                for l, v, i in filas if str(v or "").strip()]
+
+    place_kind = (pay.get("place_kind")
+                  or ("VENUE" if r.venue_id else ("CITY" if r.municipality else "NONE"))).upper()
+    date_kind = (pay.get("date_kind") or ("EXACT" if r.requested_date else "UNKNOWN")).upper()
+    lugar_txt = lugar or {"NONE": "Todavía no se sabe dónde"}.get(place_kind, "")
+    secciones_datos = [
+        {"title": "Qué se pide", "icon": "fa-clipboard-question", "rows": _rows(
+            ("Tipo de actividad", QUAD_ACTIVITY_LABELS.get(act_type, "Actividad"),
+             QUAD_ACTIVITY_ICONS.get(act_kind, "fa-calendar-day")),
+            ("Asunto", (r.subject or "").strip(), "fa-tag"),
+            ("Artista", (r.artist.name if r.artist else ""), "fa-guitar"),
+            ("Caché", ("Sin caché" if pay.get("no_cache") else "Con caché"), "fa-euro-sign"),
+            ("Departamentos", " · ".join(dept_labels.get(d, d) for d in depts), "fa-people-group"),
+            ("¿Cómo llegó?", dict(BOOKING_SOURCE_CHOICES).get((r.source or "").upper(), (r.source or "")),
+             "fa-inbox"),
+            ("La registró", (r.created_by_nick or ""), "fa-user-pen"),
+            ("Recibida el", (r.received_at.strftime("%d/%m/%Y") if r.received_at else ""), "fa-clock"),
+        )},
+        {"title": "Cuándo", "icon": "fa-calendar-day", "rows": _rows(
+            ("Fecha pedida", (fecha or "Todavía no se sabe"), "fa-calendar-day"),
+            ("Cómo se pidió", {"EXACT": "Día concreto", "RANGE": "Una franja de días",
+                               "MONTH": "Un mes", "UNKNOWN": "Sin definir"}.get(date_kind, ""),
+             "fa-hourglass-half"),
+        )},
+        {"title": "Dónde", "icon": "fa-location-dot", "rows": _rows(
+            ("Recinto", (venue.name if venue else ""), "fa-location-dot"),
+            ("Lugar", lugar_txt, "fa-map-location-dot"),
+            ("Aforo del recinto", (format_thousands(venue.capacity)
+                                   if (venue is not None and getattr(venue, "capacity", None)) else ""),
+             "fa-people-group"),
+        )},
     ]
-    # Lo que cubre quien lo pide (si se dijo al pedirlo).
-    _gastos = (pay.get("promoter_costs") or {})
-    if _gastos.get("items"):
-        campos.append(("Cubren gastos", " · ".join(
-            "%s%s" % (it.get("label") or it.get("key"),
-                      (" (%s)" % it.get("note")) if (it.get("note") or "").strip() else "")
-            for it in _gastos["items"]), "fa-hand-holding-heart"))
+    if (r.notes or "").strip():
+        secciones_datos.append({"title": "Notas", "icon": "fa-note-sticky", "rows": [],
+                                "text": (r.notes or "").strip()})
+
+    tabs = [{"key": "datos", "label": "Datos de la petición", "icon": "fa-circle-info",
+             "sections": [x for x in secciones_datos if x["rows"] or x.get("text")]}]
+    # ECONÓMICO: solo si hay algo que decir (una petición sin caché no tiene esta pestaña).
+    filas_econ = _rows(
+        ("Importe orientativo", (r.fee_text or "").strip(), "fa-euro-sign"),
+        ("Cubren gastos", gastos_label, "fa-hand-holding-heart"),
+    )
+    if filas_econ:
+        tabs.append({"key": "economico", "label": "Económico", "icon": "fa-euro-sign",
+                     "sections": [{"title": "Lo que se habló", "icon": "fa-euro-sign",
+                                   "rows": filas_econ}]})
+    # ACTIVIDAD: solo cuando ya se aceptó (la petición pasó a ser la actividad).
+    if concierto is not None:
+        tabs.append({"key": "actividad", "label": "Actividad", "icon": "fa-guitar",
+                     "url": url_for("concert_detail_view", cid=concierto.id),
+                     "sections": [{"title": "La actividad que se creó", "icon": "fa-guitar",
+                                   "rows": _rows(
+                                       ("Tipo", _activity_kind_label(_activity_kind_key(concierto.activity_type)), "fa-calendar-day"),
+                                       ("Estado", _concert_status_meta(concierto.status)[0], "fa-circle-half-stroke"),
+                                       ("Fecha", (concierto.date.strftime("%d/%m/%Y") if concierto.date else ""), "fa-calendar-day"),
+                                       ("Lugar", _place_label(_concert_city(concierto) or "",
+                                                              _concert_province_value(concierto) or "",
+                                                              venue=(_concert_venue_name(concierto) or "")),
+                                        "fa-location-dot"),
+                                       ("Producción", _concert_production_owner_name(session_db, concierto), "fa-user-gear"),
+                                   )}]})
     return {
+        "tabs": tabs,
+        "concert": concierto,
         "row": r,
         "status_label": label,
         "status_badge": badge,
@@ -29966,14 +30029,18 @@ def _booking_request_detail(session_db, r) -> dict:
         "activity_type": act_type,
         "activity_label": QUAD_ACTIVITY_LABELS.get(act_type, "Actividad"),
         "no_cache": bool(pay.get("no_cache")),
-        "fields": [{"label": l, "value": v, "icon": i} for l, v, i in campos if (v or "").strip()],
+        "activity_icon": QUAD_ACTIVITY_ICONS.get(act_kind, "fa-calendar-day"),
+        "date_label": fecha,
+        "place_label": lugar,
         # QUIÉN LO PIDE va aparte: se enseña con su foto o su logo, no como una línea de texto.
         "requester": _peticion_requester_chip(session_db, r),
         # Cerrada y todavía sin comunicar a quien la pidió: la petición no está terminada.
         "rejection_pending": bool((r.status or "").upper() == "DESCARTADA"
                                   and not r.rejection_notified_at),
-        # Aceptada y con cosas por hacer: las MISMAS subtareas que en Inicio (punto único).
-        "accept_tasks": _peticion_accept_tasks(session_db, r),
+        # Aceptada: en qué fase va la ACTIVIDAD (las mismas que en Inicio, punto único). Aquí se
+        # enseñan como estado —el trabajo se hace en la ficha de la actividad, que es lo que ya es—.
+        "accept_tasks": _peticion_accept_tasks(
+            session_db, r, for_user=((_current_user_state() or {}).get("user_id") or "")),
         # Lo que necesita el asistente para EDITARLA desde los tres puntitos de la ficha.
         "edit_payload": _peticion_edit_payload(session_db, r),
         "artist": r.artist,
@@ -29998,14 +30065,25 @@ def booking_request_detail_view(rid):
         )
         if not r:
             abort(404)
-        # Solo la ve quien lleva alguno de sus departamentos (o dirección).
+        # La ve quien lleva alguno de sus departamentos, dirección y —⚠️ esto faltaba— QUIEN LA
+        # PIDIÓ: es su petición, y al pinchar la suya en Inicio se comía un «es de otro
+        # departamento» y volvía a la portada.
         depts = _current_user_peticion_departments()
-        if not is_master() and not any(_booking_in_department(r, d) for d in depts):
+        _propia = str(r.created_by_user_id or "") == str((_current_user_state() or {}).get("user_id") or "")
+        if not is_master() and not _propia and not any(_booking_in_department(r, d) for d in depts):
             flash("Esta petición es de otro departamento.", "warning")
             return redirect(url_for("home"))
+        detalle = _booking_request_detail(session_db, r)
+        # Pestañas SERVIDAS (?tab=), como en la ficha de una actividad: solo las que tienen algo que
+        # enseñar, y si se pide una que no existe se cae a la primera.
+        claves = [t["key"] for t in detalle["tabs"]]
+        tab = (request.args.get("tab") or "").strip().lower()
+        if tab not in claves:
+            tab = claves[0] if claves else "datos"
         return render_template(
             "peticion_detail.html",
-            **_booking_request_detail(session_db, r),
+            **detalle,
+            tab=tab,
             activity_choices=QUAD_ACTIVITY_CHOICES,
             # El asistente de peticiones se incluye aquí (los tres puntitos la EDITAN con el mismo
             # con el que se creó) y necesita la lista de artistas.
@@ -30205,10 +30283,18 @@ def booking_request_rejection_send(rid):
 # a QUIEN LA PIDIÓ le quedan tres cosas por hacer, así que la petición vuelve a su Inicio como TAREA
 # PENDIENTE con esas tres subtareas hasta que estén las tres. Es la misma regla del rechazo: es la
 # misma petición en otro momento de su vida, no otro módulo.
-PETICION_ACCEPT_TASKS = (
-    ("promotor", "Confirmar al promotor", "fa-handshake"),
-    ("artista", "Informar al artista", "fa-comment-dots"),
-    ("produccion", "Activar producción", "fa-user-gear"),
+# ⚠️⚠️ Cuando el departamento la ACEPTA, la petición **pasa a ser la ACTIVIDAD** (un evento
+# promocional, p. ej.): a partir de ahí el trabajo es de la actividad y va POR FASES, y cada fase la
+# tiene que hacer QUIEN LE TOCA. Las fases van EN ORDEN y la siguiente está bloqueada hasta que la
+# anterior esté hecha.
+# ⚠️ Lo IMPORTANTE del orden: **antes de confirmarle nada al promotor hay que haber avisado al
+# artista** (es la norma de la casa: no se compromete una fecha con nadie de fuera sin que el artista
+# la sepa).
+PETICION_ACCEPT_PHASES = (
+    # clave         nº  etiqueta                 icono           de quién es
+    ("artista",     1, "Avisar al artista",     "fa-bell",      "CONTRATACION"),
+    ("promotor",    2, "Confirmar al promotor", "fa-handshake", "REQUESTER"),
+    ("produccion",  3, "Activar producción",    "fa-user-gear", "REQUESTER"),
 )
 
 
@@ -30236,58 +30322,87 @@ def _peticion_accept_contact(session_db, r, concert=None) -> dict:
             "contact": " · ".join([x for x in [correo, telefono] if x])}
 
 
-def _peticion_accept_tasks(session_db, r, concert=None) -> list[dict]:
-    """LO QUE FALTA por hacer en una petición ya aceptada, para quien la pidió. Punto ÚNICO: lo usan
-    el módulo «Mis peticiones» de Inicio y la ficha de la petición, así que dicen lo mismo.
+def _peticion_artist_notice_pending(session_db, concert) -> bool:
+    """¿Falta AVISAR AL ARTISTA de esta actividad? (fase 1).
 
-    Cada subtarea se decide mirando el estado DE VERDAD, no una marca aparte, así que **desaparece
-    sola** en cuanto se hace:
-      · Confirmar al promotor → `acceptance_notified_at` (se apunta al comunicárselo).
-      · Informar al artista   → el aviso de la actividad (`_concert_notice_state`), con sus mismas
-        excepciones: un EVENTO no es de ningún artista y el histórico no genera trabajo.
-      · Activar producción    → que la actividad tenga responsable (`_concert_production_pending`,
-        que ya sabe a qué actividades les toca producción).
+    Con las mismas excepciones que la compuerta de confirmar: un EVENTO no es de ningún artista y el
+    histórico no genera trabajo."""
+    if concert is None:
+        return False
+    try:
+        if not getattr(concert, "artist_id", None) or getattr(concert, "event_id", None):
+            return False
+        if _concert_is_legacy(concert):
+            return False
+        return not _concert_notice_state(session_db, concert).get("notified")
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo mirar el aviso al artista")
+        return False
 
-    ⚠️ Solo las peticiones aceptadas DESDE que esto existe (`accepted_at`) generan tarea: las de
-    antes no van a reclamar hoy un trabajo que se hizo en su día."""
+
+def _peticion_accept_tasks(session_db, r, concert=None, *, for_user=None) -> list[dict]:
+    """LAS FASES que le quedan a una actividad que nace de una petición aceptada, en orden y con su
+    dueño. Punto ÚNICO: lo usan el módulo de Inicio, la ficha de la actividad y la de la petición,
+    así que los tres dicen exactamente lo mismo.
+
+    Cada fase se decide mirando el estado DE VERDAD, no una marca aparte, así que **desaparece sola**
+    en cuanto se hace:
+      · 1 Avisar al artista   → el aviso de la actividad (`_concert_notice_state`). Es de CONTRATACIÓN
+        (de quien la aprobó).
+      · 2 Confirmar al promotor → `acceptance_notified_at`. Es de QUIEN LA PIDIÓ y está **BLOQUEADA**
+        hasta que el artista esté avisado.
+      · 3 Activar producción  → que la actividad tenga responsable (`_concert_production_pending`).
+        Es de quien la pidió (la actividad queda a su nombre al aprobarla).
+
+    ⚠️ Solo las peticiones aceptadas DESDE que esto existe (`accepted_at`) generan trabajo: las de
+    antes no van a reclamar hoy algo que se hizo en su día."""
     if r is None or not getattr(r, "accepted_at", None):
         return []
     if (r.status or "").upper() != "CONVERTIDA":
         return []
     if concert is None and r.concert_id:
         concert = session_db.get(Concert, r.concert_id)
-    etiquetas = {k: (lbl, ico) for k, lbl, ico in PETICION_ACCEPT_TASKS}
+    meta = {k: (n, lbl, ico, dueño) for k, n, lbl, ico, dueño in PETICION_ACCEPT_PHASES}
+    yo = str(for_user or "")
+    # ⚠️ Quién es DIRECCIÓN se lee del estado (`role`), no con `is_master()`: ese saca el rol de la
+    # sesión y **sin sesión cae a 10**, así que fuera de una petición de usuario todo saldría «mío».
+    direccion = ((_current_user_state() or {}).get("role") == 10)
+    dueños = {
+        "CONTRATACION": (str(r.reviewed_by_user_id or ""), (r.reviewed_by_nick or "contratación")),
+        "REQUESTER": (str(r.created_by_user_id or ""), (r.created_by_nick or "quien la pidió")),
+    }
     filas = []
 
     def añade(key, **extra):
-        lbl, ico = etiquetas[key]
-        filas.append(dict({"key": key, "label": lbl, "icon": ico}, **extra))
+        n, lbl, ico, dueño = meta[key]
+        uid, nick = dueños.get(dueño, ("", ""))
+        # Si no consta quién es, la fase no es «de nadie»: la ve cualquiera que llegue a ella.
+        mia = bool(yo) and (uid == yo or not uid or direccion)
+        filas.append(dict({"key": key, "phase": n, "label": lbl, "icon": ico,
+                           "owner": dueño, "owner_nick": nick, "owner_user_id": uid,
+                           "mine": mia, "blocked": False, "blocked_reason": ""}, **extra))
 
-    # 1) CONFIRMAR AL PROMOTOR: quien lo pidió tiene que saber que sale adelante.
-    if not getattr(r, "acceptance_notified_at", None):
-        quien = _peticion_accept_contact(session_db, r, concert)
-        añade("promotor", who=quien.get("name") or "", contact=quien.get("contact") or "",
-              send_url=(url_for("booking_request_acceptance_send", rid=str(r.id))
-                        if (quien.get("email") or quien.get("phone")) else ""),
-              done_url=url_for("booking_request_acceptance_notified", rid=str(r.id)))
-    if concert is None:
-        return filas
-    # 2) INFORMAR AL ARTISTA: el MISMO aviso de la actividad (no hay un segundo camino).
-    try:
-        toca_artista = bool(getattr(concert, "artist_id", None)
-                            and not getattr(concert, "event_id", None)
-                            and not _concert_is_legacy(concert))
-    except Exception:
-        toca_artista = False
-    if toca_artista:
+    falta_artista = _peticion_artist_notice_pending(session_db, concert)
+    # 1) AVISAR AL ARTISTA (contratación).
+    if falta_artista:
         try:
             avisado = _concert_notice_state(session_db, concert)
         except Exception:
-            app.logger.exception("[peticiones] no se pudo mirar el aviso al artista")
-            avisado = {"notified": True}
-        if not avisado.get("notified"):
-            añade("artista", url=url_for("concert_artist_notice_view", cid=concert.id),
-                  note=("hay cambios desde el último aviso" if avisado.get("stale") else ""))
+            avisado = {}
+        añade("artista", url=url_for("concert_artist_notice_view", cid=concert.id),
+              note=("hay cambios desde el último aviso" if avisado.get("stale") else ""))
+    # 2) CONFIRMAR AL PROMOTOR (quien la pidió) — ⚠️ bloqueada mientras falte el aviso al artista.
+    if not getattr(r, "acceptance_notified_at", None):
+        quien = _peticion_accept_contact(session_db, r, concert)
+        añade("promotor", who=quien.get("name") or "", contact=quien.get("contact") or "",
+              blocked=bool(falta_artista),
+              blocked_reason=("Primero hay que avisar al artista." if falta_artista else ""),
+              send_url=(url_for("booking_request_acceptance_send", rid=str(r.id))
+                        if (quien.get("email") or quien.get("phone")) and not falta_artista else ""),
+              done_url=("" if falta_artista
+                        else url_for("booking_request_acceptance_notified", rid=str(r.id))))
+    if concert is None:
+        return filas
     # 3) ACTIVAR LA PRODUCCIÓN: decir QUIÉN de producción se encarga.
     try:
         falta_produccion = _concert_production_pending(concert)
@@ -30296,7 +30411,43 @@ def _peticion_accept_tasks(session_db, r, concert=None) -> list[dict]:
         falta_produccion = False
     if falta_produccion:
         añade("produccion", url=url_for("concert_detail_view", cid=concert.id))
+    filas.sort(key=lambda f: f["phase"])
     return filas
+
+
+def _peticion_of_concert(session_db, concert_id):
+    """La petición de la que salió una actividad (si salió de una)."""
+    if not concert_id:
+        return None
+    try:
+        return (session_db.query(BookingRequest)
+                .filter(BookingRequest.concert_id == concert_id)
+                .order_by(BookingRequest.created_at.desc()).first())
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo resolver la petición de la actividad")
+        return None
+
+
+def _concert_promoter_confirm_state(session_db, concert) -> dict | None:
+    """La fase «Confirmar al promotor» de ESTA actividad, para su ficha (o None si no aplica).
+
+    ⚠️ Va bloqueada hasta que el artista esté avisado: es el paso previo."""
+    if concert is None:
+        return None
+    r = _peticion_of_concert(session_db, concert.id)
+    if r is None or not getattr(r, "accepted_at", None):
+        return None
+    if getattr(r, "acceptance_notified_at", None):
+        return {"done": True, "at_label": (r.acceptance_notified_at.astimezone(TZ_MADRID)
+                                           .strftime("%d/%m/%Y %H:%M")
+                                           if r.acceptance_notified_at else ""),
+                "by": (r.acceptance_notified_by_nick or ""), "request_id": str(r.id)}
+    tareas = [t for t in _peticion_accept_tasks(session_db, r, concert) if t["key"] == "promotor"]
+    if not tareas:
+        return None
+    fila = dict(tareas[0])
+    fila.update({"done": False, "request_id": str(r.id)})
+    return fila
 
 
 def _peticion_acceptance_email_html(session_db, r, chip: dict | None = None, concert=None) -> str:
@@ -30376,6 +30527,11 @@ def booking_request_acceptance_send(rid):
             flash("Esa petición no la has hecho tú.", "danger")
             return redirect(url_for("home"))
         concert = session_db.get(Concert, r.concert_id) if r.concert_id else None
+        # ⚠️ PRIMERO EL ARTISTA: no se le confirma nada al promotor sin que el artista lo sepa. Lo
+        # comprueba el SERVIDOR (esconder el botón no basta).
+        if _peticion_artist_notice_pending(session_db, concert):
+            flash("Antes de confirmar al promotor hay que avisar al artista.", "warning")
+            return redirect(url_for("concert_artist_notice_view", cid=concert.id))
         quien = _peticion_accept_contact(session_db, r, concert)
         if not quien.get("email") and not quien.get("phone"):
             flash("No hay correo ni teléfono de quien la pidió: confírmaselo tú y marca la tarea.",
@@ -30426,6 +30582,10 @@ def booking_request_acceptance_notified(rid):
         if estado is None:
             flash("Esa petición no la has hecho tú.", "danger")
             return redirect(url_for("home"))
+        concert = session_db.get(Concert, r.concert_id) if r.concert_id else None
+        if _peticion_artist_notice_pending(session_db, concert):
+            flash("Antes de confirmar al promotor hay que avisar al artista.", "warning")
+            return redirect(url_for("concert_artist_notice_view", cid=concert.id))
         r.acceptance_notified_at = _now_madrid()
         r.acceptance_notified_by_nick = estado.get("nick") or estado.get("email") or ""
         _notify_resolve(session_db, "peticion_aceptada", str(r.id))
@@ -30498,15 +30658,15 @@ def booking_request_approve(rid):
         r.accepted_at = _now_madrid()
         r.reviewed_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
         r.reviewed_by_nick = st.get("nick") or st.get("email") or ""
-        # ⚠️ Aceptarla NO la termina: a quien la pidió le quedan tres cosas (confirmar al promotor,
-        # informar al artista y activar la producción), así que se le avisa y la petición le vuelve
-        # como TAREA a su Inicio hasta que estén las tres.
+        # ⚠️ Aceptarla NO la termina, pero **ya no es una petición: es la ACTIVIDAD**. El aviso lleva
+        # a su ficha, que es donde se hace el trabajo, y va por fases: primero contratación avisa al
+        # artista, después quien la pidió confirma al promotor y activa la producción.
         if r.created_by_user_id:
             _notify_user(s, r.created_by_user_id, "TAREA",
-                         "Tu petición sale adelante",
-                         "«%s» se ha aceptado: confirma al promotor, informa al artista y activa la "
-                         "producción." % (r.subject or "Petición"),
-                         url_for("booking_request_detail_view", rid=str(r.id)),
+                         "%s: sale adelante" % QUAD_ACTIVITY_LABELS.get(activity_type, "Actividad"),
+                         "«%s» ya es una actividad. En cuanto se avise al artista, confírmalo al "
+                         "promotor y activa la producción." % (r.subject or "Petición"),
+                         url_for("concert_detail_view", cid=str(c.id)),
                          ref_type="peticion_aceptada", ref_id=str(r.id))
         s.commit()
         flash("Petición aprobada: se ha creado el borrador de la actividad. Complétalo aquí.", "success")
@@ -30797,6 +30957,79 @@ def peticion_wizard_update(rid):
     return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
 
 
+def _home_activity_phase_tasks(limit: int = 12) -> list[dict]:
+    """LO QUE FALTA en las actividades que salieron de una petición aceptada, leído **como la
+    ACTIVIDAD**: al aceptarla, la petición pasa a ser el evento (promocional, de TV, lo que sea) y el
+    trabajo es de la actividad, no de la petición.
+
+    Va **por fases** y **cada fase es de quien le toca**: avisar al artista es de contratación (de
+    quien la aprobó) y confirmar al promotor y activar la producción, de quien la pidió. Las fases que
+    no son tuyas se ven en gris con el nombre de quien las tiene, para saber a qué se está esperando
+    (y por qué tu botón todavía no se puede pulsar)."""
+    estado = _current_user_state() or {}
+    uid = str(estado.get("user_id") or "")
+    if not uid:
+        return []
+    s = db()
+    try:
+        pk = to_uuid(uid)
+        peticiones = (s.query(BookingRequest)
+                      .filter(BookingRequest.accepted_at.isnot(None),
+                              BookingRequest.concert_id.isnot(None),
+                              func.upper(func.coalesce(BookingRequest.status, "")) == "CONVERTIDA",
+                              or_(BookingRequest.created_by_user_id == pk,
+                                  BookingRequest.reviewed_by_user_id == pk))
+                      .order_by(BookingRequest.accepted_at.desc())
+                      .limit(80).all())
+        if not peticiones:
+            return []
+        ids = [r.concert_id for r in peticiones if r.concert_id]
+        conciertos = {}
+        if ids:
+            for c in (s.query(Concert)
+                      .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                      .filter(Concert.id.in_(ids)).all()):
+                conciertos[str(c.id)] = c
+        salida = []
+        for r in peticiones:
+            c = conciertos.get(str(r.concert_id))
+            if c is None:
+                continue
+            tareas = _peticion_accept_tasks(s, r, c, for_user=uid)
+            if not tareas:
+                continue
+            kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
+            salida.append({
+                "id": str(c.id),
+                "request_id": str(r.id),
+                "url": url_for("concert_detail_view", cid=c.id),
+                "icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-calendar-day"),
+                "type_label": _activity_kind_label(kind),
+                "artist": (c.artist.name if c.artist else ""),
+                "artist_photo": ((c.artist.photo_url or "") if c.artist else ""),
+                "title": ((c.festival_name or "").strip() or (c.artist.name if c.artist else "")
+                          or _activity_kind_label(kind)),
+                "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+                "place_label": _place_label(_concert_city(c) or "", _concert_province_value(c) or "",
+                                            venue=(_concert_venue_name(c) or "")),
+                "status_label": _concert_status_meta(c.status)[0],
+                "status_badge": _concert_status_meta(c.status)[1],
+                "cache_label": _activity_cache_label(c.sale_type, c.activity_type),
+                "tasks": tareas,
+                # Lo que puedo hacer YO va primero: si tengo algo pendiente, la fila sube.
+                "mine": any(t.get("mine") and not t.get("blocked") for t in tareas),
+            })
+            if len(salida) >= limit:
+                break
+        salida.sort(key=lambda f: (0 if f.get("mine") else 1))
+        return salida
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron cargar las fases de las actividades")
+        return []
+    finally:
+        s.close()
+
+
 def _home_my_peticiones(limit: int = 12) -> list[dict]:
     """MIS PETICIONES: las que ha hecho esta persona, para ver cómo van sin buscarlas.
 
@@ -30823,10 +31056,10 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
             # RECHAZADA y ya comunicada = archivada: la tarea está hecha y deja de estar aquí.
             if est == "DESCARTADA" and r.rejection_notified_at:
                 continue
-            # ACEPTADA: lo que le queda por hacer a quien la pidió (confirmar al promotor,
-            # informar al artista, activar la producción). Mientras quede algo, es una TAREA.
-            tareas = _peticion_accept_tasks(s, r) if est == "CONVERTIDA" else []
-            if est in ("CONVERTIDA", "DESCARTADA") and not tareas:
+            # ⚠️ Una petición ACEPTADA ya no es una tarea de aquí: al aceptarla pasa a ser la
+            # ACTIVIDAD, y lo que falta se ve (y se hace) en el módulo «Actividades por cerrar».
+            # Aquí se queda solo como seguimiento.
+            if est in ("CONVERTIDA", "DESCARTADA"):
                 creada = r.created_at
                 if creada is not None and creada.tzinfo is None:
                     creada = creada.replace(tzinfo=TZ_MADRID)
@@ -30845,9 +31078,9 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
                 "place": lugar,
                 # Pendiente de COMUNICAR el rechazo: se resuelve en esta misma fila.
                 "rejection_pending": pendiente,
-                # Subtareas de una petición ACEPTADA: se resuelven en esta misma fila.
-                "accept_tasks": tareas,
-                "accept_pending": bool(tareas),
+                # Al pinchar una petición se abre SU FICHA (la ve también quien la pidió).
+                "detail_url": url_for("booking_request_detail_view", rid=str(r.id)),
+                # La actividad en la que se convirtió (si se aceptó), para poder ir a ella.
                 "activity_url": (url_for("concert_detail_view", cid=str(r.concert_id))
                                  if r.concert_id else ""),
                 "reason": (r.rejection_reason or ""),
@@ -30874,10 +31107,8 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
             })
             if len(salida) >= limit:
                 break
-        # Lo que hay que HACER va primero: comunicar un rechazo —o cerrar lo que falta de una
-        # petición ya aceptada— es una tarea, no un seguimiento.
-        salida.sort(key=lambda f: 0 if f.get("rejection_pending")
-                    else (1 if f.get("accept_pending") else 2))
+        # Lo que hay que HACER va primero: comunicar un rechazo es una tarea, no un seguimiento.
+        salida.sort(key=lambda f: 0 if f.get("rejection_pending") else 1)
         return salida
     except Exception:
         app.logger.exception("[inicio] no se pudieron cargar mis peticiones")
@@ -36465,6 +36696,9 @@ def concert_detail_view(cid):
             # AVISO AL ARTISTA: si está avisado (y sigue valiendo), la barra enseña la etiqueta
             # «Notificado» con a quién y cuándo; si no, el botón para avisarle.
             artist_notice=_concert_notice_state(session, c),
+            # CONFIRMAR AL PROMOTOR: si la actividad viene de una petición aceptada, esa fase es de
+            # quien la pidió y va DESPUÉS de avisar al artista (mientras falte, sale bloqueada).
+            promoter_confirm=_concert_promoter_confirm_state(session, c),
             # SALIDA A LA VENTA: activar la venta (contratación) y comunicarla (ticketing) son dos
             # funciones distintas de la producción, cada una con su botón.
             sale_state=_concert_sale_state(session, c),
@@ -44164,12 +44398,41 @@ def promoter_contact_share(contact_id, channel):
         session.close()
 
 
-def _conflict_exclude(query, columna, exclude_id_raw):
-    """Quita del aviso de solapes lo que se está EDITANDO: una cosa no se solapa consigo misma."""
+def _conflict_exclude_ids(session_db, exclude_id_raw) -> set:
+    """Los ids que NO cuentan como solape porque **son lo mismo** que se está editando.
+
+    ⚠️⚠️ Una PETICIÓN y la ACTIVIDAD que salió de ella son la misma cosa con dos ids: al editar la
+    petición, su propia actividad no es un solape (bug real: el asistente avisaba de que «ese día el
+    artista ya tiene algo» señalando el evento que esa misma petición había creado), y al revés. Así
+    que de un id se resuelven también sus pares por `BookingRequest.concert_id`."""
     if not exclude_id_raw:
+        return set()
+    try:
+        pk = to_uuid(exclude_id_raw)
+    except Exception:
+        return set()
+    ids = {pk}
+    try:
+        r = session_db.get(BookingRequest, pk)
+        if r is not None and r.concert_id:
+            ids.add(r.concert_id)
+        # Y al revés: la actividad que se edita puede venir de una petición (o de varias).
+        for (rid,) in (session_db.query(BookingRequest.id)
+                       .filter(BookingRequest.concert_id == pk).all()):
+            ids.add(rid)
+    except Exception:
+        app.logger.exception("[solapes] no se pudo resolver el par petición/actividad")
+    return ids
+
+
+def _conflict_exclude(query, columna, exclude_ids):
+    """Quita del aviso de solapes lo que se está EDITANDO: una cosa no se solapa consigo misma.
+
+    `exclude_ids` son los ids resueltos por `_conflict_exclude_ids` (la petición Y su actividad)."""
+    if not exclude_ids:
         return query
     try:
-        return query.filter(columna != to_uuid(exclude_id_raw))
+        return query.filter(columna.notin_(list(exclude_ids)))
     except Exception:
         return query
 
@@ -44194,6 +44457,9 @@ def api_concert_artist_conflicts():
         if end < start:
             start, end = end, start
         exclude_id_raw = (request.args.get('exclude_id') or '').strip() or None
+        # ⚠️ Se excluye la cosa que se está editando Y su par: una petición y la actividad que salió
+        # de ella son lo mismo con dos ids.
+        exclude_ids = _conflict_exclude_ids(session, exclude_id_raw)
         aid_s = str(aid)
         out = []
         # Conciertos (por artista principal o co-artista).
@@ -44202,11 +44468,7 @@ def api_concert_artist_conflicts():
             .filter(or_(Concert.artist_id == aid, Concert.artist_ids.contains([aid_s])))
             .filter(Concert.date >= start, Concert.date <= end)
         )
-        if exclude_id_raw:
-            try:
-                cq = cq.filter(Concert.id != to_uuid(exclude_id_raw))
-            except Exception:
-                pass
+        cq = _conflict_exclude(cq, Concert.id, exclude_ids)
         for c in cq.order_by(Concert.date.asc()).all():
             base = ' · '.join([x for x in [c.festival_name or 'Concierto', _concert_venue_name(c), _concert_city(c)] if x])
             out.append({
@@ -44226,7 +44488,7 @@ def api_concert_artist_conflicts():
                 .filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) >= start)
                 .filter(func.upper(func.coalesce(CompanyAction.status, '')).in_(['RESERVA', 'CONFIRMADO', 'CERRADA']))
             )
-            aq = _conflict_exclude(aq, CompanyAction.id, exclude_id_raw)
+            aq = _conflict_exclude(aq, CompanyAction.id, exclude_ids)
             for a in aq.order_by(CompanyAction.start_date.asc()).all():
                 out.append({
                     'id': str(a.id), 'kind': 'Acción', 'date': (a.start_date.isoformat() if a.start_date else ''),
@@ -44242,7 +44504,7 @@ def api_concert_artist_conflicts():
                 .filter(ArtistAgendaItem.start_date <= end)
                 .filter(ArtistAgendaItem.end_date >= start)
             )
-            iq = _conflict_exclude(iq, ArtistAgendaItem.id, exclude_id_raw)
+            iq = _conflict_exclude(iq, ArtistAgendaItem.id, exclude_ids)
             for it in iq.order_by(ArtistAgendaItem.start_date.asc()).all():
                 k = 'Bloqueo' if (it.kind or '').upper() == 'BLOCK' else 'Nota'
                 out.append({
@@ -44262,7 +44524,7 @@ def api_concert_artist_conflicts():
             )
             # ⚠️ Al EDITAR una petición, ella misma no es un solape: se excluye (si no, el asistente
             # avisaba de que el artista ya tiene algo ese día… que era esta misma petición).
-            bq = _conflict_exclude(bq, BookingRequest.id, exclude_id_raw)
+            bq = _conflict_exclude(bq, BookingRequest.id, exclude_ids)
             for b in bq.order_by(BookingRequest.requested_date.asc()).all():
                 out.append({
                     'id': str(b.id), 'kind': 'Petición', 'date': (b.requested_date.isoformat() if b.requested_date else ''),
@@ -55859,6 +56121,11 @@ def inject_personnel_globals():
         "HOME_MY_PETICIONES": (_home_my_peticiones()
                                if request.endpoint == "home" and session.get("user_id")
                                and "_home_my_peticiones" in globals() else []),
+        # LO QUE FALTA EN LAS ACTIVIDADES que salieron de una petición aceptada (por fases y cada
+        # una de quien le toca). Es de la PERSONA: no depende de ningún permiso de sección.
+        "HOME_ACTIVITY_PHASES": (_home_activity_phase_tasks()
+                                 if request.endpoint == "home" and session.get("user_id")
+                                 and "_home_activity_phase_tasks" in globals() else []),
         "HOME_PRODUCCION_PENDING": _home_produccion_pending() if request.endpoint == "home" and session.get("user_id") and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
         "HOME_ADMIN_ALTAS_PENDING": _home_admin_altas_pending() if request.endpoint == "home" and session.get("user_id") and "_home_admin_altas_pending" in globals() and has_access_key("administracion", include_descendants=True) else [],
         # Tareas de administración repartidas: a cada uno las suyas (y las que no tienen dueño).

@@ -10,19 +10,43 @@
        src="{{ (artist.photo_url if artist else None) or url_for('static', filename='img/logo.png') }}"
        alt="" data-default-photo="1"{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>
   <div class="ficha-hero__body">
-    <div class="ficha-hero__eyebrow">Petición · {{ activity_label }}</div>
+    {# QUÉ SE PIDE manda, igual que en una actividad: el tipo por delante y, detrás, si lleva caché. #}
+    <div class="ficha-hero__eyebrow">Petición · {{ activity_label }} · {{ 'Sin caché' if no_cache else 'Con caché' }}</div>
     <div class="d-flex flex-wrap align-items-center gap-2">
-      <h1 class="ficha-hero__title">{{ artist.name if artist else (row.subject or 'Petición') }}</h1>
+      <h1 class="ficha-hero__title"{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>{{ artist.name if artist else (row.subject or 'Petición') }}</h1>
       <span class="badge {{ status_badge }}">{{ status_label }}</span>
-      {% if no_cache %}<span class="badge text-bg-light border"><i class="fa fa-gift me-1"></i>Sin caché</span>{% endif %}
+      {% if row.concert_id %}
+        <a class="badge text-bg-success text-decoration-none" href="{{ url_for('concert_detail_view', cid=row.concert_id) }}"
+           title="Ya es una actividad: ir a su ficha"><i class="fa fa-circle-check me-1"></i>Ya es una actividad</a>
+      {% endif %}
     </div>
     {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
     <div class="ficha-hero__facts">
+      <span title="Qué se pide"><i class="fa {{ activity_icon }}"></i>{{ activity_label }}</span>
+      <span title="Fecha pedida"><i class="fa fa-calendar-day"></i>{{ date_label or 'Sin fecha' }}</span>
+      {% if place_label %}<span><i class="fa fa-location-dot"></i>{{ place_label }}</span>{% endif %}
+      {% if row.fee_text %}<span title="Importe orientativo"><i class="fa fa-euro-sign"></i>{{ row.fee_text }}</span>{% endif %}
       {% for d in departments %}<span><i class="fa fa-people-group"></i>{{ d }}</span>{% endfor %}
-      {% if row.received_at %}<span><i class="fa fa-inbox"></i>Recibida el {{ row.received_at.strftime('%d/%m/%Y') }}</span>{% endif %}
-      {% if row.created_by_nick %}<span><i class="fa fa-user-pen"></i>{{ row.created_by_nick }}</span>{% endif %}
+      {% if row.created_by_nick %}<span title="La registró"><i class="fa fa-user-pen"></i>{{ row.created_by_nick }}</span>{% endif %}
     </div>
   </div>
+  {# QUIÉN LO PIDE, arriba a la derecha: en una petición es el dato que dice de quién viene, igual
+     que la empresa del grupo en la ficha de una actividad. #}
+  {% if requester %}
+    <div class="ficha-hero__actions align-items-start">
+      <div class="hero-company" title="{{ requester.kind_label }}">
+        {% if requester.logo_url %}
+          <img src="{{ requester.logo_url }}" alt="{{ requester.name }}" data-avatar="1">
+        {% else %}
+          <span class="hero-company__ph"><i class="fa {{ requester.icon }}"></i></span>
+        {% endif %}
+        <span class="hero-company__t">
+          <span class="hero-company__lab">Lo pide</span>
+          <span class="hero-company__name">{{ requester.name }}</span>
+        </span>
+      </div>
+    </div>
+  {% endif %}
 </div>
 
 {# ---------- Los botones, justo debajo de la cabecera ---------- #}
@@ -91,38 +115,23 @@
       <i class="fa fa-arrow-up-right-from-square me-1"></i>Ir a la actividad
     </a>
   </div>
-  {# ACEPTARLA NO LA TERMINA: lo que le queda por hacer a quien la pidió. Las MISMAS subtareas que
-     salen en su Inicio (punto único `_peticion_accept_tasks`); cada una desaparece al hacerse. #}
+  {# ⚠️ Aceptada = YA ES LA ACTIVIDAD: aquí solo se ve por qué fase va (el trabajo se hace en la
+     ficha de la actividad). Por orden: avisar al artista → confirmar al promotor → activar la
+     producción, y cada fase la tiene quien le toca. #}
   {% if accept_tasks %}
   <div class="alert alert-warning">
     <div class="d-flex align-items-center gap-2 mb-2">
-      <i class="fa fa-list-check"></i>
-      <strong>Falta por hacer</strong>
-      {% if row.created_by_nick %}<span class="text-muted small">· lo lleva {{ row.created_by_nick }}</span>{% endif %}
+      <i class="fa fa-list-check"></i><strong>Falta por hacer en la actividad</strong>
+      <a class="btn btn-sm btn-outline-warning ms-auto" href="{{ url_for('concert_detail_view', cid=row.concert_id) }}">
+        <i class="fa fa-arrow-right me-1"></i>Ir a la actividad</a>
     </div>
     <div class="d-flex flex-wrap align-items-center gap-2">
       {% for t in accept_tasks %}
-        {% if t.key == 'promotor' %}
-          <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.label }}</span>
-          {% if t.contact %}<span class="badge text-bg-light border"><i class="fa fa-at me-1"></i>{{ t.contact }}</span>{% endif %}
-          {% if t.send_url %}
-          <form method="post" action="{{ t.send_url }}" class="d-inline">
-            <input type="hidden" name="next" value="{{ request.full_path }}">
-            <button class="btn btn-sm btn-warning"
-                    data-confirm="Se le va a confirmar a {{ t.who or 'quien la pidió' }} que la actividad sale adelante. ¿Seguir?">
-              <i class="fa fa-paper-plane me-1"></i>Confirmar
-            </button>
-          </form>
-          {% endif %}
-          <form method="post" action="{{ t.done_url }}" class="d-inline">
-            <input type="hidden" name="next" value="{{ request.full_path }}">
-            <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he confirmado</button>
-          </form>
-        {% else %}
-          <a class="btn btn-sm btn-outline-warning" href="{{ t.url }}">
-            <i class="fa {{ t.icon }} me-1"></i>{{ t.label }}{% if t.note %} · {{ t.note }}{% endif %}
-          </a>
-        {% endif %}
+        <span class="badge {{ 'text-bg-light border text-muted' if (t.blocked or not t.mine) else 'text-bg-warning text-dark' }}"
+              title="{% if t.blocked %}{{ t.blocked_reason }}{% else %}Lo tiene {{ t.owner_nick }}{% endif %}">
+          <i class="fa {{ 'fa-lock' if t.blocked else t.icon }} me-1"></i>{{ t.phase }}. {{ t.label }}
+          {%- if not t.mine %} · {{ t.owner_nick }}{% endif %}
+        </span>
       {% endfor %}
     </div>
   </div>
@@ -135,42 +144,44 @@
   </div>
 {% endif %}
 
-{# ---------- QUIÉN LO PIDE, con su foto o su logo ---------- #}
-{% if requester %}
-<div class="ficha-section mb-3">
-  <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-check"></i>Quién hace la petición</h6></div>
-  <div class="ficha-section__body">
-    <div class="pw-picked" style="max-width:26rem">
-      {% if requester.logo_url %}
-        <img src="{{ requester.logo_url }}" alt="" data-avatar="1">
-      {% else %}
-        <span class="pw-picked__ico"><i class="fa {{ requester.icon }}"></i></span>
-      {% endif %}
-      <span class="pw-picked__t">
-        <strong>{{ requester.name }}</strong>
-        <span>{{ requester.kind_label }}{% if requester.contact %} · {{ requester.contact }}{% endif %}</span>
-      </span>
-    </div>
-  </div>
-</div>
-{% endif %}
-
-{# ---------- Datos disponibles de la petición ---------- #}
-<div class="ficha-summary ficha-summary--compact mb-3">
-  {% for f in fields %}
-    <div class="fs-item{% if f.value|length > 30 %} fs-item--wide{% endif %}">
-      <div class="fs-item__label"><i class="fa {{ f.icon }}"></i>{{ f.label }}</div>
-      <div class="fs-item__value">{{ f.value }}</div>
-    </div>
+{# ---------- Los datos, en PESTAÑAS: la misma estructura que la ficha de una actividad, con lo
+   que corresponde a este tipo de actividad y a cómo se configuró la petición ---------- #}
+<ul class="nav nav-tabs ficha-tabs mb-0">
+  {% for t in tabs %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab == t.key %}active{% endif %}"
+         href="{{ url_for('booking_request_detail_view', rid=row.id, tab=t.key, next=back_url) }}">
+        <i class="fa {{ t.icon }} me-1"></i>{{ t.label }}
+      </a>
+    </li>
   {% endfor %}
-</div>
+</ul>
 
-{% if notes %}
-  <div class="ficha-section mb-3">
-    <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-note-sticky"></i>Notas</h6></div>
-    <div class="ficha-section__body" style="white-space:pre-wrap;">{{ notes }}</div>
-  </div>
-{% endif %}
+<div class="ficha-tabpane">
+  {% for t in tabs %}{% if t.key == tab %}
+    {% for sec in t.sections %}
+      <div class="ficha-section mb-3">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa {{ sec.icon }}"></i>{{ sec.title }}</h6>
+        </div>
+        <div class="ficha-section__body">
+          {% if sec.rows %}
+            <dl class="psum-list psum-list--2col mb-0">
+              {% for f in sec.rows %}
+                <div><dt class="psum-k"><i class="fa {{ f.icon }} me-1"></i>{{ f.label }}</dt><dd class="psum-v">{{ f.value }}</dd></div>
+              {% endfor %}
+            </dl>
+          {% endif %}
+          {% if sec.text %}<div style="white-space:pre-wrap;">{{ sec.text }}</div>{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+    {% if t.url %}
+      <a class="btn btn-outline-secondary" href="{{ t.url }}">
+        <i class="fa fa-arrow-up-right-from-square me-1"></i>Ir a la ficha de la actividad</a>
+    {% endif %}
+  {% endif %}{% endfor %}
+</div>
 
 {# ---------- Los dos pop-ups de los botones de arriba ---------- #}
 {% if is_open %}

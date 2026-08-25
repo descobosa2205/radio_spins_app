@@ -102,6 +102,45 @@
       </a>
     {% endif %}
   {% endif %}
+  {# CONFIRMAR AL PROMOTOR (fase 2 de una actividad que viene de una petición aceptada). ⚠️ VA
+     DESPUÉS de avisar al artista: mientras el artista no lo sepa, sale bloqueado y se dice por qué.
+     La fase es de QUIEN PIDIÓ la actividad; a los demás se les enseña quién la tiene. #}
+  {% if promoter_confirm %}
+    {% if promoter_confirm.done %}
+      <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
+            title="Promotor confirmado{% if promoter_confirm.at_label %} el {{ promoter_confirm.at_label }}{% endif %}{% if promoter_confirm.by %} por {{ promoter_confirm.by }}{% endif %}">
+        <i class="fa fa-handshake me-1"></i>Promotor confirmado
+      </span>
+    {% elif promoter_confirm.blocked %}
+      <span class="badge text-bg-light border text-muted align-self-center" data-bs-toggle="tooltip"
+            title="{{ promoter_confirm.blocked_reason }}">
+        <i class="fa fa-lock me-1"></i>Confirmar al promotor
+      </span>
+    {% elif promoter_confirm.mine %}
+      {% if promoter_confirm.send_url %}
+      <form method="post" action="{{ promoter_confirm.send_url }}" class="d-inline">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button class="btn btn-outline-warning btn-sm"
+                data-confirm="Se le va a confirmar a {{ promoter_confirm.who or 'quien la pidió' }} que la actividad sale adelante. ¿Seguir?">
+          <i class="fa fa-handshake me-1"></i>Confirmar al promotor
+        </button>
+      </form>
+      {% endif %}
+      {% if promoter_confirm.done_url %}
+      <form method="post" action="{{ promoter_confirm.done_url }}" class="d-inline">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button class="btn btn-outline-secondary btn-sm" title="Ya se lo he confirmado yo">
+          <i class="fa fa-check"></i>
+        </button>
+      </form>
+      {% endif %}
+    {% else %}
+      <span class="badge text-bg-light border text-muted align-self-center" data-bs-toggle="tooltip"
+            title="Lo tiene que confirmar {{ promoter_confirm.owner_nick }}">
+        <i class="fa fa-hourglass-half me-1"></i>Falta confirmar al promotor
+      </span>
+    {% endif %}
+  {% endif %}
   {# SALIDA A LA VENTA. Tres pasos y tres dueños, y NO tiene nada que ver con activar la producción:
      contratación ACTIVA la venta → ticketing la saca a la venta (la etiqueta de la cabecera) →
      ticketing la COMUNICA (obligatorio; hasta entonces le sigue saliendo como tarea). #}

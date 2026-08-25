@@ -620,6 +620,86 @@ document.addEventListener('click', function (ev) {
    Lo que es de la PERSONA y no de una función: sus gastos, sus vacaciones, lo que ha creado y está
    sin producción, los carteles que le han rechazado, sus peticiones y sus invitaciones pedidas.
    Cada uno solo sale CUANDO HAY ALGO pendiente. #}
+{# LO QUE FALTA EN LAS ACTIVIDADES que salieron de una petición aceptada. ⚠️ Al aceptarla, la
+   petición PASA A SER la actividad (un evento promocional, p. ej.), así que esto se lee como la
+   actividad y no como una petición. Va POR FASES y cada fase es de QUIEN LE TOCA: la de avisar al
+   artista es de contratación y las otras dos de quien la pidió. Las que no son tuyas se ven en gris
+   con el nombre de quien las tiene, para saber a qué se está esperando. #}
+{% if HOME_ACTIVITY_PHASES %}
+<div class="card mb-4 border-warning">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-list-check text-danger me-2"></i>Actividades por cerrar
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_ACTIVITY_PHASES|length }}</span>
+    </span>
+    <span class="text-muted small">Por orden: avisar al artista → confirmar al promotor → activar la producción.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for a in HOME_ACTIVITY_PHASES %}
+      <div class="ctask">
+        <div class="ctask__head">
+          {% if a.artist_photo or a.artist %}
+            {{ artist_avatar(a.artist_photo, a.artist) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa {{ a.icon }} text-muted"></i></span>
+          {% endif %}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ a.url }}"
+             title="Abrir la ficha de la actividad">{{ a.title }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa {{ a.icon }}"></i>{{ a.type_label }}</span>
+            <span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ a.date_label }}</span>
+            {% if a.place_label %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ a.place_label }}</span>{% endif %}
+            {% if a.cache_label %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ a.cache_label }}</span>{% endif %}
+          </span>
+          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+            <span class="badge {{ a.status_badge }}">{{ a.status_label }}</span>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ a.url }}" title="Ir a la actividad">
+              <i class="fa fa-arrow-right"></i></a>
+          </span>
+        </div>
+        <div class="ctask__tasks">
+          {% for t in a.tasks %}
+            {% if not t.mine %}
+              {# No es tuya: se ve a qué se está esperando y quién lo tiene. #}
+              <span class="badge text-bg-light border text-muted"
+                    title="Lo tiene {{ t.owner_nick }}">
+                <i class="fa fa-hourglass-half me-1"></i>{{ t.phase }}. {{ t.label }} · {{ t.owner_nick }}</span>
+            {% elif t.blocked %}
+              <span class="badge text-bg-light border text-muted" title="{{ t.blocked_reason }}">
+                <i class="fa fa-lock me-1"></i>{{ t.phase }}. {{ t.label }}</span>
+              <span class="badge text-bg-light border text-truncate" style="max-width:320px">{{ t.blocked_reason }}</span>
+            {% elif t.key == 'promotor' %}
+              <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.phase }}. {{ t.label }}</span>
+              {% if t.contact %}<span class="badge text-bg-light border"><i class="fa fa-at me-1"></i>{{ t.contact }}</span>{% endif %}
+              <span class="ctask__actions d-inline-flex gap-2 ms-1">
+                {% if t.send_url %}
+                <form method="post" action="{{ t.send_url }}" class="d-inline">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <button class="btn btn-sm btn-warning"
+                          data-confirm="Se le va a confirmar a {{ t.who or 'quien la pidió' }} que la actividad sale adelante. ¿Seguir?">
+                    <i class="fa fa-paper-plane me-1"></i>Confirmar
+                  </button>
+                </form>
+                {% endif %}
+                {% if t.done_url %}
+                <form method="post" action="{{ t.done_url }}" class="d-inline">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he confirmado</button>
+                </form>
+                {% endif %}
+              </span>
+            {% else %}
+              <a class="badge text-bg-warning text-dark text-decoration-none ctask__actions" href="{{ t.url }}">
+                <i class="fa {{ t.icon }} me-1"></i>{{ t.phase }}. {{ t.label }}{% if t.note %} · {{ t.note }}{% endif %}</a>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# ACTIVAR LA PRODUCCIÓN de las actividades que ha creado esta persona: mientras no digan quién de
    producción se encarga, nadie las está produciendo. #}
 {% if HOME_PRODUCTION_ACTIVATION %}
@@ -758,16 +838,13 @@ document.addEventListener('click', function (ev) {
    hay otro módulo. Al comunicarla se archiva y desaparece de la lista. #}
 {% if HOME_MY_PETICIONES %}
 {% set _pend = HOME_MY_PETICIONES|selectattr('rejection_pending')|list %}
-{% set _acc = HOME_MY_PETICIONES|selectattr('accept_pending')|list %}
-<div class="card mb-4{% if _pend or _acc %} border-warning{% endif %}">
+<div class="card mb-4{% if _pend %} border-warning{% endif %}">
   <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
     <span class="fw-semibold">
       <i class="fa fa-paper-plane text-danger me-2"></i>Mis peticiones
       <span class="badge text-bg-secondary ms-1">{{ HOME_MY_PETICIONES|length }}</span>
       {% if _pend %}<span class="badge text-bg-warning text-dark ms-1">
         <i class="fa fa-comment-slash me-1"></i>{{ _pend|length }} por comunicar</span>{% endif %}
-      {% if _acc %}<span class="badge text-bg-warning text-dark ms-1">
-        <i class="fa fa-list-check me-1"></i>{{ _acc|length }} aceptada{{ '' if _acc|length == 1 else 's' }} con tareas</span>{% endif %}
     </span>
     <span class="text-muted small">Las que has hecho tú y cómo van.</span>
   </div>
@@ -780,7 +857,8 @@ document.addEventListener('click', function (ev) {
           {% else %}
             <span class="ctask__noart"><i class="fa {{ p.icon }} text-muted"></i></span>
           {% endif %}
-          <span class="ctask__subject text-truncate">{{ p.artist or p.subject }}</span>
+          <a class="ctask__subject text-truncate text-reset text-decoration-none"
+             href="{{ p.detail_url }}" title="Abrir la ficha de la petición">{{ p.artist or p.subject }}</a>
           <span class="ctask__facts">
             <span class="ctask__fact"><i class="fa {{ p.icon }}"></i>{{ p.kind_label or p.subject }}</span>
             {% if p.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ p.date_label }}</span>{% endif %}
@@ -801,6 +879,9 @@ document.addEventListener('click', function (ev) {
                     <i class="fa fa-edit fa-fw me-1"></i>Editar la petición
                   </button>
                 </li>
+                {% if p.activity_url %}
+                <li><a class="dropdown-item" href="{{ p.activity_url }}"><i class="fa fa-guitar fa-fw me-1"></i>Ver la actividad</a></li>
+                {% endif %}
                 {% if p.url %}
                 <li><a class="dropdown-item" href="{{ p.url }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Ver la bandeja</a></li>
                 {% endif %}
@@ -819,40 +900,7 @@ document.addEventListener('click', function (ev) {
           </span>
         </div>
         <div class="ctask__tasks">
-          {% if p.accept_pending %}
-            {# ACEPTADA: lo que le queda por hacer a quien la pidió. Cada subtarea desaparece sola
-               en cuanto se hace, y con ella la fila deja de ser una tarea. #}
-            <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Aceptada</span>
-            {% for t in p.accept_tasks %}
-              {% if t.key == 'promotor' %}
-                <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.label }}</span>
-                {% if t.contact %}<span class="badge text-bg-light border"><i class="fa fa-at me-1"></i>{{ t.contact }}</span>{% endif %}
-                <span class="ctask__actions d-inline-flex gap-2 ms-1">
-                  {% if t.send_url %}
-                  <form method="post" action="{{ t.send_url }}" class="d-inline">
-                    <input type="hidden" name="next" value="{{ request.full_path }}">
-                    <button class="btn btn-sm btn-warning"
-                            data-confirm="Se le va a confirmar a {{ t.who or 'quien la pidió' }} que la actividad sale adelante. ¿Seguir?">
-                      <i class="fa fa-paper-plane me-1"></i>Confirmar
-                    </button>
-                  </form>
-                  {% endif %}
-                  <form method="post" action="{{ t.done_url }}" class="d-inline">
-                    <input type="hidden" name="next" value="{{ request.full_path }}">
-                    <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he confirmado</button>
-                  </form>
-                </span>
-              {% else %}
-                <a class="badge text-bg-warning text-dark text-decoration-none ctask__actions" href="{{ t.url }}">
-                  <i class="fa {{ t.icon }} me-1"></i>{{ t.label }}{% if t.note %} · {{ t.note }}{% endif %}
-                </a>
-              {% endif %}
-            {% endfor %}
-            {% if p.activity_url %}
-              <a class="badge text-bg-light border text-decoration-none ctask__actions" href="{{ p.activity_url }}">
-                <i class="fa fa-arrow-up-right-from-square me-1"></i>Ir a la actividad</a>
-            {% endif %}
-          {% elif p.rejection_pending %}
+          {% if p.rejection_pending %}
             <span class="badge text-bg-warning text-dark">
               <i class="fa fa-comment-slash me-1"></i>Pendiente de comunicar el rechazo</span>
             {% if p.reason %}<span class="badge text-bg-light border text-truncate" style="max-width:420px"

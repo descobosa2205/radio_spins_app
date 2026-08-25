@@ -76,11 +76,14 @@
   {% if rows %}
     <div class="list-group">
       {% for p in rows %}
-        <div class="list-group-item d-flex align-items-center gap-3 flex-wrap" id="pet-{{ p.id }}">
+        <div class="list-group-item d-flex align-items-center gap-3 flex-wrap position-relative" id="pet-{{ p.id }}">
           <span class="badge {{ p.status_badge }}">{{ p.status_label }}</span>
           <span class="d-flex align-items-center gap-2 fw-semibold" style="min-width:0;">
             {% if p.artist_photo %}<img src="{{ p.artist_photo }}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #eee;flex:0 0 auto;">{% endif %}
-            <span class="text-truncate">{{ p.artist_name or p.subject or 'Petición' }}</span>
+            {# Al pinchar una petición se abre SU FICHA. #}
+            <a class="text-truncate text-reset text-decoration-none stretched-link"
+               href="{{ url_for('booking_request_detail_view', rid=p.id, next=request.full_path) }}"
+               title="Abrir la ficha de la petición">{{ p.artist_name or p.subject or 'Petición' }}</a>
           </span>
           {% if p.subject and p.artist_name %}<span class="text-muted text-truncate d-none d-md-inline">{{ p.subject }}</span>{% endif %}
           <span class="ms-auto d-flex align-items-center gap-3 text-muted small flex-wrap">
@@ -89,7 +92,9 @@
             {% if p.fee_text %}<span><i class="fa fa-euro-sign me-1"></i>{{ p.fee_text }}</span>{% endif %}
             {% if p.received_label %}<span title="Recibida"><i class="fa fa-clock me-1"></i>{{ p.received_label }}</span>{% endif %}
           </span>
-          <div class="dropdown">
+          {# ⚠️ Por encima del enlace que ocupa toda la fila (`stretched-link`), o el menú no se
+             podría pinchar. #}
+          <div class="dropdown position-relative" style="z-index:2;">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
             <ul class="dropdown-menu dropdown-menu-end">
               {% if dept_key == 'PROMO' and can_edit_promo and p.status != 'CONVERTIDA' %}

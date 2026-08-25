@@ -1428,41 +1428,71 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   quien puede entrar en ella.
   ⚠️ Lo que hay que HACER va primero en el módulo: comunicar un rechazo es una tarea, no seguimiento.
 
-- ⚠️⚠️ **ACEPTAR UNA PETICIÓN TAMPOCO LA TERMINA: vuelve como TAREA a quien la pidió** (ago 2026).
-  Cuando el departamento la acepta (p. ej. contratación acepta un **evento promocional**), a **quien
-  la pidió** le quedan **tres subtareas** y la petición le vuelve a su Inicio como tarea hasta que
-  estén las tres —misma regla que el rechazo: es la misma petición en otro momento de su vida, no
-  otro módulo—. Punto único **`_peticion_accept_tasks`**, que lo usan el módulo «Mis peticiones» y la
-  ficha de la petición, así que dicen exactamente lo mismo:
-  · **Confirmar al promotor** → `BookingRequest.acceptance_notified_at`, con sus dos botones:
-  **Confirmar** (`booking_request_acceptance_send`, que le escribe por su canal —correo o SMS— con
-  `_peticion_acceptance_email_html` y **solo si el aviso sale** marca la subtarea) y **«Ya se lo he
-  confirmado»** (`booking_request_acceptance_notified`). A quién: `_peticion_accept_contact` (quien
-  la pidió y, si su ficha no tiene contacto, el promotor de la actividad); sin correo ni teléfono
-  solo se ofrece marcarla.
-  · **Informar al artista** → el MISMO aviso de la actividad (`_concert_notice_state` +
-  `concert_artist_notice_view`), con sus mismas excepciones (un **EVENTO** no es de ningún artista y
-  el **histórico** no genera trabajo). No hay un segundo camino.
-  · **Activar producción** → que la actividad tenga responsable (`_concert_production_pending`, que
-  ya sabe a qué actividades les toca producción).
-  ⚠️ Cada subtarea se decide mirando el **estado de verdad**, no una marca aparte, así que
-  **desaparece sola** en cuanto se hace (la regla de `_notify_resolve`), y con la última la fila deja
-  de ser una tarea.
+- ⚠️⚠️ **AL ACEPTARLA, LA PETICIÓN PASA A SER LA ACTIVIDAD, y el trabajo va POR FASES** (ago 2026).
+  Cuando contratación acepta (p. ej. un **evento promocional**), lo que hay ya **no es una petición**:
+  es la actividad, y lo que falta se lee y se hace **en su ficha**. Va por fases, **en orden**, y
+  **cada fase es de quien le toca** (`PETICION_ACCEPT_PHASES`, punto único
+  **`_peticion_accept_tasks`**, que usan el módulo de Inicio, la ficha de la actividad y la de la
+  petición, así que los tres dicen lo mismo):
+  · **1 · Avisar al artista** — de **CONTRATACIÓN** (de quien la aprobó, `reviewed_by_user_id`). Es el
+  aviso de siempre (`_concert_notice_state` + `concert_artist_notice_view`), con sus mismas excepciones
+  (un EVENTO no es de ningún artista y el histórico no genera trabajo): `_peticion_artist_notice_pending`.
+  · **2 · Confirmar al promotor** — de **QUIEN LA PIDIÓ** (`BookingRequest.acceptance_notified_at`),
+  con **Confirmar** (`booking_request_acceptance_send`, correo o SMS con
+  `_peticion_acceptance_email_html`; solo si el aviso sale marca la fase) y **«Ya se lo he
+  confirmado»** (`booking_request_acceptance_notified`).
+  ⚠️⚠️ **ESTA FASE ESTÁ BLOQUEADA HASTA QUE EL ARTISTA ESTÉ AVISADO**: no se le compromete una fecha
+  a nadie de fuera sin que el artista lo sepa. Se ve con un candado y el motivo, y **lo comprueba
+  también el SERVIDOR** en los dos endpoints (esconder el botón no basta).
+  · **3 · Activar producción** — de quien la pidió (`_concert_production_pending`).
+  ⚠️ Cada fase se decide mirando el **estado de verdad**, no una marca aparte, así que **desaparece
+  sola** en cuanto se hace (la regla de `_notify_resolve`).
+  ⚠️ **Las fases que NO son tuyas se ven en gris con el nombre de quien las tiene**: así se sabe a qué
+  se está esperando y por qué tu botón todavía no se puede pulsar. Quién es dirección se lee de
+  `estado["role"]`, **no de `is_master()`** (ese saca el rol de la sesión y sin sesión cae a 10, con lo
+  que TODAS las fases saldrían «mías»).
+  · **Dónde se ve**: módulo de Inicio **«Actividades por cerrar»** (`HOME_ACTIVITY_PHASES` ←
+  `_home_activity_phase_tasks`, en el bloque de «lo suyo», que se lee como la ACTIVIDAD: foto del
+  artista, icono del tipo, fecha, lugar) · la **barra de botones de la ficha de la actividad**
+  (`_concert_promoter_confirm_state` → «Confirmar al promotor», al lado del aviso al artista y de
+  activar producción, que ya estaban) · y la **ficha de la petición**, donde solo se enseña **por qué
+  fase va** (el trabajo se hace en la actividad).
+  ⚠️ En **«Mis peticiones»** una petición aceptada ya **NO** sale como tarea: es seguimiento (con
+  «Ver la actividad» en sus tres puntitos). Al aceptarla dejó de ser una petición.
   ⚠️ **`booking_request_approve` pone la actividad a nombre de QUIEN PIDIÓ**
-  (`Concert.created_by_user_id` = `r.created_by_user_id`), no de quien la aprueba: activar la
-  producción es tarea de quien crea la actividad, así que con eso le sale también en su módulo
-  «Activar la producción» de Inicio **sin ningún caso especial**.
-  ⚠️ **Corte automático con `BookingRequest.accepted_at`** (se sella al aceptar): las peticiones
-  aceptadas ANTES de que esto existiera no tienen esa fecha y **no reclaman nada** —el mismo criterio
-  que `PITCH_TASK_FROM`/`SALE_NOTICE_TASK_FROM`, pero sin fecha a mano—.
-  ⚠️ Una petición aceptada con tareas pendientes **NO se archiva por antigüedad**: se salta la
-  ventana de 120 días de «Mis peticiones» (una tarea no puede desaparecer en silencio).
-  ⚠️ Los dos endpoints nuevos van en **`REQUEST_ANY_ENDPOINTS`** (como los del rechazo): la tarea es
-  de quien pidió, que no tiene por qué llevar contratación, y cada uno comprueba dentro que la
-  petición es suya.
-  ⚠️ De momento vale para **cualquier** petición aceptada (el evento promocional es el caso que lo
-  motivó): las tres subtareas se calculan solas y las que no tocan no salen. Si algún día hay que
-  limitarlo a unos tipos, el sitio es `_peticion_accept_tasks`.
+  (`Concert.created_by_user_id`), no de quien la aprueba: activar la producción es tarea de quien crea
+  la actividad, así que le sale también en «Activar la producción» sin ningún caso especial. Y el aviso
+  que le llega lleva **a la ficha de la actividad**, no a la de la petición.
+  ⚠️ **Corte automático con `BookingRequest.accepted_at`** (se sella al aceptar): lo aceptado ANTES de
+  que esto existiera no reclama nada —mismo criterio que `PITCH_TASK_FROM`, pero sin fecha a mano—.
+  ⚠️ Los dos endpoints van en **`REQUEST_ANY_ENDPOINTS`** (como los del rechazo): la fase es de quien
+  pidió, que no tiene por qué llevar contratación, y cada uno comprueba dentro que la petición es suya.
+
+- **LA FICHA DE UNA PETICIÓN SE LEE COMO LA DE UNA ACTIVIDAD** (ago 2026): `ficha-hero` (foto del
+  artista, antetítulo «Petición · \<tipo\> · Con/Sin caché», estado y —si ya se aceptó— «Ya es una
+  actividad»; la línea de datos con iconos) + **arriba a la derecha QUIÉN LO PIDE** con su foto o su
+  logo (`.hero-company`, que en una actividad es la empresa del grupo) + `.ficha-quick` con los
+  botones + **pestañas servidas** (`?tab=`, `ficha-tabs`/`ficha-tabpane`) con secciones
+  `.ficha-section` y la tabla compacta `psum-list psum-list--2col`.
+  ⚠️ **Solo se pinta lo que corresponde a ese tipo de actividad y a cómo se configuró la petición**:
+  las pestañas se construyen en `_booking_request_detail` (`tabs`) y **la que no tiene nada no
+  existe** — «Económico» solo si hay importe o gastos cubiertos (una petición sin caché no la tiene) y
+  «Actividad» solo cuando ya se aceptó. Un campo sin valor no se pinta (nada de huecos).
+  ⚠️ Si se pide una pestaña que no existe, se cae a la primera (mismo patrón que contabilidad o la
+  ficha de personal).
+
+- ⚠️ **AL PINCHAR UNA PETICIÓN SE ABRE SU FICHA** (ago 2026): en el listado de Contratación, en las
+  bandejas de departamento (Promoción/Diseño) y en «Mis peticiones» de Inicio. Para eso
+  `booking_request_detail_view` deja entrar también a **QUIEN LA PIDIÓ** (antes solo a su departamento
+  o a dirección, así que al pinchar la suya se comía «esta petición es de otro departamento» y volvía
+  a la portada). ⚠️ En la bandeja, el menú de tres puntitos va **por encima** del `stretched-link`
+  (`position-relative` + z-index) o no se podría pinchar.
+
+- ⚠️⚠️ **UNA PETICIÓN Y SU ACTIVIDAD SON LO MISMO PARA LOS SOLAPES** (bug real, ago 2026): al editar
+  una petición ya aceptada, el aviso de «ese día el artista ya tiene algo» señalaba **el propio evento
+  que esa petición había creado**. `exclude_id` excluía solo el id de cada tabla; ahora
+  **`_conflict_exclude_ids`** resuelve el **par** por `BookingRequest.concert_id` (en los dos sentidos)
+  y `_conflict_exclude` excluye todos esos ids en conciertos, acciones, agenda y peticiones.
 
 - ⚠️ **AL EDITAR, una cosa NO se solapa consigo misma** (bug real, ago 2026): el aviso «ese día el
   artista ya tiene…» del asistente de peticiones saltaba con **la propia petición** que se estaba

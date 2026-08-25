@@ -22995,10 +22995,14 @@ def disco_project_creatives_save(project_id):
             medio = (f.getlist("other_media[]")[i] if i < len(f.getlist("other_media[]")) else "IMAGE")
             tamaño = (f.getlist("other_size[]")[i] if i < len(f.getlist("other_size[]")) else "")
             nota = (f.getlist("other_note[]")[i] if i < len(f.getlist("other_note[]")) else "")
+            formato = (f.getlist("other_format[]")[i] if i < len(f.getlist("other_format[]")) else "")
             session_db.add(DiscoProjectCreative(
                 project_id=project.id, kind="OTRA", label=nombre[:200], custom=True,
                 media=(medio if medio in dict((k, 1) for k, _l, _i in DISCO_CREATIVE_MEDIA) else "IMAGE"),
                 size_text=(tamaño or "").strip() or None, note=(nota or "").strip() or None,
+                # El formato de una pieza a mano es libre (JPG, MP4…): se guarda en `formats` y la
+                # etiqueta cae al valor tal cual si no es uno del catálogo.
+                formats=([(formato or "").strip().upper()] if (formato or "").strip() else []),
                 status="PENDIENTE", position=pos + i))
         session_db.commit()
         flash("Creatividades guardadas.", "success")
@@ -23864,6 +23868,7 @@ def disco_plan_content_save(project_id):
                          (f.get("hashtags") or "").replace(",", " ").split() if x.strip().strip("#")]
         fila.networks = [x.strip().upper() for x in f.getlist("networks[]")
                          if x.strip().upper() in DISCO_CONTENT_NETWORK_LABELS]
+        antes = fila.publish_at
         dia = parse_optional_date(f.get("publish_date"))
         hora = (f.get("publish_time") or "").strip()
         if dia:
@@ -23874,6 +23879,10 @@ def disco_plan_content_save(project_id):
             fila.publish_at = datetime.combine(dia, dtime(hour=hh, minute=mm), tzinfo=TZ_MADRID)
         elif not cid:
             fila.publish_at = None
+        # ⚠️ Si CAMBIA el día o la hora, el recordatorio se reprograma sobre lo de AHORA: si no, un
+        # contenido movido no volvería a avisar (o avisaría con la hora vieja).
+        if fila.publish_at != antes:
+            fila.reminder_at = None
         fs = request.files.get("file")
         if fs and getattr(fs, "filename", ""):
             try:

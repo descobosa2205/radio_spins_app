@@ -452,7 +452,13 @@
         </div>
         <div class="mt-3" data-dp-when="photo_mode=UPLOAD">
           <label class="form-label">Sube la foto</label>
-          <input class="form-control" type="file" name="photo_file" accept="image/*">
+          {# Se puede ARRASTRAR o elegir (mecanismo global `file_drop.js`). #}
+          <div class="border rounded-3 p-3 text-center" data-file-drop-for="#dpArtworkPhotoFile"
+               style="border-style:dashed !important;cursor:pointer;">
+            <i class="fa fa-image fa-2x text-muted d-block mb-2"></i>
+            <span class="small text-muted">Arrastra la foto aquí o pincha para elegirla</span>
+          </div>
+          <input class="form-control mt-2" type="file" name="photo_file" id="dpArtworkPhotoFile" accept="image/*">
         </div>
         <div class="mt-3" data-dp-when="photo_mode=LIBRARY">
           <label class="form-label">Elige una de las fotos guardadas del artista</label>
@@ -476,7 +482,12 @@
         <textarea class="form-control" name="idea_text" rows="4"
                   placeholder="Qué se quiere ver, estilo, colores, referencias…">{{ (artwork.idea_text if artwork else '') }}</textarea>
         <label class="form-label mt-3">Ejemplos <span class="text-muted">(se acumulan)</span></label>
-        <input class="form-control" type="file" name="idea_files" multiple>
+        <div class="border rounded-3 p-3 text-center" data-file-drop-for="#dpArtworkIdeaFiles"
+             style="border-style:dashed !important;cursor:pointer;">
+          <i class="fa fa-paperclip text-muted d-block mb-1"></i>
+          <span class="small text-muted">Arrastra los ejemplos aquí o pincha para elegirlos</span>
+        </div>
+        <input class="form-control mt-2" type="file" name="idea_files" id="dpArtworkIdeaFiles" multiple>
         {% if artwork and artwork.idea_files %}
           <div class="d-flex flex-wrap gap-2 mt-2">
             {% for f in artwork.idea_files %}
@@ -707,14 +718,15 @@
           vídeo o audio, y una nota.</div>
         <div data-dp-others>
           <div class="row g-2 align-items-end mb-2">
-            <div class="col-12 col-md-4"><input class="form-control" name="other_label[]" placeholder="Nombre"></div>
+            <div class="col-12 col-md-3"><input class="form-control" name="other_label[]" placeholder="Nombre"></div>
             <div class="col-6 col-md-2"><input class="form-control" name="other_size[]" placeholder="Tamaño"></div>
             <div class="col-6 col-md-2">
               <select class="form-select" name="other_media[]">
                 {% for mk, ml, mi in creative_media %}<option value="{{ mk }}">{{ ml }}</option>{% endfor %}
               </select>
             </div>
-            <div class="col-12 col-md-4"><input class="form-control" name="other_note[]" placeholder="Nota"></div>
+            <div class="col-6 col-md-2"><input class="form-control" name="other_format[]" placeholder="Formato (JPG, MP4…)"></div>
+            <div class="col-6 col-md-3"><input class="form-control" name="other_note[]" placeholder="Nota"></div>
           </div>
         </div>
         <button class="btn btn-sm btn-outline-secondary" type="button" data-dp-add-other>

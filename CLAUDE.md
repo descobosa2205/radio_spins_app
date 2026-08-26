@@ -4897,8 +4897,12 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `grep -rn 'onclick="[^"]*|tojson }}' templates/*.html` **tiene que salir vacío** (sin `forceescape`).
 
 - ⚠️ **Dicts en plantillas**: `d.items`/`d.keys`/`d.values` en Jinja devuelven el **método**, no la
-  clave → hay que escribir `d['items']`. Ha causado dos 500 reales (el set list del concierto y
-  «Royalties → A favor»). El checker de esprima NO lo detecta: revisar el HTML servido con curl.
+  clave → hay que escribir `d['items']`. Ha causado TRES 500 reales (el set list del concierto,
+  «Royalties → A favor» y la ficha de un proyecto, con una clave llamada `values`: el error es
+  «'builtin_function_or_method object' has no attribute 'get'»). El checker de esprima NO lo detecta:
+  revisar el HTML servido con curl. **La forma de no tropezar es no llamar `items`/`keys`/`values`/
+  `get`/`copy`/`update` a una clave** que se vaya a leer en una plantilla (por eso la de la logística
+  se llama `note_values`).
 
 - **Royalties «A FAVOR»** (lo que nos liquidan las compañías externas): modelo `AfavorLiquidation`
   (una fila por **compañía + semestre**, UNIQUE) con el flujo `AFAVOR_STATUS_FLOW`

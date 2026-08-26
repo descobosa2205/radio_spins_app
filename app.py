@@ -20248,7 +20248,10 @@ def _disco_logistics_state(session_db, project) -> dict:
         "photo_url": foto,
         "notes": notas,
         "notes_filled": [n for n in notas if n["text"]],
-        "values": {k: (fila.get(k) or "") for k, _l, _i, _p in DISCO_LOGISTICS_NOTES},
+        # ⚠️ NO se puede llamar «values» a una clave que se lea en Jinja: `d.values` devuelve el
+        # MÉTODO del dict, no la clave, y `.get` sobre él revienta con
+        # «'builtin_function_or_method object' has no attribute 'get'» (500 real en la ficha).
+        "note_values": {k: (fila.get(k) or "") for k, _l, _i, _p in DISCO_LOGISTICS_NOTES},
         "requested_label": _iso_date_label(fila.get("requested_at")),
         "requested_by": (fila.get("requested_by") or ""),
         "done_label": _iso_date_label(fila.get("done_at")),

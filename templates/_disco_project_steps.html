@@ -869,7 +869,7 @@
               <div class="col-12 {{ 'col-md-6' if not loop.first else '' }}">
                 <label class="form-label"><i class="fa {{ icon }} me-1 text-muted"></i>{{ label }}</label>
                 <textarea class="form-control" name="{{ key }}" rows="{{ 3 if loop.first else 2 }}"
-                          placeholder="{{ ph }}">{{ (lg.values or {}).get(key, '') }}</textarea>
+                          placeholder="{{ ph }}">{{ (lg.note_values or {}).get(key, '') }}</textarea>
               </div>
             {% endfor %}
           </div>

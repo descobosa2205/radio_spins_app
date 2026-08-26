@@ -939,10 +939,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · ⚠️⚠️ **VA EN CADENA**: `stage` 1 = **nuestro artista** y sus integrantes · 2 = **el colaborador**
   · 3 = **terceros añadidos** a mano. Al colaborador **no se le escribe hasta que los nuestros han
   dado el OK** (`_disco_approval_decide` avisa a la etapa siguiente solo cuando la suya se cierra).
-  · **Quién aprueba sale de la casa** (`_disco_approval_candidates`): los **integrantes** del artista
-  (`ArtistPerson` → su tercero), los **colaboradores** (los intérpretes de la canción que no son del
-  artista) y lo que el artista tenga en **Notificaciones → «Aprobación de mezclas y materiales»**
-  (canal nuevo `APROBACIONES`).
+  · **QUIÉN APRUEBA, EN TRES NIVELES** (`_disco_approval_candidates` + `_disco_approval_pick`, y el
+  selector único `templates/_disco_approvers_picker.html`, que se incluye en cada pop-up de
+  aprobación):
+    · **la casa** — los **integrantes** del artista (`ArtistPerson` → su tercero) y los
+      **colaboradores** (los intérpretes de la canción que no son del artista): salen solos;
+    · **el ARTISTA** — lo que tenga configurado en **Notificaciones → «Aprobación de mezclas y
+      materiales»** (canal `APROBACIONES`): es la **preferencia guardada**, y sale sola en todos sus
+      proyectos;
+    · **el PROYECTO** — quien se añada **sobre la marcha** queda guardado en
+      `production_payload['approvers']`, así que **ya sale en las siguientes aprobaciones de ese
+      proyecto** (lo pidió así Dani), y con la casilla **«guardarlos como preferencia del artista»**
+      (marcada por defecto) se guarda además en su canal para los proyectos que vengan.
+  ⚠️ **En cada paso se puede QUITAR a quien no toque** (las casillas vienen marcadas): eso **no le
+  quita de nada más** —sigue guardado en el artista y en el proyecto—, solo no entra en esa
+  aprobación. Cada candidato lleva su clave estable (`_disco_approval_candidate_key`: su tercero o su
+  nombre normalizado) y su **origen**, que se ve con un icono en el selector.
+  ⚠️ Si NO llega ninguna clave marcada (un formulario viejo) entran **todos**: mejor pedir de más que
+  dejar a alguien sin aprobar sin querer.
   ⚠️ `SongInterpreter` **solo guarda el NOMBRE** (no tiene `promoter_id`): su ficha se busca **por
   nombre** para sacarle el correo, sin crear nada.
   ⚠️ Un RECHAZO cierra la aprobación (`REJECTED`) con el motivo y avisa a quien lleva el proyecto:

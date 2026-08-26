@@ -39,6 +39,19 @@
   document.addEventListener('change', function (ev) {
     if (ev.target && ev.target.matches('input[type="radio"]')) sincroniza(document);
   });
+  /* «Añadir otra persona» del selector de aprobadores: clona la fila vacía (se pueden añadir
+     varias). Por delegación, que el pop-up se pinta cuando toca. */
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target && ev.target.closest('[data-dp-extra-add]');
+    if (!btn) return;
+    var caja = btn.closest('[data-dp-approvers]');
+    var zona = caja && caja.querySelector('[data-dp-extra-rows]');
+    if (!zona || !zona.firstElementChild) return;
+    var fila = zona.firstElementChild.cloneNode(true);
+    fila.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+    zona.appendChild(fila);
+  });
+
   // «Añadir otra» creatividad: clona la fila vacía (se pueden añadir varias).
   document.addEventListener('click', function (ev) {
     var btn = ev.target && ev.target.closest('[data-dp-add-other]');

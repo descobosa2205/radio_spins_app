@@ -1012,19 +1012,9 @@
         <label class="form-label">Nota para las partes (opcional)</label>
         <textarea class="form-control" name="note" rows="2"
                   placeholder="Lo que quieras que sepan al escucharla…">{{ (mx.approval or {}).note or '' }}</textarea>
-        <div class="mt-3">
-          <label class="form-label">¿Alguien más tiene que aprobarla?</label>
-          <div class="row g-2" data-dp-others>
-            <div class="col-12 col-md-6"><input class="form-control" name="extra_name" placeholder="Nombre"></div>
-            <div class="col-12 col-md-6"><input class="form-control" name="extra_email" placeholder="Correo"></div>
-          </div>
-          <button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-dp-add-other>
-            <i class="fa fa-plus me-1"></i>Añadir otra persona</button>
-          <div class="form-text">
-            Los integrantes del artista y los colaboradores salen solos; y lo que el artista tenga
-            configurado en <strong>Notificaciones → Aprobación de mezclas y materiales</strong>.
-          </div>
-        </div>
+        {# QUIÉN APRUEBA: el selector único de las aprobaciones (tres niveles). #}
+        <hr class="my-3">
+        {% include '_disco_approvers_picker.html' %}
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>

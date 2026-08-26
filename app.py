@@ -20850,15 +20850,32 @@ def _disco_approval_url(voter) -> str:
         return ""
 
 
+def _disco_approval_candidate_key(cand: dict) -> str:
+    """La clave ESTABLE de un candidato (para poder marcarlo o quitarlo en cada paso)."""
+    pid = str((cand or {}).get("promoter_id") or "").strip()
+    if pid:
+        return "p:" + pid
+    return "n:" + _norm_person_name_key((cand or {}).get("name") or "")
+
+
+def _disco_project_approvers(project) -> list[dict]:
+    """Los aprobadores AÑADIDOS EN ESTE PROYECTO: valen para todas sus aprobaciones (así, quien se
+    añade al pedir la mezcla ya sale al pedir la portada). Se pueden quitar en cada paso."""
+    filas = _disco_prod(project).get("approvers")
+    return [dict(x) for x in filas if isinstance(x, dict)] if isinstance(filas, list) else []
+
+
 def _disco_approval_candidates(session_db, project) -> list[dict]:
-    """QUIÉN tiene que aprobar y en qué ETAPA: integrantes del artista (1), colaboradores (2) y lo
-    configurado en el canal APROBACIONES del artista (1).
+    """QUIÉN puede aprobar y en qué ETAPA, con su ORIGEN (para saber de dónde sale cada uno):
+      · **casa** → los integrantes del artista (1) y los colaboradores (2), que salen solos;
+      · **artista** → lo configurado en su canal APROBACIONES (1) — la preferencia guardada;
+      · **proyecto** → los añadidos a mano en este proyecto (3), que ya valen para lo siguiente.
 
     ⚠️ `_song_interpreter_rows_map` devuelve **objetos del ORM**, no diccionarios (un `.get(...)`
     sobre ellos revienta y, dentro de un `try`, se traga la lista entera)."""
     filas, vistos = [], set()
 
-    def añade(nombre, *, stage, role, promoter=None, email="", phone="", photo=""):
+    def añade(nombre, *, stage, role, promoter=None, email="", phone="", photo="", source="casa"):
         nombre = (nombre or "").strip()
         if not nombre:
             return
@@ -20869,10 +20886,12 @@ def _disco_approval_candidates(session_db, project) -> list[dict]:
         correo, tel = ("", "")
         if promoter is not None:
             correo, tel = _promoter_email_phone(promoter)
-        filas.append({"name": nombre, "stage": stage, "role": role,
-                      "promoter_id": (str(promoter.id) if promoter is not None else ""),
-                      "email": (email or correo or ""), "phone": (phone or tel or ""),
-                      "photo_url": (photo or (getattr(promoter, "logo_url", "") or ""))})
+        fila = {"name": nombre, "stage": stage, "role": role, "source": source,
+                "promoter_id": (str(promoter.id) if promoter is not None else ""),
+                "email": (email or correo or ""), "phone": (phone or tel or ""),
+                "photo_url": (photo or (getattr(promoter, "logo_url", "") or ""))}
+        fila["key"] = _disco_approval_candidate_key(fila)
+        filas.append(fila)
 
     artista = (getattr(project, "artist", None)
                or (session_db.get(Artist, project.artist_id) if getattr(project, "artist_id", None) else None))
@@ -20896,7 +20915,8 @@ def _disco_approval_candidates(session_db, project) -> list[dict]:
         for fila in (_artist_notification_recipients(session_db, artista.id, "APROBACIONES",
                                                     fallback=False) or []):
             añade(fila.get("name") or fila.get("email"), stage=1, role="OTRO",
-                  email=(fila.get("email") or ""), phone=(fila.get("phone") or ""))
+                  email=(fila.get("email") or ""), phone=(fila.get("phone") or ""),
+                  source="artista")
     # 2 · los COLABORADORES (los intérpretes de la canción que no son nuestro artista)
     cancion = _disco_project_release_song(session_db, project)
     if cancion is not None:
@@ -20911,7 +20931,106 @@ def _disco_approval_candidates(session_db, project) -> list[dict]:
             tercero = (session_db.query(Promoter)
                        .filter(func.lower(Promoter.nick) == nombre.lower()).first())
             añade(nombre, stage=2, role="COLABORADOR", promoter=tercero)
+    # 3 · los añadidos EN ESTE PROYECTO (valen para todas sus aprobaciones)
+    for fila in _disco_project_approvers(project):
+        tercero = (session_db.get(Promoter, to_uuid(str(fila.get("promoter_id"))))
+                   if fila.get("promoter_id") else None)
+        añade(fila.get("name") or fila.get("email"), stage=int(fila.get("stage") or 3),
+              role=(fila.get("role") or "OTRO"), promoter=tercero,
+              email=(fila.get("email") or ""), phone=(fila.get("phone") or ""),
+              photo=(fila.get("photo_url") or ""), source="proyecto")
     return filas
+
+
+def _artist_approval_contact_add(session_db, artist_id, cand: dict) -> bool:
+    """GUARDA a esa persona como preferencia del ARTISTA para las aprobaciones (canal APROBACIONES).
+
+    Así la próxima vez sale sola, en este proyecto y en los que vengan. Si ya estaba, solo se le añade
+    el canal (no se duplica ni se le quitan los que ya tenía)."""
+    aid = to_uuid(str(artist_id or ""))
+    if aid is None:
+        return False
+    correo = (cand.get("email") or "").strip()
+    nombre = (cand.get("name") or "").strip()
+    pid = to_uuid(str(cand.get("promoter_id") or "") or None)
+    try:
+        fila = None
+        for c in (session_db.query(ArtistNotificationContact)
+                  .filter(ArtistNotificationContact.artist_id == aid).all()):
+            if pid is not None and c.promoter_id == pid:
+                fila = c
+                break
+            if correo and (c.email or "").strip().lower() == correo.lower():
+                fila = c
+                break
+            if not correo and nombre and _norm_person_name_key(c.name or "") == _norm_person_name_key(nombre):
+                fila = c
+                break
+        if fila is None:
+            fila = ArtistNotificationContact(artist_id=aid, promoter_id=pid, name=(nombre or None),
+                                             email=(correo or None),
+                                             phone=((cand.get("phone") or "").strip() or None),
+                                             channels=[])
+            session_db.add(fila)
+        canales = [x for x in (fila.channels or [])]
+        if "APROBACIONES" not in canales:
+            canales.append("APROBACIONES")
+        fila.channels = canales
+        fila.updated_at = _now_madrid()
+        session_db.add(fila)
+        return True
+    except Exception:
+        app.logger.exception("[aprobaciones] no se pudo guardar la preferencia del artista")
+        return False
+
+
+def _disco_approval_pick(session_db, project, form) -> tuple[list[dict], list[dict]]:
+    """QUIÉN entra en ESTA aprobación, con los tres niveles:
+
+      · los **candidatos** (de la casa, del artista y del proyecto) que sigan **marcados** —se puede
+        quitar a quien no toque en este paso, sin tocar nada de lo demás—;
+      · las **personas añadidas ahora**, que se guardan **en el proyecto** (valen para el resto de sus
+        aprobaciones) y, si se marca la casilla, también como **preferencia del ARTISTA**.
+
+    Devuelve (los que entran, los añadidos ahora)."""
+    candidatos = _disco_approval_candidates(session_db, project)
+    marcadas = [x.strip() for x in form.getlist("voter_key") if x.strip()]
+    # Sin ninguna clave (un formulario viejo) entran todos: mejor pedir de más que dejar a alguien sin
+    # aprobar sin querer.
+    elegidos = ([c for c in candidatos if c["key"] in marcadas] if marcadas else list(candidatos))
+    nuevos = []
+    nombres = form.getlist("extra_name")
+    correos = form.getlist("extra_email")
+    telefonos = form.getlist("extra_phone")
+    for i, nombre in enumerate(nombres):
+        nombre = (nombre or "").strip()
+        if not nombre:
+            continue
+        fila = {"name": nombre,
+                "email": (correos[i].strip() if i < len(correos) else ""),
+                "phone": (telefonos[i].strip() if i < len(telefonos) else ""),
+                "promoter_id": "", "photo_url": "", "stage": 3, "role": "OTRO",
+                "source": "proyecto"}
+        fila["key"] = _disco_approval_candidate_key(fila)
+        if any(c["key"] == fila["key"] for c in elegidos):
+            continue
+        nuevos.append(fila)
+    if nuevos:
+        # Se quedan en el PROYECTO: quien se añade una vez sale ya en las siguientes aprobaciones.
+        prod = _disco_prod(project)
+        guardados = _disco_project_approvers(project)
+        claves = {_disco_approval_candidate_key(x) for x in guardados}
+        for fila in nuevos:
+            if fila["key"] not in claves:
+                guardados.append({k: fila[k] for k in ("name", "email", "phone", "promoter_id",
+                                                       "photo_url", "stage", "role")})
+        prod["approvers"] = guardados
+        project.production_payload = prod
+        # …y como PREFERENCIA DEL ARTISTA si se ha marcado.
+        if _truthy(form.get("save_artist")) and getattr(project, "artist_id", None):
+            for fila in nuevos:
+                _artist_approval_contact_add(session_db, project.artist_id, fila)
+    return (elegidos + nuevos), nuevos
 
 
 def _disco_approval(session_db, project, kind: str):
@@ -20977,10 +21096,12 @@ def _disco_approval_state(session_db, project, kind: str) -> dict:
 
 
 def _disco_approval_open(session_db, project, kind: str, *, file_url="", file_name="",
-                         note="", due_date=None, payload=None, extra=None):
+                         note="", due_date=None, payload=None, extra=None, voters=None):
     """Abre (o rehace) la aprobación de algo y crea el enlace de cada persona.
 
-    `extra` son terceros añadidos a mano: [{'name','email','phone','promoter_id'}] (etapa 3)."""
+    `voters` es la lista YA ELEGIDA (lo que devuelve `_disco_approval_pick`: los candidatos que siguen
+    marcados más los añadidos ahora). Sin ella se cae a todos los candidatos, y `extra` son terceros
+    añadidos a mano [{'name','email','phone','promoter_id'}] (etapa 3)."""
     kind = (kind or "").upper()
     # Se cierra la anterior: lo que se aprueba es SIEMPRE la última versión.
     anterior = _disco_approval(session_db, project, kind)
@@ -20997,7 +21118,9 @@ def _disco_approval_open(session_db, project, kind: str, *, file_url="", file_na
                          requested_at=_now_madrid())
     session_db.add(fila)
     session_db.flush()
-    for cand in (_disco_approval_candidates(session_db, project) + list(extra or [])):
+    elegidos = (list(voters) if voters is not None
+                else _disco_approval_candidates(session_db, project))
+    for cand in (elegidos + list(extra or [])):
         session_db.add(DiscoApprovalVoter(
             approval_id=fila.id, stage=int(cand.get("stage") or 3),
             promoter_id=_safe_uuid(cand.get("promoter_id")),
@@ -22726,7 +22849,7 @@ def disco_project_detail(project_id):
                           "date_state", "production", "materials_recipients",
                           "logistics", "logistics_notes", "radio", "radio_media", "pitch_state",
                           "press", "press_parts", "product_manager", "delivery",
-                          "mix", "mix_min_weeks", "can_waive_mix",
+                          "mix", "mix_min_weeks", "can_waive_mix", "approver_candidates",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -22758,6 +22881,9 @@ def disco_project_detail(project_id):
             logistics_notes=DISCO_LOGISTICS_NOTES,
             # LA MEZCLA FINAL y su aprobación en cadena.
             mix=(_disco_mix_state(session_db, project) if tab == "calendario" else None),
+            # QUIÉN PUEDE APROBAR (el selector único: la casa, el artista y este proyecto).
+            approver_candidates=(_disco_approval_candidates(session_db, project)
+                                 if tab == "calendario" else []),
             mix_min_weeks=DISCO_MIX_MIN_WEEKS,
             can_waive_mix=(str((_current_user_state() or {}).get("user_id") or "")
                            in _direccion_sello_user_ids(session_db) if tab == "calendario" else False),
@@ -26223,17 +26349,14 @@ def disco_project_mix_approval(project_id):
         if not estado["file_url"]:
             flash("Todavía no hay mezcla final que aprobar.", "warning")
             return redirect(safe_next_or(destino))
-        # Terceros añadidos a mano (los que tengan que aprobar además de los de siempre).
-        extra = []
-        for nombre, correo in zip(request.form.getlist("extra_name"),
-                                  request.form.getlist("extra_email")):
-            if (nombre or "").strip():
-                extra.append({"name": nombre.strip(), "email": (correo or "").strip(),
-                              "stage": 3, "role": "OTRO"})
+        # QUIÉN entra: los candidatos que siguen marcados (se puede quitar a alguien en este paso) y
+        # los añadidos ahora —que quedan guardados en el proyecto y, si se marca, como preferencia
+        # del artista—. Punto único para todas las aprobaciones: `_disco_approval_pick`.
+        elegidos, nuevos = _disco_approval_pick(session_db, project, request.form)
         fila = _disco_approval_open(session_db, project, "MIX",
                                     file_url=estado["file_url"], file_name=estado["file_name"],
                                     note=(request.form.get("note") or ""),
-                                    due_date=estado["due_date"], extra=extra)
+                                    due_date=estado["due_date"], voters=elegidos)
         # La cadena empieza por la etapa más baja que tenga gente.
         etapas = sorted({int(v.stage or 1) for v in (fila.voters or [])})
         salieron = _disco_approval_notify(session_db, project, fila, etapas[0]) if etapas else []

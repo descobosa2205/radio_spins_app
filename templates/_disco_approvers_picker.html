@@ -1,0 +1,68 @@
+{# ============================================================================================
+   QUIÉN TIENE QUE APROBAR · selector único (lo usan todas las aprobaciones del sello: la mezcla
+   final, los materiales, la foto y la portada).
+
+   Tres niveles, como se pidió:
+     · los que salen SOLOS (integrantes del artista y colaboradores) y los que el ARTISTA tiene
+       configurados en sus notificaciones → vienen MARCADOS;
+     · se puede DESMARCAR a quien no toque **en este paso** (no se le quita de ningún sitio);
+     · se pueden AÑADIR personas: quedan guardadas **en el proyecto** (así salen en las siguientes
+       aprobaciones) y, si se marca la casilla, también como **preferencia del artista**.
+
+   Espera `approver_candidates` (de `_disco_approval_candidates`) y, opcional, `approver_note` con
+   la nota que ya hubiera. #}
+{% set cands = approver_candidates or [] %}
+{% set fuentes = {'casa': ('fa-users', 'Sale solo'),
+                  'artista': ('fa-star', 'Configurado en el artista'),
+                  'proyecto': ('fa-diagram-project', 'Añadido en este proyecto')} %}
+<div class="dp-appr" data-dp-approvers>
+  <label class="form-label">¿Quién tiene que aprobarlo?</label>
+  {% if cands %}
+    <div class="d-grid gap-1">
+      {% for c in cands %}
+        {% set meta = fuentes.get(c.source, ('fa-user', '')) %}
+        <label class="dp-appr__row">
+          <input class="form-check-input m-0" type="checkbox" name="voter_key" value="{{ c.key }}" checked>
+          <img src="{{ c.photo_url or url_for('static', filename='img/avatar_placeholder.png') }}"
+               alt="" data-avatar="1" class="dp-appr__ava">
+          <span class="dp-appr__body">
+            <span class="dp-appr__name">{{ c.name }}</span>
+            <span class="dp-appr__sub">
+              {{ 'Nuestro artista' if c.stage == 1 else ('El colaborador' if c.stage == 2 else 'Añadido') }}
+              {%- if c.email %} · {{ c.email }}{% endif %}
+            </span>
+          </span>
+          <span class="dp-appr__src" title="{{ meta[1] }}"><i class="fa {{ meta[0] }}"></i></span>
+        </label>
+      {% endfor %}
+    </div>
+    <div class="form-text">
+      Desmarca a quien no tenga que aprobar <strong>este paso</strong> (no se le quita de nada más).
+      Van <strong>en cadena</strong>: primero nuestro artista y, cuando dé el OK, el colaborador.
+    </div>
+  {% else %}
+    <div class="alert alert-warning py-2 small mb-2">
+      No hay nadie configurado: añade abajo a quien tenga que aprobarlo.
+    </div>
+  {% endif %}
+
+  <div class="mt-3">
+    <label class="form-label">Añadir a alguien más</label>
+    <div class="d-grid gap-2" data-dp-extra-rows>
+      <div class="row g-2">
+        <div class="col-12 col-md-5"><input class="form-control" name="extra_name" placeholder="Nombre"></div>
+        <div class="col-12 col-md-4"><input class="form-control" name="extra_email" placeholder="Correo"></div>
+        <div class="col-12 col-md-3"><input class="form-control" name="extra_phone" placeholder="Teléfono"></div>
+      </div>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-dp-extra-add>
+      <i class="fa fa-plus me-1"></i>Añadir otra persona</button>
+    <div class="form-check mt-2">
+      <input class="form-check-input" type="checkbox" name="save_artist" value="1" id="dpApprSave" checked>
+      <label class="form-check-label small" for="dpApprSave">
+        Guardarlos como <strong>preferencia del artista</strong> para las próximas aprobaciones
+        (si no, valen solo para este proyecto)
+      </label>
+    </div>
+  </div>
+</div>

@@ -927,6 +927,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · EL PLAN: promoción, aprobación y aviso al artista** (ago 2026):
+  · **Solicitar el plan de PROMOCIÓN** (`disco_plan_promo_request`): se le pide a promoción con
+  **indicaciones y objetivos**; les sale como tarea en su Inicio (el módulo **«Tareas del sello»**,
+  que es el de las notas de prensa: mismo público, un solo módulo) y **lo que suben queda dentro de
+  este plan** (`disco_plan_promo_upload`, en `REQUEST_ANY_ENDPOINTS` porque lo sube promoción).
+  · **El REPASO** (`disco_plan_review`): se le pide a quien es **dirección y sello a la vez** y les
+  sale como **tarea pendiente** (el plan **y sus gastos**); pueden **devolverlo con una nota**, que
+  quita los dos OK y se lo dice al sello. Con **los dos OK** el plan queda aprobado y al **jefe de
+  producto** le llega que lo tiene **liberado**.
+  ⚠️ **Un OK borra el rechazo anterior** y la tarea da prioridad a «aprobado» sobre «rechazado»: si no,
+  el plan se quedaba marcado como devuelto para siempre aunque lo aprobaran (bug real de la prueba).
+  · **Notificar el plan AL ARTISTA** (`disco_plan_notify_artist`): solo **aprobado** y **antes de que
+  empiece**. El correo lleva el plan **por secciones** (estrategia, acciones con sus fechas,
+  marketing, promoción y publicaciones) y el botón al **cronograma online** de siempre, que se ve
+  al día — y también sale por **SMS** con ese enlace. ⚠️ **Sin nada de economía**: ni costes ni
+  presupuestos (`_disco_plan_artist_email_body`).
+  · **ALERTAS** (`_disco_plan_notice_sweep`, en el cron diario del proyecto): a
+  **`DISCO_PLAN_NOTICE_WARN_DAYS`=3** días de que empiece el plan, aviso al **jefe de producto**
+  («quedan 3 días … y todavía no se le ha compartido»); a **2 días**, se **escala a dirección+sello**
+  por campanita **y por correo**.
+  ⚠️ Cada aviso **una sola vez**, y **si ya se escaló no se vuelve a avisar del plazo**: sin eso el
+  barrido soltaba el «quedan 3 días» todos los días siguientes (lo sacó la prueba).
+
 - **PROYECTO · LA COLABORACIÓN** (ago 2026, solo si `DiscoProject.is_collab`): tres pasos seguidos.
   · **1 · Condiciones** (`disco_project_collab_conditions`): de quién es el máster y en qué %
   (`DISCO_COLLAB_OWNERS`), quién cubre los gastos y en qué medida (`DISCO_COLLAB_EXPENSES`) y quién

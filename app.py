@@ -22498,11 +22498,37 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     if lleva_audio:
         plan_st = _disco_plan_state(session_db, project)
         url_plan = url_for("disco_project_detail", project_id=project.id, tab="lanzamiento")
+        # EL PLAN DE PROMOCIÓN: se le pide a promoción y queda dentro de este plan.
+        if plan_st.get("promo_done"):
+            tarea("plan_promo", "Plan de promoción", "", "fa-bullhorn", state="done",
+                  value="Subido%s" % ((" por %s" % plan_st["promo_done_by"])
+                                      if plan_st["promo_done_by"] else ""),
+                  menu=[{"label": "Ver el plan de promoción", "icon": "fa-file-lines",
+                         "url": plan_st["promo_file_url"]},
+                        {"label": "Volver a pedirlo", "icon": "fa-rotate", "modal": "#dpPlanPromoModal"}])
+        elif plan_st.get("promo_asked"):
+            tarea("plan_promo", "Plan de promoción", "", "fa-hourglass-half", state="wait",
+                  hint="Pedido a promoción%s · falta que lo suban"
+                       % ((" el %s" % plan_st["promo_asked_label"]) if plan_st["promo_asked_label"] else ""),
+                  menu=[{"label": "Volver a pedirlo", "icon": "fa-rotate", "modal": "#dpPlanPromoModal"}])
+        else:
+            tarea("plan_promo", "Solicitar el plan de promoción", "", "fa-bullhorn",
+                  hint="Se lo prepara promoción con tus indicaciones y objetivos",
+                  action_label="Pedírselo a promoción", modal="#dpPlanPromoModal")
         if not plan_st["exists"] or not (plan_st["strategy_text"] or plan_st["actions"]
                                         or plan_st["contents"]):
             tarea("plan", "Plan de lanzamiento", url_plan, "fa-rocket", True,
                   hint="La estrategia, las acciones, los contenidos y su cronograma",
                   action_label="Empezar el plan")
+        elif plan_st.get("rejected") and not plan_st["approved"]:
+            # ⚠️ Lo ha devuelto quien es dirección y sello: hay que ajustarlo y volver a pedirlo.
+            # Solo mientras NO esté aprobado: en cuanto dan el OK, el rechazo es historia.
+            tarea("plan", "Plan de lanzamiento RECHAZADO", url_plan, "fa-rocket", True,
+                  hint="%s: %s" % (plan_st.get("rejected_by") or "Dirección",
+                                   (plan_st.get("rejected_note") or "")[:120]),
+                  action_label="Ver el plan",
+                  menu=[{"label": "Volver a pedir el repaso", "icon": "fa-rotate",
+                         "post": url_for("disco_plan_review", project_id=project.id)}])
         elif not plan_st["approved"]:
             faltan = []
             if not plan_st["ok_direccion"]:
@@ -22510,8 +22536,11 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
             if not plan_st["ok_sello"]:
                 faltan.append("el sello")
             tarea("plan", "Plan de lanzamiento", url_plan, "fa-rocket", True,
-                  hint="Falta el OK de %s" % " y ".join(faltan),
-                  action_label="Ver el plan")
+                  hint=("Falta el OK de %s" % " y ".join(faltan))
+                       + (" · ya se les ha pedido el repaso" if plan_st.get("review_asked") else ""),
+                  action_label=("Ver el plan" if plan_st.get("review_asked")
+                                else "Pedir el repaso a dirección"),
+                  modal=(None if plan_st.get("review_asked") else "#dpPlanReviewModal"))
         else:
             tarea("plan", "Plan de lanzamiento", url_plan, "fa-rocket", state="done",
                   value="Aprobado%s%s" % ((" · dirección: %s" % plan_st["ok_direccion_by"])
@@ -22519,6 +22548,24 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                                           (" · sello: %s" % plan_st["ok_sello_by"])
                                           if plan_st["ok_sello_by"] else ""),
                   menu=[{"label": "Ver el plan", "icon": "fa-arrow-right", "url": url_plan}])
+            # ⚠️ APROBADO EL PLAN hay que NOTIFICÁRSELO AL ARTISTA, y **antes de que empiece**.
+            dias = plan_st.get("days_to_start")
+            if plan_st.get("notice_sent"):
+                tarea("plan_aviso", "Notificar el plan al artista", "", "fa-paper-plane",
+                      sub=True, state="done",
+                      value="Mandado%s%s" % ((" por %s" % plan_st["notice_by"]) if plan_st["notice_by"] else "",
+                                             (" el %s" % plan_st["notice_label"]) if plan_st["notice_label"] else ""),
+                      menu=[{"label": "Volver a mandarlo", "icon": "fa-rotate",
+                             "modal": "#dpPlanNoticeModal"}])
+            else:
+                urgente = bool(dias is not None and dias <= 3)
+                tarea("plan_aviso", "Notificar el plan al artista", "", "fa-paper-plane",
+                      urgente, sub=True,
+                      hint=("Tiene que estar antes de que empiece el plan%s"
+                            % ((" · empieza el %s (%s)" % (plan_st["starts_label"],
+                                                           _dir_days(plan_st["starts_on"])[1]))
+                               if plan_st.get("starts_on") else "")),
+                      action_label="Mandárselo", modal="#dpPlanNoticeModal")
             # Aprobado el plan, lo siguiente es activar los recordatorios de publicación.
             if plan_st["contents"] and not plan_st["reminders"]:
                 tarea("plan_avisos", "Activar recordatorio de publicaciones", url_plan, "fa-bell",
@@ -23370,6 +23417,7 @@ def disco_project_detail(project_id):
                           "creative_icon_class",
                           "project_ids", "plan", "plan_sections", "plan_agenda",
                           "plan_action_kinds", "content_networks", "plan_candidates",
+                          "can_review_plan",
                           "agenda_data", "release", "release_songs"):
                 bag_ctx.pop(clave, None)
         return render_template(
@@ -23446,6 +23494,10 @@ def disco_project_detail(project_id):
             creative_media=DISCO_CREATIVE_MEDIA,
             project_ids=(_disco_project_ids_state(session_db, project) if tab == "calendario" else None),
             plan=plan_state,
+            # Quién puede REPASAR el plan (dirección y sello a la vez): solo a ellos se les ofrece
+            # devolverlo con una nota.
+            can_review_plan=(str((_current_user_state() or {}).get("user_id") or "")
+                             in _direccion_sello_user_ids(session_db)),
             plan_sections=DISCO_PLAN_SECTIONS,
             plan_agenda=plan_agenda,
             plan_action_kinds=DISCO_PLAN_ACTION_DATE_KINDS,
@@ -24217,6 +24269,85 @@ def disco_project_materials_notify(project_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(destino))
+
+
+# A cuántos días de que empiece el plan se avisa al jefe de producto, y a cuántos se escala.
+DISCO_PLAN_NOTICE_WARN_DAYS = 3
+DISCO_PLAN_NOTICE_ESCALATE_DAYS = 2
+
+
+def _disco_plan_notice_sweep() -> dict:
+    """AVISO DE QUE EL PLAN NO SE LE HA MANDADO AL ARTISTA y el plan ya está encima.
+
+    · A **3 días** de que empiece: se le avisa al **jefe de producto** («quedan 3 días para que empiece
+      el plan de lanzamiento de X y todavía no se le ha compartido»).
+    · A **2 días**: se le escala a quien es **dirección y sello**, y a ellos les sale **en rojo**.
+    ⚠️ Cada aviso, **una sola vez** (`warn_at` / `escalated_at`): uno que insiste todos los días deja
+    de leerse."""
+    session_db = db()
+    salida = {"mirados": 0, "avisados": 0, "escalados": 0}
+    try:
+        proyectos = (session_db.query(DiscoProject)
+                     .options(joinedload(DiscoProject.artist))
+                     .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                     .all())
+        for project in proyectos:
+            estado = _disco_plan_state(session_db, project)
+            if not estado.get("exists") or not estado.get("approved") or estado.get("notice_sent"):
+                continue
+            dias = estado.get("days_to_start")
+            if dias is None or dias < 0:
+                continue
+            salida["mirados"] += 1
+            prod = _disco_prod(project)
+            fila = dict(prod.get("plan_notice") or {})
+            etiqueta = _disco_project_title(project)
+            artista = (getattr(project.artist, "name", "") or "")
+            texto = ("Quedan %d día%s para que empiece el plan de lanzamiento de «%s»%s y todavía no "
+                     "se le ha compartido." % (dias, "" if dias == 1 else "s", etiqueta,
+                                               (" (%s)" % artista) if artista else ""))
+            if dias <= DISCO_PLAN_NOTICE_ESCALATE_DAYS and not fila.get("escalated_at"):
+                _notify_users(session_db, _direccion_sello_user_ids(session_db), "TAREA",
+                              "URGENTE · el artista no tiene el plan: %s" % etiqueta, texto,
+                              url_for("disco_project_detail", project_id=project.id, tab="lanzamiento"),
+                              ref_type="DISCO_PLAN_NOTICE", ref_id=str(project.id))
+                # …y por CORREO, que es lo que se pidió para el escalado (la campanita puede no
+                # mirarse en dos días).
+                correos = []
+                try:
+                    ids = [to_uuid(x) for x in _direccion_sello_user_ids(session_db) if to_uuid(x)]
+                    if ids:
+                        correos = [u.email for u in session_db.query(User)
+                                   .filter(User.id.in_(ids)).all() if (u.email or "").strip()]
+                except Exception:
+                    app.logger.exception("[plan] no se pudieron leer los correos de dirección")
+                if correos:
+                    _send_optional_email(correos, "URGENTE · el artista no tiene el plan: %s" % etiqueta,
+                                         "<p style='font-size:15px;'>%s</p>" % html.escape(texto))
+                fila["escalated_at"] = _now_madrid().isoformat()
+                salida["escalados"] += 1
+            elif (dias <= DISCO_PLAN_NOTICE_WARN_DAYS and not fila.get("warn_at")
+                  # ⚠️ Si YA se escaló no se vuelve a avisar del plazo: si no, el barrido volvería a
+                  # soltar el aviso «quedan 3 días» todos los días siguientes (lo sacó la prueba).
+                  and not fila.get("escalated_at")):
+                _notify_users(session_db, _disco_project_owner_ids(session_db, project),
+                              "DISCOGRAFICA", "Mándale el plan al artista: %s" % etiqueta, texto,
+                              url_for("disco_project_detail", project_id=project.id, tab="lanzamiento"),
+                              ref_type="DISCO_PLAN_NOTICE", ref_id=str(project.id))
+                fila["warn_at"] = _now_madrid().isoformat()
+                salida["avisados"] += 1
+            else:
+                continue
+            prod["plan_notice"] = fila
+            project.production_payload = prod
+            session_db.add(project)
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudo repasar el aviso del plan")
+    finally:
+        session_db.close()
+    return salida
 
 
 def _disco_materials_reminder_sweep() -> dict:
@@ -26382,6 +26513,45 @@ def _disco_plan_state(session_db, project) -> dict:
         "reminder_recipients": list(plan.reminder_recipients or []),
         "public_url": (_external_url_for("public_disco_plan", token=plan.public_token)
                        if plan.public_token else ""),
+        # EL PLAN DE PROMOCIÓN que se le pide a promoción (queda incluido en este).
+        **_disco_plan_extra_state(session_db, project, plan),
+    }
+
+
+def _disco_plan_extra_state(session_db, project, plan) -> dict:
+    """Lo que se le añade al plan y no vive en su tabla: el **plan de promoción** que se le pide a
+    promoción, el **rechazo** de la aprobación y el **aviso al artista** (con sus alertas)."""
+    fila = _disco_prod(project)
+    promo = dict(fila.get("plan_promo") or {})
+    revision = dict(fila.get("plan_review") or {})
+    aviso = dict(fila.get("plan_notice") or {})
+    # Cuándo EMPIEZA el plan: la primera fecha de sus acciones o contenidos (y si no, el lanzamiento).
+    fechas = [a.start_date for a in (plan.actions or []) if getattr(a, "start_date", None)]
+    for c in (plan.contents or []):
+        if getattr(c, "publish_at", None):
+            fechas.append(c.publish_at.date() if hasattr(c.publish_at, "date") else c.publish_at)
+    inicio = min(fechas) if fechas else getattr(project, "release_date", None)
+    dias = ((inicio - today_local()).days if inicio else None)
+    return {
+        "promo_asked": bool(promo.get("asked_at")),
+        "promo_asked_label": _iso_date_label(promo.get("asked_at")),
+        "promo_note": (promo.get("note") or ""),
+        "promo_goals": (promo.get("goals") or ""),
+        "promo_file_url": (promo.get("file_url") or ""),
+        "promo_file_name": (promo.get("file_name") or ""),
+        "promo_done": bool(promo.get("file_url")),
+        "promo_done_by": (promo.get("done_by") or ""),
+        "rejected": bool(revision.get("rejected_at")),
+        "rejected_note": (revision.get("note") or ""),
+        "rejected_by": (revision.get("by") or ""),
+        "rejected_label": _iso_date_label(revision.get("rejected_at")),
+        "review_asked": bool(revision.get("asked_at")),
+        "notice_sent": bool(aviso.get("sent_at")),
+        "notice_label": _iso_date_label(aviso.get("sent_at")),
+        "notice_by": (aviso.get("by") or ""),
+        "starts_on": inicio,
+        "starts_label": (inicio.strftime("%d/%m/%Y") if inicio else ""),
+        "days_to_start": dias,
     }
 
 
@@ -26752,6 +26922,272 @@ def disco_plan_content_move(project_id, content_id):
         session_db.close()
 
 
+@app.post("/discografica/proyectos/<project_id>/plan/promocion", endpoint="disco_plan_promo_request")
+@admin_required
+def disco_plan_promo_request(project_id):
+    """PEDIRLE A PROMOCIÓN que prepare el plan de promoción (con indicaciones y objetivos).
+
+    Le queda como tarea pendiente hasta que lo sube, y lo que sube queda **dentro** de este plan."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="lanzamiento")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        prod = _disco_prod(project)
+        fila = dict(prod.get("plan_promo") or {})
+        fila["asked_at"] = _now_madrid().isoformat()
+        fila["asked_by"] = ((_current_user_state() or {}).get("nick") or "")
+        fila["note"] = (request.form.get("note") or "").strip()
+        fila["goals"] = (request.form.get("goals") or "").strip()
+        prod["plan_promo"] = fila
+        project.production_payload = prod
+        cuerpo = " · ".join([x for x in [fila["note"], ("Objetivos: %s" % fila["goals"])
+                                        if fila["goals"] else ""] if x])
+        _notify_users(session_db, _disco_press_people(session_db, "text"), "TAREA",
+                      "Preparar el plan de promoción: %s" % _disco_project_title(project),
+                      (cuerpo or "Hay que preparar el plan de promoción del lanzamiento.")[:600],
+                      url_for("disco_project_detail", project_id=project.id, tab="lanzamiento"),
+                      ref_type="DISCO_PLAN_PROMO", ref_id=str(project.id))
+        session_db.commit()
+        flash("Se le ha pedido el plan de promoción a promoción.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudo pedir el plan de promoción")
+        flash("No se pudo pedir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/promocion/subir", endpoint="disco_plan_promo_upload")
+@admin_required
+def disco_plan_promo_upload(project_id):
+    """PROMOCIÓN sube su plan: queda incluido en el plan de lanzamiento.
+
+    ⚠️ Aquí no se exige `can_edit_discografica()`: lo sube promoción."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="lanzamiento")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        if not (is_master() or can_edit_discografica()
+                or yo in _disco_press_people(session_db, "text")):
+            return forbid("Esto lo sube promoción.")
+        fs_ = request.files.get("file")
+        if not fs_ or not getattr(fs_, "filename", ""):
+            flash("Elige el archivo del plan.", "warning")
+            return redirect(safe_next_or(destino))
+        url = upload_file(fs_, "disco_plans")
+        prod = _disco_prod(project)
+        fila = dict(prod.get("plan_promo") or {})
+        fila["file_url"] = url
+        fila["file_name"] = (fs_.filename or "").replace("\\", "/")
+        fila["done_at"] = _now_madrid().isoformat()
+        fila["done_by"] = ((_current_user_state() or {}).get("nick") or "")
+        prod["plan_promo"] = fila
+        project.production_payload = prod
+        _notify_resolve(session_db, "DISCO_PLAN_PROMO", str(project.id))
+        _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                      "Plan de promoción subido: %s" % _disco_project_title(project),
+                      "Lo ha subido %s. Ya está dentro del plan de lanzamiento."
+                      % (fila["done_by"] or "promoción"),
+                      url_for("disco_project_detail", project_id=project.id, tab="lanzamiento"),
+                      ref_type="DISCO_PLAN", ref_id=str(project.id))
+        session_db.commit()
+        flash("Plan de promoción subido.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudo subir el plan de promoción")
+        flash("No se pudo subir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/revision", endpoint="disco_plan_review")
+@admin_required
+def disco_plan_review(project_id):
+    """PEDIR EL REPASO del plan a quien es dirección y sello, o RECHAZARLO con una nota.
+
+    · `action=ask` → les llega como tarea pendiente (el plan y sus gastos).
+    · `action=reject` → el plan vuelve al sello con la nota de qué hay que cambiar (y se quitan los OK)."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="lanzamiento")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        plan = _disco_plan(session_db, project, create=True)
+        accion = (request.form.get("action") or "ask").strip().lower()
+        prod = _disco_prod(project)
+        fila = dict(prod.get("plan_review") or {})
+        yo = (_current_user_state() or {})
+        if accion == "reject":
+            if str(yo.get("user_id") or "") not in _direccion_sello_user_ids(session_db):
+                return forbid("El plan lo repasa quien es dirección y sello.")
+            nota = (request.form.get("note") or "").strip()
+            if not nota:
+                flash("Dinos qué hay que cambiar.", "warning")
+                return redirect(safe_next_or(destino))
+            fila.update({"rejected_at": _now_madrid().isoformat(),
+                         "by": (yo.get("nick") or ""), "note": nota, "asked_at": ""})
+            plan.ok_direccion_at = None
+            plan.ok_direccion_by_nick = None
+            plan.ok_sello_at = None
+            plan.ok_sello_by_nick = None
+            _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                          "Plan de lanzamiento RECHAZADO: %s" % _disco_project_title(project),
+                          "%s: %s" % (yo.get("nick") or "Dirección", nota[:300]),
+                          url_for("disco_project_detail", project_id=project.id, tab="lanzamiento"),
+                          ref_type="DISCO_PLAN", ref_id=str(project.id))
+            _notify_resolve(session_db, "DISCO_PLAN_REVIEW", str(project.id))
+        else:
+            if not can_edit_discografica():
+                return forbid("No tienes permisos.")
+            fila.update({"asked_at": _now_madrid().isoformat(), "asked_by": (yo.get("nick") or ""),
+                         "rejected_at": "", "note": ""})
+            estado = _disco_plan_state(session_db, project)
+            _notify_users(session_db, _direccion_sello_user_ids(session_db), "TAREA",
+                          "Repasar y aprobar el plan de lanzamiento: %s"
+                          % _disco_project_title(project),
+                          "Hay %d acción(es) y %s de gasto previsto."
+                          % (len(estado["actions"]), estado["total_cost_label"]),
+                          url_for("disco_project_detail", project_id=project.id, tab="lanzamiento"),
+                          ref_type="DISCO_PLAN_REVIEW", ref_id=str(project.id))
+        prod["plan_review"] = fila
+        project.production_payload = prod
+        session_db.commit()
+        flash("Plan devuelto al sello." if accion == "reject" else
+              "Pedido el repaso a dirección y sello.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudo gestionar el repaso")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/plan/notificar", endpoint="disco_plan_notify_artist")
+@admin_required
+def disco_plan_notify_artist(project_id):
+    """NOTIFICARLE EL PLAN AL ARTISTA (y a los colaboradores si los hay).
+
+    ⚠️ Solo cuando está **aprobado** (dirección y sello), y **antes de que empiece**. El correo lleva
+    el plan **por secciones** y el enlace al **cronograma online**, que se ve siempre al día. No lleva
+    **nada de economía**: eso no se comparte."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="lanzamiento")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        estado = _disco_plan_state(session_db, project)
+        if not estado.get("approved"):
+            flash("El plan tiene que estar aprobado por dirección y sello antes de mandarlo.",
+                  "warning")
+            return redirect(safe_next_or(destino))
+        plan = estado["plan"]
+        if plan is not None and not plan.public_token:
+            plan.public_token = _uuid_token()
+            session_db.flush()
+        enlace = (_external_url_for("public_disco_plan", token=plan.public_token)
+                  if plan is not None and plan.public_token else "")
+        cuerpo = _disco_plan_artist_email_body(session_db, project, estado, enlace,
+                                               nota=(request.form.get("note") or ""))
+        html_correo = _disco_project_email_shell(
+            session_db, project, title="Plan de lanzamiento", body_html=cuerpo,
+            button_label="Ver el plan", button_url=enlace)
+        filas = _notify_apply_prefs(session_db,
+                                   _artist_notification_recipients(session_db, project.artist_id,
+                                                                   "DISCOGRAFICA") or [])
+        salieron = []
+        for f in filas:
+            ok, _err = _notify_send_row(
+                session_db, f,
+                subject="Plan de lanzamiento · %s" % _disco_project_title(project),
+                html=html_correo,
+                sms_text="Ya tienes el plan de lanzamiento de %s · %s"
+                         % (_disco_project_title(project), enlace),
+                kind="DISCOGRAFICA")
+            if ok:
+                salieron.append(f.get("name") or f.get("email"))
+        prod = _disco_prod(project)
+        fila = dict(prod.get("plan_notice") or {})
+        if salieron:
+            fila["sent_at"] = _now_madrid().isoformat()
+            fila["by"] = ((_current_user_state() or {}).get("nick") or "")
+            fila["to"] = [str(x) for x in salieron]
+            prod["plan_notice"] = fila
+            project.production_payload = prod
+            _notify_resolve(session_db, "DISCO_PLAN_NOTICE", str(project.id))
+        session_db.commit()
+        if salieron:
+            flash("Plan mandado a %s." % ", ".join([str(x) for x in salieron]), "success")
+        else:
+            flash(Markup("No se pudo avisar al artista. Puedes mandarle este enlace: "
+                         "<a href='%s'>%s</a>" % (escape(enlace), escape(enlace))), "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[plan] no se pudo notificar el plan")
+        flash("No se pudo mandar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_plan_artist_email_body(session_db, project, estado, enlace, *, nota: str = "") -> str:
+    """EL PLAN POR SECCIONES para el artista. ⚠️ **Sin nada de economía**: ni costes ni presupuestos.
+
+    Va la estrategia, las acciones (con sus fechas), el marketing, la promoción y las publicaciones —
+    y el enlace, que se ve siempre al día."""
+    esc = lambda v: html.escape("" if v is None else str(v))
+    partes = []
+    if (nota or "").strip():
+        partes.append('<p style="margin:0 0 14px;">%s</p>' % esc(nota.strip()).replace("\n", "<br/>"))
+    partes.append('<p style="margin:0 0 14px;">Ya tenemos el <strong>plan de lanzamiento</strong>. '
+                  'Esto es lo que hay, y en el enlace lo ves siempre al día.</p>')
+
+    def seccion(titulo, filas):
+        if not filas:
+            return
+        partes.append('<div style="margin:0 0 16px;">'
+                      '<div style="font-size:13px;font-weight:700;text-transform:uppercase;'
+                      'letter-spacing:.06em;color:#6b7280;margin-bottom:6px;">%s</div>'
+                      '<ul style="margin:0;padding-left:18px;font-size:14px;line-height:1.7;">%s</ul>'
+                      '</div>' % (esc(titulo), "".join("<li>%s</li>" % x for x in filas)))
+
+    if (estado.get("strategy_text") or "").strip():
+        partes.append('<div style="margin:0 0 16px;font-size:14px;line-height:1.7;">%s</div>'
+                      % esc(estado["strategy_text"]).replace("\n", "<br/>"))
+    seccion("Acciones", ["%s%s" % (esc(a["title"]),
+                                   (" — %s" % esc(a["when_label"])) if a.get("when_label") else "")
+                         for a in (estado.get("actions") or [])])
+    seccion("Marketing", [esc(m.get("title") or m.get("name") or "—")
+                          for m in (estado.get("marketing") or [])])
+    seccion("Promoción", [esc(p.get("title") or p.get("name") or "—")
+                          for p in (estado.get("promos") or [])])
+    seccion("Publicaciones", ["%s%s" % (esc(c.get("title") or "Publicación"),
+                                        (" — %s" % esc(c.get("when_label")))
+                                        if c.get("when_label") else "")
+                              for c in (estado.get("contents") or [])])
+    if estado.get("promo_file_url"):
+        partes.append('<p style="margin:0 0 14px;font-size:14px;">Y el <strong>plan de promoción</strong> '
+                      'va con el resto en el enlace.</p>')
+    return "".join(partes)
+
+
 @app.post("/discografica/proyectos/<project_id>/plan/ok", endpoint="disco_plan_ok")
 @admin_required
 def disco_plan_ok(project_id):
@@ -26782,6 +27218,24 @@ def disco_plan_ok(project_id):
             flash("No sé de quién es el OK.", "warning")
             return redirect(destino)
         plan.updated_at = _now_madrid()
+        # ⚠️ Un OK BORRA el rechazo anterior: si lo aprueban, ya no está devuelto.
+        if not deshacer:
+            prod = _disco_prod(project)
+            revision = dict(prod.get("plan_review") or {})
+            if revision.get("rejected_at"):
+                revision["rejected_at"] = ""
+                revision["note"] = ""
+                prod["plan_review"] = revision
+                project.production_payload = prod
+        session_db.flush()
+        # Con los DOS OK, el plan queda liberado: se le dice al jefe de producto.
+        if plan.ok_direccion_at and plan.ok_sello_at and not deshacer:
+            _notify_resolve(session_db, "DISCO_PLAN_REVIEW", str(project.id))
+            _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                          "Plan de lanzamiento aprobado: %s" % _disco_project_title(project),
+                          "Lo tienes liberado: ya se le puede mandar al artista.",
+                          url_for("disco_project_detail", project_id=project.id, tab="lanzamiento"),
+                          ref_type="DISCO_PLAN", ref_id=str(project.id))
         session_db.commit()
         flash("Anotado.", "success")
     except Exception as exc:
@@ -65710,6 +66164,10 @@ REQUEST_ANY_ENDPOINTS = {
     # promoción: ninguno tiene por qué poder editar discográfica. Cada endpoint comprueba dentro que
     # es de su departamento (o dirección).
     "disco_project_press_upload", "disco_project_press_sent",
+    # ⚠️ El PLAN DE PROMOCIÓN lo sube promoción, que no tiene por qué poder editar discográfica.
+    "disco_plan_promo_upload",
+    # Y el REPASO del plan lo devuelve quien es dirección y sello (el endpoint lo comprueba).
+    "disco_plan_review",
 }
 
 
@@ -91209,7 +91667,9 @@ def cron_disco_materials_reminders():
                 or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
     if not esperada or clave != esperada:
         abort(404)
-    return jsonify({"ok": True, **_disco_materials_reminder_sweep()})
+    # …y de paso el aviso del PLAN al artista (para no depender de otra tarea en el servidor).
+    return jsonify({"ok": True, **_disco_materials_reminder_sweep(),
+                    "plan_notice": _disco_plan_notice_sweep()})
 
 
 @app.get("/cron/documentos-caducados", endpoint="cron_expired_documents")
@@ -108474,12 +108934,23 @@ def _home_press_tasks(limit: int = 12) -> list[dict]:
                      .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
         for p in proyectos:
             pr = _disco_press_state(session_db, p)
-            if not pr["requested"] or pr["sent"]:
+            plan_pedido = False
+            if de_promo:
+                _pl = _disco_plan_state(session_db, p)
+                plan_pedido = bool(_pl.get("promo_asked") and not _pl.get("promo_done"))
+            # Entra si hay nota de prensa por hacer O un plan de promoción pedido.
+            if (not pr["requested"] or pr["sent"]) and not plan_pedido:
                 continue
             tareas = []
             if de_promo and not pr["text_done"]:
                 tareas.append({"key": "text", "label": "Redactar la nota de prensa",
                                "icon": "fa-file-lines"})
+            # …y el PLAN DE PROMOCIÓN que les haya pedido el sello (es de promoción, como la nota).
+            if de_promo:
+                plan_st = _disco_plan_state(session_db, p)
+                if plan_st.get("promo_asked") and not plan_st.get("promo_done"):
+                    tareas.append({"key": "promo_plan", "label": "Preparar el plan de promoción",
+                                   "icon": "fa-bullhorn"})
             if de_diseno and not pr["design_done"]:
                 tareas.append({"key": "design", "label": "Diseño de la nota de prensa",
                                "icon": "fa-palette"})

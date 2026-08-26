@@ -315,3 +315,147 @@
 
 })();
 </script>
+
+{# ---------------------------------------------------------------- EL PLAN DE PROMOCIÓN
+   Se le pide a promoción con indicaciones y objetivos; lo que suba queda dentro de este plan. #}
+{% set pl = plan or {} %}
+<div class="modal fade" id="dpPlanPromoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_plan_promo_request', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-bullhorn me-2 text-danger"></i>Pedir el plan de promoción</h5>
+          <div class="text-muted small">Se lo prepara <strong>promoción</strong> y queda dentro de este plan.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Indicaciones</label>
+        <textarea class="form-control" name="note" rows="3"
+                  placeholder="Qué esperamos, con qué medios, el tono…">{{ pl.promo_note or '' }}</textarea>
+        <label class="form-label mt-3">Objetivos</label>
+        <textarea class="form-control" name="goals" rows="2"
+                  placeholder="Ej.: entrar en 3 playlists editoriales y 2 entrevistas">{{ pl.promo_goals or '' }}</textarea>
+        {% if pl.promo_asked_label %}
+          <div class="form-text mt-2">Ya se pidió el {{ pl.promo_asked_label }}.</div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-paper-plane me-1"></i>Pedírselo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# Y el hueco para que PROMOCIÓN suba el suyo (les sale a ellos). #}
+<div class="modal fade" id="dpPlanPromoUploadModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_plan_promo_upload', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div><h5 class="modal-title"><i class="fa fa-upload me-2 text-danger"></i>Subir el plan de promoción</h5></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if pl.promo_note or pl.promo_goals %}
+          <div class="alert alert-secondary small">
+            {% if pl.promo_note %}<div><strong>Indicaciones:</strong> {{ pl.promo_note }}</div>{% endif %}
+            {% if pl.promo_goals %}<div><strong>Objetivos:</strong> {{ pl.promo_goals }}</div>{% endif %}
+          </div>
+        {% endif %}
+        <label class="form-label">Archivo</label>
+        <input class="form-control" type="file" name="file" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-upload me-1"></i>Subir</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- REPASO Y RECHAZO DEL PLAN #}
+<div class="modal fade" id="dpPlanReviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_plan_review', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-user-check me-2 text-danger"></i>Repaso del plan</h5>
+          <div class="text-muted small">Lo repasa quien es <strong>dirección y sello</strong>: el plan y sus gastos.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">Se le pide que lo repase y lo apruebe. Le sale como tarea pendiente.</p>
+        {% if can_review_plan %}
+          <label class="form-label mt-2">Si hay que cambiar algo, dilo aquí</label>
+          <textarea class="form-control" name="note" rows="3"
+                    placeholder="Qué hay que ajustar (obligatorio para devolverlo)"></textarea>
+        {% endif %}
+        {% if pl.rejected %}
+          <div class="alert alert-warning mt-3 mb-0">
+            Devuelto por {{ pl.rejected_by }}{% if pl.rejected_label %} el {{ pl.rejected_label }}{% endif %}:
+            «{{ pl.rejected_note }}»
+          </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        {% if can_review_plan %}
+          <button class="btn btn-outline-danger" type="submit" name="action" value="reject">
+            <i class="fa fa-rotate-left me-1"></i>Devolver con nota</button>
+        {% endif %}
+        <button class="btn btn-danger" type="submit" name="action" value="ask">
+          <i class="fa fa-paper-plane me-1"></i>Pedir el repaso</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- NOTIFICAR EL PLAN AL ARTISTA #}
+<div class="modal fade" id="dpPlanNoticeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_plan_notify_artist', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Mandarle el plan al artista</h5>
+          <div class="text-muted small">
+            Va el plan <strong>por secciones</strong> y el enlace, que se ve siempre al día.
+            <strong>Sin nada de economía.</strong>
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if not pl.approved %}
+          <div class="alert alert-warning"><i class="fa fa-lock me-1"></i>
+            Antes lo tienen que aprobar dirección y el sello.</div>
+        {% endif %}
+        {% if pl.starts_label %}
+          <div class="alert alert-secondary">
+            <i class="fa fa-calendar-day me-1"></i>El plan empieza el <strong>{{ pl.starts_label }}</strong>:
+            tiene que estar mandado antes.
+          </div>
+        {% endif %}
+        <label class="form-label">Nota (opcional, va arriba del correo)</label>
+        <textarea class="form-control" name="note" rows="3"></textarea>
+        {% if pl.public_url %}
+          <div class="form-text mt-2">Enlace: <span class="text-break">{{ pl.public_url }}</span></div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit" {% if not pl.approved %}disabled{% endif %}>
+          <i class="fa fa-paper-plane me-1"></i>Mandárselo</button>
+      </div>
+    </form>
+  </div>
+</div>

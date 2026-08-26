@@ -538,7 +538,14 @@
                 <div class="col-md-3">
                   <label class="form-label">Documento de los tickets</label>
                   <input class="form-control" name="ticket_doc_type" value="{{ row.ticket_doc_type }}">
-                  <div class="form-text">Lo detecta «Probar conexión».</div>
+                  <div class="form-text">
+                    Lo detecta «Probar conexión».
+                    {% if row.api_version == 'v2' %}
+                      <span class="text-warning-emphasis">⚠️ La API v2 no tiene el documento de
+                      «gasto/ticket»: los tickets se suben como <strong>compra marcada como
+                      Ticket</strong> (con su etiqueta y sin nº de factura).</span>
+                    {% endif %}
+                  </div>
                 </div>
                 <div class="col-md-6">
                   <label class="form-label">Cabecera de autenticación</label>

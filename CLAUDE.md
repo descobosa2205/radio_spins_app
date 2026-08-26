@@ -3572,6 +3572,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   que responde (`HoldedAccount.endpoints`). El tipo de documento de los **tickets** lo detecta
   «Probar conexión» con un GET (`detect_ticket_doc_type`): facturas → `purchase`, tickets y gastos
   sin ticket → `dailyexpense`.
+  · ⚠️⚠️ **LO QUE ES FACTURA SUBE COMO FACTURA Y LO QUE NO, COMO TICKET** (ago 2026). En la **v1** son
+  dos documentos distintos de Holded y se respeta (`purchase` / `dailyexpense`). En la **v2** solo
+  existe `purchases` (sus recursos de compra son `purchases`, `purchase-orders` y `receipt-notes`: NO
+  hay «gasto/ticket»), así que un ticket se sube como compra **marcada**: etiqueta «Ticket», el
+  concepto con «Ticket · …», la nota «Gasto sin factura» y **sin número ni fecha de emisión** (un
+  ticket no los tiene). La pantalla de Integraciones lo dice cuando la cuenta va por la v2.
+  · ⚠️⚠️ **A HOLDED VA EL NOMBRE DE LA FACTURACIÓN, NO NUESTRO NICK** (punto único `_billing_name`):
+  la razón social de la sociedad o el **nombre y apellidos** de la persona (los datos oficiales), y
+  solo como último recurso el nick. Con el nick, en Holded salía «Perico» en vez de «Pedro Ruiz
+  Salas» y el contacto no cuadraba con su factura. Se usa en los gastos y en las liquidaciones.
+  · ⚠️ **EL Nº DE FACTURA está en el gasto O EN SU FACTURA**: al subirla por el enlace del proveedor
+  queda en la factura, así que mirando solo el gasto se subía **sin número** (y una factura de compra
+  sin número no vale). Lo mismo con la fecha de emisión.
+  · **La dirección del contacto es la FISCAL** y va en piezas (dirección, CP, municipio, provincia y
+  país; en la v2, dentro de `bill_address` con su `country_code`): es lo que Holded necesita para dar
+  de alta al proveedor.
+  · ⚠️ **EL TAG es el NOMBRE DE LA BOLSA** (`_accounting_bag_tag` → `_accounting_bag_label`, el mismo
+  que se ve en la columna «Bolsa»): así la etiqueta de Holded y la app dicen lo mismo. Sin nombre cae
+  en lo que la identifica (la actividad y su fecha) y, de último, en el código de antes
+  (`_accounting_bag_tag_legacy`). Una **liquidación de royalties** —que no tiene bolsa— se etiqueta
+  «Liquidación de royalties» con el artista y su periodo.
   · **Qué se vuelca de cada gasto** (`_holded_upload_expense`): contacto (buscado por CIF/DNI/NIE en
   seco para NO duplicarlo, y creado con la dirección fiscal en piezas si no está) · nº de documento ·
   fecha de emisión · importe · concepto · impuestos (% de IVA y % de retención en la línea) ·

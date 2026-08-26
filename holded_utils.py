@@ -324,7 +324,8 @@ def contact_payload_for(client, **kw) -> dict:
 
 def purchase_payload_for(client, *, concept, total, net=None, vat_pct=None, retention_pct=None,
                          contact_id=None, contact_name=None, doc_number=None, issue_date=None,
-                         tags=None, notes=None, payment_method_id=None, currency="EUR") -> dict:
+                         tags=None, notes=None, payment_method_id=None, currency="EUR",
+                         is_ticket=False) -> dict:
     """El cuerpo de la COMPRA en la versión que hable esa cuenta. Punto único.
 
     ⚠️ En la **v2** el impuesto va como CLAVE por línea (`taxes: ["s_iva_21"]`), que se resuelve con
@@ -346,12 +347,21 @@ def purchase_payload_for(client, *, concept, total, net=None, vat_pct=None, rete
     ret = pct(retention_pct)
     if ret > 0:
         nota = (nota + " · " if nota else "") + ("Retención %s%%" % ("%g" % float(ret)))
+    etiquetas = list(tags or [])
+    concepto = concept
+    if is_ticket:
+        # ⚠️ La v2 no tiene el documento de «gasto/ticket»: se sube como compra pero DICIENDO que es
+        # un ticket (etiqueta + concepto + nota), para que en Holded se distinga de una factura.
+        if "Ticket" not in etiquetas:
+            etiquetas.append("Ticket")
+        concepto = "Ticket · %s" % (concept or "Gasto")
+        nota = (nota + " · " if nota else "") + "Gasto sin factura (ticket)"
     return build_purchase_payload_v2(
         contact_id=(contact_id or ""), contact_name=(contact_name or ""),
-        concept=concept, net_amount=base, vat_pct=iva,
+        concept=concepto, net_amount=base, vat_pct=iva,
         tax_key=(client.tax_key_for(iva) if iva > 0 else ""),
         issue_date=issue_date, number=(doc_number or ""), notes=nota,
-        tags=tags, payment_method_id=(payment_method_id or ""))
+        tags=etiquetas, payment_method_id=(payment_method_id or ""))
 
 
 def build_contact_payload_v2(
@@ -556,8 +566,13 @@ class HoldedClient:
         if que == "documents":
             tipo = (doc_type or DOC_TYPE_INVOICE)
             if not v2:
+                # ⚠️ En la v1 la distinción es REAL: `purchase` = factura de compra ·
+                # `dailyexpense` = gasto/ticket. Son dos documentos distintos en Holded.
                 return "%s/documents/%s" % (INVOICING, tipo)
-            # En la v2, los gastos («dailyexpense») también viven bajo compras.
+            # ⚠️⚠️ La v2 **no tiene** el documento de «gasto/ticket» (sus recursos de compra son
+            # `purchases`, `purchase-orders` y `receipt-notes`): un ticket se sube como compra pero
+            # MARCADO (etiqueta «Ticket», sin número de factura), y la pantalla lo dice. Cuando Holded
+            # publique el recurso, solo hay que cambiarlo aquí.
             return API_V2 + ("/purchases" if tipo in (DOC_TYPE_INVOICE, DOC_TYPE_TICKET)
                              else "/" + tipo)
         if que == "document":

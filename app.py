@@ -88032,18 +88032,58 @@ def holded_account_test(company_id):
 
 # ------------------------------------------------------------------ Datos que se vuelcan a Holded
 
+def _billing_name(entity, *, snapshot=None) -> str:
+    """EL NOMBRE CON EL QUE FACTURA (el que sale en la factura), no nuestro nick. Punto único.
+
+    ⚠️⚠️ Aquí llamamos a la gente por su NICK, pero a Holded (y a cualquier documento contable) hay
+    que mandar el nombre de la **facturación**: la razón social de la sociedad, o el nombre y los
+    apellidos de la persona. Con el nick, en Holded aparecería «Caco» en vez de «Juan Pérez García»
+    y el contacto no cuadraría con su factura."""
+    if entity is None:
+        snapshot = snapshot or {}
+        return ((snapshot.get("legal_name") or snapshot.get("company_name")
+                 or snapshot.get("name") or snapshot.get("nick") or "").strip())
+    # Una SOCIEDAD factura con su razón social.
+    legal = (getattr(entity, "legal_name", None) or "").strip()
+    if legal:
+        return legal
+    # Una PERSONA, con su nombre y apellidos (los datos oficiales, que llegan del DNI o de su ficha).
+    partes = " ".join(x for x in ((getattr(entity, "first_name", None) or "").strip(),
+                                  (getattr(entity, "last_name", None) or "").strip()) if x).strip()
+    if partes:
+        return partes
+    # Y si no consta, lo que haya: el nombre social o, como último recurso, el nick.
+    return ((getattr(entity, "name", None) or getattr(entity, "nick", None) or "").strip()
+            or ((snapshot or {}).get("nick") or "").strip())
+
+
+def _accounting_invoice_number(session_db, expense) -> str:
+    """El NÚMERO DE FACTURA que se manda a Holded.
+
+    ⚠️ Está en el gasto **o en su factura**: al subirla por el enlace del proveedor el número queda en
+    la FACTURA, así que mirando solo el gasto se subía sin número (y en Holded una factura de compra
+    sin número no vale)."""
+    numero = (getattr(expense, "invoice_number", None) or "").strip()
+    if numero:
+        return numero
+    inv = _accounting_expense_invoice(session_db, expense)
+    return (getattr(inv, "invoice_number", None) or "").strip()
+
+
 def _accounting_provider_info(session_db, expense) -> dict:
     """Datos del PROVEEDOR de un gasto, tal como hay que crearlo en Holded."""
     provider = getattr(expense, "provider", None)
     company = getattr(expense, "provider_company", None)
     snapshot = dict(getattr(expense, "provider_snapshot", None) or {})
+    # ⚠️ A Holded va el nombre DE LA FACTURACIÓN (`_billing_name`), no el nick con el que lo
+    # llamamos aquí.
     if company is not None:
-        nombre = (getattr(company, "legal_name", None) or "").strip()
+        nombre = _billing_name(company, snapshot=snapshot)
         cif = (getattr(company, "tax_id", None) or "").strip()
         piezas = _fiscal_address_parts(company)
         es_persona = False
     else:
-        nombre = _promoter_display_name(provider) if provider is not None else ""
+        nombre = _billing_name(provider, snapshot=snapshot)
         cif = (getattr(provider, "tax_id", None) or "").strip()
         piezas = _fiscal_address_parts(provider)
         es_persona = True
@@ -88069,9 +88109,22 @@ def _accounting_provider_info(session_db, expense) -> dict:
 def _accounting_bag_tag(session_db, bag) -> str:
     """ETIQUETA con la que se agrupan en Holded los gastos de una misma bolsa.
 
-    Formato pactado: `Artista (o evento)_Actividad o municipio_Fecha`. Es lo que permite en Holded
-    sacar de un tirón todo el gasto de una fecha concreta.
+    ⚠️⚠️ **Es el NOMBRE DE LA BOLSA** (`_accounting_bag_label`, el mismo que se ve en la columna
+    «Bolsa» de contabilidad): así la etiqueta de Holded y lo que se lee en la app dicen lo mismo. Si
+    la bolsa no tiene nombre, esa función ya cae en lo que la identifica (la actividad y su fecha), y
+    una liquidación de royalties —que no tiene bolsa— se etiqueta como lo que es.
+    Antes era un código propio (`Artista_Municipio_Fecha`) que no se correspondía con nada de lo que
+    se ve en la app.
     """
+    etiqueta = _accounting_bag_label(session_db, bag) if bag is not None else ""
+    if (etiqueta or "").strip():
+        return etiqueta.strip()[:60]
+    return _accounting_bag_tag_legacy(session_db, bag)
+
+
+def _accounting_bag_tag_legacy(session_db, bag) -> str:
+    """El código de antes (`Artista (o evento)_Actividad o municipio_Fecha`), como respaldo cuando la
+    bolsa no tiene ni nombre ni nada que la identifique."""
     if bag is None:
         return ""
     artista = ""
@@ -88397,9 +88450,18 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
         contact_id=(contact_id or None),
         contact_name=(proveedor["name"] if (es_factura and not contact_id) else None),
         # Un ticket no lleva número de documento ni fecha de emisión: no existen.
-        doc_number=((getattr(expense, "invoice_number", None) or "").strip() or None) if es_factura else None,
-        issue_date=(getattr(expense, "issue_date", None) if es_factura else None),
+        # ⚠️ El número está en el gasto **o en su factura** (`_accounting_invoice_number`): al subirla
+        # por el enlace del proveedor queda en la factura, y sin él Holded recibe una factura de
+        # compra sin número.
+        doc_number=(((getattr(expense, "invoice_number", None) or "").strip()
+                      or (getattr(factura, "invoice_number", None) or "").strip()) or None)
+                    if es_factura else None,
+        issue_date=((getattr(expense, "issue_date", None)
+                     or getattr(factura, "issue_date", None)) if es_factura else None),
         tags=([etiqueta] if etiqueta else None),
+        # ⚠️ FACTURA o TICKET: en la v1 son dos documentos distintos de Holded (`purchase` /
+        # `dailyexpense`) y en la v2, que no tiene el de gasto, el ticket va marcado como tal.
+        is_ticket=(not es_factura),
         notes=nota,
         payment_method_id=(metodo_id or None),
     )
@@ -88487,6 +88549,20 @@ def _royalty_holded_company(session_db, rec):
         return None
 
 
+def _royalty_tag_subject(session_db, rec) -> str:
+    """De quién es la liquidación, para la etiqueta de Holded (el artista y, si no, el beneficiario)."""
+    try:
+        congelada = _royalty_frozen_beneficiary(rec) or {}
+        aid = congelada.get("artist_id") or ""
+        if aid:
+            art = session_db.get(Artist, to_uuid(str(aid)))
+            if art is not None and (art.name or "").strip():
+                return art.name.strip()
+        return (congelada.get("artist_name") or congelada.get("name") or "").strip()
+    except Exception:
+        return ""
+
+
 def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
     """Sube a Holded la factura de UNA liquidación de royalties (una compra como cualquier otra).
 
@@ -88520,7 +88596,8 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
 
     # 1) CONTACTO: quien EMITE la factura (el beneficiario o el tercero que le factura).
     promoter, _cands = _royalty_beneficiary_promoter(session_db, rec)
-    nombre = (_promoter_display_name(promoter) if promoter is not None else "").strip()
+    # ⚠️ A Holded, el nombre DE LA FACTURACIÓN (no el nick con el que lo llamamos aquí).
+    nombre = (_billing_name(promoter) if promoter is not None else "").strip()
     cif = (getattr(promoter, "tax_id", None) or "").strip()
     if not (nombre or cif):
         return _holded_royalty_fail(rec, "No se sabe quién emite esta factura: vincula al "
@@ -88561,7 +88638,11 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
         contact_id=(contact_id or None), contact_name=(nombre if not contact_id else None),
         doc_number=((getattr(inv, "invoice_number", None) or "").strip() or None),
         issue_date=getattr(inv, "issue_date", None),
-        tags=["Royalties %s" % periodo],
+        # ⚠️ El TAG dice lo que es: una liquidación no tiene bolsa, así que se etiqueta «Liquidación
+        # de royalties» (con el artista si consta), igual que en la columna «Bolsa» de contabilidad.
+        tags=[x for x in ["Liquidación de royalties",
+                          (("%s · %s" % (_royalty_tag_subject(session_db, rec), periodo)).strip(" ·")
+                           if periodo or _royalty_tag_subject(session_db, rec) else "")] if x],
         notes=(nota or None),
         payment_method_id=(metodo_id or None),
     )

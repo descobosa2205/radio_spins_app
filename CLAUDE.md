@@ -1369,6 +1369,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **descarga** (antes abría la URL de Storage en una pestaña). Punto único `_demo_audio_download`, que
   usa también la descarga de una playlist.
 
+- ⚠️⚠️ **UN CLIC EN UN CONTROL DE LA FILA NO REPRODUCE NI PARA NADA** (bug real, ago 2026). En el
+  listado de demos (y en una playlist) cada línea lleva **sus tres puntitos**, sus etiquetas y sus
+  formularios DENTRO del `<li data-pl-row>`, y el clic burbujeaba al reproductor: **abrir el menú
+  arrancaba el audio** y, si algo estaba sonando, **lo cortaba**. El handler de la fila
+  (`playlist.js`) ignora ya cualquier cosa con la que se pueda interactuar (`CONTROLES`: `button`,
+  `a`, `input`, `label`, `select`, `textarea`, `form`, `.dropdown`, `[data-bs-toggle]`,
+  `[role="button"]`, la barra) — antes solo se saltaba la barra, los enlaces y `.pl-row__dl`.
+  · Lo que SÍ suena: **pinchar la línea** o **la portada**. El botón de PAUSA sigue funcionando porque
+  tiene su propio handler en fase de **captura** (con `stopPropagation`), así que excluir `button` no
+  lo rompe.
+  ⚠️ Al añadir un control nuevo a una fila (una casilla de selección, un botón de enviar) **no hay que
+  tocar nada**: la regla es por tipo de elemento, no una lista de clases.
+
 - **DEMOS · COMPARTIR UNA MAQUETA igual que una playlist** (ago 2026): en los **tres puntitos** de
   cada demo hay **Compartir** y **Copiar enlace**. El pop-up es el mismo que el de una playlist
   (**WhatsApp · SMS · Copiar enlace · Email**, con nota) y lleva **los mismos interruptores**

@@ -124,12 +124,19 @@
       else { actual = -1; }
     });
 
-    // --- Clic en cualquier sitio de la línea (menos en los botones de dentro) ---
+    // --- Clic en cualquier sitio de la línea (menos en los CONTROLES de dentro) ---
+    /* ⚠️⚠️ Un clic en un CONTROL de la fila NO puede reproducir ni parar nada: en el listado de demos
+       cada línea lleva sus tres puntitos, sus etiquetas y sus formularios (y en una playlist, además,
+       las casillas), así que abrir el menú arrancaba el audio —o cortaba lo que estuviera sonando—.
+       Se ignora cualquier cosa con la que se pueda interactuar: el que suene se decide pinchando la
+       línea (o la portada), no un botón. El botón de PAUSA sigue funcionando porque tiene su propio
+       handler en fase de CAPTURA (más abajo). */
+    var CONTROLES = 'button, a, input, label, select, textarea, form, .dropdown, .dropdown-menu,'
+                  + ' [role="button"], [data-bs-toggle], [data-pl-track]';
     root.addEventListener('click', function (ev) {
       var li = ev.target.closest('[data-pl-row]');
       if (!li || !root.contains(li)) return;
-      if (ev.target.closest('[data-pl-track]')) return;                  // la barra la lleva su gesto
-      if (ev.target.closest('.pl-row__dl, .dropdown-menu, a')) return;   // descargar / enlaces
+      if (ev.target.closest(CONTROLES)) return;
       var idx = filas.indexOf(li);
       if (idx < 0) return;
       ev.preventDefault();

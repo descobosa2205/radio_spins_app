@@ -509,6 +509,7 @@
                     {% elif row.last_test_ok is not none %}<span class="badge text-bg-danger">Última prueba con error</span>{% endif %}
                     {% if row.is_token %}<span class="badge text-bg-light border" title="Los tokens nuevos van con Authorization: Bearer y solo pueden hacer lo que se les marcó"><i class="fa fa-key me-1"></i>token</span>{% endif %}
                     {% if row.auth_used %}<span class="badge text-bg-light border" title="La cabecera con la que ha entrado">{{ row.auth_used }}</span>{% endif %}
+                    {% if row.api_version %}<span class="badge text-bg-info" title="Holded tiene dos APIs: la v2 va con los tokens Bearer y la v1 con la API Key clásica">API {{ row.api_version }}</span>{% endif %}
                   {% else %}<span class="small text-muted">Sin probar todavía</span>{% endif %}
                 </div>
               </div>
@@ -572,6 +573,12 @@
                     <strong>Adjuntos</strong> si se quiere subir el PDF. Sin esos permisos Holded
                     contesta <code>403</code> aunque la clave sea correcta.
                     Y recuerda: <strong>la clave secreta solo se ve una vez</strong>.
+                    <div class="mt-1">
+                      Holded tiene <strong>dos APIs</strong>: la <strong>v2</strong>
+                      (<code>/v2/…</code>), que es la de los tokens Bearer, y la <strong>v1</strong>
+                      (<code>/invoicing/v1/…</code>), la de la API Key clásica. Se detecta sola al
+                      probar la conexión y se ve aquí arriba.
+                    </div>
                   </div>
                 </div>
                 <div class="col-12">

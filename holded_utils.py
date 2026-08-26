@@ -40,6 +40,21 @@ _BACKOFF = 1.6
 
 BASE_URL = "https://api.holded.com/api"
 INVOICING = "/invoicing/v1"
+# ⚠️⚠️ HOLDED TIENE DOS APIS y no se autentican igual (esto costó un 401 que no había forma de
+# entender):
+#   · **v1** (`/invoicing/v1/…`) es la vieja —«obsoleta pero disponible»— y va con la **API Key
+#     clásica** en la cabecera `key`.
+#   · **v2** (`/v2/…`) es la actual y va con **`Authorization: Bearer <token>`**, con los TOKENS
+#     nuevos (`pat_…`) y sus permisos por endpoint.
+# Un token nuevo contra la v1 da **401**, así que la versión va con la credencial: se detecta sola
+# (`diagnose`) y se guarda en la cuenta.
+API_V2 = "/v2"
+API_VERSIONS = ("v1", "v2")
+
+
+def api_version_for(value: str | None) -> str:
+    """Qué versión de la API le toca a esa credencial (un token `pat_…` es de la v2)."""
+    return "v2" if looks_like_bearer_key(value) else "v1"
 
 # Tipos de documento de compra que usamos:
 #   · FACTURA de un proveedor  → `purchase`      (Compras → Facturas de compra)
@@ -157,14 +172,16 @@ def _auth_error_message(resp, *, path: str = "") -> str:
             % (motivo, TOKEN_SCOPES_HINT, (" · ruta: %s" % path) if path else "")
         )
     return (
-        "Holded no acepta la credencial (%s: %s).\n"
-        "Si Holded te dijo «usa Authorization: Bearer <clave>», es un TOKEN nuevo: pégalo tal cual "
-        "y deja la cabecera en «Automática» (se prueba Bearer sola). Si es la API Key clásica, está "
+        "Holded no acepta la credencial (%s: %s) en %s.\n"
+        "⚠️ Holded tiene DOS APIs: la **v2** (`/v2/…`), que va con los TOKENS nuevos («pat_…») y "
+        "`Authorization: Bearer`, y la **v1** (`/invoicing/v1/…`), que va con la **API Key clásica** "
+        "en la cabecera `key`. Un token nuevo contra la v1 da 401 y al revés. Deja la cabecera en "
+        "«Automática»: se prueban las dos APIs y se guarda la que funcione. La API Key clásica está "
         "en Holded → tu usuario → Configuración → Desarrolladores → API Key (no el «código de "
         "integración» de una app del marketplace ni el secreto de un webhook). En los dos casos tiene "
         "que ser de ESTA empresa y su plan debe incluir acceso a la API.\n"
         "⚠️ Las claves secretas de Holded **solo se ven una vez**: si no la guardaste, crea otra."
-        % (resp.status_code, motivo)
+        % (resp.status_code, motivo, (path or "la API"))
     )
 
 
@@ -363,6 +380,35 @@ class HoldedClient:
                 raise HoldedError(str(texto)[:400])
         return payload
 
+    # ---------------------------------------------------------------- Rutas (v1 / v2)
+    @property
+    def api_version(self) -> str:
+        """La versión que se está usando: la guardada, o la que le toca a la credencial."""
+        return ((self.endpoints or {}).get("api_version")
+                or api_version_for(self.api_key) or "v1")
+
+    def _path(self, que: str, *, doc_type: str = "", doc_id: str = "") -> str:
+        """La ruta de cada cosa en la versión que toca. Punto único: aquí se ve la diferencia.
+
+        ⚠️ En la v2 las compras son su propio recurso (`/v2/purchases`) y en la v1 son un «documento»
+        más (`/invoicing/v1/documents/purchase`)."""
+        v2 = self.api_version == "v2"
+        if que == "contacts":
+            return (API_V2 + "/contacts") if v2 else (INVOICING + "/contacts")
+        if que == "documents":
+            tipo = (doc_type or DOC_TYPE_INVOICE)
+            if not v2:
+                return "%s/documents/%s" % (INVOICING, tipo)
+            # En la v2, los gastos («dailyexpense») también viven bajo compras.
+            return API_V2 + ("/purchases" if tipo in (DOC_TYPE_INVOICE, DOC_TYPE_TICKET)
+                             else "/" + tipo)
+        if que == "document":
+            base = self._path("documents", doc_type=doc_type)
+            return "%s/%s" % (base, doc_id)
+        if que == "payment_methods":
+            return (API_V2 + "/paymentmethods") if v2 else (INVOICING + "/paymentmethods")
+        return ""
+
     def _auth_headers(self) -> dict:
         cabecera = self.auth_header or self._auth_order[0]
         valor = ("Bearer " + self.api_key) if cabecera == "Authorization" else self.api_key
@@ -467,15 +513,80 @@ class HoldedClient:
 
     def test(self) -> dict:
         """Comprueba la credencial. Devuelve un resumen para enseñar en Integraciones."""
-        contactos = self._request("GET", INVOICING + "/contacts", params={"page": 1})
+        contactos = self._request("GET", self._path("contacts"), params={"page": 1})
         if isinstance(contactos, dict):
             contactos = contactos.get("data") or []
         return {"ok": True, "contacts": len(contactos or [])}
 
+    # RUTAS con las que se comprueba una credencial (GET inocuos). La primera que responda 200 dice
+    # que la credencial vale; el resto sirven para saber SI el problema son los permisos del token
+    # (una ruta abierta contesta y otra no) o la credencial entera (ninguna contesta).
+    DIAGNOSE_PATHS = (
+        # v2 (la actual, con los tokens Bearer) …
+        (API_V2 + "/contacts", "v2 · Contactos"),
+        (API_V2 + "/purchases", "v2 · Compras"),
+        # … y v1 (la vieja, con la API Key clásica).
+        (INVOICING + "/contacts", "v1 · Contactos"),
+        (INVOICING + "/documents/purchase", "v1 · Facturas de compra"),
+    )
+
+    def diagnose(self) -> dict:
+        """PRUEBA TODAS LAS COMBINACIONES y cuenta qué contesta cada una.
+
+        Es lo que hay que mirar cuando «no acepta la credencial» y no se sabe por qué: se prueban las
+        tres cabeceras contra varias rutas y se devuelve **lo que ha dicho Holded en cada intento**.
+        · algún **200** → la credencial VALE: se guarda esa cabecera y, si otras rutas dan 401/403, lo
+          que falta son PERMISOS del token.
+        · todo **401** → la credencial no vale para esta API (o no es de esta empresa).
+        ⚠️ Sin reintentos y con timeout corto: es un diagnóstico, no una operación."""
+        import requests as _rq
+        intentos, buena = [], ""
+        for cabecera in self._auth_order:
+            valor = ("Bearer " + self.api_key) if cabecera == "Authorization" else self.api_key
+            for ruta, etiqueta in self.DIAGNOSE_PATHS:
+                url = self.base + ruta
+                fila = {"header": cabecera, "path": ruta, "label": etiqueta,
+                        "status": 0, "message": "", "ok": False}
+                try:
+                    resp = _rq.get(url, headers={cabecera: valor, "Accept": "application/json"},
+                                   params={"page": 1}, timeout=12)
+                    fila["status"] = resp.status_code
+                    fila["message"] = _body_message(resp)[:140]
+                    cuerpo_malo = _looks_like_auth_error(fila["message"])
+                    fila["ok"] = bool(resp.status_code < 400 and not cuerpo_malo)
+                except _rq.RequestException as e:
+                    fila["message"] = "no se pudo conectar: %s" % str(e)[:100]
+                intentos.append(fila)
+                if fila["ok"] and not buena:
+                    buena = cabecera
+            if buena:
+                break                       # con una que funcione ya está: no se prueba más
+        version = ""
+        for f in intentos:
+            if f["ok"]:
+                version = "v2" if f["path"].startswith(API_V2) else "v1"
+                break
+        if buena:
+            self.auth_header = buena
+            self._remember_auth_header()
+        if version and (self.endpoints or {}).get("api_version") != version:
+            # ⚠️ La VERSIÓN va con la credencial: un token nuevo solo funciona en la v2.
+            self.endpoints["api_version"] = version
+            self.endpoints_changed = True
+        # ¿La credencial vale pero le faltan permisos? Cuando alguna ruta da 200 y otra 401/403…
+        # ⚠️ …**de la MISMA versión**: que la v1 rechace a un token de la v2 es lo normal, no un
+        # permiso que falte (si no, el mensaje pediría marcar permisos que no existen).
+        rechazadas = [f for f in intentos
+                      if f["status"] in (401, 403) and f["header"] == (buena or "")
+                      and (("v2" if f["path"].startswith(API_V2) else "v1") == version)]
+        return {"ok": bool(buena), "header": buena, "version": version, "attempts": intentos,
+                "scopes_missing": [f["label"] for f in rechazadas],
+                "base": self.base}
+
     def probe_doc_type(self, doc_type: str) -> bool:
         """¿Existe este tipo de documento en la cuenta? Se pregunta con un GET (no crea nada)."""
         try:
-            self._request("GET", f"{INVOICING}/documents/{doc_type}", params={"page": 1})
+            self._request("GET", self._path("documents", doc_type=doc_type), params={"page": 1})
             return True
         except HoldedError:
             return False
@@ -509,7 +620,7 @@ class HoldedClient:
     def _find_contact_uncached(self, cif: str, objetivo_nombre: str, max_pages: int) -> dict | None:
         if cif:
             try:
-                filtrados = self._request("GET", INVOICING + "/contacts", params={"vatnumber": cif})
+                filtrados = self._request("GET", self._path("contacts"), params={"vatnumber": cif})
                 if isinstance(filtrados, dict):
                     filtrados = filtrados.get("data") or []
                 for c in (filtrados or []):
@@ -520,7 +631,7 @@ class HoldedClient:
         pagina = 1
         vistas = set()
         while pagina <= max_pages:
-            filas = self._request("GET", INVOICING + "/contacts", params={"page": pagina})
+            filas = self._request("GET", self._path("contacts"), params={"page": pagina})
             if isinstance(filas, dict):
                 filas = filas.get("data") or []
             if not filas:
@@ -554,7 +665,7 @@ class HoldedClient:
 
     def create_contact(self, payload: dict) -> str:
         """Crea el contacto y devuelve su id en Holded."""
-        respuesta = self._request("POST", INVOICING + "/contacts", json_body=payload)
+        respuesta = self._request("POST", self._path("contacts"), json_body=payload)
         cid = ""
         if isinstance(respuesta, dict):
             cid = str(respuesta.get("id") or respuesta.get("contactId") or "").strip()
@@ -566,7 +677,7 @@ class HoldedClient:
 
     def create_document(self, doc_type: str, payload: dict) -> dict:
         """Crea la compra/ticket. Devuelve `{id, number}`."""
-        respuesta = self._request("POST", f"{INVOICING}/documents/{doc_type}", json_body=payload)
+        respuesta = self._request("POST", self._path("documents", doc_type=doc_type), json_body=payload)
         doc_id = ""
         numero = ""
         if isinstance(respuesta, dict):
@@ -577,7 +688,7 @@ class HoldedClient:
         return {"id": doc_id, "number": numero}
 
     def get_document(self, doc_type: str, doc_id: str) -> dict:
-        payload = self._request("GET", f"{INVOICING}/documents/{doc_type}/{doc_id}")
+        payload = self._request("GET", self._path("document", doc_type=doc_type, doc_id=doc_id))
         if isinstance(payload, list):
             return payload[0] if payload else {}
         return payload if isinstance(payload, dict) else {}
@@ -635,7 +746,7 @@ class HoldedClient:
             candidatas = [(sufijo, campo)] + [c for c in candidatas if c != (sufijo, campo)]
         ultimo = ""
         for sufijo, campo in candidatas:
-            ruta = f"{INVOICING}/documents/{doc_type}/{doc_id}{sufijo}"
+            ruta = self._path("document", doc_type=doc_type, doc_id=doc_id) + sufijo
             try:
                 self._request("POST", ruta, files={campo: (nombre, content, tipo)})
             except HoldedError as e:
@@ -656,7 +767,7 @@ class HoldedClient:
         rutas = ([guardada] if guardada else []) + [p for p in _PAYMENT_METHOD_PATHS if p != guardada]
         for ruta in rutas:
             try:
-                payload = self._request("GET", INVOICING + ruta)
+                payload = self._request("GET", (API_V2 if self.api_version == "v2" else INVOICING) + ruta)
             except HoldedError:
                 continue
             filas = payload.get("data") if isinstance(payload, dict) else payload

@@ -3585,6 +3585,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   en `holded_warning`. Un gasto con error NO cambia de estado.
   · El cliente se **reutiliza por petición** (cacheado en `g`) y guarda los contactos ya resueltos:
   subir 50 gastos del mismo proveedor busca el contacto UNA vez.
+  · ⚠️⚠️ **HOLDED TIENE DOS APIS Y NO SE AUTENTICAN IGUAL** (ago 2026, la causa del 401 que no había
+  forma de entender): la **v2** (`/api/v2/…`: `/v2/contacts`, `/v2/purchases`,
+  `/v2/purchases/<id>/attachments`) va con los **TOKENS nuevos** (`pat_…`) y
+  `Authorization: Bearer`, y la **v1** (`/api/invoicing/v1/…`) —«obsoleta pero disponible»— va con la
+  **API Key clásica** en la cabecera `key`. **Un token nuevo contra la v1 da 401**, y al revés.
+  · La versión va con la credencial: `api_version_for` (un `pat_…` es v2), el punto único
+  **`HoldedClient._path`** construye la ruta de cada cosa según la versión, y lo que funcione se
+  guarda en la cuenta (`endpoints['api_version']`), que la pantalla enseña con su etiqueta.
+  · **«Probar conexión» es un DIAGNÓSTICO**: `HoldedClient.diagnose()` prueba las **tres cabeceras ×
+  las rutas de las DOS versiones** y devuelve **lo que ha contestado cada intento**, que es lo que se
+  pinta en Integraciones. Con eso se distingue de un vistazo: todo 401 = la credencial no vale ·
+  alguna 200 y otras 403 = **le faltan PERMISOS al token**.
+  ⚠️ Los «permisos que faltan» solo se cuentan **dentro de la versión que ha funcionado**: que la v1
+  rechace a un token de la v2 es lo normal, no un permiso que falte.
+  ⚠️ **Pendiente de la primera subida real en v2**: las RUTAS están confirmadas con la documentación,
+  pero los CAMPOS del payload de la v2 pueden no ser los de la v1. La red de seguridad sigue puesta
+  (se relee el documento y se compara el total) y el motivo que dé Holded se enseña tal cual en el
+  gasto.
+
   · ⚠️⚠️ **CUANDO DICE «la clave no vale», LO PRIMERO ES SABER DE QUÉ EMPRESA ES LA CUENTA** (ago
   2026). Cada documento se contabiliza en **SU** empresa —una liquidación de royalties en **PIES**
   (`_royalty_holded_company`), un gasto de bolsa en la que promueve—, así que se puede tener una clave

@@ -87546,11 +87546,15 @@ def _holded_account_rows(session_db) -> list:
             "base_url": (getattr(acc, "base_url", None) or ""),
             # Con qué cabecera ha entrado de verdad (lo que aprendió el cliente) y si es un token nuevo.
             "auth_used": ((getattr(acc, "endpoints", None) or {}).get("auth_header") or ""),
+            # Qué API de Holded se está usando (la v2 es la de los tokens Bearer).
+            "api_version": ((getattr(acc, "endpoints", None) or {}).get("api_version") or ""),
             "is_token": bool(clave.strip() and clave.strip().startswith(("pat_", "sk_", "pt_"))),
             "last_test": (_et_fmt_dt(acc.last_test_at) if acc is not None and acc.last_test_at else ""),
             "last_test_ok": (getattr(acc, "last_test_ok", None) if acc is not None else None),
             "last_sync": (_et_fmt_dt(acc.last_sync_at) if acc is not None and acc.last_sync_at else ""),
             "last_error": (getattr(acc, "last_error", None) or "") if acc is not None else "",
+            # Lo que se probó en el último diagnóstico (intento a intento).
+            "diagnose": ((getattr(acc, "last_stats", None) or {}).get("diagnose") or {}) if acc is not None else {},
             "pending": pendientes.get(str(comp.id), 0),
         })
     return filas
@@ -87951,11 +87955,40 @@ def holded_account_test(company_id):
                           " escrita en la nota interna del documento.")
             flash(aviso, "success")
         except HoldedError as exc:
+            # ⚠️ NO nos rendimos con un mensaje: se PRUEBA cada combinación (las tres cabeceras contra
+            # varias rutas) y se enseña lo que ha contestado Holded en cada una. Así se ve de un golpe
+            # si la credencial no vale (todo 401) o si es cuestión de PERMISOS del token (una ruta
+            # responde y otra no).
+            detalle = {}
+            try:
+                detalle = client.diagnose()
+            except Exception:
+                app.logger.exception("[holded] no se pudo diagnosticar la credencial")
             acc.last_test_at = _now_madrid()
-            acc.last_test_ok = False
+            acc.last_test_ok = bool(detalle.get("ok"))
             acc.last_error = str(exc)[:500]
-            session_db.commit()
-            flash("Holded: %s" % exc, "danger")
+            acc.last_stats = dict(acc.last_stats or {}, diagnose=detalle)
+            if detalle.get("ok"):
+                # Alguna ruta SÍ responde: la credencial vale y se guarda la cabecera buena.
+                acc.auth_header = detalle.get("header") or acc.auth_header
+                acc.last_error = None
+                _holded_persist_client_state(acc, client)
+                session_db.commit()
+                falta = ", ".join(detalle.get("scopes_missing") or [])
+                flash(("Holded acepta la credencial con la cabecera «%s», pero le faltan permisos "
+                       "para: %s. Edita el token en Holded y márcaselos."
+                       % (detalle.get("header"), falta)) if falta else
+                      ("Holded responde con la cabecera «%s». Vuelve a pulsar «Probar conexión»."
+                       % detalle.get("header")), "warning")
+            else:
+                session_db.commit()
+                resumen = " · ".join(
+                    "%s→%s%s" % (f["header"], f["status"] or "sin respuesta",
+                                 (" (%s)" % f["label"]))
+                    for f in (detalle.get("attempts") or [])[:8])
+                flash(Markup("Holded: %s<br><span class='small'>Lo probado: %s. Base: %s</span>"
+                             % (escape(str(exc)), escape(resumen),
+                                escape(detalle.get("base") or ""))), "danger")
     except Exception as exc:
         session_db.rollback()
         flash("No se pudo probar la conexión con Holded: %s" % exc, "danger")

@@ -60395,90 +60395,725 @@ def _impersonator_nick() -> str:
         session_db.close()
 
 
+def _home_notices(limit: int = 8) -> list[dict]:
+    """MIS AVISOS para Inicio: lo que está SIN LEER. Si no hay nada, el módulo no se pinta.
+
+    Es el mismo dato de la campanita (`_notification_rows`), no otro: un aviso leído deja de estar
+    esperando y desaparece de aquí solo."""
+    uid = session.get("user_id")
+    if not uid:
+        return []
+    session_db = db()
+    try:
+        return _notification_rows(session_db, uid, limit=limit, only_unread=True)
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron leer los avisos")
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None,
+                   artwork=None, peticiones=None, invitations=None, plans=None) -> list[dict]:
+    """MIS TAREAS PENDIENTES: lo que le toca a ESTA persona, de una pieza y ordenado por urgencia.
+
+    No calcula nada nuevo: junta lo que los módulos de Inicio ya han resuelto, para poder enseñarlo
+    en una sola lista (en la pantalla partida de dirección) en vez de en siete tarjetas."""
+    filas = []
+
+    def añade(label, url, icon, *, note="", tone="", order=5):
+        if not label:
+            return
+        filas.append({"label": label, "url": (url or ""), "icon": icon, "note": (note or ""),
+                      "tone": tone, "order": order})
+
+    for row in (batches or []):
+        añade("Aprobar la remesa %s" % (row.get("reference") or ""), row.get("url"),
+              "fa-file-invoice-dollar", note=(row.get("company_name") or ""), tone="danger", order=1)
+    for row in (vacations or []):
+        añade("Vacaciones de %s por aprobar" % (row.get("nick") or row.get("user_nick") or "alguien"),
+              url_for("vacaciones_view", tab="peticiones"), "fa-umbrella-beach",
+              note=(row.get("range_label") or row.get("days_label") or ""), tone="warning", order=2)
+    for row in (plans or []):
+        añade("Dar el OK al plan de lanzamiento", row.get("url"), "fa-clipboard-check",
+              note=(row.get("title") or ""), tone="warning", order=2)
+    for row in (phases or []):
+        # `_peticion_accept_tasks` solo devuelve las fases PENDIENTES; de esas, las que son mías y
+        # no están bloqueadas por la anterior.
+        tareas = [t for t in (row.get("tasks") or []) if t.get("mine") and not t.get("blocked")]
+        if not tareas:
+            continue
+        añade(tareas[0].get("label") or "Actividad por cerrar",
+              (tareas[0].get("url") or row.get("url")), "fa-diagram-project",
+              note=" · ".join([x for x in [(row.get("artist") or ""), (row.get("title") or "")] if x]),
+              order=3)
+    for row in (activation or []):
+        añade(row.get("action_label") or "Activar la producción", row.get("url"), "fa-user-gear",
+              note=(row.get("title") or row.get("subject_name") or ""), order=3)
+    for row in (artwork or []):
+        añade((row.get("label") or "Cartel rechazado por diseño"), row.get("url"), "fa-palette",
+              note=(row.get("note") or ""), tone="danger", order=2)
+    for row in (peticiones or []):
+        if row.get("rejection_pending"):
+            añade("Comunicar el rechazo de una petición",
+                  (row.get("detail_url") or row.get("url")), "fa-comment-dots",
+                  note=" · ".join([x for x in [(row.get("artist") or ""),
+                                               (row.get("subject") or "")] if x]),
+                  tone="warning", order=2)
+    for row in (invitations or []):
+        if (row.get("requester_status_label") or "").strip().lower().startswith("pendiente"):
+            añade("Invitaciones pendientes", url_for("invitations_view", tab="mis"),
+                  "fa-envelope-open-text", note=((row.get("event") or {}).get("artist_names") or ""),
+                  order=6)
+    filas.sort(key=lambda f: f["order"])
+    return filas
+
+
+def _home_plans_awaiting_direccion(limit: int = 10) -> list[dict]:
+    """Planes de lanzamiento que esperan el VISTO BUENO DE DIRECCIÓN (solo para dirección)."""
+    if not is_master():
+        return []
+    session_db = db()
+    try:
+        filas = (session_db.query(DiscoReleasePlan, DiscoProject)
+                 .join(DiscoProject, DiscoProject.id == DiscoReleasePlan.project_id)
+                 .filter(DiscoReleasePlan.ok_direccion_at.is_(None))
+                 .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                 .order_by(DiscoProject.release_date.asc().nullslast()).limit(limit).all())
+        return [{"title": _disco_project_title(p),
+                 "url": url_for("disco_project_detail", project_id=p.id, tab="lanzamiento")}
+                for _plan, p in filas]
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron leer los planes por aprobar")
+        return []
+    finally:
+        session_db.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# CUADRO DE MANDO DE DIRECCIÓN  (pantalla de Inicio)
+#
+# Dirección no trabaja dentro de una sección: MIRA. Por eso su Inicio no es la pila de módulos de
+# todos los departamentos, sino, en este orden: cabecera · avisos (solo si hay) · botones rápidos ·
+# el CALENDARIO · lo SUYO (sus tareas y sus gastos, a pantalla partida) · y el CUADRO POR ÁREAS.
+#
+# El cuadro es **una tarjeta por área** y, dentro, **una fila por persona**: su foto, cuántas cosas
+# lleva pendientes y cuáles son, con los días que faltan. La fila se despliega para verlas todas y
+# cada una lleva a donde se resuelve. Lo que no es de nadie va en su propia fila **«Del
+# departamento»** con las caras de quien lo puede coger: es la regla de la casa —una tarea sin
+# responsable la ve todo el departamento—, y así nada queda escondido.
+#
+# ⚠️ Esto se calcula SOLO en Inicio y SOLO para dirección (`role == 10`): recorre las actividades
+# vivas, los proyectos, las promociones y las bolsas. Va cacheado en `g`.
+# ⚠️ Cada área REUTILIZA el motor que ya decide qué está pendiente (`_contracting_tasks_data`,
+# `_home_ticketing_sales_tasks`, `_admin_pending_counts`…): si mañana cambia lo que es una tarea,
+# el cuadro cambia solo. La única excepción es el resumen de PROYECTOS (ver `_dir_area_sello`).
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+# clave · etiqueta · icono · color · de qué departamentos sale su gente · a dónde lleva la cabecera
+DIRECCION_AREAS = (
+    ("contratacion", "Contratación", "fa-file-signature", "#E33D48", ("Contratación",)),
+    ("produccion", "Producción", "fa-clipboard-list", "#1a7f37", ("Producción",)),
+    ("ticketing", "Ticketing", "fa-ticket", "#b45309", ("Ticketing",)),
+    ("sello", "Sello · proyectos", "fa-compact-disc", "#7c3aed", ("Sello",)),
+    ("registros", "Registros", "fa-clipboard-check", "#0e7490", ("Registros",)),
+    ("promocion", "Promoción y marketing", "fa-microphone-lines", "#8e44ad", ("Promoción", "Marketing")),
+    ("diseno", "Diseño", "fa-palette", "#be185d", ("Diseño",)),
+    ("digital", "Digital", "fa-hashtag", "#0369a1", ("Redes sociales",)),
+    ("administracion", "Administración", "fa-file-invoice-dollar", "#334155",
+     ("Administración", "Contabilidad")),
+)
+
+
+# Una bolsa en estos estados ya no es trabajo de producción: está cerrada o liquidada.
+DIR_BAG_DONE_STATUSES = {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
+
+
+def _dir_days(fecha):
+    """Los días que faltan, cómo se dicen y de qué color. Punto único del reloj del cuadro."""
+    if not fecha:
+        return (None, "", "")
+    try:
+        n = (fecha - today_local()).days
+    except Exception:
+        return (None, "", "")
+    if n < 0:
+        return (n, ("Ayer" if n == -1 else "Hace %d días" % abs(n)), "danger")
+    if n == 0:
+        return (0, "Hoy", "danger")
+    if n == 1:
+        return (1, "Mañana", "warning")
+    if n <= 7:
+        return (n, "En %d días" % n, "warning")
+    return (n, "En %d días" % n, "")
+
+
+def _dir_task(label, *, owner=None, subject="", photo="", url="", date=None,
+              icon="fa-circle-exclamation", note="", group=""):
+    """Una cosa pendiente del cuadro: qué es, de quién es el trabajo y contra qué fecha corre.
+
+    `group` es opcional y solo sirve para el DESGLOSE de la cabecera del área («3 conciertos · 2
+    actividades»): un área que no lo use no enseña ningún desglose."""
+    dias, dias_label, tono = _dir_days(date)
+    return {"owner": (str(owner) if owner else None), "label": label, "subject": (subject or ""),
+            "photo": (photo or ""), "url": (url or ""), "icon": icon, "note": (note or ""),
+            "group": (group or ""), "days": dias, "days_label": dias_label, "tone": tono}
+
+
+def _dir_people_index(session_db) -> dict:
+    """El personal ACTUAL por id (nick, foto y departamentos), en UNA consulta para todo el cuadro.
+
+    Sin bloqueados ni eliminados y sin los usuarios ESPEJO de producción externa (`is_external`):
+    no son personal de la casa y no tienen que salir en el cuadro de dirección."""
+    fuera = _inactive_user_ids(session_db)
+    out = {}
+    filas = (session_db.query(User, UserProfile)
+             .outerjoin(UserProfile, UserProfile.user_id == User.id).all())
+    for u, prof in filas:
+        if u.id in fuera or getattr(prof, "is_external", False):
+            continue
+        out[str(u.id)] = {
+            "id": str(u.id),
+            "nick": ((getattr(prof, "nick", None) or (u.email or "").split("@")[0] or "?").strip()),
+            "photo_url": (getattr(prof, "photo_url", None) or "").strip(),
+            "departments": list(_profile_departments(prof) or []),
+            "profile": prof,
+        }
+    return out
+
+
+def _dir_department_people(idx: dict, departamentos) -> list[dict]:
+    """Quién está en esos departamentos (para la fila «Del departamento» y para repartir)."""
+    fichas = []
+    for ficha in idx.values():
+        if _profile_in_department(ficha.get("profile"), *departamentos):
+            fichas.append(ficha)
+    fichas.sort(key=lambda f: (f.get("nick") or "").casefold())
+    return fichas
+
+
+def _dir_artist_owners(session_db, idx: dict, departamentos, faceta: str = "") -> dict:
+    """artista → quién lo lleva EN ESE DEPARTAMENTO.
+
+    Es lo que convierte una tarea de un artista en la tarea de una persona. `faceta` permite usar
+    los artistas de producción o los del sello (`assigned_artist_ids_produccion` / `_sello`); sin
+    ella se usa la unión (`assigned_artist_ids`), que es la que vale para el resto."""
+    campo = {"produccion": "assigned_artist_ids_produccion",
+             "sello": "assigned_artist_ids_sello"}.get(faceta or "", "assigned_artist_ids")
+    out = {}
+    for ficha in _dir_department_people(idx, departamentos):
+        for aid in (getattr(ficha.get("profile"), campo, None) or []):
+            out.setdefault(str(aid), []).append(ficha["id"])
+    return out
+
+
+# ───────────────────────────── las áreas, una a una ─────────────────────────────
+
+def _dir_area_contratacion(session_db, idx) -> list[dict]:
+    """Lo que ya decide la barra de pestañas de Contratación, repartido por artista asignado.
+
+    ⚠️ Una ACTIVIDAD es UNA tarea aunque le falten tres cosas (el contrato, el anuncio y mandarla a
+    producción): es el mismo criterio con el que se cuentan las pestañas, así que el número del
+    cuadro y el de Contratación dicen lo mismo."""
+    dueños = _dir_artist_owners(session_db, idx, ("Contratación",))
+    vistos, out = set(), []
+    for filas in (_contracting_tasks_data().get("tasks") or {}).values():
+        for row in filas:
+            clave = (row.get("id"), row.get("kind"), row.get("extra") or "")
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            etiqueta = " · ".join([t.get("label") or "" for t in (row.get("tasks") or [])
+                                   if t.get("label")]) or (row.get("label") or "Pendiente")
+            sujeto = " · ".join([x for x in [(row.get("subject_name") or "").strip(),
+                                             (row.get("place_label") or "").strip()] if x])
+            propietarios = dueños.get(str(row.get("subject_id") or "")) or [None]
+            for uid in propietarios:
+                out.append(_dir_task(etiqueta, owner=uid, subject=sujeto,
+                                     photo=(row.get("subject_photo") or ""),
+                                     url=(row.get("url") or ""), date=row.get("date"),
+                                     icon=(row.get("activity_icon") or "fa-guitar")))
+    return out
+
+
+def _dir_area_produccion(session_db, idx) -> list[dict]:
+    """Las actividades que van a producción y todavía no están cerradas, con QUIÉN las lleva.
+
+    Quien no tiene responsable no es de nadie: sale en «Del departamento», que es donde se ve lo
+    que hay que repartir."""
+    hoy = today_local()
+    filas = (session_db.query(Concert)
+             .options(joinedload(Concert.artist), joinedload(Concert.venue))
+             .filter(Concert.date >= hoy - timedelta(days=2))
+             .order_by(Concert.date.asc().nullslast()).limit(400).all())
+    ids = [c.id for c in filas]
+    bolsas = {}
+    if ids:
+        for b in (session_db.query(WorkflowBag)
+                  .filter(WorkflowBag.linked_type.in_(("CONCERT", "concert")),
+                          WorkflowBag.linked_id.in_(ids)).all()):
+            bolsas[b.linked_id] = b
+    eventos = {}
+    ev_ids = {c.event_id for c in filas if getattr(c, "event_id", None)}
+    if ev_ids:
+        eventos = {e.id: e for e in session_db.query(AppEvent).filter(AppEvent.id.in_(ev_ids)).all()}
+    out = []
+    for c in filas:
+        if _concert_is_legacy(c) or not _concert_needs_production(c, session_db):
+            continue
+        bolsa = bolsas.get(c.id)
+        if bolsa is not None and (getattr(bolsa, "status", "") or "").upper() in DIR_BAG_DONE_STATUSES:
+            continue
+        ev = eventos.get(getattr(c, "event_id", None))
+        act = (getattr(c, "activity_type", None) or "").strip().upper()
+        act_key = QUAD_ACTIVITY_ALIASES.get(act, act if act in QUAD_ACTIVITY_LABELS else "CONCIERTO")
+        sujeto = " · ".join([x for x in [
+            ((getattr(ev, "name", None) or "") if ev else (getattr(c.artist, "name", None) or "")),
+            (getattr(getattr(c, "venue", None), "name", None) or "")] if x])
+        out.append(_dir_task(
+            ("Montar la producción" if bolsa is None else "Producción en marcha"),
+            owner=getattr(c, "production_owner_user_id", None), subject=sujeto,
+            photo=((getattr(ev, "logo_url", None) or "") if ev
+                   else (getattr(c.artist, "photo_url", None) or "")),
+            url=url_for("concert_detail_view", cid=c.id, tab="produccion"), date=c.date,
+            icon=QUAD_ACTIVITY_ICONS.get(act_key, "fa-guitar"),
+            note=QUAD_ACTIVITY_LABELS.get(act_key, "Concierto"),
+            group=("conciertos" if act_key in CONCERT_LIKE_ACTIVITY_TYPES else "actividades")))
+    return out
+
+
+def _dir_area_ticketing(session_db, idx) -> list[dict]:
+    """Sacar a la venta lo que contratación ha activado y comunicar la salida (el mismo motor)."""
+    out = []
+    for row in (_home_ticketing_sales_tasks(session_db) or []):
+        sujeto = " · ".join([x for x in [(row.get("title") or "").strip(),
+                                         (row.get("municipality") or "").strip()] if x])
+        out.append(_dir_task((row.get("action_label") or "Salida a la venta"), owner=None,
+                             subject=sujeto, photo=(row.get("artist_photo") or ""),
+                             url=(row.get("url") or ""), date=row.get("date"), icon="fa-ticket",
+                             note=(row.get("sale_label") or "")))
+    return out
+
+
+def _dir_area_sello(session_db, idx) -> list[dict]:
+    """Los PROYECTOS discográficos activos: en qué paso está cada uno y cuánto queda para su fecha.
+
+    ⚠️ Es un RESUMEN barato a propósito: la cuenta exacta de lo que falta la da
+    `_disco_project_tasks`, que hace ~25 consultas POR PROYECTO (aquí serían cientos en cada carga
+    de Inicio). El cuadro enseña **el paso en el que está** —que es lo que hay que mirar de un
+    vistazo— y lleva a la ficha, donde está la lista entera."""
+    proyectos = (session_db.query(DiscoProject)
+                 .options(joinedload(DiscoProject.artist))
+                 .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                 .order_by(DiscoProject.release_date.asc().nullslast()).limit(60).all())
+    if not proyectos:
+        return []
+    dueños = _dir_artist_owners(session_db, idx, ("Sello",), faceta="sello")
+    out = []
+    for p in proyectos:
+        # El PASO en el que está, en el mismo orden que la ficha del proyecto.
+        if not getattr(p, "release_date_confirmed_at", None):
+            paso, icono = "Falta confirmar la fecha", "fa-calendar-check"
+        elif not getattr(p, "materials_due_date", None):
+            paso, icono = "Falta el plazo de entrega", "fa-hourglass-half"
+        elif not getattr(p, "producer_promoter_id", None):
+            paso, icono = "Falta decir quién produce", "fa-sliders"
+        elif not getattr(p, "materials_notified_at", None):
+            paso, icono = "Falta avisar del plazo", "fa-paper-plane"
+        elif not getattr(p, "bag_id", None):
+            paso, icono = "Sin bolsa de gastos", "fa-sack-dollar"
+        else:
+            paso, icono = "En marcha", "fa-compact-disc"
+        etiqueta, _i = _disco_project_kind_meta((getattr(p, "kind", None) or "").upper())
+        propietarios = ([str(x) for x in (dueños.get(str(p.artist_id)) or [])]
+                        or ([str(p.created_by_user_id)] if getattr(p, "created_by_user_id", None)
+                            else [None]))
+        for uid in propietarios:
+            out.append(_dir_task(paso, owner=uid,
+                                 subject=" · ".join([x for x in [
+                                     (getattr(getattr(p, "artist", None), "name", None) or ""),
+                                     (getattr(p, "title", None) or "").strip()] if x]),
+                                 photo=(getattr(getattr(p, "artist", None), "photo_url", None) or ""),
+                                 url=url_for("disco_project_detail", project_id=p.id,
+                                             tab="calendario"),
+                                 date=getattr(p, "release_date", None), icon=icono, note=etiqueta))
+    return out
+
+
+def _dir_area_registros(session_db, idx) -> list[dict]:
+    """Lo que espera a REGISTROS: fechas por confirmar, lanzamientos por cumplimentar y entregas
+    de masters por validar. Es una cola del departamento, no de una persona."""
+    out = []
+    try:
+        pendientes = int(_registros_pending_dates_count(session_db) or 0)
+    except Exception:
+        pendientes = 0
+    if pendientes:
+        out.append(_dir_task("%d fecha%s de lanzamiento por confirmar"
+                             % (pendientes, "" if pendientes == 1 else "s"),
+                             url=url_for("registros_release_dates_view"), icon="fa-calendar-check"))
+    try:
+        for row in (_home_project_registros(session_db) or []):
+            out.append(_dir_task("Cumplimentar el lanzamiento", subject=(row.get("title") or ""),
+                                 photo=(row.get("artist_photo") or ""), url=(row.get("url") or ""),
+                                 icon="fa-clipboard-list", note=(row.get("missing") or "")))
+    except Exception:
+        app.logger.exception("[cuadro] no se pudieron leer los lanzamientos por cumplimentar")
+    try:
+        n = (session_db.query(func.count(func.distinct(SongMaterial.song_id)))
+             .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED"))
+                     == "PENDING").scalar() or 0)
+    except Exception:
+        n = 0
+    if n:
+        out.append(_dir_task("%d entrega%s de masters por validar" % (n, "" if n == 1 else "s"),
+                             url=url_for("registros_view", tab="pendiente"), icon="fa-file-audio"))
+    return out
+
+
+def _dir_area_promocion(session_db, idx) -> list[dict]:
+    """Promociones de prensa sin confirmar y campañas de marketing vivas, con quien las lleva."""
+    hoy = today_local()
+    out = []
+    filas = (session_db.query(Promotion)
+             .filter(func.upper(func.coalesce(Promotion.status, "ACTIVE")) == "ACTIVE")
+             .order_by(Promotion.starts_on.asc().nullslast()).limit(300).all())
+    for p in filas:
+        estado = (getattr(p, "promo_status", None) or "BORRADOR").strip().upper()
+        if estado in ("CONFIRMADO", "CANCELADO"):
+            continue
+        fecha = getattr(p, "starts_on", None) or getattr(p, "target_date", None)
+        if fecha and fecha < hoy - timedelta(days=7):
+            continue
+        es_promo = (getattr(p, "kind", None) or "MARKETING").strip().upper() == PROMO_KIND
+        snap = dict(getattr(p, "snapshot", None) or {})
+        uid = (getattr(p, "escort_user_id", None) or getattr(p, "production_owner_user_id", None))
+        out.append(_dir_task(
+            ("Promoción por confirmar" if es_promo else "Campaña por confirmar"),
+            owner=uid, subject=((snap.get("title") or snap.get("artist_label") or "").strip()),
+            photo=((snap.get("cover_url") or "").strip()),
+            url=url_for("promo_detail_view" if es_promo else "promotion_detail_view",
+                        promotion_id=p.id),
+            date=fecha, icon=("fa-microphone-lines" if es_promo else "fa-bullhorn"),
+            note=_promo_status_meta(estado)[0]))
+    return out
+
+
+def _dir_area_diseno(session_db, idx) -> list[dict]:
+    """Lo que le hemos pedido a DISEÑO y no ha entregado: cartelería y creatividades."""
+    out = []
+    try:
+        filas = (session_db.query(ConcertArtworkRequest)
+                 .filter(func.upper(func.coalesce(ConcertArtworkRequest.status, "DRAFT"))
+                         .in_(("REQUESTED", "CORRECTIONS")))
+                 .order_by(ConcertArtworkRequest.delivery_deadline.asc().nullslast())
+                 .limit(120).all())
+    except Exception:
+        filas = []
+    conciertos = {}
+    cids = [r.concert_id for r in filas if getattr(r, "concert_id", None)]
+    if cids:
+        conciertos = {c.id: c for c in (session_db.query(Concert)
+                                        .options(joinedload(Concert.artist))
+                                        .filter(Concert.id.in_(cids)).all())}
+    for r in filas:
+        c = conciertos.get(getattr(r, "concert_id", None))
+        rehacer = (getattr(r, "status", "") or "").upper() == "CORRECTIONS"
+        out.append(_dir_task(("Rehacer la cartelería" if rehacer else "Cartelería pedida"),
+                             subject=(getattr(getattr(c, "artist", None), "name", None) or "Cartelería"),
+                             photo=(getattr(getattr(c, "artist", None), "photo_url", None) or ""),
+                             url=(url_for("concert_detail_view", cid=c.id, tab="carteleria")
+                                  if c is not None else url_for("home")),
+                             date=getattr(r, "delivery_deadline", None), icon="fa-palette"))
+    try:
+        encargos = (session_db.query(DiscoProjectDesignRequest, DiscoProject)
+                    .join(DiscoProject, DiscoProject.id == DiscoProjectDesignRequest.project_id)
+                    .filter(func.upper(func.coalesce(DiscoProjectDesignRequest.status, "SOLICITADA"))
+                            == "SOLICITADA")
+                    .order_by(DiscoProjectDesignRequest.due_date.asc().nullslast()).limit(60).all())
+    except Exception:
+        encargos = []
+    for r, p in encargos:
+        out.append(_dir_task("Creatividades del lanzamiento",
+                             subject=(getattr(p, "title", None) or "").strip(),
+                             url=url_for("disco_project_detail", project_id=p.id, tab="calendario"),
+                             date=getattr(r, "due_date", None), icon="fa-icons"))
+    return out
+
+
+def _dir_area_digital(session_db, idx) -> list[dict]:
+    """DIGITAL: las publicaciones del plan que todavía no tienen el contenido subido.
+
+    ⚠️ De lo que no está subido no se avisa a nadie (`_disco_plan_reminder_sweep`), así que un
+    contenido sin archivo es justo lo que hay que perseguir."""
+    out = []
+    try:
+        filas = (session_db.query(DiscoReleaseContent, DiscoProject)
+                 .join(DiscoReleasePlan, DiscoReleasePlan.id == DiscoReleaseContent.plan_id)
+                 .join(DiscoProject, DiscoProject.id == DiscoReleasePlan.project_id)
+                 .filter(DiscoReleaseContent.active.is_(True))
+                 .filter(or_(DiscoReleaseContent.file_url.is_(None),
+                             func.trim(DiscoReleaseContent.file_url) == ""))
+                 .order_by(DiscoReleaseContent.publish_at.asc().nullslast()).limit(120).all())
+    except Exception:
+        filas = []
+    for c, p in filas:
+        cuando = getattr(c, "publish_at", None)
+        out.append(_dir_task("Falta el contenido de la publicación",
+                             subject=" · ".join([x for x in [(getattr(p, "title", None) or "").strip(),
+                                                             (getattr(c, "title", None) or "").strip()] if x]),
+                             url=url_for("disco_project_detail", project_id=p.id, tab="lanzamiento"),
+                             date=(cuando.date() if cuando else None), icon="fa-photo-film"))
+    return out
+
+
+def _dir_area_administracion(session_db, idx) -> list[dict]:
+    """Los mismos bloques del módulo de Administración, repartidos por su RESPONSABILIDAD.
+
+    Lo que no tiene responsable se queda sin dueño (lo ve todo el departamento), igual que en el
+    módulo de cada uno."""
+    try:
+        datos = _admin_pending_counts(session_db)
+        counts, pending = datos["counts"], datos["pending_counts"]
+        promo_liq = _admin_promo_liquidation_counts(session_db)
+    except Exception:
+        app.logger.exception("[cuadro] no se pudieron contar las tareas de administración")
+        return []
+    bloques = [
+        ("GASTOS_SIN_TICKET", "Gastos sin ticket y pagos urgentes", "fa-receipt",
+         pending.get("solicitudes", 0), url_for("administracion_view", tab="pendiente", subtab="solicitudes")),
+        ("PAGOS", "Pendiente de pago", "fa-money-bill-transfer",
+         pending.get("pago", 0), url_for("administracion_view", tab="pendiente", subtab="pago")),
+        ("FACTURAS_SOLICITADAS", "Pendiente de facturación", "fa-file-invoice",
+         pending.get("facturacion", 0), url_for("administracion_view", tab="pendiente", subtab="facturacion")),
+        ("LIQUIDACIONES", "Bolsas por liquidar", "fa-scale-balanced",
+         max(0, pending.get("liquidacion", 0) - promo_liq.get("liquidacion", 0)),
+         url_for("administracion_view", tab="pendiente", subtab="liquidacion")),
+        ("LIQUIDACIONES_PROMO", "Promoción sin pagos pendientes", "fa-microphone-lines",
+         promo_liq.get("liquidacion", 0), url_for("administracion_view", tab="pendiente", subtab="liquidacion")),
+        ("LIQUIDACIONES", "Bolsas por cerrar", "fa-box-archive",
+         max(0, pending.get("cierre", 0) - promo_liq.get("cierre", 0)),
+         url_for("administracion_view", tab="pendiente", subtab="cierre")),
+        ("ITA", "Altas e ITAs", "fa-id-card-clip",
+         counts.get("altas", 0), url_for("administracion_view", tab="altas")),
+        ("EMBARGOS", "Órdenes de embargo", "fa-gavel",
+         counts.get("embargos", 0), url_for("administracion_view", tab="embargos")),
+    ]
+    out = []
+    for clave, label, icono, n, url in bloques:
+        if not n:
+            continue
+        responsables = sorted(_admin_responsible_user_ids(session_db, clave)) or [None]
+        for uid in responsables:
+            out.append(_dir_task("%s · %d" % (label, int(n)), owner=uid, url=url, icon=icono))
+    return out
+
+
+DIRECCION_AREA_BUILDERS = {
+    "contratacion": _dir_area_contratacion,
+    "produccion": _dir_area_produccion,
+    "ticketing": _dir_area_ticketing,
+    "sello": _dir_area_sello,
+    "registros": _dir_area_registros,
+    "promocion": _dir_area_promocion,
+    "diseno": _dir_area_diseno,
+    "digital": _dir_area_digital,
+    "administracion": _dir_area_administracion,
+}
+
+DIRECCION_AREA_URLS = {
+    "contratacion": ("contracting_view", {}),
+    "produccion": ("produccion_view", {}),
+    "ticketing": ("sales_update_view", {}),
+    "sello": ("discografica_view", {"section": "proyectos"}),
+    "registros": ("registros_view", {}),
+    "promocion": ("promo_view", {}),
+    "diseno": ("diseno_view", {}),
+    "digital": ("discografica_view", {"section": "proyectos"}),
+    "administracion": ("administracion_view", {"tab": "pendiente"}),
+}
+
+
+def _dir_area_url(clave: str) -> str:
+    """A dónde lleva la cabecera de cada área (si el endpoint no existiera, a Inicio)."""
+    endpoint, kwargs = DIRECCION_AREA_URLS.get(clave, ("home", {}))
+    try:
+        return url_for(endpoint, **kwargs)
+    except Exception:
+        return url_for("home")
+
+
+def _direccion_board():
+    """EL CUADRO: por área, una fila por persona con lo que lleva pendiente.
+
+    Devuelve `{"areas": [...], "total": N}` —cada área con sus `people` (las filas) y, al final, la
+    fila compartida «Del departamento» con lo que no es de nadie— o **None** si ni siquiera se pudo
+    leer el personal, que es la señal de «enseña el Inicio de siempre».
+    ⚠️ El cerrojo del `g` es una MARCA aparte, no el propio valor: `None` es un resultado válido y
+    con `if cache is not None` se recalcularía en cada `render`."""
+    if getattr(g, "_direccion_board_done", False):
+        return getattr(g, "_direccion_board_cache", None)
+    salida = {"areas": [], "total": 0}
+    session_db = db()
+    try:
+        try:
+            idx = _dir_people_index(session_db)
+        except Exception:
+            # Sin el personal no hay cuadro que montar: se devuelve None y quien llama enseña el
+            # Inicio de siempre (una pantalla vacía sería mucho peor que unos módulos de más).
+            app.logger.exception("[cuadro] no se pudo leer el personal")
+            g._direccion_board_done, g._direccion_board_cache = True, None
+            return None
+        for clave, label, icono, color, departamentos in DIRECCION_AREAS:
+            constructor = DIRECCION_AREA_BUILDERS.get(clave)
+            try:
+                tareas = list(constructor(session_db, idx) or []) if constructor else []
+            except Exception:
+                app.logger.exception("[cuadro] no se pudo montar el área %s", clave)
+                tareas = []
+            if not tareas:
+                continue
+            # Lo más urgente primero: lo que ya se pasó, luego lo que está más cerca.
+            tareas.sort(key=lambda t: (t.get("days") is None, t.get("days") if t.get("days") is not None else 0))
+            por_persona, sin_dueño = {}, []
+            for t in tareas:
+                if t.get("owner") and t["owner"] in idx:
+                    por_persona.setdefault(t["owner"], []).append(t)
+                else:
+                    sin_dueño.append(t)
+            filas = []
+            for uid, suyas in por_persona.items():
+                ficha = idx[uid]
+                filas.append({"shared": False, "id": uid, "nick": ficha["nick"],
+                              "photo_url": ficha["photo_url"], "members": [],
+                              "count": len(suyas), "tasks": suyas,
+                              "urgent": len([t for t in suyas if t.get("tone") == "danger"]),
+                              "next_label": (suyas[0].get("days_label") or "")})
+            filas.sort(key=lambda f: (-f["urgent"], -f["count"], (f["nick"] or "").casefold()))
+            if sin_dueño:
+                equipo = _dir_department_people(idx, departamentos)
+                filas.append({"shared": True, "id": "", "nick": "Del departamento",
+                              "photo_url": "", "members": equipo[:6],
+                              "count": len(sin_dueño), "tasks": sin_dueño,
+                              "urgent": len([t for t in sin_dueño if t.get("tone") == "danger"]),
+                              "next_label": (sin_dueño[0].get("days_label") or "")})
+            total = len(tareas)
+            # El desglose de la cabecera («3 conciertos · 2 actividades»): solo si el área lo usa.
+            grupos = {}
+            for t in tareas:
+                if t.get("group"):
+                    grupos[t["group"]] = grupos.get(t["group"], 0) + 1
+            salida["areas"].append({
+                "key": clave, "label": label, "icon": icono, "color": color,
+                "url": _dir_area_url(clave), "total": total, "people": filas,
+                "urgent": len([t for t in tareas if t.get("tone") == "danger"]),
+                "unassigned": len(sin_dueño),
+                "chips": [{"label": k, "count": v} for k, v in sorted(grupos.items())],
+            })
+            salida["total"] += total
+    except Exception:
+        app.logger.exception("[cuadro] no se pudo montar el cuadro de dirección")
+    finally:
+        session_db.close()
+    g._direccion_board_done, g._direccion_board_cache = True, salida
+    return salida
+
+
 @app.context_processor
 def inject_personnel_globals():
     current_user = _build_current_user_summary() if session.get("user_id") else None
+    # ── ¿Estamos en INICIO y con sesión? Todo lo caro cuelga de esto ──────────────────────────
+    _home = bool(request.endpoint == "home" and session.get("user_id"))
+    _estado = (_current_user_state() or {}) if _home else {}
+    # ⚠️ DIRECCIÓN no trabaja en una sección: MIRA. Su Inicio es el CUADRO POR ÁREAS (una tarjeta
+    # por área, una fila por persona) en vez de la pila de módulos de todos los departamentos —que
+    # además son el trabajo de otros—. Lo SUYO (sus tareas y sus gastos) sigue saliendo, a pantalla
+    # partida. Por eso los módulos de departamento ni siquiera se CALCULAN para dirección.
+    _dir = bool(_home and _estado.get("role") == 10)
+    _board = (_direccion_board() if _dir and "_direccion_board" in globals() else None)
+    # ⚠️ Si el cuadro NO se pudo montar (un fallo leyendo el personal), Inicio se cae al de SIEMPRE:
+    # los módulos de siempre son peor para dirección, pero una pantalla en blanco es mucho peor.
+    _dir = bool(_dir and _board is not None)
+    _dept = bool(_home and not _dir)
+    # Lo PERSONAL se calcula una vez y se reparte: los módulos de siempre (para quien no es
+    # dirección) y la lista única «Mis tareas pendientes» (para dirección).
+    _batches = _home_payment_batch_approvals() if _home and "_home_payment_batch_approvals" in globals() else []
+    _vacpend = _home_vacation_pending() if _home and "_home_vacation_pending" in globals() else []
+    _phases = _home_activity_phase_tasks() if _home and "_home_activity_phase_tasks" in globals() else []
+    _activation = _home_production_activation_wrap() if _home and "_home_production_activation_wrap" in globals() else []
+    _artwork = _home_artwork_rejected() if _home and "_home_artwork_rejected" in globals() else []
+    _mypet = _home_my_peticiones() if _home and "_home_my_peticiones" in globals() else []
+    _myinv = _home_invitation_requests_for_current_user() if _home and "_home_invitation_requests_for_current_user" in globals() else []
+    _plans = _home_plans_awaiting_direccion() if _dir and "_home_plans_awaiting_direccion" in globals() else []
     return {
         "CURRENT_USER": current_user,
         "NAV_MENU": _build_nav_menu() if session.get("user_id") else [],
         "HOME_QUICK_LINKS": [],
         "HOME_QUICK_ACTIONS": _build_home_quick_actions() if request.endpoint == "home" and session.get("user_id") else [],
-        "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
-        "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
-        "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
+        "HOME_INVITATIONS": ([] if _dir else _myinv),
+        "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if _dept and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
+        "HOME_REGISTROS_PENDING": _home_registros_pending() if _dept and "_home_registros_pending" in globals() and has_access_key("registros") else [],
         # PROYECTOS cerrados que esperan a REGISTROS: cumplimentar los datos y subir los materiales.
         "HOME_PROJECT_REGISTROS": (_home_project_registros()
-                                   if request.endpoint == "home" and session.get("user_id")
-                                   and "_home_project_registros" in globals()
+                                   if _dept and "_home_project_registros" in globals()
                                    and has_access_key("registros") else []),
         # SELLO: lanzamientos nuevos a los que les falta el pitch.
         "HOME_PITCH_PENDING": (_home_pitch_pending()
-                               if request.endpoint == "home" and session.get("user_id")
-                               and "_home_pitch_pending" in globals()
+                               if _dept and "_home_pitch_pending" in globals()
                                and has_access_key("discografica", include_descendants=True) else []),
-        "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
+        "HOME_PENDING_PETICIONES": _home_pending_peticiones() if _dept and "_home_pending_peticiones" in globals() else [],
         # MIS PETICIONES: las que ha hecho esta persona, para ver cómo van. Es de cada uno, así que
         # no depende de ningún permiso de sección.
-        "HOME_MY_PETICIONES": (_home_my_peticiones()
-                               if request.endpoint == "home" and session.get("user_id")
-                               and "_home_my_peticiones" in globals() else []),
+        "HOME_MY_PETICIONES": ([] if _dir else _mypet),
         # LO QUE FALTA EN LAS ACTIVIDADES que salieron de una petición aceptada (por fases y cada
         # una de quien le toca). Es de la PERSONA: no depende de ningún permiso de sección.
-        "HOME_ACTIVITY_PHASES": (_home_activity_phase_tasks()
-                                 if request.endpoint == "home" and session.get("user_id")
-                                 and "_home_activity_phase_tasks" in globals() else []),
-        "HOME_PRODUCCION_PENDING": _home_produccion_pending() if request.endpoint == "home" and session.get("user_id") and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
-        "HOME_ADMIN_ALTAS_PENDING": _home_admin_altas_pending() if request.endpoint == "home" and session.get("user_id") and "_home_admin_altas_pending" in globals() and has_access_key("administracion", include_descendants=True) else [],
+        "HOME_ACTIVITY_PHASES": ([] if _dir else _phases),
+        "HOME_PRODUCCION_PENDING": _home_produccion_pending() if _dept and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
+        "HOME_ADMIN_ALTAS_PENDING": _home_admin_altas_pending() if _dept and "_home_admin_altas_pending" in globals() and has_access_key("administracion", include_descendants=True) else [],
         # Tareas de administración repartidas: a cada uno las suyas (y las que no tienen dueño).
         "HOME_ADMIN_PENDING": (_home_admin_pending()
-                               if request.endpoint == "home" and session.get("user_id")
-                               and "_home_admin_pending" in globals()
+                               if _dept and "_home_admin_pending" in globals()
                                and has_access_key("administracion", include_descendants=True) else []),
         # DIRECCIÓN: remesas de pago montadas que esperan su visto bueno.
-        "HOME_BATCH_APPROVALS": (_home_payment_batch_approvals()
-                                 if request.endpoint == "home" and session.get("user_id")
-                                 and "_home_payment_batch_approvals" in globals() else []),
+        "HOME_BATCH_APPROVALS": ([] if _dir else _batches),
         # Lo que LE PIDEN a administración: pasar un gasto sin factura, pagar ya, y las facturas
         # pedidas a proveedores que no han llegado.
         "HOME_ADMIN_REQUESTS": (_home_admin_requests()
-                                if request.endpoint == "home" and session.get("user_id")
-                                and "_home_admin_requests" in globals()
+                                if _dept and "_home_admin_requests" in globals()
                                 and has_access_key("administracion", include_descendants=True) else []),
         "HOME_MY_EXPENSES": _home_my_expenses_summary() if request.endpoint == "home" and session.get("user_id") and "_home_my_expenses_summary" in globals() else {"rows": [], "overdue": 0, "total": 0},
         # VACACIONES: las peticiones por aprobar (dirección y quien las gestione) y el resumen
         # propio de cada uno (los días que le quedan y lo que tiene pedido).
-        "HOME_VACATION_PENDING": (_home_vacation_pending()
-                                  if request.endpoint == "home" and session.get("user_id")
-                                  and "_home_vacation_pending" in globals() else []),
+        "HOME_VACATION_PENDING": ([] if _dir else _vacpend),
         "HOME_MY_VACATIONS": (_home_my_vacations()
                               if request.endpoint == "home" and session.get("user_id")
                               and "_home_my_vacations" in globals() else {}),
         # Promoción: lo que se está gestionando (a promoción y a quien viaja con el artista) y los
         # avisos de cambios/cancelaciones para quien la produce.
         "HOME_PROMO_TASKS": (_home_promo_tasks()
-                             if request.endpoint == "home" and session.get("user_id")
-                             and "_home_promo_tasks" in globals() else []),
+                             if _dept and "_home_promo_tasks" in globals() else []),
         "HOME_PROMO_ALERTS": (_home_promo_alerts()
-                              if request.endpoint == "home" and session.get("user_id")
-                              and "_home_promo_alerts" in globals() else []),
+                              if _dept and "_home_promo_alerts" in globals() else []),
         # ACTIVAR LA PRODUCCIÓN: actividades que creó esta persona y todavía no tienen a nadie de
         # producción. Mientras no lo tengan, nadie las está produciendo.
-        "HOME_PRODUCTION_ACTIVATION": (_home_production_activation_wrap()
-                                       if request.endpoint == "home" and session.get("user_id")
-                                       and "_home_production_activation_wrap" in globals() else []),
+        "HOME_PRODUCTION_ACTIVATION": ([] if _dir else _activation),
         # TICKETING: lo que hay que sacar a la venta y las salidas a la venta por comunicar.
         # ⚠️ EL INICIO DE TICKETING es solo el calendario y sus tareas: quien está SOLO en ese
         # departamento no tiene por qué mirar los módulos de los demás. Quien además esté en otro
         # (o sea dirección) los sigue viendo todos.
+        # ── DIRECCIÓN: sus avisos, lo suyo de una pieza y el CUADRO POR ÁREAS ────────────
+        "HOME_NOTICES": (_home_notices() if _dir and "_home_notices" in globals() else []),
+        "HOME_MY_TASKS": (_home_my_tasks(batches=_batches, vacations=_vacpend, phases=_phases,
+                                         activation=_activation, artwork=_artwork,
+                                         peticiones=_mypet, invitations=_myinv, plans=_plans)
+                          if _dir and "_home_my_tasks" in globals() else []),
+        "HOME_DIRECCION_BOARD": _board,
         "HOME_TICKETING_ONLY": _home_ticketing_only(),
         "HOME_TICKETING_SALES": (_home_ticketing_sales_wrap()
-                                 if request.endpoint == "home" and session.get("user_id")
-                                 and "_home_ticketing_sales_wrap" in globals() else []),
+                                 if _dept and "_home_ticketing_sales_wrap" in globals() else []),
         # Carteles que subió esta persona y diseño ha rechazado (con la nota de qué cambiar).
-        "HOME_ARTWORK_REJECTED": (_home_artwork_rejected()
-                                  if request.endpoint == "home" and session.get("user_id")
-                                  and "_home_artwork_rejected" in globals() else []),
-        "HOME_AFAVOR_ALERT": _home_afavor_alert() if request.endpoint == "home" and session.get("user_id") and "_home_afavor_alert" in globals() and has_access_key("registros") else None,
+        "HOME_ARTWORK_REJECTED": ([] if _dir else _artwork),
+        "HOME_AFAVOR_ALERT": _home_afavor_alert() if _dept and "_home_afavor_alert" in globals() and has_access_key("registros") else None,
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
@@ -60504,8 +61139,7 @@ def inject_personnel_globals():
         # departamentos. ⚠️ Las tareas son CARAS (recorren las actividades vivas): solo en Inicio y
         # solo a quien tenga contratación.
         "HOME_CONTRATACION_TASKS": (_home_contracting_tasks()
-                                    if request.endpoint == "home" and session.get("user_id")
-                                    and has_access_key("contratacion", include_descendants=True)
+                                    if _dept and has_access_key("contratacion", include_descendants=True)
                                     else []),
         "HOME_CONTRATACION_ONLY": (_home_contratacion_only()
                                    if request.endpoint == "home" and session.get("user_id")
@@ -79846,7 +80480,9 @@ def _home_ticketing_sales_tasks(session_db, *, limit: int = 40) -> list[dict]:
             "type_label": _activity_kind_label(kind),
             "title": ((c.festival_name or "").strip()
                       or (c.artist.name if c.artist else "") or _activity_kind_label(kind)),
+            "date": c.date,
             "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+            "artist_photo": (getattr(c.artist, "photo_url", None) or "") if c.artist else "",
             "venue": (_concert_venue_name(c) or ""),
             "municipality": _concert_city(c),
             "action_label": ("Notificar la salida a la venta" if avisar else "Sacar a la venta"),

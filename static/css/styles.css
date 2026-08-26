@@ -4799,3 +4799,89 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
 /* La RUEDA de la ficha de una actividad vive en la fila de botones, a la derecha del todo. */
 .ficha-quick__gear { margin-left: auto; }
 @media (max-width: 575.98px) { .ficha-quick__gear { margin-left: 0; } }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   CUADRO DE MANDO DE DIRECCIÓN (Inicio) · `_home_direccion.html`
+   Una tarjeta por ÁREA (con su color) y, dentro, una fila por PERSONA que se despliega con lo que
+   lleva pendiente. Todo se lee de un vistazo: la foto, cuántas cosas y para cuándo.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+.dboard { border-color: color-mix(in srgb, var(--dboard-color) 28%, #e5e7eb); overflow: hidden; }
+.dboard__head {
+  display: flex; align-items: center; gap: .6rem; padding: .7rem .9rem;
+  background: color-mix(in srgb, var(--dboard-color) 8%, #fff);
+  border-bottom: 1px solid color-mix(in srgb, var(--dboard-color) 20%, #e5e7eb);
+}
+.dboard__icon {
+  width: 34px; height: 34px; border-radius: 10px; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--dboard-color); color: #fff;
+}
+.dboard__title {
+  font-weight: 600; color: #1f2937; text-decoration: none; flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dboard__title:hover { color: var(--dboard-color); text-decoration: underline; }
+.dboard__n {
+  min-width: 30px; text-align: center; font-weight: 700; color: #fff; border-radius: 999px;
+  background: var(--dboard-color); padding: .1rem .5rem; font-size: .85rem;
+}
+.dboard__body { padding: .25rem .35rem .4rem; }
+
+/* --- Una fila por persona (se despliega) --- */
+.dbp + .dbp { border-top: 1px solid #f1f3f7; }
+.dbp__head {
+  width: 100%; display: flex; align-items: center; gap: .6rem; background: none; border: 0;
+  padding: .5rem .55rem; text-align: left; border-radius: 10px;
+}
+.dbp__head:hover { background: #f8f9fb; }
+.dbp__head[aria-expanded="true"] .dbp__caret { transform: rotate(180deg); }
+.dbp__caret { color: #9aa3af; font-size: .75rem; transition: transform .15s ease; flex: 0 0 auto; }
+.dbp__ava, .dbp__face {
+  width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex: 0 0 auto;
+  border: 1px solid #e5e7eb; background: #fff;
+}
+.dbp__faces { display: inline-flex; flex: 0 0 auto; }
+.dbp__faces .dbp__face + .dbp__face { margin-left: -12px; }
+.dbp__face--empty { display: inline-flex; align-items: center; justify-content: center; color: #9aa3af; }
+.dbp__who { flex: 1 1 auto; min-width: 0; }
+.dbp__nick { display: block; font-weight: 600; color: #1f2937; }
+.dbp__sub { display: block; font-size: .8rem; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbp__when { font-size: .78rem; color: #6b7280; flex: 0 0 auto; white-space: nowrap; }
+.dbp__when.is-late { color: #b42318; font-weight: 600; }
+.dbp__when.is-soon { color: #b45309; font-weight: 600; }
+.dbp__n {
+  min-width: 26px; text-align: center; font-weight: 700; font-size: .8rem; border-radius: 999px;
+  padding: .05rem .45rem; background: #eef1f6; color: #374151; flex: 0 0 auto;
+}
+.dbp__n.is-late { background: #fde8e6; color: #b42318; }
+.dbp__list { padding: .1rem .3rem .5rem 2.6rem; }
+
+/* --- Cada cosa pendiente --- */
+.dbt {
+  display: flex; align-items: center; gap: .55rem; padding: .35rem .45rem; border-radius: 8px;
+  text-decoration: none; color: inherit;
+}
+.dbt:hover { background: #f4f6f9; }
+.dbt__img {
+  width: 28px; height: 28px; border-radius: 7px; object-fit: cover; flex: 0 0 auto;
+  border: 1px solid #e5e7eb; background: #fff;
+}
+.dbt__img--icon { display: inline-flex; align-items: center; justify-content: center; color: #9aa3af; }
+.dbt__body { flex: 1 1 auto; min-width: 0; }
+.dbt__label { display: block; font-size: .87rem; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbt__sub { display: block; font-size: .76rem; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbt__when { font-size: .76rem; color: #6b7280; flex: 0 0 auto; white-space: nowrap; }
+.dbt__when.is-late { color: #b42318; font-weight: 600; }
+.dbt__when.is-soon { color: #b45309; font-weight: 600; }
+
+@media (max-width: 575.98px) {
+  .dbp__list { padding-left: .4rem; }
+  .dbp__sub, .dbp__when { display: none; }
+}
+.dboard__chips { display: flex; gap: .35rem; flex-wrap: wrap; padding: .4rem .9rem 0; }
+.dboard__chip {
+  font-size: .74rem; color: color-mix(in srgb, var(--dboard-color) 75%, #1f2937);
+  background: color-mix(in srgb, var(--dboard-color) 12%, #fff);
+  border: 1px solid color-mix(in srgb, var(--dboard-color) 25%, #e5e7eb);
+  border-radius: 999px; padding: .05rem .5rem;
+}

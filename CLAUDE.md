@@ -988,6 +988,53 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   se escribe `%%` **solo si la cadena se formatea**, y desmarcar TODAS las publicaciones tiene que
   poder dejarlas todas apagadas (una lista vacía no es «no me han dicho nada»).
 
+- **INICIO DE DIRECCIÓN · el CUADRO POR ÁREAS** (ago 2026). Dirección no trabaja dentro de una
+  sección: **mira**. Por eso su Inicio deja de ser la pila de módulos de todos los departamentos
+  (que es el trabajo de otros) y pasa a ser, en este orden: **cabecera · MIS AVISOS (solo cuando
+  hay) · botones rápidos · el CALENDARIO · LO SUYO** (sus tareas y sus gastos, **a pantalla
+  partida** y solo si hay algo) **· el CUADRO POR ÁREAS**.
+  · **El cuadro**: una tarjeta por área (con su color) y, dentro, **UNA FILA POR PERSONA** —su foto,
+  cuántas cosas lleva y para cuándo—, que **se despliega** con todo lo suyo; cada cosa lleva a donde
+  se resuelve. Áreas: **Contratación · Producción · Ticketing · Sello (proyectos) · Registros ·
+  Promoción y marketing · Diseño · Digital · Administración**.
+  · **Lo que no es de nadie va en su propia fila, «Del departamento»**, con las caras de quien lo
+  puede coger: es la regla de la casa (una tarea sin responsable la ve todo el departamento) y así
+  se ve **lo que hay que repartir** en vez de esconderlo.
+  · Motor **`_direccion_board()`** + `DIRECCION_AREAS` + un constructor por área
+  (`_dir_area_*`), `_dir_task` (una cosa pendiente) y **`_dir_days`** (el reloj: «Hoy» · «Mañana» ·
+  «En 4 días» · «Hace 9 días», con su color). Pantalla: `templates/_home_direccion.html`, estilos
+  `.dboard*` / `.dbp*` / `.dbt*`.
+  · **Cada área REUTILIZA el motor que ya decide qué está pendiente** (`_contracting_tasks_data`,
+  `_home_ticketing_sales_tasks`, `_admin_pending_counts` + `_admin_responsible_user_ids`,
+  `_home_project_registros`…): si mañana cambia lo que es una tarea, el cuadro cambia solo.
+  · **De quién es cada cosa**: `_dir_artist_owners` (artista → quien lo lleva **en ese
+  departamento**, con la faceta `produccion`/`sello` cuando toca) y, donde hay columna, el
+  responsable de verdad (`production_owner_user_id`, `escort_user_id`, las **responsabilidades** de
+  administración).
+  · **El DESGLOSE de la cabecera** («3 conciertos · 1 actividades» en Producción) sale del campo
+  `group` de cada tarea: un área que no lo use no enseña ninguno.
+  ⚠️ **Es CARO** (recorre actividades vivas, proyectos, promociones y bolsas): se calcula **solo en
+  Inicio y solo para dirección** (`role == 10`), cacheado en `g`. Y por eso los módulos de
+  departamento **ni se calculan** para dirección (`_dept` en `inject_personnel_globals`).
+  ⚠️ **El cerrojo del `g` es una MARCA aparte** (`_direccion_board_done`), no el propio valor:
+  `None` es un resultado válido y con `if cache is not None` se recalcularía en cada `render`.
+  ⚠️ **RED DE SEGURIDAD**: si no se puede ni leer el personal, `_direccion_board()` devuelve
+  **None** y el Inicio se cae al de SIEMPRE — unos módulos de más son mucho mejor que una pantalla
+  en blanco. Por eso el cuadro se monta **antes** del diccionario del contexto y `_dir` se apaga si
+  sale None.
+  ⚠️ El resumen de los **PROYECTOS** es a propósito **el PASO en el que está** (la fecha, el plazo,
+  el productor, el aviso, la bolsa) y no la cuenta exacta de `_disco_project_tasks`: ese hace ~25
+  consultas POR PROYECTO y en Inicio serían cientos. La lista entera está en la ficha del proyecto.
+  ⚠️ Una actividad de Contratación es **UNA** tarea aunque le falten tres cosas (el contrato, el
+  anuncio y mandarla a producción): es el mismo criterio con el que se cuentan sus pestañas, así que
+  el número del cuadro y el de Contratación dicen lo mismo.
+  · **MIS AVISOS** (`_home_notices`) es el MISMO dato de la campanita (`_notification_rows`, solo lo
+  no leído), no otro: un aviso leído deja de estar esperando y el módulo desaparece solo.
+  · **MIS TAREAS PENDIENTES** (`_home_my_tasks`) **no calcula nada nuevo**: junta lo que los módulos
+  personales ya han resuelto (remesas por aprobar, vacaciones por aprobar, el OK al plan de
+  lanzamiento, las fases de sus actividades, activar producción, carteles rechazados, rechazos por
+  comunicar) en una sola lista ordenada por urgencia.
+
 - **DISCOGRÁFICA · DEMOS** (ago 2026): las maquetas que se están valorando, en su propia sección
   (`/discografica?section=demos`). Modelo **`SongDemo`** (`ensure_song_demos_schema`).
   · Una demo viene **de un artista NUESTRO** (`origin='ARTIST'` + `artist_id`) o **DE FUERA**

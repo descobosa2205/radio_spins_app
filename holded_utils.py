@@ -329,10 +329,10 @@ class HoldedClient:
     def _switch_auth_header(self) -> bool:
         """Pasa a la siguiente cabecera candidata. Devuelve False si ya se han probado todas.
 
-        Si la cabecera está FIJADA a mano no se cambia: el problema es la clave, no la cabecera.
+        ⚠️ Se prueban TODAS **también cuando la cabecera está fijada a mano**: si alguien la fija mal,
+        antes la integración se quedaba muerta con un «la clave no vale» que no era verdad (bug real).
+        Lo que hace la fijada es ir PRIMERO; si no vale y otra sí, se usa esa y se recuerda.
         """
-        if self.auth_header_fixed:
-            return False
         self._auth_tried.add(self.auth_header)
         for candidata in AUTH_HEADERS:
             if candidata not in self._auth_tried:
@@ -341,7 +341,10 @@ class HoldedClient:
         return False
 
     def _remember_auth_header(self) -> None:
-        """Guarda la cabecera que ha funcionado, para no volver a probar."""
+        """Guarda la cabecera que ha funcionado, para no volver a probar.
+
+        ⚠️ También cuando había una FIJADA a mano y no era la buena: lo que manda es la que de verdad
+        entra (la fijada solo dice cuál se prueba primero)."""
         if (self.endpoints or {}).get("auth_header") != self.auth_header:
             self.endpoints["auth_header"] = self.auth_header
             self.endpoints_changed = True

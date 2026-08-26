@@ -256,6 +256,40 @@
   {% endif %}
 </div>
 
+{# ⚠️ EL ESTADO DE HOLDED POR EMPRESA. Cada documento se contabiliza en SU empresa (una liquidación
+   de royalties en PIES, un gasto de bolsa en la que promueve), así que una clave buena en una empresa
+   no vale para la otra: aquí se ve de un golpe cuál está lista y cuál no, con el último error.
+   Solo se pinta si a alguna le falta algo. #}
+{% set holded_pend = (holded_status or [])|rejectattr('ready')|list %}
+{% if holded_pend and (holded_status or [])|length %}
+  <div class="alert alert-warning">
+    <div class="d-flex align-items-start gap-2">
+      <i class="fa fa-plug mt-1"></i>
+      <div class="min-w-0 flex-grow-1">
+        <div class="fw-semibold">Holded: hay empresas sin conexión lista</div>
+        <div class="small text-muted mb-2">
+          Cada documento se contabiliza en <strong>su</strong> empresa, así que la clave tiene que
+          estar en la que toca (las liquidaciones de royalties van a PIES).
+        </div>
+        <ul class="mb-0 small">
+          {% for h in holded_pend %}
+            <li>
+              <strong>{{ h.name }}</strong>:
+              {% if not h.has_key %}sin API Key
+              {% elif not h.active %}la integración está desactivada (clave de {{ h.key_len }} caracteres)
+              {% elif h.error %}último error: {{ h.error }}
+              {% else %}sin probar{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+      <a class="btn btn-sm btn-outline-danger flex-shrink-0"
+         href="{{ url_for('integrations_view') }}#tab-holded">
+        <i class="fa fa-gear me-1"></i>Arreglarlo</a>
+    </div>
+  </div>
+{% endif %}
+
 {# ---------- Pestañas principales ---------- #}
 <ul class="nav nav-tabs mb-3">
   {% for key, label, icon in accounting_tabs %}

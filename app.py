@@ -76799,6 +76799,10 @@ def contabilidad_view():
             royalty_pending=royalty_pending,
             royalty_done=royalty_done,
             holded_ready=_holded_configured_any(session_db),
+            # ⚠️ El estado de Holded POR EMPRESA: cada documento se contabiliza en la suya, así que
+            # tener una clave buena en una empresa no sirve para la que toca. Solo se pinta el aviso
+            # si a alguna le falta algo.
+            holded_status=_holded_accounts_status(session_db),
             # Reparto por empresas: si esta persona tiene empresas asignadas se le enseña el filtro
             # («Mis empresas» / «Todas»). Sin reparto propio no se pinta nada: ya lo ve todo.
             my_companies=mis_empresas,
@@ -87286,6 +87290,105 @@ def _holded_account_for_company(session_db, company_id):
             .filter(HoldedAccount.group_company_id == cid).first())
 
 
+def _holded_accounts_status(session_db) -> list[dict]:
+    """El estado de Holded **por empresa del grupo**: si tiene clave, si está activa y qué falló la
+    última vez.
+
+    ⚠️ Es lo que hay que ver ANTES de subir nada: cada documento se contabiliza en SU empresa (una
+    liquidación de royalties en PIES, un gasto de bolsa en la que promueve), así que se puede tener
+    una clave buena en una empresa y ninguna —o la equivocada— en la que toca."""
+    salida = []
+    try:
+        cuentas = {}
+        for fila in session_db.query(HoldedAccount).all():
+            cuentas[str(fila.group_company_id)] = fila
+        for emp in (session_db.query(GroupCompany)
+                    .order_by(func.lower(GroupCompany.name).asc()).all()):
+            acc = cuentas.get(str(emp.id))
+            clave = ((getattr(acc, "api_key", None) or "").strip() if acc else "")
+            salida.append({
+                "company_id": str(emp.id),
+                "name": (emp.name or "").strip(),
+                "logo_url": (getattr(emp, "logo_url", None) or ""),
+                "has_key": bool(clave),
+                "key_len": len(clave),
+                "active": bool(getattr(acc, "is_active", False)) if acc else False,
+                "tested_ok": (bool(acc.last_test_ok) if (acc and acc.last_test_ok is not None) else None),
+                "error": ((acc.last_error or "").strip() if acc else ""),
+                "ready": bool(clave and getattr(acc, "is_active", False)
+                              and not (getattr(acc, "last_error", None) or "").strip()),
+            })
+    except Exception:
+        app.logger.exception("[holded] no se pudo leer el estado de las cuentas")
+    return salida
+
+
+def _holded_account_diagnosis(session_db, acc, motivo: str) -> str:
+    """Le pega al error de Holded **de qué cuenta** es y las pistas para arreglarlo.
+
+    ⚠️ El mensaje de Holded («la clave no vale») no dice **de qué empresa** es la cuenta que ha
+    fallado, y es lo primero que hace falta saber: una liquidación de royalties se contabiliza en
+    PIES y un gasto de una bolsa en la empresa que promueve, así que se puede estar mirando una
+    pantalla y fallando la cuenta de OTRA empresa (pasó de verdad).
+    Además se avisa de los dos despistes que ya han ocurrido: la clave pegada en la empresa
+    equivocada y la MISMA clave en dos empresas (una API Key de Holded es de UNA empresa)."""
+    texto = (motivo or "").strip()
+    if acc is None:
+        return texto
+    partes = []
+    try:
+        empresa = (session_db.get(GroupCompany, acc.group_company_id)
+                   if getattr(acc, "group_company_id", None) else None)
+        nombre = (getattr(empresa, "name", None) or "").strip()
+        clave = (getattr(acc, "api_key", None) or "").strip()
+        partes.append("Es la cuenta de Holded de «%s»%s."
+                      % (nombre or "una empresa del grupo",
+                         (" (clave de %d caracteres)" % len(clave)) if clave else " (SIN clave)"))
+        cabecera = (getattr(acc, "auth_header", None) or "AUTO").upper()
+        if cabecera != "AUTO":
+            partes.append("La cabecera está fijada a mano (%s) y tampoco han valido las otras: "
+                          "déjala en «Automática» si no estás seguro." % cabecera)
+        # ¿La misma clave en dos empresas? Una API Key de Holded es de UNA empresa.
+        if clave:
+            otras = []
+            for fila in session_db.query(HoldedAccount).all():
+                if str(fila.id) == str(acc.id):
+                    continue
+                if (fila.api_key or "").strip() == clave:
+                    otra = (session_db.get(GroupCompany, fila.group_company_id)
+                            if fila.group_company_id else None)
+                    otras.append((getattr(otra, "name", None) or "otra empresa"))
+            if otras:
+                partes.append("⚠️ Esa MISMA clave está también en %s: una API Key de Holded es de UNA "
+                              "empresa, así que una de las dos está mal." % ", ".join(otras))
+        # ¿Hay otra empresa cuya clave SÍ ha funcionado? Entonces es que se pegó donde no toca.
+        buenas = []
+        for fila in session_db.query(HoldedAccount).all():
+            if str(fila.id) == str(acc.id) or not (fila.api_key or "").strip():
+                continue
+            if (fila.endpoints or {}).get("auth_header") and not (fila.last_error or "").strip():
+                otra = (session_db.get(GroupCompany, fila.group_company_id)
+                        if fila.group_company_id else None)
+                buenas.append((getattr(otra, "name", None) or "otra empresa"))
+        if buenas:
+            partes.append("En %s sí hay una clave que funciona: comprueba que no has pegado la de "
+                          "esa empresa aquí (o la de aquí allí)." % ", ".join(buenas))
+    except Exception:
+        app.logger.exception("[holded] no se pudo montar el diagnóstico de la cuenta")
+    return " ".join([texto] + partes).strip()
+
+
+def _holded_remember_error(acc, motivo: str) -> None:
+    """Apunta en la cuenta el último error (lo enseña Integraciones → Holded)."""
+    if acc is None:
+        return
+    try:
+        acc.last_error = (motivo or "")[:600] or None
+        acc.updated_at = _now_madrid()
+    except Exception:
+        pass
+
+
 def _holded_client_for_account(acc):
     """Cliente de Holded de una cuenta. Lanza HoldedError con el motivo si no se puede usar.
 
@@ -88015,7 +88118,7 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
     try:
         client = _holded_client_for_account(acc)
     except HoldedError as exc:
-        return _holded_upload_fail(expense, str(exc))
+        return _holded_upload_fail(expense, _holded_account_diagnosis(session_db, acc, str(exc)), acc)
 
     tipo = (getattr(expense, "document_type", None) or "FACTURA").strip().upper()
     es_factura = tipo == "FACTURA"
@@ -88053,7 +88156,8 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
                     is_person=proveedor["is_person"],
                 ))
         except HoldedError as exc:
-            return _holded_upload_fail(expense, "No se ha podido preparar el proveedor en Holded: %s" % exc)
+            return _holded_upload_fail(expense, _holded_account_diagnosis(
+                session_db, acc, "No se ha podido preparar el proveedor en Holded: %s" % exc), acc)
 
     # 2) DOCUMENTO
     doc_type = ((acc.invoice_doc_type or DOC_TYPE_INVOICE) if es_factura
@@ -88079,7 +88183,8 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
     try:
         creado = client.create_document(doc_type, payload)
     except HoldedError as exc:
-        return _holded_upload_fail(expense, "Holded no ha creado el documento: %s" % exc)
+        return _holded_upload_fail(expense, _holded_account_diagnosis(
+            session_db, acc, "Holded no ha creado el documento: %s" % exc))
 
     # 3) COMPROBAR que el total que ha calculado Holded es el nuestro (red del mapeo de impuestos).
     try:
@@ -88177,7 +88282,7 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
     try:
         client = _holded_client_for_account(acc)
     except HoldedError as exc:
-        return _holded_royalty_fail(rec, str(exc))
+        return _holded_royalty_fail(rec, _holded_account_diagnosis(session_db, acc, str(exc)), acc)
 
     congelada = _royalty_frozen_beneficiary(rec) or {}
     inv = (session_db.get(SupplierInvoice, rec.invoice_id)
@@ -88216,7 +88321,8 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
                 country=(piezas.get("country") or "España"), is_person=True,
             ))
     except HoldedError as exc:
-        return _holded_royalty_fail(rec, "No se ha podido preparar el proveedor en Holded: %s" % exc)
+        return _holded_royalty_fail(rec, _holded_account_diagnosis(
+            session_db, acc, "No se ha podido preparar el proveedor en Holded: %s" % exc), acc)
 
     # 2) DOCUMENTO (siempre una compra: una liquidación va con factura).
     doc_type = (acc.invoice_doc_type or DOC_TYPE_INVOICE)
@@ -88239,7 +88345,8 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
     try:
         creado = client.create_document(doc_type, payload)
     except HoldedError as exc:
-        return _holded_royalty_fail(rec, "Holded no ha creado el documento: %s" % exc)
+        return _holded_royalty_fail(rec, _holded_account_diagnosis(
+            session_db, acc, "Holded no ha creado el documento: %s" % exc))
 
     # 3) COMPROBAR el total (red de seguridad del mapeo de impuestos).
     try:
@@ -88281,23 +88388,26 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
             "warning": " · ".join(avisos)}
 
 
-def _holded_royalty_fail(rec, motivo: str) -> dict:
+def _holded_royalty_fail(rec, motivo: str, acc=None) -> dict:
     """Deja escrito en la liquidación por qué no se ha podido subir (y lo devuelve para enseñarlo)."""
     try:
         rec.holded_error = (motivo or "")[:800] or None
         rec.updated_at = _now_madrid()
     except Exception:
         pass
+    # …y en la CUENTA, para que Integraciones → Holded diga qué pasó la última vez.
+    _holded_remember_error(acc, motivo)
     return {"ok": False, "message": motivo, "warning": ""}
 
 
-def _holded_upload_fail(expense, motivo: str) -> dict:
+def _holded_upload_fail(expense, motivo: str, acc=None) -> dict:
     """Deja escrito en el gasto por qué no se ha podido subir (y lo devuelve para enseñarlo)."""
     try:
         expense.holded_error = (motivo or "")[:800] or None
         expense.updated_at = _now_madrid()
     except Exception:
         pass
+    _holded_remember_error(acc, motivo)
     return {"ok": False, "message": motivo, "warning": ""}
 
 

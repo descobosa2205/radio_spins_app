@@ -3585,6 +3585,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   en `holded_warning`. Un gasto con error NO cambia de estado.
   · El cliente se **reutiliza por petición** (cacheado en `g`) y guarda los contactos ya resueltos:
   subir 50 gastos del mismo proveedor busca el contacto UNA vez.
+  · ⚠️⚠️ **CUANDO DICE «la clave no vale», LO PRIMERO ES SABER DE QUÉ EMPRESA ES LA CUENTA** (ago
+  2026). Cada documento se contabiliza en **SU** empresa —una liquidación de royalties en **PIES**
+  (`_royalty_holded_company`), un gasto de bolsa en la que promueve—, así que se puede tener una clave
+  buena en una empresa y ninguna (o la de otra) en la que toca, y el 401 no decía cuál era. Ahora:
+  · **`_holded_account_diagnosis`** le pega al error de quién es la cuenta («Es la cuenta de Holded de
+  «Pies Records» (clave de 40 caracteres)»), avisa si la **cabecera está fijada a mano**, si esa
+  **MISMA clave está en otra empresa** (una API Key de Holded es de UNA empresa) y si **en otra
+  empresa sí hay una clave que funciona** — que es el despiste más habitual: pegarla donde no va.
+  · **`_holded_accounts_status`** + el aviso de **Contabilidad**: el estado por empresa (sin clave ·
+  desactivada · último error) con el botón para arreglarlo, ANTES de intentar subir nada.
+  · El último error se apunta también **en la cuenta** (`_holded_remember_error` → `last_error`), que
+  es lo que ya enseña Integraciones → Holded.
+  ⚠️ Y **la cabecera fijada a mano ya no bloquea**: si no vale, se prueban igualmente las otras y se
+  usa (y se recuerda) la que de verdad entra — fijar mal la cabecera dejaba la integración muerta con
+  un «la clave no vale» que no era verdad.
   · ⚠️ **«Invalid key»**: pasó en la primera prueba real. Dos cosas lo provocan y las dos están
   cubiertas: (a) la clave se pega con basura invisible —espacios, saltos de línea, comillas o el
   propio «key:» delante—, así que se limpia al guardarla (`clean_api_key`) y se dice cuántos

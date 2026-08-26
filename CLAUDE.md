@@ -3262,7 +3262,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   no tienen creador apuntado). En la ficha hay botón **«Activar producción»** en la cabecera siempre
   que haga falta (`_concert_production_pending`); el modal se abre SOLO en los casos de antes
   (`ask_production_owner`).
-  · ⚠️ **TIENEN QUE SALIR TODAS LAS PERSONAS DE PRODUCCIÓN** (corregido ago 2026): había casos en los
+  · ⚠️⚠️ **EN EL SELECTOR SALE TODO EL PERSONAL, con los de PRODUCCIÓN PRIMERO** (ago 2026).
+  `_production_people` devolvía **solo** a los del departamento, y el resto era un respaldo que
+  entraba **únicamente si NADIE lo tenía**: a quien tuviera el departamento mal escrito (o sin poner)
+  **no se le podía elegir**, porque los demás sí lo tenían (bug real: «no me aparece María de
+  producción»). Ahora devuelve a **todo el personal actual** con la marca `in_production`, y el
+  selector único (`_prod_owner_picker.html`) pinta a los del departamento arriba y el resto detrás de
+  **«Ver todo el personal»** — asignar una producción no puede depender de cómo esté escrito un
+  departamento. En las rejillas del asistente y de la ficha de promoción, quien no es del
+  departamento sale con la etiqueta «· fuera de producción».
+  ⚠️ El listado de Producción calcula la lista **siempre** (antes solo si había actividades sin
+  asignar, así que al cambiar el responsable de una ya asignada el selector salía vacío).
+  · Historia de lo anterior: había casos en los
   que faltaba gente en el selector. Tres causas, las tres arregladas en `_production_people`:
   (a) el departamento se comparaba buscando la cadena exacta «producción» dentro de la lista, y ahora
   se usa **`_profile_in_department`** (normaliza contra `PERSONNEL_DEPARTMENTS`: caja, acentos y

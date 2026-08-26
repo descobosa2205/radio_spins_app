@@ -228,7 +228,7 @@
                            {% if promotion.production_owner_user_id and person.id == promotion.production_owner_user_id|string %}checked{% endif %}>
                     <span class="promo-pick__box">
                       {% if person.photo_url %}<img src="{{ person.photo_url }}" alt="">{% else %}<span class="promo-pick__avatar"><i class="fa fa-user"></i></span>{% endif %}
-                      <span class="promo-pick__name">{{ person.name }}</span>
+                      <span class="promo-pick__name">{{ person.name }}{% if not person.in_production %} <span class="text-muted small">· fuera de producción</span>{% endif %}</span>
                     </span>
                   </label>
                 {% else %}

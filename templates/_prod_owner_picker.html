@@ -25,18 +25,40 @@
     </li>
   </ul>
   <div class="tab-content">
+    {# ⚠️ Primero los del departamento de PRODUCCIÓN y, detrás, **todo el resto del personal**: quien
+       lleva una producción se elige siempre, sin que dependa de cómo esté escrito su departamento
+       (`in_production` lo marca `_production_people`). #}
     <div class="tab-pane fade show active" id="pop-oficina">
+      {% set del_dpto = people|selectattr('in_production')|list %}
+      {% set los_demas = people|rejectattr('in_production')|list %}
       <div class="agenda-artist-picker">
-        {% for p in people %}
+        {% for p in (del_dpto or los_demas) %}
           <button type="button" class="agenda-artist-card{% if current_user_id and p.id == current_user_id|string %} is-on{% endif %}"
                   data-prod-owner="{{ p.id }}" data-name="{{ p.name }}">
             <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy" data-avatar="1">
             <span>{{ p.name }}</span>
           </button>
         {% else %}
-          <div class="text-muted small">No hay nadie con el departamento de Producción.</div>
+          <div class="text-muted small">No hay personal en la oficina.</div>
         {% endfor %}
       </div>
+      {% if del_dpto and los_demas %}
+        <button class="btn btn-sm btn-link px-0 mt-2" type="button"
+                data-bs-toggle="collapse" data-bs-target="#popMasPersonal">
+          <i class="fa fa-users me-1"></i>Ver todo el personal ({{ los_demas|length }})
+        </button>
+        <div class="collapse" id="popMasPersonal">
+          <div class="agenda-artist-picker">
+            {% for p in los_demas %}
+              <button type="button" class="agenda-artist-card{% if current_user_id and p.id == current_user_id|string %} is-on{% endif %}"
+                      data-prod-owner="{{ p.id }}" data-name="{{ p.name }}">
+                <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy" data-avatar="1">
+                <span>{{ p.name }}</span>
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
     </div>
     <div class="tab-pane fade" id="pop-tercero">
       <p class="small text-muted">

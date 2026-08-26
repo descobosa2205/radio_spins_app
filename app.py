@@ -74296,7 +74296,9 @@ def produccion_view():
             counts=counts,
             # Para el listado de «pendientes de asignar»: lo único que se hace desde ahí es elegir a la
             # persona de producción que se encarga.
-            production_people=(_production_people(session_db) if (activas and activas["unassigned"]) else []),
+            # ⚠️ SIEMPRE: el selector de «¿quién lleva la producción?» se abre también para cambiar
+            # el responsable de una que ya lo tiene, y sin la lista salía vacío.
+            production_people=_production_people(session_db),
             requests=request_rows,
             active_rows=active_rows,
             activas=activas,
@@ -81502,31 +81504,32 @@ def _concert_needs_production_owner(session_db, concert) -> bool:
 
 
 def _production_people(session_db) -> list:
-    """Personas de PRODUCCIÓN (para elegir el responsable de una actividad). Sin bloqueados ni
-    eliminados: solo personal actual.
+    """TODO EL PERSONAL ACTUAL para elegir quién lleva la producción, **los de Producción primero**.
 
-    ⚠️ Tienen que salir TODAS las del departamento. Dos cosas se las comían y están arregladas:
-    · el departamento se lee con `_profile_in_department` (catálogo, acentos y alias incluidos, y
-      aguanta que `departments` esté guardado como texto en vez de como lista);
-    · el JOIN con el perfil es EXTERNO, así que quien todavía no tiene ficha de perfil no desaparece
-      de la lista de respaldo."""
+    Cada ficha lleva `in_production`, que es lo que usan los selectores para poner a los del
+    departamento delante y el resto detrás («ver todo el personal»).
+
+    ⚠️⚠️ ANTES devolvía **solo** a los del departamento y el resto era un respaldo que se usaba
+    únicamente si NADIE lo tenía. Efecto real: a quien tenía el departamento mal escrito (o todavía
+    sin poner) **no se le podía elegir**, porque los demás sí lo tenían y el respaldo no entraba. Y
+    asignar una producción no puede depender de cómo esté escrito un departamento: **tiene que salir
+    siempre todo el personal de la oficina**.
+    ⚠️ Sin bloqueados ni eliminados (y sin los usuarios ESPEJO de producción externa, que
+    `_inactive_user_ids` ya excluye: no son personal de la casa). El JOIN con el perfil es EXTERNO,
+    así que quien todavía no tiene ficha de perfil tampoco desaparece."""
     fuera = _inactive_user_ids(session_db)
     filas = (session_db.query(User, UserProfile)
              .outerjoin(UserProfile, UserProfile.user_id == User.id)
              .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc()).all())
-    salida, todos = [], []
+    produccion, resto = [], []
     for u, prof in filas:
         if u.id in fuera:
             continue
         ficha = {"id": str(u.id), "name": ((getattr(prof, "nick", None) or u.email or "").strip()),
                  "photo_url": (getattr(prof, "photo_url", "") or ""),
                  "in_production": _profile_in_department(prof, "Producción")}
-        if ficha["in_production"]:
-            salida.append(ficha)
-        todos.append(ficha)
-    # ⚠️ Si NADIE tiene el departamento «Producción», se ofrece todo el personal: es mejor que un
-    # panel donde no se puede elegir a nadie (y así no hay que tocar departamentos para asignar).
-    return salida or todos
+        (produccion if ficha["in_production"] else resto).append(ficha)
+    return produccion + resto
 
 
 # ================= PRODUCCIÓN EXTERNA (el responsable es un TERCERO) =================

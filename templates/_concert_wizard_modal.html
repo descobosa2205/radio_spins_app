@@ -174,7 +174,7 @@
                         <input class="form-check-input" type="radio" name="production_owner_user_id" value="{{ p.id }}">
                         <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt=""
                              style="width:30px;height:30px;border-radius:50%;object-fit:cover;" data-avatar="1">
-                        <span class="fw-semibold small">{{ p.name }}</span>
+                        <span class="fw-semibold small">{{ p.name }}{% if not p.in_production %} <span class="text-muted small">· fuera de producción</span>{% endif %}</span>
                       </label>
                     </div>
                   {% else %}

@@ -69,6 +69,23 @@ _TWO = Decimal("0.01")
 
 # Cabeceras con las que se puede mandar la clave, en orden de preferencia.
 AUTH_HEADERS = ("key", "X-API-KEY", "Authorization")
+# Los TOKENS nuevos de Holded («personal access token») empiezan por `pat_` y su propia pantalla dice
+# que se mandan como `Authorization: Bearer <clave>`. Con uno de esos se empieza por ahí: si no, el
+# primer intento sería un 401 seguro con la cabecera clásica.
+BEARER_KEY_PREFIXES = ("pat_", "sk_", "pt_")
+
+
+def looks_like_bearer_key(value: str | None) -> bool:
+    """¿Es uno de los tokens nuevos (los que Holded pide mandar con `Authorization: Bearer`)?"""
+    clave = clean_api_key(value)
+    return any(clave.startswith(p) for p in BEARER_KEY_PREFIXES)
+
+
+def auth_headers_for(value: str | None) -> tuple:
+    """El orden en el que se prueban las cabeceras para ESA clave."""
+    if looks_like_bearer_key(value):
+        return ("Authorization", "key", "X-API-KEY")
+    return AUTH_HEADERS
 # Textos con los que Holded dice «esa clave no vale» (llegan con 200, 400 o 401, según el caso).
 _AUTH_ERROR_HINTS = ("invalid key", "invalid api key", "unauthorized", "not authorized",
                      "invalid token", "api key")
@@ -116,15 +133,38 @@ def _looks_like_auth_error(texto: str | None) -> bool:
     return any(h in bajo for h in _AUTH_ERROR_HINTS)
 
 
-def _auth_error_message(resp) -> str:
-    """Qué decirle a quien acaba de pegar la clave: el motivo de Holded y dónde está la clave buena."""
+# Lo que un token de Holded tiene que poder hacer para contabilizar desde aquí.
+TOKEN_SCOPES_HINT = ("Contactos (ver y crear), Facturas de compra / Gastos (ver y crear) y, si se "
+                     "sube el PDF, Adjuntos")
+
+
+def _auth_error_message(resp, *, path: str = "") -> str:
+    """Qué decirle a quien acaba de pegar la clave. Distingue los DOS casos, que no se arreglan igual:
+
+    · **401** → la credencial no vale (mal pegada, de otra empresa, o el plan sin API).
+    · **403** → la credencial ES válida pero **al token le faltan permisos** para eso. Los tokens
+      nuevos de Holded «solo tienen acceso a los permisos seleccionados», así que este es el caso más
+      habitual con ellos y decir «la clave no vale» sería mentira.
+    """
+    motivo = _body_message(resp)
+    if resp.status_code == 403:
+        return (
+            "Holded acepta la credencial pero NO deja hacer esto (403: %s).\n"
+            "Es cosa de los PERMISOS del token: al crearlo en Holded se eligen uno a uno. Hacen "
+            "falta %s%s.\n"
+            "Vuelve a Holded → Configuración → Desarrolladores, edita el token (o crea otro) y marca "
+            "esos permisos."
+            % (motivo, TOKEN_SCOPES_HINT, (" · ruta: %s" % path) if path else "")
+        )
     return (
-        "Holded no acepta la clave (%s: %s).\n"
-        "Comprueba que es la API KEY de la cuenta: en Holded, arriba a la derecha en tu usuario → "
-        "Configuración → Desarrolladores → API Key (no el «código de integración» de una app del "
-        "marketplace, ni el secreto de un webhook). Tiene que ser la clave de ESTA empresa y su plan "
-        "de Holded debe incluir acceso a la API."
-        % (resp.status_code, _body_message(resp))
+        "Holded no acepta la credencial (%s: %s).\n"
+        "Si Holded te dijo «usa Authorization: Bearer <clave>», es un TOKEN nuevo: pégalo tal cual "
+        "y deja la cabecera en «Automática» (se prueba Bearer sola). Si es la API Key clásica, está "
+        "en Holded → tu usuario → Configuración → Desarrolladores → API Key (no el «código de "
+        "integración» de una app del marketplace ni el secreto de un webhook). En los dos casos tiene "
+        "que ser de ESTA empresa y su plan debe incluir acceso a la API.\n"
+        "⚠️ Las claves secretas de Holded **solo se ven una vez**: si no la guardaste, crea otra."
+        % (resp.status_code, motivo)
     )
 
 
@@ -303,9 +343,11 @@ class HoldedClient:
         # esa y no se prueban las demás; con AUTO se prueban las tres y se recuerda la que funcione.
         fijada = (auth_header or "").strip()
         self.auth_header_fixed = fijada if fijada in AUTH_HEADERS else ""
+        # ⚠️ Con un token `pat_…` se empieza por Bearer (es lo que pide su pantalla); con la API Key
+        # clásica, por `key`. Y si ya se sabe cuál funcionó, esa.
         self.auth_header = (self.auth_header_fixed
                             or (self.endpoints or {}).get("auth_header")
-                            or AUTH_HEADERS[0])
+                            or auth_headers_for(self.api_key)[0])
         self._auth_tried: set[str] = set()
 
     # ------------------------------------------------------------------ HTTP
@@ -322,9 +364,14 @@ class HoldedClient:
         return payload
 
     def _auth_headers(self) -> dict:
-        cabecera = self.auth_header or AUTH_HEADERS[0]
+        cabecera = self.auth_header or self._auth_order[0]
         valor = ("Bearer " + self.api_key) if cabecera == "Authorization" else self.api_key
         return {cabecera: valor, "Accept": "application/json"}
+
+    @property
+    def _auth_order(self) -> tuple:
+        """El orden de cabeceras para esta clave (un token `pat_…` empieza por Bearer)."""
+        return auth_headers_for(self.api_key)
 
     def _switch_auth_header(self) -> bool:
         """Pasa a la siguiente cabecera candidata. Devuelve False si ya se han probado todas.
@@ -334,7 +381,7 @@ class HoldedClient:
         Lo que hace la fijada es ir PRIMERO; si no vale y otra sí, se usa esa y se recuerda.
         """
         self._auth_tried.add(self.auth_header)
-        for candidata in AUTH_HEADERS:
+        for candidata in self._auth_order:
             if candidata not in self._auth_tried:
                 self.auth_header = candidata
                 return True
@@ -370,12 +417,17 @@ class HoldedClient:
                     time.sleep(_BACKOFF ** attempt)
                     continue
                 raise HoldedError(last) from e
-            if resp.status_code in (401, 403) or (
+            if resp.status_code == 403:
+                # ⚠️ 403 = la credencial SÍ vale y le faltan PERMISOS: la cabecera es la buena (se
+                # recuerda) y probar otra solo confundiría el diagnóstico.
+                self._remember_auth_header()
+                raise HoldedError(_auth_error_message(resp, path=path))
+            if resp.status_code == 401 or (
                     resp.status_code == 400 and _looks_like_auth_error(resp.text)):
                 # ¿Es cosa de la CABECERA? Se prueba la siguiente candidata antes de rendirse.
                 if self._switch_auth_header():
                     continue
-                raise HoldedError(_auth_error_message(resp))
+                raise HoldedError(_auth_error_message(resp, path=path))
             if resp.status_code == 404:
                 raise HoldedError("Holded no encuentra la ruta o el documento (404): %s" % path)
             if resp.status_code == 429 or resp.status_code >= 500:
@@ -406,7 +458,7 @@ class HoldedClient:
                     and _looks_like_auth_error(str(payload.get("info") or payload.get("message") or ""))):
                 if self._switch_auth_header():
                     continue
-                raise HoldedError(_auth_error_message(resp))
+                raise HoldedError(_auth_error_message(resp, path=path))
             self._remember_auth_header()
             return self._check_payload(payload) if check else payload
         raise HoldedError(last or "Holded no ha respondido.")

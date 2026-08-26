@@ -70872,9 +70872,9 @@ def _royalty_invoice_amounts(congelada: dict | None, invoice) -> dict:
         if getattr(invoice, "retention_pct", None) is not None:
             ret_pct = _money_or_zero(invoice.retention_pct)
     if iva_pct is None and base > 0 and iva > 0:
-        iva_pct = (iva / base * Decimal("100")).quantize(Decimal("0.01"))
+        iva_pct = _tax_pct_snap((iva / base * Decimal("100")).quantize(Decimal("0.01")), VAT_RATES)
     if ret_pct is None and base > 0 and ret > 0:
-        ret_pct = (ret / base * Decimal("100")).quantize(Decimal("0.01"))
+        ret_pct = _tax_pct_snap((ret / base * Decimal("100")).quantize(Decimal("0.01")), RETENTION_RATES)
     return {"net": base, "vat": iva, "vat_pct": iva_pct, "retention": ret,
             "retention_pct": ret_pct, "total": total}
 
@@ -70926,9 +70926,25 @@ def _royalty_accounting_pending_rows(session_db, limit: int = 300, company_ids=N
         congelada = _royalty_frozen_beneficiary(rec) or {}
         inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
         importes = _royalty_invoice_amounts(congelada, inv)
+        # La EMPRESA que la contabiliza (con su logo) y el ARTISTA: una liquidación no tiene bolsa,
+        # así que en la columna «Bolsa» se dice lo que ES —«Liquidación de royalties»— y de quién.
+        _emp = _royalty_holded_company(session_db, rec)
+        _art = None
+        try:
+            _aid = congelada.get("artist_id") or ""
+            if _aid:
+                _art = session_db.get(Artist, to_uuid(str(_aid)))
+        except Exception:
+            _art = None
         filas.append({
             "id": str(rec.id),
             "name": (congelada.get("name") or "Beneficiario"),
+            "company_name": (getattr(_emp, "name", None) or ""),
+            "company_id": (str(_emp.id) if _emp is not None else ""),
+            "company_logo": (getattr(_emp, "logo_url", None) or ""),
+            "artist_name": (getattr(_art, "name", None) or (congelada.get("artist_name") or "")),
+            "artist_photo": (getattr(_art, "photo_url", None) or ""),
+            "artist_id": (str(_art.id) if _art is not None else ""),
             "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
             # El mismo número que se pagó: base + IVA (menos la retención, si la factura la trae).
             "amount": importes["total"],
@@ -70964,9 +70980,25 @@ def _royalty_accounting_done_rows(session_db, limit: int = 300) -> list[dict]:
         congelada = _royalty_frozen_beneficiary(rec) or {}
         inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
         importes = _royalty_invoice_amounts(congelada, inv)
+        # La EMPRESA que la contabiliza (con su logo) y el ARTISTA: una liquidación no tiene bolsa,
+        # así que en la columna «Bolsa» se dice lo que ES —«Liquidación de royalties»— y de quién.
+        _emp = _royalty_holded_company(session_db, rec)
+        _art = None
+        try:
+            _aid = congelada.get("artist_id") or ""
+            if _aid:
+                _art = session_db.get(Artist, to_uuid(str(_aid)))
+        except Exception:
+            _art = None
         filas.append({
             "id": str(rec.id),
             "name": (congelada.get("name") or "Beneficiario"),
+            "company_name": (getattr(_emp, "name", None) or ""),
+            "company_id": (str(_emp.id) if _emp is not None else ""),
+            "company_logo": (getattr(_emp, "logo_url", None) or ""),
+            "artist_name": (getattr(_art, "name", None) or (congelada.get("artist_name") or "")),
+            "artist_photo": (getattr(_art, "photo_url", None) or ""),
+            "artist_id": (str(_art.id) if _art is not None else ""),
             "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
             "amount": importes["total"],
             "net": importes["net"],
@@ -75942,7 +75974,7 @@ def _accounting_retention_rows(session_db, *, year: int | None = None, limit: in
         bruto = _money_or_zero(inv.amount_gross)
         ret_pct = inv.retention_pct
         if ret_pct in (None, "") and base > 0 and ret > 0:
-            ret_pct = (ret / base * Decimal("100")).quantize(Decimal("0.01"))
+            ret_pct = _tax_pct_snap((ret / base * Decimal("100")).quantize(Decimal("0.01")), RETENTION_RATES)
         origen, origen_url = "", ""
         rec = liquidaciones.get(str(getattr(inv, "royalty_liquidation_id", "") or ""))
         bag = bolsas.get(str(getattr(inv, "bag_id", "") or ""))
@@ -76193,6 +76225,8 @@ def _accounting_expense_row(session_db, expense, datos: dict) -> dict:
         "bag_label": _accounting_bag_label(session_db, bag, concert=concert, promotion=promotion),
         "bag_url": (url_for("bag_detail_view", bag_id=bag.id) if bag is not None else ""),
         "company_name": (getattr(company, "name", None) or ""),
+        "company_id": (str(company.id) if company is not None else ""),
+        "company_logo": (getattr(company, "logo_url", None) or ""),
         "holded_ready": bool(getattr(company, "_holded_ready", False)),
         "net": importes["net"], "vat": importes["vat"], "vat_pct": importes["vat_pct"],
         "retention": importes["retention"], "retention_pct": importes["retention_pct"],
@@ -76329,8 +76363,13 @@ def _accounting_company_scope_from_form(form) -> list[str]:
     """El reparto por empresas que tenía la pantalla desde la que se ha pulsado la acción.
 
     El formulario lleva `empresas=todas` cuando se está viendo el de todas las empresas; si no, la
-    acción se limita a las de quien la pulsa (que es lo que tenía delante)."""
+    acción se limita a las de quien la pulsa (que es lo que tenía delante).
+    ⚠️ Y si se ha pinchado UNA empresa en el filtro (`empresa`), manda esa: «Subir todo» no puede
+    tocar lo de otra empresa que no se está viendo."""
     try:
+        una = (form.get("empresa") or "").strip()
+        if una and to_uuid(una):
+            return [una]
         if (form.get("empresas") or "").strip().lower() == "todas":
             return []
     except Exception:
@@ -76723,6 +76762,11 @@ def contabilidad_view():
     mis_empresas = _accounting_company_scope()
     ver_todas = (request.args.get("empresas") or "").strip().lower() == "todas"
     scope = [] if (ver_todas or tab != "pendiente") else list(mis_empresas)
+    # FILTRO por UNA empresa del grupo (la rejilla con logos, como la de artistas en discográfica).
+    # Manda sobre el reparto: se pincha una y solo se ve lo suyo, en cualquier pestaña.
+    empresa_filtro = (request.args.get("empresa") or "").strip()
+    if empresa_filtro and to_uuid(empresa_filtro):
+        scope = [empresa_filtro]
     session_db = db()
     try:
         # DETECCIÓN AUTOMÁTICA: si hay documentos subidos y hace rato que no se pregunta, se consulta
@@ -76803,6 +76847,11 @@ def contabilidad_view():
             # tener una clave buena en una empresa no sirve para la que toca. Solo se pinta el aviso
             # si a alguna le falta algo.
             holded_status=_holded_accounts_status(session_db),
+            # EL FILTRO POR EMPRESA: todas con su logo y lo que tienen pendiente; al pinchar una, solo
+            # se ve lo suyo.
+            company_filters=_accounting_company_filters(session_db, scope=(
+                [] if (ver_todas or tab != "pendiente") else list(mis_empresas))),
+            company_filter=empresa_filtro,
             # Reparto por empresas: si esta persona tiene empresas asignadas se le enseña el filtro
             # («Mis empresas» / «Todas»). Sin reparto propio no se pinta nada: ya lo ve todo.
             my_companies=mis_empresas,
@@ -81006,9 +81055,9 @@ def supplier_invoice_amounts_save(invoice_id):
         # Y los porcentajes que falten se deducen de los importes.
         if base > 0:
             if pct_iva is None and iva > 0:
-                pct_iva = float((iva / base * Decimal("100")).quantize(Decimal("0.01")))
+                pct_iva = float(_tax_pct_snap((iva / base * Decimal("100")).quantize(Decimal("0.01")), VAT_RATES))
             if pct_ret is None and ret > 0:
-                pct_ret = float((ret / base * Decimal("100")).quantize(Decimal("0.01")))
+                pct_ret = float(_tax_pct_snap((ret / base * Decimal("100")).quantize(Decimal("0.01")), RETENTION_RATES))
         inv.amount_net = base if base > 0 else None
         inv.amount_vat = iva if iva > 0 else None
         inv.retention_amount = ret if ret > 0 else None
@@ -87290,6 +87339,36 @@ def _holded_account_for_company(session_db, company_id):
             .filter(HoldedAccount.group_company_id == cid).first())
 
 
+def _accounting_company_filters(session_db, *, scope=None) -> list[dict]:
+    """Las EMPRESAS DEL GRUPO para el filtro de contabilidad, con su logo y lo que tienen pendiente.
+
+    Mismo patrón que la rejilla de artistas de Discográfica: salen todas y al pinchar una se ve solo lo
+    suyo. `scope` limita el recuento a las empresas que lleva quien mira (si tiene reparto)."""
+    salida = []
+    try:
+        pendientes = {}
+        q = (session_db.query(WorkflowBag.company_id, func.count(BagExpense.id))
+             .join(BagExpense, BagExpense.bag_id == WorkflowBag.id)
+             .filter(BagExpense.consolidation_status.in_(BAG_CONSOLIDATED_STATUSES))
+             .filter(func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE")).in_(
+                 ("PENDIENTE", "SUBIDO")))
+             .group_by(WorkflowBag.company_id))
+        for cid, n in q.all():
+            if cid:
+                pendientes[str(cid)] = int(n or 0)
+        permitidas = {str(x) for x in (scope or [])}
+        for emp in (session_db.query(GroupCompany)
+                    .order_by(func.lower(GroupCompany.name).asc()).all()):
+            if permitidas and str(emp.id) not in permitidas:
+                continue
+            salida.append({"id": str(emp.id), "name": (emp.name or "").strip(),
+                           "logo_url": (getattr(emp, "logo_url", None) or ""),
+                           "pending": pendientes.get(str(emp.id), 0)})
+    except Exception:
+        app.logger.exception("[contabilidad] no se pudieron leer las empresas del filtro")
+    return salida
+
+
 def _holded_accounts_status(session_db) -> list[dict]:
     """El estado de Holded **por empresa del grupo**: si tiene clave, si está activa y qué falló la
     última vez.
@@ -87415,7 +87494,8 @@ def _holded_client_for_account(acc):
     if almacen is not None and clave and clave in almacen:
         return almacen[clave]
     client = HoldedClient(acc.api_key, endpoints=dict(acc.endpoints or {}),
-                         auth_header=(getattr(acc, "auth_header", None) or "AUTO"))
+                         auth_header=(getattr(acc, "auth_header", None) or "AUTO"),
+                         base=((getattr(acc, "base_url", None) or "").strip() or None))
     if almacen is not None and clave:
         almacen[clave] = client
     return client
@@ -87463,6 +87543,10 @@ def _holded_account_rows(session_db) -> list:
             "ticket_doc_type": (getattr(acc, "ticket_doc_type", None) or "dailyexpense"),
             "payment_methods": dict(getattr(acc, "payment_methods", None) or {}),
             "auth_header": (getattr(acc, "auth_header", None) or "AUTO"),
+            "base_url": (getattr(acc, "base_url", None) or ""),
+            # Con qué cabecera ha entrado de verdad (lo que aprendió el cliente) y si es un token nuevo.
+            "auth_used": ((getattr(acc, "endpoints", None) or {}).get("auth_header") or ""),
+            "is_token": bool(clave.strip() and clave.strip().startswith(("pat_", "sk_", "pt_"))),
             "last_test": (_et_fmt_dt(acc.last_test_at) if acc is not None and acc.last_test_at else ""),
             "last_test_ok": (getattr(acc, "last_test_ok", None) if acc is not None else None),
             "last_sync": (_et_fmt_dt(acc.last_sync_at) if acc is not None and acc.last_sync_at else ""),
@@ -87785,14 +87869,33 @@ def holded_account_save(company_id):
         # se puede fijar a mano cuando Holded dice cuál usar (p. ej. «Authorization: Bearer»).
         _cab = (request.form.get("auth_header") or "AUTO").strip()
         acc.auth_header = _cab if _cab in ("AUTO", "key", "X-API-KEY", "Authorization") else "AUTO"
+        # La URL base solo se toca si Holded pide otra para los tokens nuevos (vacío = la de siempre).
+        _base = (request.form.get("base_url") or "").strip()
+        acc.base_url = (_base.rstrip("/") if _base.lower().startswith("http") else None)
         acc.is_active = _truthy(request.form.get("is_active")) and bool((acc.api_key or "").strip())
+        # Cada vez que se guarda una clave se empieza de cero: la cabecera que se hubiera «aprendido»
+        # con la clave anterior no tiene por qué valer para esta (un token nuevo va con Bearer).
+        if nueva and not nueva.startswith("•"):
+            _eps = dict(acc.endpoints or {})
+            _eps.pop("auth_header", None)
+            acc.endpoints = _eps
+            acc.last_error = None
+            acc.last_test_ok = None
         acc.updated_at = _now_madrid()
         session_db.commit()
         pista = ""
         if (acc.api_key or "").strip():
+            from holded_utils import looks_like_bearer_key
             pista = " Clave guardada: %d caracteres, termina en «%s»." % (
                 len(acc.api_key), acc.api_key[-4:])
-        flash("Cuenta de Holded de %s guardada.%s" % (comp.name, pista), "success")
+            if looks_like_bearer_key(acc.api_key):
+                # Los tokens nuevos de Holded («pat_…») se mandan con Authorization: Bearer y solo
+                # pueden hacer lo que se les marcó al crearlos.
+                pista += (" Parece un TOKEN nuevo: se manda como «Authorization: Bearer», y en Holded "
+                          "tiene que tener permiso de Contactos y de Facturas de compra / Gastos "
+                          "(y Adjuntos si se sube el PDF).")
+        flash("Cuenta de Holded de %s guardada.%s Pulsa «Probar conexión»." % (comp.name, pista),
+              "success")
     except Exception as exc:
         session_db.rollback()
         flash("No se pudo guardar la cuenta de Holded: %s" % exc, "danger")
@@ -88015,6 +88118,36 @@ def _accounting_expense_invoice(session_db, expense):
         return None
 
 
+# Los TIPOS que existen de verdad: el porcentaje de una factura no es un número cualquiera.
+VAT_RATES = (Decimal("21"), Decimal("10"), Decimal("5"), Decimal("4"), Decimal("0"))
+RETENTION_RATES = (Decimal("15"), Decimal("7"), Decimal("19"), Decimal("21"), Decimal("24"),
+                   Decimal("20"), Decimal("9"), Decimal("2"), Decimal("1"))
+# Cuánto se puede desviar el porcentaje despejado para darlo por ese tipo. Con dos importes
+# redondeados a céntimos el error nunca pasa de unas centésimas; 0,30 va de sobra y no confunde dos
+# tipos entre sí (el más cercano, 20 y 21, está a un punto).
+TAX_PCT_SNAP = Decimal("0.30")
+
+
+def _tax_pct_snap(pct, tipos=VAT_RATES):
+    """⚠️⚠️ REDONDEA EL PORCENTAJE AL TIPO REAL cuando está pegadísimo a uno.
+
+    Bug real: una factura del **21%** salía como **20,99%**. El porcentaje se despeja dividiendo dos
+    importes que ya vienen **redondeados a céntimos** (IVA / base), así que el cociente casi nunca
+    cae exacto: con base 100,05 e IVA 21,00 sale 20,99. Los tipos son LEGALES (21, 10, 5, 4, 0 · y
+    15, 7, 19… en retenciones), así que si el número despejado está a menos de `TAX_PCT_SNAP` de uno
+    de ellos, es ese — y si no, se deja tal cual (que igual es un desglose raro de verdad)."""
+    if pct is None:
+        return None
+    try:
+        valor = Decimal(str(pct))
+    except (InvalidOperation, TypeError, ValueError):
+        return pct
+    for tipo in tipos:
+        if abs(valor - tipo) <= TAX_PCT_SNAP:
+            return tipo
+    return valor
+
+
 def _accounting_amounts(session_db, expense, *, invoice=None) -> dict:
     """DESGLOSE del gasto para contabilidad: base, IVA (con su %), retención (con su %) y total.
 
@@ -88037,10 +88170,12 @@ def _accounting_amounts(session_db, expense, *, invoice=None) -> dict:
             iva = _money_or_zero(invoice.amount_vat)
         if getattr(invoice, "retention_amount", None) is not None:
             ret = _money_or_zero(invoice.retention_amount)
+        # ⚠️ También lo GUARDADO se ajusta al tipo real: una factura de antes de esto pudo quedarse
+        # con un 20,99 despejado, y lo que hay que enseñar es el 21 que dice el documento.
         if getattr(invoice, "vat_pct", None) is not None:
-            iva_pct = _money_or_zero(invoice.vat_pct)
+            iva_pct = _tax_pct_snap(_money_or_zero(invoice.vat_pct), VAT_RATES)
         if getattr(invoice, "retention_pct", None) is not None:
-            ret_pct = _money_or_zero(invoice.retention_pct)
+            ret_pct = _tax_pct_snap(_money_or_zero(invoice.retention_pct), RETENTION_RATES)
     if tipo in {"TICKET", "SIN_DOCUMENTO"}:
         # Un ticket no diferencia IVA: el total es el total y no se inventa ningún desglose.
         return {"net": total, "vat": Decimal("0"), "vat_pct": None,
@@ -88055,9 +88190,9 @@ def _accounting_amounts(session_db, expense, *, invoice=None) -> dict:
     if iva <= 0 and base > 0 and total > base:
         iva = total - base + ret
     if iva_pct is None and base > 0 and iva > 0:
-        iva_pct = (iva / base * Decimal("100")).quantize(Decimal("0.01"))
+        iva_pct = _tax_pct_snap((iva / base * Decimal("100")).quantize(Decimal("0.01")), VAT_RATES)
     if ret_pct is None and base > 0 and ret > 0:
-        ret_pct = (ret / base * Decimal("100")).quantize(Decimal("0.01"))
+        ret_pct = _tax_pct_snap((ret / base * Decimal("100")).quantize(Decimal("0.01")), RETENTION_RATES)
     return {"net": base, "vat": iva, "vat_pct": iva_pct,
             "retention": ret, "retention_pct": ret_pct, "total": total,
             "breakdown": True}
@@ -91180,13 +91315,17 @@ def _invoice_amount_fields_from_form(form) -> dict:
             return None
         return n if n > 0 else None
 
+    # ⚠️ Los porcentajes se ajustan al TIPO REAL (`_tax_pct_snap`): si se despejaron de dos importes
+    # redondeados a céntimos, un 21% puede llegar como 20,99 (bug real).
+    _iva = _pct("vat_pct")
+    _ret = _pct("retention_pct")
     return {
         "amount_gross": _num("amount_gross"),
         "amount_net": _num("amount_net"),
         "amount_vat": _num("amount_vat"),
         "retention_amount": _num("retention_amount"),
-        "vat_pct": _pct("vat_pct"),
-        "retention_pct": _pct("retention_pct"),
+        "vat_pct": (float(_tax_pct_snap(_iva, VAT_RATES)) if _iva is not None else None),
+        "retention_pct": (float(_tax_pct_snap(_ret, RETENTION_RATES)) if _ret is not None else None),
     }
 
 

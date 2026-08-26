@@ -18,6 +18,7 @@
     <td class="acc-check">
       {% if CAN_EDIT %}<input class="form-check-input" type="checkbox" name="expense_ids" value="{{ r.id }}" data-acc-check>{% endif %}
     </td>
+    {{ acc_company(r.company_name, r.company_logo) }}
     <td>
       <div class="fw-semibold">{{ r.provider_name }}</div>
       {% if r.provider_tax_id %}<div class="small text-muted font-monospace">{{ r.provider_tax_id }}</div>{% endif %}
@@ -38,26 +39,21 @@
       {% if r.artist_name %}{{ artist_chip(r.artist_name, r.artist_photo, artist_id=r.artist_id) }}{% else %}—{% endif %}
     </td>
     {% if show_bag %}
+      {# LA BOLSA: su nombre (y si no lo tiene, lo que la identifica: la actividad y su fecha). #}
       <td class="small">
         {% if r.bag_url %}<a href="{{ r.bag_url }}" class="text-decoration-none">{{ r.bag_label }}</a>
-        {% else %}{{ r.bag_label }}{% endif %}
-        {% if r.company_name %}<div class="small text-muted">{{ r.company_name }}</div>{% endif %}
+        {% else %}<span class="text-muted">{{ r.bag_label or 'Sin bolsa' }}</span>{% endif %}
       </td>
     {% endif %}
-    <td class="text-end text-nowrap">{{ r.net|eur }}</td>
-    <td class="text-end text-nowrap">
-      {% if r.retention and r.retention > 0 %}
-        <span class="text-danger">−{{ r.retention|eur }}</span>
-        {% if r.retention_pct %}<span class="badge text-bg-light border ms-1">{{ pct(r.retention_pct) }}</span>{% endif %}
-      {% else %}<span class="text-muted">—</span>{% endif %}
-    </td>
-    <td class="text-end text-nowrap">
-      {% if r.breakdown and r.vat and r.vat > 0 %}
-        {{ r.vat|eur }}{% if r.vat_pct %}<span class="badge text-bg-light border ms-1">{{ pct(r.vat_pct) }}</span>{% endif %}
-      {% elif not r.breakdown %}<span class="text-muted small" title="Un ticket no desglosa IVA: el total es el total">—</span>
-      {% else %}<span class="text-muted">—</span>{% endif %}
-    </td>
-    <td class="text-end fw-bold text-nowrap">{{ r.total|eur }}</td>
+    <td class="text-end text-nowrap"><span class="acct-amount">{{ r.net|eur }}</span></td>
+    {{ acc_tax(r.retention, r.retention_pct, negativo=True) }}
+    {% if r.breakdown %}
+      {{ acc_tax(r.vat, r.vat_pct) }}
+    {% else %}
+      <td class="text-end"><span class="text-muted small"
+            title="Un ticket no desglosa IVA: el total es el total">—</span></td>
+    {% endif %}
+    <td class="text-end fw-bold text-nowrap acct-total">{{ r.total|eur }}</td>
     <td class="text-nowrap">
       {# La ETIQUETA de estado se cambia PINCHÁNDOLA (avanza en su ciclo) y al pasar el ratón dice
          desde cuándo está contabilizado. #}
@@ -71,11 +67,10 @@
         <span class="badge {{ r.status_badge }}" title="{% if r.accounting_at %}{{ r.status_label }} el {{ r.accounting_at }}{% endif %}"><i class="fa {{ r.status_icon }} me-1"></i>{{ r.status_label }}</span>
       {% endif %}
       {% if r.holded_doc_number or r.holded_doc_id %}
-        <div class="small text-muted">Holded: {{ r.holded_doc_number or r.holded_doc_id }}</div>
+        <div class="small text-muted text-truncate">Holded: {{ r.holded_doc_number or r.holded_doc_id }}</div>
       {% endif %}
-      {% if r.holded_error %}<div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>{{ r.holded_error }}</div>{% endif %}
-      {% if r.holded_warning %}<div class="small text-warning-emphasis"><i class="fa fa-circle-exclamation me-1"></i>{{ r.holded_warning }}</div>{% endif %}
-      {% if r.accounting_note %}<div class="small text-muted">{{ r.accounting_note }}</div>{% endif %}
+      {% if r.accounting_note %}<div class="small text-muted text-truncate">{{ r.accounting_note }}</div>{% endif %}
+      {{ acc_alert(r.holded_error, r.holded_warning) }}
     </td>
     <td class="text-end text-nowrap">
       {% if r.doc_url %}
@@ -133,9 +128,10 @@
     <td class="acc-check">
       {% if CAN_EDIT and not done %}<input class="form-check-input" type="checkbox" name="royalty_ids" value="{{ r.id }}" data-acc-check>{% endif %}
     </td>
+    {{ acc_company(r.company_name, r.company_logo) }}
     <td>
       <div class="fw-semibold">{{ r.name }}</div>
-      <span class="badge text-bg-light border mt-1"><i class="fa fa-percent me-1"></i>Liquidación de royalties</span>
+      <div class="small text-muted">Beneficiario</div>
     </td>
     <td class="small">{{ r.invoice_number or '—' }}</td>
     <td>
@@ -148,23 +144,21 @@
       {% if r.method %}<div class="small text-muted">{{ r.method }}</div>{% endif %}
       {% if r.paid_label %}<div class="small text-muted">{{ r.paid_label }}</div>{% endif %}
     </td>
-    <td class="small">—</td>
     <td class="small">
-      {% if r.company_name %}{{ r.company_name }}{% else %}<span class="text-muted">—</span>{% endif %}
-    </td>
-    <td class="text-end text-nowrap">{{ r.net|eur }}</td>
-    <td class="text-end text-nowrap">
-      {% if r.retention and r.retention > 0 %}
-        <span class="text-danger">−{{ r.retention|eur }}</span>
-        {% if r.retention_pct %}<span class="badge text-bg-light border ms-1">{{ pct(r.retention_pct) }}</span>{% endif %}
+      {% if r.artist_name %}{{ artist_chip(r.artist_name, r.artist_photo, artist_id=r.artist_id) }}
       {% else %}<span class="text-muted">—</span>{% endif %}
     </td>
-    <td class="text-end text-nowrap">
-      {% if r.vat and r.vat > 0 %}
-        {{ r.vat|eur }}{% if r.vat_pct %}<span class="badge text-bg-light border ms-1">{{ pct(r.vat_pct) }}</span>{% endif %}
-      {% else %}<span class="text-muted">—</span>{% endif %}
+    {# ⚠️ Una liquidación NO tiene bolsa: en esa columna se dice lo que ES y de quién, que es lo que
+       identifica la fila (antes salía el nombre de la empresa, que ya tiene su propia columna). #}
+    <td class="small">
+      <span class="badge text-bg-light border"><i class="fa fa-percent me-1"></i>Liquidación de royalties</span>
+      {% if r.artist_name %}<div class="small text-muted">{{ r.artist_name }}</div>
+      {% elif r.name %}<div class="small text-muted">{{ r.name }}</div>{% endif %}
     </td>
-    <td class="text-end fw-bold text-nowrap">{{ r.amount|eur }}</td>
+    <td class="text-end text-nowrap"><span class="acct-amount">{{ r.net|eur }}</span></td>
+    {{ acc_tax(r.retention, r.retention_pct, negativo=True) }}
+    {{ acc_tax(r.vat, r.vat_pct) }}
+    <td class="text-end fw-bold text-nowrap acct-total">{{ r.amount|eur }}</td>
     <td class="text-nowrap">
       {% if done %}
         <span class="badge text-bg-success" title="Contabilizada{% if r.accounted_label %} el {{ r.accounted_label }}{% endif %}{% if r.accounted_by %} · {{ r.accounted_by }}{% endif %}">
@@ -181,8 +175,7 @@
       {% if r.holded_doc_number or r.holded_doc_id %}
         <div class="small text-muted">Holded: {{ r.holded_doc_number or r.holded_doc_id }}</div>
       {% endif %}
-      {% if r.holded_error %}<div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>{{ r.holded_error }}</div>{% endif %}
-      {% if r.holded_warning %}<div class="small text-warning-emphasis"><i class="fa fa-circle-exclamation me-1"></i>{{ r.holded_warning }}</div>{% endif %}
+      {{ acc_alert(r.holded_error, r.holded_warning) }}
     </td>
     <td class="text-end text-nowrap">
       {% if r.invoice_url %}
@@ -233,16 +226,74 @@
   </ul>
 {% endmacro %}
 
+{# LA CABECERA. Dos filas: arriba los tres bloques (el documento · los importes · el estado) y
+   debajo cada columna con su icono, para que se sepa qué es cada una de un vistazo. #}
 {% macro acc_head(show_bag=True) %}
-  <thead class="table-light">
+  <thead class="acct-head">
+    <tr class="acct-head__groups">
+      <th class="acc-check"></th>
+      {# ⚠️ El colspan tiene que cuadrar con las columnas de abajo: empresa, proveedor, nº, concepto,
+         emisión, pago, artista (+ bolsa cuando se pinta). #}
+      <th colspan="{{ 8 if show_bag else 7 }}"><span>El documento</span></th>
+      <th colspan="4" class="text-end"><span>Importes</span></th>
+      <th colspan="2"><span>Estado</span></th>
+    </tr>
     <tr>
       <th class="acc-check">{% if CAN_EDIT %}<input class="form-check-input" type="checkbox" data-acc-all title="Seleccionar todo">{% endif %}</th>
-      <th>Proveedor</th><th>Nº factura</th><th>Concepto</th><th>Emisión</th><th>Pago</th><th>Artista</th>
-      {% if show_bag %}<th>Bolsa</th>{% endif %}
-      <th class="text-end">Base</th><th class="text-end">Retención</th><th class="text-end">IVA</th>
-      <th class="text-end">Total</th><th>Contabilidad</th><th></th>
+      <th><i class="fa fa-building me-1 text-muted"></i>Empresa</th>
+      <th><i class="fa fa-user-tie me-1 text-muted"></i>Proveedor</th>
+      <th><i class="fa fa-hashtag me-1 text-muted"></i>Nº factura</th>
+      <th><i class="fa fa-align-left me-1 text-muted"></i>Concepto</th>
+      <th><i class="fa fa-calendar-day me-1 text-muted"></i>Emisión</th>
+      <th><i class="fa fa-money-bill-transfer me-1 text-muted"></i>Pago</th>
+      <th><i class="fa fa-guitar me-1 text-muted"></i>Artista</th>
+      {% if show_bag %}<th><i class="fa fa-sack-dollar me-1 text-muted"></i>Bolsa</th>{% endif %}
+      <th class="text-end">Base</th>
+      <th class="text-end">Retención</th>
+      <th class="text-end">IVA</th>
+      <th class="text-end">Total</th>
+      <th><i class="fa fa-calculator me-1 text-muted"></i>Contabilidad</th>
+      <th class="text-end">Acciones</th>
     </tr>
   </thead>
+{% endmacro %}
+
+{# La EMPRESA del grupo con su logo (la columna nueva). Sin logo, el icono de empresa. #}
+{% macro acc_company(nombre, logo) %}
+  <td class="acct-co">
+    {% if logo %}
+      <img src="{{ logo }}" alt="{{ nombre }}" title="{{ nombre }}" class="acct-co__logo">
+    {% elif nombre %}
+      <span class="acct-co__none" title="{{ nombre }}"><i class="fa fa-building"></i></span>
+    {% else %}
+      <span class="text-muted" title="Sin empresa">—</span>
+    {% endif %}
+    <span class="acct-co__name">{{ nombre or '' }}</span>
+  </td>
+{% endmacro %}
+
+{# El IMPORTE con su PORCENTAJE debajo (IVA y retención). #}
+{% macro acc_tax(importe, porcentaje, negativo=False) %}
+  <td class="text-end text-nowrap">
+    {% if importe and importe > 0 %}
+      <span class="acct-amount{{ ' text-danger' if negativo }}">{{ ('−' if negativo else '') ~ importe|eur }}</span>
+      {% if porcentaje %}<span class="acct-pct">{{ pct(porcentaje) }}</span>{% endif %}
+    {% else %}<span class="text-muted">—</span>{% endif %}
+  </td>
+{% endmacro %}
+
+{# LA ALERTA, resumida: un icono con el motivo al pasar el ratón (el texto largo empujaba los
+   botones a la derecha y la fila se leía fatal). #}
+{% macro acc_alert(error, warning) %}
+  {% if error %}
+    <span class="acct-alert is-error" title="{{ error }}" tabindex="0"
+          data-bs-toggle="tooltip" data-bs-placement="left">
+      <i class="fa fa-triangle-exclamation"></i></span>
+  {% elif warning %}
+    <span class="acct-alert is-warn" title="{{ warning }}" tabindex="0"
+          data-bs-toggle="tooltip" data-bs-placement="left">
+      <i class="fa fa-circle-exclamation"></i></span>
+  {% endif %}
 {% endmacro %}
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -303,6 +354,33 @@
   {% endfor %}
 </ul>
 
+{# ---------- FILTRO POR EMPRESA DEL GRUPO (con su logo) ----------
+   La misma idea que la rejilla de artistas de Discográfica: salen todas y, al pinchar una, se ve solo
+   lo suyo. Se conserva en las pestañas (va en la URL como `empresa`). #}
+{% if company_filters and company_filters|length > 1 %}
+  <div class="acct-cofilter mb-3">
+    <a class="acct-cofilter__item{{ ' is-on' if not company_filter }}"
+       href="{{ url_for('contabilidad_view', tab=tab, subtab=subtab, estado=estado_filtro or None,
+                        empresas=('todas' if showing_all_companies else None)) }}">
+      <span class="acct-cofilter__all"><i class="fa fa-buildings"></i></span>
+      <span class="acct-cofilter__name">Todas</span>
+    </a>
+    {% for c in company_filters %}
+      <a class="acct-cofilter__item{{ ' is-on' if company_filter == c.id }}" title="{{ c.name }}"
+         href="{{ url_for('contabilidad_view', tab=tab, subtab=subtab, estado=estado_filtro or None,
+                          empresa=c.id, empresas=('todas' if showing_all_companies else None)) }}">
+        {% if c.logo_url %}
+          <img src="{{ c.logo_url }}" alt="{{ c.name }}">
+        {% else %}
+          <span class="acct-cofilter__all"><i class="fa fa-building"></i></span>
+        {% endif %}
+        <span class="acct-cofilter__name">{{ c.name }}</span>
+        {% if c.pending %}<span class="acct-cofilter__n">{{ c.pending }}</span>{% endif %}
+      </a>
+    {% endfor %}
+  </div>
+{% endif %}
+
 {% if tab == 'pendiente' %}
   {{ sub_nav('pendiente') }}
   {% if my_companies %}
@@ -321,6 +399,8 @@
       <input type="hidden" name="next" value="{{ request.full_path }}">
       {# El ámbito de EMPRESAS que se está viendo: así «Subir todo» no toca lo de otras empresas. #}
       <input type="hidden" name="empresas" value="{{ 'todas' if showing_all_companies else '' }}">
+      {# …y la empresa pinchada: «Subir todo» no puede tocar lo de otra empresa. #}
+      <input type="hidden" name="empresa" value="{{ company_filter or '' }}">
 
       {# ---------- Barra de acciones + filtros por estado ---------- #}
       <div class="card mb-3">

@@ -11122,6 +11122,9 @@ class HoldedAccount(Base):
     # `key` (la documentada), `X-API-KEY` o `Authorization` (Bearer, que es la que indica Holded al
     # crear algunas credenciales). Se puede fijar a mano desde Integraciones.
     auth_header = Column(Text, nullable=False, server_default=text("'AUTO'"))
+    # ⚠️ La URL BASE de la API, por si Holded pide otra para los TOKENS nuevos: así se cambia desde la
+    # pantalla, sin tocar código ni desplegar. Vacío = la de siempre (api.holded.com/api).
+    base_url = Column(Text)
     # Rutas ya descubiertas (adjuntar documento, formas de pago): mismo patrón que la URL base de
     # Cabify, para que la integración se ajuste a la cuenta real sin tocar código.
     endpoints = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
@@ -11167,6 +11170,7 @@ def ensure_holded_schema():
         # PENDIENTE (nadie lo ha tocado) | SUBIDO (está en Holded, sin contabilizar) |
         # CONTABILIZADO (asiento hecho) | OMITIDO (se decidió no contabilizarlo: ahí acaba).
         "ALTER TABLE IF EXISTS holded_accounts ADD COLUMN IF NOT EXISTS auth_header text NOT NULL DEFAULT 'AUTO';",
+        "ALTER TABLE IF EXISTS holded_accounts ADD COLUMN IF NOT EXISTS base_url text;",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_status text NOT NULL DEFAULT 'PENDIENTE';",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_at timestamptz;",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_by_nick text;",

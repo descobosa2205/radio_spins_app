@@ -3687,6 +3687,30 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Los endpoints son `accounting_*` (mapeados a la sección `contabilidad`) y el permiso de edición es
   **`can_edit_accounting()`**.
 
+- **CONTABILIDAD · la tabla se lee, y el % es el TIPO REAL** (ago 2026):
+  · **FILTRO POR EMPRESA con su logo** (`_accounting_company_filters` + `.acct-cofilter`), la misma
+  idea que la rejilla de artistas de Discográfica: salen todas con su logo y lo que tienen pendiente,
+  y al pinchar una **solo se ve lo suyo** (`?empresa=<id>`, se conserva entre pestañas). ⚠️ El
+  formulario lleva la empresa pinchada, así que **«Subir todo a Holded» no toca lo de otra empresa**
+  (`_accounting_company_scope_from_form`).
+  · **LAS COLUMNAS SE ENTIENDEN**: la cabecera va en **dos filas** —los bloques (**El documento ·
+  Importes · Estado**) y debajo cada columna con su icono—, hay **columna de EMPRESA con su logo**
+  (`acc_company`), y el **IVA y la retención llevan el importe arriba y su % debajo** (`acc_tax`).
+  ⚠️ El `colspan` de la fila de grupos tiene que cuadrar con las columnas de abajo: se comprueba
+  contando `th`/`td` (un descuadre no da error, solo desalinea toda la tabla).
+  · **LA BOLSA dice qué es**: su nombre (o lo que la identifica: la actividad y su fecha) y, en una
+  **liquidación de royalties** —que no tiene bolsa—, la etiqueta «Liquidación de royalties» con el
+  **artista**. El nombre de la empresa ya no se repite ahí: tiene su columna.
+  · **LA ALERTA, resumida** (`acc_alert`): un icono con el motivo al pasar el ratón. El texto largo del
+  error de Holded empujaba los botones («ver factura» y los tres puntitos) a la derecha y la fila se
+  leía fatal.
+  ⚠️⚠️ **EL PORCENTAJE ES EL TIPO REAL, NO EL DESPEJADO** (`_tax_pct_snap` + `VAT_RATES` /
+  `RETENTION_RATES`, punto único): una factura del **21%** salía como **20,99%** porque el % se
+  despeja dividiendo dos importes **ya redondeados a céntimos** (con base 100,05 e IVA 21,00 sale
+  20,99). Los tipos son LEGALES, así que si el número está a menos de `TAX_PCT_SNAP` (0,30) de uno de
+  ellos, **es ese**. Se aplica al calcularlo, a lo que viene GUARDADO en la factura (arregla las de
+  antes) y al guardar lo que se lee del documento.
+
 - **CONTABILIDAD · cada persona lleva SUS EMPRESAS del grupo** (ago 2026,
   `UserProfile.accounting_company_ids`): a la gente de **Contabilidad** se le asignan las empresas del
   grupo que le corresponden y **lo PENDIENTE de contabilizar es solo el de sus empresas** —los cuatro

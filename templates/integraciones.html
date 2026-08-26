@@ -507,6 +507,8 @@
                     <span class="small text-muted"><i class="fa fa-clock-rotate-left me-1"></i>{{ row.last_test }}</span>
                     {% if row.last_test_ok %}<span class="badge text-bg-success">Conexión OK</span>
                     {% elif row.last_test_ok is not none %}<span class="badge text-bg-danger">Última prueba con error</span>{% endif %}
+                    {% if row.is_token %}<span class="badge text-bg-light border" title="Los tokens nuevos van con Authorization: Bearer y solo pueden hacer lo que se les marcó"><i class="fa fa-key me-1"></i>token</span>{% endif %}
+                    {% if row.auth_used %}<span class="badge text-bg-light border" title="La cabecera con la que ha entrado">{{ row.auth_used }}</span>{% endif %}
                   {% else %}<span class="small text-muted">Sin probar todavía</span>{% endif %}
                 </div>
               </div>
@@ -546,7 +548,31 @@
                       <option value="{{ val }}" {% if row.auth_header == val %}selected{% endif %}>{{ lbl }}</option>
                     {% endfor %}
                   </select>
-                  <div class="form-text">Si al crear la credencial Holded te dijo <code>Authorization: Bearer</code>, elígela aquí.</div>
+                  <div class="form-text">
+                    Déjala en <strong>Automática</strong>: si la clave empieza por <code>pat_</code>
+                    (los tokens nuevos) se prueba <code>Authorization: Bearer</code> primero.
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">URL base de la API <span class="text-muted small">(opcional)</span></label>
+                  <input class="form-control" name="base_url" value="{{ row.base_url or '' }}"
+                         placeholder="https://api.holded.com/api">
+                  <div class="form-text">
+                    Solo si Holded te dice otra para los tokens nuevos. Vacío = la de siempre.
+                  </div>
+                </div>
+                <div class="col-12">
+                  {# ⚠️ Los TOKENS nuevos de Holded solo pueden hacer lo que se les marcó al crearlos:
+                     si faltan permisos, la clave es buena y aun así no deja (403). #}
+                  <div class="alert alert-secondary py-2 px-3 small mb-0">
+                    <i class="fa fa-key me-1"></i>
+                    Si es un <strong>token nuevo</strong> (<code>pat_…</code>), al crearlo en Holded
+                    hay que marcarle permiso de <strong>Contactos</strong> (ver y crear),
+                    <strong>Facturas de compra / Gastos</strong> (ver y crear) y
+                    <strong>Adjuntos</strong> si se quiere subir el PDF. Sin esos permisos Holded
+                    contesta <code>403</code> aunque la clave sea correcta.
+                    Y recuerda: <strong>la clave secreta solo se ve una vez</strong>.
+                  </div>
                 </div>
                 <div class="col-12">
                   <div class="form-check form-switch">

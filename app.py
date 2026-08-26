@@ -26095,6 +26095,8 @@ def public_disco_creatives(token):
                         if (fs.mimetype or "").startswith("image/"):
                             ct.thumb_url = ct.file_url
                         ct.design_done_at = _now_madrid()
+                        # Un aviso es «esto te está esperando»: ya está subido, así que se cierra.
+                        _notify_resolve(session_db, "DISCO_PLAN_CONTENT", str(ct.id))
                         subidas += 1
                     except Exception as exc:
                         app.logger.exception("[plan] fallo al subir el contenido")
@@ -27094,8 +27096,17 @@ def disco_plan_content_save(project_id):
                     flash(Markup("Pedido a diseño. Suben el archivo aquí: "
                                  "<a href='%s'>%s</a>" % (escape(enlace), escape(enlace))), "info")
         elif fila.file_url and fila.design_requested_at and not fila.design_done_at:
-            # Ya está subido: el encargo queda cerrado.
+            # Ya está subido: el encargo queda cerrado y su aviso deja de esperar.
             fila.design_done_at = _now_madrid()
+            _notify_resolve(session_db, "DISCO_PLAN_CONTENT", str(fila.id))
+        elif not pedir and fila.design_requested_at and not fila.file_url:
+            # ⚠️ Se DESHACE el encargo: si se vuelve a «lo subimos nosotros», diseño deja de tenerlo
+            # pendiente (y su aviso se cierra). Sin esto, el contenido se quedaba «en diseño» para
+            # siempre y seguía saliendo en su enlace.
+            fila.design_requested_at = None
+            fila.design_requested_by_nick = None
+            fila.design_done_at = None
+            _notify_resolve(session_db, "DISCO_PLAN_CONTENT", str(fila.id))
         session_db.commit()
         flash("Contenido guardado.", "success")
     except Exception as exc:

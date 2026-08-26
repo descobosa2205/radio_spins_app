@@ -1311,6 +1311,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   desde el listado se manda la que se pregunta.
   ⚠️ El panel condicional del pop-up usa el motor de la casa (`data-dp-when="source=US|DESIGN"`), que
   además **deshabilita** lo que esconde: un campo oculto se envía igual.
+  ⚠️ **El encargo se DESHACE**: volver a «lo subimos nosotros» limpia el pedido y **cierra su aviso**
+  (si no, el contenido se quedaba «en diseño» para siempre y seguía saliendo en su enlace). Y cuando
+  **diseño lo sube**, el aviso se cierra solo — la regla de `_notify_resolve`.
   · **Contenidos**: archivo (de ahí sale la miniatura), día y **hora**, copy, **menciones obligatorias
   (solo el @)**, hashtags y las **redes** con su logo (`DISCO_CONTENT_NETWORKS`: Instagram post /
   historia / post compartido, TikTok, Facebook, X, YouTube y Shorts).

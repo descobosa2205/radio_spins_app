@@ -1355,6 +1355,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **descarga** (antes abría la URL de Storage en una pestaña). Punto único `_demo_audio_download`, que
   usa también la descarga de una playlist.
 
+- **DEMOS · COMPARTIR UNA MAQUETA igual que una playlist** (ago 2026): en los **tres puntitos** de
+  cada demo hay **Compartir** y **Copiar enlace**. El pop-up es el mismo que el de una playlist
+  (**WhatsApp · SMS · Copiar enlace · Email**, con nota) y lleva **los mismos interruptores**
+  (`DEMO_SHARE_SWITCHES`: descarga · letra · autores · quién la envió · notas), que **nacen apagados**
+  y se guardan **al momento** (`demo_share_save`, uno a uno).
+  ⚠️ **Se pinta con la MISMA vista que una playlist** (`public_playlist.html` /
+  `_playlist_view.html`): `_demo_share_context` fabrica el contexto con la forma que ese parcial
+  espera (`pl` + `items` de una sola línea), así que la maqueta se ve y suena igual que un tema de una
+  playlist y **no hay una segunda pantalla que mantener**.
+  ⚠️ Como en las playlists, **la dirección del archivo en Storage NO sale nunca a la página**: el
+  audio va por nuestro puente (`public_demo_share_audio` → `_playlist_audio_response`, con `Range`
+  para poder arrastrar la barra) y la descarga solo existe **si el interruptor está encendido**
+  (`public_demo_share_download`, que lo vuelve a comprobar).
+  ⚠️⚠️ El **token del enlace se crea en `_demos_context` con COMMIT**: creándolo al pintar (con un
+  `flush` sin commit) se perdía al cerrar la sesión y en la carga siguiente salía otro — o sea, un
+  enlace ya compartido dejaba de valer (bug real, lo sacó la prueba).
+  ⚠️ La miniatura (`public_demo_share_og_image`) es la **portada de la maqueta** y, si no tiene o no se
+  puede leer, la imagen de **«sin portada»** (no el logo), como en las canciones. Los cuatro endpoints
+  públicos están en las **tres** listas.
+
 - **DEMOS · ENLACE PÚBLICO para que nos manden maquetas** (ago 2026): botón **«Link para subir
   demos»** al lado de «Añadir demo» (se comparte por correo, WhatsApp, SMS o copiándolo). El token es
   **uno para toda la casa** (`AppSetting` `demo_upload_link_token`).

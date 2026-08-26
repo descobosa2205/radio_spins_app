@@ -1164,6 +1164,16 @@
                         <button class="dropdown-item text-success"><i class="fa fa-music fa-fw me-1"></i>Pasar al repertorio</button></form></li>
                     {% endif %}
                     <li><hr class="dropdown-divider"></li>
+                    {# COMPARTIR la maqueta: lo mismo que una playlist (su enlace, Email, WhatsApp,
+                       SMS) y los mismos interruptores de qué se enseña. #}
+                    <li><button class="dropdown-item" type="button" data-demo-share="{{ row.id }}"
+                                data-title="{{ row.title|e }}" data-url="{{ row.share_url }}"
+                                data-flags='{{ row.share_flags|tojson|forceescape }}'>
+                      <i class="fa fa-share-alt fa-fw me-1"></i>Compartir</button></li>
+                    <li><button class="dropdown-item" type="button"
+                                onclick="copyShareLink('{{ row.share_url }}')">
+                      <i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                    <li><hr class="dropdown-divider"></li>
                     <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#demoModal"
                                 data-demo-edit="{{ row.id }}" data-demo='{{ row|tojson|forceescape }}'><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
                     {% if row.audio_url %}
@@ -1198,6 +1208,62 @@
   {% endif %}
 
   {% if CAN_EDIT_DISCOGRAFICA %}
+
+  {# ---------- COMPARTIR UNA MAQUETA ----------
+     Lo mismo que una playlist: los INTERRUPTORES de qué se enseña (nacen apagados y se guardan al
+     momento) y las cuatro formas de compartir (WhatsApp · SMS · Copiar enlace · Email).
+     ⚠️ Un solo pop-up para todas las filas: al pinchar «Compartir» se rellena con esa maqueta. #}
+  <div class="modal fade" id="demoShareModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <form class="modal-content" method="post" data-demo-share-form>
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title"><i class="fa fa-share-alt me-2 text-muted"></i>Compartir la maqueta</h5>
+            <div class="small text-muted" data-share-sub></div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {# Los interruptores, iguales que en una playlist: icono arriba y el interruptor debajo. #}
+          <div class="pl-actions mb-3">
+            <span class="pl-switches">
+              {% for campo, icono, etiqueta, ayuda in DEMO_SHARE_SWITCHES %}
+                <span class="pl-switch" title="{{ ayuda }}" data-share-switch-box="{{ campo }}">
+                  <span class="pl-switch__ico"><i class="fa {{ icono }}"></i></span>
+                  <label class="sw dl m-0">
+                    <input type="checkbox" role="switch" data-share-switch="{{ campo }}">
+                    <span class="tr"></span>
+                  </label>
+                  <span class="pl-switch__lab">{{ etiqueta }}</span>
+                </span>
+              {% endfor %}
+            </span>
+          </div>
+          <div class="d-flex gap-2 flex-wrap mb-3">
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-share-wa>
+              <i class="fa-brands fa-whatsapp me-1"></i>WhatsApp</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-share-sms>
+              <i class="fa fa-comment-sms me-1"></i>SMS</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-share-copy>
+              <i class="fa fa-link me-1"></i>Copiar enlace</button>
+          </div>
+          <h6 class="mb-2"><i class="fa fa-envelope me-1 text-muted"></i>Compartir por Email</h6>
+          <div class="small text-muted mb-2">
+            En el correo va la cabecera de la maqueta con el botón <strong>Escuchar</strong>, que lleva
+            a este mismo enlace.
+          </div>
+          <label class="form-label">¿A quién?</label>
+          <input class="form-control" name="emails" placeholder="correo@ejemplo.com, otro@ejemplo.com">
+          <label class="form-label mt-3">Nota <span class="text-muted">(opcional, sale en el correo)</span></label>
+          <textarea class="form-control" name="note" rows="3"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+          <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Enviar por email</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   {# ---------- ENVIAR A VALORACIÓN ----------
      El personal del SELLO viene ya marcado (se puede quitar y añadir a quien haga falta) y debajo se
@@ -1284,6 +1350,56 @@
       e.textContent = msg || '';
       e.classList.toggle('d-none', !msg);
     }
+
+    /* ---------- COMPARTIR una maqueta (igual que una playlist) ----------
+       Un solo pop-up para todas las filas: al pinchar «Compartir» se rellena con esa maqueta (su
+       título, su enlace y sus interruptores). Los interruptores se guardan AL MOMENTO. */
+    var mShare = document.getElementById('demoShareModal');
+    var shareId = null, shareUrl = '', shareTitle = '';
+    document.addEventListener('click', function (ev) {
+      var s = ev.target.closest('[data-demo-share]');
+      if (s && mShare) {
+        shareId = s.getAttribute('data-demo-share');
+        shareUrl = s.getAttribute('data-url') || '';
+        shareTitle = s.getAttribute('data-title') || '';
+        var flags = {};
+        try { flags = JSON.parse(s.getAttribute('data-flags') || '{}'); } catch (e) {}
+        mShare.querySelector('[data-share-sub]').textContent = shareTitle;
+        mShare.querySelectorAll('[data-share-switch]').forEach(function (inp) {
+          var campo = inp.getAttribute('data-share-switch');
+          inp.checked = !!flags[campo];
+          var caja = mShare.querySelector('[data-share-switch-box="' + campo + '"]');
+          if (caja) caja.classList.toggle('is-on', inp.checked);
+        });
+        var form = mShare.querySelector('[data-demo-share-form]');
+        if (form) {
+          form.setAttribute('action', '/discografica/demos/' + shareId + '/compartir/email');
+          form.querySelector('[name="emails"]').value = '';
+          form.querySelector('[name="note"]').value = '';
+        }
+        if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(mShare).show();
+        return;
+      }
+      if (!mShare) return;
+      if (ev.target.closest('[data-share-wa]')) { shareByWhatsapp('Maqueta ' + shareTitle, shareUrl); return; }
+      if (ev.target.closest('[data-share-sms]')) { shareBySms('Maqueta ' + shareTitle, shareUrl); return; }
+      if (ev.target.closest('[data-share-copy]')) { copyShareLink(shareUrl); return; }
+    });
+    /* Cada interruptor se guarda solo (como en la playlist). */
+    document.addEventListener('change', function (ev) {
+      var inp = ev.target.closest('[data-share-switch]');
+      if (!inp || !shareId) return;
+      var campo = inp.getAttribute('data-share-switch');
+      var caja = mShare.querySelector('[data-share-switch-box="' + campo + '"]');
+      if (caja) caja.classList.toggle('is-on', inp.checked);
+      var fd = new FormData();
+      fd.append(campo, inp.checked ? '1' : '0');
+      fetch('/discografica/demos/' + shareId + '/compartir', {
+        method: 'POST', body: fd,
+        headers: { 'X-CSRFToken': (document.querySelector('meta[name="csrf-token"]') || {}).content || '',
+                   'X-Requested-With': 'XMLHttpRequest' }
+      }).catch(function () {});
+    });
 
     /* ⚠️ Todo se monta EN EL CLIC (con modal_stack.js por medio `shown.bs.modal` no llega) y se
        rehace en cada apertura: cada demo tiene su gente y su correo. */

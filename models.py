@@ -663,6 +663,11 @@ class SongDemo(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # COMPARTIRLA como una playlist: su enlace público y los interruptores de qué se enseña
+    # (descarga, letra, autores, quién la envió, notas). Todos nacen APAGADOS, como en la playlist.
+    share_token = Column(Text, unique=True)
+    share_config = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
     artist = relationship("Artist")
     promoter = relationship("Promoter", foreign_keys=[promoter_id])
     submitted_by = relationship("Promoter", foreign_keys=[submitted_by_promoter_id])
@@ -11486,6 +11491,10 @@ def ensure_song_demos_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_song_demo_ratings_demo ON song_demo_ratings(demo_id);",
+        # COMPARTIR una maqueta como una playlist (su enlace y sus interruptores).
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS share_token text;",
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS share_config jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_song_demos_share_token ON song_demos(share_token) WHERE share_token IS NOT NULL;",
     ], label="ensure_song_demos_schema")
 
 

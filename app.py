@@ -464,7 +464,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_request_resend",
     "public_invitation_request_recategorize",
     "public_song_master_delivery",
-    "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating",
+    "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating",
     "public_song_delivery_sign",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
@@ -582,6 +582,8 @@ def inject_country_helpers():
         "marketing_digital_platforms": globals().get("MARKETING_DIGITAL_PLATFORMS", []),
         # `MEDIA_TYPES` es global porque el alta rápida de medios (modal transversal) lo necesita.
         "MEDIA_TYPES": globals().get("MEDIA_TYPES", []),
+        # Los interruptores de «compartir una maqueta» (los mismos de una playlist).
+        "DEMO_SHARE_SWITCHES": globals().get("DEMO_SHARE_SWITCHES", ()),
         # Lo que QUEDA por pagar de un gasto (bruto menos lo ya pagado): con pagos parciales, es el
         # importe que hay que ofrecer en cualquier formulario de pago.
         "expense_pending": globals().get("_expense_pending_amount", lambda _e: 0),
@@ -833,7 +835,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -19272,6 +19274,9 @@ def _demo_row_payload(session_db, row) -> dict:
         "rating_requested_by_nick": (getattr(row, "rating_requested_by_nick", None) or "").strip(),
         # Al repertorio pasa cualquier demo de un artista NUESTRO que no esté ya creada.
         "can_make_song": bool(row.artist_id) and not row.song_id,
+        # COMPARTIRLA como una playlist: su enlace y los interruptores de qué se enseña.
+        "share_url": _demo_share_url(session_db, row),
+        "share_flags": _demo_share_flags(row),
     }
 
 
@@ -22016,6 +22021,21 @@ def _demos_context(session_db) -> dict:
                                        _sa_contains_text(SongDemo.sender_name, q),
                                        _sa_contains_text(SongDemo.notes, q)))
     demos = consulta.order_by(SongDemo.created_at.desc()).limit(400).all()
+    # ⚠️ El token del enlace de COMPARTIR se crea aquí, con COMMIT: si se crea solo al pintar (con un
+    # `flush` sin commit) se pierde al cerrar la sesión y en la carga siguiente saldría otro — o sea,
+    # el enlace que alguien ya hubiera compartido dejaría de valer.
+    nuevos = 0
+    for r in demos:
+        if not (getattr(r, "share_token", None) or "").strip():
+            r.share_token = _uuid_token()
+            session_db.add(r)
+            nuevos += 1
+    if nuevos:
+        try:
+            session_db.commit()
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[demos] no se pudieron crear los enlaces de compartir")
     filas = [_demo_row_payload(session_db, r) for r in demos]
 
     # VALORACIONES de todas las demos del listado, en UNA consulta (con 400 demos, una por fila sería
@@ -27359,6 +27379,130 @@ def discografica_demo_delete(demo_id):
     return redirect(url_for("discografica_view", section="demos"))
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# COMPARTIR UNA MAQUETA  (igual que una playlist)
+#
+# Una demo se comparte como se comparte una playlist: **su propio enlace**, el mismo pop-up (Email ·
+# WhatsApp · SMS · Copiar enlace) y **los mismos interruptores** de qué se enseña (descarga, letra,
+# autores, quién la envió, notas), que **nacen apagados**.
+#
+# ⚠️ Se pinta con la MISMA vista que una playlist (`_playlist_view.html`): el contexto se fabrica con
+# la forma que ese parcial espera (`_demo_share_context`), así que la maqueta se ve y suena igual que
+# un tema de una playlist y no hay una segunda pantalla que mantener.
+# ⚠️ Y como en las playlists, **la dirección del archivo en Storage no sale nunca a la página**: el
+# audio y la descarga van por un puente nuestro (`_playlist_audio_response` / `_demo_audio_download`).
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Los mismos interruptores que una playlist (clave, icono, etiqueta, ayuda).
+DEMO_SHARE_SWITCHES = (
+    ("allow_download", "fa-download", "Descarga",
+     "Si se marca, sale el icono de descargar la maqueta (WAV o MP3)"),
+    ("show_lyrics", "fa-align-left", "Letra", "Enseña la letra, si la tiene"),
+    ("show_authors", "fa-feather-pointed", "Autores",
+     "Enseña los autores con su % y su editorial al pasar el ratón"),
+    ("show_sender", "fa-paper-plane", "Quién la envió",
+     "Enseña quién nos la mandó, cuando la ha mandado alguien de fuera"),
+    ("show_notes", "fa-note-sticky", "Notas", "Enseña las notas de la maqueta"),
+)
+
+
+def _demo_share_flags(demo) -> dict:
+    """Los interruptores de esa maqueta (todos apagados si no se ha tocado nada)."""
+    guardado = demo.share_config if isinstance(getattr(demo, "share_config", None), dict) else {}
+    return {clave: bool(guardado.get(clave)) for clave, _i, _l, _a in DEMO_SHARE_SWITCHES}
+
+
+def _ensure_demo_share_token(session_db, demo) -> str:
+    """El token del enlace público (se crea la primera vez que se comparte). Opaco, no firmado."""
+    token = (getattr(demo, "share_token", None) or "").strip()
+    if not token:
+        token = _uuid_token()
+        demo.share_token = token
+        session_db.add(demo)
+        session_db.flush()
+    return token
+
+
+def _demo_share_url(session_db, demo) -> str:
+    try:
+        return _external_url_for("public_demo_share",
+                                 token=_ensure_demo_share_token(session_db, demo))
+    except Exception:
+        return ""
+
+
+def _demo_share_context(session_db, demo, *, token: str | None = None) -> dict:
+    """La maqueta con la FORMA que espera la vista de una playlist (para pintarla con ella).
+
+    `token` != None significa PÚBLICO: el audio y la descarga van contra la página pública."""
+    flags = _demo_share_flags(demo)
+    fila_demo = _demo_row_payload(session_db, demo)
+    fila = {
+        "id": str(demo.id), "kind": "DEMO",
+        "title": fila_demo["title"], "subtitle": "Maqueta",
+        "artist_id": fila_demo["artist_id"], "artist_name": fila_demo["who"],
+        "artist_photo": fila_demo["who_photo"], "cover_url": fila_demo["cover_url"],
+        "song_id": "", "demo_id": str(demo.id),
+        "duration_seconds": int(getattr(demo, "duration_seconds", None) or 0) or 0,
+        "stream_url": "", "download_wav_url": "", "download_mp3_url": "",
+        "detail_url": "", "lyrics": "", "authors": [], "authors_tooltip": "",
+        "sender": {}, "notes": "",
+    }
+    if (getattr(demo, "audio_url", None) or "").strip():
+        try:
+            # ⚠️ Dentro suena con su URL de siempre (es lo que ya hace el listado de demos); en el
+            # enlace PÚBLICO va por nuestro puente, para no publicar la dirección de Storage.
+            fila["stream_url"] = (url_for("public_demo_share_audio", token=token) if token
+                                 else (getattr(demo, "audio_url", None) or ""))
+        except Exception:
+            fila["stream_url"] = ""
+        if flags["allow_download"]:
+            for fmt in PLAYLIST_DOWNLOAD_FORMATS:
+                try:
+                    fila["download_%s_url" % fmt] = (
+                        url_for("public_demo_share_download", token=token, fmt=fmt) if token
+                        else url_for("discografica_demo_audio_download", demo_id=demo.id, fmt=fmt))
+                except Exception:
+                    pass
+    if flags["show_lyrics"]:
+        fila["lyrics"] = (getattr(demo, "lyrics", None) or "").strip()
+    if flags["show_authors"]:
+        fila["authors"] = _demo_author_rows(demo)
+        if fila["authors"]:
+            fila["authors_tooltip"] = _demo_authors_tooltip(fila["authors"])
+    if flags["show_sender"]:
+        fila["sender"] = _demo_submitted_by(demo)
+    if flags["show_notes"]:
+        fila["notes"] = (getattr(demo, "notes", None) or "").strip()
+    # `pl` es lo que la vista llama «la playlist»: aquí es la propia maqueta.
+    return {
+        "playlist": demo,
+        "pl": {
+            "id": str(demo.id),
+            "name": fila_demo["title"],
+            "cover_url": fila_demo["cover_url"],
+            "note": "",
+            "songs_count": 1,
+            "duration_label": (_playlist_duration_label(fila["duration_seconds"])
+                               if fila["duration_seconds"] else ""),
+            "duration_partial": False,
+            **flags,
+        },
+        "items": [fila],
+        "brand": _playlist_brand(session_db, demo),
+        "public_url": _demo_share_url(session_db, demo),
+        "share_subject": "Maqueta %s" % (fila_demo["title"] or ""),
+        "is_public": bool(token),
+        "demo_share": True,
+    }
+
+
+def _demo_by_share_token(session_db, token: str):
+    return (session_db.query(SongDemo)
+            .filter(SongDemo.share_token == (token or "").strip()).first()
+            if (token or "").strip() else None)
+
+
 def _demo_audio_download(session_db, demo, fmt: str):
     """El audio de una maqueta, DESCARGADO (no abierto en una pestaña) en WAV o en MP3.
 
@@ -27381,6 +27525,146 @@ def _demo_audio_download(session_db, demo, fmt: str):
     artista = (getattr(getattr(demo, "artist", None), "name", None) or "").strip()
     nombre = _material_download_name("Maqueta", (getattr(demo, "title", None) or "").strip(), artista, ext)
     return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=nombre)
+
+
+@app.post("/discografica/demos/<demo_id>/compartir", endpoint="demo_share_save")
+@admin_required
+def demo_share_save(demo_id):
+    """Los INTERRUPTORES de qué se enseña al compartir la maqueta (los mismos de una playlist)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        demo = session_db.get(SongDemo, to_uuid(demo_id))
+        if demo is None:
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "No existe esa maqueta."}), 404
+            flash("Maqueta no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="demos"))
+        guardado = dict(demo.share_config if isinstance(demo.share_config, dict) else {})
+        for clave, _i, _l, _a in DEMO_SHARE_SWITCHES:
+            # Solo se toca lo que llega (así el interruptor se puede guardar de uno en uno).
+            if clave in request.form:
+                guardado[clave] = _truthy(request.form.get(clave))
+        demo.share_config = guardado
+        demo.updated_at = _now_madrid()
+        _ensure_demo_share_token(session_db, demo)
+        session_db.commit()
+        if _is_xhr_request():
+            return jsonify({"ok": True, "config": _demo_share_flags(demo)})
+        flash("Guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[demos] no se pudo guardar el compartir")
+        if _is_xhr_request():
+            return jsonify({"ok": False, "error": str(exc)[:200]}), 400
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("discografica_view", section="demos")))
+
+
+@app.post("/discografica/demos/<demo_id>/compartir/email", endpoint="demo_send_email")
+@admin_required
+def demo_send_email(demo_id):
+    """Compartir la maqueta por CORREO (el mismo correo que una playlist: cabecera y botón)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        demo = session_db.get(SongDemo, to_uuid(demo_id))
+        if demo is None:
+            flash("Maqueta no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="demos"))
+        correos = [x.strip() for x in re.split(r"[,;\s]+", (request.form.get("emails") or ""))
+                   if x.strip()]
+        if not correos:
+            flash("Dinos a quién.", "warning")
+            return redirect(safe_next_or(url_for("discografica_view", section="demos")))
+        ctx = _demo_share_context(session_db, demo)
+        cuerpo = _playlist_email_html(ctx, note=(request.form.get("note") or ""))
+        ok, err = _send_optional_email(correos, ctx["share_subject"], cuerpo)
+        session_db.commit()
+        if ok:
+            flash("Maqueta enviada a %s." % ", ".join(correos), "success")
+        else:
+            flash("No se pudo enviar: %s" % (err or "revisa el correo"), "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[demos] no se pudo compartir por correo")
+        flash("No se pudo enviar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("discografica_view", section="demos")))
+
+
+@app.get("/maqueta/<token>", endpoint="public_demo_share")
+def public_demo_share(token):
+    """La maqueta compartida: se ve y suena **igual que una playlist** (misma vista)."""
+    session_db = db()
+    try:
+        demo = _demo_by_share_token(session_db, token)
+        if demo is None:
+            abort(404)
+        ctx = _demo_share_context(session_db, demo, token=token)
+        return render_template("public_playlist.html", **ctx,
+                               og_image=_external_url_for("public_demo_share_og_image", token=token))
+    finally:
+        session_db.close()
+
+
+@app.get("/maqueta/<token>/audio", endpoint="public_demo_share_audio")
+def public_demo_share_audio(token):
+    """El audio de la maqueta compartida, por nuestro puente (con `Range`, para poder arrastrar)."""
+    session_db = db()
+    try:
+        demo = _demo_by_share_token(session_db, token)
+        if demo is None:
+            abort(404)
+        return _playlist_audio_response((getattr(demo, "audio_url", None) or "").strip())
+    finally:
+        session_db.close()
+
+
+@app.get("/maqueta/<token>/descargar", endpoint="public_demo_share_download")
+def public_demo_share_download(token):
+    """La descarga (WAV o MP3) — **solo si el interruptor de descarga está encendido**."""
+    session_db = db()
+    try:
+        demo = _demo_by_share_token(session_db, token)
+        if demo is None:
+            abort(404)
+        if not _demo_share_flags(demo).get("allow_download"):
+            abort(404)
+        return _demo_audio_download(session_db, demo, request.args.get("fmt") or "wav")
+    finally:
+        session_db.close()
+
+
+@app.get("/maqueta/<token>/og.jpg", endpoint="public_demo_share_og_image")
+def public_demo_share_og_image(token):
+    """La miniatura al compartir: la portada de la maqueta y, si no tiene, la del «sin portada»."""
+    session_db = db()
+    try:
+        demo = _demo_by_share_token(session_db, token)
+        if demo is None:
+            abort(404)
+        fuente = (getattr(demo, "cover_url", None) or "").strip()
+        if not fuente:
+            artista = (session_db.get(Artist, demo.artist_id) if getattr(demo, "artist_id", None) else None)
+            fuente = (getattr(artista, "photo_url", None) or "").strip()
+        # ⚠️ Sin portada, la MISMA imagen de «sin portada» que en las canciones y las playlists (no el
+        # logo): en WhatsApp y en SMS se ve lo que se vería en la app. Es un PNG a propósito.
+        respaldo = url_for("static", filename="img/cover_placeholder.png")
+        # ⚠️ Si la portada no se puede leer (una URL caída), se cae al «sin portada» en vez de dejar la
+        # previsualización en 404: en WhatsApp un 404 se ve como un enlace pelado.
+        data = (_og_image_jpeg_bytes(fuente) if fuente else None) or _og_image_jpeg_bytes(respaldo)
+        if not data:
+            abort(404)
+        return Response(data, mimetype="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"})
+    finally:
+        session_db.close()
 
 
 @app.get("/discografica/demos/<demo_id>/audio", endpoint="discografica_demo_audio_download")
@@ -60611,7 +60895,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:

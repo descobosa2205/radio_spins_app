@@ -21886,6 +21886,23 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   menu=[{"label": "Volver a notificar el plazo", "icon": "fa-paper-plane",
                          "modal": "#dpMaterialsNotifyModal"}])
 
+    # ================= 1b · NOTIFICARLE LA FECHA AL ARTISTA =================
+    if lleva_audio and fechas.get("confirmed"):
+        _aviso_fecha = dict(_disco_prod(project).get("date_notice") or {})
+        if _aviso_fecha.get("sent_at"):
+            tarea("fecha_aviso", "Notificar la fecha al artista", "", "fa-paper-plane", sub=True,
+                  state="done",
+                  value="Avisado%s%s" % ((" por %s" % _aviso_fecha.get("by"))
+                                         if _aviso_fecha.get("by") else "",
+                                         (" el %s" % _iso_date_label(_aviso_fecha.get("sent_at")))
+                                         if _aviso_fecha.get("sent_at") else ""),
+                  menu=[{"label": "Volver a mandarlo", "icon": "fa-rotate",
+                         "modal": "#dpDateNoticeModal"}])
+        else:
+            tarea("fecha_aviso", "Notificar la fecha al artista", "", "fa-paper-plane", sub=True,
+                  hint="Con la fecha y los plazos de entrega",
+                  action_label="Avisar al artista", modal="#dpDateNoticeModal")
+
     # ================= 2b · El CALENDARIO DE ENTREGAS (todos los plazos) =================
     # ⚠️ Sin fecha de lanzamiento no hay plazos que fijar: la tarea sale BLOQUEADA (rayada).
     entregas = _disco_delivery_state(session_db, project)
@@ -24742,6 +24759,9 @@ def disco_project_artwork_who(project_id):
         else:
             fila.cost_mode, fila.amount = None, None
         fila.updated_at = _now_madrid()
+        session_db.flush()
+        # ⚠️ Una tarea CON GASTO se ve en la bolsa sin apuntarlo dos veces (la regla de la casa).
+        _disco_artwork_sync_bag(session_db, project, fila)
         session_db.commit()
         flash("Anotado quién hace la portada.", "success")
     except Exception as exc:
@@ -26737,6 +26757,38 @@ def disco_plan_action_save(project_id):
     return redirect(safe_next_or(destino))
 
 
+def _disco_artwork_sync_bag(session_db, project, fila) -> None:
+    """El COSTE DE LA PORTADA va a la BOLSA del proyecto, en su categoría, y se mantiene al día.
+
+    Es la misma regla que las acciones del plan: **una tarea con gasto se ve en la bolsa** sin que
+    nadie lo apunte dos veces. Si deja de tener coste, el gasto se retira."""
+    try:
+        con_coste = ((fila.cost_mode or "").upper() == "AMOUNT" and fila.amount is not None)
+        if not con_coste:
+            if getattr(fila, "bag_expense_id", None):
+                gasto = session_db.get(BagExpense, fila.bag_expense_id)
+                if gasto is not None:
+                    session_db.delete(gasto)
+                fila.bag_expense_id = None
+            return
+        bag = _ensure_project_bag(session_db, project)
+        if bag is None:
+            return
+        gasto = (session_db.get(BagExpense, fila.bag_expense_id)
+                 if getattr(fila, "bag_expense_id", None) else None)
+        if gasto is None:
+            gasto = BagExpense(bag_id=bag.id, category="MARKETING",
+                               created_by_nick=((_current_user_state() or {}).get("nick") or None))
+            session_db.add(gasto)
+            session_db.flush()
+            fila.bag_expense_id = gasto.id
+        gasto.concept = "Portada · %s" % (_disco_artwork_who_name(session_db, fila) or "diseño")
+        gasto.amount_net = fila.amount
+        gasto.amount_gross = fila.amount
+    except Exception:
+        app.logger.exception("[portada] no se pudo sincronizar el gasto de la portada")
+
+
 def _disco_plan_action_sync_bag(session_db, project, fila) -> None:
     """El coste de una acción del plan va a la BOLSA del proyecto y se mantiene al día.
 
@@ -28012,6 +28064,80 @@ def public_disco_approval(token):
                                state=_disco_approval_state(session_db, project, fila.kind))
     finally:
         session_db.close()
+
+
+@app.post("/discografica/proyectos/<project_id>/fecha/notificar", endpoint="disco_project_date_notify")
+@admin_required
+def disco_project_date_notify(project_id):
+    """NOTIFICARLE AL ARTISTA QUE YA HAY FECHA, con el calendario de plazos.
+
+    Solo cuando **Registros la ha confirmado**. Van la fecha y **todos los plazos** del calendario de
+    entregas — y si el lanzamiento lleva **videoclip**, también los suyos."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        fechas = _disco_date_state(session_db, project)
+        if not fechas.get("confirmed"):
+            flash("Antes tiene que confirmar la fecha Registros.", "warning")
+            return redirect(safe_next_or(destino))
+        entregas = _disco_delivery_state(session_db, project)
+        esc = lambda v: html.escape("" if v is None else str(v))
+        filas = "".join(
+            '<tr><td style="padding:6px 10px;border-bottom:1px solid #eef0f4;">%s</td>'
+            '<td style="padding:6px 10px;border-bottom:1px solid #eef0f4;text-align:right;'
+            'font-weight:700;">%s</td></tr>'
+            % (esc(f["label"]), esc(f["date_label"] or ("antes del %s" % f["limit_label"])
+                                    if (f["date_label"] or f["limit_label"]) else "—"))
+            for f in (entregas.get("rows") or []))
+        cuerpo = ('<p style="margin:0 0 14px;">Ya tenemos <strong>fecha de lanzamiento</strong>: '
+                  '<strong>%s</strong>.</p>' % esc(fechas.get("date_long") or fechas.get("date_label")))
+        if (request.form.get("note") or "").strip():
+            cuerpo += ('<p style="margin:0 0 14px;">%s</p>'
+                       % esc(request.form["note"].strip()).replace("\n", "<br/>"))
+        if filas:
+            cuerpo += ('<div style="margin:0 0 6px;font-size:13px;font-weight:700;'
+                       'text-transform:uppercase;letter-spacing:.06em;color:#6b7280;">Plazos</div>'
+                       '<table role="presentation" width="100%%" style="border-collapse:collapse;'
+                       'font-size:14px;">%s</table>' % filas)
+        html_correo = _disco_project_email_shell(
+            session_db, project, title="Fecha de lanzamiento", body_html=cuerpo)
+        recibieron = []
+        for f in _notify_apply_prefs(session_db,
+                                    _artist_notification_recipients(session_db, project.artist_id,
+                                                                    "DISCOGRAFICA") or []):
+            ok, _err = _notify_send_row(
+                session_db, f,
+                subject="Fecha de lanzamiento · %s" % _disco_project_title(project),
+                html=html_correo,
+                sms_text="%s sale el %s" % (_disco_project_title(project),
+                                            fechas.get("date_label") or ""),
+                kind="DISCOGRAFICA")
+            if ok:
+                recibieron.append(f.get("name") or f.get("email"))
+        if recibieron:
+            prod = _disco_prod(project)
+            prod["date_notice"] = {"sent_at": _now_madrid().isoformat(),
+                                   "by": ((_current_user_state() or {}).get("nick") or ""),
+                                   "to": [str(x) for x in recibieron]}
+            project.production_payload = prod
+        session_db.commit()
+        if recibieron:
+            flash("Fecha notificada a %s." % ", ".join([str(x) for x in recibieron]), "success")
+        else:
+            flash("No se pudo avisar al artista: revisa sus contactos de comunicaciones.", "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[proyectos] no se pudo notificar la fecha")
+        flash("No se pudo mandar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
 
 
 @app.post("/discografica/proyectos/<project_id>/calendario-entregas", endpoint="disco_project_delivery_save")

@@ -1549,6 +1549,58 @@
   </div>
 </div>
 
+{# ---------------------------------------------------------------- AVISAR LA FECHA AL ARTISTA #}
+<div class="modal fade" id="dpDateNoticeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_date_notify', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Avisar de la fecha al artista</h5>
+          <div class="text-muted small">Van la fecha y <strong>todos los plazos</strong> del calendario de entregas.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if date_state and date_state.confirmed %}
+          <div class="alert alert-secondary">
+            <i class="fa fa-calendar-check me-1"></i>Sale el
+            <strong>{{ date_state.date_long or date_state.date_label }}</strong>
+            {%- if date_state.confirmed_by %} (lo confirmó {{ date_state.confirmed_by }}){% endif %}.
+          </div>
+        {% else %}
+          <div class="alert alert-warning"><i class="fa fa-lock me-1"></i>
+            Antes tiene que confirmar la fecha Registros.</div>
+        {% endif %}
+        {% if delivery and delivery.rows %}
+          <div class="table-responsive">
+            <table class="table table-sm mb-0">
+              <tbody>
+                {% for f in delivery.rows %}
+                  <tr>
+                    <td><i class="fa {{ f.icon }} me-2 text-muted"></i>{{ f.label }}</td>
+                    <td class="text-end fw-semibold">
+                      {{ f.date_label or ('antes del ' ~ f.limit_label if f.limit_label else '—') }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+        <label class="form-label mt-3">Nota (opcional)</label>
+        <textarea class="form-control" name="note" rows="2"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"
+                {% if not (date_state and date_state.confirmed) %}disabled{% endif %}>
+          <i class="fa fa-paper-plane me-1"></i>Avisar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- CALENDARIO DE ENTREGAS
    A la IZQUIERDA lo que hay que fijar y a la DERECHA el calendario: se ARRASTRA cada cosa al día que
    le toca. ⚠️ Solo se puede soltar donde el plazo es posible (los días imposibles se ven apagados);

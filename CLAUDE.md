@@ -1086,6 +1086,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   final»** hasta que llega.
   ⚠️ Si el correo no sale, **no se dice que se avisó**: el flash da el enlace para mandarlo a mano.
 
+- **PROYECTO · AVISARLE LA FECHA AL ARTISTA** (ago 2026, `disco_project_date_notify`): cuando
+  **Registros la ha confirmado**, se le manda al artista la fecha **y todos los plazos** del calendario
+  de entregas (los del **videoclip** también, si el lanzamiento lo lleva, porque el calendario ya los
+  trae). Sale como subtarea de la fecha y queda apuntado quién avisó y cuándo.
+
+- ⚠️ **UNA TAREA CON GASTO SE VE EN LA BOLSA** (regla de la casa, ago 2026): lo hacían las **acciones
+  del plan** (`_disco_plan_action_sync_bag`) y ahora también el **coste de la PORTADA**
+  (`_disco_artwork_sync_bag` + `DiscoProjectArtwork.bag_expense_id`): al ponerle importe se crea su
+  gasto en la bolsa del proyecto, al cambiarlo se actualiza y **si deja de tener coste, el gasto se
+  retira**. Es el MISMO dinero visto desde dos sitios — nadie lo apunta dos veces. Al añadir una tarea
+  con importe, engancharla igual.
+
 - **PROYECTO · EL CALENDARIO DE ENTREGAS** (ago 2026): antes de pedirle nada a nadie se **fijan los
   plazos** —mezcla final, máster, portada, videoclip y creatividades— **arrastrando** cada cosa al día
   que le toca: a la **izquierda** lo que hay que fijar (con su mínimo y su tope) y a la **derecha** el

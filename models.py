@@ -876,6 +876,8 @@ class DiscoProjectArtwork(Base):
     delivered_by = Column(Text)
     # ⚠️ Antes de mandarla al artista la ve el JEFE DE PRODUCTO: si él no le da el visto bueno, no sale
     # de casa (y si la rechaza, vuelve a diseño con su nota).
+    # El COSTE de la portada se lleva a la bolsa del proyecto (mismo patrón que las acciones del plan).
+    bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
     pm_ok_at = Column(DateTime(timezone=True))
     pm_ok_by = Column(Text)
     pm_note = Column(Text)
@@ -11979,6 +11981,7 @@ def ensure_disco_approvals_schema():
         );
         """,
         # PORTADA: el visto bueno del jefe de producto y la CADENA de aprobadores.
+        "ALTER TABLE IF EXISTS disco_project_artwork ADD COLUMN IF NOT EXISTS bag_expense_id uuid REFERENCES bag_expenses(id) ON DELETE SET NULL;",
         "ALTER TABLE IF EXISTS disco_project_artwork ADD COLUMN IF NOT EXISTS pm_ok_at timestamptz;",
         "ALTER TABLE IF EXISTS disco_project_artwork ADD COLUMN IF NOT EXISTS pm_ok_by text;",
         "ALTER TABLE IF EXISTS disco_project_artwork ADD COLUMN IF NOT EXISTS pm_note text;",

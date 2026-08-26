@@ -874,6 +874,11 @@ class DiscoProjectArtwork(Base):
     psd_url = Column(Text)
     delivered_at = Column(DateTime(timezone=True))
     delivered_by = Column(Text)
+    # ⚠️ Antes de mandarla al artista la ve el JEFE DE PRODUCTO: si él no le da el visto bueno, no sale
+    # de casa (y si la rechaza, vuelve a diseño con su nota).
+    pm_ok_at = Column(DateTime(timezone=True))
+    pm_ok_by = Column(Text)
+    pm_note = Column(Text)
     approval_asked_at = Column(DateTime(timezone=True))
     approved_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -904,6 +909,10 @@ class DiscoProjectArtworkApprover(Base):
     status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE|APROBADA|RECHAZADA
     note = Column(Text)
     decided_at = Column(DateTime(timezone=True))
+    # LA CADENA: 1 = nuestro artista (y sus integrantes) · 2 = el colaborador. Al colaborador no se le
+    # escribe hasta que los nuestros han dado el OK, así que hace falta saber a quién se ha avisado ya.
+    stage = Column(Integer, nullable=False, server_default=text("1"))
+    notified_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     artwork = relationship("DiscoProjectArtwork", back_populates="approvers")
@@ -11969,6 +11978,12 @@ def ensure_disco_approvals_schema():
             created_at timestamptz DEFAULT now()
         );
         """,
+        # PORTADA: el visto bueno del jefe de producto y la CADENA de aprobadores.
+        "ALTER TABLE IF EXISTS disco_project_artwork ADD COLUMN IF NOT EXISTS pm_ok_at timestamptz;",
+        "ALTER TABLE IF EXISTS disco_project_artwork ADD COLUMN IF NOT EXISTS pm_ok_by text;",
+        "ALTER TABLE IF EXISTS disco_project_artwork ADD COLUMN IF NOT EXISTS pm_note text;",
+        "ALTER TABLE IF EXISTS disco_project_artwork_approvers ADD COLUMN IF NOT EXISTS stage integer NOT NULL DEFAULT 1;",
+        "ALTER TABLE IF EXISTS disco_project_artwork_approvers ADD COLUMN IF NOT EXISTS notified_at timestamptz;",
         "CREATE INDEX IF NOT EXISTS idx_disco_approvals_project ON disco_approvals(project_id, kind);",
         "CREATE INDEX IF NOT EXISTS idx_disco_approval_voters ON disco_approval_voters(approval_id, stage);",
     ], label="ensure_disco_approvals_schema")

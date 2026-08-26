@@ -21790,8 +21790,25 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                     else:
                         tarea("port_pedir", "Solicitar la portada", "", "fa-paper-plane",
                               grupo="single", sub=True, state="done", value="Entregada")
-                        # 4.4 · la aprobación del artista
-                        if art["rejected"]:
+                        # 4.4 · EL VISTO BUENO DEL JEFE DE PRODUCTO (antes de que salga de casa)
+                        if not art["pm_ok"]:
+                            tarea("port_pm", "Visto bueno del jefe de producto", "", "fa-user-check",
+                                  grupo="single", sub=True, action_label="Revisar la portada",
+                                  modal="#dpArtworkPmModal",
+                                  hint=("Rechazada: %s" % art["pm_note"]) if art["pm_note"] else
+                                       "La ve la casa antes de mandarla al artista")
+                        else:
+                            tarea("port_pm", "Visto bueno del jefe de producto", "", "fa-user-check",
+                                  grupo="single", sub=True, state="done",
+                                  value=" · ".join([x for x in [art["pm_ok_by"], art["pm_ok_label"]] if x]),
+                                  menu=[{"label": "Devolverla a diseño", "icon": "fa-rotate-left",
+                                         "modal": "#dpArtworkPmModal"}])
+                        # 4.5 · la aprobación del artista (y luego el colaborador)
+                        if not art["pm_ok"]:
+                            tarea("port_ok", "Aprobación de portada", "", "fa-thumbs-up",
+                                  grupo="single", sub=True, state="blocked",
+                                  hint="Antes tiene que darle el visto bueno el jefe de producto")
+                        elif art["rejected"]:
                             tarea("port_ok", "Aprobación de portada", "", "fa-thumbs-down",
                                   True, grupo="single", sub=True,
                                   hint="La han rechazado: hay que rehacerla y volver a pedirla",
@@ -21802,10 +21819,20 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                                   grupo="single", sub=True, action_label="Pedir aprobación",
                                   modal="#dpArtworkApprovalModal",
                                   hint="Al artista y a sus colaboradores")
+                        elif art["approved"]:
+                            tarea("port_ok", "Aprobación de portada", "", "fa-thumbs-up",
+                                  grupo="single", sub=True, state="done",
+                                  value="Aprobada por %s%s"
+                                        % (" · ".join([a["name"] for a in art["approvers"]][:4]),
+                                           (" · %s" % art["approved_label"]) if art["approved_label"] else ""))
                         else:
                             tarea("port_ok", "Aprobación de portada", "", "fa-hourglass-half",
                                   grupo="single", sub=True, state="wait",
-                                  hint="Faltan %d por aprobar" % art["pending_approvers"],
+                                  hint="Faltan %d por aprobar%s" % (
+                                      art["pending_approvers"],
+                                      (" · le toca %s" % ("al colaborador" if art["stage"] == 2
+                                                          else "a nuestro artista"))
+                                      if art["stage"] else ""),
                                   menu=[{"label": "Volver a pedirla", "icon": "fa-rotate",
                                          "modal": "#dpArtworkApprovalModal"}])
 
@@ -23861,70 +23888,49 @@ def _disco_artwork_state(session_db, project) -> dict:
         "approvers": [{"id": str(a.id), "name": (a.name or a.email or "—"),
                        "email": (a.email or ""), "photo_url": (a.photo_url or ""),
                        "role": (a.role or ""), "status": (a.status or "PENDIENTE").upper(),
-                       "note": (a.note or ""),
+                       "note": (a.note or ""), "stage": int(getattr(a, "stage", 1) or 1),
+                       "notified": bool(getattr(a, "notified_at", None)),
                        "at_label": (a.decided_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
                                     if a.decided_at else "")}
                       for a in aprobadores],
         "pending_approvers": len(pendientes),
         "rejected": len(rechazos),
         "approved": bool(fila.approved_at),
+        "approved_label": (fila.approved_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                           if fila.approved_at else ""),
+        # EL VISTO BUENO DEL JEFE DE PRODUCTO: sin él la portada no sale de casa.
+        "pm_ok": bool(getattr(fila, "pm_ok_at", None)),
+        "pm_ok_by": (getattr(fila, "pm_ok_by", None) or ""),
+        "pm_ok_label": (fila.pm_ok_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                        if getattr(fila, "pm_ok_at", None) else ""),
+        "pm_note": (getattr(fila, "pm_note", None) or ""),
+        # A quién le toca ahora (1 = nuestro artista · 2 = el colaborador).
+        "stage": (min([int(getattr(a, "stage", 1) or 1) for a in pendientes]) if pendientes else 0),
     }
 
 
 def _disco_artwork_candidates(session_db, project) -> list[dict]:
-    """A QUIÉN se le pide aprobar la portada: el artista (sus cuentas de comunicaciones), sus
-    INTEGRANTES y los colaboradores del lanzamiento.
+    """A QUIÉN se le pide aprobar la portada. **Es el MISMO punto único que el resto de las
+    aprobaciones** (`_disco_approval_candidates`): los integrantes del artista, los colaboradores del
+    lanzamiento, lo que el artista tenga en su canal APROBACIONES y quien se haya añadido en el
+    proyecto — cada uno con su ETAPA (el colaborador va después de los nuestros).
 
-    Mismo criterio que la supervisión de fotos: cada uno con su nombre, su foto y su correo."""
-    salida, vistos = [], set()
-
-    def añade(nombre, correo, foto, papel, promoter_id=None, telefono=""):
-        clave = (correo or "").strip().lower() or ("p:%s" % promoter_id if promoter_id else nombre)
-        if not clave or clave in vistos:
-            return
-        vistos.add(clave)
-        salida.append({"name": (nombre or "").strip() or (correo or ""), "email": (correo or "").strip(),
-                       "phone": (telefono or "").strip(), "photo_url": (foto or ""), "role": papel,
-                       "promoter_id": (str(promoter_id) if promoter_id else "")})
-
-    artista = getattr(project, "artist", None) or (
-        session_db.get(Artist, project.artist_id) if project.artist_id else None)
-    if artista is not None:
-        # Las cuentas configuradas para lo DISCOGRÁFICO del artista.
-        try:
-            for fila in (_artist_notification_recipients(session_db, artista.id, "DISCOGRAFICA") or []):
-                añade(fila.get("name") or artista.name, fila.get("email"), (artista.photo_url or ""),
-                      "ARTISTA", telefono=fila.get("phone"))
-        except Exception:
-            app.logger.exception("[portada] no se pudieron leer los contactos del artista")
-        # Y sus INTEGRANTES (cada uno es un tercero con su ficha).
-        try:
-            for persona in (session_db.query(ArtistPerson)
-                            .filter(ArtistPerson.artist_id == artista.id).all()):
-                p = (session_db.get(Promoter, persona.promoter_id) if persona.promoter_id else None)
-                correo_i, tel_i = _promoter_email_phone(p)
-                añade(_artist_person_full_name(persona), correo_i,
-                      (getattr(p, "logo_url", "") or ""), "INTEGRANTE",
-                      promoter_id=getattr(p, "id", None), telefono=tel_i)
-        except Exception:
-            app.logger.exception("[portada] no se pudieron leer los integrantes")
-    # Y los COLABORADORES del lanzamiento (los otros intérpretes): la portada también es suya.
-    try:
-        release = _disco_project_release(session_db, project)
-        if release and release.get("kind") == "SONG":
-            cancion = session_db.get(Song, to_uuid(release["id"]))
-            for fila in (_song_interpreter_rows_map(session_db, [cancion.id]).get(str(cancion.id), [])
-                         if cancion else []):
-                otro = (getattr(fila, "artist", None) or getattr(fila, "promoter", None))
-                nombre = (getattr(otro, "name", None) or getattr(otro, "nick", None) or "").strip()
-                if not nombre or nombre == getattr(artista, "name", ""):
-                    continue
-                correo_c, tel_c = _promoter_email_phone(getattr(fila, "promoter", None))
-                añade(nombre, correo_c, (getattr(otro, "photo_url", None)
-                                         or getattr(otro, "logo_url", None) or ""),
-                      "COLABORADOR", telefono=tel_c)
-    except Exception:
-        app.logger.exception("[portada] no se pudieron leer los colaboradores")
+    ⚠️⚠️ Antes esto tenía su propia lista y el bloque de los colaboradores leía `fila.artist` /
+    `fila.promoter` de un `SongInterpreter`… que **solo tiene el NOMBRE**: el colaborador no entraba
+    nunca (bug real). Con el punto único no puede volver a pasar."""
+    salida = []
+    for cand in _disco_approval_candidates(session_db, project):
+        salida.append({
+            "name": (cand.get("name") or ""),
+            "email": (cand.get("email") or ""),
+            "phone": (cand.get("phone") or ""),
+            "photo_url": (cand.get("photo_url") or ""),
+            "role": (cand.get("role") or "OTRO"),
+            "promoter_id": (cand.get("promoter_id") or ""),
+            "stage": int(cand.get("stage") or 1),
+            "source": (cand.get("source") or "casa"),
+            "key": (cand.get("key") or ""),
+        })
     return salida
 
 
@@ -24329,9 +24335,12 @@ def disco_project_artwork_approval(project_id):
         if not candidatos:
             flash("No hay a quién pedirle la aprobación.", "warning")
             return redirect(destino)
+        # ⚠️ Antes de que la portada salga de casa la tiene que ver el JEFE DE PRODUCTO.
+        if not getattr(fila, "pm_ok_at", None):
+            flash("Antes tiene que darle el visto bueno el jefe de producto.", "warning")
+            return redirect(destino)
         nota = (request.form.get("note") or "").strip()
         ya = {(a.email or "").lower(): a for a in (fila.approvers or [])}
-        salieron, sin_correo = [], []
         for c in candidatos:
             correo = (c.get("email") or "").strip()
             fila_ap = ya.get(correo.lower())
@@ -24340,24 +24349,23 @@ def disco_project_artwork_approval(project_id):
                     artwork_id=fila.id, name=(c.get("name") or ""), email=correo,
                     phone=(c.get("phone") or ""), photo_url=(c.get("photo_url") or ""),
                     role=(c.get("role") or "OTRO"), token=_uuid_token(), status="PENDIENTE",
+                    # LA CADENA: la etapa la trae el candidato (1 nuestro artista · 2 el colaborador
+                    # · 3 los añadidos), que es el mismo criterio que el resto de las aprobaciones.
+                    stage=int(c.get("stage") or 1),
                     promoter_id=(_safe_uuid(c.get("promoter_id")) if c.get("promoter_id") else None))
                 session_db.add(fila_ap)
                 session_db.flush()
-            if not correo:
-                sin_correo.append(fila_ap.name or "—")
-                continue
-            cuerpo = _disco_artwork_email_html(session_db, project, fila, kind="APPROVAL",
-                                               note=nota, approver=fila_ap)
-            ok, _err = _send_optional_email([correo],
-                                            "Aprobación de portada · %s" % _disco_project_title(project),
-                                            cuerpo)
-            if ok:
-                salieron.append(fila_ap.name or correo)
         fila.approval_asked_at = _now_madrid()
         fila.status = "DELIVERED"
+        fila.request_note = fila.request_note or None
+        session_db.flush()
+        # Solo se escribe a la PRIMERA etapa que tenga gente pendiente.
+        salieron, sin_correo, etapa = _disco_artwork_notify_stage(session_db, project, fila, nota=nota)
         session_db.commit()
         msg = ("Aprobación pedida a %s." % ", ".join([str(x) for x in salieron])) if salieron else \
               "No se pudo escribir a nadie: comparte los enlaces a mano."
+        if etapa == 2:
+            msg = "Le toca al colaborador. " + msg
         if sin_correo:
             msg += " Sin correo: %s (comparte su enlace)." % ", ".join(sin_correo)
         flash(msg, "success" if salieron else "warning")
@@ -24365,6 +24373,92 @@ def disco_project_artwork_approval(project_id):
         session_db.rollback()
         app.logger.exception("[portada] no se pudo pedir la aprobación")
         flash("No se pudo pedir la aprobación: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_artwork_notify_stage(session_db, project, fila, *, nota: str = "", stage=None):
+    """Manda su enlace a la ETAPA que toca (1 = nuestro artista · 2 = el colaborador).
+
+    ⚠️ Al colaborador **no se le escribe hasta que los nuestros han dado el OK**: la cadena no se
+    salta. Devuelve (a quién le ha llegado, quién no tiene correo, qué etapa)."""
+    todos = list(session_db.query(DiscoProjectArtworkApprover)
+                 .filter(DiscoProjectArtworkApprover.artwork_id == fila.id).all())
+    pendientes = [x for x in todos if (x.status or "PENDIENTE").upper() == "PENDIENTE"]
+    if not pendientes:
+        return [], [], 0
+    etapa = int(stage or min(int(x.stage or 1) for x in pendientes))
+    salieron, sin_correo = [], []
+    for ap in pendientes:
+        if int(ap.stage or 1) != etapa:
+            continue
+        correo = (ap.email or "").strip()
+        if not correo:
+            sin_correo.append(ap.name or "—")
+            continue
+        cuerpo = _disco_artwork_email_html(session_db, project, fila, kind="APPROVAL",
+                                          note=nota, approver=ap)
+        ok, _err = _send_optional_email([correo],
+                                       "Aprobación de portada · %s" % _disco_project_title(project),
+                                       cuerpo)
+        if ok:
+            ap.notified_at = _now_madrid()
+            session_db.add(ap)
+            salieron.append(ap.name or correo)
+    return salieron, sin_correo, etapa
+
+
+@app.post("/discografica/proyectos/<project_id>/portada/visto-bueno", endpoint="disco_project_artwork_pm")
+@admin_required
+def disco_project_artwork_pm(project_id):
+    """EL VISTO BUENO DEL JEFE DE PRODUCTO: la portada no sale de casa sin él.
+
+    Si la rechaza, vuelve a diseño con su nota (y hay que volver a subirla)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        fila = _disco_artwork(session_db, project, create=False)
+        if fila is None or not (fila.jpg_url and fila.psd_url):
+            flash("Todavía no está subida la portada.", "warning")
+            return redirect(safe_next_or(destino))
+        rechaza = _truthy(request.form.get("reject"))
+        nota = (request.form.get("note") or "").strip()
+        yo = ((_current_user_state() or {}).get("nick") or "")
+        if rechaza:
+            if not nota:
+                flash("Dinos qué hay que cambiar.", "warning")
+                return redirect(safe_next_or(destino))
+            fila.pm_ok_at = None
+            fila.pm_ok_by = ""
+            fila.pm_note = nota
+            fila.jpg_url = None
+            fila.psd_url = None
+            fila.delivered_at = None
+            fila.status = "REQUESTED"
+            # A DISEÑO (o al tercero): hay que rehacerla.
+            _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                          "Portada por rehacer: %s" % _disco_project_title(project),
+                          "%s la ha rechazado: %s" % (yo or "El jefe de producto", nota[:200]),
+                          url=_disco_artwork_upload_url(fila),
+                          ref_type="DISCO_ARTWORK", ref_id=str(project.id))
+        else:
+            fila.pm_ok_at = _now_madrid()
+            fila.pm_ok_by = yo
+            fila.pm_note = nota or None
+        session_db.commit()
+        flash("Portada devuelta a diseño." if rechaza else
+              "Visto bueno dado: ya se le puede pedir la aprobación al artista.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[portada] no se pudo dar el visto bueno")
+        flash("No se pudo guardar: %s" % exc, "danger")
     finally:
         session_db.close()
     return redirect(safe_next_or(destino))
@@ -24498,11 +24592,24 @@ def public_disco_artwork_approval(token):
                 fila.approved_at = _now_madrid()
                 fila.status = "APPROVED"
                 _disco_artwork_apply_to_release(session_db, project, fila)
+                quienes = " · ".join([(x.name or x.email or "—") for x in todos])
                 _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
                               "Portada aprobada: %s" % _disco_project_title(project),
-                              "Ya está en los materiales del lanzamiento.",
+                              "La han aprobado %s. Ya está en los materiales del lanzamiento." % quienes,
                               url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
                               ref_type="DISCO_ARTWORK_OK", ref_id=str(project.id))
+                # …y a DISEÑO, que es quien la hizo: se le dice que está aprobada.
+                _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                              "Portada aprobada: %s" % _disco_project_title(project),
+                              "Han dado el OK %s." % quienes,
+                              url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                              ref_type="DISCO_ARTWORK_OK", ref_id=str(project.id))
+            elif not rechazos:
+                # Nadie ha dicho que no y quedan pendientes: si la etapa de esta persona ya está
+                # cerrada, le toca a la SIGUIENTE (el colaborador).
+                siguiente = min(int(x.stage or 1) for x in pendientes)
+                if siguiente != int(ap.stage or 1):
+                    _disco_artwork_notify_stage(session_db, project, fila, stage=siguiente)
             elif rechazos:
                 fila.approved_at = None
                 _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",

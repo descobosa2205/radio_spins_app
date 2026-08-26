@@ -927,6 +927,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · LA PORTADA se aprueba en CADENA y con el visto bueno de la casa** (ago 2026):
+  · **Antes de que salga de casa la ve el JEFE DE PRODUCTO** (`disco_project_artwork_pm` +
+  `#dpArtworkPmModal`): si le da el visto bueno (`pm_ok_at`/`pm_ok_by`) ya se le puede pedir al
+  artista; si la **devuelve a diseño** se le exige la nota, se **borra el JPG y el PSD** (hay que
+  volver a subirla), la solicitud vuelve a REQUESTED y a **Diseño** le llega el aviso con lo que hay
+  que cambiar. Sin su visto bueno, «Aprobación de portada» sale **bloqueada** y el endpoint la rebota.
+  · **La cadena**: `DiscoProjectArtworkApprover.stage` (1 nuestro artista · 2 el colaborador ·
+  3 añadidos) y `notified_at` — **al colaborador no se le escribe hasta que los nuestros han dado el
+  OK** (`_disco_artwork_notify_stage`, que avisa a la etapa más baja con gente pendiente y se llama
+  otra vez cuando esa etapa se cierra). La tarea dice **a quién le toca**.
+  · **Al aprobarla todos**: se aplica al lanzamiento, y el aviso va a quien lleva el proyecto **y a
+  DISEÑO** (que es quien la hizo), con **quiénes la han aprobado**; la tarea queda «Aprobada por … ·
+  fecha».
+  ⚠️⚠️ **QUIÉN APRUEBA es el MISMO punto único que el resto** (`_disco_artwork_candidates` ahora
+  mapea `_disco_approval_candidates`): antes la portada tenía su propia lista y su bloque de
+  colaboradores leía `fila.artist` / `fila.promoter` de un `SongInterpreter`… que **solo tiene el
+  NOMBRE**, así que **el colaborador no entraba nunca** (bug real). Con el punto único, la portada gana
+  además los aprobadores configurados en el artista y los añadidos en el proyecto.
+
 - **PROYECTO · APROBACIONES EN CADENA** (motor único, ago 2026). Cuatro cosas del sello se aprueban
   igual (la **mezcla final**, los **materiales**, la **foto** y la **portada**), así que el motor es
   UNO: `DiscoApproval` + `DiscoApprovalVoter` (`ensure_disco_approvals_schema`) y

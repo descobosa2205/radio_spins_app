@@ -883,6 +883,48 @@
   </div>
 </div>
 
+{# ---------------------------------------------------------------- VISTO BUENO DE LA PORTADA
+   La portada NO sale de casa sin que la vea el jefe de producto: si le parece bien, ya se le puede
+   pedir la aprobación al artista; si la rechaza, vuelve a diseño con su nota. #}
+{% set aw = artwork or {} %}
+<div class="modal fade" id="dpArtworkPmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_artwork_pm', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-user-check me-2 text-danger"></i>Revisar la portada</h5>
+          <div class="text-muted small">Es lo que va a ver el artista: dale el visto bueno o devuélvela a diseño.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if aw.jpg_url %}
+          <div class="text-center mb-3">
+            <img src="{{ aw.jpg_url }}" alt="" class="img-fluid rounded" style="max-height:340px;">
+          </div>
+          <div class="small text-muted text-center mb-3">
+            <a href="{{ aw.jpg_url }}" target="_blank" rel="noopener">Ver el JPG</a>
+            {% if aw.psd_url %} · <a href="{{ aw.psd_url }}" target="_blank" rel="noopener">Ver el PSD</a>{% endif %}
+          </div>
+        {% else %}
+          <div class="alert alert-warning">Todavía no está subida la portada.</div>
+        {% endif %}
+        <label class="form-label">Nota <span class="text-muted">(obligatoria si la devuelves)</span></label>
+        <textarea class="form-control" name="note" rows="3"
+                  placeholder="Qué hay que cambiar, o lo que quieras dejar apuntado">{{ aw.pm_note or '' }}</textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-outline-danger" type="submit" name="reject" value="1">
+          <i class="fa fa-rotate-left me-1"></i>Devolver a diseño</button>
+        <button class="btn btn-success" type="submit">
+          <i class="fa fa-check me-1"></i>Visto bueno</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- LA MEZCLA FINAL
    Se le pide al productor con su plazo (el del calendario). Si el plazo se sale de las 4 semanas —o
    se quiere saltar el paso— hace falta que lo apruebe quien sea DIRECCIÓN Y SELLO. Y cuando está

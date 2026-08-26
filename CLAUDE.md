@@ -988,22 +988,38 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   se escribe `%%` **solo si la cadena se formatea**, y desmarcar TODAS las publicaciones tiene que
   poder dejarlas todas apagadas (una lista vacía no es «no me han dicho nada»).
 
-- **INICIO DE DIRECCIÓN · el CUADRO POR ÁREAS** (ago 2026). Dirección no trabaja dentro de una
-  sección: **mira**. Por eso su Inicio deja de ser la pila de módulos de todos los departamentos
-  (que es el trabajo de otros) y pasa a ser, en este orden: **cabecera · MIS AVISOS (solo cuando
-  hay) · botones rápidos · el CALENDARIO · LO SUYO** (sus tareas y sus gastos, **a pantalla
-  partida** y solo si hay algo) **· el CUADRO POR ÁREAS**.
-  · **El cuadro**: una tarjeta por área (con su color) y, dentro, **UNA FILA POR PERSONA** —su foto,
-  cuántas cosas lleva y para cuándo—, que **se despliega** con todo lo suyo; cada cosa lleva a donde
-  se resuelve. Áreas: **Contratación · Producción · Ticketing · Sello (proyectos) · Registros ·
-  Promoción y marketing · Diseño · Digital · Administración**.
-  · **Lo que no es de nadie va en su propia fila, «Del departamento»**, con las caras de quien lo
-  puede coger: es la regla de la casa (una tarea sin responsable la ve todo el departamento) y así
-  se ve **lo que hay que repartir** en vez de esconderlo.
+- **INICIO DE DIRECCIÓN · SUS TAREAS y el CUADRO DE MANDO** (ago 2026). Dirección no trabaja dentro
+  de una sección: **mira**. Su Inicio es, en este orden: **cabecera · MIS AVISOS (solo cuando hay) ·
+  botones rápidos · el CALENDARIO · MIS TAREAS PENDIENTES · el CUADRO DE MANDO ·** y sus cosas
+  **BÁSICAS** (mis gastos, mis vacaciones), cada una en su sitio de siempre. **El resto de módulos no
+  se le pintan** (ni se calculan): son el trabajo de otros y ya se ven en el cuadro.
+  · **MIS TAREAS PENDIENTES** es solo lo de ESA persona: **lo que le afecta a ella y lo que es de
+  dirección, en un mismo sitio** (aprobar una remesa, aprobar vacaciones, el OK a un plan de
+  lanzamiento, las fases de SUS actividades, activar la producción de lo que ha creado, sus carteles
+  rechazados, los rechazos por comunicar, sus invitaciones).
+  ⚠️ A dirección, `mine` sale **True en TODAS** las fases de una petición (puede con todo), así que
+  `_home_my_tasks` exige además que la fase sea **suya de verdad** (`owner_user_id` vacío o el suyo):
+  si no, su módulo personal se llenaba con el trabajo de los demás. Eso está en el cuadro.
+  · **El CUADRO DE MANDO es VISUAL**: una tarjeta por área (con su color), su total, y dentro **la
+  CARA de cada persona con el número de tareas que lleva** —de un golpe se ve quién va cargado—.
+  **Al pinchar una cara** se despliega SU listado con el estado de cada tarea (a dónde lleva y para
+  cuándo), en acordeón (`data-bs-parent`: solo una abierta por área). Áreas: **Contratación ·
+  Producción · Ticketing · Sello (proyectos) · Registros · Promoción y marketing · Diseño · Digital ·
+  Administración**.
+  · **Lo que no es de nadie tiene su propia cara**, con las fotos de quien lo puede coger: es la
+  regla de la casa (una tarea sin responsable la ve todo el departamento) y así se ve **lo que hay
+  que repartir** en vez de esconderlo. ⚠️ Debajo de la cara pone **«Sin asignar»** (`short_nick`): en
+  un hueco de 82 px, «Del departamento» se corta y no dice nada — el nombre largo se sigue usando en
+  la cabecera del detalle y en el tooltip.
   · Motor **`_direccion_board()`** + `DIRECCION_AREAS` + un constructor por área
   (`_dir_area_*`), `_dir_task` (una cosa pendiente) y **`_dir_days`** (el reloj: «Hoy» · «Mañana» ·
-  «En 4 días» · «Hace 9 días», con su color). Pantalla: `templates/_home_direccion.html`, estilos
-  `.dboard*` / `.dbp*` / `.dbt*`.
+  «En 4 días» · «Hace 9 días», con su color). Pantallas: **`templates/_home_direccion.html`** (sus
+  tareas) y **`_home_direccion_board.html`** (el cuadro); estilos `.dboard*` / **`.dbg*`** (la
+  rejilla de caras) / `.dbp*` / `.dbt*`.
+  ⚠️ En `home.html` hay DOS compuertas, no una: los módulos de departamento cuelgan de
+  `{% if HOME_DIRECCION_BOARD is none %}` y el bloque **LO SUYO va FUERA**, así que la misma
+  plantilla sirve para todos — a dirección solo le salen ahí los básicos porque las demás claves le
+  llegan **vacías** desde `inject_personnel_globals`.
   · **Cada área REUTILIZA el motor que ya decide qué está pendiente** (`_contracting_tasks_data`,
   `_home_ticketing_sales_tasks`, `_admin_pending_counts` + `_admin_responsible_user_ids`,
   `_home_project_registros`…): si mañana cambia lo que es una tarea, el cuadro cambia solo.
@@ -1033,7 +1049,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **MIS TAREAS PENDIENTES** (`_home_my_tasks`) **no calcula nada nuevo**: junta lo que los módulos
   personales ya han resuelto (remesas por aprobar, vacaciones por aprobar, el OK al plan de
   lanzamiento, las fases de sus actividades, activar producción, carteles rechazados, rechazos por
-  comunicar) en una sola lista ordenada por urgencia.
+  comunicar) en una sola lista ordenada por urgencia. Los módulos de los que sale **no se pintan**
+  para dirección (llegan vacíos), así que nada se dice dos veces.
 
 - **DISCOGRÁFICA · DEMOS** (ago 2026): las maquetas que se están valorando, en su propia sección
   (`/discografica?section=demos`). Modelo **`SongDemo`** (`ensure_song_demos_schema`).

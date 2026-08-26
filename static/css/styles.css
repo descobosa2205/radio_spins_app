@@ -4885,3 +4885,49 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
   border: 1px solid color-mix(in srgb, var(--dboard-color) 25%, #e5e7eb);
   border-radius: 999px; padding: .05rem .5rem;
 }
+
+/* ── CUADRO DE MANDO de dirección · la REJILLA DE CARAS (una por persona, con su número) ──────
+   Es lo primero que se lee: quién lleva cuánto. El listado de cada persona se despliega debajo
+   (`.dbg__detail`), así que la tarjeta se mantiene compacta por muchas personas que haya. */
+.dbg { display: flex; flex-wrap: wrap; gap: .5rem; padding: .7rem .8rem; }
+.dbg__p {
+  display: flex; flex-direction: column; align-items: center; gap: .2rem;
+  width: 82px; padding: .3rem .1rem .35rem; border: 1px solid transparent; border-radius: 12px;
+  background: none; font: inherit; color: inherit; cursor: pointer; text-align: center;
+}
+.dbg__p:hover { background: color-mix(in srgb, var(--dboard-color) 7%, #fff); }
+.dbg__p[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--dboard-color) 10%, #fff);
+  border-color: color-mix(in srgb, var(--dboard-color) 35%, #e5e7eb);
+}
+.dbg__ava { position: relative; display: inline-flex; }
+.dbg__img, .dbg__face {
+  width: 46px; height: 46px; border-radius: 50%; object-fit: cover;
+  border: 2px solid #fff; box-shadow: 0 0 0 1px #e5e7eb; background: #f1f3f7; flex: 0 0 auto;
+}
+.dbg__faces { display: inline-flex; }
+.dbg__faces .dbg__face { width: 34px; height: 34px; margin-top: 6px; }
+.dbg__faces .dbg__face + .dbg__face { margin-left: -14px; }
+.dbg__face--empty { display: inline-flex; align-items: center; justify-content: center; color: #9aa3af; }
+.dbg__n {
+  position: absolute; top: -3px; right: -5px; min-width: 20px; padding: 0 .28rem;
+  border-radius: 999px; background: var(--dboard-color); color: #fff;
+  font-size: .72rem; font-weight: 700; line-height: 19px; text-align: center;
+  border: 2px solid #fff;
+}
+.dbg__n.is-late { background: #b42318; }
+/* El nick cabe en DOS líneas: «Del departamento» truncado a «Del depart…» no dice nada. */
+.dbg__nick {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  max-width: 100%; font-size: .74rem; font-weight: 600; color: #1f2937;
+  line-height: 1.15; overflow: hidden; overflow-wrap: anywhere;
+}
+.dbg__when { font-size: .68rem; color: #6b7280; line-height: 1.1; }
+.dbg__when.is-late { color: #b42318; font-weight: 600; }
+.dbg__when.is-soon { color: #b45309; font-weight: 600; }
+.dboard__panels { border-top: 1px solid #f1f3f7; }
+.dboard__panels:empty, .dbg:empty { display: none; }
+.dbg__detail { padding: .5rem .3rem .2rem; background: #fbfcfe; }
+.dbg__detail-head { display: flex; align-items: center; gap: .5rem; padding: 0 .6rem .35rem; }
+.dbg__detail .dbg__face { width: 28px; height: 28px; }
+.dbg__detail .dbp__list { padding-left: .4rem; }

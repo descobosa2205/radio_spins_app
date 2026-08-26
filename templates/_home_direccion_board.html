@@ -1,0 +1,104 @@
+{# ═══════════════════════════════════════════════════════════════════════════════════════════════
+   CUADRO DE MANDO DE DIRECCIÓN · departamentos y personas
+
+   Es un cuadro VISUAL: una tarjeta por área con su total y, dentro, **la cara de cada persona con
+   el número de tareas que lleva**. Al pinchar una cara se despliega SU listado con el estado de
+   cada tarea (a qué lleva y para cuándo). Lo que no es de nadie va en su propia cara «Del
+   departamento», con las fotos de quien lo puede coger.
+   Motor: `_direccion_board()` (app.py). Solo se calcula en Inicio y solo para dirección.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% set board = HOME_DIRECCION_BOARD %}
+{% if board and board.areas %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <i class="fa fa-table-columns text-danger"></i>
+  <h5 class="mb-0">Cuadro de mando</h5>
+  <span class="badge text-bg-light border">{{ board.total }} pendiente{{ '' if board.total == 1 else 's' }}</span>
+  <span class="text-muted small ms-auto d-none d-md-inline">Pincha en una persona para ver sus tareas.</span>
+</div>
+<div class="row g-3 mb-4">
+  {% for a in board.areas %}
+    <div class="col-12 col-md-6 col-xxl-4">
+      <div class="card h-100 dboard" style="--dboard-color: {{ a.color }};" id="dboard-{{ a.key }}">
+        <div class="dboard__head">
+          <span class="dboard__icon"><i class="fa {{ a.icon }}"></i></span>
+          <a class="dboard__title" href="{{ a.url }}">{{ a.label }}</a>
+          {% if a.urgent %}<span class="badge text-bg-danger" title="Fuera de plazo o para hoy">{{ a.urgent }}</span>{% endif %}
+          <span class="dboard__n">{{ a.total }}</span>
+        </div>
+        {% if a.chips %}
+          {# El desglose que se pide en Producción: cuántos conciertos y cuántas otras actividades. #}
+          <div class="dboard__chips">
+            {% for c in a.chips %}<span class="dboard__chip">{{ c.count }} {{ c.label }}</span>{% endfor %}
+          </div>
+        {% endif %}
+
+        {# ---------- LAS CARAS: de un golpe, quién lleva cuánto ---------- #}
+        <div class="dbg">
+          {% for p in a.people %}
+            <button class="dbg__p" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#dbg-{{ a.key }}-{{ loop.index }}" aria-expanded="false"
+                    title="{{ p.nick }} · {{ p.count }} pendiente{{ '' if p.count == 1 else 's' }}{% if p.next_label %} · {{ p.next_label }}{% endif %}">
+              <span class="dbg__ava">
+                {% if p.shared %}
+                  <span class="dbg__faces">
+                    {% for m in p.members[:3] %}
+                      <img class="dbg__face" src="{{ m.photo_url or DEFAULT_AVATAR_URL }}" data-avatar="1" alt="">
+                    {% else %}
+                      <span class="dbg__face dbg__face--empty"><i class="fa fa-users"></i></span>
+                    {% endfor %}
+                  </span>
+                {% else %}
+                  <img class="dbg__img" src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" data-avatar="1" alt="">
+                {% endif %}
+                <span class="dbg__n {{ 'is-late' if p.urgent else '' }}">{{ p.count }}</span>
+              </span>
+              <span class="dbg__nick">{{ p.short_nick or p.nick }}</span>
+              {% if p.next_label %}
+                <span class="dbg__when {{ 'is-late' if p.tasks and p.tasks[0].tone == 'danger' else ('is-soon' if p.tasks and p.tasks[0].tone == 'warning' else '') }}">{{ p.next_label }}</span>
+              {% endif %}
+            </button>
+          {% endfor %}
+        </div>
+
+        {# ---------- EL DETALLE: el listado de esa persona, con el estado de cada tarea ---------- #}
+        <div class="dboard__panels">
+          {% for p in a.people %}
+            <div class="collapse" id="dbg-{{ a.key }}-{{ loop.index }}" data-bs-parent="#dboard-{{ a.key }}">
+              <div class="dbg__detail">
+                <div class="dbg__detail-head">
+                  <img class="dbg__face" src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" data-avatar="1" alt="">
+                  <span class="fw-semibold">{{ p.nick }}</span>
+                  <span class="text-muted small">{{ p.count }} pendiente{{ '' if p.count == 1 else 's' }}</span>
+                </div>
+                <div class="dbp__list">
+                  {% for t in p.tasks[:12] %}
+                    <a class="dbt" href="{{ t.url or '#' }}">
+                      {% if t.photo %}
+                        <img class="dbt__img" src="{{ t.photo }}" alt="" loading="lazy">
+                      {% else %}
+                        <span class="dbt__img dbt__img--icon"><i class="fa {{ t.icon }}"></i></span>
+                      {% endif %}
+                      <span class="dbt__body">
+                        <span class="dbt__label">{{ t.label }}</span>
+                        {% if t.subject or t.note %}
+                          <span class="dbt__sub">{{ [t.subject, t.note]|select|join(' · ') }}</span>
+                        {% endif %}
+                      </span>
+                      {% if t.days_label %}
+                        <span class="dbt__when {{ 'is-late' if t.tone == 'danger' else ('is-soon' if t.tone == 'warning' else '') }}">{{ t.days_label }}</span>
+                      {% endif %}
+                    </a>
+                  {% endfor %}
+                  {% if p.tasks|length > 12 %}
+                    <div class="small text-muted px-2 pb-2">y {{ p.tasks|length - 12 }} más…</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}

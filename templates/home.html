@@ -97,13 +97,18 @@ document.addEventListener('click', function (ev) {
    acciones rápidas. Solo si hay contexto (wizard_available). #}
 {% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 
-{# ⚠️ DIRECCIÓN ve el CUADRO POR ÁREAS en vez de la pila de módulos de todos los departamentos: no
-   trabaja dentro de una sección, así que lo que necesita es ver de un golpe qué tiene pendiente
-   cada persona de cada área. Lo SUYO (sus tareas y sus gastos) va dentro del parcial, a pantalla
-   partida. Para el resto del personal, Inicio sigue siendo lo de siempre. #}
+{# ⚠️ DIRECCIÓN no trabaja dentro de una sección: MIRA. Su Inicio son sus cosas básicas (avisos,
+   calendario, sus gastos, sus vacaciones… cada una en su sitio de siempre) más DOS módulos propios:
+   «Mis tareas pendientes» —lo que le afecta a ella y lo que es de dirección, en un mismo sitio— y,
+   debajo, el CUADRO DE MANDO por departamentos y personas. Los módulos de los DEMÁS departamentos
+   no se le pintan (ni se calculan): eso es el trabajo de otros y ya se ve en el cuadro. #}
 {% if HOME_DIRECCION_BOARD is not none %}
 {% include '_home_direccion.html' %}
-{% else %}
+{% include '_home_direccion_board.html' %}
+{% endif %}
+
+{# ---------- MÓDULOS DE DEPARTAMENTO: para todo el mundo MENOS dirección ---------- #}
+{% if HOME_DIRECCION_BOARD is none %}
 
 {# TICKETING · SALIDA A LA VENTA. Va JUSTO DEBAJO DEL CALENDARIO porque es el módulo con el que
    trabaja ticketing (y a quien es SOLO de ticketing no se le pinta nada más: ver
@@ -651,10 +656,15 @@ document.addEventListener('click', function (ev) {
 
 {% endif %}{# /compuerta de departamento #}
 
+{% endif %}{# /módulos de departamento (dirección no los ve) #}
+
 {# ---------- LO SUYO (fuera de la compuerta): lo ve TODO EL MUNDO, sea del departamento que sea ----------
    Lo que es de la PERSONA y no de una función: sus gastos, sus vacaciones, lo que ha creado y está
    sin producción, los carteles que le han rechazado, sus peticiones y sus invitaciones pedidas.
-   Cada uno solo sale CUANDO HAY ALGO pendiente. #}
+   Cada uno solo sale CUANDO HAY ALGO pendiente.
+   ⚠️ A DIRECCIÓN aquí solo le salen los BÁSICOS (sus gastos y sus vacaciones): lo demás son tareas
+   y las tiene reunidas arriba, en «Mis tareas pendientes» — el resto de claves llegan vacías desde
+   `inject_personnel_globals`, así que esta misma plantilla sirve para todos. #}
 {# LO QUE FALTA EN LAS ACTIVIDADES que salieron de una petición aceptada. ⚠️ Al aceptarla, la
    petición PASA A SER la actividad (un evento promocional, p. ej.), así que esto se lee como la
    actividad y no como una petición. Va POR FASES y cada fase es de QUIEN LE TOCA: la de avisar al
@@ -1030,8 +1040,6 @@ document.addEventListener('click', function (ev) {
 {{ inv_menu.full_edit_modal() }}
 {{ inv_menu.delete_modal() }}
 {% endif %}
-
-{% endif %}{# fin del Inicio de siempre (dirección ve el cuadro) #}
 
 {% include "_quick_create_modals.html" %}
 {% include "_peticion_wizard_modal.html" %}

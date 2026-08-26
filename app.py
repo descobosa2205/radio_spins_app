@@ -60418,7 +60418,9 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
     """MIS TAREAS PENDIENTES: lo que le toca a ESTA persona, de una pieza y ordenado por urgencia.
 
     No calcula nada nuevo: junta lo que los módulos de Inicio ya han resuelto, para poder enseñarlo
-    en una sola lista (en la pantalla partida de dirección) en vez de en siete tarjetas."""
+    en una sola lista (el módulo de dirección) en vez de en siete tarjetas — lo que le afecta a ella
+    y lo que es de dirección, en el mismo sitio.
+    ⚠️ Es LO SUYO: el trabajo de los demás no entra aquí, se ve en el CUADRO DE MANDO."""
     filas = []
 
     def añade(label, url, icon, *, note="", tone="", order=5):
@@ -60437,10 +60439,16 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
     for row in (plans or []):
         añade("Dar el OK al plan de lanzamiento", row.get("url"), "fa-clipboard-check",
               note=(row.get("title") or ""), tone="warning", order=2)
+    yo = str((_current_user_state() or {}).get("user_id") or "")
     for row in (phases or []):
         # `_peticion_accept_tasks` solo devuelve las fases PENDIENTES; de esas, las que son mías y
         # no están bloqueadas por la anterior.
-        tareas = [t for t in (row.get("tasks") or []) if t.get("mine") and not t.get("blocked")]
+        # ⚠️ A DIRECCIÓN, `mine` sale True en TODAS (puede con todo), así que aquí se exige además que
+        # la fase sea **suya de verdad** (o que no conste dueño): este módulo es lo que le toca a ESTA
+        # persona, no el trabajo de los demás — eso ya se ve en el cuadro de mando.
+        tareas = [t for t in (row.get("tasks") or [])
+                  if t.get("mine") and not t.get("blocked")
+                  and str(t.get("owner_user_id") or "") in ("", yo)]
         if not tareas:
             continue
         añade(tareas[0].get("label") or "Actividad por cerrar",
@@ -60493,14 +60501,16 @@ def _home_plans_awaiting_direccion(limit: int = 10) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
 # CUADRO DE MANDO DE DIRECCIÓN  (pantalla de Inicio)
 #
-# Dirección no trabaja dentro de una sección: MIRA. Por eso su Inicio no es la pila de módulos de
-# todos los departamentos, sino, en este orden: cabecera · avisos (solo si hay) · botones rápidos ·
-# el CALENDARIO · lo SUYO (sus tareas y sus gastos, a pantalla partida) · y el CUADRO POR ÁREAS.
+# Dirección no trabaja dentro de una sección: MIRA. Por eso su Inicio es, en este orden: cabecera ·
+# avisos (solo si hay) · botones rápidos · el CALENDARIO · **MIS TAREAS PENDIENTES** (lo que le
+# afecta a ella y lo que es de dirección, en un mismo sitio) · el **CUADRO DE MANDO** · y sus cosas
+# básicas (sus gastos y sus vacaciones). Los módulos de los demás departamentos NO se le pintan (ni
+# se calculan): son el trabajo de otros y ya se ven en el cuadro.
 #
-# El cuadro es **una tarjeta por área** y, dentro, **una fila por persona**: su foto, cuántas cosas
-# lleva pendientes y cuáles son, con los días que faltan. La fila se despliega para verlas todas y
-# cada una lleva a donde se resuelve. Lo que no es de nadie va en su propia fila **«Del
-# departamento»** con las caras de quien lo puede coger: es la regla de la casa —una tarea sin
+# El cuadro es **una tarjeta por área** y, dentro, **la CARA de cada persona con el número de tareas
+# que lleva**: de un golpe se ve quién va cargado. Al pinchar una cara se despliega SU listado con el
+# estado de cada tarea (a dónde lleva y para cuándo). Lo que no es de nadie va en su propia cara
+# **«Del departamento»** con las fotos de quien lo puede coger: es la regla de la casa —una tarea sin
 # responsable la ve todo el departamento—, y así nada queda escondido.
 #
 # ⚠️ Esto se calcula SOLO en Inicio y SOLO para dirección (`role == 10`): recorre las actividades
@@ -60985,6 +60995,7 @@ def _direccion_board():
             for uid, suyas in por_persona.items():
                 ficha = idx[uid]
                 filas.append({"shared": False, "id": uid, "nick": ficha["nick"],
+                              "short_nick": ficha["nick"],
                               "photo_url": ficha["photo_url"], "members": [],
                               "count": len(suyas), "tasks": suyas,
                               "urgent": len([t for t in suyas if t.get("tone") == "danger"]),
@@ -60992,7 +61003,11 @@ def _direccion_board():
             filas.sort(key=lambda f: (-f["urgent"], -f["count"], (f["nick"] or "").casefold()))
             if sin_dueño:
                 equipo = _dir_department_people(idx, departamentos)
+                # ⚠️ `short_nick` es lo que va DEBAJO DE LA CARA en el cuadro de mando (un hueco de
+                # 82 px): «Del departamento» ahí se corta y no dice nada. El nombre largo se sigue
+                # usando en la cabecera del detalle y en el tooltip.
                 filas.append({"shared": True, "id": "", "nick": "Del departamento",
+                              "short_nick": "Sin asignar",
                               "photo_url": "", "members": equipo[:6],
                               "count": len(sin_dueño), "tasks": sin_dueño,
                               "urgent": len([t for t in sin_dueño if t.get("tone") == "danger"]),
@@ -61025,10 +61040,11 @@ def inject_personnel_globals():
     # ── ¿Estamos en INICIO y con sesión? Todo lo caro cuelga de esto ──────────────────────────
     _home = bool(request.endpoint == "home" and session.get("user_id"))
     _estado = (_current_user_state() or {}) if _home else {}
-    # ⚠️ DIRECCIÓN no trabaja en una sección: MIRA. Su Inicio es el CUADRO POR ÁREAS (una tarjeta
-    # por área, una fila por persona) en vez de la pila de módulos de todos los departamentos —que
-    # además son el trabajo de otros—. Lo SUYO (sus tareas y sus gastos) sigue saliendo, a pantalla
-    # partida. Por eso los módulos de departamento ni siquiera se CALCULAN para dirección.
+    # ⚠️ DIRECCIÓN no trabaja en una sección: MIRA. Su Inicio son sus cosas BÁSICAS (avisos,
+    # calendario, sus gastos, sus vacaciones… cada una en su sitio de siempre) más «MIS TAREAS
+    # PENDIENTES» —lo suyo y lo de dirección en un mismo sitio— y, debajo, el CUADRO DE MANDO (una
+    # tarjeta por área con la cara de cada persona y sus tareas). Los módulos de los DEMÁS
+    # departamentos no se le pintan y por eso ni siquiera se CALCULAN.
     _dir = bool(_home and _estado.get("role") == 10)
     _board = (_direccion_board() if _dir and "_direccion_board" in globals() else None)
     # ⚠️ Si el cuadro NO se pudo montar (un fallo leyendo el personal), Inicio se cae al de SIEMPRE:
@@ -61101,7 +61117,7 @@ def inject_personnel_globals():
         # ⚠️ EL INICIO DE TICKETING es solo el calendario y sus tareas: quien está SOLO en ese
         # departamento no tiene por qué mirar los módulos de los demás. Quien además esté en otro
         # (o sea dirección) los sigue viendo todos.
-        # ── DIRECCIÓN: sus avisos, lo suyo de una pieza y el CUADRO POR ÁREAS ────────────
+        # ── DIRECCIÓN: sus avisos, sus tareas de una pieza y el CUADRO DE MANDO ────────────
         "HOME_NOTICES": (_home_notices() if _dir and "_home_notices" in globals() else []),
         "HOME_MY_TASKS": (_home_my_tasks(batches=_batches, vacations=_vacpend, phases=_phases,
                                          activation=_activation, artwork=_artwork,

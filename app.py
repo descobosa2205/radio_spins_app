@@ -93913,10 +93913,31 @@ def notifications_list():
                      # comparten `created_at` y sin él las franjas se reordenaban en cada página.
                      .order_by(AppNotification.created_at.asc(),
                                AppNotification.id.asc()).limit(5).all())
+            # ⚠️ Las FRANJAS traen lo mismo que la campanita (la cara de quien lo provoca, el tipo y
+            # si el aviso ES una página): al pincharlas se abre su POP-UP, no se navega, y ahí se
+            # enseña todo eso.
+            fotos = {}
+            _ids = {n.actor_user_id for n in filas if n.actor_user_id and not n.actor_photo_url}
+            if _ids:
+                try:
+                    for prof in (session_db.query(UserProfile)
+                                 .filter(UserProfile.user_id.in_(list(_ids))).all()):
+                        fotos[str(prof.user_id)] = ((getattr(prof, "photo_url", None) or "").strip(),
+                                                    (getattr(prof, "nick", None) or "").strip())
+                except Exception:
+                    app.logger.exception("[avisos] no se pudo leer la foto del actor de la franja")
             for n in filas:
+                _f, _nick = fotos.get(str(n.actor_user_id or ""), ("", ""))
                 pendientes.append({
                     "id": str(n.id), "title": (n.title or ""), "body": (n.body or ""),
                     "url": (n.url or ""),
+                    "kind": (n.kind or ""),
+                    "kind_label": NOTIFICATION_KIND_META.get((n.kind or "").upper(),
+                                                             ("Aviso", "fa-bell"))[0],
+                    "when": _format_madrid_datetime_label(n.created_at),
+                    "photo_url": ((n.actor_photo_url or "").strip() or _f),
+                    "actor_name": ((n.actor_name or "").strip() or _nick),
+                    "embed": bool((n.url or "").startswith("/vacaciones/aviso/")),
                     "icon": (n.icon or NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("", "fa-bell"))[1]),
                 })
                 if n.shown_at is None:
@@ -94807,6 +94828,9 @@ def _notification_rows(session_db, user_id, *, limit=20, only_unread=False) -> l
             "title": (n.title or ""),
             "body": (n.body or ""),
             "url": (n.url or ""),
+            # ⚠️ Un aviso que ES una página (el de vacaciones) se enseña DENTRO del pop-up; los demás
+            # llevan el botón «Ir a resolverlo», que lleva a donde se hace el trabajo.
+            "embed": bool((n.url or "").startswith("/vacaciones/aviso/")),
             "unread": n.read_at is None,
             "shown": n.shown_at is not None,
             "when": _format_madrid_datetime_label(n.created_at),

@@ -220,6 +220,35 @@
 {% if CURRENT_USER %}
   <div class="notif-bar" id="notifBar" data-notif-bar></div>
 
+  {# ⚠️ UN AVISO SE VE EN UN POP-UP, no navegando a otra pantalla: al pincharlo se abre aquí (con su
+     cara, su texto y, si el aviso ES una página —el de vacaciones, p. ej.—, su contenido dentro) y
+     hay dos botones: **cerrar el aviso** (lo marca leído y desaparece) e **ir a resolverlo**. #}
+  <div class="modal fade" id="notifViewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header align-items-start gap-2">
+          <span data-notif-view-ava></span>
+          <div class="min-w-0">
+            <h5 class="modal-title" data-notif-view-title></h5>
+            <div class="text-muted small" data-notif-view-when></div>
+          </div>
+          <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div data-notif-view-body></div>
+          {# Los avisos que son una PÁGINA (el de vacaciones) se ven aquí dentro, sin salir. #}
+          <iframe data-notif-view-frame class="notif-view__frame d-none" title="Aviso"></iframe>
+        </div>
+        <div class="modal-footer justify-content-between">
+          <button type="button" class="btn btn-outline-secondary" data-notif-view-close>
+            <i class="fa fa-check me-1"></i>Cerrar el aviso</button>
+          <a class="btn btn-danger d-none" data-notif-view-go>
+            <i class="fa fa-arrow-right me-1"></i>Ir a resolverlo</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal fade" id="notifModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
       <div class="modal-content">

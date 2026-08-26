@@ -24,8 +24,14 @@
   </div>
   <div class="list-group list-group-flush">
     {% for n in HOME_NOTICES %}
-      <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
-         href="{{ n.url or '#' }}">
+      {# ⚠️ NO navega: al pincharlo se abre el POP-UP del aviso (con su botón de cerrarlo). Lo hace
+         `notificaciones.js` leyendo estos data-*. #}
+      <button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-3 text-start"
+              data-notif-item data-notif-id="{{ n.id }}" data-notif-title="{{ n.title }}"
+              data-notif-body="{{ n.body }}" data-notif-when="{{ n.when }}"
+              data-notif-kind="{{ n.kind_label }}" data-notif-icon="{{ n.icon }}"
+              data-notif-photo="{{ n.photo_url }}" data-notif-url="{{ n.url }}"
+              data-notif-embed="{{ '1' if n.embed else '' }}">
         {% if n.photo_url %}
           <img class="notif-ava" src="{{ n.photo_url }}" data-avatar="1" alt="" title="{{ n.actor_name }}">
         {% else %}
@@ -37,7 +43,7 @@
         </span>
         <span class="small text-muted d-none d-md-inline">{{ n.when }}</span>
         <i class="fa fa-chevron-right text-muted small"></i>
-      </a>
+      </button>
     {% endfor %}
   </div>
 </div>

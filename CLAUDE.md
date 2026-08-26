@@ -615,6 +615,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`isrc_audio`/`isrc_video`) y se ven **por separado** en el módulo de ISRC de Información y
   **también** en el del videoclip — son los mismos datos mirados desde los dos sitios.
 
+- ⚠️⚠️ **UN AVISO SE VE EN UN POP-UP, no navegando a otra pantalla** (ago 2026). Al pinchar un aviso
+  —en la **franja**, en la **campana** o en «Mis avisos» de Inicio— se abre **`#notifViewModal`**
+  (en `layout.html`, uno para toda la app) con su **cara**, su tipo, su fecha y su texto, y **dos
+  botones**: **«Cerrar el aviso»** (lo marca leído, quita su franja y baja el contador) e **«Ir a
+  resolverlo»**. Antes te sacaba de la pantalla en la que estabas y no había forma de cerrarlo.
+  · Los avisos que **SON una página** (el de vacaciones, `/vacaciones/aviso/…`) se ven **dentro** del
+  pop-up en un `<iframe>` y no llevan botón de ir: lo marca `embed` en el payload
+  (`_notification_rows` y las franjas de `notifications_list`, que ahora devuelven lo mismo).
+  ⚠️ Los avisos de la campana y de Inicio **ya no son `<a>`**: son botones con sus `data-notif-*`,
+  porque un enlace navegaría. Si se añade otro sitio donde se listen avisos, se marca igual
+  (`[data-notif-item]` + sus `data-`) y `notificaciones.js` lo coge por delegación.
+
 - **AVISOS · franjas bajo el menú y campana al principio** (ago 2026, rediseño): la FRANJA
   (`.notif-strip`, en `#notifBar` justo debajo del menú) **no se va sola**: o se pincha —lleva a su
   gestión y el aviso queda leído— o se cierra con la ✕ (y sigue pendiente en la campana).

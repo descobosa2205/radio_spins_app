@@ -21,6 +21,7 @@
   var contador = document.querySelector('[data-notif-count]');
   var lista = document.querySelector('#notifModal [data-notif-list]');
   var vistos = {};                          // id -> true (franjas ya pintadas en esta página)
+  var porId = {};                           // id -> aviso (para abrir su pop-up)
 
   /* Lo que va dentro de un atributo se escapa: la foto y la url vienen de la BD. */
   function attr(v) {
@@ -71,15 +72,78 @@
       lista.innerHTML = '<div class="px-3 py-4 text-center small text-muted">No tienes avisos pendientes.</div>';
       return;
     }
+    porId = {};
     lista.innerHTML = pend.map(function (f) {
+      porId[f.id] = f;
       var cuerpo = f.body ? '<span class="notif-item__body">' + f.body + '</span>' : '';
-      return '<a class="notif-item is-unread" href="' + (f.url || '#') + '" data-notif-id="' + f.id + '">'
+      /* ⚠️ NO es un enlace: al pinchar se abre el POP-UP del aviso (con su botón de cerrarlo). */
+      return '<button type="button" class="notif-item is-unread w-100 text-start border-0 bg-transparent"'
+        + ' data-notif-id="' + attr(f.id) + '">'
         + cara(f, 'notif-item__ico')
         + '<span class="notif-item__txt"><span class="notif-item__title">' + (f.title || '') + '</span>'
         + cuerpo + '<span class="notif-item__when">' + (f.when || '') + '</span></span>'
-        + '<i class="fa fa-chevron-right notif-item__go"></i></a>';
+        + '<i class="fa fa-chevron-right notif-item__go"></i></button>';
     }).join('');
   }
+
+  /* ═══════════════════════════════════════════════════════════════════════════════════════
+     UN AVISO SE VE EN UN POP-UP, no navegando a otra pantalla.
+     Al pincharlo (en la franja, en la campana o en «Mis avisos» de Inicio) se abre aquí con su cara,
+     su texto y —si el aviso ES una página (el de vacaciones)— su contenido dentro, y dos botones:
+     **cerrar el aviso** (lo marca leído y desaparece) e **ir a resolverlo**.
+     ═══════════════════════════════════════════════════════════════════════════════════════ */
+  var vistoActual = null;
+
+  function abrirAviso(av) {
+    var m = document.getElementById('notifViewModal');
+    if (!m || !window.bootstrap) {              // sin el pop-up, se navega como antes
+      if (av && av.url) window.location.href = av.url;
+      return;
+    }
+    vistoActual = av || {};
+    var ava = m.querySelector('[data-notif-view-ava]');
+    if (ava) ava.innerHTML = cara(av, 'notif-item__ico');
+    var t = m.querySelector('[data-notif-view-title]');
+    if (t) t.textContent = av.title || 'Aviso';
+    var w = m.querySelector('[data-notif-view-when]');
+    if (w) w.textContent = [av.kind_label, av.when].filter(Boolean).join(' · ');
+    var b = m.querySelector('[data-notif-view-body]');
+    if (b) b.textContent = av.body || '';
+    /* Los avisos que son una PÁGINA se ven dentro; los demás llevan su botón de ir. */
+    var frame = m.querySelector('[data-notif-view-frame]');
+    if (frame) {
+      if (av.embed && av.url) { frame.src = av.url; frame.classList.remove('d-none'); }
+      else { frame.removeAttribute('src'); frame.classList.add('d-none'); }
+    }
+    var go = m.querySelector('[data-notif-view-go]');
+    if (go) {
+      if (av.url && !av.embed) { go.href = av.url; go.classList.remove('d-none'); }
+      else { go.classList.add('d-none'); }
+    }
+    bootstrap.Modal.getOrCreateInstance(m).show();
+  }
+
+  document.addEventListener('click', function (ev) {
+    var cerrar = ev.target.closest && ev.target.closest('[data-notif-view-close]');
+    if (cerrar) {
+      var id = (vistoActual || {}).id;
+      var m = document.getElementById('notifViewModal');
+      if (id) {
+        marcarLeido(id).then(function () { mirar(false); });
+        var franjaEl = document.querySelector('.notif-strip[data-notif-id="' + id + '"]');
+        if (franjaEl) franjaEl.remove();
+        var item = document.querySelector('#notifModal .notif-item[data-notif-id="' + id + '"]');
+        if (item) item.remove();
+        var enInicio = document.querySelector('[data-notif-item][data-notif-id="' + id + '"]');
+        if (enInicio) enInicio.remove();
+      }
+      if (m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).hide();
+      return;
+    }
+    // «Ir a resolverlo»: queda leído y se navega.
+    var ir = ev.target.closest && ev.target.closest('[data-notif-view-go]');
+    if (ir && (vistoActual || {}).id) marcarLeido(vistoActual.id);
+  });
 
   function ocultarFranja(id) {
     var fd = new FormData();
@@ -96,19 +160,21 @@
   function franja(av) {
     if (!barra || !av || vistos[av.id]) return;
     vistos[av.id] = true;
+    porId[av.id] = av;
     var el = document.createElement('div');
     el.className = 'notif-strip';
+    el.setAttribute('data-notif-id', av.id);
     el.innerHTML =
-      '<a class="notif-strip__link" href="' + (av.url || '#') + '">'
+      '<button type="button" class="notif-strip__link">'
       + cara(av, 'notif-strip__ico')
       + '<span class="notif-strip__txt"><strong>' + (av.title || '') + '</strong>'
       + (av.body ? '<span>' + av.body + '</span>' : '') + '</span>'
-      + '<span class="notif-strip__go">Ver <i class="fa fa-arrow-right ms-1"></i></span></a>'
+      + '<span class="notif-strip__go">Ver <i class="fa fa-arrow-right ms-1"></i></span></button>'
       + '<button type="button" class="notif-strip__x" aria-label="Cerrar">&times;</button>';
 
     el.querySelector('.notif-strip__link').addEventListener('click', function () {
-      // Se marca leída al pinchar; la navegación sigue su curso.
-      marcarLeido(av.id);
+      // ⚠️ El aviso se ve en un POP-UP: no se sale de la pantalla en la que estás.
+      abrirAviso(av);
     });
     el.querySelector('.notif-strip__x').addEventListener('click', function () {
       // La ✕ se APUNTA en el servidor: si no, la franja volvería a salir en la página siguiente.
@@ -142,9 +208,29 @@
       mirar(false);
       return;
     }
-    // Un aviso del pop-up: se marca leído y se navega.
+    // Un aviso del pop-up de la campana: se abre SU pop-up (no se navega).
     var item = ev.target.closest('#notifModal .notif-item');
-    if (item) marcarLeido(item.getAttribute('data-notif-id'));
+    if (item) {
+      ev.preventDefault();
+      var av = porId[item.getAttribute('data-notif-id')];
+      if (av) abrirAviso(av);
+    }
+    // …y lo mismo en el módulo «Mis avisos» de Inicio.
+    var enInicio = ev.target.closest('[data-notif-item]');
+    if (enInicio) {
+      ev.preventDefault();
+      abrirAviso({
+        id: enInicio.getAttribute('data-notif-id'),
+        title: enInicio.getAttribute('data-notif-title') || '',
+        body: enInicio.getAttribute('data-notif-body') || '',
+        when: enInicio.getAttribute('data-notif-when') || '',
+        kind_label: enInicio.getAttribute('data-notif-kind') || '',
+        icon: enInicio.getAttribute('data-notif-icon') || 'fa-bell',
+        photo_url: enInicio.getAttribute('data-notif-photo') || '',
+        url: enInicio.getAttribute('data-notif-url') || '',
+        embed: enInicio.getAttribute('data-notif-embed') === '1'
+      });
+    }
   });
 
   var leerTodo = document.querySelector('[data-notif-read-all]');

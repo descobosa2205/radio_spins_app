@@ -1290,6 +1290,30 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   arrastrar y **se guarda en SU endpoint** (`disco_plan_content_move`); **NO** se le pone `item_id`,
   que es lo que hace que el lateral pinte una papelera que borraría otra cosa (y el doble clic solo
   abre el pop-up de agenda si el ítem ES de agenda: `esItemAgenda`).
+  · **AÑADIR UNA ACCIÓN DE MARKETING desde el plan** (ago 2026): el botón que había era un ENLACE a
+  la ficha del lanzamiento y, sin lanzamiento resuelto, un `href="#"` que **no hacía nada**. Ahora se
+  añade **desde aquí** con el pop-up **`#dpMarketingModal`**, que postea al MISMO endpoint que la
+  sección Marketing (`promotion_create`) con el sujeto ya puesto: **es la misma campaña**, así que lo
+  que se toque en un sitio se ve en el otro. El sujeto lo resuelve **`_disco_plan_marketing_subject`**
+  (el lanzamiento —canción o álbum— y, mientras no exista, el **ARTISTA**), y viaja en
+  `plan['subject']`.
+  ⚠️ Los CAMPOS son un solo sitio: **`templates/_marketing_fields.html`** (macros `tipo`,
+  `acciones`, `objetivos`, `plazos`), que usan el asistente por pasos de Marketing **y** este
+  pop-up; aquí no se pregunta el artista ni qué se promociona porque los sabe el proyecto.
+  ⚠️⚠️ **`{% import %}` sin `with context` NO ve los globales**: el catálogo
+  `marketing_action_types` llegaba vacío a las macros y salía **una sola casilla**, sin ningún error.
+  Se importa con **`with context`**.
+  ⚠️ El botón se pinta solo si la persona puede crear campañas (`can_edit_promocion`, que es lo que
+  exige el endpoint); si no, se le dice que lo pida en Marketing — nunca un botón que daría 403.
+  · **EL OK DE DIRECCIÓN NO SE PIDE CON EL PLAN A MEDIAS** (ago 2026): punto único
+  **`_disco_plan_missing(estado)`** (y `plan['missing']`/`complete`/`missing_label`), que exige lo que
+  ES el plan —la **estrategia**, al menos una **acción**, al menos un **contenido** y que todo lleve
+  **fecha**— y **no** exige marketing ni promoción (son de otros departamentos y un lanzamiento
+  pequeño puede no llevar campaña de pago). Se aplica en los TRES sitios: la pantalla (dice qué falta
+  y no ofrece el botón), la **tarea del proyecto** (sale **bloqueada/rayada** con lo que falta) y el
+  propio **endpoint** (`disco_plan_review` con `action=ask` lo rebota: esconder el botón no basta).
+  ⚠️ En un contenido, `when_label` pone «Sin fecha» cuando no la hay: la comprobación mira el DATO
+  (`publish_at`), no el texto. Y la fila de una acción lleva ya `has_date`.
   · **APROBACIÓN**: la tarea no se cierra hasta que **dirección Y el sello** dan el OK
   (`disco_plan_ok`; el de dirección solo lo puede dar dirección).
   · **RECORDATORIOS DE PUBLICACIÓN** (`disco_plan_reminders`): se activan con el plan aprobado.

@@ -4,6 +4,9 @@
    Vive aquí y no dentro de una pantalla porque se abre desde varias. Necesita en el contexto
    `promotion_creator_datasets` (`marketing_action_types` ya es global).
    ============================================================================ #}
+{# ⚠️ `with context`: un import SIN contexto no ve los globales de la app (aquí,
+   `marketing_action_types`), y el catálogo de acciones salía VACÍO sin dar ningún error. #}
+{% import '_marketing_fields.html' as mk with context %}
 {% set creator = promotion_creator_datasets or {} %}
 <div class="modal fade" id="marketingCreateModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -86,71 +89,28 @@
         <section class="sw-step" data-step="4" data-title="Tipo">
           <div class="sw-step__q"><i class="fa fa-diagram-project me-2 text-danger"></i>¿Qué tipo de marketing es?</div>
           <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
-          <div class="promo-pick-grid promo-pick-grid--wide">
-            <label class="promo-pick">
-              <input type="radio" name="request_kind" value="PLAN" data-sw-advance checked>
-              <span class="promo-pick__box"><i class="fa fa-diagram-project"></i><span class="promo-pick__name">Plan completo</span>
-                <span class="promo-pick__hint">Toda la campaña del lanzamiento o del evento</span></span>
-            </label>
-            <label class="promo-pick">
-              <input type="radio" name="request_kind" value="ACTION" data-sw-advance>
-              <span class="promo-pick__box"><i class="fa fa-bullseye"></i><span class="promo-pick__name">Acción concreta</span>
-                <span class="promo-pick__hint">Una sola acción de pago, que queda ya creada para gestionarla</span></span>
-            </label>
-          </div>
+          {{ mk.tipo(avanza=True) }}
         </section>
 
         {# Paso 5 · Acciones #}
         <section class="sw-step" data-step="5" data-title="Acciones">
           <div class="sw-step__q"><i class="fa fa-list me-2 text-danger"></i>¿Qué acciones incluye?</div>
           <div class="sw-step__h">Marca todas las que hagan falta.</div>
-          <div class="promo-pick-grid promo-pick-grid--wide">
-            {% for key, label, icon in marketing_action_types %}
-              <label class="promo-pick">
-                <input type="checkbox" name="action_types" value="{{ key }}">
-                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
-              </label>
-            {% endfor %}
-          </div>
+          {{ mk.acciones() }}
         </section>
 
         {# Paso 6 · Objetivos y presupuesto #}
         <section class="sw-step" data-step="6" data-title="Objetivos y presupuesto">
           <div class="sw-step__q"><i class="fa fa-bullseye me-2 text-danger"></i>Objetivos y presupuesto</div>
           <div class="sw-step__h">¿Qué se busca con esta campaña y con cuánto se cuenta?</div>
-          <div class="row g-3">
-            <div class="col-12">
-              <label class="form-label">Objetivos</label>
-              <textarea class="form-control" name="objectives_notes" rows="3" placeholder="Qué se quiere conseguir, público al que va dirigido…"></textarea>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Presupuesto</label>
-              <select class="form-select" name="budget_mode">
-                <option value="REQUEST_BUDGET">Pedir presupuesto</option>
-                <option value="MAX_AMOUNT">Presupuesto máximo</option>
-              </select>
-            </div>
-            <div class="col-md-4"><label class="form-label">Máximo global</label><input type="number" step="0.01" name="budget_max" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Notas de presupuesto</label><input type="text" name="budget_notes" class="form-control"></div>
-            <div class="col-md-6">
-              <label class="form-label">Empresa</label>
-              <select class="form-select select-with-thumbs" name="company_id">
-                <option value="">Sin empresa específica</option>
-                {% for company in creator.companies or [] %}<option value="{{ company.id }}" data-logo="{{ company.logo_url or '' }}">{{ company.name }}</option>{% endfor %}
-              </select>
-            </div>
-          </div>
+          {{ mk.objetivos(creator.companies) }}
         </section>
 
         {# Paso 7 · Plazos #}
         <section class="sw-step" data-step="7" data-title="Plazos">
           <div class="sw-step__q"><i class="fa fa-calendar-days me-2 text-danger"></i>¿Para cuándo?</div>
           <div class="sw-step__h">Cuándo empieza y cuándo acaba la campaña.</div>
-          <div class="row g-3">
-            <div class="col-md-4"><label class="form-label">Desde</label><input type="date" name="starts_on" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Hasta</label><input type="date" name="ends_on" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">Notas de plazo</label><input type="text" name="deadline_notes" class="form-control"></div>
-          </div>
+          {{ mk.plazos() }}
           <div class="alert alert-light border mt-3 mb-0" id="marketingSummary"></div>
         </section>
       </div>

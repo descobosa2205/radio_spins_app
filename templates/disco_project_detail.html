@@ -286,6 +286,21 @@
           Dirección: {% if st and st.ok_direccion %}<strong>{{ st.ok_direccion_by or 'OK' }}</strong>{% else %}pendiente{% endif %}
           · Sello: {% if st and st.ok_sello %}<strong>{{ st.ok_sello_by or 'OK' }}</strong>{% else %}pendiente{% endif %}
         </div>
+        {# ⚠️ EL OK NO SE PIDE CON EL PLAN A MEDIAS: mientras falte algo se dice QUÉ falta y el botón
+           de pedirlo no se ofrece (el endpoint lo vuelve a comprobar). #}
+        {% if st and not st.approved %}
+          {% if st.missing %}
+            <div class="small text-warning-emphasis mt-1">
+              <i class="fa fa-triangle-exclamation me-1"></i>Antes de pedir el OK falta
+              <strong>{{ st.missing_label }}</strong>.
+            </div>
+          {% elif CAN_EDIT and not st.review_asked %}
+            <button type="button" class="btn btn-sm btn-danger mt-2" data-bs-toggle="modal" data-bs-target="#dpPlanReviewModal">
+              <i class="fa fa-paper-plane me-1"></i>Pedir el OK a dirección</button>
+          {% elif st.review_asked %}
+            <div class="small text-muted mt-1"><i class="fa fa-hourglass-half me-1"></i>Repaso pedido: esperando su OK.</div>
+          {% endif %}
+        {% endif %}
       </div>
       {% if CAN_EDIT %}
         <form method="post" action="{{ url_for('disco_plan_ok', project_id=project.id) }}" class="d-inline">
@@ -375,8 +390,16 @@
   <div class="sim-cat-card mb-3">
     <div class="sim-cat-card__head">
       <span><i class="fa fa-bullhorn me-1"></i>Marketing</span>
-      <a class="btn btn-sm btn-light border" href="{{ (release.url if release else '#') }}">
-        <i class="fa fa-arrow-up-right-from-square me-1"></i>Añadir desde el lanzamiento</a>
+      {# ⚠️ Antes esto era un ENLACE a la ficha del lanzamiento y, sin lanzamiento resuelto, un
+         href="#" que NO HACÍA NADA. Ahora se añade la acción de marketing DESDE AQUÍ, con el mismo
+         formulario que en la sección Marketing y colgada del mismo lanzamiento (el mismo dato). #}
+      {% if can_add_marketing and st and st.subject and st.subject.id %}
+        <button type="button" class="btn btn-sm btn-light border" data-bs-toggle="modal" data-bs-target="#dpMarketingModal">
+          <i class="fa fa-plus me-1"></i>Añadir acción de marketing</button>
+      {% elif st and st.subject and st.subject.id %}
+        <span class="small text-muted">Lo crea Marketing:
+          <a href="{{ url_for('marketing_view') }}">pídelo en su sección</a></span>
+      {% endif %}
     </div>
     <div class="sim-cat-card__body">
       {% for m in (st.marketing if st else []) %}

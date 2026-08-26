@@ -4,6 +4,62 @@
    con el JSON de la fila): así hay UN solo pop-up para añadir y para editar.
    ============================================================================================ #}
 
+{% import '_marketing_fields.html' as mk with context %}
+
+{# ------------------------------------------------- AÑADIR ACCIÓN DE MARKETING
+   ⚠️ Es la MISMA campaña que se ve en la sección Marketing (una `Promotion` colgada del
+   lanzamiento): se crea con el mismo endpoint (`promotion_create`) y con los MISMOS campos
+   (`_marketing_fields.html`), así que lo que se toque en un sitio se ve en el otro. Aquí NO se
+   pregunta el artista ni qué se promociona: los sabe el proyecto. #}
+{% if can_add_marketing and plan and plan.subject and plan.subject.id %}
+<div class="modal fade" id="dpMarketingModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('promotion_create') }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="subject_type" value="{{ plan.subject.type }}">
+      <input type="hidden" name="subject_id" value="{{ plan.subject.id }}">
+      {% for aid in (plan.subject.artist_ids or []) %}
+        <input type="hidden" name="artist_ids" value="{{ aid }}">
+      {% endfor %}
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-bullhorn me-2"></i>Añadir acción de marketing</h5>
+          <div class="text-muted small">Queda colgada del lanzamiento, así que se ve también en Marketing.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {# DE QUÉ es, a la vista: no se vuelve a preguntar. #}
+        <div class="border rounded p-2 mb-3 d-flex align-items-center gap-3 flex-wrap">
+          {% if plan.subject.cover_url %}
+            <img src="{{ plan.subject.cover_url }}" alt="" style="width:52px;height:52px;border-radius:10px;object-fit:cover;">
+          {% else %}<i class="fa fa-compact-disc fa-2x text-muted"></i>{% endif %}
+          <span class="min-w-0">
+            <span class="fw-semibold d-block text-truncate">{{ plan.subject.title }}</span>
+            <span class="small text-muted d-block text-truncate">
+              {{ [plan.subject.kind_label, plan.subject.subtitle]|select|join(' · ') }}</span>
+          </span>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">¿Qué tipo de marketing es?</label>
+          {{ mk.tipo() }}
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">¿Qué acciones incluye?</label>
+          {{ mk.acciones() }}
+        </div>
+        <div class="mb-3">{{ mk.objetivos(plan_companies) }}</div>
+        <div class="mb-1"><label class="form-label fw-semibold">¿Para cuándo?</label>{{ mk.plazos() }}</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-check me-1"></i>Crear la acción de marketing</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 {# ---------------------------------------------------------------- ACCIÓN #}
 <div class="modal fade" id="dpActionModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -411,8 +467,13 @@
           <button class="btn btn-outline-danger" type="submit" name="action" value="reject">
             <i class="fa fa-rotate-left me-1"></i>Devolver con nota</button>
         {% endif %}
-        <button class="btn btn-danger" type="submit" name="action" value="ask">
-          <i class="fa fa-paper-plane me-1"></i>Pedir el repaso</button>
+        {# ⚠️ Con el plan a medias no se ofrece: se dice qué falta (y el endpoint lo rebota igual). #}
+        {% if pl.missing %}
+          <span class="small text-muted me-auto"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ pl.missing_label }}</span>
+        {% else %}
+          <button class="btn btn-danger" type="submit" name="action" value="ask">
+            <i class="fa fa-paper-plane me-1"></i>Pedir el repaso</button>
+        {% endif %}
       </div>
     </form>
   </div>

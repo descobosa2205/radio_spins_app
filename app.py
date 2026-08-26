@@ -22546,6 +22546,12 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   action_label="Ver el plan",
                   menu=[{"label": "Volver a pedir el repaso", "icon": "fa-rotate",
                          "post": url_for("disco_plan_review", project_id=project.id)}])
+        elif not plan_st["approved"] and not plan_st.get("complete") and not plan_st.get("review_asked"):
+            # ⚠️ EL OK NO SE PIDE CON EL PLAN A MEDIAS: la tarea sale BLOQUEADA (rayada) diciendo qué
+            # falta, y el endpoint lo vuelve a comprobar.
+            tarea("plan", "Plan de lanzamiento", url_plan, "fa-rocket", True, state="blocked",
+                  hint="Antes hay que cumplimentarlo: falta %s" % plan_st.get("missing_label", ""),
+                  action_label="Completar el plan")
         elif not plan_st["approved"]:
             faltan = []
             if not plan_st["ok_direccion"]:
@@ -23434,7 +23440,7 @@ def disco_project_detail(project_id):
                           "creative_icon_class",
                           "project_ids", "plan", "plan_sections", "plan_agenda",
                           "plan_action_kinds", "content_networks", "plan_candidates",
-                          "can_review_plan",
+                          "can_review_plan", "plan_companies", "can_add_marketing",
                           "agenda_data", "release", "release_songs"):
                 bag_ctx.pop(clave, None)
         return render_template(
@@ -23516,6 +23522,11 @@ def disco_project_detail(project_id):
             can_review_plan=(str((_current_user_state() or {}).get("user_id") or "")
                              in _direccion_sello_user_ids(session_db)),
             plan_sections=DISCO_PLAN_SECTIONS,
+            # «Añadir acción de marketing» desde el plan: las empresas del grupo del selector y si
+            # esta persona puede crear campañas (el endpoint exige `can_edit_promocion`).
+            plan_companies=(session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+                            if tab == "lanzamiento" else []),
+            can_add_marketing=(can_edit_promocion() if tab == "lanzamiento" else False),
             plan_agenda=plan_agenda,
             plan_action_kinds=DISCO_PLAN_ACTION_DATE_KINDS,
             content_networks=DISCO_CONTENT_NETWORKS,
@@ -26470,12 +26481,77 @@ def _disco_plan_content_rows(plan) -> list[dict]:
     return salida
 
 
+def _disco_plan_missing(estado: dict) -> list[str]:
+    """QUÉ LE FALTA AL PLAN para poder pedirle el OK a dirección.
+
+    ⚠️⚠️ El OK **no se pide con el plan a medias**: dirección y el sello repasan un plan entero, así
+    que hasta que lo esté, el botón sale desactivado diciendo qué falta y el endpoint lo rebota
+    (esconder el botón no basta). Punto único: lo usan la pantalla, la tarea del proyecto y
+    `disco_plan_review`.
+    Se exige lo que ES el plan: la estrategia, al menos una acción, al menos un contenido y que todo
+    lleve FECHA (sin fechas no hay cronograma que aprobar). El marketing y la promoción NO se exigen:
+    son de otros departamentos y un lanzamiento pequeño puede no llevar campaña de pago.
+    """
+    estado = estado or {}
+    if not estado.get("exists"):
+        return ["el plan está vacío"]
+    faltan = []
+    if not (estado.get("strategy_text") or "").strip():
+        faltan.append("la estrategia")
+    acciones = estado.get("actions") or []
+    if not acciones:
+        faltan.append("al menos una acción")
+    elif any(not (a.get("has_date")) for a in acciones):
+        faltan.append("la fecha de todas las acciones")
+    contenidos = estado.get("contents") or []
+    if not contenidos:
+        faltan.append("al menos un contenido")
+    elif any(not c.get("publish_at") for c in contenidos):
+        # ⚠️ `when_label` pone «Sin fecha» cuando no la hay: comprobarlo por el texto no detectaba nada.
+        faltan.append("el día y la hora de todas las publicaciones")
+    return faltan
+
+
+def _disco_plan_marketing_subject(session_db, project, release=None) -> dict:
+    """De qué va el marketing del plan: el LANZAMIENTO del proyecto y, si aún no existe, el ARTISTA.
+
+    Es lo que rellena el pop-up de «Añadir acción de marketing» del plan, así que la campaña se crea
+    ya colgada de la misma canción o del mismo álbum que se ve en la sección Marketing (el mismo
+    dato: lo que se toque en un sitio se ve en el otro)."""
+    if release is None:
+        release = _disco_project_release(session_db, project)
+    artista = None
+    try:
+        artista = session_db.get(Artist, project.artist_id) if getattr(project, "artist_id", None) else None
+    except Exception:
+        artista = None
+    artist_ids = [str(artista.id)] if artista is not None else []
+    if release and release.get("id"):
+        return {
+            "type": ("ALBUM" if release.get("kind") == "ALBUM" else "SONG"),
+            "id": str(release["id"]),
+            "title": (release.get("title") or "El lanzamiento"),
+            "subtitle": (getattr(artista, "name", None) or ""),
+            "cover_url": (release.get("cover_url") or ""),
+            "artist_ids": artist_ids,
+            "kind_label": ("Álbum / EP" if release.get("kind") == "ALBUM" else "Canción"),
+        }
+    if artista is not None:
+        return {"type": "ARTIST", "id": str(artista.id),
+                "title": (artista.name or "El artista"), "subtitle": "",
+                "cover_url": (getattr(artista, "photo_url", None) or ""),
+                "artist_ids": artist_ids, "kind_label": "Artista"}
+    return {}
+
+
 def _disco_plan_state(session_db, project) -> dict:
     """Todo lo que necesita la pestaña del plan (y su tarea): secciones, aprobación y recordatorios."""
     plan = _disco_plan(session_db, project)
     if plan is None:
         return {"plan": None, "exists": False, "approved": False, "actions": [], "contents": [],
-                "marketing": [], "promos": [], "total_cost": 0, "ok_direccion": False,
+                "marketing": [], "promos": [], "subject": {}, "total_cost": 0, "ok_direccion": False,
+                "missing": ["el plan está vacío"], "complete": False,
+                "missing_label": "el plan está vacío",
                 "ok_sello": False, "reminders": False, "public_url": ""}
     acciones = []
     total = Decimal("0")
@@ -26494,6 +26570,8 @@ def _disco_plan_state(session_db, project) -> dict:
                                           a.end_date.strftime("%d/%m/%Y")))
                            if (a.date_kind or "").upper() == "RANGE" and a.start_date and a.end_date
                            else (a.start_date.strftime("%d/%m/%Y") if a.start_date else "Sin fecha")),
+            # ¿Tiene fecha? Lo usa `_disco_plan_missing`: sin fechas no hay cronograma que aprobar.
+            "has_date": bool(a.start_date),
         })
     # MARKETING y PROMOCIÓN: lo que ya está vinculado al LANZAMIENTO (su canción o su álbum), que es
     # lo mismo que se ve en Marketing y en Promoción. No se duplica nada: es el mismo dato.
@@ -26511,13 +26589,17 @@ def _disco_plan_state(session_db, project) -> dict:
         except Exception:
             app.logger.exception("[plan] no se pudieron leer las promociones")
     contenidos = _disco_plan_content_rows(plan)
-    return {
+    estado = {
         "plan": plan, "exists": True,
         "strategy_text": (plan.strategy_text or ""),
         "actions": acciones,
         "total_cost": total,
         "total_cost_label": format_eur(total),
         "marketing": marketing,
+        # DE QUÉ es el marketing: el lanzamiento del proyecto (su canción o su álbum) y, mientras no
+        # exista, el propio ARTISTA — así la campaña se puede crear desde aquí sin esperar a nada, y
+        # es el MISMO dato que se ve en la sección Marketing.
+        "subject": _disco_plan_marketing_subject(session_db, project, release),
         "promos": promos,
         "contents": contenidos,
         "contents_uploaded": len([c for c in contenidos if c["uploaded"]]),
@@ -26536,6 +26618,12 @@ def _disco_plan_state(session_db, project) -> dict:
         # EL PLAN DE PROMOCIÓN que se le pide a promoción (queda incluido en este).
         **_disco_plan_extra_state(session_db, project, plan),
     }
+    # ⚠️ QUÉ LE FALTA para poder pedir el OK: se calcula UNA vez y lo leen la pantalla, la tarea del
+    # proyecto y el propio endpoint (punto único `_disco_plan_missing`).
+    estado["missing"] = _disco_plan_missing(estado)
+    estado["complete"] = not estado["missing"]
+    estado["missing_label"] = " · ".join(estado["missing"])
+    return estado
 
 
 def _disco_plan_extra_state(session_db, project, plan) -> dict:
@@ -27082,6 +27170,14 @@ def disco_plan_review(project_id):
         prod = _disco_prod(project)
         fila = dict(prod.get("plan_review") or {})
         yo = (_current_user_state() or {})
+        if accion == "ask":
+            # ⚠️⚠️ EL OK SOLO SE PIDE CON EL PLAN CUMPLIMENTADO: dirección y el sello repasan un plan
+            # entero, no uno a medias. Se comprueba AQUÍ además de en la pantalla (un POST directo, o
+            # una pantalla vieja abierta, se colarían).
+            faltan = _disco_plan_missing(_disco_plan_state(session_db, project))
+            if faltan:
+                flash("Todavía no se puede pedir el OK: falta %s." % " · ".join(faltan), "warning")
+                return redirect(destino)
         if accion == "reject":
             if str(yo.get("user_id") or "") not in _direccion_sello_user_ids(session_db):
                 return forbid("El plan lo repasa quien es dirección y sello.")

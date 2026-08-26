@@ -106,7 +106,13 @@
                         data-acc-number="{{ r.invoice_number }}" data-acc-date="{{ r.issue_date }}"
                         data-acc-net="{{ r.net }}" data-acc-vat="{{ r.vat }}"
                         data-acc-retention="{{ r.retention }}" data-acc-total="{{ r.total }}">
-              <i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+              <i class="fa fa-pen fa-fw me-1"></i>Corregir los importes</button></li>
+            {# CORREGIR LA FACTURA: la pantalla partida de siempre (la factura a la izquierda y todos
+               sus datos a la derecha), y al guardar se vuelve aquí. #}
+            {% if r.invoice_id %}
+              <li><a class="dropdown-item" href="{{ url_for('supplier_invoice_edit', invoice_id=r.invoice_id) }}?next={{ request.full_path|urlencode }}">
+                <i class="fa fa-file-pen fa-fw me-1"></i>Corregir los datos de la factura</a></li>
+            {% endif %}
             <li><button class="dropdown-item text-danger" type="submit"
                         formaction="{{ url_for('accounting_expense_skip', expense_id=r.id) }}"
                         data-confirm="{% if r.accounting_status == 'OMITIDO' %}¿Devolver este gasto a pendiente de contabilizar?{% else %}Si lo omites no se contabilizará y su proceso termina aquí. ¿Seguir?{% endif %}">
@@ -258,17 +264,18 @@
   </thead>
 {% endmacro %}
 
-{# La EMPRESA del grupo con su logo (la columna nueva). Sin logo, el icono de empresa. #}
+{# La EMPRESA del grupo. ⚠️ Con LOGO no se escribe el nombre (el logo ya lo dice y la tabla se lee
+   mucho mejor); el nombre solo sale cuando NO hay logo. En los dos casos, al pasar el ratón. #}
 {% macro acc_company(nombre, logo) %}
   <td class="acct-co">
     {% if logo %}
       <img src="{{ logo }}" alt="{{ nombre }}" title="{{ nombre }}" class="acct-co__logo">
     {% elif nombre %}
       <span class="acct-co__none" title="{{ nombre }}"><i class="fa fa-building"></i></span>
+      <span class="acct-co__name" title="{{ nombre }}">{{ nombre }}</span>
     {% else %}
       <span class="text-muted" title="Sin empresa">—</span>
     {% endif %}
-    <span class="acct-co__name">{{ nombre or '' }}</span>
   </td>
 {% endmacro %}
 
@@ -782,7 +789,16 @@
     <div class="modal-content">
       <form method="post" data-acc-edit-form action="#">
         <input type="hidden" name="next" value="{{ request.full_path }}">
-        <div class="modal-header"><h5 class="modal-title">Corregir los datos del gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title">Corregir los importes</h5>
+            <div class="text-muted small">
+              Se corrigen <strong>el gasto y su factura</strong>: en esta tabla manda lo que dice la
+              factura, así que si solo se tocara el gasto no cambiaría nada de lo que ves.
+            </div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
         <div class="modal-body row g-3">
           <div class="col-12">
             <label class="form-label">Concepto</label>

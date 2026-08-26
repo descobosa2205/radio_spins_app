@@ -3342,9 +3342,9 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .acct-co__logo{ width:46px; height:26px; object-fit:contain; }
 .acct-co__none{ display:inline-flex; align-items:center; justify-content:center; width:26px;
   height:26px; border-radius:7px; background:#f1f3f7; color:#9aa3af; font-size:.8rem; }
-.acct-co__name{ display:none; font-size:.7rem; color:#6b7280; }
-@media (min-width: 1600px){ .acct-co__name{ display:block; max-width:8rem; overflow:hidden;
-  text-overflow:ellipsis; } }
+/* El nombre solo se escribe cuando NO hay logo (con logo sobra, y la tabla se lee mejor). */
+.acct-co__name{ display:block; font-size:.7rem; color:#6b7280; max-width:7rem;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* IMPORTE arriba y su PORCENTAJE debajo (IVA y retención). */
 .acct-amount{ display:block; font-variant-numeric:tabular-nums; }

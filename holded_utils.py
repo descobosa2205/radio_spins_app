@@ -287,6 +287,163 @@ def build_purchase_payload(
     return payload
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# LA API v2 · sus campos son OTROS (confirmados con su OpenAPI: api.holded.com/openapi/api2.json)
+#
+#   · contacto:  POST /api/v2/contacts   → name* · code (NIF/CIF) · is_person · email · phone ·
+#                type (supplier) · bill_address{address, city, postal_code, province, country,
+#                country_code}
+#   · compra:    POST /api/v2/purchases  → contact_id* · contact_name · date (ISO) · number ·
+#                notes · description · items*[{name, type, units, price, taxes:["s_iva_21"]}] ·
+#                payment_method_id · tags
+#   · adjuntar:  POST /api/v2/purchases/{id}/attachments  (multipart, campo `file`)
+#   · buscar:    GET  /api/v2/contacts?code=<CIF>  (exacto, mucho mejor que recorrer páginas)
+#
+# ⚠️ Nada de esto vale en la v1 y al revés: cada versión tiene su builder y su ruta.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Códigos ISO de los países que salen en las direcciones fiscales (para `country_code`).
+_COUNTRY_CODES = {"españa": "ES", "espana": "ES", "spain": "ES", "portugal": "PT",
+                  "francia": "FR", "france": "FR", "italia": "IT", "italy": "IT",
+                  "alemania": "DE", "germany": "DE", "reino unido": "GB",
+                  "united kingdom": "GB", "méxico": "MX", "mexico": "MX",
+                  "argentina": "AR", "colombia": "CO", "chile": "CL", "andorra": "AD"}
+
+
+def country_code_for(nombre: str | None) -> str:
+    clave = " ".join(str(nombre or "").split()).strip().lower()
+    return _COUNTRY_CODES.get(clave, "")
+
+
+def contact_payload_for(client, **kw) -> dict:
+    """El cuerpo del CONTACTO en la versión que hable esa cuenta. Punto único."""
+    if getattr(client, "api_version", "v1") == "v2":
+        return build_contact_payload_v2(**kw)
+    return build_contact_payload(**kw)
+
+
+def purchase_payload_for(client, *, concept, total, net=None, vat_pct=None, retention_pct=None,
+                         contact_id=None, contact_name=None, doc_number=None, issue_date=None,
+                         tags=None, notes=None, payment_method_id=None, currency="EUR") -> dict:
+    """El cuerpo de la COMPRA en la versión que hable esa cuenta. Punto único.
+
+    ⚠️ En la **v2** el impuesto va como CLAVE por línea (`taxes: ["s_iva_21"]`), que se resuelve con
+    las taxes de la cuenta (`client.tax_key_for`), y la retención **no se manda en la línea**: la v2 no
+    la modela ahí, así que se deja dicho en las notas y lo que se comprueba es la BASE + IVA (que es
+    lo que se contabiliza; la retención es una liquidación aparte)."""
+    if getattr(client, "api_version", "v1") != "v2":
+        return build_purchase_payload(
+            concept=concept, total=total, net=net, vat_pct=vat_pct, retention_pct=retention_pct,
+            contact_id=contact_id, contact_name=contact_name, doc_number=doc_number,
+            issue_date=issue_date, tags=tags, notes=notes,
+            payment_method_id=payment_method_id, currency=currency)
+    base = money(net) if net not in (None, "") else Decimal("0")
+    iva = pct(vat_pct)
+    if base <= 0:
+        factor = Decimal("1") + iva / Decimal("100")
+        base = money(money(total) / factor) if factor > 0 else money(total)
+    nota = notes or ""
+    ret = pct(retention_pct)
+    if ret > 0:
+        nota = (nota + " · " if nota else "") + ("Retención %s%%" % ("%g" % float(ret)))
+    return build_purchase_payload_v2(
+        contact_id=(contact_id or ""), contact_name=(contact_name or ""),
+        concept=concept, net_amount=base, vat_pct=iva,
+        tax_key=(client.tax_key_for(iva) if iva > 0 else ""),
+        issue_date=issue_date, number=(doc_number or ""), notes=nota,
+        tags=tags, payment_method_id=(payment_method_id or ""))
+
+
+def build_contact_payload_v2(
+    *,
+    name: str,
+    tax_id: str | None = None,
+    email: str | None = None,
+    phone: str | None = None,
+    address: str | None = None,
+    postal_code: str | None = None,
+    city: str | None = None,
+    province: str | None = None,
+    country: str | None = "España",
+    is_person: bool = False,
+) -> dict:
+    """El PROVEEDOR en la v2 (`snake_case` y la dirección en `bill_address`)."""
+    payload: dict = {
+        "name": (name or "Proveedor")[:150],
+        "type": "supplier",
+        "is_person": bool(is_person),
+    }
+    cif = (tax_id or "").strip().upper()
+    if cif:
+        payload["code"] = cif
+    if (email or "").strip():
+        payload["email"] = email.strip()
+    if (phone or "").strip():
+        payload["phone"] = phone.strip()
+    direccion = {k: v for k, v in (
+        ("address", (address or "").strip()),
+        ("city", (city or "").strip()),
+        ("postal_code", (postal_code or "").strip()),
+        ("province", (province or "").strip()),
+        ("country", (country or "").strip()),
+        ("country_code", country_code_for(country)),
+    ) if v}
+    if direccion:
+        payload["bill_address"] = direccion
+    return payload
+
+
+def build_purchase_payload_v2(
+    *,
+    contact_id: str,
+    contact_name: str = "",
+    concept: str,
+    net_amount,
+    vat_pct=None,
+    tax_key: str = "",
+    issue_date=None,
+    number: str = "",
+    notes: str = "",
+    tags=None,
+    payment_method_id: str = "",
+) -> dict:
+    """La COMPRA en la v2: una línea con la base y su clave de impuesto.
+
+    ⚠️ `items` es obligatorio y el impuesto va **por línea** (`taxes: ["s_iva_21"]`). Si no se manda
+    ninguna clave, Holded aplica el impuesto por defecto del contacto (o ninguno) y el total no
+    cuadraría — por eso se comprueba releyendo el documento."""
+    linea = {
+        "name": (concept or "Gasto")[:200],
+        "type": "service",
+        "units": 1,
+        "price": float(money(net_amount)),
+    }
+    if tax_key:
+        linea["taxes"] = [tax_key]
+    payload: dict = {
+        "contact_id": str(contact_id),
+        "items": [linea],
+    }
+    if (contact_name or "").strip():
+        payload["contact_name"] = contact_name.strip()[:150]
+    if issue_date is not None:
+        try:
+            payload["date"] = issue_date.strftime("%Y-%m-%d")
+        except AttributeError:
+            payload["date"] = str(issue_date)[:10]
+    if (number or "").strip():
+        payload["number"] = number.strip()[:60]
+    if (notes or "").strip():
+        payload["notes"] = notes.strip()[:900]
+    if (concept or "").strip():
+        payload["description"] = concept.strip()[:200]
+    if payment_method_id:
+        payload["payment_method_id"] = str(payment_method_id)
+    if tags:
+        payload["tags"] = [str(t)[:60] for t in tags if str(t or "").strip()]
+    return payload
+
+
 def build_contact_payload(
     *,
     name: str,
@@ -366,6 +523,7 @@ class HoldedClient:
                             or (self.endpoints or {}).get("auth_header")
                             or auth_headers_for(self.api_key)[0])
         self._auth_tried: set[str] = set()
+        self._tax_keys = None                      # {Decimal(pct): clave} de la cuenta (v2)
 
     # ------------------------------------------------------------------ HTTP
 
@@ -618,16 +776,35 @@ class HoldedClient:
         return encontrado
 
     def _find_contact_uncached(self, cif: str, objetivo_nombre: str, max_pages: int) -> dict | None:
+        v2 = self.api_version == "v2"
         if cif:
+            # ⚠️ En la v2 el filtro por NIF/CIF es EXACTO (`?code=`) y no hay que recorrer nada; en la
+            # v1 el filtro es `vatnumber` y no siempre filtra de verdad.
             try:
-                filtrados = self._request("GET", self._path("contacts"), params={"vatnumber": cif})
+                filtrados = self._request("GET", self._path("contacts"),
+                                          params=({"code": cif} if v2 else {"vatnumber": cif}))
                 if isinstance(filtrados, dict):
-                    filtrados = filtrados.get("data") or []
+                    filtrados = filtrados.get("data") or filtrados.get("items") or []
                 for c in (filtrados or []):
                     if self._contact_matches(c, cif, ""):
                         return c
+                if v2:
+                    return None          # el filtro exacto ya ha dicho que no está
             except HoldedError:
                 pass
+        if v2 and objetivo_nombre:
+            # Por NOMBRE, la v2 tiene su búsqueda (prefijo).
+            try:
+                filas = self._request("GET", API_V2 + "/contacts/search",
+                                      params={"name": objetivo_nombre, "limit": 50})
+                if isinstance(filas, dict):
+                    filas = filas.get("data") or filas.get("items") or []
+                for c in (filas or []):
+                    if self._contact_matches(c, "", objetivo_nombre):
+                        return c
+            except HoldedError:
+                pass
+            return None
         pagina = 1
         vistas = set()
         while pagina <= max_pages:
@@ -653,21 +830,65 @@ class HoldedClient:
     @staticmethod
     def _contact_matches(contact: dict, cif: str, nombre: str) -> bool:
         if cif:
-            for clave in ("vatnumber", "code", "cif", "nif", "vatNumber"):
+            for clave in ("vatnumber", "code", "cif", "nif", "vatNumber", "vat_number"):
                 if norm_tax_id(contact.get(clave)) == cif:
                     return True
             return False
         if nombre:
-            for clave in ("name", "tradeName"):
+            for clave in ("name", "tradeName", "trade_name"):
                 if (contact.get(clave) or "").strip().casefold() == nombre:
                     return True
         return False
+
+    def tax_key_for(self, pct) -> str:
+        """La CLAVE de impuesto de la cuenta para ese % (v2: `taxes: ["s_iva_21"]`).
+
+        Se leen las taxes configuradas (`GET /api/v2/taxes`) y se busca la del porcentaje pedido,
+        prefiriendo las de COMPRA. Si no se puede leer (al token le falta `accounting:taxes.read`), se
+        cae a la convención `s_iva_<pct>`: si no fuera la buena, el total no cuadrará al releer el
+        documento y se avisa — nunca se da por bueno a ciegas."""
+        if self.api_version != "v2":
+            return ""
+        try:
+            objetivo = Decimal(str(pct or 0))
+        except (InvalidOperation, TypeError, ValueError):
+            return ""
+        if objetivo <= 0:
+            return ""
+        if self._tax_keys is None:
+            self._tax_keys = {}
+            try:
+                filas = self._request("GET", API_V2 + "/taxes", params={"limit": 200})
+                if isinstance(filas, dict):
+                    filas = filas.get("data") or filas.get("items") or []
+                for t in (filas or []):
+                    if not isinstance(t, dict):
+                        continue
+                    clave = str(t.get("key") or t.get("id") or "").strip()
+                    if not clave:
+                        continue
+                    try:
+                        valor = Decimal(str(t.get("percentage", t.get("percent", t.get("value", "")))))
+                    except (InvalidOperation, TypeError, ValueError):
+                        continue
+                    # Las de compra ganan a las de venta (`p_` frente a `s_`).
+                    hueco = self._tax_keys.get(valor)
+                    if hueco is None or (clave.startswith("p_") and not hueco.startswith("p_")):
+                        self._tax_keys[valor] = clave
+            except HoldedError:
+                self._tax_keys = {}
+        for valor, clave in (self._tax_keys or {}).items():
+            if abs(valor - objetivo) <= Decimal("0.01"):
+                return clave
+        return "s_iva_%d" % int(objetivo)          # convención, comprobada al releer el total
 
     def create_contact(self, payload: dict) -> str:
         """Crea el contacto y devuelve su id en Holded."""
         respuesta = self._request("POST", self._path("contacts"), json_body=payload)
         cid = ""
         if isinstance(respuesta, dict):
+            if not respuesta.get("id") and isinstance(respuesta.get("data"), dict):
+                respuesta = respuesta["data"]      # la v2 puede envolver en `data`
             cid = str(respuesta.get("id") or respuesta.get("contactId") or "").strip()
         if not cid:
             raise HoldedError("Holded no ha devuelto el id del contacto creado.")
@@ -681,8 +902,13 @@ class HoldedClient:
         doc_id = ""
         numero = ""
         if isinstance(respuesta, dict):
+            if not respuesta.get("id") and isinstance(respuesta.get("data"), dict):
+                respuesta = respuesta["data"]      # la v2 puede envolver en `data`
             doc_id = str(respuesta.get("id") or respuesta.get("documentId") or "").strip()
-            numero = str(respuesta.get("invoiceNum") or respuesta.get("docNumber") or "").strip()
+            # ⚠️ El número se llama distinto en cada versión: `document_number` en la v2 y
+            # `invoiceNum`/`docNumber` en la v1.
+            numero = str(respuesta.get("document_number") or respuesta.get("invoiceNum")
+                         or respuesta.get("docNumber") or "").strip()
         if not doc_id:
             raise HoldedError("Holded no ha devuelto el id del documento creado.")
         return {"id": doc_id, "number": numero}
@@ -740,7 +966,9 @@ class HoldedClient:
         nombre = (filename or "documento.pdf").split("/")[-1][:120]
         tipo = (mime or "application/octet-stream").split(";")[0].strip() or "application/octet-stream"
         guardada = (self.endpoints or {}).get("attach") or ""
-        candidatas = list(_ATTACH_CANDIDATES)
+        # ⚠️ En la v2 la ruta es CONOCIDA (`/attachments`, campo `file`): no hay que buscarla.
+        candidatas = ([("/attachments", "file")] if self.api_version == "v2"
+                      else list(_ATTACH_CANDIDATES))
         if guardada:
             sufijo, campo = (guardada.split("|", 1) + ["file"])[:2]
             candidatas = [(sufijo, campo)] + [c for c in candidatas if c != (sufijo, campo)]

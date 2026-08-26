@@ -3599,10 +3599,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   alguna 200 y otras 403 = **le faltan PERMISOS al token**.
   ⚠️ Los «permisos que faltan» solo se cuentan **dentro de la versión que ha funcionado**: que la v1
   rechace a un token de la v2 es lo normal, no un permiso que falte.
-  ⚠️ **Pendiente de la primera subida real en v2**: las RUTAS están confirmadas con la documentación,
-  pero los CAMPOS del payload de la v2 pueden no ser los de la v1. La red de seguridad sigue puesta
-  (se relee el documento y se compara el total) y el motivo que dé Holded se enseña tal cual en el
-  gasto.
+  · **LOS CAMPOS DE LA v2 (confirmados con su OpenAPI: `api.holded.com/openapi/api2.json`)** son
+  OTROS, así que cada versión tiene su builder y el punto único es
+  **`contact_payload_for` / `purchase_payload_for`** (app.py no sabe de versiones):
+    · **contacto** `POST /v2/contacts`: `name`* · `code` (el NIF/CIF) · `is_person` · `email` ·
+      `phone` · `type: supplier` · **`bill_address`** {address, city, postal_code, province, country,
+      country_code} — ojo, `snake_case` y `code`, no `vatnumber`.
+    · **compra** `POST /v2/purchases`: `contact_id`* · `contact_name` · `date` **ISO** (no timestamp) ·
+      `number` (el nº del proveedor) · `notes` · `description` · **`items`*** [{name, type: service,
+      units, price, **`taxes: ["p_iva_21"]`**}] · `payment_method_id` · `tags`.
+    · **adjuntar** `POST /v2/purchases/{id}/attachments` (multipart, campo `file`) — ruta conocida, no
+      hay que buscarla como en la v1.
+    · **buscar** `GET /v2/contacts?code=<CIF>` es **exacto**: se acabó recorrer páginas (y por nombre,
+      `GET /v2/contacts/search?name=`).
+  ⚠️ **El impuesto va como CLAVE por línea**, no como porcentaje: `client.tax_key_for(pct)` lee las
+  taxes de la cuenta (`GET /v2/taxes`) y elige la del % pedido **prefiriendo las de COMPRA** (`p_`
+  antes que `s_`); sin permiso para leerlas se cae a la convención `s_iva_<pct>` y, si no fuera la
+  buena, **el total no cuadrará al releer el documento y se avisa** (nunca se da por bueno a ciegas).
+  ⚠️ **La v2 no modela la retención en la línea**: se deja dicha en las notas y lo que se comprueba es
+  base + IVA (la retención es una liquidación aparte).
+  ⚠️ El **número** del documento se llama `document_number` en la v2 y `invoiceNum`/`docNumber` en la
+  v1, y la v2 puede envolver la respuesta en `data`.
 
   · ⚠️⚠️ **CUANDO DICE «la clave no vale», LO PRIMERO ES SABER DE QUÉ EMPRESA ES LA CUENTA** (ago
   2026). Cada documento se contabiliza en **SU** empresa —una liquidación de royalties en **PIES**
@@ -3712,6 +3729,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   y al pinchar una **solo se ve lo suyo** (`?empresa=<id>`, se conserva entre pestañas). ⚠️ El
   formulario lleva la empresa pinchada, así que **«Subir todo a Holded» no toca lo de otra empresa**
   (`_accounting_company_scope_from_form`).
+  · **CORREGIR LOS DATOS** desde los tres puntitos: **«Corregir los importes»** (el pop-up de
+  siempre) y **«Corregir los datos de la factura»**, que abre la pantalla partida de la factura
+  (`supplier_invoice_edit`) y **vuelve a contabilidad** al guardar (`?next=`).
+  ⚠️⚠️ Corregir los importes toca **el gasto Y SU FACTURA** (`_accounting_expense_invoice`, punto
+  único): en esta tabla manda lo que dice la FACTURA (`_accounting_amounts`), así que tocando solo el
+  gasto no cambiaba nada de lo que se ve y parecía que no se guardaba. Los **porcentajes se
+  recalculan** del importe corregido y se ajustan al tipo real.
+  · **CON LOGO NO SE ESCRIBE EL NOMBRE** de la empresa (el logo ya lo dice y la tabla se lee mucho
+  mejor); el nombre solo sale cuando no hay logo. En los dos casos, al pasar el ratón.
   · **LAS COLUMNAS SE ENTIENDEN**: la cabecera va en **dos filas** —los bloques (**El documento ·
   Importes · Estado**) y debajo cada columna con su icono—, hay **columna de EMPRESA con su logo**
   (`acc_company`), y el **IVA y la retención llevan el importe arriba y su % debajo** (`acc_tax`).

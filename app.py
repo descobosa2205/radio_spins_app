@@ -76238,6 +76238,9 @@ def _accounting_expense_row(session_db, expense, datos: dict) -> dict:
         "accounting_by": (getattr(expense, "accounting_by_nick", None) or ""),
         "accounting_note": (getattr(expense, "accounting_note", None) or ""),
         "doc_url": doc_url, "doc_name": doc_name,
+        # La FACTURA (si la hay): desde los tres puntitos se pueden corregir sus datos en la pantalla
+        # partida de siempre (la factura a la izquierda y sus campos a la derecha).
+        "invoice_id": (str(invoice.id) if invoice is not None else ""),
         "holded_doc_id": (getattr(expense, "holded_doc_id", None) or ""),
         "holded_doc_number": (getattr(expense, "holded_doc_number", None) or ""),
         "holded_error": (getattr(expense, "holded_error", None) or ""),
@@ -76701,8 +76704,38 @@ def accounting_expense_edit(expense_id):
             if crudo != "":
                 setattr(expense, campo, _parse_money_decimal(crudo))
         expense.updated_at = _now_madrid()
+        # ⚠️⚠️ Y LO MISMO EN SU FACTURA: en la tabla de contabilidad manda lo que dice la FACTURA
+        # (`_accounting_amounts`), así que corregir solo el gasto no cambiaba nada de lo que se ve y
+        # parecía que no se había guardado. Se corrigen las dos cosas, que es lo que se está mirando.
+        inv = _accounting_expense_invoice(session_db, expense)
+        tocadas = 0
+        if inv is not None:
+            if (form.get("invoice_number") or "").strip():
+                inv.invoice_number = (form.get("invoice_number") or "").strip()
+            if fecha:
+                inv.issue_date = fecha
+            for campo, clave in (("amount_net", "amount_net"), ("amount_vat", "amount_tax"),
+                                 ("amount_gross", "amount_gross"),
+                                 ("retention_amount", "retention_amount")):
+                crudo = (form.get(clave) or "").strip()
+                if crudo != "":
+                    setattr(inv, campo, _parse_money_decimal(crudo))
+            # Los PORCENTAJES se recalculan del importe corregido y se ajustan al tipo real, para que
+            # no se queden diciendo el % de los números viejos.
+            base = _money_or_zero(inv.amount_net)
+            if base > 0:
+                if _money_or_zero(inv.amount_vat) > 0:
+                    inv.vat_pct = float(_tax_pct_snap(
+                        (_money_or_zero(inv.amount_vat) / base * Decimal("100")).quantize(Decimal("0.01")),
+                        VAT_RATES))
+                if _money_or_zero(inv.retention_amount) > 0:
+                    inv.retention_pct = float(_tax_pct_snap(
+                        (_money_or_zero(inv.retention_amount) / base * Decimal("100")).quantize(Decimal("0.01")),
+                        RETENTION_RATES))
+            session_db.add(inv)
+            tocadas = 1
         session_db.commit()
-        flash("Datos del gasto actualizados.", "success")
+        flash("Datos actualizados%s." % (" (el gasto y su factura)" if tocadas else ""), "success")
     except Exception as exc:
         session_db.rollback()
         flash("No se pudieron guardar los datos: %s" % exc, "danger")
@@ -88181,6 +88214,28 @@ def _tax_pct_snap(pct, tipos=VAT_RATES):
     return valor
 
 
+def _accounting_expense_invoice(session_db, expense):
+    """LA FACTURA de un gasto (la imputada, o la que apunta a él). Punto único.
+
+    En contabilidad, los importes que se ven salen de la FACTURA, así que cualquier corrección tiene
+    que llegar aquí o la pantalla seguiría enseñando los de antes."""
+    if expense is None:
+        return None
+    try:
+        fila = (session_db.query(BagExpenseInvoice)
+                .filter(BagExpenseInvoice.bag_expense_id == expense.id)
+                .filter(BagExpenseInvoice.supplier_invoice_id.isnot(None))
+                .order_by(BagExpenseInvoice.created_at.desc()).first())
+        if fila is not None and fila.supplier_invoice_id:
+            return session_db.get(SupplierInvoice, fila.supplier_invoice_id)
+        return (session_db.query(SupplierInvoice)
+                .filter(SupplierInvoice.bag_expense_id == expense.id)
+                .order_by(SupplierInvoice.created_at.desc()).first())
+    except Exception:
+        app.logger.exception("[contabilidad] no se pudo resolver la factura del gasto")
+        return None
+
+
 def _accounting_amounts(session_db, expense, *, invoice=None) -> dict:
     """DESGLOSE del gasto para contabilidad: base, IVA (con su %), retención (con su %) y total.
 
@@ -88273,7 +88328,7 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
     Devuelve `{"ok": bool, "message": str, "warning": str}`. Si algo falla NO se calla: el motivo se
     guarda en `holded_error` y se le enseña a quien lo ha intentado, que es lo que se pidió.
     """
-    from holded_utils import (HoldedError, build_contact_payload, build_purchase_payload,
+    from holded_utils import (HoldedError, contact_payload_for, purchase_payload_for,
                               DOC_TYPE_INVOICE)
     bag = getattr(expense, "bag", None) or (session_db.get(WorkflowBag, expense.bag_id)
                                             if getattr(expense, "bag_id", None) else None)
@@ -88314,7 +88369,7 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
                     avisos.append("El proveedor se ha creado en Holded sin código postal o sin "
                                   "municipio: complétalos en su ficha para que la dirección fiscal "
                                   "esté bien.")
-                contact_id = client.create_contact(build_contact_payload(
+                contact_id = client.create_contact(contact_payload_for(client,
                     name=proveedor["name"] or ("Proveedor " + (proveedor["tax_id"] or "")),
                     tax_id=proveedor["tax_id"],
                     email=proveedor["email"], phone=proveedor["phone"],
@@ -88333,7 +88388,7 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
     etiqueta = _accounting_bag_tag(session_db, bag)
     nota = _accounting_internal_note(session_db, expense)
     metodo_id = _accounting_holded_payment_method_id(acc, getattr(expense, "payment_method", None))
-    payload = build_purchase_payload(
+    payload = purchase_payload_for(client,
         concept=concepto,
         total=importes["total"],
         net=(importes["net"] if es_factura else importes["total"]),
@@ -88440,7 +88495,7 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
     resuelve `_royalty_beneficiary_promoter` (quién emite la factura) y los importes,
     `_royalty_invoice_amounts` (los de SU factura).
     """
-    from holded_utils import (HoldedError, build_contact_payload, build_purchase_payload,
+    from holded_utils import (HoldedError, contact_payload_for, purchase_payload_for,
                               DOC_TYPE_INVOICE)
     company = _royalty_holded_company(session_db, rec)
     if company is None:
@@ -88480,7 +88535,7 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
             if not (piezas.get("postal_code") and piezas.get("city")):
                 avisos.append("El proveedor se ha creado en Holded sin código postal o sin "
                               "municipio: complétalos en su ficha.")
-            contact_id = client.create_contact(build_contact_payload(
+            contact_id = client.create_contact(contact_payload_for(client,
                 name=nombre or ("Proveedor " + cif), tax_id=cif,
                 email=(getattr(promoter, "contact_email", None) or ""),
                 phone=(getattr(promoter, "contact_phone", None) or ""),
@@ -88499,7 +88554,7 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
         ("Pagada el %s" % rec.paid_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")) if rec.paid_at else "",
         ("Forma de pago: %s" % (getattr(rec, "payment_method", None) or "")).strip(" :"),
     ] if x and x.strip()])
-    payload = build_purchase_payload(
+    payload = purchase_payload_for(client,
         concept=concepto,
         total=importes["total"], net=importes["net"],
         vat_pct=importes["vat_pct"], retention_pct=importes["retention_pct"],

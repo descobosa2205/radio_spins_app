@@ -79,7 +79,9 @@
   {# ---------- DERECHA: todos los campos ---------- #}
   <div class="col-12 col-xl-6">
     <form method="post" action="{{ url_for('supplier_invoice_data_save', invoice_id=inv.id) }}" class="card">
-      <input type="hidden" name="next" value="{{ request.url }}">
+      {# ⚠️ Al guardar se vuelve A DONDE SE VENÍA (`?next=`): a esta pantalla se llega también desde
+         los tres puntitos de Contabilidad, y ahí lo que se quiere es volver a la tabla. #}
+      <input type="hidden" name="next" value="{{ request.args.get('next') or request.url }}">
       <div class="card-header bg-white"><strong><i class="fa fa-pen-to-square me-1 text-muted"></i>Datos detectados</strong></div>
       <div class="card-body">
         {% if expected.gross %}

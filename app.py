@@ -20549,6 +20549,106 @@ def _pitch_examples(session_db, artist_id=None, limit: int = 12) -> dict:
     return salida
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTO · LA NOTA DE PRENSA
+#
+# Todo lanzamiento lleva nota de prensa, pero **no se puede pedir sin tener antes lo que la nota
+# cuenta**: el **pitch** escrito, la **fecha** de lanzamiento y **decidido si es focus single**.
+# Hasta entonces la tarea se ve pero **no se puede activar** (sale rayada, con lo que falta).
+#
+# Al solicitarla (lo hace el **jefe de producto**, que puede dejar sus indicaciones) salen DOS
+# trabajos a la vez y cada uno finaliza cuando sube lo suyo:
+#   · **PROMOCIÓN** la redacta   → sube el texto
+#   · **DISEÑO** la maqueta      → sube el gráfico
+# Y cuando el texto está subido, a promoción le queda **enviarla**: sigue pendiente hasta que se
+# marca como enviada.
+# ⚠️ Tiene que estar lista **el LUNES PREVIO al lanzamiento** (`_press_due_date`).
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Los dos entregables de una nota de prensa: (clave, etiqueta, departamento, icono).
+DISCO_PRESS_PARTS = (
+    ("text", "Redactar la nota de prensa", "Promoción", "fa-file-lines"),
+    ("design", "Diseño de la nota de prensa", "Diseño", "fa-palette"),
+)
+DISCO_PRESS_PART_LABELS = {k: lbl for k, lbl, _d, _i in DISCO_PRESS_PARTS}
+# Cómo se dice cada parte cuando YA está hecha («Redactar la nota de prensa subida» se lee raro).
+DISCO_PRESS_DONE_LABELS = {"text": "Nota de prensa redactada",
+                           "design": "Diseño de la nota de prensa listo"}
+
+
+def _press_due_date(release_date):
+    """El LUNES PREVIO al lanzamiento: es cuando la nota tiene que estar lista."""
+    if not release_date:
+        return None
+    dia = release_date - timedelta(days=1)
+    while dia.weekday() != 0:          # 0 = lunes
+        dia -= timedelta(days=1)
+    return dia
+
+
+def _disco_press(project) -> dict:
+    """Lo guardado de la nota de prensa."""
+    return dict((_disco_prod(project).get("press") or {}))
+
+
+def _disco_press_state(session_db, project, release_song=None) -> dict:
+    """¿Se puede pedir la nota de prensa, se ha pedido, está hecha y se ha enviado?"""
+    cancion = release_song if release_song is not None else _disco_project_release_song(session_db, project)
+    fila = _disco_press(project)
+    pitch = ((getattr(cancion, "pitch_text", None) or "").strip() if cancion is not None else "")
+    fecha = getattr(project, "release_date", None) or getattr(cancion, "release_date", None)
+    focus_decidido = (getattr(cancion, "focus_single", None) is not None) if cancion is not None else False
+    falta = []
+    if not pitch:
+        falta.append("el pitch")
+    if not fecha:
+        falta.append("la fecha de lanzamiento")
+    if not focus_decidido:
+        falta.append("decidir si es focus single")
+    partes = {}
+    for clave, etiqueta, depto, icono in DISCO_PRESS_PARTS:
+        partes[clave] = {
+            "key": clave, "label": etiqueta, "department": depto, "icon": icono,
+            "url": (fila.get("%s_url" % clave) or ""),
+            "name": (fila.get("%s_name" % clave) or ""),
+            "by": (fila.get("%s_by" % clave) or ""),
+            "at_label": _iso_date_label(fila.get("%s_at" % clave)),
+            "done": bool(fila.get("%s_url" % clave)),
+        }
+    vence = _press_due_date(fecha)
+    return {
+        "song": cancion,
+        "can_request": not falta,
+        "missing": falta,
+        "requested": bool(fila.get("requested_at")),
+        "requested_label": _iso_date_label(fila.get("requested_at")),
+        "requested_by": (fila.get("requested_by") or ""),
+        "note": (fila.get("note") or ""),
+        "due_date": vence,
+        "due_label": (vence.strftime("%d/%m/%Y") if vence else ""),
+        "late": bool(vence and vence < today_local() and not fila.get("text_url")),
+        "parts": partes,
+        "text_done": partes["text"]["done"],
+        "design_done": partes["design"]["done"],
+        "sent": bool(fila.get("sent_at")),
+        "sent_label": _iso_date_label(fila.get("sent_at")),
+        "sent_by": (fila.get("sent_by") or ""),
+        "done": bool(fila.get("sent_at")),
+    }
+
+
+def _disco_press_people(session_db, part: str) -> list[str]:
+    """A quién le toca cada parte: **Promoción** el texto y el envío, **Diseño** el gráfico.
+
+    Si no hay nadie en ese departamento, se cae al SELLO (mejor que lo vea alguien de más que dejar
+    la nota sin dueño), que es el criterio de la casa."""
+    depto = ("Diseño" if part == "design" else "Promoción")
+    quienes = list(_department_user_ids(session_db, depto) or [])
+    if part != "design":
+        quienes += list(_department_user_ids(session_db, "Marketing") or [])
+    return list(dict.fromkeys(quienes)) or list(_department_user_ids(session_db, "Sello") or [])
+
+
 def _disco_project_demo(session_db, project):
     """La MAQUETA vinculada a este proyecto (la última que se subió)."""
     if project is None:
@@ -20889,6 +20989,55 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                     tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-hourglass-half",
                           grupo="single", sub=True, state="wait",
                           hint="Pendiente de que promoción diga si entra")
+
+    # ================= LA NOTA DE PRENSA =================
+    if _disco_project_release_song(session_db, project) is not None:
+        pr = _disco_press_state(session_db, project)
+        if pr["sent"]:
+            tarea("prensa", "Nota de prensa", "", "fa-newspaper", grupo="lanzamiento", state="done",
+                  value="Enviada%s%s" % ((" el %s" % pr["sent_label"]) if pr["sent_label"] else "",
+                                         (" por %s" % pr["sent_by"]) if pr["sent_by"] else ""),
+                  menu=[{"label": "Ver la nota", "icon": "fa-file-lines",
+                         "url": pr["parts"]["text"]["url"]}] if pr["parts"]["text"]["url"] else None)
+        elif not pr["requested"]:
+            if not pr["can_request"]:
+                # ⚠️ Se VE pero no se puede activar: falta lo que la nota cuenta.
+                tarea("prensa", "Nota de prensa", "", "fa-newspaper", grupo="lanzamiento",
+                      state="blocked", hint="Antes hace falta %s" % " y ".join(pr["missing"]))
+            else:
+                tarea("prensa", "Nota de prensa", "", "fa-newspaper", True, grupo="lanzamiento",
+                      hint="Se le pide a promoción (el texto) y a diseño (el gráfico)"
+                           + ((" · lista para el %s" % pr["due_label"]) if pr["due_label"] else ""),
+                      action_label="Solicitar nota de prensa", modal="#dpPressModal")
+        else:
+            tarea("prensa", "Nota de prensa", "", "fa-newspaper", pr["late"], grupo="lanzamiento",
+                  state=("todo" if pr["text_done"] else "wait"),
+                  value=("Pedida%s%s" % ((" el %s" % pr["requested_label"]) if pr["requested_label"] else "",
+                                         (" por %s" % pr["requested_by"]) if pr["requested_by"] else "")),
+                  hint=("Lista para el %s" % pr["due_label"] if pr["due_label"] else "")
+                       + (" · FUERA DE PLAZO" if pr["late"] else ""),
+                  menu=[{"label": "Cambiar las indicaciones", "icon": "fa-pen", "modal": "#dpPressModal"}])
+            # Sus dos partes: promoción la redacta y diseño la maqueta.
+            for clave, etiqueta, depto, icono in DISCO_PRESS_PARTS:
+                parte = pr["parts"][clave]
+                if parte["done"]:
+                    tarea("prensa_%s" % clave, etiqueta, "", icono, grupo="lanzamiento", sub=True,
+                          state="done",
+                          value="Subida%s%s" % ((" por %s" % parte["by"]) if parte["by"] else "",
+                                                (" · %s" % parte["at_label"]) if parte["at_label"] else ""),
+                          menu=[{"label": "Ver el archivo", "icon": "fa-eye", "url": parte["url"]},
+                                {"label": "Subir otra versión", "icon": "fa-rotate",
+                                 "modal": "#dpPress%sModal" % clave.title()}])
+                else:
+                    tarea("prensa_%s" % clave, etiqueta, "", icono, grupo="lanzamiento", sub=True,
+                          hint="La hace %s" % depto,
+                          action_label="Subirla", modal="#dpPress%sModal" % clave.title())
+            # Y cuando el texto está, queda ENVIARLA (es de promoción).
+            if pr["text_done"]:
+                tarea("prensa_enviar", "Enviar la nota de prensa", "", "fa-paper-plane", True,
+                      grupo="lanzamiento", sub=True,
+                      hint="Sigue pendiente hasta que se marque como enviada",
+                      action_label="Marcar enviada", modal="#dpPressSentModal")
 
     # ================= AUDIO · paso 4: la PORTADA, por pasos =================
     if lleva_audio:
@@ -21857,6 +22006,7 @@ def disco_project_detail(project_id):
                           "physical_labels", "roadmap_ctx", "CAN_EDIT", "bag", "tasks",
                           "task_groups", "date_state", "production", "materials_recipients",
                           "logistics", "logistics_notes", "radio", "radio_media", "pitch_state",
+                          "press", "press_parts", "product_manager",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -21884,6 +22034,11 @@ def disco_project_detail(project_id):
             # LOGÍSTICA del proyecto (¿hace falta?, a quién se le ha pedido y qué se le pide).
             logistics=(_disco_logistics_state(session_db, project) if tab == "calendario" else None),
             logistics_notes=DISCO_LOGISTICS_NOTES,
+            # LA NOTA DE PRENSA: si se puede pedir, sus dos partes y el envío.
+            press=(_disco_press_state(session_db, project) if tab == "calendario" else None),
+            press_parts=DISCO_PRESS_PARTS,
+            product_manager=(_disco_plan_product_manager(session_db, project)
+                             if tab == "calendario" else {}),
             # EL PITCH: lo que hay, lo que contó el artista y su enlace.
             pitch_state=(_disco_pitch_state(session_db, project) if tab == "calendario" else None),
             # FOCUS SINGLE y PRESENTACIÓN A RADIO (solo en un single).
@@ -25172,6 +25327,165 @@ def disco_project_production_save(project_id):
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("[proyectos] no se pudo guardar la producción")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/nota-prensa/solicitar", endpoint="disco_project_press_request")
+@admin_required
+def disco_project_press_request(project_id):
+    """SOLICITAR la nota de prensa: sale a la vez a PROMOCIÓN (redactarla) y a DISEÑO (maquetarla).
+
+    ⚠️ No se puede pedir sin el pitch, la fecha y el focus single decidido: es lo que la nota cuenta
+    (lo comprueba el servidor, no solo el botón)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        estado = _disco_press_state(session_db, project)
+        if not estado["can_request"]:
+            flash("Todavía no se puede pedir la nota de prensa: falta %s."
+                  % " y ".join(estado["missing"]), "warning")
+            return redirect(safe_next_or(destino))
+        prod = _disco_prod(project)
+        fila = dict(prod.get("press") or {})
+        fila["requested_at"] = (fila.get("requested_at") or _now_madrid().isoformat())
+        fila["requested_by"] = (fila.get("requested_by")
+                                or (_current_user_state() or {}).get("nick") or "")
+        fila["note"] = (request.form.get("note") or "").strip()
+        prod["press"] = fila
+        project.production_payload = prod
+        project.updated_at = _now_madrid()
+        session_db.flush()
+        plazo = estado["due_label"]
+        cuerpo = ("Hay que tenerla lista para el %s." % plazo) if plazo else "Hay que prepararla."
+        if fila["note"]:
+            cuerpo += " Indicaciones: %s" % fila["note"][:300]
+        for clave, etiqueta, _d, _i in DISCO_PRESS_PARTS:
+            _notify_users(session_db, _disco_press_people(session_db, clave), "TAREA",
+                          "%s: %s" % (etiqueta, _disco_project_title(project)), cuerpo,
+                          url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type=("DISCO_PRESS_%s" % clave.upper()), ref_id=str(project.id))
+        session_db.commit()
+        flash("Nota de prensa solicitada a promoción y a diseño.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[nota de prensa] no se pudo solicitar")
+        flash("No se pudo solicitar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/nota-prensa/subir", endpoint="disco_project_press_upload")
+@admin_required
+def disco_project_press_upload(project_id):
+    """Sube su parte quien la hace: **promoción** el texto y **diseño** el gráfico.
+
+    ⚠️ Aquí no se exige `can_edit_discografica()`: lo suben promoción y diseño, que no tienen por qué
+    poder editar discográfica. Se comprueba que es de su departamento (o dirección)."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        parte = (request.form.get("part") or "text").strip().lower()
+        if parte not in DISCO_PRESS_PART_LABELS:
+            flash("No sé qué parte de la nota subes.", "warning")
+            return redirect(safe_next_or(destino))
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        if not (is_master() or can_edit_discografica()
+                or yo in _disco_press_people(session_db, parte)):
+            return forbid("Esta parte de la nota la sube otro departamento.")
+        fs = request.files.get("file")
+        if not fs or not getattr(fs, "filename", ""):
+            flash("Elige el archivo.", "warning")
+            return redirect(safe_next_or(destino))
+        url = upload_file(fs, "press_releases")
+        prod = _disco_prod(project)
+        fila = dict(prod.get("press") or {})
+        fila["%s_url" % parte] = url
+        fila["%s_name" % parte] = (fs.filename or "").replace("\\", "/")
+        fila["%s_at" % parte] = _now_madrid().isoformat()
+        fila["%s_by" % parte] = ((_current_user_state() or {}).get("nick") or "")
+        prod["press"] = fila
+        project.production_payload = prod
+        project.updated_at = _now_madrid()
+        # Su tarea deja de esperar a nadie…
+        _notify_resolve(session_db, "DISCO_PRESS_%s" % parte.upper(), str(project.id))
+        # …y al estar el TEXTO, a promoción le queda enviarla.
+        if parte == "text":
+            _notify_users(session_db, _disco_press_people(session_db, "text"), "TAREA",
+                          "Enviar la nota de prensa: %s" % _disco_project_title(project),
+                          "Ya está redactada: hay que mandarla a los medios.",
+                          url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_PRESS_SEND", ref_id=str(project.id))
+        _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                      "%s: %s" % (DISCO_PRESS_DONE_LABELS.get(parte, "Nota de prensa"),
+                                  _disco_project_title(project)),
+                      "La ha subido %s." % ((_current_user_state() or {}).get("nick") or "alguien"),
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_PRESS", ref_id=str(project.id))
+        session_db.commit()
+        flash("%s." % DISCO_PRESS_DONE_LABELS.get(parte, "Archivo subido"), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[nota de prensa] no se pudo subir")
+        flash("No se pudo subir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/nota-prensa/enviada", endpoint="disco_project_press_sent")
+@admin_required
+def disco_project_press_sent(project_id):
+    """«Ya está enviada»: lo marca PROMOCIÓN y con eso la nota de prensa queda terminada."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        if not (is_master() or can_edit_discografica()
+                or yo in _disco_press_people(session_db, "text")):
+            return forbid("Esto lo marca promoción.")
+        prod = _disco_prod(project)
+        fila = dict(prod.get("press") or {})
+        if not fila.get("text_url"):
+            flash("Todavía no hay nota de prensa que enviar.", "warning")
+            return redirect(safe_next_or(destino))
+        deshacer = _truthy(request.form.get("undo"))
+        fila["sent_at"] = ("" if deshacer else _now_madrid().isoformat())
+        fila["sent_by"] = ("" if deshacer else ((_current_user_state() or {}).get("nick") or ""))
+        prod["press"] = fila
+        project.production_payload = prod
+        project.updated_at = _now_madrid()
+        if deshacer:
+            _notify_users(session_db, _disco_press_people(session_db, "text"), "TAREA",
+                          "Enviar la nota de prensa: %s" % _disco_project_title(project),
+                          "Vuelve a estar pendiente de enviar.",
+                          url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_PRESS_SEND", ref_id=str(project.id))
+        else:
+            _notify_resolve(session_db, "DISCO_PRESS_SEND", str(project.id))
+        session_db.commit()
+        flash("Nota de prensa pendiente de enviar otra vez." if deshacer else
+              "Nota de prensa enviada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[nota de prensa] no se pudo marcar el envío")
         flash("No se pudo guardar: %s" % exc, "danger")
     finally:
         session_db.close()
@@ -62486,6 +62800,9 @@ def inject_personnel_globals():
         # pide por su nombre), así que no depende de ningún permiso de sección.
         "HOME_DISCO_LOGISTICS": (_home_disco_logistics()
                                  if _home and "_home_disco_logistics" in globals() else []),
+        # NOTAS DE PRENSA pendientes: a promoción (redactarla y enviarla) y a diseño (el gráfico).
+        "HOME_PRESS_TASKS": (_home_press_tasks()
+                             if _home and "_home_press_tasks" in globals() else []),
         # PRESENTAR A RADIO: a promoción (y a dirección con función de sello), una subtarea por
         # emisora. Es de quien le toca contestar, así que va con lo suyo (dirección incluida).
         "HOME_RADIO_PITCHES": (_home_radio_pitches()
@@ -62858,6 +63175,10 @@ REQUEST_ANY_ENDPOINTS = {
     # sello): el endpoint comprueba dentro que es de quien le toca. Va aquí y no en
     # `SUPPORT_ACTION_ENDPOINTS` por lo mismo que la logística: ese exige ser «actor».
     "song_radio_pitch_decide",
+    # ⚠️ La NOTA DE PRENSA la sube promoción (el texto) y diseño (el gráfico), y la marca enviada
+    # promoción: ninguno tiene por qué poder editar discográfica. Cada endpoint comprueba dentro que
+    # es de su departamento (o dirección).
+    "disco_project_press_upload", "disco_project_press_sent",
 }
 
 
@@ -105593,6 +105914,69 @@ def _home_radio_pitches(limit: int = 12) -> list[dict]:
         return salida
     except Exception:
         app.logger.exception("[inicio] no se pudieron leer las presentaciones a radio")
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_press_tasks(limit: int = 12) -> list[dict]:
+    """NOTAS DE PRENSA pendientes (módulo de Inicio de **promoción** y de **diseño**).
+
+    A cada uno lo suyo: promoción **redactarla** y después **enviarla**; diseño **el gráfico**. Con el
+    plazo (el lunes previo al lanzamiento) y en rojo si ya se pasó."""
+    estado = _current_user_state() or {}
+    yo = str(estado.get("user_id") or "")
+    if not yo:
+        return []
+    session_db = db()
+    try:
+        de_promo = yo in _disco_press_people(session_db, "text")
+        de_diseno = yo in _disco_press_people(session_db, "design")
+        if not (de_promo or de_diseno or int(estado.get("role") or 0) == 10):
+            return []
+        if int(estado.get("role") or 0) == 10:
+            de_promo = de_diseno = True
+        filas = []
+        proyectos = (session_db.query(DiscoProject)
+                     .options(joinedload(DiscoProject.artist))
+                     .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                     .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
+        for p in proyectos:
+            pr = _disco_press_state(session_db, p)
+            if not pr["requested"] or pr["sent"]:
+                continue
+            tareas = []
+            if de_promo and not pr["text_done"]:
+                tareas.append({"key": "text", "label": "Redactar la nota de prensa",
+                               "icon": "fa-file-lines"})
+            if de_diseno and not pr["design_done"]:
+                tareas.append({"key": "design", "label": "Diseño de la nota de prensa",
+                               "icon": "fa-palette"})
+            if de_promo and pr["text_done"]:
+                tareas.append({"key": "send", "label": "Enviar la nota de prensa",
+                               "icon": "fa-paper-plane"})
+            if not tareas:
+                continue
+            artista = getattr(p, "artist", None)
+            filas.append({
+                "id": str(p.id),
+                "title": _disco_project_title(p),
+                "artist_name": (getattr(artista, "name", "") or ""),
+                "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                "release_label": (p.release_date.strftime("%d/%m/%Y")
+                                  if getattr(p, "release_date", None) else ""),
+                "due_label": pr["due_label"],
+                "late": pr["late"],
+                "note": pr["note"],
+                "requested_by": pr["requested_by"],
+                "tasks": tareas,
+                "url": url_for("disco_project_detail", project_id=p.id, tab="calendario"),
+            })
+            if len(filas) >= limit:
+                break
+        return filas
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron leer las notas de prensa")
         return []
     finally:
         session_db.close()

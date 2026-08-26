@@ -805,6 +805,56 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# NOTAS DE PRENSA pendientes: a promoción le toca redactarla y luego enviarla; a diseño, el
+   gráfico. Con el plazo (el lunes previo al lanzamiento) y en rojo si ya se pasó. #}
+{% if HOME_PRESS_TASKS %}
+<div class="card mb-4 border-warning">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-newspaper text-danger me-2"></i>Notas de prensa
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_PRESS_TASKS|length }}</span>
+    </span>
+    <span class="text-muted small">Tienen que estar listas el lunes previo al lanzamiento.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_PRESS_TASKS %}
+      <div class="ctask{% if r.late %} border-danger{% endif %}">
+        <div class="ctask__head">
+          {% if r.artist_photo or r.artist_name %}
+            {{ artist_avatar(r.artist_photo, r.artist_name) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-newspaper text-muted"></i></span>
+          {% endif %}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}"
+             title="Abrir el proyecto">{{ r.artist_name or r.title }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-compact-disc"></i>{{ r.title }}</span>
+            {% if r.release_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>sale el {{ r.release_label }}</span>{% endif %}
+            {% if r.due_label %}
+              <span class="ctask__fact {{ 'text-danger fw-semibold' if r.late else '' }}">
+                <i class="fa fa-clock"></i>lista el {{ r.due_label }}{% if r.late %} · fuera de plazo{% endif %}</span>
+            {% endif %}
+            {% if r.requested_by %}<span class="ctask__fact"><i class="fa fa-user"></i>lo pidió {{ r.requested_by }}</span>{% endif %}
+          </span>
+          <span class="ms-auto ctask__actions">
+            <a class="btn btn-sm btn-danger" href="{{ r.url }}"><i class="fa fa-arrow-right me-1"></i>Abrir</a>
+          </span>
+        </div>
+        <div class="ctask__tasks">
+          {% for t in r.tasks %}
+            <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.label }}</span>
+          {% endfor %}
+          {% if r.note %}
+            <span class="badge text-bg-light border text-truncate" style="max-width:420px" title="{{ r.note }}">
+              <i class="fa fa-note-sticky me-1"></i>{{ r.note }}</span>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# PRESENTAR A RADIO (promoción y dirección con función de sello): una fila por canción y, dentro,
    una emisora por línea con sus dos botones. «Sí va a entrar» pide la fecha de entrada en rotación
    (y eso se anota solo en el plan de lanzamiento); «No va a entrar» avisa a quien lo pidió. #}

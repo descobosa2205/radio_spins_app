@@ -883,6 +883,118 @@
   </div>
 </div>
 
+{# ---------------------------------------------------------------- LA NOTA DE PRENSA
+   Cuatro pop-ups: solicitarla (con las indicaciones del jefe de producto), subir el TEXTO
+   (promoción), subir el DISEÑO (diseño) y marcarla enviada. #}
+{% set pr = press or {} %}
+<div class="modal fade" id="dpPressModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_press_request', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-newspaper me-2 text-danger"></i>Solicitar la nota de prensa</h5>
+          <div class="text-muted small">
+            Sale a la vez a <strong>promoción</strong> (redactarla) y a <strong>diseño</strong> (el gráfico).
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if not pr.can_request %}
+          <div class="alert alert-warning"><i class="fa fa-lock me-1"></i>
+            Antes hace falta {{ (pr.missing or [])|join(' y ') }}.</div>
+        {% endif %}
+        {% if pr.due_label %}
+          <div class="alert alert-secondary">
+            <i class="fa fa-calendar-day me-1"></i>Tiene que estar lista el
+            <strong>{{ pr.due_label }}</strong> (el lunes previo al lanzamiento).</div>
+        {% endif %}
+        <label class="form-label">Indicaciones para la nota (opcional)</label>
+        <textarea class="form-control" name="note" rows="4"
+                  placeholder="Qué destacar, a qué medios, el ángulo…">{{ pr.note or '' }}</textarea>
+        {% if product_manager and product_manager.name %}
+          <div class="form-text mt-2">
+            <i class="fa fa-user me-1"></i>Jefe de producto de este artista: <strong>{{ product_manager.name }}</strong>
+          </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit" {% if not pr.can_request %}disabled{% endif %}>
+          <i class="fa fa-paper-plane me-1"></i>Solicitar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% for key, label, depto, icono in (press_parts or []) %}
+  <div class="modal fade" id="dpPress{{ key|capitalize }}Modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post" enctype="multipart/form-data"
+            action="{{ url_for('disco_project_press_upload', project_id=project.id) }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="hidden" name="part" value="{{ key }}">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title"><i class="fa {{ icono }} me-2 text-danger"></i>{{ label }}</h5>
+            <div class="text-muted small">La sube {{ depto }}{% if pr.due_label %} · para el {{ pr.due_label }}{% endif %}.</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          {% if pr.note %}
+            <div class="alert alert-secondary small">
+              <div class="text-muted mb-1">Indicaciones de {{ pr.requested_by or 'el jefe de producto' }}:</div>
+              <div style="white-space:pre-wrap;">{{ pr.note }}</div>
+            </div>
+          {% endif %}
+          {% set parte = (pr.parts or {}).get(key) %}
+          {% if parte and parte.url %}
+            <div class="small text-muted mb-2">
+              Ya hay una versión subida{% if parte.by %} por {{ parte.by }}{% endif %}:
+              <a href="{{ parte.url }}" target="_blank" rel="noopener">{{ parte.name or 'ver el archivo' }}</a>
+            </div>
+          {% endif %}
+          <label class="form-label">Archivo</label>
+          <input class="form-control" type="file" name="file" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger" type="submit"><i class="fa fa-upload me-1"></i>Subir</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endfor %}
+
+<div class="modal fade" id="dpPressSentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_press_sent', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>¿Ya está enviada?</h5>
+          <div class="text-muted small">Con esto la nota de prensa queda terminada.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0">Se marca la nota de prensa como <strong>enviada a los medios</strong>. Si te
+          has adelantado, se puede deshacer desde aquí mismo.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        {% if pr.sent %}
+          <button class="btn btn-outline-danger" type="submit" name="undo" value="1">
+            <i class="fa fa-rotate-left me-1"></i>Volver a pendiente</button>
+        {% endif %}
+        <button class="btn btn-danger" type="submit"><i class="fa fa-check me-1"></i>Sí, está enviada</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- EL PITCH
    Dos pop-ups: pedirle al ARTISTA su inspiración (su enlace público) y ESCRIBIR el pitch, con los
    pitchs anteriores a un clic para coger ideas. #}

@@ -907,6 +907,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · LA NOTA DE PRENSA** (ago 2026). Todo lanzamiento la lleva, pero **no se puede pedir
+  sin tener antes lo que la nota cuenta**: el **pitch** escrito, la **fecha** de lanzamiento y
+  **decidido si es focus single**. Hasta entonces la tarea **se ve pero no se puede activar** (sale
+  rayada, con lo que falta) — y el **servidor lo vuelve a comprobar**.
+  · **La pide el JEFE DE PRODUCTO** (`_disco_plan_product_manager`) con sus **indicaciones**
+  (`#dpPressModal` → `disco_project_press_request`), y salen **DOS trabajos a la vez**
+  (`DISCO_PRESS_PARTS`): **PROMOCIÓN la redacta** y **DISEÑO la maqueta**. Cada uno finaliza al subir
+  lo suyo (`disco_project_press_upload`, `part=text|design`), y cuando **el texto está**, a promoción
+  le queda **ENVIARLA**: sigue pendiente hasta que se marca (`disco_project_press_sent`, que se puede
+  deshacer).
+  ⚠️ **Tiene que estar lista el LUNES PREVIO al lanzamiento** (`_press_due_date`: el lunes
+  inmediatamente anterior; un viernes 06/11 → lunes 02/11). Pasado el plazo sin el texto, la tarea y
+  el módulo salen **en rojo**.
+  · **Módulo de Inicio `HOME_PRESS_TASKS`** (`_home_press_tasks`): a cada uno **lo suyo** —promoción
+  redactar y después enviar, diseño el gráfico—, con el plazo y las indicaciones a la vista. Dirección
+  lo ve todo; quien no es de ninguno de los dos, nada.
+  ⚠️ `disco_project_press_upload` y `_sent` van en **`REQUEST_ANY_ENDPOINTS`**: los usan promoción y
+  diseño, que no tienen por qué poder editar discográfica (cada uno comprueba dentro que es de su
+  departamento o dirección).
+  ⚠️ Estado en `production_payload['press']` y punto único **`_disco_press_state`**: lo usan la tarea
+  del proyecto, sus cuatro pop-ups y el módulo de Inicio.
+
 - **PROYECTO · EL PITCH, en dos pasos** (ago 2026). El pitch es el texto con el que se presenta el
   lanzamiento, y hacerlo son **dos cosas**:
   · **1 · Pedirle al ARTISTA un texto o una inspiración** (`disco_project_pitch_ask` +

@@ -21299,6 +21299,71 @@ def _disco_mix_state(session_db, project) -> dict:
     }
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTO · LA FOTO DE LA PORTADA (cuando hay dudas, la elige el artista)
+#
+# Antes de pedirle la portada a diseño hay que tener **la foto**. Si está clara, el jefe de producto
+# la sube o la coge de las guardadas del artista (eso ya existía). Si hay **dudas**, se le mandan
+# VARIAS OPCIONES al artista para que **elija una**:
+#   · la **etapa 1** (nuestro artista) **ELIGE** → la elegida se guarda en la aprobación;
+#   · la **etapa 2** (el colaborador) solo **APRUEBA la elegida** — automáticamente, sin volver a
+#     preguntar cuál (así lo pidió Dani);
+#   · cuando está aprobada, la foto pasa a la portada y se avisa a **DISEÑO** (que ya puede hacerla)
+#     y al **jefe de producto**.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _disco_photo_options(fila) -> list[dict]:
+    """Las fotos entre las que se elige (y cuál va ganando)."""
+    pay = (fila.payload if isinstance(getattr(fila, "payload", None), dict) else {}) or {}
+    opciones = [x for x in (pay.get("options") or []) if isinstance(x, dict) and x.get("url")]
+    elegida = (pay.get("picked") or "").strip()
+    for o in opciones:
+        o["picked"] = bool(elegida and str(o.get("id") or o.get("url")) == elegida)
+    return opciones
+
+
+def _disco_photo_picked_url(fila) -> str:
+    """La foto ELEGIDA (o la única que se mandó)."""
+    opciones = _disco_photo_options(fila)
+    for o in opciones:
+        if o.get("picked"):
+            return (o.get("url") or "").strip()
+    return (opciones[0].get("url") or "").strip() if len(opciones) == 1 else ""
+
+
+def _disco_photo_pick(session_db, fila, opcion_id: str) -> bool:
+    """Apunta la foto que ha elegido el artista (la etapa 1). El colaborador ya solo aprueba ESA."""
+    pay = dict(fila.payload if isinstance(fila.payload, dict) else {})
+    ids = {str(o.get("id") or o.get("url")) for o in (pay.get("options") or []) if isinstance(o, dict)}
+    if (opcion_id or "").strip() not in ids:
+        return False
+    pay["picked"] = opcion_id.strip()
+    fila.payload = pay
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(fila, "payload")
+    session_db.add(fila)
+    return True
+
+
+def _disco_photo_approved(session_db, project, fila) -> None:
+    """La foto ya está aprobada: pasa a ser la de la portada y se avisa a DISEÑO y al jefe de producto."""
+    url = _disco_photo_picked_url(fila)
+    try:
+        portada = _disco_artwork(session_db, project, create=True)
+        if portada is not None and url:
+            portada.photo_mode = "UPLOAD"
+            portada.photo_url = url
+            session_db.add(portada)
+        _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                      "Foto aprobada, ya se puede hacer la portada: %s" % _disco_project_title(project),
+                      "El artista ha elegido la foto. Cuando quieras, adelante con la portada.",
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_PHOTO_OK", ref_id=str(project.id))
+    except Exception:
+        app.logger.exception("[foto] no se pudo aplicar la foto aprobada")
+
+
 def _disco_approval_all_done(session_db, project, fila) -> None:
     """QUÉ PASA cuando aprueban todos. Cada tipo dispara lo suyo (punto único).
 
@@ -21316,6 +21381,8 @@ def _disco_approval_all_done(session_db, project, fila) -> None:
         _notify_resolve(session_db, "DISCO_APPROVAL_%s" % kind, str(project.id))
         if kind == "MIX":
             _disco_mix_notify_master(session_db, project)
+        elif kind == "COVER_PHOTO":
+            _disco_photo_approved(session_db, project, fila)
     except Exception:
         app.logger.exception("[aprobaciones] no se pudo cerrar la aprobación")
 
@@ -21774,6 +21841,30 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                               ("con idea" if art["idea_text"] else ""),
                               ("el artista ya contó la suya" if art["artist_idea_text"] else "")] if x]),
                           menu=menu_foto)
+                    # 4.2b · SI HAY DUDAS, que la elija el ARTISTA (antes de pedirle la portada)
+                    fap = _disco_approval_state(session_db, project, "COVER_PHOTO")
+                    if fap["exists"] and fap["open"]:
+                        tarea("port_foto_ok", "Que el artista elija la foto", "", "fa-hourglass-half",
+                              grupo="single", sub=True, state="wait",
+                              hint="Falta%s %s" % ("" if len(fap["pending"]) == 1 else "n",
+                                                   ", ".join(v["name"] for v in fap["pending"][:4])),
+                              menu=[{"label": "Volver a pedírselo", "icon": "fa-rotate",
+                                     "modal": "#dpPhotoPickModal"}])
+                    elif fap["done"]:
+                        tarea("port_foto_ok", "Foto elegida por el artista", "", "fa-image",
+                              grupo="single", sub=True, state="done",
+                              value="Aprobada por %s" % (", ".join(v["name"] for v in fap["approved"][:4])
+                                                         or "el artista"))
+                    elif fap["ko"]:
+                        tarea("port_foto_ok", "Que el artista elija la foto", "", "fa-thumbs-down",
+                              True, grupo="single", sub=True,
+                              hint="No le vale ninguna: manda otras opciones",
+                              action_label="Mandar otras fotos", modal="#dpPhotoPickModal")
+                    else:
+                        tarea("port_foto_ok", "¿Dudas con la foto?", "", "fa-hand-pointer",
+                              grupo="single", sub=True,
+                              hint="Si no está clara, se le mandan varias al artista para que elija",
+                              action_label="Que elija el artista", modal="#dpPhotoPickModal")
                     # 4.3 · solicitarla
                     if not art["requested"]:
                         tarea("port_pedir", "Solicitar la portada", "", "fa-paper-plane",
@@ -22877,6 +22968,7 @@ def disco_project_detail(project_id):
                           "logistics", "logistics_notes", "radio", "radio_media", "pitch_state",
                           "press", "press_parts", "product_manager", "delivery",
                           "mix", "mix_min_weeks", "can_waive_mix", "approver_candidates",
+                          "photo_approval",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -22908,6 +23000,9 @@ def disco_project_detail(project_id):
             logistics_notes=DISCO_LOGISTICS_NOTES,
             # LA MEZCLA FINAL y su aprobación en cadena.
             mix=(_disco_mix_state(session_db, project) if tab == "calendario" else None),
+            # LA FOTO DE LA PORTADA: si se le ha pedido al artista que elija y cómo va.
+            photo_approval=(_disco_approval_state(session_db, project, "COVER_PHOTO")
+                            if tab == "calendario" else None),
             # QUIÉN PUEDE APROBAR (el selector único: la casa, el artista y este proyecto).
             approver_candidates=(_disco_approval_candidates(session_db, project)
                                  if tab == "calendario" else []),
@@ -24407,6 +24502,64 @@ def _disco_artwork_notify_stage(session_db, project, fila, *, nota: str = "", st
             session_db.add(ap)
             salieron.append(ap.name or correo)
     return salieron, sin_correo, etapa
+
+
+@app.post("/discografica/proyectos/<project_id>/portada/foto-aprobacion", endpoint="disco_project_photo_approval")
+@admin_required
+def disco_project_photo_approval(project_id):
+    """PEDIRLE AL ARTISTA QUE ELIJA la foto de la portada (cuando hay dudas).
+
+    Se le mandan VARIAS opciones (las guardadas del artista o las que se suban) y él elige una; si hay
+    colaborador, la elegida le llega después a él para que la apruebe."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        # Las opciones: fotos ya guardadas (por su URL) y/o las que se suban aquí.
+        opciones = []
+        for url in request.form.getlist("photo_url"):
+            url = (url or "").strip()
+            if url:
+                opciones.append({"id": hashlib.sha1(url.encode("utf-8")).hexdigest()[:12], "url": url})
+        for fs_ in request.files.getlist("photo_files"):
+            if fs_ and getattr(fs_, "filename", ""):
+                try:
+                    subida = upload_image(fs_, "disco_artwork")
+                    opciones.append({"id": hashlib.sha1(subida.encode("utf-8")).hexdigest()[:12],
+                                     "url": subida, "name": (fs_.filename or "")})
+                except Exception:
+                    app.logger.exception("[foto] no se pudo subir una opción")
+        if not opciones:
+            flash("Elige o sube al menos una foto.", "warning")
+            return redirect(safe_next_or(destino))
+        elegidos, _nuevos = _disco_approval_pick(session_db, project, request.form)
+        if not elegidos:
+            flash("No hay a quién pedírselo: revisa quién tiene que aprobar.", "warning")
+            return redirect(safe_next_or(destino))
+        fila = _disco_approval_open(session_db, project, "COVER_PHOTO",
+                                    note=(request.form.get("note") or ""),
+                                    payload={"options": opciones},
+                                    voters=elegidos)
+        etapas = sorted({int(v.stage or 1) for v in (fila.voters or [])})
+        salieron = _disco_approval_notify(session_db, project, fila, etapas[0]) if etapas else []
+        session_db.commit()
+        if salieron:
+            flash("Le hemos pedido a %s que elija la foto." % ", ".join([str(x) for x in salieron]),
+                  "success")
+        else:
+            flash("Pedido, pero no se pudo avisar a nadie: comparte sus enlaces a mano.", "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[foto] no se pudo pedir la elección de la foto")
+        flash("No se pudo pedir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
 
 
 @app.post("/discografica/proyectos/<project_id>/portada/visto-bueno", endpoint="disco_project_artwork_pm")
@@ -26549,22 +26702,35 @@ def public_disco_approval(token):
         if project is None:
             abort(404)
         ctx = _disco_project_email_ctx(session_db, project)
+        # ELEGIR ENTRE VARIAS FOTOS: solo la ETAPA 1 elige; el colaborador ya aprueba la elegida.
+        opciones = (_disco_photo_options(fila) if (fila.kind or "").upper() == "COVER_PHOTO" else [])
+        elige = bool(opciones) and len(opciones) > 1 and int(voter.stage or 1) == 1 \
+            and not (fila.payload or {}).get("picked")
         if request.method == "POST" and (voter.status or "").upper() == "PENDIENTE":
             aprueba = (request.form.get("decision") or "").strip().upper() == "OK"
             nota = (request.form.get("note") or "").strip()
             if not aprueba and not nota:
                 return render_template("public_disco_approval.html", mode="form", ctx=ctx,
-                                       project=project, voter=voter,
+                                       project=project, voter=voter, options=opciones, choose=elige,
                                        state=_disco_approval_state(session_db, project, fila.kind),
                                        error="Dinos qué hay que cambiar.")
+            if aprueba and elige:
+                if not _disco_photo_pick(session_db, fila, request.form.get("option") or ""):
+                    return render_template("public_disco_approval.html", mode="form", ctx=ctx,
+                                           project=project, voter=voter, options=opciones,
+                                           choose=elige,
+                                           state=_disco_approval_state(session_db, project, fila.kind),
+                                           error="Elige una de las fotos.")
             _disco_approval_decide(session_db, voter, aprueba, nota)
             session_db.commit()
             return render_template("public_disco_approval.html", mode="done", ctx=ctx,
                                    project=project, voter=voter,
+                                   options=_disco_photo_options(fila), choose=False,
                                    state=_disco_approval_state(session_db, project, fila.kind))
         return render_template("public_disco_approval.html",
                                mode=("done" if (voter.status or "").upper() != "PENDIENTE" else "form"),
                                ctx=ctx, project=project, voter=voter,
+                               options=opciones, choose=elige,
                                state=_disco_approval_state(session_db, project, fila.kind))
     finally:
         session_db.close()

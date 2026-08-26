@@ -48,6 +48,37 @@
         <div class="alert alert-secondary small"><i class="fa fa-note-sticky me-1"></i>{{ state.note }}</div>
       {% endif %}
 
+      {# ELEGIR ENTRE VARIAS FOTOS (la portada, cuando hay dudas): la primera etapa ELIGE una y, si
+         hay colaborador, a él le llega ya solo la elegida para que la apruebe. #}
+      {% if options %}
+        <div class="mb-3">
+          {% if choose %}
+            <div class="small text-muted mb-2">
+              <i class="fa fa-hand-pointer me-1"></i>Elige la foto que quieres para la portada:
+            </div>
+          {% else %}
+            <div class="small text-muted mb-2">La foto elegida:</div>
+          {% endif %}
+          <div class="row g-2">
+            {% for o in options %}
+              {% if choose or o.picked or options|length == 1 %}
+                <div class="col-6 col-md-4">
+                  <label class="d-block border rounded-3 p-1 bg-white h-100{{ ' border-danger' if o.picked }}"
+                         style="cursor:{{ 'pointer' if choose else 'default' }};">
+                    {% if choose %}
+                      <input class="form-check-input" type="radio" name="option" value="{{ o.id }}"
+                             form="apprForm" {% if loop.first %}checked{% endif %}>
+                    {% endif %}
+                    <img src="{{ o.url }}" alt="" class="img-fluid rounded"
+                         style="width:100%;aspect-ratio:1/1;object-fit:cover;">
+                  </label>
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
       {# LO QUE HAY QUE APROBAR #}
       {% if state.media == 'audio' and state.file_url %}
         <div class="border rounded-3 p-3 mb-3 bg-white">
@@ -103,7 +134,7 @@
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         <p class="text-muted">Hola <strong>{{ voter.name }}</strong>, dinos si te parece bien o si hay
           que cambiar algo.</p>
-        <form method="post" data-approval-form>
+        <form method="post" data-approval-form id="apprForm">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
           <label class="form-label">Si hay que cambiar algo, cuéntanoslo</label>
           <textarea class="form-control" name="note" rows="3"

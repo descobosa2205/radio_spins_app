@@ -927,6 +927,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · LA FOTO DE LA PORTADA, cuando hay dudas la elige el ARTISTA** (ago 2026): antes de
+  pedirle la portada a diseño hay que tener la foto. Si está clara, el jefe de producto la sube o la
+  coge de las guardadas del artista (eso ya existía); si **hay dudas**, se le mandan **varias
+  opciones** (`#dpPhotoPickModal` → `disco_project_photo_approval`, aprobación de kind
+  **`COVER_PHOTO`** con las opciones en su `payload`).
+  ⚠️ **La etapa 1 ELIGE, el colaborador solo APRUEBA la elegida**: en la página de aprobación, quien
+  es de nuestro artista ve **todas** las fotos con sus radios y quien va después ve **solo la
+  elegida** (`_disco_photo_pick` guarda `payload['picked']`; `_disco_photo_picked_url` la resuelve).
+  Así no se le pregunta dos veces lo mismo a nadie.
+  · Cuando está aprobada (`_disco_photo_approved`): la foto pasa a la portada
+  (`DiscoProjectArtwork.photo_url`) y a **DISEÑO** le llega que ya puede hacerla — le sale en sus
+  tareas y el jefe de producto lo ve en el proyecto.
+
 - **PROYECTO · LA PORTADA se aprueba en CADENA y con el visto bueno de la casa** (ago 2026):
   · **Antes de que salga de casa la ve el JEFE DE PRODUCTO** (`disco_project_artwork_pm` +
   `#dpArtworkPmModal`): si le da el visto bueno (`pm_ok_at`/`pm_ok_by`) ya se le puede pedir al

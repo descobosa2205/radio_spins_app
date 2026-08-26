@@ -883,6 +883,56 @@
   </div>
 </div>
 
+{# ---------------------------------------------------------------- QUE EL ARTISTA ELIJA LA FOTO
+   Cuando la foto de la portada no está clara: se le mandan VARIAS y elige una. Si hay colaborador,
+   la elegida le llega después a él para que la apruebe (la cadena la lleva el motor). #}
+<div class="modal fade" id="dpPhotoPickModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_project_photo_approval', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-hand-pointer me-2 text-danger"></i>Que el artista elija la foto</h5>
+          <div class="text-muted small">
+            Marca las que quieras mandarle (o sube otras). Él elige una y, si hay colaborador, se le
+            manda ya solo esa.
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if artist_photos %}
+          <label class="form-label">Fotos guardadas del artista</label>
+          <div class="row g-2 mb-3">
+            {% for f in artist_photos %}
+              <div class="col-4 col-md-3 col-lg-2">
+                <label class="d-block border rounded-3 p-1 bg-white position-relative" style="cursor:pointer;">
+                  <input class="form-check-input position-absolute" style="top:.4rem;left:.4rem;z-index:2;"
+                         type="checkbox" name="photo_url" value="{{ f.file_url }}">
+                  <img src="{{ f.thumb_url or f.file_url }}" alt="" class="img-fluid rounded"
+                       style="width:100%;aspect-ratio:1/1;object-fit:cover;">
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <label class="form-label">…o sube otras</label>
+        <input class="form-control" type="file" name="photo_files" accept="image/*" multiple>
+        <label class="form-label mt-3">Nota para el artista (opcional)</label>
+        <textarea class="form-control" name="note" rows="2"
+                  placeholder="Lo que quieras contarle sobre las opciones…"></textarea>
+        <hr class="my-3">
+        {% include '_disco_approvers_picker.html' %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-paper-plane me-1"></i>Mandárselas</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- VISTO BUENO DE LA PORTADA
    La portada NO sale de casa sin que la vea el jefe de producto: si le parece bien, ya se le puede
    pedir la aprobación al artista; si la rechaza, vuelve a diseño con su nota. #}

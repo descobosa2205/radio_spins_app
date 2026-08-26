@@ -883,6 +883,91 @@
   </div>
 </div>
 
+{# ---------------------------------------------------------------- EL PITCH
+   Dos pop-ups: pedirle al ARTISTA su inspiración (su enlace público) y ESCRIBIR el pitch, con los
+   pitchs anteriores a un clic para coger ideas. #}
+{% set ps = pitch_state or {} %}
+<div class="modal fade" id="dpPitchIdeaModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_pitch_ask', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-comment-dots me-2 text-danger"></i>Pedir la inspiración al artista</h5>
+          <div class="text-muted small">Le llega su enlace para contarnos de qué habla la canción.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if ps.artist_text %}
+          <div class="alert alert-secondary">
+            <div class="small text-muted mb-1">Ya nos contó esto{% if ps.artist_label %} el {{ ps.artist_label }}{% endif %}:</div>
+            <div style="white-space:pre-wrap;">{{ ps.artist_text }}</div>
+          </div>
+        {% endif %}
+        <label class="form-label">Nota para el artista (opcional)</label>
+        <textarea class="form-control" name="note" rows="3"
+                  placeholder="Algo que quieras decirle además del texto de siempre…"></textarea>
+        {% if ps.url %}
+          <div class="form-text mt-2">Su enlace: <span class="text-break">{{ ps.url }}</span></div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-paper-plane me-1"></i>Pedírsela</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="dpPitchModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_pitch_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-bullhorn me-2 text-danger"></i>El pitch del lanzamiento</h5>
+          <div class="text-muted small">Se guarda en la ficha de la canción, que es de donde salen el PDF y los envíos.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12 col-lg-7">
+            <label class="form-label">Titular</label>
+            <input class="form-control form-control-lg" name="pitch_title" value="{{ ps.title or '' }}"
+                   placeholder="La frase con la que se presenta">
+            <label class="form-label mt-3">El pitch</label>
+            <textarea class="form-control" name="pitch_text" rows="14"
+                      placeholder="El texto con el que se presenta el lanzamiento…">{{ ps.text or '' }}</textarea>
+          </div>
+          <div class="col-12 col-lg-5">
+            {% if ps.artist_text %}
+              <div class="border rounded-3 p-3 bg-white mb-3">
+                <div class="small text-muted mb-1"><i class="fa fa-comment-dots me-1"></i>Lo que cuenta el artista</div>
+                <div class="small" style="white-space:pre-wrap;">{{ ps.artist_text }}</div>
+              </div>
+            {% endif %}
+            {# EJEMPLOS ANTERIORES: se cargan al pinchar (no se traen 400 pitchs en cada carga). #}
+            <div data-pitch-examples data-url="{{ url_for('api_pitch_examples') }}"
+                 data-artist-id="{{ project.artist_id or '' }}">
+              <button class="btn btn-outline-secondary w-100" type="button" data-pitch-load>
+                <i class="fa fa-clock-rotate-left me-1"></i>Ver ejemplos anteriores</button>
+              <div class="small text-muted mt-1">Pitchs de este artista; puedes cambiar de artista para ver más.</div>
+              <div class="mt-2 d-none" data-pitch-artists></div>
+              <div class="mt-2" data-pitch-rows></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar el pitch</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- FOCUS SINGLE
    El lanzamiento prioritario. Se decide aquí y queda marcado en la CANCIÓN (su ficha y el
    repertorio); si lo es, se abre la tarea de presentarla a radio. #}

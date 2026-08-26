@@ -907,6 +907,32 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · EL PITCH, en dos pasos** (ago 2026). El pitch es el texto con el que se presenta el
+  lanzamiento, y hacerlo son **dos cosas**:
+  · **1 · Pedirle al ARTISTA un texto o una inspiración** (`disco_project_pitch_ask` +
+  `#dpPitchIdeaModal`): le llega **su propio enlace** (`public_disco_pitch_idea`,
+  `/pitch-inspiracion/<token>`, plantilla `public_disco_pitch.html`) por su canal `DISCOGRAFICA`, y
+  lo que cuenta ahí **no es el pitch**: es la materia prima. Al contestar, aviso a
+  `_disco_project_owner_ids`.
+  ⚠️ La subtarea se decide por **si ha CONTESTADO**, no por si se le pidió: cuando el artista no
+  tiene contactos configurados el flash da el enlace **para mandarlo a mano**, así que `asked_at`
+  queda vacío y el texto sí llega — con el orden al revés la tarea se quedaba pendiente para siempre
+  (lo sacó la prueba).
+  · **2 · Subir el pitch** (`#dpPitchModal` → `disco_project_pitch_save`): titular y texto, con la
+  inspiración del artista al lado y el botón **«Ver ejemplos anteriores»** — los pitchs de ESE artista
+  y, cambiando de chip, los de otros (`api_pitch_examples` → `_pitch_examples`, que además devuelve
+  los artistas que tienen pitchs escritos). Se cargan **al pinchar**, no en cada carga de la ficha
+  (JS en `disco_steps.js`, por delegación).
+  · Al guardarlo queda **en la ficha de la canción** (`Song.pitch_title`/`pitch_text`), que es de
+  donde salen el PDF, el correo y la página pública que ya existían — y el aviso de «falta el pitch»
+  se cierra solo.
+  ⚠️ **`_disco_project_email_shell`** es ya el punto único del esqueleto de TODOS los correos de un
+  proyecto (logo de PIES a la derecha, título centrado, cabecera del lanzamiento, nota, texto y
+  botón): lo usan la portada y el pitch. Si se toca el diseño, se tocan todos a la vez.
+  ⚠️ `_disco_pitch_url` lleva `url_for` **protegido**: el estado del pitch se lee también desde un
+  cron o un hilo, y ahí `url_for` revienta con «Working outside of application context» (el mismo bug
+  que ya salió en `_peticion_edit_payload` y en `_royalty_holded_fields`).
+
 - **PROYECTO · FOCUS SINGLE y PRESENTACIÓN A RADIO** (ago 2026). Un lanzamiento puede ser **focus
   single** (el prioritario) y entonces se presenta a las emisoras.
   · **Focus single** es de la **CANCIÓN** (`Song.focus_single` + `_at`/`_by`; **`NULL` = sin decidir**,

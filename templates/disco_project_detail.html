@@ -260,6 +260,10 @@
 
   {# LOS POP-UPS de los pasos de audio (fecha, plazo de entrega y producción). #}
   {% if CAN_EDIT and has_audio %}{% include '_disco_project_steps.html' %}{% endif %}
+  {# ⚠️ Los pop-ups del PLAN también aquí: seis acciones de la lista de tareas los abren
+     (`#dpPlanReviewModal`, `#dpPlanPromoModal`, `#dpPlanNoticeModal`…) y, al vivir solo en la
+     pestaña del plan, esos botones no hacían NADA. #}
+  {% if CAN_EDIT %}{% include '_disco_plan_modals.html' %}{% endif %}
 
 {% elif tab == 'lanzamiento' %}
   {# ============================================================================================

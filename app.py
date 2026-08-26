@@ -23394,11 +23394,16 @@ def disco_project_detail(project_id):
                     if tab == "calendario" else [])
         # PLAN DE LANZAMIENTO: solo se calcula en su pestaña (recorre acciones, contenidos,
         # marketing y promoción).
-        plan_state = _disco_plan_state(session_db, project) if tab == "lanzamiento" else None
+        # ⚠️⚠️ También en «calendario»: ahí vive la LISTA DE TAREAS, y seis de sus botones abren
+        # pop-ups del plan (`#dpPlanReviewModal`, `#dpPlanPromoModal`, `#dpPlanNoticeModal`…) que solo
+        # se pintaban en la pestaña del plan — o sea, botones que NO HACÍAN NADA.
+        plan_state = (_disco_plan_state(session_db, project)
+                      if tab in ("lanzamiento", "calendario") else None)
         plan_agenda = (_disco_plan_agenda(session_db, project, plan_state)
                        if tab == "lanzamiento" and plan_state else None)
         plan_gente = (_disco_plan_reminder_candidates(session_db, project, plan_state.get("plan"))
-                      if (tab == "lanzamiento" and plan_state and plan_state.get("exists")) else [])
+                      if (tab in ("lanzamiento", "calendario") and plan_state
+                          and plan_state.get("exists")) else [])
         # PORTADA: en qué paso va, a quién se le pide la aprobación y las fotos guardadas del artista
         # (para elegir una como foto de portada).
         portada = _disco_artwork_state(session_db, project) if tab == "calendario" else None
@@ -23525,7 +23530,7 @@ def disco_project_detail(project_id):
             # «Añadir acción de marketing» desde el plan: las empresas del grupo del selector y si
             # esta persona puede crear campañas (el endpoint exige `can_edit_promocion`).
             plan_companies=(session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
-                            if tab == "lanzamiento" else []),
+                            if tab in ("lanzamiento", "calendario") else []),
             can_add_marketing=(can_edit_promocion() if tab == "lanzamiento" else False),
             plan_agenda=plan_agenda,
             plan_action_kinds=DISCO_PLAN_ACTION_DATE_KINDS,

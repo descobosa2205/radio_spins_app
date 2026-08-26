@@ -100,18 +100,20 @@
           {% endif %}
           {% if CAN_EDIT %}
             <li><hr class="dropdown-divider"></li>
+            {# EDITAR LOS DATOS DE LA FACTURA: un solo sitio, en TODAS las filas. El pop-up enseña el
+               documento a la izquierda y sus datos a la derecha, y guarda el GASTO y SU FACTURA (en
+               esta tabla manda lo que dice la factura). #}
             <li><button class="dropdown-item" type="button" data-acc-edit
-                        data-acc-id="{{ r.id }}" data-acc-concept="{{ r.concept }}"
+                        data-acc-action="{{ url_for('accounting_expense_edit', expense_id=r.id) }}"
+                        data-acc-concept="{{ r.concept }}"
                         data-acc-number="{{ r.invoice_number }}" data-acc-date="{{ r.issue_date }}"
                         data-acc-net="{{ r.net }}" data-acc-vat="{{ r.vat }}"
-                        data-acc-retention="{{ r.retention }}" data-acc-total="{{ r.total }}">
-              <i class="fa fa-pen fa-fw me-1"></i>Corregir los importes</button></li>
-            {# CORREGIR LA FACTURA: la pantalla partida de siempre (la factura a la izquierda y todos
-               sus datos a la derecha), y al guardar se vuelve aquí. #}
-            {% if r.invoice_id %}
-              <li><a class="dropdown-item" href="{{ url_for('supplier_invoice_edit', invoice_id=r.invoice_id) }}?next={{ request.full_path|urlencode }}">
-                <i class="fa fa-file-pen fa-fw me-1"></i>Corregir los datos de la factura</a></li>
-            {% endif %}
+                        data-acc-retention="{{ r.retention }}" data-acc-total="{{ r.total }}"
+                        data-acc-edit-doc="{{ r.doc_url }}" data-acc-edit-doc-name="{{ r.doc_name }}"
+                        data-acc-edit-title="{{ r.provider_name }} · {{ r.concept }}"
+                        data-acc-edit-sub="{{ r.doc_label }}{% if r.bag_label %} · {{ r.bag_label }}{% endif %}"
+                        data-acc-full="{% if r.invoice_id %}{{ url_for('supplier_invoice_edit', invoice_id=r.invoice_id) }}?next={{ request.full_path|urlencode }}{% endif %}">
+              <i class="fa fa-file-pen fa-fw me-1"></i>Editar los datos de la factura</button></li>
             <li><button class="dropdown-item text-danger" type="submit"
                         formaction="{{ url_for('accounting_expense_skip', expense_id=r.id) }}"
                         data-confirm="{% if r.accounting_status == 'OMITIDO' %}¿Devolver este gasto a pendiente de contabilizar?{% else %}Si lo omites no se contabilizará y su proceso termina aquí. ¿Seguir?{% endif %}">
@@ -179,9 +181,6 @@
       {% else %}
         <span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>Pendiente</span>
       {% endif %}
-      {% if r.holded_doc_number or r.holded_doc_id %}
-        <div class="small text-muted">Holded: {{ r.holded_doc_number or r.holded_doc_id }}</div>
-      {% endif %}
       {{ acc_alert(r.holded_error, r.holded_warning) }}
     </td>
     <td class="text-end text-nowrap">
@@ -203,6 +202,23 @@
           {% endif %}
           {% if r.invoice_url %}
             <li><a class="dropdown-item" href="{{ r.invoice_url }}" download target="_blank" rel="noopener"><i class="fa fa-download fa-fw me-1"></i>Descargar la factura</a></li>
+          {% endif %}
+          {% if CAN_EDIT %}
+            <li><hr class="dropdown-divider"></li>
+            {# Una liquidación ES una factura: se editan sus datos con el MISMO pop-up que un gasto.
+               Lo que no tiene es un gasto que mantener al día, solo su factura. #}
+            <li><button class="dropdown-item" type="button" data-acc-edit
+                        {% if not r.invoice_id %}disabled title="Esta liquidación todavía no tiene factura subida"{% endif %}
+                        data-acc-action="{{ url_for('accounting_royalty_invoice_edit', liq_id=r.id) }}"
+                        data-acc-concept="{{ r.invoice_concept }}"
+                        data-acc-number="{{ r.invoice_number }}" data-acc-date="{{ r.issue_label }}"
+                        data-acc-net="{{ r.net }}" data-acc-vat="{{ r.vat }}"
+                        data-acc-retention="{{ r.retention }}" data-acc-total="{{ r.amount }}"
+                        data-acc-edit-doc="{{ r.invoice_url }}" data-acc-edit-doc-name="{{ r.invoice_name }}"
+                        data-acc-edit-title="{{ r.name }} · Royalties {{ r.period_label }}"
+                        data-acc-edit-sub="Liquidación de royalties{% if r.artist_name %} · {{ r.artist_name }}{% endif %}"
+                        data-acc-full="{% if r.invoice_id %}{{ url_for('supplier_invoice_edit', invoice_id=r.invoice_id) }}?next={{ request.full_path|urlencode }}{% endif %}">
+              <i class="fa fa-file-pen fa-fw me-1"></i>Editar los datos de la factura</button></li>
           {% endif %}
           {% if CAN_EDIT and done %}
             <li><hr class="dropdown-divider"></li>
@@ -799,56 +815,78 @@
 </div>
 
 {% if CAN_EDIT %}
+{# EDITAR LOS DATOS DE LA FACTURA · pantalla partida DENTRO del pop-up: el documento a la izquierda
+   (que es lo que se está copiando) y sus datos a la derecha. Reutiliza las clases `.inv-split*` de la
+   pantalla de la base de facturas, así que las dos se ven igual. #}
 <div class="modal fade" id="accEditModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
     <div class="modal-content">
       <form method="post" data-acc-edit-form action="#">
         <input type="hidden" name="next" value="{{ request.full_path }}">
         <div class="modal-header">
           <div>
-            <h5 class="modal-title">Corregir los importes</h5>
-            <div class="text-muted small">
-              Se corrigen <strong>el gasto y su factura</strong>: en esta tabla manda lo que dice la
-              factura, así que si solo se tocara el gasto no cambiaría nada de lo que ves.
-            </div>
+            <h5 class="modal-title">Editar los datos de la factura</h5>
+            <div class="text-muted small" data-acc-edit-sub></div>
           </div>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
-        <div class="modal-body row g-3">
-          <div class="col-12">
-            <label class="form-label">Concepto</label>
-            <input class="form-control" name="concept" data-acc-f="concept">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Nº de factura</label>
-            <input class="form-control" name="invoice_number" data-acc-f="number">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Fecha de emisión</label>
-            <input class="form-control" type="date" name="issue_date" data-acc-f="date">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Base imponible</label>
-            <input class="form-control" name="amount_net" data-acc-f="net" inputmode="decimal">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">IVA</label>
-            <input class="form-control" name="amount_tax" data-acc-f="vat" inputmode="decimal">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Retención</label>
-            <input class="form-control" name="retention_amount" data-acc-f="retention" inputmode="decimal">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Total</label>
-            <input class="form-control" name="amount_gross" data-acc-f="total" inputmode="decimal">
-          </div>
-          <div class="col-12 small text-muted">
-            Es lo que se manda a Holded. Si el gasto ya está subido, corregirlo aquí no cambia el documento
-            de Holded: habría que corregirlo también allí.
+        <div class="modal-body">
+          <div class="inv-split">
+            <div>
+              <div class="inv-split__doc">
+                <div class="inv-split__doclab d-flex align-items-center gap-2">
+                  <span data-acc-edit-doclab>El documento</span>
+                  <span class="ms-auto d-flex gap-2">
+                    <a class="btn btn-sm btn-outline-secondary py-0" data-acc-edit-open target="_blank"
+                       rel="noopener" href="#"><i class="fa fa-up-right-from-square me-1"></i>Abrir</a>
+                    <a class="btn btn-sm btn-outline-secondary py-0" data-acc-edit-download download
+                       href="#"><i class="fa fa-download me-1"></i>Descargar</a>
+                  </span>
+                </div>
+                <div class="inv-split__frame" data-acc-edit-frame></div>
+              </div>
+            </div>
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label">Concepto</label>
+                <input class="form-control" name="concept" data-acc-f="concept">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Nº de factura</label>
+                <input class="form-control" name="invoice_number" data-acc-f="number">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Fecha de emisión</label>
+                <input class="form-control" type="date" name="issue_date" data-acc-f="date">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Base imponible</label>
+                <input class="form-control" name="amount_net" data-acc-f="net" inputmode="decimal">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">IVA</label>
+                <input class="form-control" name="amount_tax" data-acc-f="vat" inputmode="decimal">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Retención</label>
+                <input class="form-control" name="retention_amount" data-acc-f="retention" inputmode="decimal">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Total</label>
+                <input class="form-control" name="amount_gross" data-acc-f="total" inputmode="decimal">
+              </div>
+              <div class="col-12 small text-muted">
+                Es lo que se manda a Holded. Si ya está subido, corregirlo aquí no cambia el documento
+                de Holded: habría que corregirlo también allí.
+              </div>
+            </div>
           </div>
         </div>
-        <div class="modal-footer"><button class="btn btn-danger">Guardar</button></div>
+        <div class="modal-footer">
+          <a class="btn btn-outline-secondary me-auto d-none" data-acc-edit-full href="#">
+            <i class="fa fa-up-right-from-square me-1"></i>Abrirla en la base de facturas</a>
+          <button class="btn btn-danger">Guardar</button>
+        </div>
       </form>
     </div>
   </div>

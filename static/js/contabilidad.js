@@ -102,16 +102,61 @@
     return m ? (m[3] + '-' + m[2] + '-' + m[1]) : '';
   }
 
+  // Pinta el documento (o dice que no hay) en el hueco de la izquierda del pop-up.
+  function pintaDoc(modalEl, url, nombre, etiqueta) {
+    var marco = $('[data-acc-edit-frame]', modalEl);
+    var lab = $('[data-acc-edit-doclab]', modalEl);
+    var abrir = $('[data-acc-edit-open]', modalEl);
+    var bajar = $('[data-acc-edit-download]', modalEl);
+    if (lab) lab.textContent = etiqueta || 'El documento';
+    [abrir, bajar].forEach(function (a) {
+      if (!a) return;
+      a.classList.toggle('d-none', !url);
+      a.href = url || '#';
+    });
+    if (bajar && nombre) bajar.setAttribute('download', nombre);
+    if (!marco) return;
+    if (!url) {
+      marco.innerHTML = '<div class="d-flex flex-column align-items-center justify-content-center ' +
+        'h-100 text-muted gap-2 p-3 text-center"><i class="fa fa-file-circle-xmark fa-2x"></i>' +
+        '<div>Este gasto no tiene documento subido.<br>Los datos se pueden corregir igualmente.</div></div>';
+      return;
+    }
+    if (esImagen(url)) {
+      marco.innerHTML = '<img src="' + url + '" alt="">';
+    } else {
+      // `zoom=page-width`: sin él, un PDF con la página pequeña se ve diminuto en medio del marco.
+      var sep = url.indexOf('#') >= 0 ? '&' : '#';
+      marco.innerHTML = '<iframe src="' + url + sep + 'view=FitH&zoom=page-width"></iframe>';
+    }
+  }
+
   document.addEventListener('click', function (e) {
     var btn = e.target.closest ? e.target.closest('[data-acc-edit]') : null;
-    if (!btn) return;
+    if (!btn || btn.disabled) return;
     e.preventDefault();
     var modalEl = document.getElementById('accEditModal');
     if (!modalEl || !window.bootstrap) return;
     var form = $('[data-acc-edit-form]', modalEl);
-    if (form) {
-      var id = btn.getAttribute('data-acc-id') || '';
-      form.setAttribute('action', '/contabilidad/gastos/' + encodeURIComponent(id) + '/editar');
+    // ⚠️ La URL la manda la PLANTILLA (`data-acc-action`): así el mismo pop-up sirve para un gasto y
+    // para la factura de una liquidación de royalties, sin que el JS sepa de rutas.
+    if (form) form.setAttribute('action', btn.getAttribute('data-acc-action') || '#');
+    var sub = $('[data-acc-edit-sub]', modalEl);
+    if (sub) sub.textContent = btn.getAttribute('data-acc-edit-sub') || '';
+    var titulo = $('.modal-title', modalEl);
+    if (titulo) {
+      titulo.textContent = 'Editar los datos de la factura';
+      var quien = btn.getAttribute('data-acc-edit-title') || '';
+      if (quien) titulo.textContent += ' · ' + quien;
+    }
+    pintaDoc(modalEl, btn.getAttribute('data-acc-edit-doc') || '',
+             btn.getAttribute('data-acc-edit-doc-name') || '',
+             btn.getAttribute('data-acc-edit-doclab') || '');
+    var full = $('[data-acc-edit-full]', modalEl);
+    if (full) {
+      var href = btn.getAttribute('data-acc-full') || '';
+      full.classList.toggle('d-none', !href);
+      full.href = href || '#';
     }
     var mapa = {
       concept: btn.getAttribute('data-acc-concept') || '',

@@ -64124,6 +64124,17 @@ def can_edit_invoices() -> bool:
     return is_master() or has_access_key("databases.invoices", edit=True, include_descendants=True)
 
 
+def can_edit_invoice_data() -> bool:
+    """¿Puede esta persona CORREGIR los datos de una factura subida (número, fecha, concepto, importes)?
+
+    ⚠️ No es lo mismo que `can_edit_invoices()` (la base de facturas, que además borra y reemplaza):
+    corregir un dato mal leído es EL TRABAJO de contabilidad, y el menú de la tabla de contabilidad se
+    pinta con `can_edit_accounting()`. Sin esto, quien es de contabilidad sin edición en la base de
+    facturas veía la opción y se comía un 403 (bug real).
+    """
+    return can_edit_invoices() or can_edit_accounting()
+
+
 def can_view_sales_revenue() -> bool:
     """¿Ve esta persona la RECAUDACIÓN del reporte de venta de entradas?
 
@@ -70961,6 +70972,10 @@ def _royalty_accounting_pending_rows(session_db, limit: int = 300, company_ids=N
             "method": (getattr(rec, "payment_method", None) or ""),
             "invoice_url": (getattr(inv, "file_url", None) or ""),
             "invoice_number": (getattr(inv, "invoice_number", None) or ""),
+            # Lo que necesita el formulario de «editar los datos de la factura» de la tabla.
+            "invoice_id": (str(inv.id) if inv is not None else ""),
+            "invoice_concept": (getattr(inv, "concept_text", None) or ""),
+            "invoice_name": (getattr(inv, "original_name", None) or ""),
             "pdf_url": (rec.last_sent_pdf_url or rec.snapshot_pdf_url or ""),
         })
     return filas
@@ -71015,6 +71030,10 @@ def _royalty_accounting_done_rows(session_db, limit: int = 300) -> list[dict]:
             "method": (getattr(rec, "payment_method", None) or ""),
             "invoice_url": (getattr(inv, "file_url", None) or ""),
             "invoice_number": (getattr(inv, "invoice_number", None) or ""),
+            # Lo que necesita el formulario de «editar los datos de la factura» de la tabla.
+            "invoice_id": (str(inv.id) if inv is not None else ""),
+            "invoice_concept": (getattr(inv, "concept_text", None) or ""),
+            "invoice_name": (getattr(inv, "original_name", None) or ""),
             "pdf_url": (rec.last_sent_pdf_url or rec.snapshot_pdf_url or ""),
         })
     return filas
@@ -76682,6 +76701,76 @@ def accounting_expense_skip(expense_id):
     return redirect(safe_next_or(url_for("contabilidad_view")))
 
 
+def _invoice_apply_manual_data(inv, form, *, concept_field: str = "concept") -> None:
+    """Aplica a una FACTURA los datos escritos a mano (nº, fecha, concepto e importes).
+
+    Punto ÚNICO de «corregir los datos de una factura» desde contabilidad: lo usan el gasto (que
+    además escribe los suyos) y la liquidación de royalties, así que las dos se corrigen igual y con
+    los MISMOS nombres de campo.
+    ⚠️ Los PORCENTAJES se recalculan del importe corregido y se ajustan al tipo REAL (`_tax_pct_snap`):
+    si no, se quedan diciendo el % de los números viejos —o un 20,99% por redondeo—.
+    """
+    if inv is None:
+        return
+    numero = (form.get("invoice_number") or "").strip()
+    if numero:
+        inv.invoice_number = numero
+    fecha = parse_optional_date(form.get("issue_date"))
+    if fecha:
+        inv.issue_date = fecha
+    concepto = (form.get(concept_field) or "").strip()
+    if concepto:
+        inv.concept_text = concepto[:500]
+    for campo, clave in (("amount_net", "amount_net"), ("amount_vat", "amount_tax"),
+                         ("amount_gross", "amount_gross"), ("retention_amount", "retention_amount")):
+        crudo = (form.get(clave) or "").strip()
+        if crudo != "":
+            setattr(inv, campo, _parse_money_decimal(crudo))
+    base = _money_or_zero(inv.amount_net)
+    if base > 0:
+        if _money_or_zero(inv.amount_vat) > 0:
+            inv.vat_pct = float(_tax_pct_snap(
+                (_money_or_zero(inv.amount_vat) / base * Decimal("100")).quantize(Decimal("0.01")),
+                VAT_RATES))
+        if _money_or_zero(inv.retention_amount) > 0:
+            inv.retention_pct = float(_tax_pct_snap(
+                (_money_or_zero(inv.retention_amount) / base * Decimal("100")).quantize(Decimal("0.01")),
+                RETENTION_RATES))
+
+
+@app.post("/contabilidad/royalties/<liq_id>/factura", endpoint="accounting_royalty_invoice_edit")
+@admin_required
+def accounting_royalty_invoice_edit(liq_id):
+    """Corrige los datos de la FACTURA de una liquidación de royalties desde contabilidad.
+
+    Una liquidación ES una factura, así que se edita con el MISMO formulario que un gasto; lo que no
+    tiene es un `BagExpense` que mantener al día, solo su `SupplierInvoice`."""
+    if not can_edit_accounting():
+        return forbid("No tienes permisos para contabilizar.")
+    session_db = db()
+    try:
+        rec = session_db.get(RoyaltyLiquidation, to_uuid(liq_id) or uuid.uuid4())
+        if rec is None:
+            flash("Liquidación no encontrada.", "warning")
+            return redirect(safe_next_or(url_for("contabilidad_view")))
+        inv = (session_db.get(SupplierInvoice, rec.invoice_id)
+               if getattr(rec, "invoice_id", None) else None)
+        if inv is None:
+            flash("Esta liquidación todavía no tiene factura subida: no hay datos que corregir.", "warning")
+            return redirect(safe_next_or(url_for("contabilidad_view")))
+        _invoice_apply_manual_data(inv, request.form)
+        session_db.add(inv)
+        rec.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Datos de la factura actualizados.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudieron guardar los datos: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("contabilidad_view")))
+
+
 @app.post("/contabilidad/gastos/<expense_id>/editar", endpoint="accounting_expense_edit")
 @admin_required
 def accounting_expense_edit(expense_id):
@@ -76714,28 +76803,7 @@ def accounting_expense_edit(expense_id):
         inv = _accounting_expense_invoice(session_db, expense)
         tocadas = 0
         if inv is not None:
-            if (form.get("invoice_number") or "").strip():
-                inv.invoice_number = (form.get("invoice_number") or "").strip()
-            if fecha:
-                inv.issue_date = fecha
-            for campo, clave in (("amount_net", "amount_net"), ("amount_vat", "amount_tax"),
-                                 ("amount_gross", "amount_gross"),
-                                 ("retention_amount", "retention_amount")):
-                crudo = (form.get(clave) or "").strip()
-                if crudo != "":
-                    setattr(inv, campo, _parse_money_decimal(crudo))
-            # Los PORCENTAJES se recalculan del importe corregido y se ajustan al tipo real, para que
-            # no se queden diciendo el % de los números viejos.
-            base = _money_or_zero(inv.amount_net)
-            if base > 0:
-                if _money_or_zero(inv.amount_vat) > 0:
-                    inv.vat_pct = float(_tax_pct_snap(
-                        (_money_or_zero(inv.amount_vat) / base * Decimal("100")).quantize(Decimal("0.01")),
-                        VAT_RATES))
-                if _money_or_zero(inv.retention_amount) > 0:
-                    inv.retention_pct = float(_tax_pct_snap(
-                        (_money_or_zero(inv.retention_amount) / base * Decimal("100")).quantize(Decimal("0.01")),
-                        RETENTION_RATES))
+            _invoice_apply_manual_data(inv, form)
             session_db.add(inv)
             tocadas = 1
         session_db.commit()
@@ -80761,7 +80829,7 @@ def supplier_invoice_edit(invoice_id):
     """EDITAR una factura subida: la factura a la IZQUIERDA y todos sus datos a la DERECHA.
 
     Los campos que no se pudieron leer salen resaltados; los que sí, con su valor y editables."""
-    if not can_edit_invoices():
+    if not can_edit_invoice_data():
         return forbid("Tu usuario no puede editar las facturas.")
     session_db = db()
     try:
@@ -80800,7 +80868,7 @@ def supplier_invoice_edit(invoice_id):
 @admin_required
 def supplier_invoice_data_save(invoice_id):
     """Guarda los datos de la factura editados a mano (número, fecha, artista, concepto e importes)."""
-    if not can_edit_invoices():
+    if not can_edit_invoice_data():
         return forbid("Tu usuario no puede editar las facturas.")
     session_db = db()
     try:

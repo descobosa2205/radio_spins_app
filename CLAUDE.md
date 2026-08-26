@@ -3777,6 +3777,38 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ellos, **es ese**. Se aplica al calcularlo, a lo que viene GUARDADO en la factura (arregla las de
   antes) y al guardar lo que se lee del documento.
 
+- **CONTABILIDAD · «EDITAR LOS DATOS DE LA FACTURA», en TODAS las filas** (ago 2026). Antes había
+  dos opciones a medias en los tres puntitos: **«Corregir los importes»** (un pop-up que en realidad
+  ya editaba concepto, nº, fecha e importes) y **«Corregir los datos de la factura»**, que solo salía
+  **si el gasto tenía una `SupplierInvoice` registrada** — así que en la mayoría de las filas no
+  había forma de encontrar dónde se editan los datos. Ahora es **UNA sola opción con ese nombre**,
+  presente en las cuatro subpestañas, dentro de las bolsas, en «Contabilizado» y también en la fila
+  de una **liquidación de royalties** (que antes no tenía nada que editar).
+  · **El pop-up es una pantalla partida**: **el documento a la izquierda** —que es lo que se está
+  copiando— y sus datos a la derecha (reutiliza las clases `.inv-split*`, así que se ve igual que la
+  pantalla de la base de facturas). Sin documento subido lo **dice** y deja corregir los datos
+  igualmente. Abajo a la izquierda, **«Abrirla en la base de facturas»** cuando hay factura
+  registrada (ahí se reemplaza, se rechaza o se elimina).
+  ⚠️ **La URL del formulario la manda la PLANTILLA** (`data-acc-action`), no la construye el JS: por
+  eso el MISMO pop-up sirve para un gasto (`accounting_expense_edit`, que escribe **el gasto y su
+  factura** porque en esta tabla manda lo que dice la factura) y para la factura de una liquidación
+  (**`accounting_royalty_invoice_edit`**, que solo tiene factura).
+  · Punto único **`_invoice_apply_manual_data(inv, form)`**: nº, fecha, concepto e importes, con los
+  **porcentajes recalculados y ajustados al tipo real** (`_tax_pct_snap`).
+  ⚠️ **Solo escribe lo que llega con valor**: un campo vacío NO borra lo que había — al revés que
+  `supplier_invoice_data_save`, donde un hueco vacío se guarda como NULL (`_invoice_amount_fields_from_form`
+  devuelve None) y **borra** el dato. Aquí se está corrigiendo un dato mal leído, no vaciando la factura.
+  ⚠️ **El IVA se llama `amount_tax` en `BagExpense` y `amount_vat` en `SupplierInvoice`**, y el gasto
+  **no tiene** `vat_pct`/`retention_pct`: copiar importes de una a otra exige traducir.
+  ⚠️ **`data-acc-edit-doc`, no `data-acc-doc`**: el visor de documentos de la pantalla se engancha a
+  `[data-acc-doc]` por delegación, así que con ese nombre el mismo clic habría abierto DOS pop-ups.
+  ⚠️ **Corregir un dato es EL TRABAJO de contabilidad**: `supplier_invoice_edit` exigía
+  `can_edit_invoices()` mientras el menú se pinta con `can_edit_accounting()`, así que quien es de
+  contabilidad sin edición en la base de facturas veía la opción y se comía un **403** (bug real).
+  Punto único **`can_edit_invoice_data()`** = las dos cosas; eliminar, reemplazar y rechazar siguen
+  siendo de la base de facturas.
+  · Y en la fila de una liquidación se retiró el «Holded: nº» de texto: eso ya lo dice el **icono**.
+
 - ⚠️⚠️ **SUBIR A HOLDED NO ES CONTABILIZAR** (ago 2026). En la fila hay **un icono de Holded**
   (macro `acc_holded` de `contabilidad.html`, clases `.acct-holded` / `.acct-holded.is-up`) **antes**
   de la etiqueta de estado: **verde** cuando el documento ya está en Holded (con su número y cuándo se

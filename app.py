@@ -26069,6 +26069,9 @@ def public_disco_creatives(token):
         filas = (session_db.query(DiscoProjectCreative)
                  .filter(DiscoProjectCreative.request_id == peticion.id)
                  .order_by(DiscoProjectCreative.position.asc()).all())
+        # ⚠️ Aquí se sube TODO lo que se le pide a diseño de este proyecto, así que también los
+        # CONTENIDOS del plan de lanzamiento que se les hayan pedido (mismo enlace, no otro sitio).
+        contenidos = _disco_plan_design_contents(session_db, project)
         if request.method == "POST":
             subidas = 0
             for c in filas:
@@ -26083,6 +26086,19 @@ def public_disco_creatives(token):
                     except Exception as exc:
                         app.logger.exception("[creatividades] fallo al subir")
                         flash("No se pudo subir «%s»: %s" % (c.label or "pieza", exc), "warning")
+            for ct in contenidos:
+                fs = request.files.get("content_%s" % ct.id)
+                if fs and getattr(fs, "filename", ""):
+                    try:
+                        ct.file_url = upload_file(fs, "disco_contents")
+                        ct.file_name = fs.filename
+                        if (fs.mimetype or "").startswith("image/"):
+                            ct.thumb_url = ct.file_url
+                        ct.design_done_at = _now_madrid()
+                        subidas += 1
+                    except Exception as exc:
+                        app.logger.exception("[plan] fallo al subir el contenido")
+                        flash("No se pudo subir «%s»: %s" % (ct.title or "contenido", exc), "warning")
             if subidas and all((c.status or "").upper() == "ENTREGADA" for c in filas):
                 peticion.status = "ENTREGADA"
                 peticion.submitted_at = _now_madrid()
@@ -26097,7 +26113,7 @@ def public_disco_creatives(token):
             flash("Subidas %d pieza(s). ¡Gracias!" % subidas, "success")
             return redirect(url_for("public_disco_creatives", token=token))
         return render_template("public_disco_creatives.html", ctx=ctx, project=project,
-                               req=peticion, rows=filas,
+                               req=peticion, rows=filas, contents=contenidos,
                                format_labels=DISCO_CREATIVE_FORMAT_LABELS)
     finally:
         session_db.close()
@@ -26470,6 +26486,13 @@ def _disco_plan_content_rows(plan) -> list[dict]:
             "file_url": (c.file_url or ""), "file_name": (c.file_name or ""),
             "thumb_url": (c.thumb_url or c.file_url or ""),
             "uploaded": bool(c.file_url),
+            # PEDIDO A DISEÑO: se ve rayado en amarillo y se puede programar igual.
+            "design_asked": bool(getattr(c, "design_requested_at", None) and not c.file_url),
+            "design_asked_label": (c.design_requested_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
+                                   if getattr(c, "design_requested_at", None) else ""),
+            "design_notes": (getattr(c, "design_notes", None) or ""),
+            # Se arrastra al CRONOGRAMA para ponerle día (subido o no).
+            "can_drag": True,
             "publish_at": cuando,
             "date_value": (cuando.astimezone(TZ_MADRID).strftime("%Y-%m-%d") if cuando else ""),
             "time_value": (cuando.astimezone(TZ_MADRID).strftime("%H:%M") if cuando else ""),
@@ -26939,6 +26962,56 @@ def disco_plan_action_delete(project_id, action_id):
                                          tab="lanzamiento")))
 
 
+def _disco_plan_design_contents(session_db, project) -> list:
+    """Los CONTENIDOS del plan que están pedidos a diseño y todavía sin archivo."""
+    try:
+        plan = (session_db.query(DiscoReleasePlan)
+                .filter(DiscoReleasePlan.project_id == project.id).first())
+        if plan is None:
+            return []
+        return (session_db.query(DiscoReleaseContent)
+                .filter(DiscoReleaseContent.plan_id == plan.id)
+                .filter(DiscoReleaseContent.design_requested_at.isnot(None))
+                .filter(func.coalesce(DiscoReleaseContent.file_url, "") == "")
+                .order_by(DiscoReleaseContent.publish_at.asc().nullslast()).all())
+    except Exception:
+        app.logger.exception("[plan] no se pudieron leer los contenidos pedidos a diseño")
+        return []
+
+
+def _disco_plan_design_link(session_db, project, content=None) -> str:
+    """El enlace por el que DISEÑO sube lo que se le pide de este proyecto.
+
+    ⚠️ Es el MISMO de las creatividades (`DiscoProjectDesignRequest` → `public_disco_creatives`): no
+    se inventa otro sitio para subir lo mismo. Si el proyecto no tiene un encargo abierto, se crea
+    uno; su fecha máxima es la de la publicación más próxima que esté pedida."""
+    try:
+        peticion = (session_db.query(DiscoProjectDesignRequest)
+                    .filter(DiscoProjectDesignRequest.project_id == project.id)
+                    .filter(func.upper(func.coalesce(DiscoProjectDesignRequest.status, "")) != "ENTREGADA")
+                    .order_by(DiscoProjectDesignRequest.requested_at.desc()).first())
+        if peticion is None:
+            estado = _current_user_state() or {}
+            vence = None
+            if content is not None and getattr(content, "publish_at", None):
+                vence = content.publish_at.astimezone(TZ_MADRID).date()
+            peticion = DiscoProjectDesignRequest(
+                project_id=project.id, due_date=vence, token=_uuid_token(), status="SOLICITADA",
+                requested_by_user_id=_safe_uuid(estado.get("user_id")),
+                requested_by_nick=(estado.get("nick") or None))
+            session_db.add(peticion)
+            session_db.flush()
+        elif (content is not None and getattr(content, "publish_at", None)
+              and (peticion.due_date is None
+                   or content.publish_at.astimezone(TZ_MADRID).date() < peticion.due_date)):
+            # La fecha máxima es la de la publicación más próxima de las pedidas.
+            peticion.due_date = content.publish_at.astimezone(TZ_MADRID).date()
+        return _external_url_for("public_disco_creatives", token=peticion.token)
+    except Exception:
+        app.logger.exception("[plan] no se pudo preparar el enlace de diseño")
+        return ""
+
+
 @app.post("/discografica/proyectos/<project_id>/plan/contenido", endpoint="disco_plan_content_save")
 @admin_required
 def disco_plan_content_save(project_id):
@@ -26996,6 +27069,33 @@ def disco_plan_content_save(project_id):
             except Exception as exc:
                 flash("No se pudo subir el contenido: %s" % exc, "warning")
         fila.active = not _truthy(f.get("inactive"))
+        # ¿LO SUBIMOS O SE LO PEDIMOS A DISEÑO? Si se les pide, el contenido se puede programar igual
+        # y se queda RAYADO en amarillo hasta que llegue el archivo.
+        pedir = (f.get("source") or "US").strip().upper() == "DESIGN"
+        if pedir and not fila.file_url:
+            estado = _current_user_state() or {}
+            nota = (f.get("design_notes") or "").strip() or None
+            nuevo_encargo = fila.design_requested_at is None
+            fila.design_notes = nota
+            if nuevo_encargo:
+                fila.design_requested_at = _now_madrid()
+                fila.design_requested_by_nick = (estado.get("nick") or estado.get("email") or None)
+            session_db.flush()
+            if nuevo_encargo:
+                enlace = _disco_plan_design_link(session_db, project, fila)
+                _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                              "Contenido por preparar: %s" % _disco_project_title(project),
+                              "%s%s" % (fila.title or "Contenido",
+                                        (" · %s" % nota) if nota else ""),
+                              url=url_for("disco_project_detail", project_id=project.id,
+                                          tab="lanzamiento"),
+                              ref_type="DISCO_PLAN_CONTENT", ref_id=str(fila.id))
+                if enlace:
+                    flash(Markup("Pedido a diseño. Suben el archivo aquí: "
+                                 "<a href='%s'>%s</a>" % (escape(enlace), escape(enlace))), "info")
+        elif fila.file_url and fila.design_requested_at and not fila.design_done_at:
+            # Ya está subido: el encargo queda cerrado.
+            fila.design_done_at = _now_madrid()
         session_db.commit()
         flash("Contenido guardado.", "success")
     except Exception as exc:
@@ -27035,8 +27135,11 @@ def disco_plan_content_delete(project_id, content_id):
           endpoint="disco_plan_content_move")
 @admin_required
 def disco_plan_content_move(project_id, content_id):
-    """ARRASTRAR un contenido en el cronograma: le cambia el DÍA y le deja la hora que tenía.
+    """ARRASTRAR un contenido al cronograma: le pone el DÍA (y la hora, si se dice).
 
+    ⚠️ Arrastrando DENTRO del calendario se conserva la hora que tenía (mover un contenido es
+    cambiarle el día, no la hora). Arrastrándolo desde el LISTADO de contenidos —donde puede que
+    todavía no tenga fecha— se pregunta **solo la hora** y llega en `time`.
     Responde JSON (lo llama el calendario sin recargar)."""
     if not can_edit_discografica():
         return jsonify({"ok": False, "error": "Sin permisos."}), 403
@@ -27054,6 +27157,16 @@ def disco_plan_content_move(project_id, content_id):
             return jsonify({"ok": False, "error": "Falta la fecha."}), 400
         antigua = fila.publish_at
         hora = (antigua.astimezone(TZ_MADRID).time() if antigua else dtime(hour=12, minute=0))
+        # La HORA solo se toca si llega: es lo único que se pregunta al soltarlo desde el listado.
+        crudo_hora = (request.form.get("time") or "").strip()
+        if not crudo_hora and request.is_json:
+            crudo_hora = ((request.get_json(silent=True) or {}).get("time") or "")
+        if crudo_hora:
+            try:
+                hh, mm = [int(x) for x in crudo_hora.split(":")[:2]]
+                hora = dtime(hour=max(0, min(23, hh)), minute=max(0, min(59, mm)))
+            except (TypeError, ValueError):
+                pass
         fila.publish_at = datetime.combine(dia, hora, tzinfo=TZ_MADRID)
         # ⚠️ Si se mueve, el recordatorio se recalcula sobre la fecha NUEVA (se borra el enviado).
         fila.reminder_at = None

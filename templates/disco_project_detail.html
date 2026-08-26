@@ -465,7 +465,11 @@
     </div>
     <div class="sim-cat-card__body">
       {% for c in (st.contents if st else []) %}
-        <div class="d-flex align-items-center gap-3 border rounded p-2 mb-2 flex-wrap {{ '' if c.active else 'opacity-50' }}">
+        {# ⚠️ MIENTRAS NO ESTÁ SUBIDO se ve RAYADO EN AMARILLO: está pendiente de subirse (y se puede
+           programar igual). Es el MISMO rayado que un lanzamiento provisional o una tarea bloqueada:
+           una sola declaración en styles.css, así no se pueden desparejar. #}
+        <div class="dp-content {{ 'is-pending' if not c.uploaded else '' }} d-flex align-items-center gap-3 border rounded p-2 mb-2 flex-wrap {{ '' if c.active else 'opacity-50' }}"
+             {% if c.can_drag %}draggable="true" data-dp-drag-content="{{ c.id }}" title="Arrástralo al cronograma para ponerle día"{% endif %}>
           <span class="flex-shrink-0 d-inline-flex align-items-center justify-content-center"
                 style="width:54px;height:54px;border-radius:10px;overflow:hidden;background:#f3f4f6;">
             {% if c.thumb_url %}<img src="{{ c.thumb_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">
@@ -475,7 +479,10 @@
             <span class="fw-semibold d-block text-truncate">{{ c.title }}</span>
             <span class="small text-muted d-block text-truncate">
               {{ c.when_label }}{% if c.networks_label %} · {{ c.networks_label }}{% endif %}
-              {%- if not c.uploaded %} · <span class="text-danger">falta el archivo</span>{% endif %}
+              {%- if not c.uploaded %}
+                {%- if c.design_asked %} · <span class="text-warning-emphasis">pedido a diseño{% if c.design_asked_label %} el {{ c.design_asked_label }}{% endif %}</span>
+                {%- else %} · <span class="text-danger">falta el archivo</span>{% endif %}
+              {%- endif %}
             </span>
             {% if c.mentions or c.hashtags %}
               <span class="small d-block text-truncate">
@@ -483,6 +490,7 @@
             {% endif %}
           </span>
           {% if c.uploaded %}<span class="badge text-bg-success">Subido</span>
+          {% elif c.design_asked %}<span class="badge text-bg-warning text-dark"><i class="fa fa-palette me-1"></i>En diseño</span>
           {% else %}<span class="badge text-bg-warning text-dark">Pendiente</span>{% endif %}
           {% if CAN_EDIT %}
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal"

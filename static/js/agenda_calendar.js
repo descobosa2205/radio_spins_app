@@ -517,7 +517,10 @@
           // Soltar aquí un bloqueo o una nota = cambiarle la fecha (conservando su duración).
           cell.setAttribute('data-day', key);
           cell.addEventListener('dragover', function (ev) {
-            if (!arrastrando) return;
+            // ⚠️ Además de lo que se arrastra DENTRO del calendario, se acepta lo que venga de FUERA
+            // (una lista lateral): quien arrastra pone su carga en `dataTransfer` y quien escucha
+            // decide qué hacer con el día. El patrón es el de `pagos.js`.
+            if (!arrastrando && !hayCargaExterna(ev)) return;
             ev.preventDefault();
             if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
             this.classList.add('is-drop');
@@ -526,8 +529,12 @@
           cell.addEventListener('drop', function (ev) {
             ev.preventDefault();
             this.classList.remove('is-drop');
-            if (!arrastrando) return;
-            mueveItem(arrastrando, this.getAttribute('data-day'));
+            var dia = this.getAttribute('data-day');
+            if (!arrastrando) {
+              sueltaExterno(ev, dia);
+              return;
+            }
+            mueveItem(arrastrando, dia);
           });
           daysRow.appendChild(cell);
           cur.setDate(cur.getDate() + 1);
@@ -649,6 +656,31 @@
         if (item.title) a.title = item.title;
       });
       renderCal(); renderSide();
+    }
+
+    // ---- Arrastres que vienen de FUERA del calendario -------------------------------------------
+    // Quien arrastra pone en `dataTransfer` un JSON con el tipo (`agenda-external`) y lo que haga
+    // falta; al soltarlo, el calendario lanza el evento `agenda:external-drop` con el día, y quien
+    // lo escuche decide (por ejemplo, preguntar la hora y guardar). Así el calendario no sabe nada
+    // de contenidos, hitos ni gastos: solo del día.
+    function cargaExterna(ev) {
+      try {
+        var txt = ev.dataTransfer && ev.dataTransfer.getData('application/x-agenda-external');
+        if (!txt) return null;
+        var d = JSON.parse(txt);
+        return (d && d.kind) ? d : null;
+      } catch (e) { return null; }
+    }
+    function hayCargaExterna(ev) {
+      var tipos = (ev.dataTransfer && ev.dataTransfer.types) || [];
+      return Array.prototype.indexOf.call(tipos, 'application/x-agenda-external') >= 0;
+    }
+    function sueltaExterno(ev, dia) {
+      var carga = cargaExterna(ev);
+      if (!carga || !dia) return;
+      document.dispatchEvent(new CustomEvent('agenda:external-drop', {
+        detail: { day: dia, payload: carga }
+      }));
     }
 
     function mueveItem(a, nuevoDia) {

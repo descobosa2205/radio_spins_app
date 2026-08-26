@@ -146,6 +146,29 @@
   </div>
 </div>
 
+{# ------------------------------------------------ LA HORA de una publicación
+   Se abre al SOLTAR un contenido en un día del cronograma: el día ya lo dice el sitio donde se ha
+   soltado, así que aquí solo se pregunta la HORA. #}
+<div class="modal fade" id="dpContentTimeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-clock me-2 text-danger"></i>¿A qué hora?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="fw-semibold" data-dp-time-title></div>
+        <div class="text-muted small mb-2" data-dp-time-day></div>
+        <input type="time" class="form-control" data-dp-time-input value="12:00">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger" data-dp-time-ok><i class="fa fa-check me-1"></i>Ponerlo aquí</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- CONTENIDO #}
 <div class="modal fade" id="dpContentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
@@ -174,9 +197,41 @@
             <label class="form-label">Hora</label>
             <input type="time" class="form-control" name="publish_time" data-dp-field="time_value">
           </div>
+          {# ¿LO SUBIMOS O SE LO PEDIMOS A DISEÑO? Un contenido se puede programar antes de tener el
+             archivo: mientras no esté subido sale RAYADO en amarillo (pendiente de subirse). #}
           <div class="col-12">
+            <label class="form-label">¿De dónde sale el archivo?</label>
+            <div class="promo-pick-grid promo-pick-grid--wide">
+              <label class="promo-pick">
+                <input type="radio" name="source" value="US" checked data-dp-source>
+                <span class="promo-pick__box"><i class="fa fa-cloud-arrow-up"></i>
+                  <span class="promo-pick__name">Lo subimos</span>
+                  <span class="promo-pick__hint">Arrástralo aquí o elígelo</span></span>
+              </label>
+              <label class="promo-pick">
+                <input type="radio" name="source" value="DESIGN" data-dp-source>
+                <span class="promo-pick__box"><i class="fa fa-palette"></i>
+                  <span class="promo-pick__name">Se lo pedimos a diseño</span>
+                  <span class="promo-pick__hint">Lo preparan ellos y lo suben por su enlace</span></span>
+              </label>
+            </div>
+          </div>
+          <div class="col-12" data-dp-when="source=US">
             <label class="form-label">Archivo <span class="text-muted">(la miniatura sale de aquí)</span></label>
-            <input class="form-control" type="file" name="file">
+            <div class="decl-drop" role="button" tabindex="0" data-file-drop-for="[data-dp-content-file]">
+              <i class="fa fa-photo-film decl-drop__icon"></i>
+              <div class="fw-semibold">Arrastra aquí el contenido</div>
+              <div class="small text-muted">o pincha para elegirlo (imagen o vídeo)</div>
+              <div class="small mt-1 fw-semibold text-success" data-dp-content-file-name></div>
+            </div>
+            <input class="form-control mt-2" type="file" name="file" data-dp-content-file>
+          </div>
+          <div class="col-12 d-none" data-dp-when="source=DESIGN">
+            <label class="form-label">¿Qué le pedimos a diseño?</label>
+            <textarea class="form-control" name="design_notes" rows="2" data-dp-field="design_notes"
+                      placeholder="Formato, medidas, qué tiene que aparecer…"></textarea>
+            <div class="form-text">Se les avisa y lo suben por su enlace. Mientras no esté, el
+              contenido se ve rayado en amarillo: se puede programar igual.</div>
           </div>
           <div class="col-12">
             <label class="form-label">Copy</label>
@@ -351,6 +406,73 @@
       if (input) card.classList.toggle('is-selected', input.checked);
     });
   }
+  /* ARRASTRAR UN CONTENIDO DEL LISTADO AL CRONOGRAMA. El calendario de la casa acepta cargas
+     externas (`application/x-agenda-external`) y, al soltarlas, lanza `agenda:external-drop` con el
+     día; aquí se pregunta SOLO LA HORA y se guarda en el endpoint de siempre
+     (`disco_plan_content_move`), que es el mismo que usa el arrastre dentro del calendario.
+     ⚠️ Se puede arrastrar aunque el archivo no esté subido: el contenido se programa igual (sale
+     rayado en amarillo hasta que llegue). */
+  document.addEventListener('dragstart', function (ev) {
+    var fila = ev.target && ev.target.closest && ev.target.closest('[data-dp-drag-content]');
+    if (!fila || !ev.dataTransfer) return;
+    var titulo = (fila.querySelector('.fw-semibold') || {}).textContent || 'Contenido';
+    ev.dataTransfer.setData('application/x-agenda-external', JSON.stringify({
+      kind: 'disco-content', id: fila.dataset.dpDragContent, title: titulo.trim()
+    }));
+    // Sin un `text/plain` algunos navegadores no arrancan el arrastre.
+    ev.dataTransfer.setData('text/plain', titulo.trim());
+    ev.dataTransfer.effectAllowed = 'move';
+    fila.classList.add('is-dragging');
+  });
+  document.addEventListener('dragend', function (ev) {
+    var fila = ev.target && ev.target.closest && ev.target.closest('[data-dp-drag-content]');
+    if (fila) fila.classList.remove('is-dragging');
+  });
+  document.addEventListener('agenda:external-drop', function (ev) {
+    var d = (ev.detail || {});
+    var carga = d.payload || {};
+    if (carga.kind !== 'disco-content' || !carga.id || !d.day) return;
+    var modal = document.getElementById('dpContentTimeModal');
+    if (!modal || !window.bootstrap) return;
+    var partes = String(d.day).split('-');
+    var eco = modal.querySelector('[data-dp-time-day]');
+    if (eco) eco.textContent = 'Se publicará el ' + partes.reverse().join('/');
+    var tit = modal.querySelector('[data-dp-time-title]');
+    if (tit) tit.textContent = carga.title || 'Contenido';
+    modal.dataset.dpContentId = carga.id;
+    modal.dataset.dpDay = d.day;
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+  });
+  document.addEventListener('click', function (ev) {
+    var b = ev.target && ev.target.closest && ev.target.closest('[data-dp-time-ok]');
+    if (!b) return;
+    var modal = document.getElementById('dpContentTimeModal');
+    if (!modal) return;
+    var id = modal.dataset.dpContentId, dia = modal.dataset.dpDay;
+    var hora = (modal.querySelector('[data-dp-time-input]') || {}).value || '12:00';
+    if (!id || !dia) return;
+    var fd = new FormData();
+    fd.append('date', dia);
+    fd.append('time', hora);
+    b.disabled = true;
+    fetch('{{ url_for("disco_plan_content_move", project_id=project.id, content_id="__ID__") }}'.replace('__ID__', id),
+          { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d2) {
+        b.disabled = false;
+        if (!d2 || !d2.ok) { alert((d2 && d2.error) || 'No se pudo poner la fecha.'); return; }
+        location.reload();
+      })
+      .catch(function () { b.disabled = false; alert('No se pudo poner la fecha.'); });
+  });
+
+  // El nombre del archivo elegido (o arrastrado) se ve, como en el formulario de una maqueta.
+  document.addEventListener('change', function (ev) {
+    var inp = ev.target && ev.target.closest && ev.target.closest('[data-dp-content-file]');
+    if (!inp) return;
+    var eco = document.querySelector('[data-dp-content-file-name]');
+    if (eco) eco.textContent = (inp.files && inp.files[0]) ? inp.files[0].name : '';
+  });
   document.addEventListener('click', function (ev) {
     var b = ev.target && ev.target.closest('[data-dp-action]');
     if (b) { try { rellena('#dpActionModal', JSON.parse(b.dataset.dpAction)); } catch (e) {} }

@@ -4668,6 +4668,9 @@ tr.is-provisional > td,
    provisional: es la señal de la casa de «esto todavía no va». En cuanto se puede empezar, el fondo
    se quita; al terminarla, la fila se queda con su check verde. */
 .dp-task.is-blocked,
+/* Un CONTENIDO del plan que todavía no está subido (lo estamos preparando o se lo hemos pedido a
+   diseño): mismo rayado, misma señal de «esto todavía no va». Se puede programar igual. */
+.dp-content.is-pending,
 .launch-row.is-provisional {
   background-image: repeating-linear-gradient(45deg,
       rgba(255, 193, 7, .10) 0 10px, rgba(255, 193, 7, 0) 10px 20px);
@@ -4676,6 +4679,10 @@ tr.is-provisional > td,
 /* La fila del listado de lanzamientos lleva la clase `border` de Bootstrap (con !important), así
    que el color del marco se cambia por su VARIABLE, no repitiendo la propiedad. */
 .launch-row.is-provisional { --bs-border-color: rgba(255, 193, 7, .55); }
+.dp-content.is-pending { --bs-border-color: rgba(255, 193, 7, .55); }
+/* Un contenido que se puede arrastrar al cronograma lo dice con el cursor. */
+.dp-content[draggable="true"] { cursor: grab; }
+.dp-content.is-dragging { opacity: .55; }
 
 
 /* ═══════════════════════════════════════════════════════════════════════════

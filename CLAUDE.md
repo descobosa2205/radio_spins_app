@@ -1280,6 +1280,30 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   retira.
   · **Marketing y Promoción** no se duplican: se enseña **lo que ya está vinculado al LANZAMIENTO**
   (su canción o su álbum), que es el mismo dato que se ve en Marketing y en Promoción.
+  · **CONTENIDOS · lo subimos o se lo PEDIMOS A DISEÑO** (ago 2026): al añadir un contenido se elige
+  entre **subirlo** (arrastrándolo o eligiéndolo, con el `data-file-drop-for` global) o **pedírselo a
+  diseño**, diciendo qué se necesita. Un contenido **se programa igual sin tener el archivo**: hasta
+  que llega se ve **RAYADO EN AMARILLO** (`.dp-content.is-pending`, el **mismo** rayado que un
+  lanzamiento provisional o una tarea bloqueada: una sola declaración en `styles.css`) con la etiqueta
+  «En diseño».
+  ⚠️ **El enlace de subida de diseño es EL MISMO de las creatividades**
+  (`DiscoProjectDesignRequest` → `public_disco_creatives`): no se inventa otro sitio para lo mismo.
+  `_disco_plan_design_link` reutiliza el encargo abierto del proyecto (o crea uno) y le pone como
+  fecha máxima la publicación más próxima de las pedidas; `_disco_plan_design_contents` es lo que esa
+  página lista además de las creatividades (campos `content_<id>`). Columnas nuevas en
+  `DiscoReleaseContent`: `design_requested_at` · `design_requested_by_nick` · `design_notes` ·
+  `design_done_at`.
+  · **SE ARRASTRA DEL LISTADO AL CRONOGRAMA y solo se pregunta la HORA** (`#dpContentTimeModal`): el
+  día lo dice el sitio donde se suelta. Para eso el calendario de la casa acepta ya **cargas
+  externas**: quien arrastra pone un JSON en `dataTransfer` con el tipo
+  **`application/x-agenda-external`** y, al soltarlo, `agenda_calendar.js` lanza el evento
+  **`agenda:external-drop`** con el día — el calendario no sabe nada de contenidos, hitos ni gastos,
+  solo del día (antes solo se podía arrastrar lo que YA estaba pintado dentro).
+  ⚠️ Se guarda en el endpoint de siempre (`disco_plan_content_move`), que ahora acepta `time`:
+  arrastrando DENTRO del calendario la hora **no se toca** (mover es cambiar el día) y arrastrando
+  desde el listado se manda la que se pregunta.
+  ⚠️ El panel condicional del pop-up usa el motor de la casa (`data-dp-when="source=US|DESIGN"`), que
+  además **deshabilita** lo que esconde: un campo oculto se envía igual.
   · **Contenidos**: archivo (de ahí sale la miniatura), día y **hora**, copy, **menciones obligatorias
   (solo el @)**, hashtags y las **redes** con su logo (`DISCO_CONTENT_NETWORKS`: Instagram post /
   historia / post compartido, TikTok, Facebook, X, YouTube y Shorts).

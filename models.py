@@ -1104,6 +1104,12 @@ class DiscoReleaseContent(Base):
     networks = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     active = Column(Boolean, nullable=False, server_default=text("true"))
     reminder_at = Column(DateTime(timezone=True))
+    # PEDIDO A DISEÑO: el contenido se puede programar antes de tener el archivo (lo prepara diseño).
+    # Mientras no esté subido sale rayado en amarillo: está pendiente de subirse.
+    design_requested_at = Column(DateTime(timezone=True))
+    design_requested_by_nick = Column(Text)
+    design_notes = Column(Text)
+    design_done_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     plan = relationship("DiscoReleasePlan", back_populates="contents")
@@ -11826,6 +11832,14 @@ def ensure_disco_projects_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_disco_contents_plan ON disco_release_contents(plan_id, publish_at);",
+        # Un contenido se puede PEDIR A DISEÑO y programarse antes de tener el archivo.
+        """
+        ALTER TABLE IF EXISTS disco_release_contents
+            ADD COLUMN IF NOT EXISTS design_requested_at timestamptz,
+            ADD COLUMN IF NOT EXISTS design_requested_by_nick text,
+            ADD COLUMN IF NOT EXISTS design_notes text,
+            ADD COLUMN IF NOT EXISTS design_done_at timestamptz;
+        """,
         # La MAQUETA puede quedar vinculada a un proyecto (se ve en la ficha del lanzamiento hasta
         # que se suben los másters).
         "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES disco_projects(id) ON DELETE SET NULL;",

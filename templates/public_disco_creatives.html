@@ -88,6 +88,28 @@
               </div>
             </div>
           {% endfor %}
+          {# CONTENIDOS del plan de lanzamiento que se le han pedido a diseño: se suben AQUÍ mismo,
+             en el mismo enlace (no hay otro sitio para lo mismo). #}
+          {% for ct in (contents or []) %}
+            <div class="border rounded-3 p-3">
+              <div class="d-flex align-items-center gap-3 flex-wrap">
+                <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0"
+                      style="width:44px;height:44px;border-radius:12px;background:rgba(227,61,72,.10);color:#E33D48;">
+                  <i class="fa fa-photo-film"></i>
+                </span>
+                <span class="flex-grow-1 min-w-0">
+                  <span class="fw-semibold d-block">{{ ct.title or 'Contenido' }}</span>
+                  <span class="small text-muted d-block">
+                    Publicación del plan
+                    {%- if ct.publish_at %} · se publica el {{ ct.publish_at.strftime('%d/%m/%Y a las %H:%M') }}{% endif %}
+                    {%- if ct.design_notes %} · {{ ct.design_notes }}{% endif %}
+                  </span>
+                </span>
+                <span class="badge text-bg-warning text-dark">Pendiente</span>
+              </div>
+              <div class="mt-2"><input class="form-control" type="file" name="content_{{ ct.id }}"></div>
+            </div>
+          {% endfor %}
         </div>
         <div class="text-end mt-3">
           <button class="btn btn-danger btn-lg"><i class="fa fa-paper-plane me-1"></i>Enviar</button>

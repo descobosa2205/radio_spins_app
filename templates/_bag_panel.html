@@ -67,9 +67,12 @@
    fijo, así que NO se estruja. Antes era un `<img>` sueltos dentro de un `d-flex` y, como cualquier
    hijo de un flex se puede encoger, en cuanto la fila iba justa se comprimía a lo ancho pero
    mantenía el alto: la foto salía OVALADA (bug real).
-   Con `bag_hide_hero` no se pinta: en la ficha del proyecto discográfico esa información ya está en
-   la cabecera del propio proyecto y repetirla solo estorba. #}
-{% if not bag_embed and not bag_hide_hero %}
+   ⚠️⚠️ REGLA DE LA CASA: la cabecera de la bolsa se pinta **SOLO en su propia página**
+   (`bag_standalone`, o sea `/bolsas/<id>`). Cuando la bolsa va DENTRO de algo que ya tiene cabecera
+   —un proyecto discográfico, una actividad, una promoción— no se repite: se va directo al resumen
+   económico (y a los ingresos, si los hay) y a los gastos. `bag_hide_hero` se conserva por si alguna
+   pantalla lo pasa, pero ya no hace falta: lo que manda es `bag_standalone`. #}
+{% if bag_standalone and not bag_hide_hero %}
 {% set bag_type_label = bag_type_labels.get(bag.bag_type, bag.bag_type or 'General') %}
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round"
@@ -117,9 +120,10 @@
 </div>
 {% endif %}{# /cabecera de la bolsa #}
 
-{# Los DATOS y las NOTAS de la bolsa sí se enseñan siempre (en la ficha del proyecto también): lo
-   que sobraba ahí era la cabecera, no lo que se puede tocar. #}
-{% if not bag_embed %}
+{# Los DATOS (título, tipo, estado, fechas) y las NOTAS son también la CABECERA de la bolsa: dentro
+   de algo que ya la tiene, no se repiten — para tocarlos se abre la bolsa en su página, que es donde
+   se ve todo. Aquí se va directo al resumen y a los gastos. #}
+{% if bag_standalone %}
 <div class="row g-3 mb-4">
   <div class="col-12 col-xl-7">
     <div class="card h-100">
@@ -191,22 +195,30 @@
         {% endif %}
       </div>
     </div>
-    <div class="card">
-      <div class="card-header bg-white"><strong>Resumen económico</strong></div>
-      <div class="card-body">
-        <div class="row g-2 text-center">
-          <div class="col-6"><div class="border rounded-3 p-2"><div class="small text-muted">Total bolsa</div><div class="fw-bold">{{ totals.bag|eur }}</div></div></div>
-          <div class="col-6"><div class="border rounded-3 p-2"><div class="small text-muted">Total general</div><div class="fw-bold">{{ totals.all|eur }}</div></div></div>
-          <div class="col-4"><div class="border rounded-3 p-2"><div class="small text-muted">Artista</div><div class="fw-semibold">{{ totals.artist|eur }}</div></div></div>
-          <div class="col-4"><div class="border rounded-3 p-2"><div class="small text-muted">Promotor</div><div class="fw-semibold">{{ totals.promoter|eur }}</div></div></div>
-          <div class="col-4"><div class="border rounded-3 p-2"><div class="small text-muted">Oficina</div><div class="fw-semibold">{{ totals.office|eur }}</div></div></div>
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 
-{% endif %}{# /not bag_embed: en la ficha no se repiten cabecera, datos ni notas #}
+{% endif %}{# /bag_standalone: dentro de otra ficha no se repiten cabecera, datos ni notas #}
+
+{# ---------- RESUMEN ECONÓMICO ----------
+   Va SIEMPRE, y es lo PRIMERO cuando la bolsa está dentro de otra ficha: ahí no se repite su
+   cabecera, así que se entra directamente por los números y los gastos.
+   ⚠️ En una actividad no se pinta: su pestaña de Producción ya trae estos totales arriba
+   (`bag-embed-head`) y su propio módulo de Ingresos. #}
+{% if not bag_embed %}
+<div class="card mb-4">
+  <div class="card-header bg-white"><strong>Resumen económico</strong></div>
+  <div class="card-body">
+    <div class="row g-2 text-center">
+      <div class="col-6 col-lg-3"><div class="border rounded-3 p-2"><div class="small text-muted">Total bolsa</div><div class="fw-bold">{{ totals.bag|eur }}</div></div></div>
+      <div class="col-6 col-lg-3"><div class="border rounded-3 p-2"><div class="small text-muted">Total general</div><div class="fw-bold">{{ totals.all|eur }}</div></div></div>
+      <div class="col-4 col-lg-2"><div class="border rounded-3 p-2"><div class="small text-muted">Artista</div><div class="fw-semibold">{{ totals.artist|eur }}</div></div></div>
+      <div class="col-4 col-lg-2"><div class="border rounded-3 p-2"><div class="small text-muted">Promotor</div><div class="fw-semibold">{{ totals.promoter|eur }}</div></div></div>
+      <div class="col-4 col-lg-2"><div class="border rounded-3 p-2"><div class="small text-muted">Oficina</div><div class="fw-semibold">{{ totals.office|eur }}</div></div></div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {# Modales de las acciones de la bolsa en la ficha (plantillas de gastos y petición de facturas). #}
 {% if bag_embed and can_edit_bag and bag_templates %}

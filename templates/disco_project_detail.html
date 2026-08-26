@@ -744,7 +744,9 @@
     </div>
     {# El MISMO panel que /bolsas/<id> (como la bolsa embebida en Producción de una actividad).
        Sin la cabecera de la bolsa: de quién es, qué es y cuándo ya lo dice la cabecera del proyecto. #}
-    {% with bag_hide_hero = True %}{% include '_bag_panel.html' %}{% endwith %}
+    {# La bolsa va dentro de la ficha del proyecto, que ya tiene cabecera: el panel se pinta sin la
+       suya (regla de `bag_standalone`, en `_bag_panel.html`) y empieza por el resumen y los gastos. #}
+    {% include '_bag_panel.html' %}
   {% else %}
     <div class="alert alert-light border">
       <i class="fa fa-circle-info me-1"></i>Este proyecto todavía no tiene bolsa de gastos.

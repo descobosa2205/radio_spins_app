@@ -769,9 +769,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Y **`PROYECTO` tuvo que entrar en `BAG_TYPES`**: no estaba, así que el selector «Tipo» de la
   bolsa no lo tenía y **guardar la bolsa desde su pantalla lo cambiaba a «General»** (bug real), con
   lo que perdía sus categorías.
-  · **En la ficha del proyecto la bolsa NO repite su cabecera** (`bag_hide_hero`): de quién es, qué es
-  y cuándo ya lo dice la cabecera del proyecto. Los **datos y las notas de la bolsa sí se ven**: lo
-  que sobraba era la cabecera, no lo que se puede tocar.
+  · ⚠️⚠️ **UNA BOLSA DENTRO DE ALGO QUE YA TIENE CABECERA NO REPITE LA SUYA** (regla de la casa, ago
+  2026, y vale para TODAS): la cabecera de la bolsa —y sus **datos** (título, tipo, estado, fechas) y
+  sus **notas**, que son también su cabecera— se pintan **solo en su propia página**
+  (`bag_standalone`, que lo pone `bag_detail.html`). Embebida en un proyecto discográfico, en una
+  actividad o en una promoción se entra **directamente por el resumen económico** (y los ingresos, si
+  los hay) **y los gastos**; para tocar sus datos está «Abrir la bolsa».
+  ⚠️ El **resumen económico** vive FUERA de ese bloque (antes estaba dentro y desaparecía con él); en
+  una actividad no se pinta porque su pestaña de Producción ya trae esos totales arriba
+  (`bag-embed-head`) y su propio módulo de Ingresos. `bag_hide_hero` se conserva por compatibilidad,
+  pero lo que manda es `bag_standalone`.
 
 - **CABECERA DE UNA BOLSA · la misma de una actividad** (ago 2026): donde la bolsa sí lleva cabecera
   (`/bolsas/<id>` y la pestaña Producción de una actividad) es ya un **`ficha-hero`** como el de la

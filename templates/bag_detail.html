@@ -4,5 +4,7 @@
   <a href="{{ url_for('bags_view', tab='archived' if bag.is_archived else 'active') }}" class="btn btn-outline-secondary btn-volver" title="Volver a bolsas" aria-label="Volver a bolsas"><i class="fa fa-arrow-left"></i></a>
 </div>
 {% set bag_embed = False %}
+{# Es SU página: aquí sí se pinta su cabecera (y sus datos y notas). Embebida en otra ficha, no. #}
+{% set bag_standalone = True %}
 {% include '_bag_panel.html' %}
 {% endblock %}

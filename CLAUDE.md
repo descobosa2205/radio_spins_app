@@ -3802,11 +3802,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **no tiene** `vat_pct`/`retention_pct`: copiar importes de una a otra exige traducir.
   ⚠️ **`data-acc-edit-doc`, no `data-acc-doc`**: el visor de documentos de la pantalla se engancha a
   `[data-acc-doc]` por delegación, así que con ese nombre el mismo clic habría abierto DOS pop-ups.
+  ⚠️⚠️ **LO QUE SE EDITA SON LOS IMPORTES GUARDADOS, NO LOS DEDUCIDOS** (bug de dinero, corregido
+  en el mismo lote): la tabla ENSEÑA importes calculados (en un ticket, base = total e IVA = 0; en
+  una factura sin base, la base despejada), y rellenar el pop-up con eso y darle a **Guardar** los
+  escribía como si alguien los hubiera leído del documento — y una **retención «0»** donde no había
+  nada **cambia lo que se paga en la remesa** (`_expense_retention` distingue el 0 del NULL) y hace
+  aparecer la factura en la pestaña de **Retenciones**, que es un listado fiscal. Punto único
+  **`_accounting_stored_amounts`** (+ `_money_edit_text`): **campo a campo**, manda la factura y, si
+  ese dato no está guardado ahí, el del gasto — y **un 0 sale VACÍO**, que es la convención de la
+  casa en los formularios de importes (`_invoice_amount_fields_from_form` guarda el 0 como NULL:
+  «no lo sé» no es «cero»).
+  ⚠️ **Vaciar el nº o la fecha los limpia TAMBIÉN en la factura**: la tabla enseña el del gasto **o**
+  el de la factura, así que limpiando solo el gasto reaparecía el de la factura y parecía que no se
+  había guardado.
+  ⚠️ Los importes llevan **`data-money`** y se rellenan «1.234,56» como en el resto de la casa: era
+  el único formulario de dinero que iba con el `Decimal` en crudo, y quien escribiera «1.234» a la
+  española guardaba 1,23 €.
   ⚠️ **Corregir un dato es EL TRABAJO de contabilidad**: `supplier_invoice_edit` exigía
   `can_edit_invoices()` mientras el menú se pinta con `can_edit_accounting()`, así que quien es de
   contabilidad sin edición en la base de facturas veía la opción y se comía un **403** (bug real).
   Punto único **`can_edit_invoice_data()`** = las dos cosas; eliminar, reemplazar y rechazar siguen
   siendo de la base de facturas.
+  ⚠️⚠️ Y el **gate** hay que arreglarlo en `_resolve_request_resource_key` **POR DELANTE** de la regla
+  que manda todo `supplier_invoice*` a `databases.invoices`: puesta debajo era **código muerto**
+  (la misma trampa que ya documenta la resolución de `contabilidad_view`). Punto único
+  **`_first_access_key(claves, default)`** — «la primera de estas claves que el usuario tenga» — con
+  `INVOICE_EDIT_ACCESS_KEYS` (base de facturas · contabilidad) y `ACCOUNTING_ACTION_ACCESS_KEYS`
+  (pendiente · **contabilizado**, que es HERMANA y no descendiente: sin ella, quien solo tuviera esa
+  pestaña se comía un 403 al devolver algo a pendiente).
   · Y en la fila de una liquidación se retiró el «Holded: nº» de texto: eso ya lo dice el **icono**.
 
 - ⚠️⚠️ **SUBIR A HOLDED NO ES CONTABILIZAR** (ago 2026). En la fila hay **un icono de Holded**

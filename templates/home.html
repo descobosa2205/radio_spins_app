@@ -805,6 +805,57 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# LA LOGÍSTICA de un lanzamiento que le han pedido a ESTA persona (producción). Con lo que se le
+   pide a la vista, y los dos sitios donde trabaja: la bolsa (gastos) y la hoja de ruta. #}
+{% if HOME_DISCO_LOGISTICS %}
+<div class="card mb-4 border-warning">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-truck-ramp-box text-danger me-2"></i>Logística que te han pedido
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_DISCO_LOGISTICS|length }}</span>
+    </span>
+    <span class="text-muted small">De un lanzamiento del sello. Los gastos van en su bolsa.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_DISCO_LOGISTICS %}
+      <div class="ctask">
+        <div class="ctask__head">
+          {% if r.artist_photo or r.artist_name %}
+            {{ artist_avatar(r.artist_photo, r.artist_name) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-compact-disc text-muted"></i></span>
+          {% endif %}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}"
+             title="Abrir el proyecto">{{ r.artist_name or r.title }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-compact-disc"></i>{{ r.title }}</span>
+            {% if r.release_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ r.release_label }}</span>{% endif %}
+            {% if r.requested_by %}<span class="ctask__fact"><i class="fa fa-user"></i>lo pidió {{ r.requested_by }}</span>{% endif %}
+            {% if r.requested_label %}<span class="ctask__fact"><i class="fa fa-clock"></i>{{ r.requested_label }}</span>{% endif %}
+          </span>
+          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+            <a class="btn btn-sm btn-outline-secondary" href="{{ r.bag_url }}" title="Apuntar los gastos"><i class="fa fa-sack-dollar"></i></a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ r.roadmap_url }}" title="Hoja de ruta"><i class="fa fa-route"></i></a>
+            <form method="post" action="{{ r.done_url }}" class="d-inline">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Ya está montada</button>
+            </form>
+          </span>
+        </div>
+        <div class="ctask__tasks">
+          {% for n in r.notes %}
+            <span class="badge text-bg-light border text-truncate" style="max-width:420px" title="{{ n.text }}">
+              <i class="fa {{ n.icon }} me-1"></i>{{ n.label }}: {{ n.text }}</span>
+          {% else %}
+            <span class="badge text-bg-light border">Sin notas: pregunta al sello qué hace falta</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# El módulo se ve SIEMPRE (aunque no haya nada pendiente), para saber que existe la sección. #}
 {% if HOME_MY_EXPENSES and HOME_MY_EXPENSES.visible %}
 <div class="card mb-4 {{ 'border-danger' if HOME_MY_EXPENSES.overdue else ('border-warning' if HOME_MY_EXPENSES.total else '') }}">

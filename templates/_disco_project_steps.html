@@ -338,43 +338,8 @@
           </div>
         </div>
 
-        <label class="form-label mt-3">¿Hace falta logística para la grabación?</label>
-        <div class="row g-2">
-          <div class="col-6 col-md-3">
-            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if v.logistics %} is-selected{% endif %}">
-              <input class="form-check-input visually-hidden" type="radio" name="logistics_ui" value="1" {% if v.logistics %}checked{% endif %}>
-              <i class="fa fa-people-carry-box d-block fs-3 mb-2 text-dark"></i>
-              <span class="fw-semibold small d-block">Sí, hay que montarla</span>
-            </label>
-          </div>
-          <div class="col-6 col-md-3">
-            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if not v.logistics %} is-selected{% endif %}">
-              <input class="form-check-input visually-hidden" type="radio" name="logistics_ui" value="0" {% if not v.logistics %}checked{% endif %}>
-              <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
-              <span class="fw-semibold small d-block">No hace falta</span>
-            </label>
-          </div>
-        </div>
-        <input type="hidden" name="logistics" value="{{ '1' if v.logistics else '0' }}" data-dp-mirror="logistics_ui">
-        <div class="row g-3 mt-2" data-dp-when="logistics_ui=1">
-          <div class="col-12 col-md-5">
-            <label class="form-label">¿Quién de producción se encarga?</label>
-            <select class="form-select" name="logistics_user_id">
-              <option value="">— Elige a la persona —</option>
-              {# `_production_people` devuelve {id, name, photo_url, in_production}. #}
-              {% for u in (production_people or []) %}
-                <option value="{{ u.id }}" {% if v.logistics_user_id and v.logistics_user_id|string == u.id|string %}selected{% endif %}>
-                  {{ u.name }}{% if not u.in_production %} (fuera de producción){% endif %}</option>
-              {% endfor %}
-            </select>
-            <div class="form-text">Le sale como tarea pendiente en cuanto se guarde.</div>
-          </div>
-          <div class="col-12 col-md-7">
-            <label class="form-label">Qué hace falta</label>
-            <textarea class="form-control" name="logistics_note" rows="3"
-                      placeholder="Viaje, hotel, transporte del equipo…">{{ v.logistics_note or '' }}</textarea>
-          </div>
-        </div>
+        {# ⚠️ La LOGÍSTICA ya no se pide aquí: es un paso propio del proyecto (#dpLogisticsModal), con
+           sus notas de transportes, alojamiento y personal. Una sola logística, no dos. #}
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -845,6 +810,78 @@
   </div>
 </div>
 <script src="{{ url_for('static', filename='js/demo_form.js') }}"></script>
+
+{# ---------------------------------------------------------------- LOGÍSTICA del proyecto
+   ¿Hace falta? Y si hace falta, se le SOLICITA a una persona de producción con lo que se pide
+   (transportes, alojamiento y personal). A partir de ahí es tarea suya: le llega el aviso, entra en
+   la hoja de ruta y apunta los gastos en la bolsa. #}
+{% set lg = logistics or {} %}
+<div class="modal fade" id="dpLogisticsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_logistics_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-truck-ramp-box me-2 text-danger"></i>Logística</h5>
+          <div class="text-muted small">
+            ¿Hay que mover al artista o al equipo, dormir fuera o llevar gente? Se le pide a
+            <strong>producción</strong> y pasa a ser tarea suya.
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">¿Hace falta logística?</label>
+        <div class="row g-2">
+          <div class="col-6 col-md-3">
+            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if lg.yes %} is-selected{% endif %}">
+              <input class="form-check-input visually-hidden" type="radio" name="needed_ui" value="YES" {% if lg.yes %}checked{% endif %}>
+              <i class="fa fa-truck-ramp-box d-block fs-3 mb-2 text-dark"></i>
+              <span class="fw-semibold small d-block">Sí, hay que montarla</span>
+            </label>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if lg.decided and not lg.yes %} is-selected{% endif %}">
+              <input class="form-check-input visually-hidden" type="radio" name="needed_ui" value="NO" {% if lg.decided and not lg.yes %}checked{% endif %}>
+              <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
+              <span class="fw-semibold small d-block">No hace falta</span>
+            </label>
+          </div>
+        </div>
+        <input type="hidden" name="needed" value="{{ lg.needed or '' }}" data-dp-mirror="needed_ui">
+
+        <div data-dp-when="needed_ui=YES">
+          <label class="form-label mt-3">¿Quién de producción la monta?</label>
+          <select class="form-select" name="user_id">
+            <option value="">— Elige a la persona —</option>
+            {# `_production_people` devuelve {id, name, photo_url, in_production}. #}
+            {% for u in (production_people or []) %}
+              <option value="{{ u.id }}" {% if lg.user_id and lg.user_id|string == u.id|string %}selected{% endif %}>
+                {{ u.name }}{% if not u.in_production %} (fuera de producción){% endif %}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">
+            En cuanto se solicite le sale como tarea pendiente, entra en la hoja de ruta del proyecto
+            y los gastos los apunta en su bolsa.
+          </div>
+          <div class="row g-3 mt-1">
+            {% for key, label, icon, ph in (logistics_notes or []) %}
+              <div class="col-12 {{ 'col-md-6' if not loop.first else '' }}">
+                <label class="form-label"><i class="fa {{ icon }} me-1 text-muted"></i>{{ label }}</label>
+                <textarea class="form-control" name="{{ key }}" rows="{{ 3 if loop.first else 2 }}"
+                          placeholder="{{ ph }}">{{ (lg.values or {}).get(key, '') }}</textarea>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-paper-plane me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 {# El motor de los paneles condicionales y de las tarjetas vive en su propio JS: lo usan
    también los pop-ups del plan de lanzamiento. #}

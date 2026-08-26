@@ -879,6 +879,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `agenda_calendar.js`** a mano: el parcial solo deja el JSON, quien dibuja es el JS (que en las
   pantallas de dentro viene de `layout.html`).
 
+- **PROYECTO · LOGÍSTICA** (ago 2026): un paso más del proyecto. Se dice **si hace falta o no** y,
+  si hace falta, **se le SOLICITA a una persona de producción** — y a partir de ahí **es tarea suya**.
+  · **Qué se le pide**: cuatro notas (`DISCO_LOGISTICS_NOTES`) — **qué se pide · transportes ·
+  alojamiento · personal** — y a quién (las personas de `_production_people`). Pop-up
+  `#dpLogisticsModal`, endpoint `disco_project_logistics_save`, estado en
+  **`_disco_logistics_state`** (`production_payload['logistics']`).
+  · **Al solicitarla**: le llega el aviso (kind `PRODUCCION`, ref `DISCO_LOGISTICS`), **entra en el
+  PERSONAL de la hoja de ruta** del proyecto (`_disco_logistics_roadmap_add`, rol «Producción ·
+  logística», sin duplicar) y **se crea la BOLSA** si no existía — son los dos sitios donde trabaja:
+  los horarios y los gastos.
+  · **Le sale en SU Inicio** (`HOME_DISCO_LOGISTICS` ← `_home_disco_logistics`), con las cuatro notas
+  a la vista y tres botones: la bolsa, la hoja de ruta y **«Ya está montada»**
+  (`disco_project_logistics_done`), que cierra el aviso solo y deja la tarea en «Montada por X».
+  Va en el bloque de **lo SUYO** de Inicio: se le pide por su nombre, así que no depende de ningún
+  permiso de sección.
+  ⚠️ `disco_project_logistics_done` va en **`REQUEST_ANY_ENDPOINTS`**, no en `SUPPORT_ACTION_ENDPOINTS`:
+  ese exige ser «actor» (poder editar alguna sección) y quien lleva la logística puede no tener
+  ninguna — se comía un **403 al resolver su propia tarea** (comprobado). El endpoint verifica dentro
+  que la logística es SUYA (o que es del sello o de dirección).
+  ⚠️ **Es UNA sola logística**: la que había dentro del pop-up de la grabación de voces se retiró y
+  lo que estuviera guardado ahí se **lee igual** (compat en `_disco_logistics`), para no perder lo ya
+  pedido. Al guardar la nueva se limpia la vieja, para que no haya dos sitios diciendo cosas distintas.
+  ⚠️ Cambiar de persona **vuelve a pedirla** (la fecha de solicitud y el «montada» se resetean): es
+  otra persona la que tiene que hacerlo.
+  ⚠️ `_roadmap_save` hace **commit**: se llama al final, cuando lo demás ya está en la sesión.
+  ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
+  (`bag_ctx`) o `render_template` revienta con «got multiple values».
+
 - **PROYECTO · SUBIR DEMO y la PORTADA, paso a paso** (ago 2026):
   · **Subir demo**: el pop-up es **el mismo formulario** que la sección Demos (`_demo_form_fields.html`
   + `demo_form.js`) con el proyecto ya puesto; la maqueta queda vinculada (**`SongDemo.project_id`**) y

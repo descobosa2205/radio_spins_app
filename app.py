@@ -20167,6 +20167,120 @@ def _disco_production_state(session_db, project) -> dict:
     filas["all_done"] = not pendientes
     return filas
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTO · LOGÍSTICA
+#
+# Un lanzamiento puede necesitar logística (mover al artista y al equipo a un estudio, hoteles,
+# gente). Es un paso más del proyecto: se dice **si hace falta o no** y, si hace falta, **se le
+# SOLICITA a una persona de producción** con lo que se pide, y a partir de ahí **es tarea suya**.
+#
+# ⚠️ Es UNA sola logística (la del proyecto). Antes había un trocito dentro del pop-up de la
+# grabación de voces (una nota y una persona): eso se conserva y se LEE desde aquí
+# (`_disco_logistics`, compat), para no perder lo que ya estuviera pedido.
+# ⚠️ Al solicitarla, esa persona **entra en la hoja de ruta** del proyecto y se **crea la bolsa** si
+# no existía: es donde va a apuntar los gastos y los horarios, que es su trabajo.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Lo que se le dice a quien la monta: cada nota en su sitio (clave, etiqueta, icono, ejemplo).
+DISCO_LOGISTICS_NOTES = (
+    ("note", "Qué se pide", "fa-clipboard-list", "Lo que hay que montar, en general…"),
+    ("transport", "Transportes", "fa-van-shuttle", "Vuelos, tren, furgoneta, quién conduce…"),
+    ("lodging", "Alojamiento", "fa-hotel", "Hotel, noches, habitaciones…"),
+    ("staff", "Personal", "fa-users", "Quién va: técnicos, ayudantes, acompañante…"),
+)
+
+
+def _disco_logistics(project) -> dict:
+    """Lo guardado de la logística, con compat de la que se pedía dentro de la grabación de voces."""
+    prod = _disco_prod(project)
+    fila = dict(prod.get("logistics") or {})
+    if not fila:
+        voces = prod.get("vocals") or {}
+        if voces.get("logistics"):
+            fila = {"needed": "YES", "note": (voces.get("logistics_note") or ""),
+                    "user_id": (voces.get("logistics_user_id") or ""),
+                    "requested_at": (voces.get("logistics_requested_at") or "")}
+    return fila
+
+
+def _disco_logistics_state(session_db, project) -> dict:
+    """¿Hace falta logística, a quién se le ha pedido y está montada? Punto único."""
+    fila = _disco_logistics(project)
+    necesita = (fila.get("needed") or "").upper()
+    persona, nick, foto = None, "", ""
+    uid = (fila.get("user_id") or "").strip()
+    if uid:
+        try:
+            persona = (session_db.query(UserProfile)
+                       .filter(UserProfile.user_id == to_uuid(uid)).first())
+        except Exception:
+            persona = None
+        nick = (getattr(persona, "nick", "") or "")
+        foto = (getattr(persona, "photo_url", "") or "")
+    notas = [{"key": k, "label": lbl, "icon": ico, "text": (fila.get(k) or "").strip()}
+             for k, lbl, ico, _ph in DISCO_LOGISTICS_NOTES]
+    pedida = bool(fila.get("requested_at") and uid)
+    hecha = bool(fila.get("done_at"))
+    return {
+        "needed": necesita,
+        "decided": necesita in ("YES", "NO"),
+        "yes": necesita == "YES",
+        "requested": pedida,
+        "done": hecha,
+        "user_id": uid,
+        "nick": nick,
+        "photo_url": foto,
+        "notes": notas,
+        "notes_filled": [n for n in notas if n["text"]],
+        "values": {k: (fila.get(k) or "") for k, _l, _i, _p in DISCO_LOGISTICS_NOTES},
+        "requested_label": _iso_date_label(fila.get("requested_at")),
+        "requested_by": (fila.get("requested_by") or ""),
+        "done_label": _iso_date_label(fila.get("done_at")),
+        "done_by": (fila.get("done_by") or ""),
+    }
+
+
+def _iso_date_label(valor) -> str:
+    """«12/09/2026» de una marca ISO guardada en un payload (o vacío)."""
+    try:
+        if not valor:
+            return ""
+        return datetime.fromisoformat(str(valor)).strftime("%d/%m/%Y")
+    except Exception:
+        return ""
+
+
+def _disco_logistics_roadmap_add(session_db, project, user_id) -> None:
+    """Mete a quien monta la logística en el PERSONAL de la hoja de ruta del proyecto.
+
+    Es donde va a poner los horarios y los transportes, así que tiene que estar ahí (y con eso sale
+    también en «Mi calendario»). Si ya está, no se duplica."""
+    try:
+        perfil = (session_db.query(UserProfile)
+                  .filter(UserProfile.user_id == to_uuid(str(user_id))).first())
+        if perfil is None:
+            return
+        payload = _roadmap_load(project)
+        gente = payload.setdefault("personnel", [])
+        for existente in gente:
+            if (existente.get("kind") == "USER"
+                    and str(existente.get("ref_id") or "") == str(user_id)):
+                return
+        usuario = session_db.get(User, to_uuid(str(user_id)))
+        gente.append(_roadmap_personnel_from_json({
+            "kind": "USER", "ref_id": str(user_id),
+            "name": (getattr(perfil, "nick", "") or (getattr(usuario, "email", "") or "").split("@")[0]),
+            "role": "Producción · logística",
+            "email": (getattr(usuario, "email", "") or ""),
+            "phone": _user_sms_phone(session_db, user_id),
+            "photo_url": (getattr(perfil, "photo_url", "") or ""),
+        }))
+        # ⚠️ `_roadmap_save` hace commit: se llama al final, cuando lo demás ya está en la sesión.
+        _roadmap_save(session_db, project, payload)
+    except Exception:
+        app.logger.exception("[proyectos] no se pudo meter a la persona en la hoja de ruta")
+
+
 def _disco_project_demo(session_db, project):
     """La MAQUETA vinculada a este proyecto (la última que se subió)."""
     if project is None:
@@ -20379,6 +20493,36 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
             else:
                 tarea("prod_voces", "Grabación de voces", "", "fa-microphone", grupo="single",
                       sub=True, action_label="Configurar", modal="#dpVocalsModal")
+
+    # ================= LOGÍSTICA (de todo el proyecto, lleve audio o no) =================
+    # Se dice si hace falta y, si hace falta, se le SOLICITA a alguien de producción: a partir de ahí
+    # es tarea suya (y esa persona entra en la hoja de ruta y apunta los gastos en la bolsa).
+    log = _disco_logistics_state(session_db, project)
+    if not log["decided"]:
+        tarea("logistica", "¿Hace falta logística?", "", "fa-truck-ramp-box",
+              hint="Mover al artista o al equipo, hoteles, personal",
+              action_label="Decidir", modal="#dpLogisticsModal")
+    elif not log["yes"]:
+        tarea("logistica", "Logística", "", "fa-truck-ramp-box", state="done",
+              value="No hace falta",
+              menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": "#dpLogisticsModal"}])
+    elif not log["requested"]:
+        tarea("logistica", "Solicitar logística", "", "fa-truck-ramp-box", True,
+              hint="Qué se pide, transportes, alojamiento y personal, y a quién de producción",
+              action_label="Solicitar logística", modal="#dpLogisticsModal")
+    elif not log["done"]:
+        tarea("logistica", "Logística", "", "fa-hourglass-half", state="wait",
+              value="La monta %s" % (log["nick"] or "producción"),
+              hint="Pedida%s · %s" % ((" el %s" % log["requested_label"]) if log["requested_label"] else "",
+                                      " · ".join([n["label"] for n in log["notes_filled"]]) or "sin notas"),
+              menu=[{"label": "Cambiar lo que se pide", "icon": "fa-pen", "modal": "#dpLogisticsModal"},
+                    {"label": "Ya está montada", "icon": "fa-check",
+                     "post": url_for("disco_project_logistics_done", project_id=project.id)}])
+    else:
+        tarea("logistica", "Logística", "", "fa-truck-ramp-box", state="done",
+              value="Montada%s%s" % ((" por %s" % log["done_by"]) if log["done_by"] else "",
+                                     (" · %s" % log["done_label"]) if log["done_label"] else ""),
+              menu=[{"label": "Volver a pedir algo", "icon": "fa-pen", "modal": "#dpLogisticsModal"}])
 
     # ================= AUDIO · paso 4: la PORTADA, por pasos =================
     if lleva_audio:
@@ -21346,6 +21490,7 @@ def disco_project_detail(project_id):
             for clave in ("today", "tab", "row", "project", "project_tabs", "milestones", "tracks",
                           "physical_labels", "roadmap_ctx", "CAN_EDIT", "bag", "tasks",
                           "task_groups", "date_state", "production", "materials_recipients",
+                          "logistics", "logistics_notes",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -21370,6 +21515,9 @@ def disco_project_detail(project_id):
             release_songs=(_disco_project_release_songs(session_db, project) if tab == "materiales" else []),
             date_state=fechas_estado,
             production=produccion,
+            # LOGÍSTICA del proyecto (¿hace falta?, a quién se le ha pedido y qué se le pide).
+            logistics=(_disco_logistics_state(session_db, project) if tab == "calendario" else None),
+            logistics_notes=DISCO_LOGISTICS_NOTES,
             materials_recipients=destinatarios,
             promoters=terceros,
             production_people=(_production_people(session_db) if tab == "calendario" else []),
@@ -24638,6 +24786,131 @@ def disco_project_production_save(project_id):
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("[proyectos] no se pudo guardar la producción")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/logistica", endpoint="disco_project_logistics_save")
+@admin_required
+def disco_project_logistics_save(project_id):
+    """¿Hace falta logística? Y si hace falta, SOLICITARLA a una persona de producción.
+
+    Al solicitarla: le llega el aviso, entra en la HOJA DE RUTA del proyecto y se crea la BOLSA si no
+    existía (es donde va a apuntar los gastos). A partir de ahí la tarea es SUYA."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para configurar el proyecto.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        prod = _disco_prod(project)
+        antes = _disco_logistics(project)
+        necesita = (f.get("needed") or "").strip().upper()
+        if necesita not in ("YES", "NO"):
+            flash("Dinos si hace falta logística o no.", "warning")
+            return redirect(safe_next_or(destino))
+        fila = {"needed": necesita}
+        avisar = None
+        if necesita == "YES":
+            for clave, _lbl, _ico, _ph in DISCO_LOGISTICS_NOTES:
+                fila[clave] = (f.get(clave) or "").strip()
+            uid = (f.get("user_id") or "").strip()
+            fila["user_id"] = uid
+            # Se conserva lo ya pedido; si se cambia de persona, se vuelve a pedir.
+            mismo = (str(antes.get("user_id") or "") == uid)
+            fila["requested_at"] = (antes.get("requested_at") if (mismo and antes.get("requested_at"))
+                                    else (_now_madrid().isoformat() if uid else ""))
+            fila["requested_by"] = (antes.get("requested_by") if (mismo and antes.get("requested_at"))
+                                    else ((_current_user_state() or {}).get("nick") or ""))
+            # Si se le pide a otra persona, vuelve a estar pendiente.
+            fila["done_at"] = (antes.get("done_at") if mismo else "")
+            fila["done_by"] = (antes.get("done_by") if mismo else "")
+            if uid and not fila["done_at"]:
+                avisar = uid
+        prod["logistics"] = fila
+        # La logística vive AQUÍ: se limpia el trocito que había dentro de la grabación de voces para
+        # que no queden dos sitios diciendo cosas distintas.
+        voces = dict(prod.get("vocals") or {})
+        if voces:
+            voces.pop("logistics", None)
+            voces.pop("logistics_note", None)
+            voces.pop("logistics_user_id", None)
+            prod["vocals"] = voces
+        project.production_payload = prod
+        project.updated_at = _now_madrid()
+        if necesita == "NO" or not fila.get("user_id"):
+            _notify_resolve(session_db, "DISCO_LOGISTICS", str(project.id))
+            _notify_resolve(session_db, "DISCO_VOCALS", str(project.id))
+        if avisar:
+            notas = " · ".join(["%s: %s" % (lbl, (fila.get(k) or "").strip())
+                                for k, lbl, _i, _p in DISCO_LOGISTICS_NOTES if (fila.get(k) or "").strip()])
+            _notify_user(session_db, avisar, "PRODUCCION",
+                         "Logística de %s" % _disco_project_title(project),
+                         (notas or "Hay que montar la logística de este lanzamiento.")[:600],
+                         url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                         ref_type="DISCO_LOGISTICS", ref_id=str(project.id))
+            # Su trabajo se hace en la bolsa (gastos) y en la hoja de ruta: que existan las dos.
+            _ensure_project_bag(session_db, project)
+            session_db.flush()
+            _disco_logistics_roadmap_add(session_db, project, avisar)   # ⚠️ hace commit
+        session_db.commit()
+        flash("Logística guardada." if necesita == "NO" or not avisar else "Logística solicitada.",
+              "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[proyectos] no se pudo guardar la logística")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/logistica/hecha", endpoint="disco_project_logistics_done")
+@admin_required
+def disco_project_logistics_done(project_id):
+    """«Ya está montada»: lo marca QUIEN LA LLEVA (o el sello, o dirección) y el aviso se cierra solo.
+
+    ⚠️ La persona de producción no tiene por qué poder editar discográfica, así que aquí no se exige
+    `can_edit_discografica()`: se comprueba que es SUYA (o que es del sello o de dirección)."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        estado = _disco_logistics_state(session_db, project)
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        if not (estado["user_id"] == yo or is_master() or can_edit_discografica()):
+            return forbid("Esta logística la lleva otra persona.")
+        prod = _disco_prod(project)
+        fila = dict(_disco_logistics(project))
+        deshacer = _truthy(request.form.get("undo"))
+        fila["done_at"] = ("" if deshacer else _now_madrid().isoformat())
+        fila["done_by"] = ("" if deshacer else ((_current_user_state() or {}).get("nick") or ""))
+        prod["logistics"] = fila
+        project.production_payload = prod
+        project.updated_at = _now_madrid()
+        if deshacer:
+            if fila.get("user_id"):
+                _notify_user(session_db, fila["user_id"], "PRODUCCION",
+                             "Logística de %s" % _disco_project_title(project),
+                             "Vuelve a estar pendiente.",
+                             url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                             ref_type="DISCO_LOGISTICS", ref_id=str(project.id))
+        else:
+            _notify_resolve(session_db, "DISCO_LOGISTICS", str(project.id))
+        session_db.commit()
+        flash("Logística pendiente otra vez." if deshacer else "Logística montada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[proyectos] no se pudo marcar la logística")
         flash("No se pudo guardar: %s" % exc, "danger")
     finally:
         session_db.close()
@@ -61441,6 +61714,10 @@ def inject_personnel_globals():
         # ACTIVAR LA PRODUCCIÓN: actividades que creó esta persona y todavía no tienen a nadie de
         # producción. Mientras no lo tengan, nadie las está produciendo.
         "HOME_PRODUCTION_ACTIVATION": ([] if _dir else _activation),
+        # LA LOGÍSTICA de un proyecto discográfico que le han pedido a ESTA persona. Es suya (se le
+        # pide por su nombre), así que no depende de ningún permiso de sección.
+        "HOME_DISCO_LOGISTICS": (_home_disco_logistics()
+                                 if _home and "_home_disco_logistics" in globals() else []),
         # TICKETING: lo que hay que sacar a la venta y las salidas a la venta por comunicar.
         # ⚠️ EL INICIO DE TICKETING es solo el calendario y sus tareas: quien está SOLO en ese
         # departamento no tiene por qué mirar los módulos de los demás. Quien además esté en otro
@@ -61800,6 +62077,11 @@ REQUEST_ANY_ENDPOINTS = {
     "booking_request_acceptance_send",
     "booking_request_acceptance_notified",
     "booking_request_artist_agreed",
+    # ⚠️ MARCAR MONTADA la logística de un proyecto es la tarea de QUIEN LA LLEVA (producción), que no
+    # tiene por qué poder editar discográfica **ni ser «actor»** (con `SUPPORT_ACTION_ENDPOINTS` se
+    # comía un 403 si no tenía ninguna sección con edición: comprobado). El endpoint comprueba dentro
+    # que la logística es suya (o que es del sello o de dirección).
+    "disco_project_logistics_done",
 }
 
 
@@ -104475,6 +104757,53 @@ def _home_registros_pending(limit: int = 20) -> list[dict]:
         return filas[:limit]
     except Exception:
         app.logger.exception("[inicio] no se pudieron leer las entregas por revisar")
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_disco_logistics(limit: int = 12) -> list[dict]:
+    """LA LOGÍSTICA QUE ME HAN PEDIDO de un proyecto discográfico (módulo de Inicio).
+
+    Es de la PERSONA (se le pide a alguien de producción por su nombre), así que no depende de ningún
+    permiso de sección: sale a quien se le ha pedido y desaparece en cuanto la marca montada."""
+    yo = str((_current_user_state() or {}).get("user_id") or "")
+    if not yo:
+        return []
+    session_db = db()
+    try:
+        filas = []
+        proyectos = (session_db.query(DiscoProject)
+                     .options(joinedload(DiscoProject.artist))
+                     .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                     .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
+        for p in proyectos:
+            estado = _disco_logistics_state(session_db, p)
+            if not (estado["yes"] and estado["requested"]) or estado["done"]:
+                continue
+            if estado["user_id"] != yo:
+                continue
+            artista = getattr(p, "artist", None)
+            filas.append({
+                "id": str(p.id),
+                "title": _disco_project_title(p),
+                "artist_name": (getattr(artista, "name", "") or ""),
+                "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                "kind_label": _disco_project_kind_meta(getattr(p, "kind", None))[0],
+                "release_label": (p.release_date.strftime("%d/%m/%Y") if getattr(p, "release_date", None) else ""),
+                "requested_label": estado["requested_label"],
+                "requested_by": estado["requested_by"],
+                "notes": estado["notes_filled"],
+                "url": url_for("disco_project_detail", project_id=p.id, tab="calendario"),
+                "bag_url": url_for("disco_project_detail", project_id=p.id, tab="bolsa"),
+                "roadmap_url": url_for("disco_project_detail", project_id=p.id, tab="hoja-ruta"),
+                "done_url": url_for("disco_project_logistics_done", project_id=p.id),
+            })
+            if len(filas) >= limit:
+                break
+        return filas
+    except Exception:
+        app.logger.exception("[inicio] no se pudo leer la logística pedida")
         return []
     finally:
         session_db.close()

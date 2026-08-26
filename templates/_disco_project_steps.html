@@ -883,6 +883,63 @@
   </div>
 </div>
 
+{# ---------------------------------------------------------------- APROBACIÓN DE LOS MATERIALES
+   Diseño los sube, los revisa el jefe de producto y los manda al artista (y al colaborador después).
+   Hasta que están aprobados no se pueden usar ni compartir. #}
+<div class="modal fade" id="dpMaterialsApprovalModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_materials_approval', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-thumbs-up me-2 text-danger"></i>Aprobación de materiales</h5>
+          <div class="text-muted small">
+            Marca lo que quieras mandar. Va <strong>en cadena</strong>: primero nuestro artista y luego
+            el colaborador.
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if materials_pieces %}
+          <label class="form-label">Materiales entregados</label>
+          <div class="row g-2 mb-3">
+            {% for p in materials_pieces %}
+              <div class="col-6 col-md-4 col-lg-3">
+                <label class="d-block border rounded-3 p-1 bg-white h-100 position-relative" style="cursor:pointer;">
+                  <input class="form-check-input position-absolute" style="top:.4rem;left:.4rem;z-index:2;"
+                         type="checkbox" name="piece_id" value="{{ p.id }}" checked>
+                  {% if p.media == 'IMAGE' %}
+                    <img src="{{ p.url }}" alt="" class="img-fluid rounded"
+                         style="width:100%;aspect-ratio:1/1;object-fit:cover;">
+                  {% else %}
+                    <span class="d-flex align-items-center justify-content-center bg-light rounded"
+                          style="width:100%;aspect-ratio:1/1;"><i class="fa fa-file-video fa-2x text-muted"></i></span>
+                  {% endif %}
+                  <span class="d-block small text-truncate mt-1">{{ p.label }}</span>
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-warning">Todavía no hay materiales entregados.</div>
+        {% endif %}
+        <label class="form-label">Nota (opcional)</label>
+        <textarea class="form-control" name="note" rows="2"
+                  placeholder="Lo que quieras que sepan al verlos…"></textarea>
+        <hr class="my-3">
+        {% include '_disco_approvers_picker.html' %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit" {% if not materials_pieces %}disabled{% endif %}>
+          <i class="fa fa-paper-plane me-1"></i>Pedir la aprobación</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- QUE EL ARTISTA ELIJA LA FOTO
    Cuando la foto de la portada no está clara: se le mandan VARIAS y elige una. Si hay colaborador,
    la elegida le llega después a él para que la apruebe (la cadena la lleva el motor). #}

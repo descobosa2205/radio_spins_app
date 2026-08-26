@@ -21364,6 +21364,44 @@ def _disco_photo_approved(session_db, project, fila) -> None:
         app.logger.exception("[foto] no se pudo aplicar la foto aprobada")
 
 
+def _disco_materials_pieces(session_db, project) -> list[dict]:
+    """Las CREATIVIDADES ya entregadas (lo que hay que aprobar para poder usarlas)."""
+    try:
+        filas = (session_db.query(DiscoProjectCreative)
+                 .filter(DiscoProjectCreative.project_id == project.id)
+                 .order_by(DiscoProjectCreative.position.asc()).all())
+    except Exception:
+        app.logger.exception("[materiales] no se pudieron leer las creatividades")
+        return []
+    return [{"id": str(f.id), "url": (f.file_url or ""), "name": (f.file_name or ""),
+             "label": (f.label or DISCO_CREATIVE_LABELS.get(f.kind or "", "Creatividad")),
+             "media": (f.media or "IMAGE")}
+            for f in filas if (f.file_url or "").strip()]
+
+
+def _disco_materials_approved(session_db, project, fila) -> None:
+    """Materiales aprobados: **ya se pueden usar y compartir**.
+
+    Se marcan las piezas como aprobadas y se avisa a **DISEÑO** (que las hizo) y a quien lleva el
+    proyecto."""
+    try:
+        piezas = {str(x.get("id")) for x in ((fila.payload or {}).get("pieces") or [])
+                  if isinstance(x, dict) and x.get("id")}
+        if piezas:
+            for f in (session_db.query(DiscoProjectCreative)
+                      .filter(DiscoProjectCreative.project_id == project.id).all()):
+                if str(f.id) in piezas:
+                    f.status = "APROBADA"
+                    session_db.add(f)
+        _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                      "Materiales aprobados: %s" % _disco_project_title(project),
+                      "Ya se pueden usar y compartir.",
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_MATERIALS_OK", ref_id=str(project.id))
+    except Exception:
+        app.logger.exception("[materiales] no se pudo cerrar la aprobación")
+
+
 def _disco_approval_all_done(session_db, project, fila) -> None:
     """QUÉ PASA cuando aprueban todos. Cada tipo dispara lo suyo (punto único).
 
@@ -21383,6 +21421,8 @@ def _disco_approval_all_done(session_db, project, fila) -> None:
             _disco_mix_notify_master(session_db, project)
         elif kind == "COVER_PHOTO":
             _disco_photo_approved(session_db, project, fila)
+        elif kind == "MATERIALS":
+            _disco_materials_approved(session_db, project, fila)
     except Exception:
         app.logger.exception("[aprobaciones] no se pudo cerrar la aprobación")
 
@@ -21955,6 +21995,37 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   action_label="Elegir creatividades", modal="#dpCreativesModal")
 
     fase[0] = "lanzamiento"
+    # ================= 7b · APROBACIÓN DE LOS MATERIALES (para poder usarlos) =================
+    if lleva_audio:
+        mat_ap = _disco_approval_state(session_db, project, "MATERIALS")
+        hay_piezas = bool(_disco_materials_pieces(session_db, project))
+        if mat_ap["done"]:
+            tarea("materiales_ok", "Aprobación de materiales", "", "fa-thumbs-up", state="done",
+                  value="Aprobados por %s" % (", ".join(v["name"] for v in mat_ap["approved"][:4])
+                                              or "las partes"),
+                  hint="Ya se pueden usar y compartir",
+                  menu=[{"label": "Pedir la aprobación de nuevos", "icon": "fa-rotate",
+                         "modal": "#dpMaterialsApprovalModal"}])
+        elif mat_ap["exists"] and mat_ap["open"]:
+            tarea("materiales_ok", "Aprobación de materiales", "", "fa-hourglass-half", state="wait",
+                  value="%d de %d han dado el OK" % (len(mat_ap["approved"]), len(mat_ap["voters"])),
+                  hint="Falta%s %s" % ("" if len(mat_ap["pending"]) == 1 else "n",
+                                       ", ".join(v["name"] for v in mat_ap["pending"][:4])),
+                  menu=[{"label": "Volver a pedirla", "icon": "fa-rotate",
+                         "modal": "#dpMaterialsApprovalModal"}])
+        elif mat_ap["ko"]:
+            tarea("materiales_ok", "Materiales RECHAZADOS", "", "fa-thumbs-down", True,
+                  hint=" · ".join("%s: %s" % (v["name"], v["note"] or "no dice por qué")
+                                  for v in mat_ap["rejected"][:3]),
+                  action_label="Volver a pedir aprobación", modal="#dpMaterialsApprovalModal")
+        elif hay_piezas:
+            tarea("materiales_ok", "Aprobación de materiales", "", "fa-thumbs-up", True,
+                  hint="Hasta que el artista los apruebe no se pueden usar ni compartir",
+                  action_label="Pedir aprobación", modal="#dpMaterialsApprovalModal")
+        else:
+            tarea("materiales_ok", "Aprobación de materiales", "", "fa-thumbs-up", state="blocked",
+                  hint="Antes tiene que entregarlos diseño")
+
     # ================= 8 · FOCUS SINGLE y PRESENTACIÓN A RADIO =================
     # Solo en un single (en un álbum el focus single sería uno de sus temas: se marca en su ficha).
     cancion_lanz = _disco_project_release_song(session_db, project)
@@ -22968,7 +23039,7 @@ def disco_project_detail(project_id):
                           "logistics", "logistics_notes", "radio", "radio_media", "pitch_state",
                           "press", "press_parts", "product_manager", "delivery",
                           "mix", "mix_min_weeks", "can_waive_mix", "approver_candidates",
-                          "photo_approval",
+                          "photo_approval", "materials_approval", "materials_pieces",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -23000,6 +23071,11 @@ def disco_project_detail(project_id):
             logistics_notes=DISCO_LOGISTICS_NOTES,
             # LA MEZCLA FINAL y su aprobación en cadena.
             mix=(_disco_mix_state(session_db, project) if tab == "calendario" else None),
+            # LOS MATERIALES: las piezas entregadas y cómo va su aprobación.
+            materials_approval=(_disco_approval_state(session_db, project, "MATERIALS")
+                                if tab == "calendario" else None),
+            materials_pieces=(_disco_materials_pieces(session_db, project)
+                              if tab == "calendario" else []),
             # LA FOTO DE LA PORTADA: si se le ha pedido al artista que elija y cómo va.
             photo_approval=(_disco_approval_state(session_db, project, "COVER_PHOTO")
                             if tab == "calendario" else None),
@@ -24502,6 +24578,54 @@ def _disco_artwork_notify_stage(session_db, project, fila, *, nota: str = "", st
             session_db.add(ap)
             salieron.append(ap.name or correo)
     return salieron, sin_correo, etapa
+
+
+@app.post("/discografica/proyectos/<project_id>/materiales/aprobacion", endpoint="disco_project_materials_approval")
+@admin_required
+def disco_project_materials_approval(project_id):
+    """PEDIR LA APROBACIÓN DE LOS MATERIALES (las creatividades que ha subido diseño).
+
+    Las revisa el jefe de producto y las manda al artista (y al colaborador después, en cadena).
+    Hasta que están aprobadas **no se pueden usar ni compartir**."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        piezas = _disco_materials_pieces(session_db, project)
+        if not piezas:
+            flash("Todavía no hay materiales entregados que aprobar.", "warning")
+            return redirect(safe_next_or(destino))
+        # Se puede mandar solo una parte (las que se marquen).
+        marcadas = {x.strip() for x in request.form.getlist("piece_id") if x.strip()}
+        if marcadas:
+            piezas = [p for p in piezas if p["id"] in marcadas]
+        elegidos, _nuevos = _disco_approval_pick(session_db, project, request.form)
+        if not elegidos:
+            flash("No hay a quién pedírselo: revisa quién tiene que aprobar.", "warning")
+            return redirect(safe_next_or(destino))
+        fila = _disco_approval_open(session_db, project, "MATERIALS",
+                                    note=(request.form.get("note") or ""),
+                                    payload={"pieces": piezas}, voters=elegidos)
+        etapas = sorted({int(v.stage or 1) for v in (fila.voters or [])})
+        salieron = _disco_approval_notify(session_db, project, fila, etapas[0]) if etapas else []
+        session_db.commit()
+        if salieron:
+            flash("Aprobación de materiales pedida a %s." % ", ".join([str(x) for x in salieron]),
+                  "success")
+        else:
+            flash("Pedida, pero no se pudo avisar a nadie: comparte sus enlaces a mano.", "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[materiales] no se pudo pedir la aprobación")
+        flash("No se pudo pedir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
 
 
 @app.post("/discografica/proyectos/<project_id>/portada/foto-aprobacion", endpoint="disco_project_photo_approval")

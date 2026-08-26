@@ -927,6 +927,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · APROBACIÓN DE LOS MATERIALES** (ago 2026): diseño sube las creatividades, las revisa
+  el **jefe de producto** y las manda al artista (y al colaborador después, en cadena) —
+  `#dpMaterialsApprovalModal` → `disco_project_materials_approval`, aprobación de kind
+  **`MATERIALS`** con las piezas en su `payload` (se puede mandar solo una parte marcándolas).
+  ⚠️ **Hasta que están aprobadas no se pueden usar ni compartir**: al cerrarse
+  (`_disco_materials_approved`) las piezas quedan en `APROBADA` y a **DISEÑO** le llega que ya se
+  pueden usar. Un rechazo deja la tarea en rojo con **quién y por qué**, y hay que volver a pedirla.
+  · Sin nada entregado la tarea sale **bloqueada** («antes tiene que entregarlos diseño») y el
+  endpoint lo vuelve a comprobar.
+
 - **PROYECTO · LA FOTO DE LA PORTADA, cuando hay dudas la elige el ARTISTA** (ago 2026): antes de
   pedirle la portada a diseño hay que tener la foto. Si está clara, el jefe de producto la sube o la
   coge de las guardadas del artista (eso ya existía); si **hay dudas**, se le mandan **varias

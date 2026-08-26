@@ -3351,6 +3351,13 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .acct-total{ font-variant-numeric:tabular-nums; }
 .acct-pct{ display:block; font-size:.68rem; color:#6b7280; }
 
+/* El pop-up de editar los datos de una factura reutiliza `.inv-split`, pero DENTRO de un modal:
+   ahí 70vh de documento más los siete campos no caben (y por debajo de 860 px se apilan). */
+#accEditModal .inv-split__frame{ height:min(46vh, 420px); }
+@media (max-width: 860px){ #accEditModal .inv-split__frame{ height:min(38vh, 320px); } }
+/* Y su cabecera envuelve: en un móvil, «Abrir» y «Descargar» se salían por el lado derecho. */
+#accEditModal .inv-split__doclab{ flex-wrap:wrap; row-gap:.35rem; }
+
 /* EL ICONO DE HOLDED: verde cuando el documento ya está allí, gris cuando todavía no. Va antes de
    la etiqueta de contabilizado (que la marca Holded, no nosotros al subir). */
 .acct-holded{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;

@@ -63702,6 +63702,30 @@ def _activity_read_resource_key(default_key: str) -> str:
     return default_key
 
 
+# CORREGIR LOS DATOS DE UNA FACTURA se hace desde DOS sitios que no son la misma sección: la base de
+# facturas y la tabla de CONTABILIDAD (donde es el trabajo del día). Por eso su endpoint acepta la
+# primera de estas claves que tenga el usuario — si no, quien es de contabilidad y no tiene la base
+# de facturas se comía un 403 en el gate ANTES de llegar a la vista (que ya le dejaba pasar).
+INVOICE_EDIT_ACCESS_KEYS = ("databases.invoices", "contabilidad")
+# Y lo que se HACE en contabilidad cuelga de «Pendiente», que es su sitio; pero quien solo tenga la
+# pestaña «Contabilizado» (que es HERMANA, no descendiente) también tiene que poder devolver algo a
+# pendiente o corregir un dato desde ahí.
+ACCOUNTING_ACTION_ACCESS_KEYS = ("contabilidad.pendiente", "contabilidad.contabilizado")
+
+
+def _first_access_key(claves, default_key: str, *, edit: bool = False) -> str:
+    """La PRIMERA de `claves` que el usuario tenga concedida; si no tiene ninguna, `default_key`.
+
+    Así el 403 dice lo que de verdad le falta en vez de nombrar una sección que no es la suya."""
+    try:
+        for key in claves:
+            if has_access_key(key, edit=edit, include_descendants=True):
+                return key
+    except Exception:
+        pass
+    return default_key
+
+
 def _resolve_request_resource_key() -> str | None:
     endpoint = (request.endpoint or "").strip()
     if not endpoint:
@@ -63948,6 +63972,13 @@ def _resolve_request_resource_key() -> str | None:
         return "databases.media"
     if endpoint.startswith("bag_") or endpoint == "bags_view":
         return "databases.bags"
+    # ⚠️ ANTES de la regla de abajo, o sería CÓDIGO MUERTO (gana el mapeo de `supplier_invoice*`):
+    # CORREGIR LOS DATOS de una factura se hace desde la base de facturas Y desde CONTABILIDAD, que es
+    # donde es el trabajo del día. Sin esto, quien es de contabilidad y no tiene la base de facturas se
+    # comía un 403 en el gate ANTES de llegar a la vista (que ya le dejaba pasar).
+    if endpoint in ("supplier_invoice_edit", "supplier_invoice_data_save"):
+        return _first_access_key(INVOICE_EDIT_ACCESS_KEYS, "databases.invoices",
+                                 edit=(request.method not in ("GET", "HEAD", "OPTIONS")))
     if (endpoint.startswith("invoice_") or endpoint.startswith("supplier_invoice")
             or endpoint == "invoices_view"):
         return "databases.invoices"
@@ -63975,10 +64006,12 @@ def _resolve_request_resource_key() -> str | None:
             or endpoint.startswith("sms_") or endpoint.startswith("smtp_")):
         return "integraciones"
     # TODO lo que se HACE en contabilidad (subir a Holded, marcar contabilizado, omitir, corregir
-    # importes) cuelga de «Pendiente de contabilizar», que es donde se trabaja. Quien tenga la sección
-    # entera pasa igual (los ancestros valen).
+    # los datos de una factura) cuelga de «Pendiente de contabilizar», que es donde se trabaja. Quien
+    # tenga la sección entera pasa igual (los ancestros valen) y quien solo tenga «Contabilizado»
+    # —que es hermana— también, porque desde ahí se devuelve algo a pendiente.
     if endpoint.startswith("accounting_") or endpoint == "royalty_liquidation_accounted":
-        return "contabilidad.pendiente"
+        return _first_access_key(ACCOUNTING_ACTION_ACCESS_KEYS, "contabilidad.pendiente",
+                                 edit=(request.method not in ("GET", "HEAD", "OPTIONS")))
     auto_key = f"auto.{endpoint}"
     if auto_key in _ACCESS_RESOURCE_MAP:
         return auto_key
@@ -70972,10 +71005,15 @@ def _royalty_accounting_pending_rows(session_db, limit: int = 300, company_ids=N
             "method": (getattr(rec, "payment_method", None) or ""),
             "invoice_url": (getattr(inv, "file_url", None) or ""),
             "invoice_number": (getattr(inv, "invoice_number", None) or ""),
-            # Lo que necesita el formulario de «editar los datos de la factura» de la tabla.
+            # Lo que necesita el formulario de «editar los datos de la factura» de la tabla:
+            # su id, su concepto y los importes TAL COMO ESTÁN GUARDADOS (vacío = no hay dato).
             "invoice_id": (str(inv.id) if inv is not None else ""),
             "invoice_concept": (getattr(inv, "concept_text", None) or ""),
             "invoice_name": (getattr(inv, "original_name", None) or ""),
+            "edit_net": _money_edit_text(getattr(inv, "amount_net", None)),
+            "edit_vat": _money_edit_text(getattr(inv, "amount_vat", None)),
+            "edit_retention": _money_edit_text(getattr(inv, "retention_amount", None)),
+            "edit_total": _money_edit_text(getattr(inv, "amount_gross", None)),
             "pdf_url": (rec.last_sent_pdf_url or rec.snapshot_pdf_url or ""),
         })
     return filas
@@ -71030,10 +71068,15 @@ def _royalty_accounting_done_rows(session_db, limit: int = 300) -> list[dict]:
             "method": (getattr(rec, "payment_method", None) or ""),
             "invoice_url": (getattr(inv, "file_url", None) or ""),
             "invoice_number": (getattr(inv, "invoice_number", None) or ""),
-            # Lo que necesita el formulario de «editar los datos de la factura» de la tabla.
+            # Lo que necesita el formulario de «editar los datos de la factura» de la tabla:
+            # su id, su concepto y los importes TAL COMO ESTÁN GUARDADOS (vacío = no hay dato).
             "invoice_id": (str(inv.id) if inv is not None else ""),
             "invoice_concept": (getattr(inv, "concept_text", None) or ""),
             "invoice_name": (getattr(inv, "original_name", None) or ""),
+            "edit_net": _money_edit_text(getattr(inv, "amount_net", None)),
+            "edit_vat": _money_edit_text(getattr(inv, "amount_vat", None)),
+            "edit_retention": _money_edit_text(getattr(inv, "retention_amount", None)),
+            "edit_total": _money_edit_text(getattr(inv, "amount_gross", None)),
             "pdf_url": (rec.last_sent_pdf_url or rec.snapshot_pdf_url or ""),
         })
     return filas
@@ -76175,6 +76218,47 @@ def _accounting_prefetch(session_db, expenses) -> dict:
     return datos
 
 
+def _money_edit_text(valor) -> str:
+    """Un importe GUARDADO, tal como se escribe en España («1.234,56»), o VACÍO si no hay dato.
+
+    ⚠️ **Un 0 sale vacío**, que es la convención de la casa en los formularios de importes
+    (`_invoice_amount_fields_from_form` guarda el 0 como NULL: «no lo sé» no es «cero»). En un ticket
+    la base y el IVA están a 0 porque no se desglosan, y enseñarlos como «0,00» hacía que un Guardar
+    sin tocar nada AFIRMARA que la base es cero.
+    """
+    if valor is None:
+        return ""
+    try:
+        dec = Decimal(valor)
+    except (InvalidOperation, TypeError, ValueError):
+        return ""
+    if not dec.is_finite() or dec == 0:
+        return ""
+    return "{:,.2f}".format(dec).replace(",", "@").replace(".", ",").replace("@", ".")
+
+
+def _accounting_stored_amounts(expense, invoice=None) -> dict:
+    """Los importes de un gasto TAL COMO ESTÁN GUARDADOS (para rellenar el pop-up de editar).
+
+    CAMPO A CAMPO: manda la FACTURA (es lo que se ve en la tabla y donde se escribe) y, si ese dato
+    no está guardado ahí, el del GASTO. Lo que no está en ninguno de los dos sale VACÍO: en un ticket
+    no hay base ni IVA, y rellenarlos con los números deducidos hacía que un Guardar sin tocar nada
+    los diera por buenos.
+    ⚠️ El IVA se llama `amount_tax` en el gasto y `amount_vat` en la factura.
+    """
+    def _dato(campo_factura: str, campo_gasto: str) -> str:
+        # CAMPO A CAMPO: manda la factura (es lo que se ve en la tabla) y, si ESE dato no está
+        # guardado ahí, el del gasto. Así el pop-up no sale vacío por una factura a la que solo le
+        # falta el desglose, y sigue sin inventarse nada: los dos son datos guardados.
+        texto = _money_edit_text(getattr(invoice, campo_factura, None)) if invoice is not None else ""
+        return texto or _money_edit_text(getattr(expense, campo_gasto, None))
+
+    return {"net": _dato("amount_net", "amount_net"),
+            "vat": _dato("amount_vat", "amount_tax"),
+            "retention": _dato("retention_amount", "retention_amount"),
+            "total": _dato("amount_gross", "amount_gross")}
+
+
 def _accounting_expense_row(session_db, expense, datos: dict) -> dict:
     """Una línea de contabilidad, con TODO lo que se ve en pantalla."""
     bag = getattr(expense, "bag", None)
@@ -76212,6 +76296,13 @@ def _accounting_expense_row(session_db, expense, datos: dict) -> dict:
     numero = ((getattr(expense, "invoice_number", None) or "").strip()
               or (getattr(invoice, "invoice_number", None) or "").strip())
     emision = getattr(expense, "issue_date", None) or getattr(invoice, "issue_date", None)
+    # ⚠️⚠️ LO QUE SE EDITA SON LOS IMPORTES GUARDADOS, NO LOS DEDUCIDOS. En la tabla se ENSEÑAN
+    # importes calculados (en un ticket, base = total e IVA = 0; en una factura sin base, la base
+    # despejada), y rellenar el pop-up con ESO y darle a Guardar los escribía como si alguien los
+    # hubiera leído del documento —y una retención «0» donde no había nada cambia lo que se paga en
+    # la remesa (`_expense_retention` distingue el 0 del NULL)—. Un hueco vacío es «no lo sé», y
+    # `_invoice_apply_manual_data` no toca lo que llega vacío.
+    _edit = _accounting_stored_amounts(expense, invoice)
     company = datos["companies"].get(str(getattr(bag, "company_id", "") or "")) if bag is not None else None
     batch = datos["batches"].get(str(getattr(expense, "payment_batch_id", "") or ""))
     pagado_label = BAG_PAYMENT_STATUS_LABELS.get((expense.payment_status or "NO_PAGADO").upper(),
@@ -76252,6 +76343,9 @@ def _accounting_expense_row(session_db, expense, datos: dict) -> dict:
         "net": importes["net"], "vat": importes["vat"], "vat_pct": importes["vat_pct"],
         "retention": importes["retention"], "retention_pct": importes["retention_pct"],
         "total": importes["total"], "breakdown": importes["breakdown"],
+        # Para el pop-up de editar: lo GUARDADO (vacío si no hay dato), no lo deducido.
+        "edit_net": _edit["net"], "edit_vat": _edit["vat"],
+        "edit_retention": _edit["retention"], "edit_total": _edit["total"],
         "accounting_status": (expense.accounting_status or "PENDIENTE").upper(),
         "status_label": estado_label, "status_badge": estado_badge, "status_icon": estado_icon,
         "accounting_at": (expense.accounting_at.strftime("%d/%m/%Y %H:%M")
@@ -76712,11 +76806,13 @@ def _invoice_apply_manual_data(inv, form, *, concept_field: str = "concept") -> 
     """
     if inv is None:
         return
-    numero = (form.get("invoice_number") or "").strip()
-    if numero:
-        inv.invoice_number = numero
+    # ⚠️ El nº y la fecha SÍ se pueden vaciar (el gasto ya lo hacía y, si la factura los conservara,
+    # la tabla los volvería a enseñar y parecería que no se ha guardado). Solo se tocan si el campo
+    # venía en el formulario: así un formulario que no los traiga no borra nada.
+    if form.get("invoice_number") is not None:
+        inv.invoice_number = (form.get("invoice_number") or "").strip() or None
     fecha = parse_optional_date(form.get("issue_date"))
-    if fecha:
+    if form.get("issue_date") is not None:
         inv.issue_date = fecha
     concepto = (form.get(concept_field) or "").strip()
     if concepto:
@@ -88286,27 +88382,6 @@ def _accounting_internal_note(session_db, expense) -> str:
                 format_eur(_money_or_zero(getattr(expense, "amount_gross", 0))), texto)
         return texto
     return "Pendiente de pago" + (" · %s previsto" % metodo if metodo else "")
-
-
-def _accounting_expense_invoice(session_db, expense):
-    """La FACTURA (SupplierInvoice) imputada a un gasto, si la hay: de ahí salen los importes reales."""
-    try:
-        filas = (session_db.query(BagExpenseInvoice)
-                 .filter(BagExpenseInvoice.bag_expense_id == expense.id)
-                 .order_by(BagExpenseInvoice.created_at.desc()).all())
-    except Exception:
-        filas = []
-    for fila in filas:
-        if getattr(fila, "supplier_invoice_id", None):
-            inv = session_db.get(SupplierInvoice, fila.supplier_invoice_id)
-            if inv is not None:
-                return inv
-    try:
-        return (session_db.query(SupplierInvoice)
-                .filter(SupplierInvoice.bag_expense_id == expense.id)
-                .order_by(SupplierInvoice.created_at.desc()).first())
-    except Exception:
-        return None
 
 
 # Los TIPOS que existen de verdad: el porcentaje de una factura no es un número cualquiera.

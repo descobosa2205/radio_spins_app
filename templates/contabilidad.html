@@ -107,8 +107,8 @@
                         data-acc-action="{{ url_for('accounting_expense_edit', expense_id=r.id) }}"
                         data-acc-concept="{{ r.concept }}"
                         data-acc-number="{{ r.invoice_number }}" data-acc-date="{{ r.issue_date }}"
-                        data-acc-net="{{ r.net }}" data-acc-vat="{{ r.vat }}"
-                        data-acc-retention="{{ r.retention }}" data-acc-total="{{ r.total }}"
+                        data-acc-net="{{ r.edit_net }}" data-acc-vat="{{ r.edit_vat }}"
+                        data-acc-retention="{{ r.edit_retention }}" data-acc-total="{{ r.edit_total }}"
                         data-acc-edit-doc="{{ r.doc_url }}" data-acc-edit-doc-name="{{ r.doc_name }}"
                         data-acc-edit-title="{{ r.provider_name }} · {{ r.concept }}"
                         data-acc-edit-sub="{{ r.doc_label }}{% if r.bag_label %} · {{ r.bag_label }}{% endif %}"
@@ -212,8 +212,8 @@
                         data-acc-action="{{ url_for('accounting_royalty_invoice_edit', liq_id=r.id) }}"
                         data-acc-concept="{{ r.invoice_concept }}"
                         data-acc-number="{{ r.invoice_number }}" data-acc-date="{{ r.issue_label }}"
-                        data-acc-net="{{ r.net }}" data-acc-vat="{{ r.vat }}"
-                        data-acc-retention="{{ r.retention }}" data-acc-total="{{ r.amount }}"
+                        data-acc-net="{{ r.edit_net }}" data-acc-vat="{{ r.edit_vat }}"
+                        data-acc-retention="{{ r.edit_retention }}" data-acc-total="{{ r.edit_total }}"
                         data-acc-edit-doc="{{ r.invoice_url }}" data-acc-edit-doc-name="{{ r.invoice_name }}"
                         data-acc-edit-title="{{ r.name }} · Royalties {{ r.period_label }}"
                         data-acc-edit-sub="Liquidación de royalties{% if r.artist_name %} · {{ r.artist_name }}{% endif %}"
@@ -819,7 +819,7 @@
    (que es lo que se está copiando) y sus datos a la derecha. Reutiliza las clases `.inv-split*` de la
    pantalla de la base de facturas, así que las dos se ven igual. #}
 <div class="modal fade" id="accEditModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
       <form method="post" data-acc-edit-form action="#">
         <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -861,19 +861,19 @@
               </div>
               <div class="col-md-6">
                 <label class="form-label">Base imponible</label>
-                <input class="form-control" name="amount_net" data-acc-f="net" inputmode="decimal">
+                <input class="form-control" name="amount_net" data-money="1" data-acc-f="net" inputmode="decimal">
               </div>
               <div class="col-md-6">
                 <label class="form-label">IVA</label>
-                <input class="form-control" name="amount_tax" data-acc-f="vat" inputmode="decimal">
+                <input class="form-control" name="amount_tax" data-money="1" data-acc-f="vat" inputmode="decimal">
               </div>
               <div class="col-md-6">
                 <label class="form-label">Retención</label>
-                <input class="form-control" name="retention_amount" data-acc-f="retention" inputmode="decimal">
+                <input class="form-control" name="retention_amount" data-money="1" data-acc-f="retention" inputmode="decimal">
               </div>
               <div class="col-md-6">
                 <label class="form-label">Total</label>
-                <input class="form-control" name="amount_gross" data-acc-f="total" inputmode="decimal">
+                <input class="form-control" name="amount_gross" data-money="1" data-acc-f="total" inputmode="decimal">
               </div>
               <div class="col-12 small text-muted">
                 Es lo que se manda a Holded. Si ya está subido, corregirlo aquí no cambia el documento

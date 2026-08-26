@@ -58,6 +58,26 @@ curl -sL -o /tmp/cpython.tar.gz "https://github.com/astral-sh/python-build-stand
 # ⚠️ Los errores 500 muestran la página de MANTENIMIENTO (errorhandler 500 → maintenance.html):
 #    si el usuario dice «sale la página de cerrado por mantenimiento», es un 500 → buscar traceback en el log.
 ```
+### ⚡️ EL ESQUEMA DE PRUEBA EN MEDIO SEGUNDO (no hace falta esperar al bootstrap)
+Lo que tarda >10 min es `_bootstrap_schema_bg` (ejecuta TODOS los `ensure_*` con sus ALTER uno a uno).
+Para probar código **no hace falta**: se deja el CERROJO PUESTO (así el hilo sale sin hacer nada) y se
+crea el esquema de golpe con `create_all`, que son **211 tablas en ~0,5 s**:
+```python
+import tempfile, pathlib
+tmp = pathlib.Path(tempfile.gettempdir())
+for n in ("app33_schema_bootstrap.lock", "app33_personnel_bootstrap.lock"):
+    (tmp/n).write_text("x")          # ⚠️ ANTES de importar app/models
+import models; models.Base.metadata.create_all(models.engine)
+# y si el cambio añade columnas por ALTER, su ensure_* a mano: models.ensure_song_radio_schema()
+```
+⚠️ **En las pruebas hay que desactivar el CSRF** (`A.app.config["WTF_CSRF_ENABLED"] = False`): sin eso
+todo POST del `test_client` devuelve un **302 a /home con el flash de «sesión caducada»** y parece que
+el endpoint no guarda nada.
+⚠️ **El rol lo manda la BD, no la sesión**: poner `ses["role"] = 10` no basta (`_current_user_state()`
+lo lee del usuario), así que para probar algo de dirección hay que ponerle `role = 10` en la fila.
+⚠️ Para probar una subida sin Storage: `A.upload_file = lambda fs, folder, **kw: "https://x/…"`.
+⚠️ Y una **prueba de humo que vale mucho**: pedir con el `test_client` **todas las pestañas** de la
+ficha que se ha tocado. Así salió el 500 de `lg.values` (ver la regla de los dicts en Jinja).
 
 ## Verificación local (sin BD)
 ```bash

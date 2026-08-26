@@ -805,6 +805,72 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# PRESENTAR A RADIO (promoción y dirección con función de sello): una fila por canción y, dentro,
+   una emisora por línea con sus dos botones. «Sí va a entrar» pide la fecha de entrada en rotación
+   (y eso se anota solo en el plan de lanzamiento); «No va a entrar» avisa a quien lo pidió. #}
+{% if HOME_RADIO_PITCHES %}
+<div class="card mb-4 border-warning">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-radio text-danger me-2"></i>Presentar a radio
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_RADIO_PITCHES|length }}</span>
+    </span>
+    <span class="text-muted small">Focus singles que esperan respuesta de las emisoras.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_RADIO_PITCHES %}
+      <div class="ctask">
+        <div class="ctask__head">
+          {% if r.artist_photo or r.artist_name %}
+            {{ artist_avatar(r.artist_photo, r.artist_name) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-music text-muted"></i></span>
+          {% endif %}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}"
+             title="Abrir la ficha de la canción">{{ r.artist_name }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-star"></i>{{ r.title }}</span>
+            {% if r.release_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ r.release_label }}</span>{% endif %}
+            <span class="ctask__fact"><i class="fa fa-tower-broadcast"></i>{{ r.media|length }} emisora{{ '' if r.media|length == 1 else 's' }}</span>
+          </span>
+        </div>
+        <div class="d-grid gap-2 mt-2">
+          {% for m in r.media %}
+            <div class="d-flex align-items-center gap-2 border rounded p-2 flex-wrap">
+              {% if m.logo_url %}
+                <img src="{{ m.logo_url }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
+              {% else %}
+                <span class="d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;border-radius:8px;background:#f1f3f7;"><i class="fa fa-tower-broadcast text-muted"></i></span>
+              {% endif %}
+              <span class="flex-grow-1 min-w-0">
+                <span class="d-block fw-semibold small text-truncate">{{ m.name }}</span>
+                {% if m.requested_by %}<span class="d-block small text-muted">lo pidió {{ m.requested_by }}</span>{% endif %}
+              </span>
+              {# «Sí va a entrar»: hace falta la fecha, así que va con su campo al lado. #}
+              <form method="post" action="{{ m.decide_url }}" class="d-flex align-items-center gap-1">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <input type="hidden" name="decision" value="YES">
+                <input type="date" class="form-control form-control-sm" name="start_date"
+                       required style="width:9.5rem;" title="Fecha prevista de entrada en rotación">
+                <button class="btn btn-sm btn-success" title="Va a entrar en rotación">
+                  <i class="fa fa-check me-1"></i>Sí entra</button>
+              </form>
+              <form method="post" action="{{ m.decide_url }}" class="d-inline">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <input type="hidden" name="decision" value="NO">
+                <button class="btn btn-sm btn-outline-danger"
+                        data-confirm="¿La emisora {{ m.name }} no la va a poner? Se avisará a quien lo pidió.">
+                  <i class="fa fa-xmark me-1"></i>No entra</button>
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# LA LOGÍSTICA de un lanzamiento que le han pedido a ESTA persona (producción). Con lo que se le
    pide a la vista, y los dos sitios donde trabaja: la bolsa (gastos) y la hoja de ruta. #}
 {% if HOME_DISCO_LOGISTICS %}

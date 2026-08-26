@@ -579,6 +579,12 @@ class Song(Base):
     work_declaration_signed = Column(Boolean, nullable=False, server_default=text("false"))
     lyrics_text = Column(Text)
     lyrics_updated_at = Column(DateTime(timezone=True))
+    # FOCUS SINGLE: el lanzamiento PRIORITARIO. Se decide en el proyecto y es de la CANCIÓN (se ve
+    # en su ficha y en el repertorio). `None` = todavía no se ha decidido, que no es lo mismo que
+    # «no lo es»: hay tareas (la nota de prensa) que esperan a que se decida.
+    focus_single = Column(Boolean)
+    focus_single_at = Column(DateTime(timezone=True))
+    focus_single_by = Column(Text)
     # PITCH DE LANZAMIENTO: el texto con el que se presenta el lanzamiento (a plataformas, medios,
     # playlists…). Es un campo más de la ficha, y se puede descargar en PDF o mandar.
     # El PITCH lleva su titular destacado (sale en grande antes del texto en el PDF y el correo).
@@ -11804,6 +11810,81 @@ def ensure_disco_projects_schema():
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",
     ], label="ensure_disco_projects_schema")
+
+
+class SongRadioPitch(Base):
+    """LA PRESENTACIÓN DE UNA CANCIÓN A UNA EMISORA (una fila por emisora).
+
+    Un **focus single** se presenta a radio: el sello marca a qué emisoras y **promoción** (o
+    dirección con función de sello) va contestando una por una. Si la emisora la coge, se apunta la
+    **fecha prevista de entrada en rotación** y eso entra en el PLAN DE LANZAMIENTO como una acción;
+    si la rechaza, se avisa y la subtarea queda terminada (no se anota nada en el plan).
+    """
+
+    __tablename__ = "song_radio_pitches"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    # De qué proyecto salió (para poder anotar la acción en SU plan de lanzamiento).
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="SET NULL"))
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"),
+                      nullable=False)
+    status = Column(Text, nullable=False, server_default=text("'PENDING'"))   # PENDING|ACCEPTED|REJECTED
+    start_date = Column(Date)                 # fecha prevista de entrada en rotación
+    note = Column(Text)                       # el motivo del rechazo, o lo que diga la emisora
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    decided_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    decided_by_nick = Column(Text)
+    decided_at = Column(DateTime(timezone=True))
+    # La acción que se creó en el plan de lanzamiento al aceptarla (para no duplicarla).
+    plan_action_id = Column(PGUUID(as_uuid=True),
+                            ForeignKey("disco_release_plan_actions.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    media = relationship("MediaOutlet")
+    song = relationship("Song")
+
+    __table_args__ = (
+        UniqueConstraint("song_id", "media_id", name="uq_song_radio_pitch"),
+        Index("idx_song_radio_song", "song_id"),
+    )
+
+
+def ensure_song_radio_schema():
+    """FOCUS SINGLE y PRESENTACIÓN A RADIO (idempotente, sin Alembic)."""
+    _create_all_once()
+    _exec_ddl_statements([
+        # El focus single es de la CANCIÓN: `NULL` = sin decidir.
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS focus_single boolean;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS focus_single_at timestamptz;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS focus_single_by text;",
+        """
+        CREATE TABLE IF NOT EXISTS song_radio_pitches (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            project_id uuid REFERENCES disco_projects(id) ON DELETE SET NULL,
+            media_id uuid NOT NULL REFERENCES media_outlets(id) ON DELETE CASCADE,
+            status text NOT NULL DEFAULT 'PENDING',
+            start_date date,
+            note text,
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_nick text,
+            requested_at timestamptz DEFAULT now(),
+            decided_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            decided_by_nick text,
+            decided_at timestamptz,
+            plan_action_id uuid REFERENCES disco_release_plan_actions(id) ON DELETE SET NULL,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_song_radio_pitch UNIQUE (song_id, media_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_song_radio_song ON song_radio_pitches(song_id);",
+        "CREATE INDEX IF NOT EXISTS idx_song_radio_pending ON song_radio_pitches(status);",
+    ], label="ensure_song_radio_schema")
 
 
 def ensure_vacations_schema():

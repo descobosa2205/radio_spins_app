@@ -164,6 +164,7 @@ from models import (
     SongMaterial,
     SongMasterDeliveryLink,
     SongDemo,
+    SongRadioPitch,
     SongDemoAuthor,
     SongDemoRating,
     Playlist,
@@ -321,6 +322,7 @@ from models import (
     ensure_song_demos_schema,
     ensure_playlists_schema,
     ensure_disco_projects_schema,
+    ensure_song_radio_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
@@ -19624,6 +19626,20 @@ def _disco_project_release(session_db, project) -> dict:
     return {}
 
 
+def _disco_project_release_song(session_db, project):
+    """LA CANCIÓN del lanzamiento (la del single) o None.
+
+    ⚠️ En un ÁLBUM o EP no hay «la canción»: el focus single sería uno de sus temas y eso se marca en
+    su ficha, así que aquí se devuelve None a propósito y las tareas de radio no salen."""
+    if project is None or not getattr(project, "release_song_id", None):
+        return None
+    try:
+        return session_db.get(Song, project.release_song_id)
+    except Exception:
+        app.logger.exception("[proyectos] no se pudo leer la canción del lanzamiento")
+        return None
+
+
 def _disco_project_release_songs(session_db, project) -> list:
     """Las canciones del lanzamiento (las del álbum o la del single), para marcarlas y contarlas."""
     ids = []
@@ -20281,6 +20297,164 @@ def _disco_logistics_roadmap_add(session_db, project, user_id) -> None:
         app.logger.exception("[proyectos] no se pudo meter a la persona en la hoja de ruta")
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTO · FOCUS SINGLE y PRESENTACIÓN A RADIO
+#
+# Un lanzamiento puede ser **focus single** (el prioritario). Si lo es, se le presenta a las
+# emisoras: el sello marca a cuáles y **PROMOCIÓN** —o dirección con función de sello— va
+# contestando una por una:
+#   · **Sí va a entrar en radio X** → se apunta la fecha prevista de entrada en rotación y eso entra
+#     en el PLAN DE LANZAMIENTO como una acción («Presentación a radio · X»).
+#   · **No va a entrar** → se avisa de que la emisora la ha rechazado y la subtarea queda terminada.
+#     No se anota nada en el plan.
+#
+# ⚠️ **No se puede mandar a radio sin nada que mandar**: hace falta la FECHA de lanzamiento y, o el
+# MÁSTER subido, o al menos una MAQUETA (`_disco_radio_ready`). Hasta entonces la tarea sale
+# BLOQUEADA (rayada), diciendo qué falta.
+# ═════════════════════════════════════════════════════════════════════════════
+
+SONG_RADIO_STATUS_LABELS = {"PENDING": "Pendiente de contestar",
+                            "ACCEPTED": "Va a entrar en rotación",
+                            "REJECTED": "La emisora la ha rechazado"}
+
+
+def _song_focus_state(song) -> dict:
+    """¿Es focus single? (`None` = todavía sin decidir, que no es «no»)."""
+    valor = getattr(song, "focus_single", None) if song is not None else None
+    return {
+        "decided": valor is not None,
+        "yes": bool(valor),
+        "label": ("Focus single · lanzamiento prioritario" if valor else
+                  ("No es focus single" if valor is not None else "Sin decidir")),
+        "by": (getattr(song, "focus_single_by", None) or ""),
+        "at_label": (_format_madrid_datetime_label(getattr(song, "focus_single_at", None))
+                     if getattr(song, "focus_single_at", None) else ""),
+    }
+
+
+def _song_has_master(session_db, song) -> bool:
+    """¿Tiene MÁSTER subido (y no rechazado)?"""
+    if song is None:
+        return False
+    try:
+        return bool(session_db.query(func.count(SongMaterial.id))
+                    .filter(SongMaterial.song_id == song.id)
+                    .filter(func.upper(SongMaterial.category) == "MASTER")
+                    .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED"))
+                            != "PENDING").scalar() or 0)
+    except Exception:
+        app.logger.exception("[radio] no se pudo mirar si hay máster")
+        return False
+
+
+def _disco_radio_ready(session_db, project, release_song=None) -> dict:
+    """¿Se puede ya mandar a radio? Hace falta la FECHA y (el máster o, al menos, una maqueta)."""
+    cancion = release_song if release_song is not None else _disco_project_release_song(session_db, project)
+    fecha = getattr(project, "release_date", None) or getattr(cancion, "release_date", None)
+    master = _song_has_master(session_db, cancion)
+    demo = bool(_disco_project_demo(session_db, project))
+    if not demo and cancion is not None:
+        try:
+            demo = bool(session_db.query(func.count(SongDemo.id))
+                        .filter(SongDemo.song_id == cancion.id).scalar() or 0)
+        except Exception:
+            demo = False
+    falta = []
+    if not fecha:
+        falta.append("la fecha de lanzamiento")
+    if not (master or demo):
+        falta.append("el máster (o al menos una maqueta)")
+    return {"ready": not falta, "missing": falta, "has_master": master, "has_demo": demo,
+            "date": fecha, "song": cancion}
+
+
+def _disco_radio_rows(session_db, song) -> list[dict]:
+    """Las emisoras a las que se ha presentado la canción, con su estado."""
+    if song is None:
+        return []
+    try:
+        filas = (session_db.query(SongRadioPitch)
+                 .options(joinedload(SongRadioPitch.media))
+                 .filter(SongRadioPitch.song_id == song.id)
+                 .order_by(SongRadioPitch.created_at.asc()).all())
+    except Exception:
+        app.logger.exception("[radio] no se pudieron leer las presentaciones")
+        return []
+    salida = []
+    for r in filas:
+        estado = (r.status or "PENDING").upper()
+        medio = getattr(r, "media", None)
+        salida.append({
+            "id": str(r.id),
+            "media_id": str(r.media_id),
+            "media_name": (getattr(medio, "name", "") or "La emisora"),
+            "logo_url": (getattr(medio, "logo_url", "") or ""),
+            "status": estado,
+            "status_label": SONG_RADIO_STATUS_LABELS.get(estado, estado),
+            "start_date": r.start_date,
+            "start_label": (r.start_date.strftime("%d/%m/%Y") if r.start_date else ""),
+            "note": (r.note or ""),
+            "decided_by": (r.decided_by_nick or ""),
+            "decided_label": (_format_madrid_datetime_label(r.decided_at) if r.decided_at else ""),
+            "pending": estado == "PENDING",
+        })
+    return salida
+
+
+def _disco_radio_state(session_db, project, release_song=None) -> dict:
+    """Estado de la presentación a radio de un proyecto: si toca, si se puede y cómo va."""
+    cancion = release_song if release_song is not None else _disco_project_release_song(session_db, project)
+    focus = _song_focus_state(cancion)
+    listo = _disco_radio_ready(session_db, project, cancion)
+    filas = _disco_radio_rows(session_db, cancion)
+    pendientes = [r for r in filas if r["pending"]]
+    aceptadas = [r for r in filas if r["status"] == "ACCEPTED"]
+    rechazadas = [r for r in filas if r["status"] == "REJECTED"]
+    return {
+        "song": cancion,
+        "focus": focus,
+        "ready": listo["ready"],
+        "missing": listo["missing"],
+        "rows": filas,
+        "requested": bool(filas),
+        "pending": pendientes,
+        "accepted": aceptadas,
+        "rejected": rechazadas,
+        # Terminado cuando se ha pedido y ya han contestado todas.
+        "done": bool(filas and not pendientes),
+    }
+
+
+def _disco_radio_media_options(session_db) -> list[dict]:
+    """Las EMISORAS de la base de datos de medios (para marcar a cuáles se presenta)."""
+    try:
+        filas = (session_db.query(MediaOutlet)
+                 .filter(func.lower(func.coalesce(MediaOutlet.media_type, "")) == "radio")
+                 .order_by(MediaOutlet.name.asc()).all())
+    except Exception:
+        app.logger.exception("[radio] no se pudieron leer las emisoras")
+        return []
+    return [{"id": str(m.id), "name": (m.name or ""), "logo_url": (m.logo_url or ""),
+             "country": (m.country_name or "")} for m in filas]
+
+
+def _disco_radio_deciders(session_db) -> list[str]:
+    """A quién le toca contestar: **PROMOCIÓN** y **dirección que además esté en el SELLO**."""
+    quienes = list(_department_user_ids(session_db, "Promoción", "Marketing") or [])
+    try:
+        fuera = _inactive_user_ids(session_db)
+        for u, prof in (session_db.query(User, UserProfile)
+                        .outerjoin(UserProfile, UserProfile.user_id == User.id)
+                        .filter(User.role == 10).all()):
+            if u.id in fuera or prof is None:
+                continue
+            if _profile_in_department(prof, "Sello"):
+                quienes.append(str(u.id))
+    except Exception:
+        app.logger.exception("[radio] no se pudo resolver a quién le toca contestar")
+    return list(dict.fromkeys([str(x) for x in quienes if x]))
+
+
 def _disco_project_demo(session_db, project):
     """La MAQUETA vinculada a este proyecto (la última que se subió)."""
     if project is None:
@@ -20523,6 +20697,65 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
               value="Montada%s%s" % ((" por %s" % log["done_by"]) if log["done_by"] else "",
                                      (" · %s" % log["done_label"]) if log["done_label"] else ""),
               menu=[{"label": "Volver a pedir algo", "icon": "fa-pen", "modal": "#dpLogisticsModal"}])
+
+    # ================= FOCUS SINGLE y PRESENTACIÓN A RADIO =================
+    # Solo en un single (en un álbum el focus single sería uno de sus temas: se marca en su ficha).
+    cancion_lanz = _disco_project_release_song(session_db, project)
+    if cancion_lanz is not None:
+        radio = _disco_radio_state(session_db, project, cancion_lanz)
+        foco = radio["focus"]
+        if not foco["decided"]:
+            tarea("focus", "¿Es focus single?", "", "fa-star", grupo="single",
+                  hint="Un focus single es el lanzamiento prioritario y se presenta a radio",
+                  action_label="Decidir", modal="#dpFocusModal")
+        else:
+            tarea("focus", "Focus single", "", "fa-star", grupo="single", state="done",
+                  value=foco["label"] + (" · lo marcó %s" % foco["by"] if foco["by"] else ""),
+                  menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": "#dpFocusModal"}])
+        # La presentación a radio SOLO si es focus single.
+        if foco["yes"]:
+            if not radio["requested"]:
+                if not radio["ready"]:
+                    # ⚠️ Bloqueada (y rayada): no se puede mandar a radio sin nada que mandar.
+                    tarea("radio", "Solicitar presentación a radio", "", "fa-radio", grupo="single",
+                          state="blocked",
+                          hint="Falta %s" % " y ".join(radio["missing"]))
+                else:
+                    tarea("radio", "Solicitar presentación a radio", "", "fa-radio", True,
+                          grupo="single", hint="Se marcan las emisoras y contesta promoción",
+                          action_label="Solicitar", modal="#dpRadioModal")
+            elif not radio["done"]:
+                tarea("radio", "Presentación a radio", "", "fa-hourglass-half", grupo="single",
+                      state="wait",
+                      value="%d emisora%s · %d contestada%s"
+                            % (len(radio["rows"]), "" if len(radio["rows"]) == 1 else "s",
+                               len(radio["rows"]) - len(radio["pending"]),
+                               "" if (len(radio["rows"]) - len(radio["pending"])) == 1 else "s"),
+                      hint="Contesta promoción (o dirección con función de sello)",
+                      menu=[{"label": "Añadir más emisoras", "icon": "fa-plus", "modal": "#dpRadioModal"}])
+            else:
+                tarea("radio", "Presentación a radio", "", "fa-radio", grupo="single", state="done",
+                      value="%d en rotación · %d rechazada%s"
+                            % (len(radio["accepted"]), len(radio["rejected"]),
+                               "" if len(radio["rejected"]) == 1 else "s"),
+                      menu=[{"label": "Presentar a otra emisora", "icon": "fa-plus",
+                             "modal": "#dpRadioModal"}])
+            # …y una SUBTAREA por emisora, con lo que ha dicho cada una.
+            for fila in radio["rows"]:
+                if fila["status"] == "ACCEPTED":
+                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-tower-broadcast",
+                          grupo="single", sub=True, state="done",
+                          value="Entra en rotación%s%s"
+                                % ((" el %s" % fila["start_label"]) if fila["start_label"] else "",
+                                   (" · %s" % fila["decided_by"]) if fila["decided_by"] else ""))
+                elif fila["status"] == "REJECTED":
+                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-circle-xmark",
+                          grupo="single", sub=True, state="done",
+                          value="No la coge%s" % ((" · %s" % fila["note"]) if fila["note"] else ""))
+                else:
+                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-hourglass-half",
+                          grupo="single", sub=True, state="wait",
+                          hint="Pendiente de que promoción diga si entra")
 
     # ================= AUDIO · paso 4: la PORTADA, por pasos =================
     if lleva_audio:
@@ -21490,7 +21723,7 @@ def disco_project_detail(project_id):
             for clave in ("today", "tab", "row", "project", "project_tabs", "milestones", "tracks",
                           "physical_labels", "roadmap_ctx", "CAN_EDIT", "bag", "tasks",
                           "task_groups", "date_state", "production", "materials_recipients",
-                          "logistics", "logistics_notes",
+                          "logistics", "logistics_notes", "radio", "radio_media",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -21518,6 +21751,9 @@ def disco_project_detail(project_id):
             # LOGÍSTICA del proyecto (¿hace falta?, a quién se le ha pedido y qué se le pide).
             logistics=(_disco_logistics_state(session_db, project) if tab == "calendario" else None),
             logistics_notes=DISCO_LOGISTICS_NOTES,
+            # FOCUS SINGLE y PRESENTACIÓN A RADIO (solo en un single).
+            radio=(_disco_radio_state(session_db, project) if tab == "calendario" else None),
+            radio_media=(_disco_radio_media_options(session_db) if tab == "calendario" else []),
             materials_recipients=destinatarios,
             promoters=terceros,
             production_people=(_production_people(session_db) if tab == "calendario" else []),
@@ -24790,6 +25026,233 @@ def disco_project_production_save(project_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/focus-single", endpoint="disco_project_focus_save")
+@admin_required
+def disco_project_focus_save(project_id):
+    """¿Es FOCUS SINGLE? Se decide aquí y queda marcado en la CANCIÓN (su ficha y el repertorio)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para configurar el proyecto.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        cancion = _disco_project_release_song(session_db, project)
+        if cancion is None:
+            flash("Este proyecto no tiene una canción de lanzamiento.", "warning")
+            return redirect(safe_next_or(destino))
+        valor = (request.form.get("focus") or "").strip().upper()
+        if valor not in ("YES", "NO"):
+            flash("Dinos si es focus single o no.", "warning")
+            return redirect(safe_next_or(destino))
+        cancion.focus_single = (valor == "YES")
+        cancion.focus_single_at = _now_madrid()
+        cancion.focus_single_by = ((_current_user_state() or {}).get("nick") or "")
+        session_db.add(cancion)
+        session_db.commit()
+        flash("Marcada como focus single." if valor == "YES" else "Marcada como no focus single.",
+              "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[proyectos] no se pudo marcar el focus single")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/radio", endpoint="disco_project_radio_request")
+@admin_required
+def disco_project_radio_request(project_id):
+    """SOLICITAR la presentación a radio: se marcan las emisoras y contesta PROMOCIÓN.
+
+    ⚠️ No se puede pedir sin la fecha de lanzamiento y sin máster (o al menos una maqueta): es lo que
+    hay que mandarle a la emisora."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para configurar el proyecto.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        cancion = _disco_project_release_song(session_db, project)
+        if cancion is None:
+            flash("Este proyecto no tiene una canción de lanzamiento.", "warning")
+            return redirect(safe_next_or(destino))
+        if not bool(getattr(cancion, "focus_single", False)):
+            flash("Solo se presenta a radio un focus single.", "warning")
+            return redirect(safe_next_or(destino))
+        listo = _disco_radio_ready(session_db, project, cancion)
+        if not listo["ready"]:
+            flash("Todavía no se puede mandar a radio: falta %s." % " y ".join(listo["missing"]),
+                  "warning")
+            return redirect(safe_next_or(destino))
+        ids = [x for x in request.form.getlist("media_ids") if (x or "").strip()]
+        if not ids:
+            flash("Marca al menos una emisora.", "warning")
+            return redirect(safe_next_or(destino))
+        yo = (_current_user_state() or {})
+        nuevas = 0
+        for mid in ids:
+            pk = _safe_uuid(mid)
+            if not pk:
+                continue
+            # Ya presentada a esa emisora: no se duplica (y si estaba contestada, se respeta).
+            existe = (session_db.query(SongRadioPitch)
+                      .filter(SongRadioPitch.song_id == cancion.id,
+                              SongRadioPitch.media_id == pk).first())
+            if existe is not None:
+                continue
+            session_db.add(SongRadioPitch(
+                song_id=cancion.id, project_id=project.id, media_id=pk, status="PENDING",
+                requested_by_user_id=_safe_uuid(yo.get("user_id")),
+                requested_by_nick=(yo.get("nick") or ""), requested_at=_now_madrid()))
+            nuevas += 1
+        session_db.flush()
+        if nuevas:
+            _notify_users(session_db, _disco_radio_deciders(session_db), "TAREA",
+                          "Presentar a radio: «%s»" % (cancion.title or ""),
+                          "%d emisora(s) por contestar. Di si entra en rotación y desde cuándo."
+                          % nuevas,
+                          url_for("home"), ref_type="SONG_RADIO", ref_id=str(cancion.id))
+        session_db.commit()
+        flash("Presentación a radio solicitada." if nuevas else
+              "Esas emisoras ya estaban solicitadas.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[proyectos] no se pudo solicitar la presentación a radio")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/radio/presentacion/<pitch_id>/decidir", endpoint="song_radio_pitch_decide")
+@admin_required
+def song_radio_pitch_decide(pitch_id):
+    """PROMOCIÓN (o dirección con función de sello) contesta por esa emisora.
+
+    · **Sí va a entrar** → con su fecha prevista de entrada en rotación, que se anota en el PLAN DE
+      LANZAMIENTO como una acción («Presentación a radio · <emisora>»).
+    · **No va a entrar** → se avisa a quien lo pidió de que la emisora la ha rechazado y la subtarea
+      queda terminada. En el plan no se anota nada.
+    ⚠️ Aquí no se exige `can_edit_discografica()`: contesta PROMOCIÓN. Se comprueba que es de quien
+    le toca (o dirección)."""
+    session_db = db()
+    try:
+        fila = session_db.get(SongRadioPitch, to_uuid(pitch_id))
+        if fila is None:
+            flash("Esa presentación no existe.", "warning")
+            return redirect(url_for("home"))
+        yo = (_current_user_state() or {})
+        puede = (is_master() or str(yo.get("user_id") or "") in _disco_radio_deciders(session_db)
+                 or can_edit_discografica())
+        if not puede:
+            return forbid("Esto lo contesta promoción.")
+        cancion = session_db.get(Song, fila.song_id)
+        medio = session_db.get(MediaOutlet, fila.media_id)
+        nombre_medio = (getattr(medio, "name", "") or "la emisora")
+        decision = (request.form.get("decision") or "").strip().upper()
+        fila.decided_by_user_id = _safe_uuid(yo.get("user_id"))
+        fila.decided_by_nick = (yo.get("nick") or "")
+        fila.decided_at = _now_madrid()
+        fila.updated_at = _now_madrid()
+        if decision == "YES":
+            fecha = parse_optional_date(request.form.get("start_date"))
+            if not fecha:
+                flash("Dinos desde cuándo entra en rotación.", "warning")
+                return redirect(safe_next_or(url_for("home")))
+            fila.status = "ACCEPTED"
+            fila.start_date = fecha
+            fila.note = (request.form.get("note") or "").strip() or None
+            _song_radio_plan_action(session_db, fila, cancion, nombre_medio)
+            if fila.requested_by_user_id:
+                _notify_user(session_db, fila.requested_by_user_id, "TAREA",
+                             "%s va a poner «%s»" % (nombre_medio, (cancion.title if cancion else "")),
+                             "Entra en rotación el %s. Ya está apuntado en el plan de lanzamiento."
+                             % fecha.strftime("%d/%m/%Y"),
+                             _song_radio_project_url(session_db, fila),
+                             ref_type="SONG_RADIO", ref_id=str(fila.song_id))
+        elif decision == "NO":
+            fila.status = "REJECTED"
+            fila.start_date = None
+            fila.note = (request.form.get("note") or "").strip() or None
+            if fila.requested_by_user_id:
+                _notify_user(session_db, fila.requested_by_user_id, "TAREA",
+                             "%s no va a poner «%s»" % (nombre_medio,
+                                                        (cancion.title if cancion else "")),
+                             "La emisora ha rechazado la petición: de momento no entra en rotación."
+                             + ((" Motivo: %s" % fila.note) if fila.note else ""),
+                             _song_radio_project_url(session_db, fila),
+                             ref_type="SONG_RADIO", ref_id=str(fila.song_id))
+        else:
+            flash("Dinos si va a entrar en rotación o no.", "warning")
+            return redirect(safe_next_or(url_for("home")))
+        session_db.add(fila)
+        session_db.flush()
+        # Si ya han contestado TODAS, el aviso de «presentar a radio» deja de esperar a nadie.
+        if not (session_db.query(func.count(SongRadioPitch.id))
+                .filter(SongRadioPitch.song_id == fila.song_id,
+                        func.upper(SongRadioPitch.status) == "PENDING").scalar() or 0):
+            _notify_resolve(session_db, "SONG_RADIO", str(fila.song_id))
+        session_db.commit()
+        flash("Anotado: entra en rotación." if decision == "YES" else
+              "Anotado: la emisora la ha rechazado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[radio] no se pudo guardar la decisión")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("home")))
+
+
+def _song_radio_project_url(session_db, fila) -> str:
+    """A dónde lleva el aviso: al proyecto si se pidió desde uno, y si no a la ficha de la canción."""
+    try:
+        if getattr(fila, "project_id", None):
+            return url_for("disco_project_detail", project_id=fila.project_id, tab="calendario")
+        return url_for("discografica_song_detail", song_id=fila.song_id, tab="informacion")
+    except Exception:
+        return url_for("home")
+
+
+def _song_radio_plan_action(session_db, fila, cancion, nombre_medio) -> None:
+    """Anota en el PLAN DE LANZAMIENTO la acción «Presentación a radio · <emisora>».
+
+    Solo cuando la emisora dice que sí (un rechazo no se anota en el plan). Si ya existía la acción de
+    esa emisora, se actualiza la fecha en vez de duplicarla."""
+    if not getattr(fila, "project_id", None):
+        return
+    try:
+        project = session_db.get(DiscoProject, fila.project_id)
+        if project is None:
+            return
+        plan = _disco_plan(session_db, project, create=True)
+        accion = None
+        if getattr(fila, "plan_action_id", None):
+            accion = session_db.get(DiscoReleasePlanAction, fila.plan_action_id)
+        if accion is None:
+            accion = DiscoReleasePlanAction(plan_id=plan.id,
+                                            position=len(plan.actions or []))
+            session_db.add(accion)
+        accion.title = ("Presentación a radio · %s" % nombre_medio)[:250]
+        accion.description = ("Fecha prevista de entrada en rotación: %s"
+                              % fila.start_date.strftime("%d/%m/%Y"))
+        accion.cost_mode = (accion.cost_mode or "NONE")
+        accion.date_kind = "DATE"
+        accion.start_date = fila.start_date
+        accion.end_date = None
+        session_db.flush()
+        fila.plan_action_id = accion.id
+    except Exception:
+        app.logger.exception("[radio] no se pudo anotar la acción en el plan")
 
 
 @app.post("/discografica/proyectos/<project_id>/logistica", endpoint="disco_project_logistics_save")
@@ -53348,6 +53811,7 @@ def _bootstrap_schema_bg():
         (ensure_song_demos_schema, "ensure_song_demos_schema"),
         (ensure_playlists_schema, "ensure_playlists_schema"),
         (ensure_disco_projects_schema, "ensure_disco_projects_schema"),
+        (ensure_song_radio_schema, "ensure_song_radio_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
@@ -61718,6 +62182,10 @@ def inject_personnel_globals():
         # pide por su nombre), así que no depende de ningún permiso de sección.
         "HOME_DISCO_LOGISTICS": (_home_disco_logistics()
                                  if _home and "_home_disco_logistics" in globals() else []),
+        # PRESENTAR A RADIO: a promoción (y a dirección con función de sello), una subtarea por
+        # emisora. Es de quien le toca contestar, así que va con lo suyo (dirección incluida).
+        "HOME_RADIO_PITCHES": (_home_radio_pitches()
+                               if _home and "_home_radio_pitches" in globals() else []),
         # TICKETING: lo que hay que sacar a la venta y las salidas a la venta por comunicar.
         # ⚠️ EL INICIO DE TICKETING es solo el calendario y sus tareas: quien está SOLO en ese
         # departamento no tiene por qué mirar los módulos de los demás. Quien además esté en otro
@@ -62082,6 +62550,10 @@ REQUEST_ANY_ENDPOINTS = {
     # comía un 403 si no tenía ninguna sección con edición: comprobado). El endpoint comprueba dentro
     # que la logística es suya (o que es del sello o de dirección).
     "disco_project_logistics_done",
+    # ⚠️ CONTESTAR si una emisora coge la canción es tarea de PROMOCIÓN (o de dirección con función de
+    # sello): el endpoint comprueba dentro que es de quien le toca. Va aquí y no en
+    # `SUPPORT_ACTION_ENDPOINTS` por lo mismo que la logística: ese exige ser «actor».
+    "song_radio_pitch_decide",
 }
 
 
@@ -104757,6 +105229,66 @@ def _home_registros_pending(limit: int = 20) -> list[dict]:
         return filas[:limit]
     except Exception:
         app.logger.exception("[inicio] no se pudieron leer las entregas por revisar")
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_radio_pitches(limit: int = 12) -> list[dict]:
+    """PRESENTAR A RADIO (módulo de Inicio de **promoción** y de **dirección con función de sello**).
+
+    Una fila por canción y, dentro, **una subtarea por emisora** con sus dos botones: «Sí va a entrar»
+    (con la fecha de entrada en rotación) y «No va a entrar». Cuando todas han contestado, la fila
+    desaparece sola."""
+    estado = _current_user_state() or {}
+    yo = str(estado.get("user_id") or "")
+    if not yo:
+        return []
+    session_db = db()
+    try:
+        if yo not in _disco_radio_deciders(session_db):
+            return []
+        pendientes = (session_db.query(SongRadioPitch)
+                      .options(joinedload(SongRadioPitch.media))
+                      .filter(func.upper(func.coalesce(SongRadioPitch.status, "PENDING")) == "PENDING")
+                      .order_by(SongRadioPitch.requested_at.asc()).limit(200).all())
+        if not pendientes:
+            return []
+        por_cancion = {}
+        for fila in pendientes:
+            por_cancion.setdefault(str(fila.song_id), []).append(fila)
+        canciones = {str(c.id): c for c in (session_db.query(Song)
+                     .options(joinedload(Song.artists))
+                     .filter(Song.id.in_([to_uuid(k) for k in por_cancion.keys()])).all())}
+        salida = []
+        for sid, filas in por_cancion.items():
+            cancion = canciones.get(sid)
+            if cancion is None:
+                continue
+            artistas = [a.name for a in (cancion.artists or []) if getattr(a, "name", None)]
+            salida.append({
+                "song_id": sid,
+                "title": (cancion.title or ""),
+                "artist_name": (", ".join(artistas) or "—"),
+                "artist_photo": next((a.photo_url for a in (cancion.artists or [])
+                                      if getattr(a, "photo_url", None)), ""),
+                "cover_url": (cancion.cover_url or ""),
+                "release_label": (cancion.release_date.strftime("%d/%m/%Y")
+                                  if getattr(cancion, "release_date", None) else ""),
+                "url": url_for("discografica_song_detail", song_id=sid, tab="informacion"),
+                "media": [{
+                    "id": str(f.id),
+                    "name": (getattr(getattr(f, "media", None), "name", "") or "La emisora"),
+                    "logo_url": (getattr(getattr(f, "media", None), "logo_url", "") or ""),
+                    "requested_by": (f.requested_by_nick or ""),
+                    "decide_url": url_for("song_radio_pitch_decide", pitch_id=str(f.id)),
+                } for f in filas],
+            })
+            if len(salida) >= limit:
+                break
+        return salida
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron leer las presentaciones a radio")
         return []
     finally:
         session_db.close()

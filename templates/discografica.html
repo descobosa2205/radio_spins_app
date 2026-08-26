@@ -297,6 +297,10 @@
                             {% if s.is_provisional %}
                               <span class="badge text-bg-warning text-dark" title="La está preparando un proyecto discográfico: deja de ser provisional cuando se cierra">
                                 <i class="fa fa-hourglass-half me-1"></i>Provisional</span>
+                              {% endif %}
+                              {% if s.focus_single %}
+                                <span class="badge text-bg-danger ms-1" title="Focus single · lanzamiento prioritario">
+                                  <i class="fa fa-star me-1"></i>Focus</span>
                             {% endif %}
                             {% if s.is_external_collab %}
                               <span class="badge text-bg-warning text-dark"><i class="fa fa-handshake me-1"></i>Colaboración externa</span>

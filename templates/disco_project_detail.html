@@ -144,7 +144,10 @@
       {% for t in items %}
         {% set st = t.state or 'todo' %}
         {% set clicable = (st in ('todo', 'blocked')) and t.url and not t.action_label and not t.modal %}
-        <{{ 'a' if clicable else 'div' }} class="list-group-item {{ 'list-group-item-action' if clicable else '' }} d-flex align-items-center gap-3 flex-wrap"
+        {# ⚠️ BLOQUEADA = rayada (como un lanzamiento provisional): «esto todavía no va». En cuanto se
+           puede empezar se le quita el fondo, y al terminarla se queda con su check verde — las
+           tareas hechas NO desaparecen: esto es una lista de estado, no una lista de avisos. #}
+        <{{ 'a' if clicable else 'div' }} class="list-group-item dp-task {{ 'is-blocked' if st == 'blocked' else '' }} {{ 'list-group-item-action' if clicable else '' }} d-flex align-items-center gap-3 flex-wrap"
            {% if clicable %}href="{{ t.url }}"{% endif %}
            {% if t.sub %}style="padding-left:2.6rem;"{% endif %}>
           <span class="oa-row__icon {{ 'text-success' if st == 'done' else ('text-muted' if st in ('blocked', 'wait') else '') }}">

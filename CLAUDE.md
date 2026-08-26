@@ -907,6 +907,37 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · FOCUS SINGLE y PRESENTACIÓN A RADIO** (ago 2026). Un lanzamiento puede ser **focus
+  single** (el prioritario) y entonces se presenta a las emisoras.
+  · **Focus single** es de la **CANCIÓN** (`Song.focus_single` + `_at`/`_by`; **`NULL` = sin decidir**,
+  que no es «no»: hay tareas que esperan a que se decida). Se decide en el paso del proyecto
+  (`#dpFocusModal` → `disco_project_focus_save`) y se ve con su etiqueta **en la ficha de la canción y
+  en el repertorio**. Solo sale en un **single** (`_disco_project_release_song`): en un álbum el focus
+  sería uno de sus temas y eso se marca en su ficha.
+  · **A qué emisoras** (`SongRadioPitch`, una fila por emisora, `ensure_song_radio_schema`): las
+  emisoras son los **medios de tipo Radio** (`_disco_radio_media_options`). Se piden en
+  `#dpRadioModal` (`disco_project_radio_request`) y una emisora ya pedida sale marcada y no se
+  duplica (índice UNIQUE canción+emisora).
+  ⚠️⚠️ **No se puede mandar a radio sin nada que mandar**: hace falta la **fecha de lanzamiento** y
+  **el máster o al menos una maqueta** (`_disco_radio_ready`). Hasta entonces la tarea sale
+  **BLOQUEADA (rayada)** diciendo qué falta, y el **servidor lo vuelve a comprobar** (esconder el
+  botón no basta).
+  · **Contesta PROMOCIÓN** —o **dirección que además esté en el Sello** (`_disco_radio_deciders`)—
+  desde su módulo de Inicio **`HOME_RADIO_PITCHES`** (`_home_radio_pitches`): una fila por canción y
+  **una línea por emisora** con sus dos botones. **«Sí entra»** pide la fecha de entrada en rotación
+  y **anota la acción en el PLAN DE LANZAMIENTO** («Presentación a radio · \<emisora\>»,
+  `_song_radio_plan_action`, que actualiza la acción en vez de duplicarla). **«No entra»** avisa a
+  quien lo pidió de que la emisora la ha rechazado y **no anota nada en el plan**: la subtarea queda
+  terminada.
+  · En el proyecto hay **una subtarea por emisora** con lo que ha dicho cada una, y el aviso se cierra
+  solo cuando **todas** han contestado.
+  ⚠️ `song_radio_pitch_decide` va en **`REQUEST_ANY_ENDPOINTS`** (lo contesta promoción, que no tiene
+  por qué poder editar discográfica ni ser «actor»); comprueba dentro que es de quien le toca.
+  · **Las TAREAS BLOQUEADAS se ven RAYADAS** (`.dp-task.is-blocked`, el **mismo** rayado que un
+  lanzamiento provisional: una sola declaración en `styles.css`, así no se pueden desparejar). En
+  cuanto se puede empezar se le quita el fondo y, al terminarla, la fila **se queda** con su check
+  verde: la lista de tareas del proyecto es un ESTADO, no una lista de avisos que desaparecen.
+
 - **PROYECTO · SUBIR DEMO y la PORTADA, paso a paso** (ago 2026):
   · **Subir demo**: el pop-up es **el mismo formulario** que la sección Demos (`_demo_form_fields.html`
   + `demo_form.js`) con el proyecto ya puesto; la maqueta queda vinculada (**`SongDemo.project_id`**) y

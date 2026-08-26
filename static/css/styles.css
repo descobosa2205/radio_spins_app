@@ -4597,6 +4597,10 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
    --------------------------------------------------------------------------- */
 tr.is-provisional > td,
 .is-provisional > .ficha-hero__body,
+/* Una TAREA BLOQUEADA (falta hacer otra cosa antes) se ve con el MISMO rayado que un lanzamiento
+   provisional: es la señal de la casa de «esto todavía no va». En cuanto se puede empezar, el fondo
+   se quita; al terminarla, la fila se queda con su check verde. */
+.dp-task.is-blocked,
 .launch-row.is-provisional {
   background-image: repeating-linear-gradient(45deg,
       rgba(255, 193, 7, .10) 0 10px, rgba(255, 193, 7, 0) 10px 20px);

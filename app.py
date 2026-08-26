@@ -21497,6 +21497,135 @@ def _disco_authorship_state(session_db, project) -> dict:
     }
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTO · LA COLABORACIÓN (condiciones, voces del colaborador y acuerdo con su discográfica)
+#
+#   1 · **Condiciones**: lo hablado con el artista y su mánager — de quién es el máster y en qué %,
+#       quién distribuye y quién cubre los gastos. **Eso mismo se arrastra** a la tarea del acuerdo
+#       con la otra discográfica, ya cumplimentado (no se escribe dos veces).
+#   2 · **Grabación de voces del colaborador**: cuándo y dónde, y si hace falta logística — con las
+#       DOS a la vista: **la del colaborador** y **la de nuestro artista**, una a cada lado.
+#   3 · **Acuerdo con su discográfica**: quién es (un tercero, con su logo), la propiedad del máster,
+#       los gastos, quién distribuye, qué royalties cobra cada compañía y si se pagan **después de
+#       cubrir la inversión** (todo o hasta una cantidad), y con quién se cierra. Al aprobarlo se le
+#       manda a **Registros y Sello**, que preparan y envían el contrato.
+#
+# ⚠️ **Si la propiedad del máster es mayoritariamente NUESTRA, distribuimos nosotros**: se marca solo
+# (y se puede cambiar a mano si el acuerdo dice otra cosa).
+# ═════════════════════════════════════════════════════════════════════════════
+
+# De quién es el máster (clave, etiqueta, icono).
+DISCO_COLLAB_OWNERS = (
+    ("US", "Nuestro", "fa-house"),
+    ("THEM", "De su discográfica", "fa-building"),
+    ("SHARED", "Compartido", "fa-handshake"),
+)
+# Quién cubre los gastos.
+DISCO_COLLAB_EXPENSES = (
+    ("US", "Los cubrimos nosotros", "fa-house"),
+    ("THEM", "Los cubren ellos", "fa-building"),
+    ("SPLIT", "A medias (o por proporción)", "fa-scale-balanced"),
+)
+# Quién distribuye.
+DISCO_COLLAB_DISTRIBUTORS = (
+    ("US", "Nosotros", "fa-house"),
+    ("THEM", "Su discográfica", "fa-building"),
+)
+# Cuándo se pagan los royalties al artista/compañía.
+DISCO_COLLAB_ROYALTY_WHEN = (
+    ("ALWAYS", "Desde el primer ingreso", "fa-coins"),
+    ("AFTER_COSTS", "Cuando se cubra la inversión", "fa-piggy-bank"),
+)
+DISCO_COLLAB_OWNER_LABELS = {k: l for k, l, _i in DISCO_COLLAB_OWNERS}
+DISCO_COLLAB_EXPENSE_LABELS = {k: l for k, l, _i in DISCO_COLLAB_EXPENSES}
+DISCO_COLLAB_DISTRIBUTOR_LABELS = {k: l for k, l, _i in DISCO_COLLAB_DISTRIBUTORS}
+DISCO_COLLAB_ROYALTY_LABELS = {k: l for k, l, _i in DISCO_COLLAB_ROYALTY_WHEN}
+
+
+def _disco_collab(project) -> dict:
+    return dict((_disco_prod(project).get("collab") or {}))
+
+
+def _disco_collab_owner_pcts(fila: dict) -> tuple:
+    """Los dos porcentajes de propiedad del máster, ya normalizados."""
+    try:
+        nuestro = float(fila.get("pct_us") or 0)
+    except (TypeError, ValueError):
+        nuestro = 0.0
+    try:
+        suyo = float(fila.get("pct_them") or 0)
+    except (TypeError, ValueError):
+        suyo = 0.0
+    return nuestro, suyo
+
+
+def _disco_collab_state(session_db, project) -> dict:
+    """Cómo va la colaboración: las condiciones, las voces del colaborador y el acuerdo."""
+    fila = _disco_collab(project)
+    cond = dict(fila.get("conditions") or {})
+    voces = dict(fila.get("vocals") or {})
+    trato = dict(fila.get("deal") or {})
+    nuestro, suyo = _disco_collab_owner_pcts(cond)
+    compania = None
+    if trato.get("promoter_id"):
+        try:
+            compania = session_db.get(Promoter, to_uuid(str(trato["promoter_id"])))
+        except Exception:
+            compania = None
+    persona_log = None
+    if voces.get("logistics_user_id"):
+        try:
+            persona_log = (session_db.query(UserProfile)
+                           .filter(UserProfile.user_id == to_uuid(str(voces["logistics_user_id"]))).first())
+        except Exception:
+            persona_log = None
+    # ⚠️ Si el máster es mayoritariamente nuestro, distribuimos nosotros (se puede cambiar a mano).
+    distribuye = (trato.get("distributor") or cond.get("distributor")
+                  or ("US" if nuestro > suyo else ("THEM" if suyo > nuestro else "")))
+    return {
+        "is_collab": bool(getattr(project, "is_collab", False)),
+        # 1 · condiciones
+        "cond": cond,
+        "owner": (cond.get("owner") or "").upper(),
+        "owner_label": DISCO_COLLAB_OWNER_LABELS.get((cond.get("owner") or "").upper(), ""),
+        "pct_us": nuestro, "pct_them": suyo,
+        "pct_label": (("%g%% / %g%%" % (nuestro, suyo)) if (nuestro or suyo) else ""),
+        "expenses": (cond.get("expenses") or "").upper(),
+        "expenses_label": DISCO_COLLAB_EXPENSE_LABELS.get((cond.get("expenses") or "").upper(), ""),
+        "expenses_note": (cond.get("expenses_note") or ""),
+        "cond_note": (cond.get("note") or ""),
+        "cond_done": bool((cond.get("owner") or "") and (cond.get("expenses") or "")),
+        # 2 · voces del colaborador
+        "vocals": voces,
+        "vocals_date": _parse_iso_date_safe(voces.get("date")),
+        "vocals_date_label": (_iso_date_label(voces.get("date"))),
+        "vocals_place": (voces.get("place") or ""),
+        "vocals_logistics": bool(voces.get("logistics")),
+        "vocals_logistics_note": (voces.get("logistics_note") or ""),
+        "vocals_logistics_nick": ((getattr(persona_log, "nick", "") or "") if persona_log else ""),
+        "vocals_done": bool(voces.get("date")),
+        # 3 · el acuerdo
+        "deal": trato,
+        "company": compania,
+        "company_name": (_promoter_display_name(compania) if compania is not None else ""),
+        "company_logo": ((getattr(compania, "logo_url", "") or "") if compania is not None else ""),
+        "distributor": distribuye,
+        "distributor_label": DISCO_COLLAB_DISTRIBUTOR_LABELS.get(distribuye, ""),
+        "royalty_when": (trato.get("royalty_when") or "").upper(),
+        "royalty_when_label": DISCO_COLLAB_ROYALTY_LABELS.get((trato.get("royalty_when") or "").upper(), ""),
+        "royalty_cap": (trato.get("royalty_cap") or ""),
+        "royalty_us": (trato.get("royalty_us") or ""),
+        "royalty_them": (trato.get("royalty_them") or ""),
+        "contact_name": (trato.get("contact_name") or ""),
+        "contact_email": (trato.get("contact_email") or ""),
+        "deal_done": bool(trato.get("promoter_id") and trato.get("approved_at")),
+        "deal_approved_label": _iso_date_label(trato.get("approved_at")),
+        "deal_approved_by": (trato.get("approved_by") or ""),
+        "deal_sent": bool(trato.get("sent_at")),
+        "deal_sent_label": _iso_date_label(trato.get("sent_at")),
+    }
+
+
 def _disco_approval_all_done(session_db, project, fila) -> None:
     """QUÉ PASA cuando aprueban todos. Cada tipo dispara lo suyo (punto único).
 
@@ -21988,6 +22117,48 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                               "son" if len(aut["permission_people"]) > 1 else "es",
                               DISCO_AUTHOR_PERMISSION_PCT),
                       action_label="Pedirlo a Registros", modal="#dpAuthorPermissionModal")
+
+    # ================= 4d · LA COLABORACIÓN (solo si lo es) =================
+    col = _disco_collab_state(session_db, project)
+    if col["is_collab"]:
+        # 1 · las condiciones
+        if col["cond_done"]:
+            tarea("colab_cond", "Condiciones de la colaboración", "", "fa-handshake", state="done",
+                  value=" · ".join([x for x in [col["owner_label"], col["pct_label"],
+                                                col["expenses_label"]] if x]),
+                  menu=[{"label": "Cambiar las condiciones", "icon": "fa-pen",
+                         "modal": "#dpCollabCondModal"}])
+        else:
+            tarea("colab_cond", "Establecer condiciones de la colaboración", "", "fa-handshake", True,
+                  hint="De quién es el máster, quién distribuye y quién cubre los gastos",
+                  action_label="Establecer", modal="#dpCollabCondModal")
+        # 2 · la grabación de voces del colaborador (con las DOS logísticas a la vista)
+        if col["vocals_done"]:
+            tarea("colab_voces", "Grabación de voces del colaborador", "", "fa-microphone",
+                  state="done",
+                  value=" · ".join([x for x in [col["vocals_date_label"], col["vocals_place"],
+                                                ("logística: %s" % col["vocals_logistics_nick"])
+                                                if col["vocals_logistics_nick"] else ""] if x]),
+                  menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": "#dpCollabVocalsModal"}])
+        else:
+            tarea("colab_voces", "Fecha de grabación del colaborador", "", "fa-microphone",
+                  hint="Cuándo y dónde graba, y si hace falta logística",
+                  action_label="Configurar", modal="#dpCollabVocalsModal")
+        # 3 · el acuerdo con su discográfica (con lo hablado ya cumplimentado)
+        if col["deal_done"]:
+            tarea("colab_deal", "Acuerdo con su discográfica", "", "fa-file-contract", state="done",
+                  value="%s%s%s" % (col["company_name"] or "—",
+                                    (" · lo aprobó %s" % col["deal_approved_by"]) if col["deal_approved_by"] else "",
+                                    (" · Registros prepara el contrato" if col["deal_sent"] else "")),
+                  menu=[{"label": "Ver o cambiar el acuerdo", "icon": "fa-pen",
+                         "modal": "#dpCollabDealModal"}])
+        elif not col["cond_done"]:
+            tarea("colab_deal", "Acuerdo con su discográfica", "", "fa-file-contract",
+                  state="blocked", hint="Antes hay que establecer las condiciones")
+        else:
+            tarea("colab_deal", "Acuerdo con su discográfica", "", "fa-file-contract", True,
+                  hint="Con lo hablado ya puesto: se aprueba y Registros manda el contrato",
+                  action_label="Preparar el acuerdo", modal="#dpCollabDealModal")
 
     fase[0] = "imagen"
     # ================= 6 · La PORTADA, por pasos =================
@@ -23191,6 +23362,8 @@ def disco_project_detail(project_id):
                           "mix", "mix_min_weeks", "can_waive_mix", "approver_candidates",
                           "photo_approval", "materials_approval", "materials_pieces",
                           "authorship", "author_permission_pct",
+                          "collab", "collab_owners", "collab_expenses", "collab_distributors",
+                          "collab_royalty_when",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -23222,6 +23395,12 @@ def disco_project_detail(project_id):
             logistics_notes=DISCO_LOGISTICS_NOTES,
             # LA MEZCLA FINAL y su aprobación en cadena.
             mix=(_disco_mix_state(session_db, project) if tab == "calendario" else None),
+            # LA COLABORACIÓN: condiciones, voces del colaborador y acuerdo con su discográfica.
+            collab=(_disco_collab_state(session_db, project) if tab == "calendario" else None),
+            collab_owners=DISCO_COLLAB_OWNERS,
+            collab_expenses=DISCO_COLLAB_EXPENSES,
+            collab_distributors=DISCO_COLLAB_DISTRIBUTORS,
+            collab_royalty_when=DISCO_COLLAB_ROYALTY_WHEN,
             # LA AUTORÍA: los autores, si está confirmado y el permiso de edición.
             authorship=(_disco_authorship_state(session_db, project) if tab == "calendario" else None),
             author_permission_pct=DISCO_AUTHOR_PERMISSION_PCT,
@@ -24732,6 +24911,189 @@ def _disco_artwork_notify_stage(session_db, project, fila, *, nota: str = "", st
             session_db.add(ap)
             salieron.append(ap.name or correo)
     return salieron, sin_correo, etapa
+
+
+@app.post("/discografica/proyectos/<project_id>/colaboracion/condiciones", endpoint="disco_project_collab_conditions")
+@admin_required
+def disco_project_collab_conditions(project_id):
+    """LAS CONDICIONES de la colaboración (lo hablado con el artista y su mánager).
+
+    Lo que se ponga aquí es lo que sale ya cumplimentado en el acuerdo con su discográfica."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        prod = _disco_prod(project)
+        fila = dict(prod.get("collab") or {})
+        dueño = (f.get("owner") or "").strip().upper()
+        gastos = (f.get("expenses") or "").strip().upper()
+        if dueño not in DISCO_COLLAB_OWNER_LABELS or gastos not in DISCO_COLLAB_EXPENSE_LABELS:
+            flash("Dinos de quién es el máster y quién cubre los gastos.", "warning")
+            return redirect(safe_next_or(destino))
+        fila["conditions"] = {
+            "owner": dueño,
+            "pct_us": (f.get("pct_us") or "").strip(),
+            "pct_them": (f.get("pct_them") or "").strip(),
+            "expenses": gastos,
+            "expenses_note": (f.get("expenses_note") or "").strip(),
+            "distributor": (f.get("distributor") or "").strip().upper(),
+            "note": (f.get("note") or "").strip(),
+            "at": _now_madrid().isoformat(),
+            "by": ((_current_user_state() or {}).get("nick") or ""),
+        }
+        prod["collab"] = fila
+        project.production_payload = prod
+        session_db.commit()
+        flash("Condiciones guardadas: ya se puede preparar el acuerdo con su discográfica.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[colaboración] no se pudieron guardar las condiciones")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/colaboracion/voces", endpoint="disco_project_collab_vocals")
+@admin_required
+def disco_project_collab_vocals(project_id):
+    """LA GRABACIÓN DE VOCES DEL COLABORADOR: cuándo, dónde y si hace falta logística.
+
+    Si hace falta, se le pide a la persona de producción que se elija (le sale como tarea suya, igual
+    que la logística de nuestro artista: es el mismo aviso)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        prod = _disco_prod(project)
+        fila = dict(prod.get("collab") or {})
+        antes = dict(fila.get("vocals") or {})
+        logistica = _truthy(f.get("logistics"))
+        fecha = parse_optional_date(f.get("date"))
+        uid = ((f.get("logistics_user_id") or "").strip() if logistica else "")
+        fila["vocals"] = {
+            "date": (fecha.isoformat() if fecha else ""),
+            "place": (f.get("place") or "").strip(),
+            "logistics": logistica,
+            "logistics_note": ((f.get("logistics_note") or "").strip() if logistica else ""),
+            "logistics_user_id": uid,
+        }
+        prod["collab"] = fila
+        project.production_payload = prod
+        session_db.flush()
+        # Al de producción elegido le sale como tarea (y si se quita, el aviso se cierra).
+        if uid and (uid != (antes.get("logistics_user_id") or "")
+                    or not antes.get("logistics")):
+            _notify_user(session_db, uid, "PRODUCCION",
+                         "Logística del colaborador: %s" % _disco_project_title(project),
+                         ((fila["vocals"]["logistics_note"] or
+                           "Hay que montar la logística de la grabación del colaborador.")
+                          + ((" · Graban el %s" % fecha.strftime("%d/%m/%Y")) if fecha else ""))[:600],
+                         url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                         ref_type="DISCO_COLLAB_LOGISTICS", ref_id=str(project.id))
+            _ensure_project_bag(session_db, project)
+        elif not uid:
+            _notify_resolve(session_db, "DISCO_COLLAB_LOGISTICS", str(project.id))
+        session_db.commit()
+        flash("Grabación del colaborador guardada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[colaboración] no se pudo guardar la grabación")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/colaboracion/acuerdo", endpoint="disco_project_collab_deal")
+@admin_required
+def disco_project_collab_deal(project_id):
+    """EL ACUERDO CON SU DISCOGRÁFICA: se configura, se aprueba y se le manda a Registros y Sello,
+    que preparan y envían el contrato con esas condiciones."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        prod = _disco_prod(project)
+        fila = dict(prod.get("collab") or {})
+        trato = dict(fila.get("deal") or {})
+        cond = dict(fila.get("conditions") or {})
+        pid = (f.get("promoter_id") or "").strip()
+        if not pid:
+            flash("Dinos con qué discográfica es el acuerdo.", "warning")
+            return redirect(safe_next_or(destino))
+        aprobar = _truthy(f.get("approve"))
+        trato.update({
+            "promoter_id": pid,
+            # Lo que ya se habló viene de las CONDICIONES y se puede ajustar aquí.
+            "pct_us": (f.get("pct_us") or cond.get("pct_us") or "").strip(),
+            "pct_them": (f.get("pct_them") or cond.get("pct_them") or "").strip(),
+            "expenses": ((f.get("expenses") or cond.get("expenses") or "").strip().upper()),
+            "expenses_note": (f.get("expenses_note") or cond.get("expenses_note") or "").strip(),
+            "distributor": (f.get("distributor") or "").strip().upper(),
+            "royalty_us": (f.get("royalty_us") or "").strip(),
+            "royalty_them": (f.get("royalty_them") or "").strip(),
+            "royalty_when": (f.get("royalty_when") or "").strip().upper(),
+            "royalty_cap": (f.get("royalty_cap") or "").strip(),
+            "contact_name": (f.get("contact_name") or "").strip(),
+            "contact_email": (f.get("contact_email") or "").strip(),
+            "note": (f.get("note") or "").strip(),
+        })
+        if aprobar:
+            trato["approved_at"] = _now_madrid().isoformat()
+            trato["approved_by"] = ((_current_user_state() or {}).get("nick") or "")
+            trato["sent_at"] = _now_madrid().isoformat()
+        fila["deal"] = trato
+        prod["collab"] = fila
+        project.production_payload = prod
+        session_db.flush()
+        if aprobar:
+            compania = session_db.get(Promoter, to_uuid(pid))
+            detalle = " · ".join([x for x in [
+                ("Máster: %s%% nosotros / %s%% ellos" % (trato["pct_us"] or "—", trato["pct_them"] or "—")),
+                ("Gastos: %s" % DISCO_COLLAB_EXPENSE_LABELS.get(trato["expenses"], "—")),
+                ("Distribuye: %s" % DISCO_COLLAB_DISTRIBUTOR_LABELS.get(trato["distributor"], "—")),
+                ("Royalties: %s nosotros / %s ellos" % (trato["royalty_us"] or "—",
+                                                        trato["royalty_them"] or "—")),
+                DISCO_COLLAB_ROYALTY_LABELS.get(trato["royalty_when"], ""),
+                (("hasta %s" % trato["royalty_cap"]) if trato["royalty_cap"] else ""),
+            ] if x])
+            _notify_users(session_db, _registros_user_ids(session_db), "TAREA",
+                          "Contrato de colaboración con %s: %s"
+                          % (_promoter_display_name(compania) or "su discográfica",
+                             _disco_project_title(project)),
+                          ("Acuerdo aprobado. %s%s" % (detalle,
+                           (" · Contacto: %s %s" % (trato["contact_name"], trato["contact_email"])).rstrip()))[:600],
+                          url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_COLLAB_DEAL", ref_id=str(project.id))
+        session_db.commit()
+        flash("Acuerdo aprobado: Registros y Sello preparan el contrato." if aprobar
+              else "Acuerdo guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[colaboración] no se pudo guardar el acuerdo")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
 
 
 @app.post("/discografica/proyectos/<project_id>/autoria/confirmar", endpoint="disco_project_authorship_confirm")

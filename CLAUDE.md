@@ -927,6 +927,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · LA COLABORACIÓN** (ago 2026, solo si `DiscoProject.is_collab`): tres pasos seguidos.
+  · **1 · Condiciones** (`disco_project_collab_conditions`): de quién es el máster y en qué %
+  (`DISCO_COLLAB_OWNERS`), quién cubre los gastos y en qué medida (`DISCO_COLLAB_EXPENSES`) y quién
+  distribuye — todo con tarjetas de iconos.
+  · **2 · Grabación de voces del colaborador** (`disco_project_collab_vocals`): cuándo, dónde y si
+  hace falta logística; a quien se elija de producción le llega **el mismo aviso** que la logística de
+  casa y se le crea la bolsa. ⚠️ En el pop-up se ven **las DOS logísticas, una a cada lado**: la del
+  colaborador (que se edita ahí) y la de **nuestro artista** (en gris, con su botón para gestionarla).
+  · **3 · Acuerdo con su discográfica** (`disco_project_collab_deal`): con qué compañía (un tercero,
+  con su logo y su alta al vuelo), la propiedad del máster, los gastos, quién distribuye, los
+  **royalties de cada compañía** y **cuándo se pagan** (`DISCO_COLLAB_ROYALTY_WHEN`: desde el primer
+  ingreso o **cuando se cubra la inversión**, con su tope), y con quién se cierra. **Sale ya
+  cumplimentado con las condiciones** (no se escribe dos veces) y al **aprobarlo** se le manda a
+  **Registros y Sello**, que preparan y envían el contrato.
+  ⚠️ **Si el máster es mayoritariamente NUESTRO, distribuimos nosotros**: sale marcado solo y se puede
+  cambiar a mano si el acuerdo dice otra cosa.
+  ⚠️ El acuerdo sale **bloqueado** hasta que estén las condiciones: es lo que lo rellena.
+
 - **PROYECTO · LA AUTORÍA: el reparto y el permiso de edición** (ago 2026):
   · **Confirmar el reparto autoral** (`disco_project_authorship_confirm`): los autores y sus % viven
   donde siempre (la pestaña **Editorial** de la canción, `SongEditorialShare`) y aquí **se

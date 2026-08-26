@@ -883,6 +883,252 @@
   </div>
 </div>
 
+{# ---------------------------------------------------------------- LA COLABORACIÓN
+   Tres pop-ups: las condiciones (lo hablado con el artista y su mánager), la grabación del
+   colaborador —con las DOS logísticas, la suya a un lado y la nuestra al otro— y el acuerdo con su
+   discográfica, que sale ya cumplimentado con lo hablado. Todo con iconos y con su logo. #}
+{% set co = collab or {} %}
+{% macro tarjetas(name, opciones, actual) %}
+  <div class="row g-2">
+    {% for key, label, icono in opciones %}
+      <div class="col-6 col-md-4">
+        <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if (actual or '')|upper == key %} is-selected{% endif %}">
+          <input class="form-check-input visually-hidden" type="radio" name="{{ name }}" value="{{ key }}"
+                 {% if (actual or '')|upper == key %}checked{% endif %}>
+          <i class="fa {{ icono }} d-block fs-4 mb-2 text-dark"></i>
+          <span class="fw-semibold small d-block">{{ label }}</span>
+        </label>
+      </div>
+    {% endfor %}
+  </div>
+{% endmacro %}
+
+<div class="modal fade" id="dpCollabCondModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_collab_conditions', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-handshake me-2 text-danger"></i>Condiciones de la colaboración</h5>
+          <div class="text-muted small">Lo hablado con el artista y su mánager. Es lo que después va al acuerdo.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">¿De quién es el máster?</label>
+        {{ tarjetas('owner', collab_owners, co.owner) }}
+        <div class="row g-3 mt-2">
+          <div class="col-6 col-md-3">
+            <label class="form-label">% nuestro</label>
+            <input class="form-control" name="pct_us" inputmode="decimal" value="{{ co.cond.pct_us if co.cond else '' }}" placeholder="50">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">% de ellos</label>
+            <input class="form-control" name="pct_them" inputmode="decimal" value="{{ co.cond.pct_them if co.cond else '' }}" placeholder="50">
+          </div>
+        </div>
+        <label class="form-label mt-3">¿Quién cubre los gastos?</label>
+        {{ tarjetas('expenses', collab_expenses, co.expenses) }}
+        <label class="form-label mt-2">En qué medida (opcional)</label>
+        <input class="form-control" name="expenses_note" value="{{ co.expenses_note or '' }}"
+               placeholder="Ej.: a medias hasta 3.000 € y el resto nosotros">
+        <label class="form-label mt-3">¿Quién distribuye?</label>
+        <div class="form-text mb-1">
+          Si el máster es mayoritariamente nuestro, lo normal es que distribuyamos nosotros.
+        </div>
+        {{ tarjetas('distributor', collab_distributors, co.distributor) }}
+        <label class="form-label mt-3">Notas</label>
+        <textarea class="form-control" name="note" rows="2">{{ co.cond_note or '' }}</textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="dpCollabVocalsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_collab_vocals', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-microphone me-2 text-danger"></i>Grabación del colaborador</h5>
+          <div class="text-muted small">Cuándo y dónde graba, y si hace falta logística.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Fecha</label>
+            <input type="date" class="form-control" name="date"
+                   value="{{ co.vocals.date if co.vocals else '' }}">
+          </div>
+          <div class="col-12 col-md-8">
+            <label class="form-label">¿Dónde?</label>
+            <span data-address-autocomplete class="d-block position-relative">
+              <input class="form-control" name="place" data-addr="full" autocomplete="off"
+                     value="{{ co.vocals_place or '' }}" placeholder="Estudio o dirección">
+            </span>
+          </div>
+        </div>
+        {# LAS DOS LOGÍSTICAS, una a cada lado: la del colaborador y la de nuestro artista. #}
+        <div class="row g-3 mt-3">
+          <div class="col-12 col-lg-6">
+            <div class="border rounded-3 p-3 h-100 bg-white">
+              <div class="fw-semibold mb-2"><i class="fa fa-user-group me-1 text-muted"></i>Logística del colaborador</div>
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="logistics" value="1" id="dpCollabLog"
+                       {% if co.vocals_logistics %}checked{% endif %}>
+                <label class="form-check-label" for="dpCollabLog">Hace falta logística</label>
+              </div>
+              <label class="form-label">¿Quién de producción la monta?</label>
+              <select class="form-select" name="logistics_user_id">
+                <option value="">— Elige a la persona —</option>
+                {% for u in (production_people or []) %}
+                  <option value="{{ u.id }}" {% if co.vocals and co.vocals.logistics_user_id and co.vocals.logistics_user_id|string == u.id|string %}selected{% endif %}>
+                    {{ u.name }}{% if not u.in_production %} (fuera de producción){% endif %}</option>
+                {% endfor %}
+              </select>
+              <label class="form-label mt-2">Qué hace falta</label>
+              <textarea class="form-control" name="logistics_note" rows="3"
+                        placeholder="Viaje, hotel, transporte…">{{ co.vocals_logistics_note or '' }}</textarea>
+            </div>
+          </div>
+          <div class="col-12 col-lg-6">
+            <div class="border rounded-3 p-3 h-100" style="background:#f8f9fb;">
+              <div class="fw-semibold mb-2"><i class="fa fa-house me-1 text-muted"></i>Logística de nuestro artista</div>
+              {% set lg2 = logistics or {} %}
+              {% if lg2.yes %}
+                <div class="small">
+                  {% if lg2.nick %}La monta <strong>{{ lg2.nick }}</strong>{% endif %}
+                  {% if lg2.requested_label %} · pedida el {{ lg2.requested_label }}{% endif %}
+                  {% if lg2.done %} · <span class="text-success">montada</span>{% endif %}
+                </div>
+                <ul class="small text-muted mt-2 mb-2 ps-3">
+                  {% for n in (lg2.notes_filled or []) %}<li>{{ n.label }}: {{ n.text }}</li>{% endfor %}
+                </ul>
+              {% elif lg2.decided %}
+                <div class="small text-muted">No hace falta.</div>
+              {% else %}
+                <div class="small text-muted">Todavía sin decidir.</div>
+              {% endif %}
+              <button class="btn btn-sm btn-outline-secondary mt-1" type="button"
+                      data-bs-toggle="modal" data-bs-target="#dpLogisticsModal">
+                <i class="fa fa-truck-ramp-box me-1"></i>Gestionarla</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="dpCollabDealModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_collab_deal', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-file-contract me-2 text-danger"></i>Acuerdo con su discográfica</h5>
+          <div class="text-muted small">
+            Sale con lo hablado ya puesto. Al aprobarlo, <strong>Registros y Sello</strong> preparan y
+            mandan el contrato.
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">¿Con qué discográfica?</label>
+        <div class="input-group">
+          <select id="dpCollabCompany" name="promoter_id" class="form-select select-providers">
+            <option value="">— Elige la compañía —</option>
+            {% for p in (promoters or []) %}
+              <option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}"
+                      {% if co.deal and co.deal.promoter_id and co.deal.promoter_id|string == p.id|string %}selected{% endif %}>
+                {{ p.nick or p.name }}</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                  data-target="dpCollabCompany" title="Crear la compañía"><i class="fa fa-plus"></i></button>
+        </div>
+
+        <div class="row g-3 mt-3">
+          <div class="col-6 col-md-3">
+            <label class="form-label">Máster · % nuestro</label>
+            <input class="form-control" name="pct_us" inputmode="decimal"
+                   value="{{ (co.deal.pct_us if co.deal else '') or (co.cond.pct_us if co.cond else '') }}">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Máster · % de ellos</label>
+            <input class="form-control" name="pct_them" inputmode="decimal"
+                   value="{{ (co.deal.pct_them if co.deal else '') or (co.cond.pct_them if co.cond else '') }}">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Royalties · nosotros</label>
+            <input class="form-control" name="royalty_us" inputmode="decimal"
+                   value="{{ co.royalty_us or '' }}" placeholder="%">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Royalties · ellos</label>
+            <input class="form-control" name="royalty_them" inputmode="decimal"
+                   value="{{ co.royalty_them or '' }}" placeholder="%">
+          </div>
+        </div>
+
+        <label class="form-label mt-3">¿Quién cubre los gastos?</label>
+        {{ tarjetas('expenses', collab_expenses, co.deal.expenses if co.deal else co.expenses) }}
+        <label class="form-label mt-2">En qué medida</label>
+        <input class="form-control" name="expenses_note"
+               value="{{ (co.deal.expenses_note if co.deal else '') or co.expenses_note or '' }}">
+
+        <label class="form-label mt-3">¿Quién distribuye?</label>
+        {{ tarjetas('distributor', collab_distributors, co.distributor) }}
+
+        <label class="form-label mt-3">¿Cuándo se pagan los royalties?</label>
+        {{ tarjetas('royalty_when', collab_royalty_when, co.royalty_when) }}
+        <label class="form-label mt-2">Hasta cubrir (opcional)</label>
+        <input class="form-control" name="royalty_cap" value="{{ co.royalty_cap or '' }}"
+               placeholder="Ej.: el 100% de la inversión, o 5.000 €">
+
+        <div class="row g-3 mt-3">
+          <div class="col-12 col-md-6">
+            <label class="form-label">¿Con quién se cierra?</label>
+            <input class="form-control" name="contact_name" value="{{ co.contact_name or '' }}"
+                   placeholder="Nombre de la persona">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Su correo</label>
+            <input class="form-control" name="contact_email" type="email" value="{{ co.contact_email or '' }}">
+          </div>
+        </div>
+        <label class="form-label mt-3">Notas para el contrato</label>
+        <textarea class="form-control" name="note" rows="2">{{ (co.deal.note if co.deal else '') or '' }}</textarea>
+        {% if co.deal_approved_label %}
+          <div class="alert alert-success mt-3 mb-0"><i class="fa fa-circle-check me-1"></i>
+            Aprobado{% if co.deal_approved_by %} por {{ co.deal_approved_by }}{% endif %}
+            el {{ co.deal_approved_label }}{% if co.deal_sent %} · Registros prepara el contrato{% endif %}.</div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-outline-secondary" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+        <button class="btn btn-danger" type="submit" name="approve" value="1">
+          <i class="fa fa-check me-1"></i>Aprobar y mandar a Registros</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- LA AUTORÍA
    Confirmar el reparto (con eso Registros y Sello preparan el acuerdo), pedírselo al artista y, si un
    autor de fuera tiene más de la mitad de una obra inédita, pedir el permiso de edición. #}

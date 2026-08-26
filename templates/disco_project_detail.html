@@ -30,6 +30,7 @@
       {% if row.is_collab %}<span class="badge text-bg-light border">Colaboración</span>{% endif %}
       {# La etiqueta solo si el TIPO no lo dice ya (en «Single + Videoclip» sería repetirlo). #}
       {% if row.video_badge %}<span class="badge text-bg-light border"><i class="fa fa-film me-1"></i>Con videoclip</span>{% endif %}
+      {% if row.focus_single %}<span class="badge text-bg-danger ms-1" title="Focus single · lanzamiento prioritario"><i class="fa fa-star me-1"></i>Focus single</span>{% endif %}
     </div>
     <div class="ficha-hero__facts">
       {% if row.artist_name %}<span{% if row.artist_id %} data-artist-link="{{ row.artist_id }}"{% endif %}><i class="fa fa-user-music"></i>{{ row.artist_name }}</span>{% endif %}
@@ -141,8 +142,20 @@
      resuelven en un pop-up llevan su botón; las de tarde en tarde, sus tres puntitos. #}
   {% macro lista_tareas(items, vacio) %}
     <div class="list-group list-group-flush">
+      {% set ns = namespace(fase='') %}
       {% for t in items %}
         {% set st = t.state or 'todo' %}
+        {# UNA CABECERITA por fase (la obra · la imagen · el lanzamiento · para cerrar): la lista es
+           larga y sin agruparla no se ve por dónde va el trabajo. Solo se pinta al cambiar de fase. #}
+        {% if t.phase and t.phase != ns.fase %}
+          {% set ns.fase = t.phase %}
+          {% set meta = DISCO_TASK_PHASE_META.get(t.phase) %}
+          {% if meta %}
+            <div class="list-group-item dp-phase">
+              <i class="fa {{ meta[1] }} me-2"></i>{{ meta[0] }}
+            </div>
+          {% endif %}
+        {% endif %}
         {% set clicable = (st in ('todo', 'blocked')) and t.url and not t.action_label and not t.modal %}
         {# ⚠️ BLOQUEADA = rayada (como un lanzamiento provisional): «esto todavía no va». En cuanto se
            puede empezar se le quita el fondo, y al terminarla se queda con su check verde — las

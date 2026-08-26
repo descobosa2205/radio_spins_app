@@ -165,6 +165,8 @@ from models import (
     SongMasterDeliveryLink,
     SongDemo,
     SongRadioPitch,
+    DiscoApproval,
+    DiscoApprovalVoter,
     SongDemoAuthor,
     SongDemoRating,
     Playlist,
@@ -323,6 +325,7 @@ from models import (
     ensure_playlists_schema,
     ensure_disco_projects_schema,
     ensure_song_radio_schema,
+    ensure_disco_approvals_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
@@ -17601,6 +17604,9 @@ def discografica_song_detail(song_id):
         # que se le ha pedido al artista.
         platform_ids=_song_platform_ids(session_db, s.id),
         platform_id_catalog=SONG_PLATFORM_ID_CATALOG,
+        # PRESENTACIÓN A RADIO: se decide en el proyecto pero es de la CANCIÓN, así que se ve
+        # también aquí (en qué emisoras entra y desde cuándo).
+        radio_rows=_disco_radio_rows(session_db, s),
         isrc_audio=isrc_audio,
         isrc_video=isrc_video,
         videoclip_director=videoclip_director,
@@ -19405,6 +19411,11 @@ def _disco_project_row(session_db, project, *, bag=None) -> dict:
         "video_source_label": DISCO_VIDEO_SOURCE_LABELS.get(
             (getattr(project, "video_source", None) or "").upper(), ""),
         "song_title": (getattr(getattr(project, "song", None), "title", None) or ""),
+        # FOCUS SINGLE: la decisión vive en la CANCIÓN del lanzamiento, y se enseña también aquí (en
+        # la fila del listado y en la cabecera de la ficha) para no tener que abrirla.
+        "focus_single": bool(getattr(session_db.get(Song, project.release_song_id)
+                                     if getattr(project, "release_song_id", None) else None,
+                                     "focus_single", False)),
         "status": (getattr(project, "status", None) or "ACTIVO").upper(),
         "bag_id": (str(project.bag_id) if getattr(project, "bag_id", None) else ""),
         "created_by": (getattr(project, "created_by_nick", None) or ""),
@@ -20729,6 +20740,17 @@ def _disco_project_has_audio(project) -> bool:
     return (getattr(project, "kind", None) or "").upper() != "VIDEOCLIP"
 
 
+# LAS CUATRO FASES en las que se agrupan las tareas de un proyecto. Solo son para LEERLAS: la lista
+# es larga (25 tareas en un single) y sin agrupar no se entiende por dónde va el trabajo.
+DISCO_TASK_PHASES = (
+    ("obra", "La obra", "fa-compact-disc"),
+    ("imagen", "La imagen", "fa-image"),
+    ("lanzamiento", "El lanzamiento", "fa-rocket"),
+    ("cierre", "Para cerrar", "fa-flag-checkered"),
+)
+DISCO_TASK_PHASE_META = {k: (lbl, ico) for k, lbl, ico in DISCO_TASK_PHASES}
+
+
 def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list[dict]:
     """LAS TAREAS PENDIENTES del proyecto: lo que falta para poder lanzarlo.
 
@@ -20740,8 +20762,21 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     lanzamiento y no solo una casilla: `state` = todo | wait | blocked | done.
 
     Forma de cada tarea: `key`, `label`, `icon`, `group` (a qué pertenece: single / video /
-    lanzamiento), `state`, y según el caso `value` (lo fijado), `hint`, `url`, `action_label`,
-    `modal` (el pop-up que la resuelve), `menu` (los tres puntitos) y `sub` (es una subtarea)."""
+    lanzamiento), `phase` (para agruparlas al leerlas), `state`, y según el caso `value` (lo fijado),
+    `hint`, `url`, `action_label`, `modal` (el pop-up que la resuelve), `menu` (los tres puntitos) y
+    `sub` (es una subtarea).
+
+    ⚠️⚠️ **EL ORDEN ES EL DEL PROCESO REAL**, no el de cuándo se programó cada cosa, y las tareas se
+    agrupan en cuatro fases (`DISCO_TASK_PHASES`) para poder leerlas:
+      · **LA OBRA**: 1 la fecha (la confirma Registros) · 2 el plazo de entrega · 3 la producción ·
+        4 la logística (sale de la grabación) · 5 la maqueta.
+      · **LA IMAGEN**: 6 la portada (quién, la foto, pedirla, aprobarla) · 7 las creatividades.
+      · **EL LANZAMIENTO**: 8 focus single y radio · 9 el pitch · 10 la nota de prensa (necesita el
+        pitch) · 11 el plan de lanzamiento · 12 los IDs de plataforma.
+      · **PARA CERRAR**: lo que le falta al lanzamiento (fecha, temas, soporte, portada, videoclip,
+        hoja de ruta y bolsa) y cerrar el proyecto.
+    Una tarea NUEVA se mete en su fase y en su sitio: si se pone al final «porque es lo último que se
+    ha programado», la lista deja de contar el proceso."""
     kind = (getattr(project, "kind", None) or "").upper()
     etiqueta, _i = _disco_project_kind_meta(kind)
     url_info = url_for("disco_project_detail", project_id=project.id, tab="informacion")
@@ -20749,12 +20784,15 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     url_hoja = url_for("disco_project_detail", project_id=project.id, tab="hoja-ruta")
     tareas = []
 
+    # En qué FASE va el recorrido (lo cambia cada bloque): se guarda en la tarea para agruparlas.
+    fase = ["obra"]
+
     def tarea(clave, texto, url, icono="fa-circle-exclamation", urgente=False, grupo="lanzamiento",
               **extra):
         # `grupo` = a QUÉ pertenece la tarea (la obra, el vídeo o el lanzamiento, que es de los dos).
         # Solo se usa para partir la lista en un single CON videoclip (`_disco_project_task_groups`).
         fila = {"key": clave, "label": texto, "url": url, "icon": icono, "urgent": urgente,
-                "group": grupo, "state": "todo", "sub": False}
+                "phase": fase[0], "group": grupo, "state": "todo", "sub": False}
         fila.update(extra)
         tareas.append(fila)
 
@@ -20762,7 +20800,7 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     # tareas de audio, así que se resuelve aquí arriba.
     release = release if release is not None else _disco_project_release(session_db, project)
 
-    # ================= AUDIO · paso 1: la FECHA la confirma REGISTROS =================
+    # ================= 1 · La FECHA la confirma REGISTROS =================
     lleva_audio = _disco_project_has_audio(project)
     fechas = _disco_date_state(session_db, project) if lleva_audio else {}
     if lleva_audio:
@@ -20787,7 +20825,7 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   hint="Se le pide a Registros que confirme la fecha de lanzamiento",
                   action_label="Solicitar confirmación", modal="#dpDateModal")
 
-    # ================= AUDIO · paso 2: la FECHA MÁXIMA DE ENTREGA de materiales =================
+    # ================= 2 · La FECHA MÁXIMA DE ENTREGA de materiales =================
     prod = _disco_production_state(session_db, project) if lleva_audio else {}
     if lleva_audio and fechas["confirmed"]:
         if not fechas["due_date"]:
@@ -20814,7 +20852,7 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   menu=[{"label": "Volver a notificar el plazo", "icon": "fa-paper-plane",
                          "modal": "#dpMaterialsNotifyModal"}])
 
-    # ================= AUDIO · paso 3: la PRODUCCIÓN y sus subtareas =================
+    # ================= 3 · La PRODUCCIÓN y sus subtareas =================
     if lleva_audio:
         p = prod.get("producer") or {}
         if prod.get("all_done"):
@@ -20865,7 +20903,7 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                 tarea("prod_voces", "Grabación de voces", "", "fa-microphone", grupo="single",
                       sub=True, action_label="Configurar", modal="#dpVocalsModal")
 
-    # ================= LOGÍSTICA (de todo el proyecto, lleve audio o no) =================
+    # ================= 4 · LOGÍSTICA (sale de la grabación: va justo después de producción) =================
     # Se dice si hace falta y, si hace falta, se le SOLICITA a alguien de producción: a partir de ahí
     # es tarea suya (y esa persona entra en la hoja de ruta y apunta los gastos en la bolsa).
     log = _disco_logistics_state(session_db, project)
@@ -20895,154 +20933,25 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                                      (" · %s" % log["done_label"]) if log["done_label"] else ""),
               menu=[{"label": "Volver a pedir algo", "icon": "fa-pen", "modal": "#dpLogisticsModal"}])
 
-    # ================= EL PITCH (el texto con el que se presenta) =================
-    if _disco_project_release_song(session_db, project) is not None:
-        pit = _disco_pitch_state(session_db, project)
-        if pit["has_pitch"]:
-            tarea("pitch", "Pitch", "", "fa-bullhorn", grupo="single", state="done",
-                  value=pit["resumen"],
-                  menu=[{"label": "Cambiar el pitch", "icon": "fa-pen", "modal": "#dpPitchModal"},
-                        {"label": "Ver la ficha de la canción", "icon": "fa-music",
-                         "url": url_for("discografica_song_detail",
-                                        song_id=pit["song"].id, tab="informacion")}])
+    # ================= 5 · La MAQUETA =================
+    if lleva_audio:
+        demo = _disco_project_demo(session_db, project)
+        if demo is not None:
+            tarea("demo", "Subir demo", "", "fa-compact-disc", state="done",
+                  value="«%s»%s" % ((demo.title or "maqueta"),
+                                    (" · se ve en el lanzamiento" if _disco_project_demo_visible(
+                                        session_db, project) else " · en Demos")),
+                  menu=[{"label": "Subir otra maqueta", "icon": "fa-plus", "modal": "#dpDemoModal"},
+                        {"label": "Ver en Demos", "icon": "fa-arrow-right",
+                         "url": url_for("discografica_view", section="demos",
+                                        demo_artist=str(project.artist_id or ""))}])
         else:
-            tarea("pitch", "Pitch", "", "fa-bullhorn", True, grupo="single",
-                  hint="El texto con el que se presenta el lanzamiento")
-            # Pedirle al artista su inspiración es opcional, pero es lo que suele hacer falta antes.
-            # ⚠️ Manda que HAYA CONTESTADO, no que se le haya pedido: cuando no se le puede escribir
-            # (no tiene contactos configurados) se le manda el enlace a mano, y entonces `asked_at`
-            # está vacío pero el texto ya está — la tarea tiene que salir hecha.
-            if pit["artist_text"]:
-                tarea("pitch_idea", "Pedir al artista su inspiración", "", "fa-comment-dots",
-                      grupo="single", sub=True, state="done",
-                      value=(pit["artist_text"][:90] + ("…" if len(pit["artist_text"]) > 90 else "")),
-                      menu=[{"label": "Volver a pedírsela", "icon": "fa-rotate",
-                             "modal": "#dpPitchIdeaModal"}])
-            elif pit["asked"]:
-                tarea("pitch_idea", "Pedir al artista su inspiración", "", "fa-hourglass-half",
-                      grupo="single", sub=True, state="wait",
-                      hint="Pedida%s · falta que conteste" % ((" el %s" % pit["asked_label"])
-                                                              if pit["asked_label"] else ""),
-                      menu=[{"label": "Volver a pedírsela", "icon": "fa-rotate",
-                             "modal": "#dpPitchIdeaModal"}])
-            else:
-                tarea("pitch_idea", "Pedir al artista su inspiración", "", "fa-comment-dots",
-                      grupo="single", sub=True, action_label="Pedírsela",
-                      modal="#dpPitchIdeaModal",
-                      hint="Un texto suyo con el que escribir el pitch")
-            tarea("pitch_subir", "Subir el pitch", "", "fa-pen-nib", grupo="single", sub=True,
-                  action_label="Escribir el pitch", modal="#dpPitchModal",
-                  hint="Con los pitchs anteriores a mano para coger ideas")
+            tarea("demo", "Subir demo", "", "fa-compact-disc", grupo="single",
+                  action_label="Subir demo", modal="#dpDemoModal",
+                  hint="Queda vinculada al proyecto y se ve en el lanzamiento hasta que haya másters")
 
-    # ================= FOCUS SINGLE y PRESENTACIÓN A RADIO =================
-    # Solo en un single (en un álbum el focus single sería uno de sus temas: se marca en su ficha).
-    cancion_lanz = _disco_project_release_song(session_db, project)
-    if cancion_lanz is not None:
-        radio = _disco_radio_state(session_db, project, cancion_lanz)
-        foco = radio["focus"]
-        if not foco["decided"]:
-            tarea("focus", "¿Es focus single?", "", "fa-star", grupo="single",
-                  hint="Un focus single es el lanzamiento prioritario y se presenta a radio",
-                  action_label="Decidir", modal="#dpFocusModal")
-        else:
-            tarea("focus", "Focus single", "", "fa-star", grupo="single", state="done",
-                  value=foco["label"] + (" · lo marcó %s" % foco["by"] if foco["by"] else ""),
-                  menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": "#dpFocusModal"}])
-        # La presentación a radio SOLO si es focus single.
-        if foco["yes"]:
-            if not radio["requested"]:
-                if not radio["ready"]:
-                    # ⚠️ Bloqueada (y rayada): no se puede mandar a radio sin nada que mandar.
-                    tarea("radio", "Solicitar presentación a radio", "", "fa-radio", grupo="single",
-                          state="blocked",
-                          hint="Falta %s" % " y ".join(radio["missing"]))
-                else:
-                    tarea("radio", "Solicitar presentación a radio", "", "fa-radio", True,
-                          grupo="single", hint="Se marcan las emisoras y contesta promoción",
-                          action_label="Solicitar", modal="#dpRadioModal")
-            elif not radio["done"]:
-                tarea("radio", "Presentación a radio", "", "fa-hourglass-half", grupo="single",
-                      state="wait",
-                      value="%d emisora%s · %d contestada%s"
-                            % (len(radio["rows"]), "" if len(radio["rows"]) == 1 else "s",
-                               len(radio["rows"]) - len(radio["pending"]),
-                               "" if (len(radio["rows"]) - len(radio["pending"])) == 1 else "s"),
-                      hint="Contesta promoción (o dirección con función de sello)",
-                      menu=[{"label": "Añadir más emisoras", "icon": "fa-plus", "modal": "#dpRadioModal"}])
-            else:
-                tarea("radio", "Presentación a radio", "", "fa-radio", grupo="single", state="done",
-                      value="%d en rotación · %d rechazada%s"
-                            % (len(radio["accepted"]), len(radio["rejected"]),
-                               "" if len(radio["rejected"]) == 1 else "s"),
-                      menu=[{"label": "Presentar a otra emisora", "icon": "fa-plus",
-                             "modal": "#dpRadioModal"}])
-            # …y una SUBTAREA por emisora, con lo que ha dicho cada una.
-            for fila in radio["rows"]:
-                if fila["status"] == "ACCEPTED":
-                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-tower-broadcast",
-                          grupo="single", sub=True, state="done",
-                          value="Entra en rotación%s%s"
-                                % ((" el %s" % fila["start_label"]) if fila["start_label"] else "",
-                                   (" · %s" % fila["decided_by"]) if fila["decided_by"] else ""))
-                elif fila["status"] == "REJECTED":
-                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-circle-xmark",
-                          grupo="single", sub=True, state="done",
-                          value="No la coge%s" % ((" · %s" % fila["note"]) if fila["note"] else ""))
-                else:
-                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-hourglass-half",
-                          grupo="single", sub=True, state="wait",
-                          hint="Pendiente de que promoción diga si entra")
-
-    # ================= LA NOTA DE PRENSA =================
-    if _disco_project_release_song(session_db, project) is not None:
-        pr = _disco_press_state(session_db, project)
-        if pr["sent"]:
-            tarea("prensa", "Nota de prensa", "", "fa-newspaper", grupo="lanzamiento", state="done",
-                  value="Enviada%s%s" % ((" el %s" % pr["sent_label"]) if pr["sent_label"] else "",
-                                         (" por %s" % pr["sent_by"]) if pr["sent_by"] else ""),
-                  menu=[{"label": "Ver la nota", "icon": "fa-file-lines",
-                         "url": pr["parts"]["text"]["url"]}] if pr["parts"]["text"]["url"] else None)
-        elif not pr["requested"]:
-            if not pr["can_request"]:
-                # ⚠️ Se VE pero no se puede activar: falta lo que la nota cuenta.
-                tarea("prensa", "Nota de prensa", "", "fa-newspaper", grupo="lanzamiento",
-                      state="blocked", hint="Antes hace falta %s" % " y ".join(pr["missing"]))
-            else:
-                tarea("prensa", "Nota de prensa", "", "fa-newspaper", True, grupo="lanzamiento",
-                      hint="Se le pide a promoción (el texto) y a diseño (el gráfico)"
-                           + ((" · lista para el %s" % pr["due_label"]) if pr["due_label"] else ""),
-                      action_label="Solicitar nota de prensa", modal="#dpPressModal")
-        else:
-            tarea("prensa", "Nota de prensa", "", "fa-newspaper", pr["late"], grupo="lanzamiento",
-                  state=("todo" if pr["text_done"] else "wait"),
-                  value=("Pedida%s%s" % ((" el %s" % pr["requested_label"]) if pr["requested_label"] else "",
-                                         (" por %s" % pr["requested_by"]) if pr["requested_by"] else "")),
-                  hint=("Lista para el %s" % pr["due_label"] if pr["due_label"] else "")
-                       + (" · FUERA DE PLAZO" if pr["late"] else ""),
-                  menu=[{"label": "Cambiar las indicaciones", "icon": "fa-pen", "modal": "#dpPressModal"}])
-            # Sus dos partes: promoción la redacta y diseño la maqueta.
-            for clave, etiqueta, depto, icono in DISCO_PRESS_PARTS:
-                parte = pr["parts"][clave]
-                if parte["done"]:
-                    tarea("prensa_%s" % clave, etiqueta, "", icono, grupo="lanzamiento", sub=True,
-                          state="done",
-                          value="Subida%s%s" % ((" por %s" % parte["by"]) if parte["by"] else "",
-                                                (" · %s" % parte["at_label"]) if parte["at_label"] else ""),
-                          menu=[{"label": "Ver el archivo", "icon": "fa-eye", "url": parte["url"]},
-                                {"label": "Subir otra versión", "icon": "fa-rotate",
-                                 "modal": "#dpPress%sModal" % clave.title()}])
-                else:
-                    tarea("prensa_%s" % clave, etiqueta, "", icono, grupo="lanzamiento", sub=True,
-                          hint="La hace %s" % depto,
-                          action_label="Subirla", modal="#dpPress%sModal" % clave.title())
-            # Y cuando el texto está, queda ENVIARLA (es de promoción).
-            if pr["text_done"]:
-                tarea("prensa_enviar", "Enviar la nota de prensa", "", "fa-paper-plane", True,
-                      grupo="lanzamiento", sub=True,
-                      hint="Sigue pendiente hasta que se marque como enviada",
-                      action_label="Marcar enviada", modal="#dpPressSentModal")
-
-    # ================= AUDIO · paso 4: la PORTADA, por pasos =================
+    fase[0] = "imagen"
+    # ================= 6 · La PORTADA, por pasos =================
     if lleva_audio:
         art = _disco_artwork_state(session_db, project)
         if art["approved"]:
@@ -21118,7 +21027,7 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                                   menu=[{"label": "Volver a pedirla", "icon": "fa-rotate",
                                          "modal": "#dpArtworkApprovalModal"}])
 
-    # ================= AUDIO · paso 5: OTRAS CREATIVIDADES =================
+    # ================= 7 · OTRAS CREATIVIDADES =================
     if lleva_audio:
         cre = _disco_creatives_state(session_db, project)
         if cre["all_delivered"]:
@@ -21145,22 +21054,155 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   hint="Cabecera de YouTube, canvas, «ya disponible», anuncios…",
                   action_label="Elegir creatividades", modal="#dpCreativesModal")
 
-    # ================= AUDIO · paso 6: los IDs de plataforma =================
-    if lleva_audio:
-        ids = _disco_project_ids_state(session_db, project)
-        if ids["has_songs"]:
-            if ids["all_done"]:
-                tarea("ids", "IDs", "", "fa-fingerprint", state="done",
-                      value="Todos los IDs resueltos")
+    fase[0] = "lanzamiento"
+    # ================= 8 · FOCUS SINGLE y PRESENTACIÓN A RADIO =================
+    # Solo en un single (en un álbum el focus single sería uno de sus temas: se marca en su ficha).
+    cancion_lanz = _disco_project_release_song(session_db, project)
+    if cancion_lanz is not None:
+        radio = _disco_radio_state(session_db, project, cancion_lanz)
+        foco = radio["focus"]
+        if not foco["decided"]:
+            tarea("focus", "¿Es focus single?", "", "fa-star", grupo="single",
+                  hint="Un focus single es el lanzamiento prioritario y se presenta a radio",
+                  action_label="Decidir", modal="#dpFocusModal")
+        else:
+            tarea("focus", "Focus single", "", "fa-star", grupo="single", state="done",
+                  value=foco["label"] + (" · lo marcó %s" % foco["by"] if foco["by"] else ""),
+                  menu=[{"label": "Cambiar", "icon": "fa-pen", "modal": "#dpFocusModal"}])
+        # La presentación a radio SOLO si es focus single.
+        if foco["yes"]:
+            if not radio["requested"]:
+                if not radio["ready"]:
+                    # ⚠️ Bloqueada (y rayada): no se puede mandar a radio sin nada que mandar.
+                    tarea("radio", "Solicitar presentación a radio", "", "fa-radio", grupo="single",
+                          state="blocked",
+                          hint="Falta %s" % " y ".join(radio["missing"]))
+                else:
+                    tarea("radio", "Solicitar presentación a radio", "", "fa-radio", True,
+                          grupo="single", hint="Se marcan las emisoras y contesta promoción",
+                          action_label="Solicitar", modal="#dpRadioModal")
+            elif not radio["done"]:
+                tarea("radio", "Presentación a radio", "", "fa-hourglass-half", grupo="single",
+                      state="wait",
+                      value="%d emisora%s · %d contestada%s"
+                            % (len(radio["rows"]), "" if len(radio["rows"]) == 1 else "s",
+                               len(radio["rows"]) - len(radio["pending"]),
+                               "" if (len(radio["rows"]) - len(radio["pending"])) == 1 else "s"),
+                      hint="Contesta promoción (o dirección con función de sello)",
+                      menu=[{"label": "Añadir más emisoras", "icon": "fa-plus", "modal": "#dpRadioModal"}])
             else:
-                destino_ids = (ids["songs"][0]["url"] if len(ids["songs"]) == 1
-                               else (release.get("url") if release else url_mat))
-                tarea("ids", "IDs", destino_ids, "fa-fingerprint", grupo="single",
-                      action_label="Gestionar IDs",
-                      hint=("Faltan en %d tema(s) · se suben o se le piden al artista"
-                            % ids["missing"]))
+                tarea("radio", "Presentación a radio", "", "fa-radio", grupo="single", state="done",
+                      value="%d en rotación · %d rechazada%s"
+                            % (len(radio["accepted"]), len(radio["rejected"]),
+                               "" if len(radio["rejected"]) == 1 else "s"),
+                      menu=[{"label": "Presentar a otra emisora", "icon": "fa-plus",
+                             "modal": "#dpRadioModal"}])
+            # …y una SUBTAREA por emisora, con lo que ha dicho cada una.
+            for fila in radio["rows"]:
+                if fila["status"] == "ACCEPTED":
+                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-tower-broadcast",
+                          grupo="single", sub=True, state="done",
+                          value="Entra en rotación%s%s"
+                                % ((" el %s" % fila["start_label"]) if fila["start_label"] else "",
+                                   (" · %s" % fila["decided_by"]) if fila["decided_by"] else ""))
+                elif fila["status"] == "REJECTED":
+                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-circle-xmark",
+                          grupo="single", sub=True, state="done",
+                          value="No la coge%s" % ((" · %s" % fila["note"]) if fila["note"] else ""))
+                else:
+                    tarea("radio_%s" % fila["id"], fila["media_name"], "", "fa-hourglass-half",
+                          grupo="single", sub=True, state="wait",
+                          hint="Pendiente de que promoción diga si entra")
 
-    # ================= AUDIO · paso 7: el PLAN DE LANZAMIENTO (la tarea clave) =================
+    # ================= 9 · EL PITCH (con él se escribe todo lo demás) =================
+    if _disco_project_release_song(session_db, project) is not None:
+        pit = _disco_pitch_state(session_db, project)
+        if pit["has_pitch"]:
+            tarea("pitch", "Pitch", "", "fa-bullhorn", grupo="single", state="done",
+                  value=pit["resumen"],
+                  menu=[{"label": "Cambiar el pitch", "icon": "fa-pen", "modal": "#dpPitchModal"},
+                        {"label": "Ver la ficha de la canción", "icon": "fa-music",
+                         "url": url_for("discografica_song_detail",
+                                        song_id=pit["song"].id, tab="informacion")}])
+        else:
+            tarea("pitch", "Pitch", "", "fa-bullhorn", True, grupo="single",
+                  hint="El texto con el que se presenta el lanzamiento")
+            # Pedirle al artista su inspiración es opcional, pero es lo que suele hacer falta antes.
+            # ⚠️ Manda que HAYA CONTESTADO, no que se le haya pedido: cuando no se le puede escribir
+            # (no tiene contactos configurados) se le manda el enlace a mano, y entonces `asked_at`
+            # está vacío pero el texto ya está — la tarea tiene que salir hecha.
+            if pit["artist_text"]:
+                tarea("pitch_idea", "Pedir al artista su inspiración", "", "fa-comment-dots",
+                      grupo="single", sub=True, state="done",
+                      value=(pit["artist_text"][:90] + ("…" if len(pit["artist_text"]) > 90 else "")),
+                      menu=[{"label": "Volver a pedírsela", "icon": "fa-rotate",
+                             "modal": "#dpPitchIdeaModal"}])
+            elif pit["asked"]:
+                tarea("pitch_idea", "Pedir al artista su inspiración", "", "fa-hourglass-half",
+                      grupo="single", sub=True, state="wait",
+                      hint="Pedida%s · falta que conteste" % ((" el %s" % pit["asked_label"])
+                                                              if pit["asked_label"] else ""),
+                      menu=[{"label": "Volver a pedírsela", "icon": "fa-rotate",
+                             "modal": "#dpPitchIdeaModal"}])
+            else:
+                tarea("pitch_idea", "Pedir al artista su inspiración", "", "fa-comment-dots",
+                      grupo="single", sub=True, action_label="Pedírsela",
+                      modal="#dpPitchIdeaModal",
+                      hint="Un texto suyo con el que escribir el pitch")
+            tarea("pitch_subir", "Subir el pitch", "", "fa-pen-nib", grupo="single", sub=True,
+                  action_label="Escribir el pitch", modal="#dpPitchModal",
+                  hint="Con los pitchs anteriores a mano para coger ideas")
+
+    # ================= 10 · LA NOTA DE PRENSA (necesita el pitch) =================
+    if _disco_project_release_song(session_db, project) is not None:
+        pr = _disco_press_state(session_db, project)
+        if pr["sent"]:
+            tarea("prensa", "Nota de prensa", "", "fa-newspaper", grupo="lanzamiento", state="done",
+                  value="Enviada%s%s" % ((" el %s" % pr["sent_label"]) if pr["sent_label"] else "",
+                                         (" por %s" % pr["sent_by"]) if pr["sent_by"] else ""),
+                  menu=[{"label": "Ver la nota", "icon": "fa-file-lines",
+                         "url": pr["parts"]["text"]["url"]}] if pr["parts"]["text"]["url"] else None)
+        elif not pr["requested"]:
+            if not pr["can_request"]:
+                # ⚠️ Se VE pero no se puede activar: falta lo que la nota cuenta.
+                tarea("prensa", "Nota de prensa", "", "fa-newspaper", grupo="lanzamiento",
+                      state="blocked", hint="Antes hace falta %s" % " y ".join(pr["missing"]))
+            else:
+                tarea("prensa", "Nota de prensa", "", "fa-newspaper", True, grupo="lanzamiento",
+                      hint="Se le pide a promoción (el texto) y a diseño (el gráfico)"
+                           + ((" · lista para el %s" % pr["due_label"]) if pr["due_label"] else ""),
+                      action_label="Solicitar nota de prensa", modal="#dpPressModal")
+        else:
+            tarea("prensa", "Nota de prensa", "", "fa-newspaper", pr["late"], grupo="lanzamiento",
+                  state=("todo" if pr["text_done"] else "wait"),
+                  value=("Pedida%s%s" % ((" el %s" % pr["requested_label"]) if pr["requested_label"] else "",
+                                         (" por %s" % pr["requested_by"]) if pr["requested_by"] else "")),
+                  hint=("Lista para el %s" % pr["due_label"] if pr["due_label"] else "")
+                       + (" · FUERA DE PLAZO" if pr["late"] else ""),
+                  menu=[{"label": "Cambiar las indicaciones", "icon": "fa-pen", "modal": "#dpPressModal"}])
+            # Sus dos partes: promoción la redacta y diseño la maqueta.
+            for clave, etiqueta, depto, icono in DISCO_PRESS_PARTS:
+                parte = pr["parts"][clave]
+                if parte["done"]:
+                    tarea("prensa_%s" % clave, etiqueta, "", icono, grupo="lanzamiento", sub=True,
+                          state="done",
+                          value="Subida%s%s" % ((" por %s" % parte["by"]) if parte["by"] else "",
+                                                (" · %s" % parte["at_label"]) if parte["at_label"] else ""),
+                          menu=[{"label": "Ver el archivo", "icon": "fa-eye", "url": parte["url"]},
+                                {"label": "Subir otra versión", "icon": "fa-rotate",
+                                 "modal": "#dpPress%sModal" % clave.title()}])
+                else:
+                    tarea("prensa_%s" % clave, etiqueta, "", icono, grupo="lanzamiento", sub=True,
+                          hint="La hace %s" % depto,
+                          action_label="Subirla", modal="#dpPress%sModal" % clave.title())
+            # Y cuando el texto está, queda ENVIARLA (es de promoción).
+            if pr["text_done"]:
+                tarea("prensa_enviar", "Enviar la nota de prensa", "", "fa-paper-plane", True,
+                      grupo="lanzamiento", sub=True,
+                      hint="Sigue pendiente hasta que se marque como enviada",
+                      action_label="Marcar enviada", modal="#dpPressSentModal")
+
+    # ================= 11 · El PLAN DE LANZAMIENTO =================
     if lleva_audio:
         plan_st = _disco_plan_state(session_db, project)
         url_plan = url_for("disco_project_detail", project_id=project.id, tab="lanzamiento")
@@ -21196,24 +21238,23 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                       value="Activados · aviso %d min antes" % plan_st["reminder_minutes"],
                       menu=[{"label": "Cambiarlos", "icon": "fa-pen", "url": url_plan}])
 
-    # ================= AUDIO · la MAQUETA del proyecto =================
+    # ================= 12 · Los IDs de plataforma =================
     if lleva_audio:
-        demo = _disco_project_demo(session_db, project)
-        if demo is not None:
-            tarea("demo", "Subir demo", "", "fa-compact-disc", state="done",
-                  value="«%s»%s" % ((demo.title or "maqueta"),
-                                    (" · se ve en el lanzamiento" if _disco_project_demo_visible(
-                                        session_db, project) else " · en Demos")),
-                  menu=[{"label": "Subir otra maqueta", "icon": "fa-plus", "modal": "#dpDemoModal"},
-                        {"label": "Ver en Demos", "icon": "fa-arrow-right",
-                         "url": url_for("discografica_view", section="demos",
-                                        demo_artist=str(project.artist_id or ""))}])
-        else:
-            tarea("demo", "Subir demo", "", "fa-compact-disc", grupo="single",
-                  action_label="Subir demo", modal="#dpDemoModal",
-                  hint="Queda vinculada al proyecto y se ve en el lanzamiento hasta que haya másters")
+        ids = _disco_project_ids_state(session_db, project)
+        if ids["has_songs"]:
+            if ids["all_done"]:
+                tarea("ids", "IDs", "", "fa-fingerprint", state="done",
+                      value="Todos los IDs resueltos")
+            else:
+                destino_ids = (ids["songs"][0]["url"] if len(ids["songs"]) == 1
+                               else (release.get("url") if release else url_mat))
+                tarea("ids", "IDs", destino_ids, "fa-fingerprint", grupo="single",
+                      action_label="Gestionar IDs",
+                      hint=("Faltan en %d tema(s) · se suben o se le piden al artista"
+                            % ids["missing"]))
 
-    # ================= El resto de lo que ya se pedía =================
+    fase[0] = "cierre"
+    # ================= 13 · El resto: lo que le falta al LANZAMIENTO para poder cerrarlo =================
     if not getattr(project, "release_date", None) and not lleva_audio:
         tarea("fecha", "Falta la fecha de lanzamiento", url_info, "fa-calendar-day", True)
     temas = list(getattr(project, "tracks", None) or [])
@@ -22007,7 +22048,8 @@ def disco_project_detail(project_id):
             # «got multiple values for keyword argument 'bag'».
             for clave in ("today", "tab", "row", "project", "project_tabs", "milestones", "tracks",
                           "physical_labels", "roadmap_ctx", "CAN_EDIT", "bag", "tasks",
-                          "task_groups", "date_state", "production", "materials_recipients",
+                          "task_groups", "DISCO_TASK_PHASE_META",
+                          "date_state", "production", "materials_recipients",
                           "logistics", "logistics_notes", "radio", "radio_media", "pitch_state",
                           "press", "press_parts", "product_manager",
                           "promoters", "production_people", "has_audio", "artwork",
@@ -22026,6 +22068,8 @@ def disco_project_detail(project_id):
             agenda_data=agenda_data,
             tasks=tareas,
             task_groups=grupos_tareas,
+            # Las FASES en las que se agrupan las tareas al leerlas (la obra · la imagen · …).
+            DISCO_TASK_PHASE_META=DISCO_TASK_PHASE_META,
             tracks=list(project.tracks or []),
             physical_labels=DISCO_PHYSICAL_LABELS,
             release_modes=DISCO_RELEASE_MODES,
@@ -54433,6 +54477,7 @@ def _bootstrap_schema_bg():
         (ensure_playlists_schema, "ensure_playlists_schema"),
         (ensure_disco_projects_schema, "ensure_disco_projects_schema"),
         (ensure_song_radio_schema, "ensure_song_radio_schema"),
+        (ensure_disco_approvals_schema, "ensure_disco_approvals_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),

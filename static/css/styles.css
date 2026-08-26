@@ -4894,6 +4894,13 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
   border-radius: 999px; padding: .05rem .5rem;
 }
 
+/* La CABECERITA de cada fase en la lista de tareas de un proyecto (la obra · la imagen · el
+   lanzamiento · para cerrar): separa el proceso sin añadir ruido. */
+.dp-phase{ background:#f8f9fb; border-top:1px solid #eef0f4; border-bottom:1px solid #eef0f4;
+  font-size:.74rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+  color:#6b7280; padding:.4rem .9rem; }
+.dp-phase i{ color:var(--brand-primary,#E33D48); }
+
 /* ── CUADRO DE MANDO de dirección · la REJILLA DE CARAS (una por persona, con su número) ──────
    Es lo primero que se lee: quién lleva cuánto. El listado de cada persona se despliega debajo
    (`.dbg__detail`), así que la tarjeta se mantiene compacta por muchas personas que haya. */

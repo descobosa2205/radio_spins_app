@@ -927,6 +927,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- ⚠️⚠️ **PROYECTO · EL ORDEN DE LAS TAREAS ES EL DEL PROCESO** (ago 2026), no el de cuándo se
+  programó cada cosa, y van agrupadas en **CUATRO FASES** (`DISCO_TASK_PHASES`, cabecerita
+  `.dp-phase` en la lista; con 25 tareas en un single, sin agrupar no se ve por dónde va el trabajo):
+  · **LA OBRA**: 1 la fecha (la confirma Registros) · 2 el plazo de entrega · 3 la producción ·
+    4 la **logística** (sale de la grabación, así que va justo después) · 5 la maqueta.
+  · **LA IMAGEN**: 6 la portada (quién, la foto, pedirla, aprobarla) · 7 las creatividades.
+  · **EL LANZAMIENTO**: 8 focus single y radio · 9 el **pitch** · 10 la **nota de prensa** (que
+    necesita el pitch) · 11 el plan de lanzamiento · 12 los IDs de plataforma.
+  · **PARA CERRAR**: lo que le falta al lanzamiento (fecha, temas, soporte, portada, videoclip, hoja
+    de ruta, bolsa) y cerrar el proyecto.
+  ⚠️ Una tarea NUEVA se mete **en su fase y en su sitio** (la fase la lleva el propio bloque con
+  `fase[0] = "…"`): si se pone al final «porque es lo último que se ha programado», la lista deja de
+  contar el proceso — que es justo lo que había pasado con la logística, el pitch, el focus y la nota
+  de prensa, y por eso se reordenó.
+  ⚠️ **LO QUE SE DECIDE EN UN SITIO SE VE EN LOS DEMÁS**: el **focus single** vive en la canción y se
+  enseña en su ficha, en el repertorio, en la fila del proyecto y en la cabecera de su ficha; la
+  **presentación a radio** se pide en el proyecto y se ve en la pestaña Información de la CANCIÓN
+  (verde = entra, amarillo = pendiente, gris = no la cogen) y su acción entra en el **plan de
+  lanzamiento**; la **logística** mete a quien la monta en la **hoja de ruta** y le crea la **bolsa**;
+  el **pitch** se guarda en la ficha de la canción. Al añadir un paso nuevo hay que preguntarse
+  **dónde más se mira eso** y enseñarlo allí.
+
 - **PROYECTO · LA NOTA DE PRENSA** (ago 2026). Todo lanzamiento la lleva, pero **no se puede pedir
   sin tener antes lo que la nota cuenta**: el **pitch** escrito, la **fecha** de lanzamiento y
   **decidido si es focus single**. Hasta entonces la tarea **se ve pero no se puede activar** (sale

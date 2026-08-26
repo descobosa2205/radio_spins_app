@@ -11853,6 +11853,118 @@ class SongRadioPitch(Base):
     )
 
 
+class DiscoApproval(Base):
+    """ALGO QUE HAY QUE APROBAR de un proyecto: la mezcla final, los materiales, la foto de portada…
+
+    Punto único de TODAS las aprobaciones en cadena del sello. `kind` dice qué es y `stage` de cada
+    votante en qué **etapa** va: **primero NUESTRO artista y, cuando ha aprobado, el COLABORADOR**
+    (así lo pidió Dani: la cadena no se salta).
+    """
+
+    __tablename__ = "disco_approvals"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="CASCADE"),
+                        nullable=False)
+    kind = Column(Text, nullable=False)      # MIX | MATERIALS | COVER_PHOTO | COVER
+    status = Column(Text, nullable=False, server_default=text("'OPEN'"))   # OPEN|APPROVED|REJECTED
+    # Lo que se aprueba: un archivo (la mezcla, la portada) y/o una lista en el payload (las fotos
+    # entre las que elegir, los materiales).
+    file_url = Column(Text)
+    file_name = Column(Text)
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    note = Column(Text)                      # indicaciones de quien la pide
+    due_date = Column(Date)
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    closed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    voters = relationship("DiscoApprovalVoter", back_populates="approval",
+                          cascade="all, delete-orphan", order_by="DiscoApprovalVoter.stage")
+
+    __table_args__ = (Index("idx_disco_approvals_project", "project_id", "kind"),)
+
+
+class DiscoApprovalVoter(Base):
+    """QUIÉN tiene que aprobar. **Un enlace por persona** (como la portada y la supervisión de fotos):
+    así cada uno ve lo suyo, decide y se sabe quién falta."""
+
+    __tablename__ = "disco_approval_voters"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    approval_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_approvals.id", ondelete="CASCADE"),
+                         nullable=False)
+    # 1 = nuestro artista (y sus integrantes) · 2 = el colaborador · 3 = terceros añadidos
+    stage = Column(Integer, nullable=False, server_default=text("1"))
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    name = Column(Text)
+    email = Column(Text)
+    phone = Column(Text)
+    photo_url = Column(Text)
+    role = Column(Text)                      # ARTISTA | INTEGRANTE | COLABORADOR | OTRO
+    token = Column(Text, nullable=False, unique=True)
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE|APROBADA|RECHAZADA
+    note = Column(Text)
+    notified_at = Column(DateTime(timezone=True))
+    decided_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    approval = relationship("DiscoApproval", back_populates="voters")
+
+    __table_args__ = (Index("idx_disco_approval_voters", "approval_id", "stage"),)
+
+
+def ensure_disco_approvals_schema():
+    """APROBACIONES en cadena de un proyecto (mezcla final, materiales, foto, portada) y el
+    CALENDARIO DE ENTREGAS. Idempotente, sin Alembic."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS disco_approvals (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            project_id uuid NOT NULL REFERENCES disco_projects(id) ON DELETE CASCADE,
+            kind text NOT NULL,
+            status text NOT NULL DEFAULT 'OPEN',
+            file_url text,
+            file_name text,
+            payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            note text,
+            due_date date,
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_nick text,
+            requested_at timestamptz DEFAULT now(),
+            closed_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS disco_approval_voters (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            approval_id uuid NOT NULL REFERENCES disco_approvals(id) ON DELETE CASCADE,
+            stage integer NOT NULL DEFAULT 1,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            name text,
+            email text,
+            phone text,
+            photo_url text,
+            role text,
+            token text NOT NULL UNIQUE,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            note text,
+            notified_at timestamptz,
+            decided_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_disco_approvals_project ON disco_approvals(project_id, kind);",
+        "CREATE INDEX IF NOT EXISTS idx_disco_approval_voters ON disco_approval_voters(approval_id, stage);",
+    ], label="ensure_disco_approvals_schema")
+
+
 def ensure_song_radio_schema():
     """FOCUS SINGLE y PRESENTACIÓN A RADIO (idempotente, sin Alembic)."""
     _create_all_once()

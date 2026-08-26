@@ -5953,6 +5953,11 @@ class AppNotification(Base):
     icon = Column(Text)
     # Quién lo provoca (para no avisarse a uno mismo) y a qué se refiere.
     actor_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    # LA FOTO de quien lo provoca, cuando NO es alguien de la casa (un tercero que entrega unos
+    # masters, p. ej.): se guarda aquí porque no hay usuario del que sacarla. Si el actor es de la
+    # casa se resuelve en vivo de su perfil y esto se queda vacío.
+    actor_photo_url = Column(Text)
+    actor_name = Column(Text)
     ref_type = Column(Text)
     ref_id = Column(Text)
     # `shown_at` = ya ha saltado alguna vez; `read_at` = la persona lo ha leído.
@@ -5982,6 +5987,8 @@ def ensure_notifications_schema():
             url text,
             icon text,
             actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            actor_photo_url text,
+            actor_name text,
             ref_type text,
             ref_id text,
             shown_at timestamptz,
@@ -5991,6 +5998,8 @@ def ensure_notifications_schema():
         );
         """,
         "ALTER TABLE app_notifications ADD COLUMN IF NOT EXISTS strip_dismissed_at timestamptz;",
+        "ALTER TABLE app_notifications ADD COLUMN IF NOT EXISTS actor_photo_url text;",
+        "ALTER TABLE app_notifications ADD COLUMN IF NOT EXISTS actor_name text;",
         "CREATE INDEX IF NOT EXISTS idx_app_notifications_user ON app_notifications(user_id);",
         "CREATE INDEX IF NOT EXISTS idx_app_notifications_user_created ON app_notifications(user_id, created_at);",
         "CREATE INDEX IF NOT EXISTS idx_app_notifications_unread ON app_notifications(user_id) WHERE read_at IS NULL;",

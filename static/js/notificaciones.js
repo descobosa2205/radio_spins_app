@@ -22,6 +22,21 @@
   var lista = document.querySelector('#notifModal [data-notif-list]');
   var vistos = {};                          // id -> true (franjas ya pintadas en esta página)
 
+  /* Lo que va dentro de un atributo se escapa: la foto y la url vienen de la BD. */
+  function attr(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  /* La CARA de quien provoca el aviso; si no hay, el icono de su tipo. */
+  function cara(f, claseIcono) {
+    if (f && f.photo_url) {
+      return '<img class="notif-ava" src="' + attr(f.photo_url) + '" alt="" data-avatar="1"'
+        + ' title="' + attr(f.actor_name || '') + '">';
+    }
+    return '<span class="' + claseIcono + '"><i class="fa ' + attr((f && f.icon) || 'fa-bell') + '"></i></span>';
+  }
+
   function csrf() {
     var m = document.querySelector('meta[name="csrf-token"]');
     return m ? m.getAttribute('content') : '';
@@ -59,7 +74,7 @@
     lista.innerHTML = pend.map(function (f) {
       var cuerpo = f.body ? '<span class="notif-item__body">' + f.body + '</span>' : '';
       return '<a class="notif-item is-unread" href="' + (f.url || '#') + '" data-notif-id="' + f.id + '">'
-        + '<span class="notif-item__ico"><i class="fa ' + (f.icon || 'fa-bell') + '"></i></span>'
+        + cara(f, 'notif-item__ico')
         + '<span class="notif-item__txt"><span class="notif-item__title">' + (f.title || '') + '</span>'
         + cuerpo + '<span class="notif-item__when">' + (f.when || '') + '</span></span>'
         + '<i class="fa fa-chevron-right notif-item__go"></i></a>';
@@ -85,7 +100,7 @@
     el.className = 'notif-strip';
     el.innerHTML =
       '<a class="notif-strip__link" href="' + (av.url || '#') + '">'
-      + '<span class="notif-strip__ico"><i class="fa ' + (av.icon || 'fa-bell') + '"></i></span>'
+      + cara(av, 'notif-strip__ico')
       + '<span class="notif-strip__txt"><strong>' + (av.title || '') + '</strong>'
       + (av.body ? '<span>' + av.body + '</span>' : '') + '</span>'
       + '<span class="notif-strip__go">Ver <i class="fa fa-arrow-right ms-1"></i></span></a>'

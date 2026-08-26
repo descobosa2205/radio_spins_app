@@ -1332,6 +1332,45 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   por correo busca terceros y carga sus **correos vinculados** (`api_promoter_emails`) para elegir
   destinatarios + nota. **Todos los correos del servidor (`_send_optional_email`) llevan Reply-To al usuario
   que envía** por defecto (`reply_to or _current_user_email()`).
+- **ENTREGA DE MASTERS · lo entregado es TAREA de REGISTROS y del SELLO** (ago 2026). Cuando un
+  tercero entrega por su enlace, eso es trabajo para dentro: hay que **revisarlo y validarlo**.
+  · **AVISO** (kind **`MATERIALES`**): «**Estudio Perico ha subido los masters de «Canción»**», con
+  **su foto o su logo** y lo que falta en el cuerpo. Va a **Registros** (`_registros_user_ids`) y al
+  **SELLO** —quien lleve a ese artista en su faceta (`assigned_artist_ids_sello`) y, si no lo tiene
+  nadie, todo el departamento—: `_song_delivery_review_recipients`.
+  · **LA CARA en los avisos**: `AppNotification.actor_photo_url` / `actor_name` (columnas nuevas) para
+  cuando quien lo provoca **NO es de la casa**; si es de la casa, la foto se resuelve **en vivo** de su
+  perfil en `_notification_rows` (una sola consulta para toda la lista). Se pinta en los TRES sitios
+  (la franja, el pop-up de la campanita y el módulo «Mis avisos» de Inicio) con la clase `.notif-ava`,
+  en el hueco del icono del tipo — sin foto, el icono de siempre. `_notify_user` acepta
+  `actor_name=` / `actor_photo=`.
+  · **LA TAREA no se cierra hasta que la entrega está COMPLETA**: punto único
+  **`_song_delivery_review_state(session_db, link)`** → `pending` (materiales sin validar) ·
+  `sections` (datos sin consolidar) · `rejected` (lo que se rechazó y **sigue faltando**) ·
+  `missing_labels` · `done`. Con él van el módulo de Inicio (`_home_registros_pending`, ahora visible
+  para **registros Y discográfica**), el aviso de la ficha (pestaña Materiales) y el cuadro de
+  dirección (área Registros), así que los tres dicen lo mismo.
+  ⚠️⚠️ **RECHAZAR un material es BORRARLO** (el botón ✗ es `discografica_song_material_delete`), así
+  que deja de estar «pendiente de validar» **y la tarea desaparecería justo cuando falta algo**. Por
+  eso el rechazo se **apunta en la entrega** (`_song_delivery_mark_rejected` →
+  `link.data['rejected']`) y se da por resuelto solo cuando ese módulo vuelve a tener un material
+  validado (`_song_delivery_field_has_validated`). Se apunta en el enlace, no en la canción, para no
+  resucitar trabajo de entregas viejas ya cerradas.
+  · El aviso se cierra SOLO al completarse (`_song_delivery_review_close(_for_song)`, la regla de
+  `_notify_resolve`), enganchado en los CUATRO caminos que revisan: validar un material, validar los
+  stems, consolidar una sección y descartarla.
+  ⚠️⚠️ **QUIÉN entregó se apunta AL RECIBIRLA** (`data['submitted_by']`, con nombre y foto): los datos
+  de producción **se van al consolidarlos** y con ellos se perdía el nombre del productor, así que el
+  aviso y la tarea dejaban de decir quién había subido los masters (bug real que sacó la prueba).
+  ⚠️ Un tercero **no tiene `photo_url` ni `name`**: son **`logo_url`** y `nick`/`first_name`+`last_name`
+  (`_promoter_display_name`).
+  ⚠️ Mirar 50 entregas no puede ser 50 consultas: `_song_delivery_pending_map` cuenta lo pendiente de
+  TODAS de una vez (GROUP BY) y `_song_delivery_review_state` lo acepta en `pending_map=`.
+  · Probado contra la app real (Postgres de prueba): estado tras la entrega · aviso a registros y
+  sello y a nadie más · cierre solo al validar y consolidar · rechazo → vuelve a pendiente diciendo
+  «falta Master 48 bits» · reposición → completa · y el reparto del módulo de Inicio (registros sí ·
+  sello con ese artista sí · sello con otro artista no · ticketing no · dirección sí).
+
 - **REPARTO EDITORIAL: la parte del autor de Plataforma se reparte con nosotros** (ago 2026). La parte
   autoral de un autor NUESTRO (editorial «Plataforma Musical») no es toda suya: se reparte según el
   compromiso **EDITORIAL** de su contrato de artista (`ArtistContractCommitment.concept` = «editorial»;

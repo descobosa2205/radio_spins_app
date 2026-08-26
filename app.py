@@ -17202,6 +17202,22 @@ def discografica_song_detail(song_id):
             }
             break
 
+    # LO QUE QUEDA por revisar de las entregas recibidas (materiales sin validar, datos sin
+    # consolidar y lo que se RECHAZÓ y todavía no se ha vuelto a subir). Es el mismo punto único que
+    # alimenta la tarea de Inicio y el cuadro de dirección, así que las tres pantallas coinciden.
+    delivery_review = []
+    for _link, _estado in _song_delivery_open_links(session_db, s.id):
+        delivery_review.append({
+            "link_id": str(_link.id),
+            "submitted_label": (_format_madrid_datetime_label(_link.submitted_at)
+                                if getattr(_link, "submitted_at", None) else ""),
+            "submitted_by": _song_delivery_submitter(
+                session_db, _link, (_link.data if isinstance(_link.data, dict) else {}))["name"],
+            "missing_label": " · ".join(_estado["missing_labels"]),
+            "rejected": _estado["rejected"],
+            "pending": _estado["pending"],
+        })
+
     song_cert_rows = (
         session_db.query(SongCertification)
         .filter(SongCertification.song_id == s.id)
@@ -17595,6 +17611,7 @@ def discografica_song_detail(song_id):
         # obligatorio al generar el enlace.
         song_delivery_askable=_song_delivery_askable(),
         pending_delivery=pending_delivery,
+        delivery_review=delivery_review,
         delivery_production_fields=SONG_DELIVERY_PRODUCTION_FIELDS,
         delivery_author_roles=dict(SONG_DELIVERY_AUTHOR_ROLES),
         linked_albums=linked_albums,
@@ -19007,6 +19024,10 @@ def discografica_song_material_delete(song_id, material_id):
             flash("Material no encontrado.", "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
         was_cover = (row.category or "").upper() == "COVER"
+        # ⚠️ RECHAZAR es esto (el botón ✗ borra el archivo). Si venía de una entrega y estaba sin
+        # validar, se apunta en la entrega: si no, la tarea desaparecería justo cuando falta algo.
+        if (row.validation_status or "").upper() == "PENDING":
+            _song_delivery_mark_rejected(session_db, row)
         session_db.delete(row)
         session_db.flush()
         if was_cover:
@@ -26447,6 +26468,280 @@ def _song_delivery_config_from_form(form) -> tuple[dict, list, list]:
     return conf, secciones, materiales
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# ENTREGA DE MASTERS · REVISAR Y VALIDAR lo que ha llegado
+#
+# Cuando un tercero entrega los materiales por su enlace, eso es TRABAJO para dentro: hay que
+# revisarlos y validarlos uno a uno. Por eso al recibirlos:
+#   · se avisa (campanita + push + SMS si está encendido) a **REGISTROS y al SELLO** diciendo QUIÉN
+#     ha subido los masters de QUÉ canción, con su foto o su logo; y
+#   · les sale la **tarea pendiente** en Inicio, que **no se cierra hasta que la entrega está
+#     COMPLETA**: si se rechaza un material, sigue faltando y la tarea se queda.
+#
+# Punto ÚNICO del estado: `_song_delivery_review_state`. Lo usan el módulo de Inicio, el cuadro de
+# dirección y los cuatro caminos que revisan (validar un material, validar los stems, consolidar una
+# sección y descartarla), que es donde se cierra el aviso solo (la regla de `_notify_resolve`).
+# ⚠️ El estado se MIRA, no se guarda: así no puede quedar desparejado del material de verdad.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Las secciones de DATOS que pueden quedar por consolidar (viven en `link.data` y se van al
+# consolidarlas o descartarlas).
+SONG_DELIVERY_DATA_SECTIONS = (
+    ("production", "Información de producción"),
+    ("authoral", "Información autoral"),
+    ("lyrics", "Letra"),
+    ("pitch", "Texto para el pitch"),
+)
+# (categoría, slot) → módulo del enlace, para saber QUÉ se ha rechazado.
+_SONG_DELIVERY_FIELD_BY_SLOT = {(cat, slot): field for field, cat, slot in SONG_DELIVERY_MATERIAL_SPECS}
+SONG_DELIVERY_MATERIAL_MODULE_LABELS = dict(SONG_DELIVERY_MATERIAL_MODULES)
+
+
+def _song_delivery_material_field(material) -> str:
+    """Qué módulo del enlace es este material («master_48», «cover», «stems»…), o "" si no es de
+    ninguno (un subproducto, p. ej.)."""
+    cat = (getattr(material, "category", "") or "").upper()
+    slot = (getattr(material, "slot_key", "") or "DEFAULT").upper()
+    if cat == "COVER":
+        return "cover"
+    if cat == "STEMS":
+        return "stems"
+    return _SONG_DELIVERY_FIELD_BY_SLOT.get((cat, slot), "")
+
+
+def _song_delivery_field_has_validated(session_db, song_id, field: str) -> bool:
+    """¿Hay YA un material VALIDADO de ese módulo en la canción? (o sea: el rechazo está resuelto)."""
+    field = (field or "").strip()
+    if not field:
+        return True
+    if field == "cover":
+        pares = [("COVER", None)]
+    elif field == "stems":
+        pares = [("STEMS", None)]
+    else:
+        pares = [(cat, slot) for f, cat, slot in SONG_DELIVERY_MATERIAL_SPECS if f == field]
+    for cat, slot in pares:
+        q = (session_db.query(func.count(SongMaterial.id))
+             .filter(SongMaterial.song_id == song_id)
+             .filter(func.upper(SongMaterial.category) == cat)
+             .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED")) != "PENDING"))
+        if slot:
+            q = q.filter(func.upper(func.coalesce(SongMaterial.slot_key, "DEFAULT")) == slot)
+        if int(q.scalar() or 0) > 0:
+            return True
+    return False
+
+
+def _song_delivery_mark_rejected(session_db, material) -> None:
+    """Apunta en la ENTREGA que ese material se ha rechazado.
+
+    ⚠️ Sin esto, rechazar un master haría desaparecer la tarea (ya no queda nada «pendiente de
+    validar») cuando en realidad falta justo eso. Se apunta en el enlace, no en la canción, para no
+    resucitar trabajo de entregas viejas ya cerradas."""
+    link_id = getattr(material, "delivery_link_id", None)
+    if not link_id:
+        return
+    try:
+        link = session_db.get(SongMasterDeliveryLink, link_id)
+        if link is None:
+            return
+        field = _song_delivery_material_field(material)
+        if not field:
+            return
+        data = dict(link.data or {})
+        rechazados = dict(data.get("rejected") or {})
+        rechazados[field] = {
+            "label": SONG_DELIVERY_MATERIAL_MODULE_LABELS.get(field, field),
+            "at": _now_madrid().isoformat(),
+            "by": ((_current_user_state() or {}).get("nick") or ""),
+        }
+        data["rejected"] = rechazados
+        link.data = data
+        session_db.add(link)
+    except Exception:
+        app.logger.exception("[entrega-masters] no se pudo apuntar el rechazo del material")
+
+
+def _song_delivery_review_state(session_db, link, *, pending_map=None) -> dict:
+    """QUÉ QUEDA por revisar de una entrega. Punto único.
+
+    Devuelve `pending` (materiales sin validar), `sections` (datos sin consolidar), `rejected` (lo que
+    se rechazó y todavía no se ha repuesto), `missing_labels` y `done`.
+    `pending_map` es el recuento de TODAS las entregas hecho de una vez (`_song_delivery_pending_map`):
+    con él, mirar 50 entregas no son 50 consultas."""
+    vacio = {"pending": 0, "sections": [], "rejected": [], "missing_labels": [], "done": True}
+    if link is None:
+        return vacio
+    if pending_map is not None:
+        pendientes = int(pending_map.get(str(link.id), 0))
+    else:
+        try:
+            pendientes = int(session_db.query(func.count(SongMaterial.id))
+                             .filter(SongMaterial.delivery_link_id == link.id)
+                             .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED"))
+                                     == "PENDING").scalar() or 0)
+        except Exception:
+            pendientes = 0
+    data = link.data if isinstance(link.data, dict) else {}
+    secciones = []
+    for clave, etiqueta in SONG_DELIVERY_DATA_SECTIONS:
+        valor = data.get(clave)
+        if isinstance(valor, str):
+            valor = valor.strip()
+        if valor:
+            secciones.append({"key": clave, "label": etiqueta})
+    rechazados = []
+    for field, info in (data.get("rejected") or {}).items():
+        if _song_delivery_field_has_validated(session_db, link.song_id, field):
+            continue          # ya se ha vuelto a subir y validar: resuelto
+        rechazados.append({"field": field,
+                           "label": (info or {}).get("label") or
+                                    SONG_DELIVERY_MATERIAL_MODULE_LABELS.get(field, field)})
+    etiquetas = []
+    if pendientes:
+        etiquetas.append("%d archivo%s por validar" % (pendientes, "" if pendientes == 1 else "s"))
+    if rechazados:
+        etiquetas.append("falta " + ", ".join(r["label"] for r in rechazados))
+    if secciones:
+        etiquetas.append("%d dato%s por consolidar" % (len(secciones), "" if len(secciones) == 1 else "s"))
+    return {"pending": pendientes, "sections": secciones, "rejected": rechazados,
+            "missing_labels": etiquetas,
+            "done": not (pendientes or secciones or rechazados)}
+
+
+def _song_delivery_pending_map(session_db) -> dict:
+    """Cuántos materiales SIN VALIDAR tiene cada entrega, en UNA consulta agrupada."""
+    try:
+        filas = (session_db.query(SongMaterial.delivery_link_id, func.count(SongMaterial.id))
+                 .filter(SongMaterial.delivery_link_id.isnot(None))
+                 .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED"))
+                         == "PENDING")
+                 .group_by(SongMaterial.delivery_link_id).all())
+        return {str(lid): int(n or 0) for lid, n in filas}
+    except Exception:
+        app.logger.exception("[entrega-masters] no se pudo contar lo pendiente de validar")
+        return {}
+
+
+def _song_delivery_open_links(session_db, song_id=None):
+    """Las entregas RECIBIDAS que todavía tienen algo por revisar (todas, o las de una canción)."""
+    q = (session_db.query(SongMasterDeliveryLink)
+         .filter(SongMasterDeliveryLink.status == "SUBMITTED"))
+    if song_id is not None:
+        q = q.filter(SongMasterDeliveryLink.song_id == song_id)
+    pendientes = _song_delivery_pending_map(session_db)
+    salida = []
+    for link in q.order_by(SongMasterDeliveryLink.submitted_at.desc().nullslast()).limit(300).all():
+        estado = _song_delivery_review_state(session_db, link, pending_map=pendientes)
+        if not estado["done"]:
+            salida.append((link, estado))
+    return salida
+
+
+def _song_delivery_review_close(session_db, link) -> bool:
+    """Si la entrega ya está COMPLETA, su aviso deja de esperar a nadie y se cierra solo."""
+    if link is None:
+        return False
+    estado = _song_delivery_review_state(session_db, link)
+    if estado["done"]:
+        _notify_resolve(session_db, "SONG_DELIVERY", str(link.id))
+        return True
+    return False
+
+
+def _song_delivery_review_close_for_song(session_db, song_id) -> None:
+    """Lo mismo, para TODAS las entregas de una canción (al validar un material no se sabe de cuál
+    era si venía de una entrega antigua)."""
+    try:
+        for link in (session_db.query(SongMasterDeliveryLink)
+                     .filter(SongMasterDeliveryLink.song_id == song_id,
+                             SongMasterDeliveryLink.status == "SUBMITTED").all()):
+            _song_delivery_review_close(session_db, link)
+    except Exception:
+        app.logger.exception("[entrega-masters] no se pudo cerrar el aviso de la entrega")
+
+
+def _song_delivery_submitter(session_db, link, data) -> dict:
+    """QUIÉN ha entregado: nombre y foto (o logo) para que el aviso enseñe su cara.
+
+    Manda lo que se APUNTÓ AL RECIBIRLA (`data['submitted_by']`); si no, el PRODUCTOR indicado en la
+    entrega (es un tercero de la base, así que tiene ficha y foto), a quien se le mandó el enlace
+    (`target_name`) y, en último caso, el artista.
+    ⚠️ Se apunta al recibirla porque los datos de producción SE VAN al consolidarlos: sin eso, en
+    cuanto alguien consolida la sección, el aviso y la tarea dejaban de decir quién había subido los
+    masters (bug real, lo sacó la prueba).
+    ⚠️ Un tercero NO tiene `photo_url` ni `name`: son `logo_url` y `nick`/`first_name`+`last_name`."""
+    guardado = (data or {}).get("submitted_by") if isinstance(data, dict) else None
+    if isinstance(guardado, dict) and (guardado.get("name") or "").strip():
+        return {"name": guardado["name"].strip(), "photo_url": (guardado.get("photo_url") or "").strip()}
+    nombre, foto = "", ""
+    try:
+        prod = ((data or {}).get("production") or {}) if isinstance(data, dict) else {}
+        pid = (prod.get("producer_promoter_id") or "").strip() if isinstance(prod, dict) else ""
+        if pid:
+            pr = session_db.get(Promoter, to_uuid(pid))
+            if pr is not None:
+                nombre = _promoter_display_name(pr)
+                # ⚠️ Un tercero NO tiene `photo_url`: su foto (o su logo, si es empresa) es `logo_url`.
+                foto = (getattr(pr, "logo_url", None) or "").strip()
+        if not nombre and isinstance(prod, dict):
+            nombre = (prod.get("producer") or "").strip()
+    except Exception:
+        app.logger.exception("[entrega-masters] no se pudo resolver quién ha entregado")
+    if not nombre:
+        nombre = (getattr(link, "target_name", None) or "").strip()
+    if not nombre:
+        try:
+            song = session_db.get(Song, link.song_id)
+            nombre = _song_artist_names_str(song) if song else ""
+        except Exception:
+            nombre = ""
+    return {"name": (nombre or "Alguien de fuera"), "photo_url": foto}
+
+
+def _song_delivery_review_recipients(session_db, song) -> list[str]:
+    """A quién le toca revisar: **REGISTROS y el SELLO**.
+
+    Del sello, quien lleve a ese artista en su faceta (`assigned_artist_ids_sello`) y, si no lo tiene
+    nadie apuntado, todo el departamento — mejor que lo miren varios que dejarlo sin dueño (el mismo
+    criterio que el pitch)."""
+    quienes = list(_registros_user_ids(session_db) or [])
+    try:
+        artista = _song_primary_artist(session_db, song)
+        if artista is not None:
+            quienes += list(_pitch_sello_user_ids(session_db, artista.id) or [])
+        else:
+            quienes += list(_department_user_ids(session_db, "Sello") or [])
+    except Exception:
+        app.logger.exception("[entrega-masters] no se pudo resolver a quién avisar")
+    return list(dict.fromkeys([str(x) for x in quienes if x]))
+
+
+def _song_delivery_notify_submitted(session_db, link, song, data) -> int:
+    """«X ha subido los masters de «Canción»» → a Registros y al Sello, con la cara de quien ha sido.
+
+    El aviso queda atado a la entrega (`ref_type='SONG_DELIVERY'`), así que se cierra solo en cuanto
+    la revisión está completa."""
+    try:
+        quien = _song_delivery_submitter(session_db, link, data)
+        estado = _song_delivery_review_state(session_db, link)
+        titulo = "%s ha subido los masters de «%s»" % (quien["name"], (song.title or "").strip())
+        cuerpo = "Hay que revisarlos y validarlos"
+        if estado["missing_labels"]:
+            cuerpo += ": " + " · ".join(estado["missing_labels"])
+        cuerpo += "."
+        return _notify_users(
+            session_db, _song_delivery_review_recipients(session_db, song), "MATERIALES",
+            titulo, cuerpo,
+            url_for("discografica_song_detail", song_id=song.id, tab="materiales"),
+            ref_type="SONG_DELIVERY", ref_id=str(link.id),
+            actor_name=quien["name"], actor_photo=quien["photo_url"],
+        )
+    except Exception:
+        app.logger.exception("[entrega-masters] no se pudo avisar de la entrega recibida")
+        return 0
+
+
 def _song_delivery_share_context(session_db, song) -> dict:
     """Lo que enseña la PREVISUALIZACIÓN del enlace de entrega (WhatsApp, correo, redes): la portada,
     el título «Entrega de masters», el nombre de la canción y, debajo, el artista — con los
@@ -27315,10 +27610,17 @@ def public_song_master_delivery(token):
                 session_db.rollback()
                 return render_template("public_song_master_delivery.html", state="form",
                                        errors=errors, form=request.form, **base_ctx)
+            # QUIÉN la ha entregado se apunta AHORA en la propia entrega: los datos de producción
+            # se van al consolidarlos y con ellos se perdía el nombre y la foto de quien la subió.
+            data["submitted_by"] = _song_delivery_submitter(session_db, link, data)
             link.data = data
             link.status = "SUBMITTED"
             link.submitted_at = datetime.now(TZ_MADRID)
             session_db.add(link)
+            session_db.flush()
+            # Lo entregado es TRABAJO para dentro: se avisa a Registros y al Sello (con la cara de
+            # quien lo ha subido) y les queda la tarea hasta que esté todo validado.
+            _song_delivery_notify_submitted(session_db, link, song, data)
             session_db.commit()
             return render_template("public_song_master_delivery.html", state="submitted", **base_ctx)
 
@@ -27402,6 +27704,9 @@ def discografica_song_material_validate(song_id, material_id):
         session_db.add(row)
         session_db.flush()
         _refresh_song_material_status(session_db, song)
+        # ⚠️ El aviso de «materiales por revisar» se cierra SOLO cuando la entrega está completa: si
+        # queda algo pendiente (o algo rechazado sin reponer), sigue esperando.
+        _song_delivery_review_close_for_song(session_db, song.id)
         session_db.commit()
         flash("Material validado.", "success")
     except Exception as e:
@@ -27431,6 +27736,7 @@ def discografica_song_stems_validate(song_id, bundle_key):
             session_db.add(r)
         session_db.flush()
         _refresh_song_material_status(session_db, song)
+        _song_delivery_review_close_for_song(session_db, song.id)
         session_db.commit()
         flash("Stems validados.", "success")
     except Exception as e:
@@ -27544,6 +27850,8 @@ def discografica_song_delivery_consolidate(song_id, link_id):
         link.updated_at = datetime.now(TZ_MADRID)
         session_db.add(song)
         session_db.add(link)
+        session_db.flush()
+        _song_delivery_review_close(session_db, link)
         session_db.commit()
     except Exception as e:
         session_db.rollback()
@@ -27567,6 +27875,8 @@ def discografica_song_delivery_discard_section(song_id, link_id):
             data.pop(section, None)
             link.data = data
             session_db.add(link)
+            session_db.flush()
+            _song_delivery_review_close(session_db, link)
             session_db.commit()
             flash("Sección descartada.", "success")
     except Exception as e:
@@ -27599,6 +27909,8 @@ def discografica_song_material_bundle_delete(song_id, bundle_key):
             flash("Grupo de stems no encontrado.", "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
         for row in rows:
+            if (row.validation_status or "").upper() == "PENDING":
+                _song_delivery_mark_rejected(session_db, row)
             session_db.delete(row)
         session_db.flush()
         material_rows = (
@@ -60769,15 +61081,25 @@ def _dir_area_registros(session_db, idx) -> list[dict]:
                                  icon="fa-clipboard-list", note=(row.get("missing") or "")))
     except Exception:
         app.logger.exception("[cuadro] no se pudieron leer los lanzamientos por cumplimentar")
+    # ⚠️ Se cuenta con el MISMO punto único que la tarea de Inicio (`_song_delivery_review_state`):
+    # así el número del cuadro y lo que ve Registros dicen lo mismo, incluido lo que se rechazó y
+    # está sin reponer (que no tiene ningún material «pendiente» y sigue faltando).
     try:
-        n = (session_db.query(func.count(func.distinct(SongMaterial.song_id)))
-             .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED"))
-                     == "PENDING").scalar() or 0)
+        abiertas = _song_delivery_open_links(session_db)
     except Exception:
-        n = 0
-    if n:
-        out.append(_dir_task("%d entrega%s de masters por validar" % (n, "" if n == 1 else "s"),
-                             url=url_for("registros_view", tab="pendiente"), icon="fa-file-audio"))
+        app.logger.exception("[cuadro] no se pudieron leer las entregas por revisar")
+        abiertas = []
+    for link, estado in abiertas:
+        cancion = session_db.get(Song, link.song_id)
+        if cancion is None:
+            continue
+        out.append(_dir_task("Revisar los materiales entregados",
+                             subject=(cancion.title or ""),
+                             photo=((cancion.cover_url or "").strip()),
+                             url=url_for("discografica_song_detail", song_id=cancion.id,
+                                         tab="materiales"),
+                             icon="fa-file-audio",
+                             note=" · ".join(estado["missing_labels"])))
     return out
 
 
@@ -61068,7 +61390,13 @@ def inject_personnel_globals():
         "HOME_QUICK_ACTIONS": _build_home_quick_actions() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_INVITATIONS": ([] if _dir else _myinv),
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if _dept and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
-        "HOME_REGISTROS_PENDING": _home_registros_pending() if _dept and "_home_registros_pending" in globals() and has_access_key("registros") else [],
+        # MATERIALES ENTREGADOS por revisar: la tarea es de REGISTROS y del SELLO (dentro se
+        # reparte por artistas asignados en la faceta sello).
+        "HOME_REGISTROS_PENDING": (_home_registros_pending()
+                                   if _dept and "_home_registros_pending" in globals()
+                                   and (has_access_key("registros")
+                                        or has_access_key("discografica", include_descendants=True))
+                                   else []),
         # PROYECTOS cerrados que esperan a REGISTROS: cumplimentar los datos y subir los materiales.
         "HOME_PROJECT_REGISTROS": (_home_project_registros()
                                    if _dept and "_home_project_registros" in globals()
@@ -89241,6 +89569,8 @@ NOTIFICATION_KIND_META = {
     "VENTA": ("Hay que sacarla a la venta", "fa-ticket"),
     "CONTABILIDAD": ("Hay algo nuevo que contabilizar", "fa-calculator"),
     "REGISTROS": ("Hay un lanzamiento que cumplimentar", "fa-clipboard-list"),
+    # Materiales entregados por el enlace de un tercero: hay que revisarlos y validarlos.
+    "MATERIALES": ("Materiales entregados por revisar", "fa-file-audio"),
     # La FECHA de lanzamiento que Registros tiene que confirmar (y su respuesta). Va aparte de
     # REGISTROS para que la campanita diga de qué es: son dos trabajos distintos.
     "FECHA_LANZAMIENTO": ("Fecha de lanzamiento por confirmar", "fa-calendar-check"),
@@ -89278,6 +89608,7 @@ SMS_NOTICE_KINDS = [
     ("VACACIONES", "Vacaciones y días libres"),
     ("CONTABILIDAD", "Cosas nuevas que contabilizar"),
     ("REGISTROS", "Lanzamientos por cumplimentar"),
+    ("MATERIALES", "Materiales entregados por revisar"),
     ("DEMO", "Nos han enviado demos"),
     ("PITCH", "Falta el pitch de un lanzamiento"),
     ("TAREA", "Tareas pendientes en general"),
@@ -89851,10 +90182,14 @@ def _notify_sms(session_db, user_id, kind, title, body="", url=None) -> None:
 
 
 def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
-                 ref_type=None, ref_id=None, actor_user_id=None, commit=False) -> bool:
+                 ref_type=None, ref_id=None, actor_user_id=None, commit=False,
+                 actor_name=None, actor_photo=None) -> bool:
     """Avisa a UNA persona. Devuelve False si no hay a quién avisar (o es uno mismo).
 
-    ⚠️ No se avisa a uno mismo: quien hace la acción ya lo sabe."""
+    ⚠️ No se avisa a uno mismo: quien hace la acción ya lo sabe.
+    `actor_name`/`actor_photo` son para cuando quien lo provoca NO es de la casa (un tercero que
+    entrega unos masters por su enlace público): así el aviso puede enseñar su cara y su nombre, que
+    es lo primero que se mira. Si el actor es de la casa no hacen falta: se resuelven de su perfil."""
     uid = _safe_uuid(user_id)
     if not uid:
         return False
@@ -89867,6 +90202,8 @@ def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
             title=(title or "Tienes algo nuevo")[:200], body=(body or "")[:600] or None,
             url=(url or None), icon=NOTIFICATION_KIND_META.get((kind or "").upper(), ("", ""))[1] or None,
             actor_user_id=actor, ref_type=(ref_type or None), ref_id=(str(ref_id) if ref_id else None),
+            actor_name=((actor_name or "").strip() or None),
+            actor_photo_url=((actor_photo or "").strip() or None),
         ))
         if commit:
             session_db.commit()
@@ -89949,9 +90286,25 @@ def _notification_rows(session_db, user_id, *, limit=20, only_unread=False) -> l
     if only_unread:
         consulta = consulta.filter(AppNotification.read_at.is_(None))
     filas = []
-    for n in consulta.order_by(AppNotification.created_at.desc()).limit(limit).all():
+    avisos = consulta.order_by(AppNotification.created_at.desc()).limit(limit).all()
+    # LA CARA de quien lo provoca: la guardada (un tercero de fuera) o, si es alguien de la casa, la
+    # de su perfil resuelta EN VIVO. Una sola consulta para todos los avisos de la lista.
+    fotos_casa = {}
+    ids_actores = {a.actor_user_id for a in avisos if a.actor_user_id and not a.actor_photo_url}
+    if ids_actores:
+        try:
+            for prof in (session_db.query(UserProfile)
+                         .filter(UserProfile.user_id.in_(list(ids_actores))).all()):
+                fotos_casa[str(prof.user_id)] = ((getattr(prof, "photo_url", None) or "").strip(),
+                                                 (getattr(prof, "nick", None) or "").strip())
+        except Exception:
+            app.logger.exception("[avisos] no se pudieron leer las fotos de los actores")
+    for n in avisos:
+        _foto, _nombre = fotos_casa.get(str(n.actor_user_id or ""), ("", ""))
         filas.append({
             "id": str(n.id),
+            "photo_url": ((n.actor_photo_url or "").strip() or _foto),
+            "actor_name": ((n.actor_name or "").strip() or _nombre),
             "kind": (n.kind or ""),
             "kind_label": NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("Aviso", "fa-bell"))[0],
             "icon": (n.icon or NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("", "fa-bell"))[1]),
@@ -104066,47 +104419,62 @@ def _home_pitch_pending(limit: int = 20) -> list[dict]:
 
 
 def _home_registros_pending(limit: int = 20) -> list[dict]:
-    """Canciones con entregas de masters pendientes de validar (materiales PENDING o datos sin consolidar)."""
+    """MATERIALES ENTREGADOS POR REVISAR: la tarea de **Registros y del Sello**.
+
+    Sale en cuanto un tercero entrega por su enlace y **no se va hasta que la entrega está
+    COMPLETA**: si se valida todo, desaparece sola; si se rechaza algo, sigue aquí diciendo qué falta
+    (`_song_delivery_review_state` es el punto único que lo decide).
+    ⚠️ Del SELLO, a cada uno lo de SUS artistas (faceta sello); quien no tenga ninguno asignado —y
+    Registros y dirección— lo ve todo: mejor que lo miren varios que dejarlo sin dueño."""
+    state = _current_user_state() or {}
+    if not state.get("user_id"):
+        return []
+    es_direccion = int(state.get("role") or 0) == 10
+    ve_registros = es_direccion or _state_has_access(state, "registros", include_descendants=True)
+    ve_sello = es_direccion or _state_has_access(state, "discografica", include_descendants=True)
+    if not (ve_registros or ve_sello):
+        return []
+    # Solo se filtra por artistas asignados a quien entra únicamente por el SELLO: Registros revisa
+    # todo lo que llega.
+    asignados = set()
+    if not es_direccion and not ve_registros:
+        asignados = {str(x) for x in
+                     (getattr(state.get("profile"), "assigned_artist_ids_sello", None) or [])}
     session_db = db()
     try:
-        pending_ids = set()
-        for (sid,) in (
-            session_db.query(SongMaterial.song_id)
-            .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED")) == "PENDING")
-            .distinct().all()
-        ):
-            if sid:
-                pending_ids.add(sid)
-        for link in session_db.query(SongMasterDeliveryLink).filter(SongMasterDeliveryLink.status == "SUBMITTED").all():
-            d = link.data or {}
-            if d.get("production") or d.get("authoral") or (d.get("lyrics") or "").strip():
-                pending_ids.add(link.song_id)
-        if not pending_ids:
+        entregas = {}
+        for link, estado in _song_delivery_open_links(session_db):
+            entregas.setdefault(link.song_id, []).append((link, estado))
+        if not entregas:
             return []
-        songs = (
-            session_db.query(Song)
-            .options(joinedload(Song.artists))
-            .filter(Song.id.in_(list(pending_ids)))
-            .limit(limit).all()
-        )
-        rows = []
-        for s in songs:
-            mat_pending = (
-                session_db.query(func.count(SongMaterial.id))
-                .filter(SongMaterial.song_id == s.id)
-                .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED")) == "PENDING")
-                .scalar()
-            ) or 0
-            rows.append({
-                "id": str(s.id),
-                "title": s.title,
-                "artist_names": ", ".join([a.name for a in (s.artists or []) if getattr(a, "name", None)]) or "—",
-                "cover_url": (s.cover_url or "").strip(),
-                "materials_pending": int(mat_pending),
-                "detail_url": url_for("discografica_song_detail", song_id=s.id, tab="materiales"),
+        canciones = (session_db.query(Song)
+                     .options(joinedload(Song.artists))
+                     .filter(Song.id.in_(list(entregas.keys()))).all())
+        filas = []
+        for cancion in canciones:
+            if asignados and not ({str(a.id) for a in (cancion.artists or [])} & asignados):
+                continue
+            pendientes = sum(e["pending"] for _l, e in entregas[cancion.id])
+            etiquetas, quien = [], ""
+            for link, estado in entregas[cancion.id]:
+                etiquetas += estado["missing_labels"]
+                if not quien:
+                    quien = _song_delivery_submitter(session_db, link,
+                                                     (link.data if isinstance(link.data, dict) else {}))["name"]
+            filas.append({
+                "id": str(cancion.id),
+                "title": cancion.title,
+                "artist_names": ", ".join([a.name for a in (cancion.artists or [])
+                                           if getattr(a, "name", None)]) or "—",
+                "cover_url": (cancion.cover_url or "").strip(),
+                "materials_pending": int(pendientes),
+                "submitted_by": quien,
+                "missing_label": " · ".join(dict.fromkeys(etiquetas)),
+                "detail_url": url_for("discografica_song_detail", song_id=cancion.id, tab="materiales"),
             })
-        return rows
+        return filas[:limit]
     except Exception:
+        app.logger.exception("[inicio] no se pudieron leer las entregas por revisar")
         return []
     finally:
         session_db.close()

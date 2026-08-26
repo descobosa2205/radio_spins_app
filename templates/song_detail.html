@@ -1588,6 +1588,25 @@
       </span>
     </div>
 
+    {# ENTREGA SIN TERMINAR DE REVISAR: qué falta y quién la entregó. ⚠️ Un material RECHAZADO deja
+       de estar «pendiente de validar» pero sigue faltando, así que se dice aquí — es lo que mantiene
+       la tarea abierta en el Inicio de Registros y del Sello. #}
+    {% for dr in (delivery_review or []) %}
+      <div class="alert alert-warning d-flex align-items-start gap-2">
+        <i class="fa fa-file-audio mt-1"></i>
+        <div class="min-w-0">
+          <div class="fw-semibold">Materiales entregados{% if dr.submitted_by %} por {{ dr.submitted_by }}{% endif %}{% if dr.submitted_label %} · {{ dr.submitted_label }}{% endif %}</div>
+          <div class="small">Pendiente de revisar{% if dr.missing_label %}: {{ dr.missing_label }}{% endif %}.</div>
+          {% if dr.rejected %}
+            <div class="small mt-1">
+              {% for r in dr.rejected %}<span class="badge text-bg-danger me-1"><i class="fa fa-xmark me-1"></i>{{ r.label }} rechazado</span>{% endfor %}
+              <span class="text-muted">Hay que volver a pedirlo para cerrar la entrega.</span>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+
     {% if pending_delivery and CAN_EDIT_DISCOGRAFICA %}
       {% set pd = pending_delivery %}
       <div class="card border-warning mb-3">

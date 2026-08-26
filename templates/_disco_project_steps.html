@@ -883,6 +883,84 @@
   </div>
 </div>
 
+{# ---------------------------------------------------------------- CALENDARIO DE ENTREGAS
+   A la IZQUIERDA lo que hay que fijar y a la DERECHA el calendario: se ARRASTRA cada cosa al día que
+   le toca. ⚠️ Solo se puede soltar donde el plazo es posible (los días imposibles se ven apagados);
+   lo ya puesto se vuelve a arrastrar para reordenarlo. El motor es `disco_delivery.js`. #}
+{% set dl = delivery or {} %}
+<div class="modal fade" id="dpDeliveryModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_delivery_save', project_id=project.id) }}"
+          data-dc-form>
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-calendar-days me-2 text-danger"></i>Calendario de entregas</h5>
+          <div class="text-muted small">
+            Arrastra cada cosa al día que le toca. {% if dl.release_label %}El lanzamiento es el
+            <strong>{{ dl.release_label }}</strong>.{% endif %}
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if not dl.release_date %}
+          <div class="alert alert-warning"><i class="fa fa-lock me-1"></i>
+            Antes hace falta la fecha de lanzamiento: los plazos se cuentan desde ella.</div>
+        {% else %}
+          <div class="row g-3" data-dc-root
+               data-release="{{ dl.release_date.isoformat() }}">
+            {# --------- izquierda: lo que hay que fijar --------- #}
+            <div class="col-12 col-lg-4">
+              <div class="dc-list">
+                {% for f in (dl.rows or []) %}
+                  <div class="dc-item{{ ' is-set' if f.date else '' }}" draggable="true"
+                       data-dc-key="{{ f.key }}" data-dc-limit="{{ f.limit_iso }}"
+                       data-dc-label="{{ f.label }}">
+                    <span class="dc-item__ico"><i class="fa {{ f.icon }}"></i></span>
+                    <span class="dc-item__body">
+                      <span class="dc-item__label">{{ f.label }}</span>
+                      <span class="dc-item__hint">
+                        {% if f.weeks %}mínimo {{ f.weeks }} semana{{ '' if f.weeks == 1 else 's' }} antes
+                        {% else %}hasta 2 días antes{% endif %}
+                        {% if f.limit_label %}· tope {{ f.limit_label }}{% endif %}
+                      </span>
+                      <span class="dc-item__date" data-dc-date>{{ f.date_label }}</span>
+                    </span>
+                    <button type="button" class="btn btn-sm btn-link text-muted p-0 dc-item__x"
+                            data-dc-clear title="Quitar la fecha"><i class="fa fa-xmark"></i></button>
+                    <input type="hidden" name="date_{{ f.key }}" value="{{ f.date_iso }}">
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="form-text mt-2">
+                <i class="fa fa-circle-info me-1"></i>Los días en los que ya no se llega salen apagados.
+              </div>
+            </div>
+            {# --------- derecha: el calendario --------- #}
+            <div class="col-12 col-lg-8">
+              <div class="dc-cal" data-dc-cal>
+                <div class="dc-cal__head">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" data-dc-prev><i class="fa fa-chevron-left"></i></button>
+                  <span class="dc-cal__title" data-dc-title></span>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" data-dc-next><i class="fa fa-chevron-right"></i></button>
+                </div>
+                <div class="dc-cal__grid" data-dc-grid></div>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit" {% if not dl.release_date %}disabled{% endif %}>
+          <i class="fa fa-floppy-disk me-1"></i>Guardar el calendario</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/disco_delivery.js') }}"></script>
+
 {# ---------------------------------------------------------------- LA NOTA DE PRENSA
    Cuatro pop-ups: solicitarla (con las indicaciones del jefe de producto), subir el TEXTO
    (promoción), subir el DISEÑO (diseño) y marcarla enviada. #}

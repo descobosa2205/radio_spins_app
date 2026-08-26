@@ -927,6 +927,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · EL CALENDARIO DE ENTREGAS** (ago 2026): antes de pedirle nada a nadie se **fijan los
+  plazos** —mezcla final, máster, portada, videoclip y creatividades— **arrastrando** cada cosa al día
+  que le toca: a la **izquierda** lo que hay que fijar (con su mínimo y su tope) y a la **derecha** el
+  calendario, con el día del lanzamiento marcado. Motor `static/js/disco_delivery.js` + `#dpDeliveryModal`
+  + estilos `.dc-*`; endpoint `disco_project_delivery_save`; estado `_disco_delivery_state`.
+  ⚠️ **Solo se puede soltar donde el plazo es POSIBLE**: los mínimos están en
+  `DISCO_DELIVERY_MILESTONES` (la mezcla final **4 semanas** antes —hay que aprobarla y masterizar—,
+  el máster y la portada **3** —lo que tarda la distribución— y las creatividades hasta **2 días**,
+  el margen que ya usaba el encargo a diseño). Los días a los que no se llega se ven **apagados** y no
+  aceptan el soltar, y lo ya puesto se vuelve a arrastrar para moverlo.
+  ⚠️ El tope lo comprueba **también el servidor** (`_disco_delivery_apply`, que devuelve lo que no
+  cuadraba y guarda el resto): el calendario del navegador es la comodidad, no la barrera.
+  ⚠️⚠️ **NO es un dato paralelo**: cada hito **escribe el campo donde ese plazo ya vivía** —el máster
+  es `DiscoProject.materials_due_date` (el plazo que fija Registros) y la portada el `due_date` de su
+  solicitud—, así que fijarlo aquí se ve en su tarea, en su correo y en su recordatorio. Si se añade un
+  hito nuevo, hay que decir a qué campo va (o queda solo en el payload).
+  · Tampoco hay dos calendarios: en el de la ficha (el de la agenda) estos plazos ya salían como hitos
+  del proyecto.
+
 - ⚠️⚠️ **PROYECTO · EL ORDEN DE LAS TAREAS ES EL DEL PROCESO** (ago 2026), no el de cuándo se
   programó cada cosa, y van agrupadas en **CUATRO FASES** (`DISCO_TASK_PHASES`, cabecerita
   `.dp-phase` en la lista; con 25 tareas en un single, sin agrupar no se ve por dónde va el trabajo):

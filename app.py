@@ -20663,6 +20663,134 @@ def _disco_press_people(session_db, part: str) -> list[str]:
     return list(dict.fromkeys(quienes)) or list(_department_user_ids(session_db, "Sello") or [])
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTO · EL CALENDARIO DE ENTREGAS
+#
+# Antes de pedirle nada a nadie hay que **fijar los plazos**: cuándo tiene que estar la mezcla final,
+# el máster, la portada, las creatividades y el vídeo. Se hace **arrastrando** cada cosa al día que
+# le toca, y el calendario **solo deja soltarla donde el plazo es posible**: si para distribuir el
+# máster hacen falta 3 semanas, no se puede entregar 2 semanas antes.
+#
+# ⚠️⚠️ **NO ES UN DATO PARALELO**: cada hito ESCRIBE el campo que ya existía —el máster es el
+# `materials_due_date` del proyecto (el plazo que fija Registros), la portada es el `due_date` de su
+# solicitud— así que fijarlo aquí se ve en su tarea, en su correo y en su recordatorio.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# (clave, etiqueta, icono, SEMANAS mínimas antes del lanzamiento, de dónde sale / a dónde va)
+# ⚠️ Los mínimos son de la casa: la mezcla final **más de 4 semanas** antes (hay que aprobarla y
+# masterizar), el máster **3 semanas** (es lo que tarda la distribución), la portada con el máster, y
+# las creatividades hasta 2 días antes (`DISCO_CREATIVE_DEADLINE_MARGIN_DAYS`).
+DISCO_DELIVERY_MILESTONES = (
+    ("mix_final", "Mezcla final", "fa-sliders", 4),
+    ("master", "Máster", "fa-compact-disc", 3),
+    ("cover", "Portada", "fa-image", 3),
+    ("video", "Videoclip", "fa-film", 1),
+    ("creatives", "Creatividades", "fa-shapes", 0),
+)
+DISCO_DELIVERY_META = {k: (lbl, ico, sem) for k, lbl, ico, sem in DISCO_DELIVERY_MILESTONES}
+
+
+def _disco_delivery_limit(release_date, key: str):
+    """EL ÚLTIMO DÍA en el que se puede entregar eso (o None si no hay fecha de lanzamiento).
+
+    Punto único: lo usan el calendario (para saber dónde se puede soltar), el guardado (que lo vuelve
+    a comprobar) y la tarea que lo enseña."""
+    if not release_date:
+        return None
+    semanas = DISCO_DELIVERY_META.get(key, ("", "", 0))[2]
+    if semanas:
+        return release_date - timedelta(weeks=semanas)
+    # Las creatividades no van por semanas: su margen es de días (el que ya usa el encargo a diseño).
+    return release_date - timedelta(days=DISCO_CREATIVE_DEADLINE_MARGIN_DAYS)
+
+
+def _disco_delivery_state(session_db, project) -> dict:
+    """El calendario de entregas: qué hitos hay, para cuándo están y cuál es su tope."""
+    guardado = dict((_disco_prod(project).get("delivery_calendar") or {}))
+    fecha = getattr(project, "release_date", None)
+    lleva_video = _disco_project_has_videoclip(project)
+    portada = None
+    try:
+        portada = _disco_artwork(session_db, project, create=False)
+    except Exception:
+        portada = None
+    filas = []
+    for clave, etiqueta, icono, _sem in DISCO_DELIVERY_MILESTONES:
+        if clave == "video" and not lleva_video:
+            continue
+        # ⚠️ El valor de VERDAD es el campo que ya existía; el payload es solo lo que se arrastró.
+        if clave == "master":
+            valor = getattr(project, "materials_due_date", None) or _parse_iso_date_safe(guardado.get(clave))
+        elif clave == "cover":
+            valor = getattr(portada, "due_date", None) or _parse_iso_date_safe(guardado.get(clave))
+        else:
+            valor = _parse_iso_date_safe(guardado.get(clave))
+        tope = _disco_delivery_limit(fecha, clave)
+        filas.append({
+            "key": clave, "label": etiqueta, "icon": icono,
+            "date": valor,
+            "date_iso": (valor.isoformat() if valor else ""),
+            "date_label": (valor.strftime("%d/%m/%Y") if valor else ""),
+            "limit": tope,
+            "limit_iso": (tope.isoformat() if tope else ""),
+            "limit_label": (tope.strftime("%d/%m/%Y") if tope else ""),
+            "weeks": DISCO_DELIVERY_META.get(clave, ("", "", 0))[2],
+            "late": bool(valor and tope and valor > tope),
+        })
+    puestos = [f for f in filas if f["date"]]
+    return {
+        "release_date": fecha,
+        "release_label": (fecha.strftime("%d/%m/%Y") if fecha else ""),
+        "rows": filas,
+        "pending": [f for f in filas if not f["date"]],
+        "done": bool(filas) and len(puestos) == len(filas),
+        "any": bool(puestos),
+        "late": [f for f in filas if f["late"]],
+    }
+
+
+def _disco_delivery_apply(session_db, project, fechas: dict) -> list[str]:
+    """Guarda el calendario y **lo escribe donde ya vivía cada plazo**. Devuelve lo que no cuadraba.
+
+    ⚠️ El tope se comprueba **aquí también**: el calendario del navegador no puede ser la única
+    barrera (basta con un POST a mano para saltárselo)."""
+    problemas = []
+    fecha = getattr(project, "release_date", None)
+    prod = _disco_prod(project)
+    guardado = dict(prod.get("delivery_calendar") or {})
+    for clave, etiqueta, _i, _sem in DISCO_DELIVERY_MILESTONES:
+        if clave not in fechas:
+            continue
+        valor = fechas.get(clave)
+        dia = _parse_iso_date_safe(valor) if valor else None
+        if valor and not dia:
+            problemas.append("%s: esa fecha no se entiende." % etiqueta)
+            continue
+        tope = _disco_delivery_limit(fecha, clave)
+        if dia and tope and dia > tope:
+            problemas.append("%s: como muy tarde el %s (%s)."
+                             % (etiqueta, tope.strftime("%d/%m/%Y"),
+                                ("%d semanas antes del lanzamiento" % DISCO_DELIVERY_META[clave][2])
+                                if DISCO_DELIVERY_META[clave][2] else "antes del lanzamiento"))
+            continue
+        guardado[clave] = (dia.isoformat() if dia else "")
+        # …y al campo donde ese plazo ya vivía, que es el que leen las tareas y los correos.
+        if clave == "master":
+            project.materials_due_date = dia
+        elif clave == "cover":
+            try:
+                portada = _disco_artwork(session_db, project, create=bool(dia))
+                if portada is not None:
+                    portada.due_date = dia
+                    session_db.add(portada)
+            except Exception:
+                app.logger.exception("[calendario] no se pudo fijar el plazo de la portada")
+    prod["delivery_calendar"] = guardado
+    project.production_payload = prod
+    project.updated_at = _now_madrid()
+    return problemas
+
+
 def _disco_project_demo(session_db, project):
     """La MAQUETA vinculada a este proyecto (la última que se subió)."""
     if project is None:
@@ -20851,6 +20979,23 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                                   (" · avisado %s" % quien) if quien else ""),
                   menu=[{"label": "Volver a notificar el plazo", "icon": "fa-paper-plane",
                          "modal": "#dpMaterialsNotifyModal"}])
+
+    # ================= 2b · El CALENDARIO DE ENTREGAS (todos los plazos) =================
+    # ⚠️ Sin fecha de lanzamiento no hay plazos que fijar: la tarea sale BLOQUEADA (rayada).
+    entregas = _disco_delivery_state(session_db, project)
+    if not entregas["release_date"]:
+        tarea("calendario", "Calendario de entregas", "", "fa-calendar-days", state="blocked",
+              hint="Antes hace falta la fecha de lanzamiento")
+    elif entregas["done"]:
+        tarea("calendario", "Calendario de entregas", "", "fa-calendar-days", state="done",
+              value=" · ".join("%s %s" % (f["label"], f["date_label"]) for f in entregas["rows"]),
+              menu=[{"label": "Cambiar las fechas", "icon": "fa-pen", "modal": "#dpDeliveryModal"}])
+    else:
+        tarea("calendario", "Calendario de entregas", "", "fa-calendar-days", True,
+              hint="Falta fijar " + ", ".join(f["label"].lower() for f in entregas["pending"]),
+              value=(" · ".join("%s %s" % (f["label"], f["date_label"])
+                                for f in entregas["rows"] if f["date"]) or None),
+              action_label="Configurar calendario", modal="#dpDeliveryModal")
 
     # ================= 3 · La PRODUCCIÓN y sus subtareas =================
     if lleva_audio:
@@ -22051,7 +22196,7 @@ def disco_project_detail(project_id):
                           "task_groups", "DISCO_TASK_PHASE_META",
                           "date_state", "production", "materials_recipients",
                           "logistics", "logistics_notes", "radio", "radio_media", "pitch_state",
-                          "press", "press_parts", "product_manager",
+                          "press", "press_parts", "product_manager", "delivery",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -22081,6 +22226,8 @@ def disco_project_detail(project_id):
             # LOGÍSTICA del proyecto (¿hace falta?, a quién se le ha pedido y qué se le pide).
             logistics=(_disco_logistics_state(session_db, project) if tab == "calendario" else None),
             logistics_notes=DISCO_LOGISTICS_NOTES,
+            # EL CALENDARIO DE ENTREGAS: los plazos y sus topes.
+            delivery=(_disco_delivery_state(session_db, project) if tab == "calendario" else None),
             # LA NOTA DE PRENSA: si se puede pedir, sus dos partes y el envío.
             press=(_disco_press_state(session_db, project) if tab == "calendario" else None),
             press_parts=DISCO_PRESS_PARTS,
@@ -25374,6 +25521,45 @@ def disco_project_production_save(project_id):
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("[proyectos] no se pudo guardar la producción")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/calendario-entregas", endpoint="disco_project_delivery_save")
+@admin_required
+def disco_project_delivery_save(project_id):
+    """Guarda el CALENDARIO DE ENTREGAS (lo que se ha arrastrado a cada día).
+
+    ⚠️ Los topes se comprueban aquí también: el calendario del navegador no puede ser la única
+    barrera. Y cada plazo se escribe donde ya vivía (el del máster es el `materials_due_date` del
+    proyecto y el de la portada el de su solicitud), así que se ve en su tarea y en sus correos."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        if not getattr(project, "release_date", None):
+            flash("Antes hace falta la fecha de lanzamiento: los plazos se cuentan desde ella.",
+                  "warning")
+            return redirect(safe_next_or(destino))
+        fechas = {clave: (request.form.get("date_%s" % clave) or "").strip()
+                  for clave, _l, _i, _s in DISCO_DELIVERY_MILESTONES
+                  if ("date_%s" % clave) in request.form}
+        problemas = _disco_delivery_apply(session_db, project, fechas)
+        session_db.commit()
+        if problemas:
+            flash("Calendario guardado, menos: " + " · ".join(problemas), "warning")
+        else:
+            flash("Calendario de entregas guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[calendario] no se pudo guardar el calendario de entregas")
         flash("No se pudo guardar: %s" % exc, "danger")
     finally:
         session_db.close()

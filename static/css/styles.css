@@ -4894,6 +4894,43 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
   border-radius: 999px; padding: .05rem .5rem;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   CALENDARIO DE ENTREGAS de un proyecto (arrastrar cada plazo a su día)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.dc-list{ display:flex; flex-direction:column; gap:.5rem; }
+.dc-item{ display:flex; align-items:flex-start; gap:.6rem; padding:.55rem .7rem; background:#fff;
+  border:1px solid #e5e7eb; border-radius:12px; cursor:grab; }
+.dc-item:hover{ border-color:rgba(227,61,72,.45); }
+.dc-item.is-picked{ border-color:var(--brand-primary,#E33D48); box-shadow:0 0 0 3px rgba(227,61,72,.12); }
+.dc-item.is-set{ background:#f6fbf7; border-color:rgba(26,127,55,.35); }
+.dc-item__ico{ flex:0 0 30px; width:30px; height:30px; border-radius:9px; background:#f1f3f7;
+  display:inline-flex; align-items:center; justify-content:center; color:#6b7280; }
+.dc-item.is-set .dc-item__ico{ background:rgba(26,127,55,.12); color:#1a7f37; }
+.dc-item__body{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+.dc-item__label{ font-weight:600; font-size:.9rem; }
+.dc-item__hint{ font-size:.72rem; color:#6b7280; }
+.dc-item__date{ font-size:.8rem; font-weight:700; color:#1a7f37; }
+.dc-item:not(.is-set) .dc-item__x{ display:none; }
+.dc-cal{ border:1px solid #e5e7eb; border-radius:14px; background:#fff; overflow:hidden; }
+.dc-cal__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem;
+  padding:.5rem .7rem; background:#f8f9fb; border-bottom:1px solid #eef0f4; }
+.dc-cal__title{ font-weight:700; text-transform:capitalize; }
+.dc-cal__dow{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px; padding:.4rem .4rem 0;
+  font-size:.7rem; color:#9aa3af; text-align:center; }
+.dc-cal__days{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px; padding:.4rem; }
+.dc-day{ min-height:4.6rem; border:1px solid #eef0f4; border-radius:8px; padding:.2rem;
+  display:flex; flex-direction:column; gap:2px; background:#fff; }
+.dc-day.is-empty{ border:0; background:none; }
+.dc-day.is-off{ background:repeating-linear-gradient(45deg, #f4f4f6 0 6px, #fafafb 6px 12px);
+  color:#c3c7ce; }
+.dc-day.is-over{ border-color:var(--brand-primary,#E33D48); box-shadow:inset 0 0 0 2px rgba(227,61,72,.18); }
+.dc-day.is-release{ border-color:rgba(227,61,72,.5); background:rgba(227,61,72,.05); }
+.dc-day__n{ font-size:.72rem; color:#6b7280; }
+.dc-chip{ display:flex; align-items:center; gap:.25rem; font-size:.66rem; font-weight:600;
+  background:rgba(26,127,55,.12); color:#166534; border-radius:6px; padding:.1rem .25rem;
+  cursor:grab; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media (max-width: 575.98px){ .dc-day{ min-height:3.4rem; } .dc-chip{ font-size:.6rem; } }
+
 /* La CABECERITA de cada fase en la lista de tareas de un proyecto (la obra · la imagen · el
    lanzamiento · para cerrar): separa el proceso sin añadir ruido. */
 .dp-phase{ background:#f8f9fb; border-top:1px solid #eef0f4; border-bottom:1px solid #eef0f4;

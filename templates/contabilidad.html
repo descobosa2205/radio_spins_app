@@ -55,6 +55,8 @@
     {% endif %}
     <td class="text-end fw-bold text-nowrap acct-total">{{ r.total|eur }}</td>
     <td class="text-nowrap">
+      {{ acc_holded(r.holded_doc_id or r.holded_doc_number, r.holded_doc_number or r.holded_doc_id,
+                    r.holded_uploaded_at) }}
       {# La ETIQUETA de estado se cambia PINCHÁNDOLA (avanza en su ciclo) y al pasar el ratón dice
          desde cuándo está contabilizado. #}
       {% if CAN_EDIT %}
@@ -65,9 +67,6 @@
         </button>
       {% else %}
         <span class="badge {{ r.status_badge }}" title="{% if r.accounting_at %}{{ r.status_label }} el {{ r.accounting_at }}{% endif %}"><i class="fa {{ r.status_icon }} me-1"></i>{{ r.status_label }}</span>
-      {% endif %}
-      {% if r.holded_doc_number or r.holded_doc_id %}
-        <div class="small text-muted text-truncate">Holded: {{ r.holded_doc_number or r.holded_doc_id }}</div>
       {% endif %}
       {% if r.accounting_note %}<div class="small text-muted text-truncate">{{ r.accounting_note }}</div>{% endif %}
       {{ acc_alert(r.holded_error, r.holded_warning) }}
@@ -166,6 +165,8 @@
     {{ acc_tax(r.vat, r.vat_pct) }}
     <td class="text-end fw-bold text-nowrap acct-total">{{ r.amount|eur }}</td>
     <td class="text-nowrap">
+      {{ acc_holded(r.holded_doc_id or r.holded_doc_number, r.holded_doc_number or r.holded_doc_id,
+                    r.holded_uploaded_at) }}
       {% if done %}
         <span class="badge text-bg-success" title="Contabilizada{% if r.accounted_label %} el {{ r.accounted_label }}{% endif %}{% if r.accounted_by %} · {{ r.accounted_by }}{% endif %}">
           <i class="fa fa-circle-check me-1"></i>Contabilizado</span>
@@ -287,6 +288,20 @@
       {% if porcentaje %}<span class="acct-pct">{{ pct(porcentaje) }}</span>{% endif %}
     {% else %}<span class="text-muted">—</span>{% endif %}
   </td>
+{% endmacro %}
+
+{# EL ICONO DE HOLDED. ⚠️ Sale **en VERDE cuando el documento ya está en Holded** (con su número al
+   pasar el ratón) y en gris cuando todavía no se ha subido: de un vistazo se sabe qué ha salido de
+   aquí. Va **antes** de la etiqueta de contabilizado, que es lo siguiente que pasa —y que **no lo
+   marcamos nosotros al subir: lo marca Holded** cuando queda guardado allí—. #}
+{% macro acc_holded(subido, numero, cuando) %}
+  {% if subido %}
+    <span class="acct-holded is-up"
+          title="En Holded{% if numero %} · {{ numero }}{% endif %}{% if cuando %} · subido el {{ cuando }}{% endif %}">
+      <i class="fa fa-cloud-arrow-up"></i></span>
+  {% else %}
+    <span class="acct-holded" title="Todavía no está en Holded"><i class="fa fa-cloud"></i></span>
+  {% endif %}
 {% endmacro %}
 
 {# LA ALERTA, resumida: un icono con el motivo al pasar el ratón (el texto largo empujaba los

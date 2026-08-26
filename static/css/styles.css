@@ -3351,6 +3351,13 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .acct-total{ font-variant-numeric:tabular-nums; }
 .acct-pct{ display:block; font-size:.68rem; color:#6b7280; }
 
+/* EL ICONO DE HOLDED: verde cuando el documento ya está allí, gris cuando todavía no. Va antes de
+   la etiqueta de contabilizado (que la marca Holded, no nosotros al subir). */
+.acct-holded{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;
+  border-radius:50%; margin-right:.25rem; font-size:.72rem; background:#f1f3f7; color:#9aa3af;
+  cursor:help; vertical-align:middle; }
+.acct-holded.is-up{ background:#e7f6ec; color:#1a7f37; }
+
 /* LA ALERTA, resumida: un icono con el motivo al pasar el ratón (así los botones no se mueven). */
 .acct-alert{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;
   border-radius:50%; margin-top:.2rem; cursor:help; font-size:.75rem; }

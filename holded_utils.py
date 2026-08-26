@@ -948,21 +948,40 @@ class HoldedClient:
         esperado = money(expected_total)
         return (abs(total - esperado) <= Decimal("0.02"), total)
 
-    def document_is_accounted(self, doc_type: str, doc_id: str) -> tuple[bool, dict]:
-        """¿Holded ya tiene el documento CONTABILIZADO (asiento hecho / aprobado)?
+    # Señales de que Holded YA lo ha contabilizado. En la **v2** son campos con fecha
+    # (`accounting_date` = la fecha con la que entra en la contabilidad · `approved_at` = cuándo se
+    # aprobó); en la v1, banderas. Confirmado con su OpenAPI.
+    ACCOUNTED_DATE_FIELDS = ("accounting_date", "approved_at", "accounted_at", "accountingDate",
+                             "approvedAt")
+    ACCOUNTED_FLAG_FIELDS = ("accounted", "isAccounted", "accountingStatus")
 
-        Holded no expone un único campo para esto, así que se aceptan las señales que sí manda:
-        `accounted`/`isAccounted` (o el estado numérico de documento ya aprobado). Si no dice nada,
-        se responde False y NO se toca la etiqueta: preferimos no saberlo a inventarlo.
+    def document_is_accounted(self, doc_type: str, doc_id: str) -> tuple[bool, dict]:
+        """¿Holded ya tiene el documento CONTABILIZADO?
+
+        ⚠️⚠️ Esto es lo que decide que el gasto pase a «Contabilizado» en la app: **subirlo NO es
+        contabilizarlo**. Se mira lo que Holded dice de verdad:
+        · **v2** → tiene `accounting_date` o `approved_at` (y no sigue en borrador);
+        · **v1** → sus banderas (`accounted`, `isAccounted`…).
+        Si Holded no dice nada, se responde False y **no se toca la etiqueta**: preferimos no saberlo a
+        inventarlo.
         """
         doc = self.get_document(doc_type, doc_id)
-        for clave in ("accounted", "isAccounted", "accountingStatus", "accounted_at"):
+        if doc.get("draft") is True:
+            return False, doc                    # un borrador no está contabilizado
+        for clave in self.ACCOUNTED_DATE_FIELDS:
+            valor = doc.get(clave)
+            if isinstance(valor, str) and valor.strip() and valor.strip().lower() not in {"0", "null"}:
+                return True, doc
+            if isinstance(valor, (int, float)) and valor:
+                return True, doc
+        for clave in self.ACCOUNTED_FLAG_FIELDS:
             valor = doc.get(clave)
             if isinstance(valor, bool) and valor:
                 return True, doc
             if isinstance(valor, (int, float)) and valor and clave != "accountingStatus":
                 return True, doc
-            if isinstance(valor, str) and valor.strip().lower() in {"1", "true", "accounted", "contabilizado"}:
+            if isinstance(valor, str) and valor.strip().lower() in {"1", "true", "accounted",
+                                                                    "contabilizado"}:
                 return True, doc
         return False, doc
 

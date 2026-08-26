@@ -3777,6 +3777,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ellos, **es ese**. Se aplica al calcularlo, a lo que viene GUARDADO en la factura (arregla las de
   antes) y al guardar lo que se lee del documento.
 
+- ⚠️⚠️ **SUBIR A HOLDED NO ES CONTABILIZAR** (ago 2026). En la fila hay **un icono de Holded**
+  (macro `acc_holded` de `contabilidad.html`, clases `.acct-holded` / `.acct-holded.is-up`) **antes**
+  de la etiqueta de estado: **verde** cuando el documento ya está en Holded (con su número y cuándo se
+  subió al pasar el ratón) y **gris** cuando todavía no. Y el gasto pasa a **CONTABILIZADO solo cuando
+  HOLDED LO TIENE GUARDADO**, no al subirlo: la subida deja `accounting_status='SUBIDO'` y es el
+  sondeo (`_holded_refresh_accounted`, cada 15 min al abrir Contabilidad + su cron) el que pregunta y
+  lo marca, con `accounting_by_nick='Holded'`.
+  · Punto único **`HoldedClient.document_is_accounted`**: relee el documento y lo da por guardado si
+  trae `accounting_date` o `approved_at` (`ACCOUNTED_DATE_FIELDS`, más los flags de
+  `ACCOUNTED_FLAG_FIELDS`). ⚠️ **Un BORRADOR nunca cuenta** (`draft: true` → False, se comprueba
+  ANTES que las fechas): en Holded un borrador puede llevar fecha contable y no está guardado.
+  · **Las LIQUIDACIONES de royalties van igual** (`_holded_refresh_accounted_royalties`, llamada al
+  final del sondeo): `accounted_at` + `accounted_by_nick='Holded'` cuando Holded las tiene.
+  ⚠️ Y **el disparador del sondeo las cuenta** (`_holded_autodetect_due` suma las liquidaciones con
+  `holded_doc_id` y sin `accounted_at`): mirando solo los `BagExpense`, una casa con solo
+  liquidaciones subidas no habría preguntado nunca y se habrían quedado en «subida» para siempre.
+
 - **CONTABILIDAD · cada persona lleva SUS EMPRESAS del grupo** (ago 2026,
   `UserProfile.accounting_company_ids`): a la gente de **Contabilidad** se le asignan las empresas del
   grupo que le corresponden y **lo PENDIENTE de contabilizar es solo el de sus empresas** —los cuatro

@@ -70904,6 +70904,8 @@ def _royalty_holded_fields(session_db, rec) -> dict:
     return {
         "holded_doc_id": (getattr(rec, "holded_doc_id", None) or ""),
         "holded_doc_number": (getattr(rec, "holded_doc_number", None) or ""),
+        "holded_uploaded_at": (rec.holded_uploaded_at.strftime("%d/%m/%Y %H:%M")
+                               if getattr(rec, "holded_uploaded_at", None) else ""),
         "holded_error": (getattr(rec, "holded_error", None) or ""),
         "holded_warning": (getattr(rec, "holded_warning", None) or ""),
         "company_name": (getattr(company, "name", None) or ""),
@@ -76243,6 +76245,8 @@ def _accounting_expense_row(session_db, expense, datos: dict) -> dict:
         "invoice_id": (str(invoice.id) if invoice is not None else ""),
         "holded_doc_id": (getattr(expense, "holded_doc_id", None) or ""),
         "holded_doc_number": (getattr(expense, "holded_doc_number", None) or ""),
+        "holded_uploaded_at": (expense.holded_uploaded_at.strftime("%d/%m/%Y %H:%M")
+                               if getattr(expense, "holded_uploaded_at", None) else ""),
         "holded_error": (getattr(expense, "holded_error", None) or ""),
         "holded_warning": (getattr(expense, "holded_warning", None) or ""),
         "category_label": BAG_EXPENSE_CATEGORY_LABELS.get(
@@ -88772,6 +88776,48 @@ def _accounting_bag_close_if_done(session_db, bag) -> bool:
     return True
 
 
+def _holded_refresh_accounted_royalties(session_db, *, limit: int = 200) -> dict:
+    """Lo mismo que `_holded_refresh_accounted`, para las LIQUIDACIONES de royalties subidas.
+
+    ⚠️ Una liquidación pasa a «contabilizada» cuando **Holded la tiene guardada** (su
+    `accounting_date`/`approved_at`), no al subirla."""
+    from holded_utils import HoldedError
+    salida = {"roy_checked": 0, "roy_accounted": 0}
+    filas = (session_db.query(RoyaltyLiquidation)
+             .filter(RoyaltyLiquidation.holded_doc_id.isnot(None),
+                     RoyaltyLiquidation.accounted_at.is_(None))
+             .order_by(RoyaltyLiquidation.updated_at.asc().nullslast()).limit(limit).all())
+    clientes = {}
+    for rec in filas:
+        company = _royalty_holded_company(session_db, rec)
+        cid = str(getattr(company, "id", "") or "")
+        if not cid:
+            continue
+        if cid not in clientes:
+            acc = _holded_account_for_company(session_db, cid)
+            try:
+                clientes[cid] = (_holded_client_for_account(acc), acc)
+            except HoldedError:
+                clientes[cid] = (None, acc)
+        client, acc = clientes[cid]
+        if client is None:
+            continue
+        salida["roy_checked"] += 1
+        try:
+            guardada, _doc = client.document_is_accounted(
+                getattr(rec, "holded_doc_type", None) or "purchase", rec.holded_doc_id)
+        except HoldedError:
+            continue
+        if guardada:
+            rec.accounted_at = _now_madrid()
+            rec.accounted_by_nick = "Holded"
+            rec.updated_at = _now_madrid()
+            session_db.add(rec)
+            salida["roy_accounted"] += 1
+        _holded_persist_client_state(acc, client)
+    return salida
+
+
 def _holded_refresh_accounted(session_db, *, limit: int = 400) -> dict:
     """Pregunta a Holded por los documentos ya SUBIDOS y marca como contabilizados los que lo estén.
 
@@ -88813,6 +88859,12 @@ def _holded_refresh_accounted(session_db, *, limit: int = 400) -> dict:
             _accounting_set_status(session_db, expense, "CONTABILIZADO", nick="Holded")
             salida["accounted"] += 1
         _holded_persist_client_state(acc, client)
+    # …y lo mismo con las LIQUIDACIONES de royalties, que también se suben a Holded: pasan a
+    # contabilizadas cuando **Holded** las tiene guardadas, no al subirlas.
+    try:
+        salida.update(_holded_refresh_accounted_royalties(session_db, limit=limit))
+    except Exception:
+        app.logger.exception("[holded] no se pudo repasar el estado de las liquidaciones")
     session_db.commit()
     return salida
 
@@ -88824,6 +88876,12 @@ def _holded_autodetect_due(session_db, *, minutes: int = 15) -> bool:
                       .filter(BagExpense.holded_doc_id.isnot(None),
                               func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE")) == "SUBIDO")
                       .scalar()) or 0
+        # ⚠️ Las LIQUIDACIONES de royalties también se suben a Holded: si solo hay de esas, hay que
+        # preguntar igual (si no, se quedarían en «subida» para siempre).
+        pendientes += (session_db.query(func.count(RoyaltyLiquidation.id))
+                       .filter(RoyaltyLiquidation.holded_doc_id.isnot(None),
+                               RoyaltyLiquidation.accounted_at.is_(None))
+                       .scalar()) or 0
         if not pendientes:
             return False
         cuentas = (session_db.query(HoldedAccount)

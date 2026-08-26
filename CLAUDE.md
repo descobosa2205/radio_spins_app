@@ -927,6 +927,49 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · APROBACIONES EN CADENA** (motor único, ago 2026). Cuatro cosas del sello se aprueban
+  igual (la **mezcla final**, los **materiales**, la **foto** y la **portada**), así que el motor es
+  UNO: `DiscoApproval` + `DiscoApprovalVoter` (`ensure_disco_approvals_schema`) y
+  `_disco_approval_open` · `_disco_approval_state` · `_disco_approval_notify` ·
+  `_disco_approval_decide` · `_disco_approval_all_done`.
+  · **Un enlace POR PERSONA** (`public_disco_approval`, `/aprobacion/<token>`): se ve lo que hay que
+  aprobar —la mezcla **se escucha ahí mismo**—, hay **dos botones (verde aprobar · rojo rechazar,
+  que pide el motivo)** y **los demás con su foto y su estado** (✓ verde · **? amarillo a la espera**
+  · ✗ rojo).
+  · ⚠️⚠️ **VA EN CADENA**: `stage` 1 = **nuestro artista** y sus integrantes · 2 = **el colaborador**
+  · 3 = **terceros añadidos** a mano. Al colaborador **no se le escribe hasta que los nuestros han
+  dado el OK** (`_disco_approval_decide` avisa a la etapa siguiente solo cuando la suya se cierra).
+  · **Quién aprueba sale de la casa** (`_disco_approval_candidates`): los **integrantes** del artista
+  (`ArtistPerson` → su tercero), los **colaboradores** (los intérpretes de la canción que no son del
+  artista) y lo que el artista tenga en **Notificaciones → «Aprobación de mezclas y materiales»**
+  (canal nuevo `APROBACIONES`).
+  ⚠️ `SongInterpreter` **solo guarda el NOMBRE** (no tiene `promoter_id`): su ficha se busca **por
+  nombre** para sacarle el correo, sin crear nada.
+  ⚠️ Un RECHAZO cierra la aprobación (`REJECTED`) con el motivo y avisa a quien lleva el proyecto:
+  hay que rehacerlo y volver a pedirla (`_disco_approval_open` borra la anterior — lo que se aprueba
+  es siempre la ÚLTIMA versión).
+  ⚠️ El estado VACÍO trae las **mismas claves** que el lleno: si no, leer algo que aún no se ha pedido
+  revienta con un KeyError (pasó con `ko`).
+
+- **PROYECTO · LA MEZCLA FINAL, antes de masterizar** (ago 2026): **no se masteriza sin que las partes
+  hayan aprobado la mezcla**.
+  · **1 · Se le pide al PRODUCTOR** (`disco_project_mix_ask`) con su plazo, que sale del **calendario
+  de entregas** y tiene que ser **4 semanas antes** del lanzamiento (`DISCO_MIX_MIN_WEEKS`).
+  ⚠️ Si el plazo se sale de ahí —o **el paso no hace falta**— es una **EXCEPCIÓN** y la aprueba **quien
+  sea DIRECCIÓN Y SELLO a la vez** (`_direccion_sello_user_ids`, punto único; si nadie tiene las dos
+  cosas se cae a dirección): se le manda la petición **con el motivo** y, mientras, la tarea se queda
+  **esperando** (`disco_project_mix_waiver` la aprueba o la rechaza).
+  · **2 · El productor la sube por su enlace** (`public_disco_mix_upload`, `/mezcla-final/<token>`) y
+  al **jefe de producto** le llega que ya se puede pedir la aprobación.
+  · **3 · Aprobación en cadena** (`disco_project_mix_approval`) con el motor de arriba, y se pueden
+  **añadir terceros** que también tengan que aprobar.
+  · **4 · Cuando aprueban TODOS**, al productor le llega **solo**: «todas las partes han dado el OK a
+  la mezcla final, podemos avanzar con el máster», con la **fecha máxima de entrega** y el **enlace de
+  entrega de masters de siempre** (`_disco_project_delivery_links`, que ahora devuelve también
+  `required_labels`, lo que ese enlace **exige**). La tarea pasa a **«Pendiente de recibir el máster
+  final»** hasta que llega.
+  ⚠️ Si el correo no sale, **no se dice que se avisó**: el flash da el enlace para mandarlo a mano.
+
 - **PROYECTO · EL CALENDARIO DE ENTREGAS** (ago 2026): antes de pedirle nada a nadie se **fijan los
   plazos** —mezcla final, máster, portada, videoclip y creatividades— **arrastrando** cada cosa al día
   que le toca: a la **izquierda** lo que hay que fijar (con su mínimo y su tope) y a la **derecha** el

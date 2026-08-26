@@ -1,0 +1,124 @@
+{# ============================================================================================
+   PÁGINA PÚBLICA · APROBAR o RECHAZAR (la mezcla final, los materiales, la foto, la portada).
+   Un enlace POR PERSONA. Se ve lo que hay que aprobar —la mezcla se escucha aquí mismo—, los DOS
+   botones (verde aprobar · rojo rechazar, que pide el motivo) y **los demás con su foto y su
+   estado**: ✓ verde ya dijeron sí · ? amarillo a la espera · ✗ rojo dijeron que no.
+   ============================================================================================ #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ state.label }} · {{ ctx.title }}</title>
+  <meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}">
+  <meta property="og:title" content="{{ ctx.title }}">
+  <meta property="og:description" content="{{ state.label }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4" style="max-width:860px;">
+  <div class="card shadow-sm">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-end">
+        {% if ctx.brand and ctx.brand.logo_url %}
+          <img src="{{ ctx.brand.logo_url }}" alt="{{ ctx.brand.company_name or 'PIES' }}"
+               style="max-height:56px;max-width:180px;object-fit:contain;">
+        {% endif %}
+      </div>
+      <h1 class="h3 text-center mt-2 mb-4">{{ state.label }}</h1>
+
+      <div class="d-flex align-items-center gap-3 border rounded-3 p-3 mb-4 bg-white">
+        {% if ctx.cover_url %}
+          <img src="{{ ctx.cover_url }}" alt="" style="width:88px;height:88px;object-fit:cover;border-radius:14px;border:1px solid #e5e7eb;">
+        {% endif %}
+        <div class="min-w-0">
+          <div class="fs-5 fw-bold text-truncate">{{ ctx.title }}</div>
+          <div class="text-muted small">{{ ctx.artist_name }}</div>
+          <div class="mt-1">
+            <span class="badge text-bg-light border">Lanzamiento: {{ ctx.release_label }}</span>
+            <span class="badge text-bg-dark">{{ ctx.badge_label }}</span>
+          </div>
+        </div>
+      </div>
+
+      {% if state.note %}
+        <div class="alert alert-secondary small"><i class="fa fa-note-sticky me-1"></i>{{ state.note }}</div>
+      {% endif %}
+
+      {# LO QUE HAY QUE APROBAR #}
+      {% if state.media == 'audio' and state.file_url %}
+        <div class="border rounded-3 p-3 mb-3 bg-white">
+          <div class="small text-muted mb-2"><i class="fa fa-headphones me-1"></i>Escúchala entera antes de decidir</div>
+          <audio class="w-100" controls preload="metadata" src="{{ state.file_url }}"></audio>
+        </div>
+      {% elif state.file_url %}
+        <div class="border rounded-3 p-3 mb-3 bg-white text-center">
+          <img src="{{ state.file_url }}" alt="" class="img-fluid rounded" style="max-height:420px;">
+        </div>
+      {% endif %}
+
+      {# QUIÉN MÁS TIENE QUE DECIR ALGO (con su foto y su estado) #}
+      {% set otros = state.voters | rejectattr('id', 'equalto', voter.id|string) | list %}
+      {% if otros %}
+        <div class="mb-3">
+          <div class="small text-muted mb-2">Los demás:</div>
+          <div class="d-flex flex-wrap gap-2">
+            {% for v in otros %}
+              <span class="d-inline-flex align-items-center gap-2 border rounded-pill ps-1 pe-2 py-1 bg-white"
+                    title="{{ v.status|lower }}{% if v.note %} · {{ v.note }}{% endif %}">
+                <img src="{{ v.photo_url or url_for('static', filename='img/avatar_placeholder.png') }}"
+                     alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+                <span class="small">{{ v.name }}</span>
+                {% if v.status == 'APROBADA' %}
+                  <i class="fa fa-circle-check text-success"></i>
+                {% elif v.status == 'RECHAZADA' %}
+                  <i class="fa fa-circle-xmark text-danger"></i>
+                {% else %}
+                  <i class="fa fa-circle-question text-warning" title="A la espera"></i>
+                {% endif %}
+              </span>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      {% if mode == 'done' %}
+        {% if voter.status == 'APROBADA' %}
+          <div class="alert alert-success"><i class="fa fa-circle-check me-1"></i>
+            ¡Gracias! Queda tu OK apuntado.</div>
+        {% elif voter.status == 'RECHAZADA' %}
+          <div class="alert alert-danger"><i class="fa fa-circle-xmark me-1"></i>
+            Queda apuntado que hay que cambiarlo{% if voter.note %}: «{{ voter.note }}»{% endif %}.</div>
+        {% endif %}
+        {% if state.done %}
+          <div class="alert alert-secondary small mb-0">Ya han dado el visto bueno todas las partes.</div>
+        {% elif state.pending %}
+          <div class="small text-muted">Falta{{ '' if state.pending|length == 1 else 'n' }}
+            {{ state.pending|length }} por contestar.</div>
+        {% endif %}
+      {% else %}
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <p class="text-muted">Hola <strong>{{ voter.name }}</strong>, dinos si te parece bien o si hay
+          que cambiar algo.</p>
+        <form method="post" data-approval-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+          <label class="form-label">Si hay que cambiar algo, cuéntanoslo</label>
+          <textarea class="form-control" name="note" rows="3"
+                    placeholder="Solo hace falta si lo rechazas"></textarea>
+          <div class="d-flex flex-wrap gap-2 justify-content-end mt-3">
+            <button class="btn btn-outline-danger btn-lg" name="decision" value="KO">
+              <i class="fa fa-thumbs-down me-1"></i>Hay que cambiarlo</button>
+            <button class="btn btn-success btn-lg" name="decision" value="OK">
+              <i class="fa fa-thumbs-up me-1"></i>Me parece bien</button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="text-center text-muted small mt-3">{{ ctx.brand.company_name or 'PIES Records' }}</div>
+</div>
+</body>
+</html>

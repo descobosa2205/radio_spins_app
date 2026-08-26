@@ -472,7 +472,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_photo_approval_decide",
     # Las páginas públicas de la PORTADA de un proyecto (subirla, la idea del artista y su
     # aprobación): las abre gente de fuera con su token, sin sesión.
-    "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea",
+    "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval",
     # Subir las creatividades (diseño) y los IDs de plataforma (el artista).
     "public_disco_creatives", "public_song_platform_ids", "public_disco_plan",
     "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
@@ -833,7 +833,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -6684,6 +6684,9 @@ ARTIST_NOTIFICATION_CHANNELS = [
     # Los avisos de CONTENIDOS y publicaciones (el cronograma del plan de lanzamiento y el
     # recordatorio de cada publicación).
     ("CONTENIDOS", "Contenidos y publicaciones", "fa-photo-film"),
+    # Quién más tiene que APROBAR la mezcla final, los materiales o la portada (además de los
+    # integrantes del artista y de los colaboradores, que salen solos).
+    ("APROBACIONES", "Aprobación de mezclas y materiales", "fa-thumbs-up"),
 ]
 # Los canales de aviso de una actividad, por si lleva caché o no.
 ACTIVITY_NOTIFICATION_CHANNELS = ("ACTIVIDADES_CACHE", "ACTIVIDADES_SIN_CACHE")
@@ -20270,6 +20273,16 @@ def _disco_logistics_state(session_db, project) -> dict:
     }
 
 
+def _iso_or_date_label(valor) -> str:
+    """«12/09/2026» de una fecha (o de una marca ISO). Vacío si no hay nada."""
+    if not valor:
+        return ""
+    try:
+        return valor.strftime("%d/%m/%Y")
+    except AttributeError:
+        return _iso_date_label(valor)
+
+
 def _iso_date_label(valor) -> str:
     """«12/09/2026» de una marca ISO guardada en un payload (o vacío)."""
     try:
@@ -20791,6 +20804,440 @@ def _disco_delivery_apply(session_db, project, fechas: dict) -> list[str]:
     return problemas
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTO · APROBACIONES EN CADENA  (mezcla final · materiales · foto · portada)
+#
+# Cuatro cosas del sello se aprueban igual, así que el motor es UNO:
+#   · se abre la aprobación con LO QUE HAY QUE APROBAR (un audio, una imagen, una lista);
+#   · cada persona tiene **su enlace** y decide con **dos botones: verde aprobar · rojo rechazar**
+#     (rechazar pide el motivo), y ve **a los demás con su foto y su estado** (✓ verde · ? amarillo);
+#   · **VA EN CADENA**: primero NUESTRO artista (y sus integrantes) y, cuando han aprobado TODOS,
+#     el COLABORADOR. Así lo pidió Dani: al colaborador no se le molesta antes de tiempo.
+#   · cuando aprueban todos se dispara lo que toque (en la mezcla final: el aviso al productor de
+#     que puede masterizar). Si alguien rechaza, la aprobación queda RECHAZADA con su motivo y hay
+#     que rehacer y volver a pedirla.
+#
+# ⚠️ Quién tiene que aprobar sale de la casa: los **integrantes** del artista (`ArtistPerson` →
+# su tercero), los **colaboradores** (los intérpretes de la canción que no son del artista) y lo que
+# el artista tenga configurado en **Notificaciones → canal APROBACIONES**. Y se pueden **añadir
+# terceros** a mano.
+# ═════════════════════════════════════════════════════════════════════════════
+
+DISCO_APPROVAL_KINDS = (
+    ("MIX", "Mezcla final", "fa-sliders", "audio"),
+    ("MATERIALS", "Materiales", "fa-shapes", "files"),
+    ("COVER_PHOTO", "Foto para la portada", "fa-images", "images"),
+    ("COVER", "Portada", "fa-image", "image"),
+)
+DISCO_APPROVAL_META = {k: (lbl, ico, tipo) for k, lbl, ico, tipo in DISCO_APPROVAL_KINDS}
+# Las tres etapas de la cadena (a quién se le pide y en qué orden).
+DISCO_APPROVAL_STAGES = {1: "Nuestro artista", 2: "El colaborador", 3: "Añadidos"}
+
+
+def _disco_approval_url(voter) -> str:
+    """El enlace de UNA persona para ver y aprobar (vacío si no se puede construir)."""
+    token = (getattr(voter, "token", "") or "").strip()
+    if not token:
+        return ""
+    try:
+        return _external_url_for("public_disco_approval", token=token)
+    except Exception:
+        return ""
+
+
+def _disco_approval_candidates(session_db, project) -> list[dict]:
+    """QUIÉN tiene que aprobar y en qué ETAPA: integrantes del artista (1), colaboradores (2) y lo
+    configurado en el canal APROBACIONES del artista (1).
+
+    ⚠️ `_song_interpreter_rows_map` devuelve **objetos del ORM**, no diccionarios (un `.get(...)`
+    sobre ellos revienta y, dentro de un `try`, se traga la lista entera)."""
+    filas, vistos = [], set()
+
+    def añade(nombre, *, stage, role, promoter=None, email="", phone="", photo=""):
+        nombre = (nombre or "").strip()
+        if not nombre:
+            return
+        clave = _norm_person_name_key(nombre)
+        if clave in vistos:
+            return
+        vistos.add(clave)
+        correo, tel = ("", "")
+        if promoter is not None:
+            correo, tel = _promoter_email_phone(promoter)
+        filas.append({"name": nombre, "stage": stage, "role": role,
+                      "promoter_id": (str(promoter.id) if promoter is not None else ""),
+                      "email": (email or correo or ""), "phone": (phone or tel or ""),
+                      "photo_url": (photo or (getattr(promoter, "logo_url", "") or ""))})
+
+    artista = (getattr(project, "artist", None)
+               or (session_db.get(Artist, project.artist_id) if getattr(project, "artist_id", None) else None))
+    # 1 · los INTEGRANTES de nuestro artista (o el propio artista si no hay integrantes)
+    integrantes = []
+    if artista is not None:
+        try:
+            integrantes = (session_db.query(ArtistPerson)
+                           .filter(ArtistPerson.artist_id == artista.id).all())
+        except Exception:
+            app.logger.exception("[aprobaciones] no se pudieron leer los integrantes")
+    for persona in integrantes:
+        tercero = (session_db.get(Promoter, persona.promoter_id)
+                   if getattr(persona, "promoter_id", None) else None)
+        añade(_artist_person_full_name(persona), stage=1, role="INTEGRANTE", promoter=tercero)
+    if not integrantes and artista is not None:
+        añade(getattr(artista, "name", ""), stage=1, role="ARTISTA",
+              photo=(getattr(artista, "photo_url", "") or ""))
+    # …y lo que el artista tenga configurado para APROBACIONES.
+    if artista is not None:
+        for fila in (_artist_notification_recipients(session_db, artista.id, "APROBACIONES",
+                                                    fallback=False) or []):
+            añade(fila.get("name") or fila.get("email"), stage=1, role="OTRO",
+                  email=(fila.get("email") or ""), phone=(fila.get("phone") or ""))
+    # 2 · los COLABORADORES (los intérpretes de la canción que no son nuestro artista)
+    cancion = _disco_project_release_song(session_db, project)
+    if cancion is not None:
+        propios = {_norm_person_name_key(getattr(a, "name", "") or "")
+                   for a in (getattr(cancion, "artists", None) or [])}
+        for fila in (_song_interpreter_rows_map(session_db, [cancion.id]).get(str(cancion.id)) or []):
+            nombre = (getattr(fila, "name", "") or "").strip()
+            if not nombre or _norm_person_name_key(nombre) in propios:
+                continue
+            # ⚠️ `SongInterpreter` solo guarda el NOMBRE (no tiene `promoter_id`), así que su ficha
+            # se busca por nombre —sin crear nada— para poder sacarle el correo y el teléfono.
+            tercero = (session_db.query(Promoter)
+                       .filter(func.lower(Promoter.nick) == nombre.lower()).first())
+            añade(nombre, stage=2, role="COLABORADOR", promoter=tercero)
+    return filas
+
+
+def _disco_approval(session_db, project, kind: str):
+    """La aprobación VIVA de ese tipo (la última), o None."""
+    try:
+        return (session_db.query(DiscoApproval)
+                .options(joinedload(DiscoApproval.voters))
+                .filter(DiscoApproval.project_id == project.id,
+                        func.upper(DiscoApproval.kind) == (kind or "").upper())
+                .order_by(DiscoApproval.created_at.desc()).first())
+    except Exception:
+        app.logger.exception("[aprobaciones] no se pudo leer la aprobación")
+        return None
+
+
+def _disco_approval_state(session_db, project, kind: str) -> dict:
+    """Cómo va esa aprobación: quién ha dicho qué, a quién le toca ahora y si está cerrada."""
+    fila = _disco_approval(session_db, project, kind)
+    etiqueta, icono, tipo = DISCO_APPROVAL_META.get((kind or "").upper(), ("Aprobación", "fa-check", ""))
+    # ⚠️ El estado VACÍO tiene que traer las MISMAS claves que el lleno: si no, cualquier lectura de
+    # algo que todavía no se ha pedido revienta con un KeyError (pasó con `ko`).
+    if fila is None:
+        return {"exists": False, "row": None, "label": etiqueta, "icon": icono, "media": tipo,
+                "status": "", "file_url": "", "file_name": "", "note": "",
+                "due_date": None, "due_label": "", "requested_by": "", "requested_label": "",
+                "voters": [], "stage": 0, "stage_label": "", "pending": [], "approved": [],
+                "rejected": [], "open": False, "done": False, "ko": False}
+    votantes = []
+    for v in (fila.voters or []):
+        estado = (v.status or "PENDIENTE").upper()
+        votantes.append({
+            "id": str(v.id), "name": (v.name or ""), "role": (v.role or ""),
+            "stage": int(v.stage or 1), "photo_url": (v.photo_url or ""),
+            "email": (v.email or ""), "phone": (v.phone or ""),
+            "status": estado, "note": (v.note or ""),
+            "url": _disco_approval_url(v),
+            "decided_label": (_format_madrid_datetime_label(v.decided_at) if v.decided_at else ""),
+            "notified": bool(v.notified_at),
+        })
+    pendientes = [v for v in votantes if v["status"] == "PENDIENTE"]
+    # A quién le toca AHORA: la etapa más baja que aún tenga gente pendiente.
+    etapa = min([v["stage"] for v in pendientes], default=0)
+    estado_fila = (fila.status or "OPEN").upper()
+    return {
+        "exists": True, "row": fila, "label": etiqueta, "icon": icono, "media": tipo,
+        "status": estado_fila,
+        "file_url": (fila.file_url or ""), "file_name": (fila.file_name or ""),
+        "note": (fila.note or ""),
+        "due_date": fila.due_date,
+        "due_label": (fila.due_date.strftime("%d/%m/%Y") if fila.due_date else ""),
+        "requested_by": (fila.requested_by_nick or ""),
+        "requested_label": (_format_madrid_datetime_label(fila.requested_at) if fila.requested_at else ""),
+        "voters": votantes,
+        "stage": etapa,
+        "stage_label": DISCO_APPROVAL_STAGES.get(etapa, ""),
+        "pending": pendientes,
+        "approved": [v for v in votantes if v["status"] == "APROBADA"],
+        "rejected": [v for v in votantes if v["status"] == "RECHAZADA"],
+        "open": estado_fila == "OPEN",
+        "done": estado_fila == "APPROVED",
+        "ko": estado_fila == "REJECTED",
+    }
+
+
+def _disco_approval_open(session_db, project, kind: str, *, file_url="", file_name="",
+                         note="", due_date=None, payload=None, extra=None):
+    """Abre (o rehace) la aprobación de algo y crea el enlace de cada persona.
+
+    `extra` son terceros añadidos a mano: [{'name','email','phone','promoter_id'}] (etapa 3)."""
+    kind = (kind or "").upper()
+    # Se cierra la anterior: lo que se aprueba es SIEMPRE la última versión.
+    anterior = _disco_approval(session_db, project, kind)
+    if anterior is not None:
+        session_db.delete(anterior)
+        session_db.flush()
+    yo = (_current_user_state() or {})
+    fila = DiscoApproval(project_id=project.id, kind=kind, status="OPEN",
+                         file_url=(file_url or None), file_name=(file_name or None),
+                         payload=(payload or {}), note=((note or "").strip() or None),
+                         due_date=due_date,
+                         requested_by_user_id=_safe_uuid(yo.get("user_id")),
+                         requested_by_nick=(yo.get("nick") or ""),
+                         requested_at=_now_madrid())
+    session_db.add(fila)
+    session_db.flush()
+    for cand in (_disco_approval_candidates(session_db, project) + list(extra or [])):
+        session_db.add(DiscoApprovalVoter(
+            approval_id=fila.id, stage=int(cand.get("stage") or 3),
+            promoter_id=_safe_uuid(cand.get("promoter_id")),
+            name=(cand.get("name") or ""), email=(cand.get("email") or ""),
+            phone=(cand.get("phone") or ""), photo_url=(cand.get("photo_url") or ""),
+            role=(cand.get("role") or "OTRO"), token=_uuid_token(), status="PENDIENTE"))
+    session_db.flush()
+    return fila
+
+
+def _disco_approval_notify(session_db, project, fila, stage: int) -> list[str]:
+    """Manda su enlace a los de ESA etapa. Devuelve a quién le ha llegado."""
+    etiqueta, _i, _t = DISCO_APPROVAL_META.get((fila.kind or "").upper(),
+                                               ("Aprobación", "", ""))
+    salieron = []
+    for v in (fila.voters or []):
+        if int(v.stage or 1) != int(stage) or (v.status or "").upper() != "PENDIENTE":
+            continue
+        enlace = _disco_approval_url(v)
+        cuerpo = _disco_project_email_shell(
+            session_db, project, title=etiqueta,
+            body_html=('<p style="margin:0;">Hola %s, necesitamos tu visto bueno: échale un ojo y '
+                       'dinos si te parece bien o si hay que cambiar algo.</p>'
+                       % html.escape(v.name or "")),
+            button_label="Ver y aprobar", button_url=enlace,
+            note=(fila.note or ""))
+        filas = _notify_apply_prefs(session_db, [{"name": (v.name or ""), "email": (v.email or ""),
+                                                  "phone": (v.phone or ""),
+                                                  "promoter_id": (str(v.promoter_id) if v.promoter_id else "")}])
+        for f in filas:
+            ok, _err = _notify_send_row(
+                session_db, f,
+                subject="%s · %s" % (etiqueta, _disco_project_title(project)),
+                html=cuerpo,
+                sms_text="%s de %s: dinos si te parece bien · %s"
+                         % (etiqueta, _disco_project_title(project), enlace),
+                kind="DISCOGRAFICA")
+            if ok:
+                v.notified_at = _now_madrid()
+                session_db.add(v)
+                salieron.append(v.name or v.email)
+    return salieron
+
+
+def _disco_approval_decide(session_db, voter, aprueba: bool, note: str = "") -> dict:
+    """Una persona decide. Si su ETAPA queda aprobada del todo, se avisa a la siguiente; si no queda
+    ninguna, la aprobación se cierra y se dispara lo que toque."""
+    fila = voter.approval
+    voter.status = ("APROBADA" if aprueba else "RECHAZADA")
+    voter.note = ((note or "").strip() or None)
+    voter.decided_at = _now_madrid()
+    session_db.add(voter)
+    session_db.flush()
+    project = session_db.get(DiscoProject, fila.project_id)
+    resultado = {"closed": False, "approved": False, "next_stage": 0}
+    if not aprueba:
+        fila.status = "REJECTED"
+        fila.closed_at = _now_madrid()
+        session_db.add(fila)
+        resultado["closed"] = True
+        # A quien lo pidió (y a quien lleva el proyecto) hay que decírselo: toca rehacerlo.
+        _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                      "%s RECHAZADA: %s" % (DISCO_APPROVAL_META.get((fila.kind or "").upper(),
+                                                                    ("Aprobación", "", ""))[0],
+                                            _disco_project_title(project)),
+                      "%s dice que no%s" % ((voter.name or "Alguien"),
+                                            (": %s" % voter.note) if voter.note else "."),
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_APPROVAL_%s" % (fila.kind or "").upper(), ref_id=str(project.id))
+        return resultado
+    pendientes = [v for v in (fila.voters or []) if (v.status or "").upper() == "PENDIENTE"]
+    if not pendientes:
+        fila.status = "APPROVED"
+        fila.closed_at = _now_madrid()
+        session_db.add(fila)
+        resultado.update({"closed": True, "approved": True})
+        _disco_approval_all_done(session_db, project, fila)
+        return resultado
+    siguiente = min(int(v.stage or 1) for v in pendientes)
+    if siguiente != int(voter.stage or 1):
+        # Se ha terminado su etapa: le toca a la siguiente (la cadena no se salta).
+        _disco_approval_notify(session_db, project, fila, siguiente)
+        resultado["next_stage"] = siguiente
+    return resultado
+
+
+def _direccion_sello_user_ids(session_db) -> list[str]:
+    """Quien es **DIRECCIÓN y SELLO a la vez**: es quien aprueba las excepciones del sello (una fecha
+    de entrega distinta, el plan de lanzamiento…). Punto único.
+
+    ⚠️ Si NADIE tiene las dos cosas se cae a **dirección** (mejor que lo apruebe dirección que dejar
+    la excepción sin poder aprobarse nunca), y eso se dice donde haga falta."""
+    fuera = _inactive_user_ids(session_db)
+    ambos, direccion = [], []
+    try:
+        for u, prof in (session_db.query(User, UserProfile)
+                        .outerjoin(UserProfile, UserProfile.user_id == User.id)
+                        .filter(User.role == 10).all()):
+            if u.id in fuera or getattr(prof, "is_external", False):
+                continue
+            direccion.append(str(u.id))
+            if prof is not None and _profile_in_department(prof, "Sello"):
+                ambos.append(str(u.id))
+    except Exception:
+        app.logger.exception("[sello] no se pudo resolver quién es dirección y sello")
+    return ambos or direccion
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTO · LA MEZCLA FINAL (y su aprobación antes de masterizar)
+#
+# ⚠️ **No se masteriza sin que las partes hayan aprobado la mezcla final**: el artista (y sus
+# integrantes) y, si es una colaboración, el colaborador. El recorrido es:
+#   1 · **Pedírsela al PRODUCTOR** con su plazo, que sale del CALENDARIO DE ENTREGAS y **tiene que
+#       ser 4 semanas antes del lanzamiento**. Si hace falta otra fecha (o el paso no aplica), se
+#       pide una **excepción** y la aprueba **quien sea dirección Y sello**; mientras, pendiente.
+#   2 · El productor la **sube por su enlace**.
+#   3 · El **jefe de producto** pide la aprobación → cada parte decide en su enlace (verde/rojo) y ve
+#       a los demás con su foto y su estado.
+#   4 · Cuando **aprueban todos**, al productor le llega solo: «todas las partes han dado el OK a la
+#       mezcla final, podemos avanzar con el máster; la fecha máxima de entrega es el X», con el
+#       enlace para subir los másters y lo que es obligatorio. La tarea pasa a **pendiente de recibir
+#       el máster final**.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Semanas mínimas entre la MEZCLA FINAL y el lanzamiento (hay que aprobarla y masterizar).
+DISCO_MIX_MIN_WEEKS = 4
+
+
+def _disco_mix(project) -> dict:
+    """Lo guardado de la mezcla final."""
+    return dict((_disco_prod(project).get("mix") or {}))
+
+
+def _disco_mix_url(project) -> str:
+    """El enlace del PRODUCTOR para subir la mezcla final."""
+    token = (_disco_mix(project).get("token") or "").strip()
+    if not token:
+        return ""
+    try:
+        return _external_url_for("public_disco_mix_upload", token=token)
+    except Exception:
+        return ""
+
+
+def _disco_mix_state(session_db, project) -> dict:
+    """Cómo va la mezcla final: el plazo, si se ha pedido, si está subida y su aprobación."""
+    fila = _disco_mix(project)
+    entregas = _disco_delivery_state(session_db, project)
+    plazo_cal = next((f["date"] for f in entregas["rows"] if f["key"] == "mix_final"), None)
+    plazo = plazo_cal or _parse_iso_date_safe(fila.get("due_date"))
+    tope = _disco_delivery_limit(getattr(project, "release_date", None), "mix_final")
+    aprob = _disco_approval_state(session_db, project, "MIX")
+    return {
+        "due_date": plazo,
+        "due_label": (plazo.strftime("%d/%m/%Y") if plazo else ""),
+        "limit": tope,
+        "limit_label": (tope.strftime("%d/%m/%Y") if tope else ""),
+        # ⚠️ Una fecha DESPUÉS del tope (o saltarse el paso) es una EXCEPCIÓN: la aprueba dirección+sello.
+        "needs_waiver": bool(plazo and tope and plazo > tope),
+        "waiver_asked": bool(fila.get("waiver_asked_at")),
+        "waiver_reason": (fila.get("waiver_reason") or ""),
+        "waiver_ok": bool(fila.get("waiver_ok_at")),
+        "waiver_by": (fila.get("waiver_ok_by") or ""),
+        "skipped": bool(fila.get("skipped")),
+        "asked": bool(fila.get("asked_at")),
+        "asked_label": _iso_date_label(fila.get("asked_at")),
+        "file_url": (fila.get("file_url") or ""),
+        "file_name": (fila.get("file_name") or ""),
+        "uploaded_label": _iso_date_label(fila.get("file_at")),
+        "url": _disco_mix_url(project),
+        "approval": aprob,
+        "producer": (session_db.get(Promoter, project.producer_promoter_id)
+                     if getattr(project, "producer_promoter_id", None) else None),
+        "master_notified": bool(fila.get("master_notified_at")),
+    }
+
+
+def _disco_approval_all_done(session_db, project, fila) -> None:
+    """QUÉ PASA cuando aprueban todos. Cada tipo dispara lo suyo (punto único).
+
+    · **MIX** → al PRODUCTOR le llega que puede masterizar, con la fecha máxima de entrega del máster
+      y el enlace para subirlo (con lo que es obligatorio). Y a quien lleva el proyecto, que ya está.
+    · Los demás tipos (materiales, foto, portada) se enganchan aquí cuando toque."""
+    kind = (getattr(fila, "kind", "") or "").upper()
+    etiqueta = DISCO_APPROVAL_META.get(kind, ("Aprobación", "", ""))[0]
+    try:
+        _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                      "%s APROBADA: %s" % (etiqueta, _disco_project_title(project)),
+                      "Han dado el visto bueno todas las partes.",
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_APPROVAL_%s" % kind, ref_id=str(project.id))
+        _notify_resolve(session_db, "DISCO_APPROVAL_%s" % kind, str(project.id))
+        if kind == "MIX":
+            _disco_mix_notify_master(session_db, project)
+    except Exception:
+        app.logger.exception("[aprobaciones] no se pudo cerrar la aprobación")
+
+
+def _disco_mix_notify_master(session_db, project) -> bool:
+    """«Todas las partes han dado el OK a la mezcla final: podemos avanzar con el máster.»
+
+    Al PRODUCTOR, con la fecha máxima de entrega (la del calendario de entregas) y el enlace para
+    subir los másters recordándole **qué es obligatorio** — que es el enlace de entrega de siempre,
+    no otro sitio nuevo."""
+    productor = (session_db.get(Promoter, project.producer_promoter_id)
+                 if getattr(project, "producer_promoter_id", None) else None)
+    if productor is None:
+        return False
+    correo, telefono = _promoter_email_phone(productor)
+    entregas = _disco_delivery_state(session_db, project)
+    plazo = next((f["date"] for f in entregas["rows"] if f["key"] == "master"), None) \
+        or getattr(project, "materials_due_date", None)
+    # El enlace de entrega de masters de SIEMPRE (se crea si no había).
+    enlaces = _disco_project_delivery_links(session_db, project, create=True)
+    enlace = (enlaces[0].get("url") if enlaces else "")
+    obligatorios = (enlaces[0].get("required_labels") if enlaces else []) or []
+    cuerpo = ('<p style="margin:0 0 10px;"><strong>Todas las partes han dado el OK a la mezcla '
+              'final</strong>, así que podemos avanzar con el máster.</p>')
+    if plazo:
+        cuerpo += ('<p style="margin:0 0 10px;">La fecha máxima de entrega es el <strong>%s</strong>.</p>'
+                   % html.escape(plazo.strftime("%d/%m/%Y")))
+    if obligatorios:
+        cuerpo += ('<p style="margin:0;">Lo que hace falta sin falta: <strong>%s</strong>.</p>'
+                   % html.escape(" · ".join([str(x) for x in obligatorios])))
+    html_correo = _disco_project_email_shell(
+        session_db, project, title="Adelante con el máster", body_html=cuerpo,
+        button_label="Subir los másters", button_url=enlace)
+    ok, _err = _send_optional_email(correo, "Adelante con el máster · %s"
+                                    % _disco_project_title(project), html_correo)
+    if not ok and telefono:
+        ok, _err = _send_optional_sms(session_db, telefono,
+                                      "OK a la mezcla final de %s: adelante con el máster%s · %s"
+                                      % (_disco_project_title(project),
+                                         (" (entrega %s)" % plazo.strftime("%d/%m")) if plazo else "",
+                                         enlace))
+    if ok:
+        prod = _disco_prod(project)
+        fila = dict(prod.get("mix") or {})
+        fila["master_notified_at"] = _now_madrid().isoformat()
+        prod["mix"] = fila
+        project.production_payload = prod
+    return bool(ok)
+
+
 def _disco_project_demo(session_db, project):
     """La MAQUETA vinculada a este proyecto (la última que se subió)."""
     if project is None:
@@ -21094,6 +21541,68 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
             tarea("demo", "Subir demo", "", "fa-compact-disc", grupo="single",
                   action_label="Subir demo", modal="#dpDemoModal",
                   hint="Queda vinculada al proyecto y se ve en el lanzamiento hasta que haya másters")
+
+    # ================= 4b · La MEZCLA FINAL (hay que aprobarla ANTES de masterizar) =================
+    if lleva_audio and _disco_project_release_song(session_db, project) is not None:
+        mez = _disco_mix_state(session_db, project)
+        ap = mez["approval"]
+        if mez["skipped"] and mez["waiver_ok"]:
+            tarea("mezcla", "Mezcla final", "", "fa-sliders", state="done",
+                  value="No hace falta · lo aprobó %s" % (mez["waiver_by"] or "dirección"),
+                  menu=[{"label": "Volver a pedirla", "icon": "fa-rotate", "modal": "#dpMixModal"}])
+        elif ap["done"]:
+            # ⚠️ Aprobada la mezcla, lo que queda es EL MÁSTER: mientras no llegue, la tarea lo dice
+            # (es lo que se viene a mirar) y el aviso al productor ya lleva su plazo y su enlace.
+            falta_master = not _song_has_master(session_db, _disco_project_release_song(session_db, project))
+            tarea("mezcla", "Mezcla final", "", "fa-sliders",
+                  state=("wait" if falta_master else "done"),
+                  value="Aprobada por %s" % (", ".join(v["name"] for v in ap["approved"][:4]) or "las partes"),
+                  hint=(("Pendiente de recibir el máster final"
+                         + ((" · plazo %s" % _iso_or_date_label(getattr(project, "materials_due_date", None)))
+                            if getattr(project, "materials_due_date", None) else ""))
+                        if falta_master else
+                        ("Ya se le ha dicho al productor que puede masterizar"
+                         if mez["master_notified"] else "")),
+                  menu=([{"label": "Escuchar la mezcla", "icon": "fa-headphones", "url": mez["file_url"]}]
+                        if mez["file_url"] else None))
+        elif ap["ko"]:
+            tarea("mezcla", "Mezcla final RECHAZADA", "", "fa-thumbs-down", True,
+                  hint="%s · hay que rehacerla y volver a pedirla"
+                       % (" · ".join("%s: %s" % (v["name"], v["note"] or "no dice por qué")
+                                     for v in ap["rejected"][:3])),
+                  action_label="Volver a pedir la mezcla", modal="#dpMixModal")
+        elif ap["exists"] and ap["open"]:
+            tarea("mezcla", "Aprobación de la mezcla final", "", "fa-hourglass-half", state="wait",
+                  value="%d de %d han dado el OK" % (len(ap["approved"]), len(ap["voters"])),
+                  hint="Falta%s %s%s" % ("" if len(ap["pending"]) == 1 else "n",
+                                         ", ".join(v["name"] for v in ap["pending"][:4]),
+                                         (" · le toca a: %s" % ap["stage_label"]) if ap["stage_label"] else ""),
+                  menu=[{"label": "Volver a pedir la aprobación", "icon": "fa-rotate",
+                         "modal": "#dpMixApprovalModal"}])
+        elif mez["file_url"]:
+            tarea("mezcla", "Pedir la aprobación de la mezcla final", "", "fa-thumbs-up", True,
+                  hint="La han subido%s · la aprueban el artista y los colaboradores"
+                       % ((" el %s" % mez["uploaded_label"]) if mez["uploaded_label"] else ""),
+                  action_label="Pedir aprobación", modal="#dpMixApprovalModal")
+        elif mez["needs_waiver"] and not mez["waiver_ok"]:
+            tarea("mezcla", "Mezcla final", "", "fa-hourglass-half", state="wait",
+                  hint=("Esperando que dirección y sello aprueben la excepción del plazo"
+                        if mez["waiver_asked"] else
+                        "El plazo se sale de las %d semanas: hace falta una excepción" % DISCO_MIX_MIN_WEEKS),
+                  menu=[{"label": "Cambiar el plazo o el motivo", "icon": "fa-pen", "modal": "#dpMixModal"}])
+        elif mez["asked"]:
+            tarea("mezcla", "Mezcla final", "", "fa-hourglass-half", state="wait",
+                  value="Pedida a %s" % (_promoter_display_name(mez["producer"]) if mez["producer"] else "el productor"),
+                  hint="Falta que la suba%s" % ((" · plazo %s" % mez["due_label"]) if mez["due_label"] else ""),
+                  menu=[{"label": "Volver a pedírsela", "icon": "fa-rotate", "modal": "#dpMixModal"}])
+        else:
+            bloqueada = mez["producer"] is None
+            tarea("mezcla", "Pedir la mezcla final al productor", "", "fa-sliders", not bloqueada,
+                  state=("blocked" if bloqueada else "todo"),
+                  hint=("Antes hay que decir quién produce" if bloqueada else
+                        "Las partes tienen que aprobarla antes de masterizar"
+                        + ((" · tope %s" % mez["limit_label"]) if mez["limit_label"] else "")),
+                  action_label=(None if bloqueada else "Pedir la mezcla"), modal="#dpMixModal")
 
     fase[0] = "imagen"
     # ================= 6 · La PORTADA, por pasos =================
@@ -22197,6 +22706,7 @@ def disco_project_detail(project_id):
                           "date_state", "production", "materials_recipients",
                           "logistics", "logistics_notes", "radio", "radio_media", "pitch_state",
                           "press", "press_parts", "product_manager", "delivery",
+                          "mix", "mix_min_weeks", "can_waive_mix",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -22226,6 +22736,11 @@ def disco_project_detail(project_id):
             # LOGÍSTICA del proyecto (¿hace falta?, a quién se le ha pedido y qué se le pide).
             logistics=(_disco_logistics_state(session_db, project) if tab == "calendario" else None),
             logistics_notes=DISCO_LOGISTICS_NOTES,
+            # LA MEZCLA FINAL y su aprobación en cadena.
+            mix=(_disco_mix_state(session_db, project) if tab == "calendario" else None),
+            mix_min_weeks=DISCO_MIX_MIN_WEEKS,
+            can_waive_mix=(str((_current_user_state() or {}).get("user_id") or "")
+                           in _direccion_sello_user_ids(session_db) if tab == "calendario" else False),
             # EL CALENDARIO DE ENTREGAS: los plazos y sus topes.
             delivery=(_disco_delivery_state(session_db, project) if tab == "calendario" else None),
             # LA NOTA DE PRENSA: si se puede pedir, sus dos partes y el envío.
@@ -22528,8 +23043,11 @@ def _disco_project_delivery_links(session_db, project, *, create: bool = False) 
             session_db.add(link)
             session_db.flush()
         if link is not None:
+            # `required_labels` = lo que ese enlace EXIGE, para poder recordárselo a quien lo recibe.
             salida.append({"song_id": str(cancion.id), "title": (cancion.title or "").strip(),
-                           "url": _song_delivery_public_url(link)})
+                           "url": _song_delivery_public_url(link),
+                           "required_labels": [c["label"] for c in _song_delivery_config(link).values()
+                                               if c.get("required")]})
     return salida
 
 
@@ -25525,6 +26043,281 @@ def disco_project_production_save(project_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/mezcla/pedir", endpoint="disco_project_mix_ask")
+@admin_required
+def disco_project_mix_ask(project_id):
+    """Pedirle al PRODUCTOR la MEZCLA FINAL, con su plazo (el del calendario de entregas).
+
+    ⚠️ Si el plazo se sale de las 4 semanas —o se quiere saltar el paso— hace falta una EXCEPCIÓN
+    aprobada por quien sea **dirección y sello**: aquí se le pide con el motivo y, mientras, la tarea
+    se queda pendiente."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        estado = _disco_mix_state(session_db, project)
+        productor = estado["producer"]
+        if productor is None:
+            flash("Antes hay que decir quién produce: es a quien se le pide la mezcla.", "warning")
+            return redirect(safe_next_or(destino))
+        prod = _disco_prod(project)
+        fila = dict(prod.get("mix") or {})
+        if not (fila.get("token") or "").strip():
+            fila["token"] = _uuid_token()
+        plazo = parse_optional_date(request.form.get("due_date")) or estado["due_date"]
+        if plazo:
+            fila["due_date"] = plazo.isoformat()
+        tope = estado["limit"]
+        # ¿Hace falta la excepción? (fecha pasada del tope o saltarse el paso)
+        salta = _truthy(request.form.get("skip"))
+        motivo = (request.form.get("waiver_reason") or "").strip()
+        excepcion = bool(salta or (plazo and tope and plazo > tope))
+        fila["skipped"] = salta
+        prod["mix"] = fila
+        project.production_payload = prod
+        session_db.flush()
+        if excepcion and not fila.get("waiver_ok_at"):
+            fila["waiver_reason"] = motivo
+            fila["waiver_asked_at"] = _now_madrid().isoformat()
+            prod["mix"] = fila
+            project.production_payload = prod
+            _notify_users(session_db, _direccion_sello_user_ids(session_db), "TAREA",
+                          "Aprobar una excepción de la mezcla final: %s"
+                          % _disco_project_title(project),
+                          ("%s%s" % (("Se pide saltarse el paso. " if salta else
+                                      ("Se pide entregarla el %s (el tope era el %s). "
+                                       % (plazo.strftime("%d/%m/%Y") if plazo else "—",
+                                          tope.strftime("%d/%m/%Y") if tope else "—"))),
+                                     ("Motivo: %s" % motivo) if motivo else ""))[:600],
+                          url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_MIX_WAIVER", ref_id=str(project.id))
+            session_db.commit()
+            flash("Pedida la aprobación de la excepción a dirección y sello.", "warning")
+            return redirect(safe_next_or(destino))
+        # Sin excepción (o ya aprobada): se le pide al productor.
+        enlace = _disco_mix_url(project)
+        correo, telefono = _promoter_email_phone(productor)
+        cuerpo = ('<p style="margin:0;">Necesitamos la <strong>mezcla final</strong> para que las '
+                  'partes la aprueben antes de masterizar%s. Súbela en el enlace.</p>'
+                  % ((" (como muy tarde el <strong>%s</strong>)" % html.escape(plazo.strftime("%d/%m/%Y")))
+                     if plazo else ""))
+        html_correo = _disco_project_email_shell(
+            session_db, project, title="Mezcla final", body_html=cuerpo,
+            button_label="Subir la mezcla final", button_url=enlace,
+            note=(request.form.get("note") or ""))
+        ok, _err = _send_optional_email(correo, "Mezcla final · %s"
+                                        % _disco_project_title(project), html_correo)
+        if not ok and telefono:
+            ok, _err = _send_optional_sms(session_db, telefono,
+                                          "Sube la mezcla final de %s%s · %s"
+                                          % (_disco_project_title(project),
+                                             (" (antes del %s)" % plazo.strftime("%d/%m")) if plazo else "",
+                                             enlace))
+        if ok:
+            fila["asked_at"] = _now_madrid().isoformat()
+            fila["asked_by"] = ((_current_user_state() or {}).get("nick") or "")
+            prod["mix"] = fila
+            project.production_payload = prod
+        session_db.commit()
+        if ok:
+            flash("Le hemos pedido la mezcla final a %s." % _promoter_display_name(productor), "success")
+        else:
+            flash(Markup("No se pudo avisar al productor. Puedes mandarle este enlace: "
+                         "<a href='%s'>%s</a>" % (escape(enlace), escape(enlace))), "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[mezcla] no se pudo pedir la mezcla final")
+        flash("No se pudo pedir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/mezcla/excepcion", endpoint="disco_project_mix_waiver")
+@admin_required
+def disco_project_mix_waiver(project_id):
+    """Dirección+sello aprueba (o no) la EXCEPCIÓN del plazo de la mezcla final."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        if yo not in _direccion_sello_user_ids(session_db):
+            return forbid("Esto lo aprueba quien es dirección y sello.")
+        prod = _disco_prod(project)
+        fila = dict(prod.get("mix") or {})
+        aprueba = not _truthy(request.form.get("reject"))
+        if aprueba:
+            fila["waiver_ok_at"] = _now_madrid().isoformat()
+            fila["waiver_ok_by"] = ((_current_user_state() or {}).get("nick") or "")
+        else:
+            fila["waiver_ok_at"] = ""
+            fila["waiver_ok_by"] = ""
+            fila["waiver_asked_at"] = ""
+            fila["skipped"] = False
+        prod["mix"] = fila
+        project.production_payload = prod
+        _notify_resolve(session_db, "DISCO_MIX_WAIVER", str(project.id))
+        _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                      ("Excepción de la mezcla final aprobada: %s" if aprueba else
+                       "Excepción de la mezcla final RECHAZADA: %s") % _disco_project_title(project),
+                      ((_current_user_state() or {}).get("nick") or "Dirección")
+                      + (" lo ha aprobado." if aprueba else " dice que no: hay que ajustar el plazo."),
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_MIX", ref_id=str(project.id))
+        session_db.commit()
+        flash("Excepción aprobada." if aprueba else "Excepción rechazada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[mezcla] no se pudo decidir la excepción")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/mezcla/aprobacion", endpoint="disco_project_mix_approval")
+@admin_required
+def disco_project_mix_approval(project_id):
+    """El JEFE DE PRODUCTO pide la aprobación de la mezcla final a las partes (en cadena)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        estado = _disco_mix_state(session_db, project)
+        if not estado["file_url"]:
+            flash("Todavía no hay mezcla final que aprobar.", "warning")
+            return redirect(safe_next_or(destino))
+        # Terceros añadidos a mano (los que tengan que aprobar además de los de siempre).
+        extra = []
+        for nombre, correo in zip(request.form.getlist("extra_name"),
+                                  request.form.getlist("extra_email")):
+            if (nombre or "").strip():
+                extra.append({"name": nombre.strip(), "email": (correo or "").strip(),
+                              "stage": 3, "role": "OTRO"})
+        fila = _disco_approval_open(session_db, project, "MIX",
+                                    file_url=estado["file_url"], file_name=estado["file_name"],
+                                    note=(request.form.get("note") or ""),
+                                    due_date=estado["due_date"], extra=extra)
+        # La cadena empieza por la etapa más baja que tenga gente.
+        etapas = sorted({int(v.stage or 1) for v in (fila.voters or [])})
+        salieron = _disco_approval_notify(session_db, project, fila, etapas[0]) if etapas else []
+        session_db.commit()
+        if not etapas:
+            flash("No hay a quién pedirle la aprobación: revisa los integrantes del artista.",
+                  "warning")
+        elif salieron:
+            flash("Aprobación pedida a %s." % ", ".join([str(x) for x in salieron]), "success")
+        else:
+            flash("Aprobación creada, pero no se pudo avisar a nadie: comparte sus enlaces a mano.",
+                  "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[mezcla] no se pudo pedir la aprobación")
+        flash("No se pudo pedir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.route("/mezcla-final/<token>", methods=["GET", "POST"], endpoint="public_disco_mix_upload")
+def public_disco_mix_upload(token):
+    """Página pública donde el PRODUCTOR sube la mezcla final para que la aprueben."""
+    session_db = db()
+    try:
+        token = (token or "").strip()
+        project = None
+        if token:
+            for p in (session_db.query(DiscoProject)
+                      .filter(DiscoProject.production_payload.isnot(None)).all()):
+                if (_disco_mix(p).get("token") or "") == token:
+                    project = p
+                    break
+        if project is None:
+            abort(404)
+        ctx = _disco_project_email_ctx(session_db, project)
+        estado = _disco_mix_state(session_db, project)
+        if request.method == "POST":
+            fs = request.files.get("file")
+            if not fs or not getattr(fs, "filename", ""):
+                return render_template("public_disco_mix.html", mode="form", ctx=ctx,
+                                       project=project, state=estado,
+                                       error="Elige el archivo de la mezcla.")
+            url = upload_file(fs, "song_materials", allowed_extensions={".wav", ".wave", ".mp3"})
+            prod = _disco_prod(project)
+            fila = dict(prod.get("mix") or {})
+            fila["file_url"] = url
+            fila["file_name"] = (fs.filename or "").replace("\\", "/")
+            fila["file_at"] = _now_madrid().isoformat()
+            prod["mix"] = fila
+            project.production_payload = prod
+            # Al JEFE DE PRODUCTO: ya se puede pedir la aprobación.
+            _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                          "Mezcla final subida: %s" % _disco_project_title(project),
+                          "Ya se le puede pedir la aprobación a las partes.",
+                          url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_MIX", ref_id=str(project.id))
+            session_db.commit()
+            return render_template("public_disco_mix.html", mode="done", ctx=ctx, project=project,
+                                   state=_disco_mix_state(session_db, project))
+        return render_template("public_disco_mix.html", mode="form", ctx=ctx, project=project,
+                               state=estado)
+    finally:
+        session_db.close()
+
+
+@app.route("/aprobacion/<token>", methods=["GET", "POST"], endpoint="public_disco_approval")
+def public_disco_approval(token):
+    """Página pública de UNA persona para aprobar (verde) o rechazar (rojo).
+
+    Enseña lo que hay que aprobar (la mezcla se escucha aquí mismo) y **a los demás con su foto y su
+    estado**, para saber quién falta."""
+    session_db = db()
+    try:
+        voter = (session_db.query(DiscoApprovalVoter)
+                 .options(joinedload(DiscoApprovalVoter.approval))
+                 .filter(DiscoApprovalVoter.token == (token or "").strip()).first())
+        if voter is None or voter.approval is None:
+            abort(404)
+        fila = voter.approval
+        project = session_db.get(DiscoProject, fila.project_id)
+        if project is None:
+            abort(404)
+        ctx = _disco_project_email_ctx(session_db, project)
+        if request.method == "POST" and (voter.status or "").upper() == "PENDIENTE":
+            aprueba = (request.form.get("decision") or "").strip().upper() == "OK"
+            nota = (request.form.get("note") or "").strip()
+            if not aprueba and not nota:
+                return render_template("public_disco_approval.html", mode="form", ctx=ctx,
+                                       project=project, voter=voter,
+                                       state=_disco_approval_state(session_db, project, fila.kind),
+                                       error="Dinos qué hay que cambiar.")
+            _disco_approval_decide(session_db, voter, aprueba, nota)
+            session_db.commit()
+            return render_template("public_disco_approval.html", mode="done", ctx=ctx,
+                                   project=project, voter=voter,
+                                   state=_disco_approval_state(session_db, project, fila.kind))
+        return render_template("public_disco_approval.html",
+                               mode=("done" if (voter.status or "").upper() != "PENDIENTE" else "form"),
+                               ctx=ctx, project=project, voter=voter,
+                               state=_disco_approval_state(session_db, project, fila.kind))
+    finally:
+        session_db.close()
 
 
 @app.post("/discografica/proyectos/<project_id>/calendario-entregas", endpoint="disco_project_delivery_save")
@@ -59818,7 +60611,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:

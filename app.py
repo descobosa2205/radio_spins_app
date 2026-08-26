@@ -106807,7 +106807,9 @@ def _agenda_personal_days(session_db, start_date, end_date) -> list:
                  .filter(VacationDay.user_id == uid)
                  .filter(VacationRequest.status.in_(VACATION_LIVE_STATUSES))
                  .filter(VacationDay.day >= start_date, VacationDay.day <= end_date).all())
-        # Una FRANJA por petición (de su primer día a su último), no un chip por día: se ve el tramo.
+        # ⚠️⚠️ UNA FRANJA POR **TRAMO DE DÍAS SEGUIDOS**, no una por petición: si alguien tiene un día
+        # en agosto y el resto en octubre, una sola franja diría que está de vacaciones los tres meses
+        # (bug real). `_vacation_runs` es el punto único que las parte.
         por_peticion: dict = {}
         for day, estado, tipo, rid in filas:
             ficha = por_peticion.setdefault(str(rid), {"kind": _vacation_kind(tipo),
@@ -106815,21 +106817,21 @@ def _agenda_personal_days(session_db, start_date, end_date) -> list:
                                                        "days": []})
             ficha["days"].append(day)
         for rid, ficha in por_peticion.items():
-            dias = sorted(ficha["days"])
             meta = VACATION_KINDS[ficha["kind"]]
-            salida.append(([MY_CALENDAR_ID], {
-                "id": f"vac-{rid}",
-                "kind": "vacaciones",
-                "date": dias[0].isoformat(),
-                "end_date": dias[-1].isoformat(),
-                "title": meta["label"] + (" (sin aprobar)" if ficha["pending"] else ""),
-                "subtitle": "",
-                "artist_id": MY_CALENDAR_ID,
-                "icon_override": meta["icon"],
-                "url": url_for("mis_vacaciones_view", anio=dias[0].year),
-                "status_label": "Pendiente" if ficha["pending"] else "",
-                "status_class": "hablado" if ficha["pending"] else "",
-            }))
+            for n, tramo in enumerate(_vacation_runs(ficha["days"]), start=1):
+                salida.append(([MY_CALENDAR_ID], {
+                    "id": f"vac-{rid}-{n}",
+                    "kind": "vacaciones",
+                    "date": tramo[0].isoformat(),
+                    "end_date": tramo[-1].isoformat(),
+                    "title": meta["label"] + (" (sin aprobar)" if ficha["pending"] else ""),
+                    "subtitle": ("%d día%s" % (len(tramo), "" if len(tramo) == 1 else "s")),
+                    "artist_id": MY_CALENDAR_ID,
+                    "icon_override": meta["icon"],
+                    "url": url_for("mis_vacaciones_view", anio=tramo[0].year),
+                    "status_label": "Pendiente" if ficha["pending"] else "",
+                    "status_class": "hablado" if ficha["pending"] else "",
+                }))
     except Exception:
         app.logger.exception("[agenda] no se pudieron cargar mis vacaciones")
     # ⚠️ Los FESTIVOS y los días NO LABORABLES ya NO se pintan como un chip más: el calendario marca
@@ -107039,27 +107041,30 @@ def _agenda_office_items(session_db, start_date, end_date) -> list:
                 nicks[str(prof.user_id)] = (getattr(prof, "nick", None) or "").strip()
                 fotos[str(prof.user_id)] = (getattr(prof, "photo_url", None) or "").strip()
         for clave, ficha in por_peticion.items():
-            dias = sorted(ficha["days"])
-            if not dias:
-                continue
             meta = VACATION_KINDS[ficha["kind"]]
             quien = nicks.get(ficha["uid"], "") or "Alguien"
             _foto = fotos.get(ficha["uid"], "") or _default_avatar_url()
-            salida.append(([OFFICE_CALENDAR_ID], {
-                "kind": "vacaciones",
-                "date": dias[0].isoformat(), "end_date": dias[-1].isoformat(),
-                "title": f"{quien} · {meta['label']}",
-                "subtitle": ficha["note"],
-                "artist_id": OFFICE_CALENDAR_ID,
-                "icon_override": meta["icon"],
-                # ⚠️ La foto es la de QUIEN está de vacaciones, no la del calendario: es lo que
-                # identifica la franja de un vistazo.
-                "artist_photo": _foto,
-                "artist_photos": [{"id": ficha["uid"], "name": quien, "photo_url": _foto,
-                                   "color": ""}],
-                "status_label": "", "status_class": "",
-                "cover_url": "", "url": url_for("vacaciones_view", tab="cuadrante", persona=ficha["uid"]),
-            }))
+            # ⚠️ Una franja por TRAMO SEGUIDO (ver `_vacation_runs`): con una sola por petición, quien
+            # tiene un día en agosto y el resto en octubre salía de vacaciones tres meses.
+            for tramo in _vacation_runs(ficha["days"]):
+                salida.append(([OFFICE_CALENDAR_ID], {
+                    "kind": "vacaciones",
+                    "date": tramo[0].isoformat(), "end_date": tramo[-1].isoformat(),
+                    "title": f"{quien} · {meta['label']}",
+                    "subtitle": " · ".join([x for x in [
+                        ("%d día%s" % (len(tramo), "" if len(tramo) == 1 else "s")),
+                        ficha["note"]] if x]),
+                    "artist_id": OFFICE_CALENDAR_ID,
+                    "icon_override": meta["icon"],
+                    # ⚠️ La foto es la de QUIEN está de vacaciones, no la del calendario: es lo que
+                    # identifica la franja de un vistazo.
+                    "artist_photo": _foto,
+                    "artist_photos": [{"id": ficha["uid"], "name": quien, "photo_url": _foto,
+                                       "color": ""}],
+                    "status_label": "", "status_class": "",
+                    "cover_url": "",
+                    "url": url_for("vacaciones_view", tab="cuadrante", persona=ficha["uid"]),
+                }))
     except Exception:
         app.logger.exception("[agenda] no se pudieron cargar las vacaciones de la oficina")
 
@@ -115274,11 +115279,17 @@ def _vacation_request_rows(session_db, *, user_id=None, statuses=None, year=None
     return out
 
 
-def _vacation_range_label(fechas: list) -> str:
-    """«12/08/2026» · «12 – 20/08/2026» · «28/07 – 04/08/2026», y «(y 2 tramos más)» si hay saltos."""
-    fechas = sorted([f for f in (fechas or []) if f])
+def _vacation_runs(fechas: list) -> list[list]:
+    """Parte unos días en **TRAMOS DE DÍAS SEGUIDOS**. Punto único de toda la app.
+
+    ⚠️⚠️ Una petición de vacaciones puede tener días que NO van seguidos (uno el 24 de agosto y el
+    resto en octubre): pintarla como UNA franja del primero al último dice que esa persona está de
+    vacaciones agosto, septiembre y octubre enteros — que es justo lo que confundía en el calendario
+    (bug real). Cada racha se pinta por separado, y así se ve **solo los días que de verdad libra**.
+    Devuelve una lista de tramos, cada uno con sus días ordenados."""
+    fechas = sorted({f for f in (fechas or []) if f})
     if not fechas:
-        return "—"
+        return []
     tramos, actual = [], [fechas[0]]
     for anterior, siguiente in zip(fechas, fechas[1:]):
         if (siguiente - anterior).days == 1:
@@ -115287,15 +115298,32 @@ def _vacation_range_label(fechas: list) -> str:
             tramos.append(actual)
             actual = [siguiente]
     tramos.append(actual)
-    primero = tramos[0]
-    if len(primero) == 1:
-        texto = primero[0].strftime("%d/%m/%Y")
-    elif primero[0].month == primero[-1].month and primero[0].year == primero[-1].year:
-        texto = f"{primero[0].strftime('%d')} – {primero[-1].strftime('%d/%m/%Y')}"
-    else:
-        texto = f"{primero[0].strftime('%d/%m')} – {primero[-1].strftime('%d/%m/%Y')}"
-    if len(tramos) > 1:
-        texto += f" (y {len(tramos) - 1} tramo{'' if len(tramos) == 2 else 's'} más)"
+    return tramos
+
+
+def _vacation_run_label(tramo: list) -> str:
+    """Un tramo, en corto: «12/08/2026» · «12 – 20/08/2026» · «28/07 – 04/08/2026»."""
+    if not tramo:
+        return ""
+    if len(tramo) == 1:
+        return tramo[0].strftime("%d/%m/%Y")
+    if tramo[0].month == tramo[-1].month and tramo[0].year == tramo[-1].year:
+        return f"{tramo[0].strftime('%d')} – {tramo[-1].strftime('%d/%m/%Y')}"
+    return f"{tramo[0].strftime('%d/%m')} – {tramo[-1].strftime('%d/%m/%Y')}"
+
+
+def _vacation_range_label(fechas: list, *, max_runs: int = 3) -> str:
+    """Los días de una petición, **por tramos seguidos**: «24/08/2026 · 13 – 15/10/2026».
+
+    ⚠️ Antes solo se decía el PRIMER tramo y «(y 2 tramos más)», así que no se veía cuándo eran los
+    demás. Se enseñan hasta `max_runs` y, si hay más, se dice cuántos quedan."""
+    tramos = _vacation_runs(fechas)
+    if not tramos:
+        return "—"
+    texto = " · ".join(_vacation_run_label(t) for t in tramos[:max_runs])
+    sobran = len(tramos) - max_runs
+    if sobran > 0:
+        texto += f" (y {sobran} tramo{'' if sobran == 1 else 's'} más)"
     return texto
 
 

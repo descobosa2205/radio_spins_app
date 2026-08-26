@@ -695,7 +695,10 @@
     var SOLO_UNA = {{ (quadrant_person is not none)|tojson }};
     VacCalendar.create('#cuadranteCalendario', {
       mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days,
-      people: datos.people || [], kinds: datos.kinds || {}, stripes: !SOLO_UNA
+      people: datos.people || [], kinds: datos.kinds || {}, stripes: !SOLO_UNA,
+      /* DOBLE CLIC sobre unas vacaciones del calendario → se abre su edición (el mismo pop-up que
+         los tres puntitos de su fila). El clic simple sigue fijando el destacado del tramo. */
+      onRequestOpen: function (rid) { abrirEdicion(rid); }
     });
 
     /* ⚠️ El calendario del modal se monta EN EL CLIC (con modal_stack.js por medio `shown.bs.modal`
@@ -703,27 +706,49 @@
        sus propios días ya marcados. */
     var URL_EDIT = {{ url_for('vacation_request_days_edit', request_id='__ID__')|tojson }};
     var calEdit = null;
-    document.querySelectorAll('[data-quad-edit]').forEach(function(b){
-      b.addEventListener('click', function(){
-        var dias = (b.dataset.days || '').split(',').filter(function(x){ return x; });
-        document.getElementById('quadEditForm').action = URL_EDIT.replace('__ID__', b.dataset.id);
-        document.getElementById('quadEditNick').textContent = b.dataset.nick || '';
-        document.getElementById('quadEditKind').textContent = (b.dataset.kind || '').toLowerCase();
-        document.getElementById('quadEditDays').value = dias.join(',');
-        document.getElementById('quadEditCalendario').innerHTML = '';
-        calEdit = VacCalendar.create('#quadEditCalendario', {
-          mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days,
-          selected: dias, selectable: true,
-          onChange: function(sel, cuentan){
-            document.getElementById('quadEditDays').value = sel.join(',');
-            document.getElementById('quadEditN').textContent = cuentan.length;
-            document.getElementById('quadEditEnviar').disabled = (sel.length === 0);
-          }
-        });
-        document.getElementById('quadEditN').textContent = calEdit ? calEdit.countingList().length : 0;
-        document.getElementById('quadEditEnviar').disabled = (dias.length === 0);
-        new bootstrap.Modal(document.getElementById('quadEditModal')).show();
+
+    /* Punto único de la EDICIÓN: lo usan los tres puntitos de cada fila y el doble clic en el
+       calendario, así que las dos formas abren exactamente lo mismo. */
+    function abrirEdicion(rid, boton) {
+      var b = boton || document.querySelector('[data-quad-edit][data-id="' + rid + '"]');
+      var dias, quien, tipo;
+      if (b) {
+        dias = (b.dataset.days || '').split(',').filter(function(x){ return x; });
+        quien = b.dataset.nick || '';
+        tipo = (b.dataset.kind || '');
+        rid = b.dataset.id;
+      } else {
+        /* La petición no está en el listado de la izquierda (otro filtro): sus días se sacan del
+           propio payload del calendario, así el doble clic funciona igual. */
+        var suyos = (datos.days || []).filter(function(d){ return d.request_id === rid; });
+        if (!suyos.length) return;
+        dias = suyos.map(function(d){ return d.day; }).sort();
+        var ficha = (datos.people || []).filter(function(p){
+          return p.user_id === suyos[0].user_id; })[0];
+        quien = (ficha && ficha.nick) || '';
+        tipo = ((datos.kinds || {})[suyos[0].kind] || {}).label || '';
+      }
+      document.getElementById('quadEditForm').action = URL_EDIT.replace('__ID__', rid);
+      document.getElementById('quadEditNick').textContent = quien;
+      document.getElementById('quadEditKind').textContent = (tipo || '').toLowerCase();
+      document.getElementById('quadEditDays').value = dias.join(',');
+      document.getElementById('quadEditCalendario').innerHTML = '';
+      calEdit = VacCalendar.create('#quadEditCalendario', {
+        mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days,
+        selected: dias, selectable: true,
+        onChange: function(sel, cuentan){
+          document.getElementById('quadEditDays').value = sel.join(',');
+          document.getElementById('quadEditN').textContent = cuentan.length;
+          document.getElementById('quadEditEnviar').disabled = (sel.length === 0);
+        }
       });
+      document.getElementById('quadEditN').textContent = calEdit ? calEdit.countingList().length : 0;
+      document.getElementById('quadEditEnviar').disabled = (dias.length === 0);
+      new bootstrap.Modal(document.getElementById('quadEditModal')).show();
+    }
+
+    document.querySelectorAll('[data-quad-edit]').forEach(function(b){
+      b.addEventListener('click', function(){ abrirEdicion(b.dataset.id, b); });
     });
   })();
   </script>

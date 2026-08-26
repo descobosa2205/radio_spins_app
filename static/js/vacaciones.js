@@ -427,6 +427,16 @@
       var yaFijo = self.pinned && reqs.length && self.pinned.join(' ') === reqs.join(' ');
       self.highlight(yaFijo ? [] : reqs, !yaFijo && reqs.length > 0);
     });
+    /* DOBLE CLIC = EDITAR esas vacaciones (quien las gestiona), igual que en la agenda: el clic
+       simple fija el destacado y el doble clic abre su pop-up. Solo si la pantalla lo cablea
+       (`onRequestOpen`), así que en «Mis vacaciones» no pasa nada: nadie toca sus propios días. */
+    this.root.addEventListener('dblclick', function (ev) {
+      if (self.opts.selectable || typeof self.opts.onRequestOpen !== 'function') return;
+      var reqs = reqsDe(ev);
+      if (!reqs.length) return;
+      ev.preventDefault();
+      self.opts.onRequestOpen(reqs[0]);
+    });
     document.addEventListener('keydown', function (ev) {
       if (ev.key === 'Escape' && self.pinned) self.highlight([], false);
     });

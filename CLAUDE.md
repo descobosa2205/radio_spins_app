@@ -4151,6 +4151,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la regla de prefijo `vacation_*` → sección `vacaciones`, se comía un **403 al pinchar su propio
   aviso** (bug real). Dentro se comprueba que los días son suyos (o que quien mira gestiona).
 
+- ⚠️⚠️ **LAS VACACIONES SE PINTAN POR TRAMOS DE DÍAS SEGUIDOS** (bug real y gordo, ago 2026). Una
+  petición puede tener días que NO van seguidos (uno el 24 de agosto y el resto en octubre) y se
+  pintaba como **UNA franja del primero al último**, así que en el calendario esa persona salía de
+  vacaciones **agosto, septiembre y octubre enteros**. Punto único **`_vacation_runs(dias)`**, que
+  parte los días en rachas consecutivas, aplicado en **Mi calendario** (`_agenda_personal_days`), en el
+  **Calendario general de oficina** (`_agenda_office_items`) y en la etiqueta
+  (**`_vacation_range_label`**, que ahora dice **todos** los tramos: «24/08/2026 · 13 – 16/10/2026», y
+  no solo el primero con «(y 2 tramos más)»). Cada franja lleva además **cuántos días son**.
+  · **En el cuadrante se EDITA con DOBLE CLIC** sobre las vacaciones del calendario (el clic simple
+  sigue fijando el destacado del tramo): se abre el MISMO pop-up que los tres puntitos de su fila
+  (`abrirEdicion` es el punto único, y `onRequestOpen` la opción del calendario). Si la petición no
+  está en el listado de la izquierda (otro filtro), sus días se sacan del propio payload, así que el
+  doble clic funciona igual.
+  ⚠️ Los `people` del payload van por **`user_id`**, no por `id`.
+
 - **Calendario de INICIO · categoría «Vacaciones y días libres»** (ago 2026): `_agenda_personal_days`
   añade a la agenda los días PROPIOS de quien mira (vacaciones y días libres, aprobados o
   pendientes, más los festivos y los no laborables) como kind **`vacaciones`** de

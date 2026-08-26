@@ -308,20 +308,69 @@ def search_albums(query: str, limit: int = 10) -> list:
     return _search(query, "albums", limit=limit)
 
 
-# Rutas candidatas de la serie de reproducciones de un track. La primera es la de la referencia de
-# Chartmetric (`/api/track/:type/:id/stats/:source`, con el tipo de id por delante); las otras dos se
-# conservan como respaldo.
-# ⚠️ La que había (`/api/track/{id}/{source}/stats`) estaba puesta a ojo —lo decía su propio
-# comentario, «CONFIRMAR nombres reales al integrar»— y NUNCA se confirmó: devolvía 404, `_get`
-# levantaba RuntimeError, el `except` lo tragaba y la canción se quedaba VINCULADA PERO SIN
-# REPRODUCCIONES, sin que nada lo dijera. Se prueban en orden y se recuerda la que responde (mismo
+# ⚠️⚠️ LA RUTA DE LAS REPRODUCCIONES DE UN TRACK LLEVA UN «MODO» AL FINAL. La de verdad es
+#   GET /api/track/{id}/{plataforma}/stats/{modo}
+# y el modo es OBLIGATORIO (`highest-playcounts` o `most-history`). Sin él, Chartmetric contesta
+# «Cannot GET /api/track/123/spotify/stats» —un 404 de Express, o sea que esa ruta NO EXISTE—, `_get`
+# levantaba RuntimeError y la canción se quedaba VINCULADA PERO SIN REPRODUCCIONES (bug real, ago
+# 2026). Confirmado en la referencia oficial:
+#   https://apidocs.chartmetric.com/reference/tag/track/get/api/track/id/platform/stats/mode
+# Una canción puede existir como VARIOS tracks en la misma plataforma (el single y el del álbum):
+# `highest-playcounts` coge el que más se ha escuchado —que es el que representa a la canción— y
+# `most-history` el de serie más larga. Se prueba en ese orden y se RECUERDA el que responde (mismo
 # patrón que la URL base de Cabify y la ruta de adjuntar de Holded).
-TRACK_STAT_PATHS = (
-    "/api/track/chartmetric/{id}/stats/{source}",
-    "/api/track/{id}/stats/{source}",
+TRACK_STAT_MODES = ("highest-playcounts", "most-history")
+TRACK_STAT_PATHS = tuple(
+    "/api/track/{id}/{source}/stats/" + modo for modo in TRACK_STAT_MODES
+) + (
+    # Respaldo por si algún día vuelve la forma sin modo. NO se pone delante: hoy da 404.
     "/api/track/{id}/{source}/stats",
 )
 _TRACK_STAT_PATH_OK: str | None = None
+
+# Los IDs de plataforma NO vienen en el metadato del track (comprobado en la referencia: `/api/track/
+# {id}` devuelve nombre, ISRC, portada, artistas, álbumes y `cm_statistics`, y ningún id de Spotify,
+# Apple, Amazon ni YouTube). Están en su PROPIO endpoint:
+#   GET /api/track/{tipo}/{id}/get-ids   (tipo: chartmetric | isrc | spotify | itunes | …)
+# que devuelve `spotify_ids`, `itunes_ids`, `amazon_ids`, `youtube_ids`, `deezer_ids`… cada uno una
+# LISTA (o null). Por eso «Actualizar» decía «Chartmetric no ha devuelto ningún enlace de plataforma»
+# por muy bien vinculada que estuviera la canción (bug real, ago 2026).
+GET_IDS_PATHS = {
+    "track": "/api/track/{tipo}/{id}/get-ids",
+    "album": "/api/album/{tipo}/{id}/get-ids",
+    "artist": "/api/artist/{tipo}/{id}/get-ids",
+}
+
+
+def get_platform_ids(kind: str, cm_id: int | str, *, tipo: str = "chartmetric",
+                     raise_on_error: bool = False) -> dict:
+    """Los IDs de una obra en las demás plataformas. Punto ÚNICO de `…/get-ids`.
+
+    `kind`: track | album | artist. `tipo`: con qué id se pregunta (por defecto el de Chartmetric).
+    Devuelve el objeto tal cual (`spotify_ids`, `itunes_ids`, …) o {} si no se puede."""
+    plantilla = GET_IDS_PATHS.get((kind or "").strip().lower())
+    if not plantilla or not str(cm_id or "").strip():
+        return {}
+    try:
+        data = _get(plantilla.format(tipo=(tipo or "chartmetric"), id=cm_id))
+    except RuntimeError:
+        if raise_on_error:
+            raise
+        return {}
+    obj = data.get("obj", data) if isinstance(data, dict) else data
+    if isinstance(obj, list):
+        obj = obj[0] if obj and isinstance(obj[0], dict) else {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def get_track_platform_ids(cm_track: int | str, raise_on_error: bool = False) -> dict:
+    """Los ids de plataforma de un TRACK por su id de Chartmetric."""
+    return get_platform_ids("track", cm_track, raise_on_error=raise_on_error)
+
+
+def get_album_platform_ids(cm_album: int | str, raise_on_error: bool = False) -> dict:
+    """Los ids de plataforma de un ÁLBUM por su id de Chartmetric."""
+    return get_platform_ids("album", cm_album, raise_on_error=raise_on_error)
 
 
 def get_track_stat(cm_track: int | str, platform: str, params: dict | None = None,
@@ -367,6 +416,43 @@ def search_artists(query: str, limit: int = 10) -> list:
         arts = payload.get("artists")
         return arts if isinstance(arts, list) else []
     return payload if isinstance(payload, list) else []
+
+
+def diagnose_track(cm_track: int | str) -> list[dict]:
+    """PRUEBA UNA A UNA las rutas de un track y devuelve QUÉ HA CONTESTADO cada una.
+
+    Es el mismo patrón que el diagnóstico de Holded: cuando algo no llega, lo primero es saber si la
+    ruta existe, si falta un permiso o si la cuenta no tiene créditos — y eso solo lo dice la propia
+    API. Cada fila: {ruta, ok, detalle}. No lanza nunca.
+    """
+    if not str(cm_track or "").strip():
+        return []
+    intentos = [("metadatos del track", "/api/track/%s" % cm_track, None),
+                ("ids de plataforma", GET_IDS_PATHS["track"].format(tipo="chartmetric", id=cm_track), None)]
+    for plantilla in TRACK_STAT_PATHS:
+        intentos.append(("reproducciones (spotify)",
+                         plantilla.format(id=cm_track, source="spotify"), {"type": "streams"}))
+    salida = []
+    for para, ruta, params in intentos:
+        fila = {"para": para, "ruta": ruta, "ok": False, "detalle": ""}
+        try:
+            data = _get(ruta, params=params)
+        except RuntimeError as e:
+            fila["detalle"] = str(e)[:300]
+        else:
+            obj = data.get("obj", data) if isinstance(data, dict) else data
+            if isinstance(obj, dict):
+                claves = [k for k in obj.keys()][:12]
+                fila["detalle"] = "responde · claves: " + ", ".join(map(str, claves))
+            elif isinstance(obj, list):
+                fila["detalle"] = "responde · %d elemento%s" % (len(obj), "" if len(obj) == 1 else "s")
+                if obj and isinstance(obj[0], dict):
+                    fila["detalle"] += " · claves: " + ", ".join(map(str, list(obj[0].keys())[:8]))
+            else:
+                fila["detalle"] = "responde (sin contenido reconocible)"
+            fila["ok"] = True
+        salida.append(fila)
+    return salida
 
 
 def chartmetric_ping() -> tuple[bool, str]:

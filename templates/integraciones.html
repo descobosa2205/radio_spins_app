@@ -841,6 +841,11 @@
                       <button type="button" class="btn btn-sm btn-outline-secondary" title="Vincular a mano (pegar enlace o buscar)"
                               data-cm-link="song" data-cm-id="{{ r.id }}" data-cm-name="{{ r.title }}"
                               data-cm-track="{{ r.cm_track }}"><i class="fa fa-link"></i></button>
+                      {# COMPROBAR RUTAS: pregunta a Chartmetric y dice qué contesta cada una (si la
+                         ruta existe, si falta un permiso o si no hay créditos). Solo con id. #}
+                      {% if r.cm_track %}
+                        <form method="post" action="{{ url_for('cm_song_diagnose', song_id=r.id) }}" class="d-inline mb-0"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-secondary" title="Comprobar qué contesta Chartmetric para este track"><i class="fa fa-stethoscope"></i></button></form>
+                      {% endif %}
                       <a href="{{ r.detail_url }}" class="btn btn-sm btn-outline-secondary" title="Abrir ficha"><i class="fa fa-arrow-up-right-from-square"></i></a>
                     </td>
                   </tr>

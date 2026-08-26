@@ -5591,6 +5591,37 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   nosotros: `dd/mm/aaaa · Origen → Destino` (fecha en formato de España). La `description` de Cabify
   **no se usa nunca**: es donde vienen los suplementos y ensucia la información.
 
+- ⚠️⚠️ **CHARTMETRIC · las DOS rutas que estaban mal** (ago 2026, bug real: una canción vinculada por
+  el buscador se quedaba **sin enlaces y sin reproducciones**, con «Cannot GET
+  /api/track/170983676/spotify/stats»). Las rutas de verdad, confirmadas en su referencia
+  (el **sitemap** de `apidocs.chartmetric.com` es público y lista las 149 rutas: la forma más rápida
+  de comprobar una):
+  · **Las reproducciones llevan un MODO al final**: `GET /api/track/{id}/{plataforma}/stats/{modo}`,
+  con `modo` **obligatorio** — `highest-playcounts` (el id que más se ha escuchado, que es el que
+  representa a la canción: es el que usamos) o `most-history` (la serie más larga). Sin el modo,
+  Chartmetric contesta un **404 de Express** («Cannot GET …»), o sea que **esa ruta no existe**.
+  · **Los IDS DE PLATAFORMA NO están en el metadato del track**: `/api/track/{id}` devuelve nombre,
+  ISRC, portada, artistas, álbumes y `cm_statistics`, y **ningún** id de Spotify, Apple, Amazon ni
+  YouTube. Están en su propio endpoint, **`GET /api/track/{tipo}/{id}/get-ids`** (tipo =
+  `chartmetric`), que devuelve `spotify_ids`, `itunes_ids`, `amazon_ids`, `youtube_ids`, `deezer_ids`…
+  **cada uno una LISTA (o null)**. Punto único **`cm.get_platform_ids(kind, id)`** (+
+  `get_track_platform_ids` / `get_album_platform_ids`) y **`_cm_urls_from_get_ids(payload, kind)`**,
+  con las plantillas de enlace en `_CM_URL_TEMPLATES`. El rascado del metadato
+  (`_cm_track_platform_urls`) se conserva **como respaldo**.
+  ⚠️⚠️ **La serie viene envuelta DOS veces**: `{obj: [{domain, track_domain_id, type, data:[{timestp,
+  value}]}]}` — `obj` es una **lista de series** y los puntos están dentro de **`data`**. Devolviendo
+  `obj` tal cual, cada «punto» era una serie sin `timestp` y se descartaban todos: **0
+  reproducciones, sin ningún error**. Lo resuelve `_cm_extract_series` (prefiere la serie del `type`
+  pedido) con `_cm_es_punto`.
+  ⚠️ En el refresco de un ARTISTA los ids de plataforma se piden solo para las canciones que se
+  quedan **sin ningún enlace** y con **tope** (`CM_GET_IDS_PER_ARTIST` = 25): cada llamada gasta
+  créditos. El resto los rellena el «Actualizar» de esa canción.
+  · **«COMPROBAR RUTAS»** (icono de estetoscopio en Integraciones → Chartmetric → Canciones,
+  `cm_song_diagnose` → `cm.diagnose_track`): prueba las rutas de ese track y enseña **qué ha
+  contestado cada una** (responde y con qué claves · 404 · sin permisos · sin créditos), el mismo
+  patrón que el diagnóstico de Holded. Es la forma de comprobar la API **sin tener el token
+  delante**: si Chartmetric vuelve a cambiar una ruta, se ve en pantalla en vez de en el log.
+
 - **CHARTMETRIC · vincular canciones y álbumes** (ago 2026):
   · ⚠️ **El ISRC se busca SIEMPRE EN SECO**: nosotros lo guardamos con guiones (ES-A2A-25-00001)
   porque se lee mejor, pero la API busca por el código seguido y con guiones **no encuentra nada**.

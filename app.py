@@ -110924,6 +110924,9 @@ def _cm_first(d, *keys):
 
 # Tienda de Apple/Amazon para los enlaces que se construyen desde un id (somos de España).
 CM_STOREFRONT = "es"
+# Cuántas veces, como mucho, se le piden los IDS DE PLATAFORMA a Chartmetric en el refresco de UN
+# artista: cada llamada gasta créditos, así que el resto de canciones los rellena su «Actualizar».
+CM_GET_IDS_PER_ARTIST = 25
 
 
 def _cm_scan_id(d: dict, needles: tuple, exclude: tuple = ()) -> str | None:
@@ -110963,6 +110966,66 @@ def _cm_explicit_url(d: dict, *needles) -> str | None:
         if isinstance(valor, str) and valor.startswith("http"):
             return valor
     return None
+
+
+# Cómo se escribe el enlace de cada plataforma a partir de su ID. `{id}` es el id de la plataforma y
+# `{store}` la tienda (España) donde hace falta.
+_CM_URL_TEMPLATES = {
+    "track": {
+        "spotify": "https://open.spotify.com/track/{id}",
+        "youtube": "https://www.youtube.com/watch?v={id}",
+        "apple_music": "https://music.apple.com/{store}/song/{id}",
+        "amazon_music": "https://music.amazon.{store}/tracks/{id}",
+        "deezer": "https://www.deezer.com/track/{id}",
+    },
+    "album": {
+        "spotify": "https://open.spotify.com/album/{id}",
+        "youtube": "https://www.youtube.com/playlist?list={id}",
+        "apple_music": "https://music.apple.com/{store}/album/{id}",
+        "amazon_music": "https://music.amazon.{store}/albums/{id}",
+        "deezer": "https://www.deezer.com/album/{id}",
+    },
+}
+# Qué clave de `…/get-ids` alimenta cada plataforma nuestra.
+_CM_GET_IDS_KEYS = {
+    "spotify": "spotify_ids",
+    "youtube": "youtube_ids",
+    "apple_music": "itunes_ids",
+    "amazon_music": "amazon_ids",
+    "deezer": "deezer_ids",
+}
+
+
+def _cm_urls_from_get_ids(payload: dict, kind: str = "track") -> dict:
+    """Los enlaces de plataforma a partir de la respuesta de `…/get-ids`.
+
+    ⚠️⚠️ AQUÍ es donde Chartmetric tiene los ids de las demás plataformas: el metadato de un track
+    (`/api/track/{id}`) **no los trae** (nombre, ISRC, portada, artistas, álbumes y `cm_statistics`, y
+    nada más), así que rascándolo salían siempre CERO enlaces por muy bien vinculada que estuviera la
+    canción. Cada clave (`spotify_ids`, `itunes_ids`, `amazon_ids`, `youtube_ids`, `deezer_ids`) es una
+    LISTA o `null`: se coge el primero que venga.
+    """
+    plantillas = _CM_URL_TEMPLATES.get((kind or "track").strip().lower()) or {}
+    salida = {}
+    if not isinstance(payload, dict):
+        return salida
+    for plataforma, clave in _CM_GET_IDS_KEYS.items():
+        plantilla = plantillas.get(plataforma)
+        if not plantilla:
+            continue
+        crudo = payload.get(clave)
+        if isinstance(crudo, (list, tuple)):
+            crudo = next((x for x in crudo if x), None)
+        if isinstance(crudo, dict):
+            crudo = crudo.get("id") or crudo.get("value")
+        valor = str(crudo or "").strip()
+        if not valor:
+            continue
+        if valor.startswith("http"):
+            salida[plataforma] = valor
+        else:
+            salida[plataforma] = plantilla.format(id=valor, store=CM_STOREFRONT)
+    return salida
 
 
 def _cm_track_platform_urls(t: dict) -> dict:
@@ -111136,6 +111199,7 @@ def _cm_resolve_artist_song_links(session_db, artist, track_objs) -> None:
                 otros_isrc.setdefault(str(fila.song_id), []).append(getattr(fila, "code", None))
     except Exception:
         otros_isrc = {}
+    pendientes_get_ids = CM_GET_IDS_PER_ARTIST
     for sg in canciones:
         t = None
         candidatos = [getattr(sg, "isrc", None)] + list(otros_isrc.get(str(getattr(sg, "id", "")), []))
@@ -111149,22 +111213,60 @@ def _cm_resolve_artist_song_links(session_db, artist, track_objs) -> None:
             t = by_name.get(_chartmetric_norm_name(sg.title))
         if not t:
             continue
-        _cm_apply_song_links(sg, _cm_first(t, "cm_track", "id"), _cm_track_platform_urls(t))
+        cm_track = _cm_first(t, "cm_track", "id")
+        urls = _cm_track_platform_urls(t)
+        # ⚠️ Los ids de plataforma NO vienen en los tracks del artista (ni en el metadato de un
+        # track): están en `…/get-ids`. Se piden SOLO para las canciones que se quedan sin ningún
+        # enlace y con un TOPE (cada llamada gasta créditos): el resto lo rellena el «Actualizar» de
+        # esa canción. Sin esto, el casado automático vinculaba pero no dejaba ningún botón.
+        if not urls and cm_track and pendientes_get_ids > 0:
+            import chartmetric_utils as cm
+            urls = _cm_urls_from_get_ids(cm.get_track_platform_ids(cm_track) or {}, "track")
+            pendientes_get_ids -= 1
+        _cm_apply_song_links(sg, cm_track, urls)
+
+
+def _cm_es_punto(x) -> bool:
+    """¿Es un punto de una serie? (lleva fecha y valor)"""
+    return isinstance(x, dict) and (("timestp" in x) or ("date" in x)) and ("value" in x or "count" in x)
 
 
 def _cm_extract_series(data, field=None) -> list:
     """Extrae una serie temporal [{timestp,value}] de una respuesta de stats de Chartmetric.
-    Defensivo: prueba obj[field] y, si no, la primera lista de puntos que encuentre."""
+
+    ⚠️⚠️ La de un TRACK viene envuelta DOS veces: `{obj: [{domain, track_domain_id, type, data:
+    [{timestp, value}]}]}` — o sea, `obj` es una LISTA de series y los puntos están DENTRO de `data`.
+    Devolviendo `obj` tal cual (que es lo que se hacía) cada «punto» era una serie sin `timestp`, así
+    que se descartaban todos y la canción se quedaba con **0 reproducciones** sin dar ningún error
+    (bug real, ago 2026). Cuando hay varias series se prefiere la del `type` pedido.
+    Se conservan las formas antiguas: sirve igual para el stat de un ARTISTA (`{obj: {...}}`).
+    """
     if not data:
         return []
     obj = data.get("obj", data) if isinstance(data, dict) else data
     if isinstance(obj, list):
-        return obj
+        if obj and _cm_es_punto(obj[0]):
+            return obj
+        # Lista de SERIES: se coge la del `type` pedido y, si no, la primera que traiga puntos.
+        elegida = None
+        for serie in obj:
+            if not isinstance(serie, dict):
+                continue
+            puntos = serie.get("data")
+            if not (isinstance(puntos, list) and puntos and _cm_es_punto(puntos[0])):
+                continue
+            if field and str(serie.get("type") or "").strip().lower() == str(field).strip().lower():
+                return puntos
+            if elegida is None:
+                elegida = puntos
+        return elegida or []
     if isinstance(obj, dict):
         if field and isinstance(obj.get(field), list):
             return obj[field]
+        if isinstance(obj.get("data"), list) and obj["data"] and _cm_es_punto(obj["data"][0]):
+            return obj["data"]
         for v in obj.values():
-            if isinstance(v, list) and v and isinstance(v[0], dict) and ("timestp" in v[0] or "value" in v[0]):
+            if isinstance(v, list) and v and _cm_es_punto(v[0]):
                 return v
     return []
 
@@ -111455,9 +111557,14 @@ def cm_song_reresolve(song_id):
                 if cm_track:
                     break
         if cm_track:
+            # ⚠️ Los enlaces están en `…/get-ids`, NO en el metadato del track (que no trae ningún id
+            # de plataforma). El metadato se sigue mirando como RESPALDO por si algún día los añade.
+            ids = cm.get_track_platform_ids(cm_track, raise_on_error=True) or {}
+            urls = _cm_urls_from_get_ids(ids, "track")
             td = cm.get_track(cm_track) or {}
             td.setdefault("cm_track", cm_track)
-            urls = _cm_track_platform_urls(td)
+            for plataforma, enlace in (_cm_track_platform_urls(td) or {}).items():
+                urls.setdefault(plataforma, enlace)
             # Re-resolver a mano es para ARREGLAR lo que está mal: si lo que dice Chartmetric hoy no
             # coincide con lo guardado, manda Chartmetric (salvo lo bloqueado a mano).
             _cm_apply_song_links(song, cm_track, urls, force=True)
@@ -111540,12 +111647,18 @@ def _cm_link_row_manual(session_db, row, kind: str, cm_id: str) -> tuple[bool, s
     cm_id = (cm_id or "").strip()
     if not cm_id:
         return False, "No he encontrado el id en lo que has pegado. Copia el enlace de Chartmetric de la canción o del álbum."
+    # ⚠️ Los enlaces de plataforma salen de `…/get-ids`; el metadato (que es lo que confirma que ese
+    # id existe) NO trae ninguno. Se piden las dos cosas y el metadato queda como respaldo.
     if kind == "album":
         datos = cm.get_album(cm_id) or {}
-        urls = _cm_album_platform_urls(datos)
+        urls = _cm_urls_from_get_ids(cm.get_album_platform_ids(cm_id) or {}, "album")
+        for plataforma, enlace in (_cm_album_platform_urls(datos) or {}).items():
+            urls.setdefault(plataforma, enlace)
     else:
         datos = cm.get_track(cm_id) or {}
-        urls = _cm_track_platform_urls(datos)
+        urls = _cm_urls_from_get_ids(cm.get_track_platform_ids(cm_id) or {}, "track")
+        for plataforma, enlace in (_cm_track_platform_urls(datos) or {}).items():
+            urls.setdefault(plataforma, enlace)
     if not datos:
         return False, ("En Chartmetric no hay ningún %s con el id %s. Comprueba el enlace."
                        % ("álbum" if kind == "album" else "track", cm_id))
@@ -111703,6 +111816,41 @@ def cm_link_clear():
     except Exception as e:
         session_db.rollback()
         flash(f"Error al limpiar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next") or url_for("integrations_view"))
+
+
+@app.post("/integraciones/chartmetric/cancion/<song_id>/comprobar-rutas", endpoint="cm_song_diagnose")
+@admin_required
+def cm_song_diagnose(song_id):
+    """COMPROBAR RUTAS: pregunta a Chartmetric por este track y enseña qué contesta cada una.
+
+    Cuando algo no llega, lo primero es saber si la ruta existe, si falta un permiso o si la cuenta
+    está sin créditos, y eso solo lo dice la propia API (el mismo patrón que el diagnóstico de
+    Holded). Así se ve en pantalla en vez de tener que leer el log."""
+    if not (is_master() or can_edit_discografica()):
+        return forbid("Sin permisos.")
+    import chartmetric_utils as cm
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            abort(404)
+        cm_track = (song.cm_track or "").strip()
+        if not cm_track:
+            flash("Esta canción todavía no está vinculada con Chartmetric: no hay nada que comprobar.",
+                  "warning")
+        else:
+            filas = cm.diagnose_track(cm_track)
+            if not filas:
+                flash("No se ha podido preguntar a Chartmetric.", "warning")
+            for fila in filas:
+                flash("%s %s → %s · %s" % ("✅" if fila["ok"] else "❌", fila["para"],
+                                           fila["ruta"], fila["detalle"]),
+                      "success" if fila["ok"] else "warning")
+    except Exception as e:
+        flash("No se pudo comprobar: %s" % e, "danger")
     finally:
         session_db.close()
     return redirect(request.form.get("next") or url_for("integrations_view"))

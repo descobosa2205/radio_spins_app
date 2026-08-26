@@ -5616,6 +5616,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ En el refresco de un ARTISTA los ids de plataforma se piden solo para las canciones que se
   quedan **sin ningún enlace** y con **tope** (`CM_GET_IDS_PER_ARTIST` = 25): cada llamada gasta
   créditos. El resto los rellena el «Actualizar» de esa canción.
+  ⚠️ Tres matices más de su **OpenAPI** (que es público: `apidocs.chartmetric.com/reference/openapi.json`,
+  y con `llms-full.txt` al lado — la forma de comprobar esta API sin adivinar):
+  · en **Spotify** el `type` por defecto es **`popularity`**, no `streams`, así que las reproducciones
+  hay que pedirlas a mano (`type=streams`); en **YouTube** el spec **no declara valores** de `type`, así
+  que no se manda ninguno y se deja su defecto (mandar uno inventado es pedir un 400);
+  · el `obj` de **`get-ids` es un ARRAY** (el de stats también, con UN elemento);
+  · el **valor de un punto puede llegar como TEXTO** («may arrive as numeric or string for large
+  counters»): lo normaliza `_cm_point_value` — guardarlo tal cual metía texto en una columna numérica.
   · **«COMPROBAR RUTAS»** (icono de estetoscopio en Integraciones → Chartmetric → Canciones,
   `cm_song_diagnose` → `cm.diagnose_track`): prueba las rutas de ese track y enseña **qué ha
   contestado cada una** (responde y con qué claves · 404 · sin permisos · sin créditos), el mismo

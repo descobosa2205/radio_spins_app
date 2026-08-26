@@ -111271,6 +111271,24 @@ def _cm_extract_series(data, field=None) -> list:
     return []
 
 
+def _cm_point_value(pt: dict):
+    """El valor de un punto de Chartmetric, siempre como NÚMERO.
+
+    ⚠️ Su propio OpenAPI avisa de que el valor «may arrive as numeric or string for large counters»
+    (un contador grande puede venir entre comillas): guardándolo tal cual se mete texto en una columna
+    numérica."""
+    crudo = pt.get("value")
+    if crudo is None:
+        crudo = pt.get("count")
+    if isinstance(crudo, str):
+        limpio = crudo.strip().replace(",", "")
+        try:
+            return float(limpio) if "." in limpio else int(limpio)
+        except ValueError:
+            return None
+    return crudo
+
+
 def _cm_upsert_track_points(session_db, song_id, source, field, series, keep_days=120):
     """Igual que _chartmetric_upsert_metric_points pero sobre ChartmetricTrackMetricPoint (canción)."""
     for pt in (series or [])[-keep_days:]:
@@ -111289,11 +111307,11 @@ def _cm_upsert_track_points(session_db, song_id, source, field, series, keep_day
             .first()
         )
         if existing:
-            existing.value = pt.get("value")
+            existing.value = _cm_point_value(pt)
             existing.fetched_at = _now_madrid()
         else:
             session_db.add(ChartmetricTrackMetricPoint(
-                song_id=song_id, source=source, field=field, date=d, value=pt.get("value"),
+                song_id=song_id, source=source, field=field, date=d, value=_cm_point_value(pt),
             ))
 
 
@@ -111306,9 +111324,12 @@ def _cm_refresh_song_streams(session_db, song, raise_on_error: bool = False) -> 
     resumen = {"points": 0, "error": None}
     if not (getattr(song, "cm_track", None) or "").strip():
         return resumen
+    # ⚠️ En SPOTIFY hay que pedir `type=streams` a mano: su valor por defecto es `popularity`, que no
+    # son reproducciones. En YOUTUBE **no se manda `type`**: su OpenAPI no declara valores para esa
+    # plataforma y se deja su defecto (mandar uno inventado es pedir un 400).
     for source, field, platform, params in (
         ("spotify", "streams", "spotify", {"type": "streams"}),
-        ("youtube", "views", "youtube", {"type": "views"}),
+        ("youtube", "views", "youtube", None),
     ):
         try:
             data = cm.get_track_stat(song.cm_track, platform, params, raise_on_error=raise_on_error)

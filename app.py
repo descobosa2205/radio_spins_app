@@ -67853,11 +67853,11 @@ def promotion_create():
                 budget_notes = (getattr(source_request, 'budget_notes', None) or '').strip() or None
         if subject_type not in {'ARTIST', 'SONG', 'ALBUM', 'CONCERT', 'GIRA', 'CICLO', 'EVENT'}:
             flash('Debes seleccionar qué se promociona.', 'warning')
-            return redirect(next_url)
+            return redirect(safe_next_or(url_for('marketing_view')))
         snapshot = _promotion_request_snapshot_from_source(session_db, subject_type, subject_id, manual_title=manual_title, manual_artist_ids=artist_ids)
         if not snapshot:
             flash('No se ha podido preparar la promoción.', 'warning')
-            return redirect(next_url)
+            return redirect(safe_next_or(url_for('marketing_view')))
         if not artist_ids:
             artist_ids = _promotion_normalized_artist_ids(snapshot.get('artist_ids') or [])
         target_date = _promotion_target_date_from_source(session_db, subject_type, subject_id)
@@ -67904,15 +67904,20 @@ def promotion_create():
             source_request.reviewed_by_nick = (state.get('nick') or state.get('email') or '').strip() or None
             source_request.updated_at = _now_madrid()
         session_db.commit()
+        # ⚠️ `back=1`: quien la crea DESDE OTRA PANTALLA (el plan de un proyecto) se queda donde
+        # estaba; el asistente de Marketing sigue aterrizando en la ficha de la campaña.
+        volver = _truthy(request.form.get('back')) and next_url
         if seeded_action is not None:
             flash('Acción de marketing creada. La tienes en «Acciones» para gestionarla.', 'success')
-            return redirect(url_for('promotion_detail_view', promotion_id=promotion.id, tab='acciones'))
+            return redirect(safe_next_or(url_for('promotion_detail_view', promotion_id=promotion.id, tab='acciones'))
+                            if volver else url_for('promotion_detail_view', promotion_id=promotion.id, tab='acciones'))
         flash('Campaña de marketing creada.', 'success')
-        return redirect(url_for('promotion_detail_view', promotion_id=promotion.id))
+        return redirect(safe_next_or(url_for('promotion_detail_view', promotion_id=promotion.id))
+                        if volver else url_for('promotion_detail_view', promotion_id=promotion.id))
     except Exception as exc:
         session_db.rollback()
         flash(f'Error creando la campaña de marketing: {exc}', 'danger')
-        return redirect(next_url)
+        return redirect(safe_next_or(url_for('marketing_view')))
     finally:
         session_db.close()
 

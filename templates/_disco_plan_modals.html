@@ -16,6 +16,8 @@
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <form class="modal-content" method="post" action="{{ url_for('promotion_create') }}">
       <input type="hidden" name="next" value="{{ request.full_path }}">
+      {# `back=1`: al crearla se vuelve AQUÍ, no a la ficha de la campaña (se estaba en el plan). #}
+      <input type="hidden" name="back" value="1">
       <input type="hidden" name="subject_type" value="{{ plan.subject.type }}">
       <input type="hidden" name="subject_id" value="{{ plan.subject.id }}">
       {% for aid in (plan.subject.artist_ids or []) %}

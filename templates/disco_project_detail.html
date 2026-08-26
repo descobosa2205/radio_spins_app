@@ -417,7 +417,12 @@
               {{ [m.kind_label, m.subtitle, m.date_label]|select|join(' · ') }}</span>
           </span>
           {# ⚠️ `status` de una campaña es el código en crudo (ACTIVE/ARCHIVED): se pinta legible. #}
-          {% if m.status %}<span class="badge {{ m.status_badge or 'text-bg-light border' }}">{{ 'Archivada' if m.status == 'ARCHIVED' else 'Activa' }}</span>{% endif %}
+          {# ⚠️ `status_badge` de una campaña es un DICT {label, class} (`_promotion_badge`): pintarlo
+             a pelo metía el diccionario entero en el atributo `class`. #}
+          {% if m.status %}
+            <span class="badge {{ (m.status_badge.class if m.status_badge is mapping else m.status_badge) or 'text-bg-light border' }}">
+              {{ (m.status_badge.label if m.status_badge is mapping else '') or ('Archivada' if m.status == 'ARCHIVED' else 'Activa') }}</span>
+          {% endif %}
           {% if m.detail_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ m.detail_url }}"><i class="fa fa-arrow-right"></i></a>{% endif %}
         </div>
       {% else %}

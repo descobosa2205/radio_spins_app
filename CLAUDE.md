@@ -1305,6 +1305,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Se importa con **`with context`**.
   ⚠️ El botón se pinta solo si la persona puede crear campañas (`can_edit_promocion`, que es lo que
   exige el endpoint); si no, se le dice que lo pida en Marketing — nunca un botón que daría 403.
+  ⚠️ **`promotion_create` se queda donde estabas con `back=1`**: por defecto aterriza en la ficha de
+  la campaña (lo que hace el asistente de Marketing), y creándola desde el plan eso te saca de la
+  pantalla. Sus caminos de error usan ya `safe_next_or` (antes redirigían al `next` en crudo).
+  ⚠️ **`status_badge` de una campaña es un DICT** ({label, class}, `_promotion_badge`): pintado a pelo
+  en un `class=` se imprimía el diccionario entero (un dict no vacío es «verdadero» en Jinja).
+  ⚠️⚠️ **LOS POP-UPS DEL PLAN TAMBIÉN VAN EN LA PESTAÑA DE LAS TAREAS**: `_disco_plan_modals.html` se
+  incluía solo en la pestaña del plan, pero **seis acciones de la lista de tareas** los abren
+  (`#dpPlanReviewModal`, `#dpPlanPromoModal`, `#dpPlanNoticeModal`…) y la lista vive en «calendario»:
+  esos botones **no hacían nada**. Se incluye en las dos, y el plan se calcula también ahí. Al añadir
+  una acción con `modal=`, comprobar que ese pop-up se pinta en la pestaña donde está el botón.
   · **EL OK DE DIRECCIÓN NO SE PIDE CON EL PLAN A MEDIAS** (ago 2026): punto único
   **`_disco_plan_missing(estado)`** (y `plan['missing']`/`complete`/`missing_label`), que exige lo que
   ES el plan —la **estrategia**, al menos una **acción**, al menos un **contenido** y que todo lleve

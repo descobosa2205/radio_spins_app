@@ -21402,6 +21402,101 @@ def _disco_materials_approved(session_db, project, fila) -> None:
         app.logger.exception("[materiales] no se pudo cerrar la aprobación")
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTO · LA AUTORÍA (el reparto y el permiso de edición)
+#
+#   1 · **Confirmar el reparto autoral**: quiénes son los autores y con qué %. Se marca en la
+#       pestaña Editorial de la canción (donde ya vivía) y **se CONFIRMA aquí**: con eso,
+#       **REGISTROS y SELLO** reciben el aviso para preparar el **acuerdo de reparto**.
+#       Se le puede **pedir al artista** que lo suba, y para eso NO se inventa nada: se usa el
+#       enlace de ENTREGA de siempre con su sección autoral.
+#   2 · **El permiso de edición**: si un autor **no es de Plataforma** y tiene **más del 50%** de la
+#       obra, y la obra **no se ha publicado nunca**, hace falta su permiso para editarla. Se le pide
+#       a **Registros y Sello**, que son quienes mandan y gestionan la
+#       «Autorización para la primera divulgación, reproducción y distribución de obra musical».
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Un autor de FUERA con más de este % de la obra tiene que dar permiso para editarla.
+DISCO_AUTHOR_PERMISSION_PCT = 50
+
+
+def _flag_arg(nombre: str) -> bool:
+    """Un interruptor que puede llegar por el FORMULARIO o por la URL.
+
+    ⚠️ Los menús de las tareas de un proyecto solo pueden hacer POST **a una URL** (no llevan campos),
+    así que un `?undo=1` tiene que valer igual que un `<input name="undo">`."""
+    return _truthy(request.form.get(nombre) or request.args.get(nombre))
+
+
+def _disco_authorship(project) -> dict:
+    return dict((_disco_prod(project).get("authorship") or {}))
+
+
+def _disco_authorship_state(session_db, project) -> dict:
+    """Los autores de la obra, si el reparto está confirmado y quién tiene que dar permiso."""
+    fila = _disco_authorship(project)
+    cancion = _disco_project_release_song(session_db, project)
+    autores, total = [], 0.0
+    if cancion is not None:
+        try:
+            filas = (session_db.query(SongEditorialShare)
+                     .options(joinedload(SongEditorialShare.promoter),
+                              joinedload(SongEditorialShare.publishing_company))
+                     .filter(SongEditorialShare.song_id == cancion.id).all())
+        except Exception:
+            app.logger.exception("[autoría] no se pudieron leer los autores")
+            filas = []
+        for sh in filas:
+            try:
+                pct = float(sh.pct) if sh.pct is not None else 0.0
+            except (TypeError, ValueError):
+                pct = 0.0
+            editorial = _share_publisher(sh)
+            de_casa = _publisher_is_platform(editorial)
+            total += pct
+            autores.append({
+                "id": str(sh.id),
+                "name": (_promoter_display_name(getattr(sh, "promoter", None)) or "—"),
+                "role_label": DEMO_AUTHOR_ROLE_LABELS.get((sh.role or "").strip().upper(), ""),
+                "pct": pct,
+                "pct_label": ("%g%%" % pct) if pct else "",
+                "publisher": (getattr(editorial, "name", None) or ""),
+                "is_platform": de_casa,
+                # ⚠️ De FUERA y con más del 50%: hace falta su permiso para editar la obra.
+                "needs_permission": bool(not de_casa and pct > DISCO_AUTHOR_PERMISSION_PCT),
+            })
+    # ¿La obra se ha publicado ya? Si la fecha es futura (o sigue provisional), no.
+    publicada = False
+    if cancion is not None:
+        fecha = getattr(cancion, "release_date", None)
+        publicada = bool(fecha and fecha <= today_local()
+                         and not bool(getattr(cancion, "is_provisional", False)))
+    permiso = dict(fila.get("permission") or {})
+    quien = [a for a in autores if a["needs_permission"]]
+    return {
+        "song": cancion,
+        "authors": autores,
+        "total_pct": total,
+        "sums_100": abs(total - 100.0) < 0.01,
+        "confirmed": bool(fila.get("confirmed_at")),
+        "confirmed_by": (fila.get("confirmed_by") or ""),
+        "confirmed_label": _iso_date_label(fila.get("confirmed_at")),
+        "asked": bool(fila.get("asked_at")),
+        "asked_label": _iso_date_label(fila.get("asked_at")),
+        "published": publicada,
+        # El permiso solo hace falta si la obra NO se ha publicado nunca.
+        "permission_needed": bool(quien) and not publicada,
+        "permission_people": quien,
+        "permission_asked": bool(permiso.get("asked_at")),
+        "permission_asked_label": _iso_date_label(permiso.get("asked_at")),
+        "permission_done": bool(permiso.get("done_at")),
+        "permission_done_label": _iso_date_label(permiso.get("done_at")),
+        "permission_by": (permiso.get("done_by") or ""),
+        "url": (url_for("discografica_song_detail", song_id=cancion.id, tab="editorial")
+                if cancion is not None else ""),
+    }
+
+
 def _disco_approval_all_done(session_db, project, fila) -> None:
     """QUÉ PASA cuando aprueban todos. Cada tipo dispara lo suyo (punto único).
 
@@ -21838,6 +21933,61 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                         "Las partes tienen que aprobarla antes de masterizar"
                         + ((" · tope %s" % mez["limit_label"]) if mez["limit_label"] else "")),
                   action_label=(None if bloqueada else "Pedir la mezcla"), modal="#dpMixModal")
+
+    # ================= 4c · LA AUTORÍA (el reparto y el permiso de edición) =================
+    if lleva_audio and _disco_project_release_song(session_db, project) is not None:
+        aut = _disco_authorship_state(session_db, project)
+        menu_aut = [{"label": "Ver el reparto en la ficha", "icon": "fa-pen-nib", "url": aut["url"]},
+                    {"label": "Pedírselo al artista", "icon": "fa-paper-plane",
+                     "modal": "#dpAuthorshipAskModal"}]
+        if aut["confirmed"]:
+            tarea("autoria", "Reparto autoral", "", "fa-feather-pointed", state="done",
+                  value="Confirmado%s%s · %s"
+                        % ((" por %s" % aut["confirmed_by"]) if aut["confirmed_by"] else "",
+                           (" el %s" % aut["confirmed_label"]) if aut["confirmed_label"] else "",
+                           " · ".join("%s %s" % (a["name"], a["pct_label"]) for a in aut["authors"][:4])),
+                  menu=menu_aut + [{"label": "Quitar la confirmación", "icon": "fa-rotate-left",
+                                    "post": url_for("disco_project_authorship_confirm",
+                                                    project_id=project.id) + "?undo=1"}])
+        elif not aut["authors"]:
+            tarea("autoria", "Confirmar el reparto autoral", "", "fa-feather-pointed", True,
+                  hint="Todavía no hay autores%s" % (" · ya se le ha pedido al artista"
+                                                     if aut["asked"] else ""),
+                  action_label="Pedírselo al artista", modal="#dpAuthorshipAskModal",
+                  menu=[{"label": "Ponerlo a mano en la ficha", "icon": "fa-pen-nib",
+                         "url": aut["url"]}])
+        else:
+            tarea("autoria", "Confirmar el reparto autoral", "", "fa-feather-pointed", True,
+                  value=" · ".join("%s %s" % (a["name"], a["pct_label"]) for a in aut["authors"][:4]),
+                  hint=("Suma %g%%: tiene que sumar 100" % aut["total_pct"]) if not aut["sums_100"]
+                       else "Al confirmarlo, Registros y Sello preparan el acuerdo de reparto",
+                  action_label="Confirmar el reparto", modal="#dpAuthorshipModal", menu=menu_aut)
+        # …y el PERMISO DE EDICIÓN, cuando un autor de fuera tiene más del 50% de una obra inédita.
+        if aut["permission_needed"]:
+            if aut["permission_done"]:
+                tarea("autoria_permiso", "Permiso de edición", "", "fa-file-signature", sub=True,
+                      state="done",
+                      value="Gestionado%s%s" % ((" por %s" % aut["permission_by"]) if aut["permission_by"] else "",
+                                                (" · %s" % aut["permission_done_label"])
+                                                if aut["permission_done_label"] else ""))
+            elif aut["permission_asked"]:
+                tarea("autoria_permiso", "Permiso de edición", "", "fa-hourglass-half", sub=True,
+                      state="wait",
+                      hint="Registros y Sello tienen que mandar la autorización a %s"
+                           % ", ".join(a["name"] for a in aut["permission_people"][:3]),
+                      menu=[{"label": "Ya está gestionado", "icon": "fa-check",
+                             "post": url_for("disco_project_authorship_permission",
+                                             project_id=project.id) + "?done=1"},
+                            {"label": "Volver a pedirlo", "icon": "fa-rotate",
+                             "modal": "#dpAuthorPermissionModal"}])
+            else:
+                tarea("autoria_permiso", "Pedir el permiso de edición", "", "fa-file-signature",
+                      True, sub=True,
+                      hint="%s no %s de Plataforma y tiene más del %d%% de una obra inédita"
+                           % (", ".join(a["name"] for a in aut["permission_people"][:3]),
+                              "son" if len(aut["permission_people"]) > 1 else "es",
+                              DISCO_AUTHOR_PERMISSION_PCT),
+                      action_label="Pedirlo a Registros", modal="#dpAuthorPermissionModal")
 
     fase[0] = "imagen"
     # ================= 6 · La PORTADA, por pasos =================
@@ -23040,6 +23190,7 @@ def disco_project_detail(project_id):
                           "press", "press_parts", "product_manager", "delivery",
                           "mix", "mix_min_weeks", "can_waive_mix", "approver_candidates",
                           "photo_approval", "materials_approval", "materials_pieces",
+                          "authorship", "author_permission_pct",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
@@ -23071,6 +23222,9 @@ def disco_project_detail(project_id):
             logistics_notes=DISCO_LOGISTICS_NOTES,
             # LA MEZCLA FINAL y su aprobación en cadena.
             mix=(_disco_mix_state(session_db, project) if tab == "calendario" else None),
+            # LA AUTORÍA: los autores, si está confirmado y el permiso de edición.
+            authorship=(_disco_authorship_state(session_db, project) if tab == "calendario" else None),
+            author_permission_pct=DISCO_AUTHOR_PERMISSION_PCT,
             # LOS MATERIALES: las piezas entregadas y cómo va su aprobación.
             materials_approval=(_disco_approval_state(session_db, project, "MATERIALS")
                                 if tab == "calendario" else None),
@@ -24578,6 +24732,190 @@ def _disco_artwork_notify_stage(session_db, project, fila, *, nota: str = "", st
             session_db.add(ap)
             salieron.append(ap.name or correo)
     return salieron, sin_correo, etapa
+
+
+@app.post("/discografica/proyectos/<project_id>/autoria/confirmar", endpoint="disco_project_authorship_confirm")
+@admin_required
+def disco_project_authorship_confirm(project_id):
+    """CONFIRMAR el reparto autoral: con eso, Registros y Sello preparan el acuerdo de reparto.
+
+    ⚠️ No se confirma un reparto que no suma 100: es el reparto de la obra."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        estado = _disco_authorship_state(session_db, project)
+        deshacer = _flag_arg("undo")
+        if not deshacer:
+            if not estado["authors"]:
+                flash("Antes hay que poner los autores y sus porcentajes.", "warning")
+                return redirect(safe_next_or(destino))
+            if not estado["sums_100"]:
+                flash("El reparto suma %g%%: tiene que sumar 100." % estado["total_pct"], "warning")
+                return redirect(safe_next_or(destino))
+        prod = _disco_prod(project)
+        fila = dict(prod.get("authorship") or {})
+        fila["confirmed_at"] = ("" if deshacer else _now_madrid().isoformat())
+        fila["confirmed_by"] = ("" if deshacer else ((_current_user_state() or {}).get("nick") or ""))
+        prod["authorship"] = fila
+        project.production_payload = prod
+        if deshacer:
+            _notify_resolve(session_db, "DISCO_AUTHORSHIP", str(project.id))
+        else:
+            detalle = " · ".join("%s %s%s" % (a["name"], a["pct_label"],
+                                              (" (%s)" % a["publisher"]) if a["publisher"] else "")
+                                 for a in estado["authors"])
+            _notify_users(session_db, _registros_user_ids(session_db), "TAREA",
+                          "Preparar el acuerdo de reparto: %s" % _disco_project_title(project),
+                          ("Reparto confirmado: %s" % detalle)[:600],
+                          url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_AUTHORSHIP", ref_id=str(project.id))
+        session_db.commit()
+        flash("Reparto sin confirmar." if deshacer else
+              "Reparto confirmado: Registros y Sello preparan el acuerdo.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[autoría] no se pudo confirmar el reparto")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/autoria/pedir", endpoint="disco_project_authorship_ask")
+@admin_required
+def disco_project_authorship_ask(project_id):
+    """PEDIRLE AL ARTISTA el reparto autoral: se le manda el enlace de ENTREGA de siempre con su
+    sección autoral (no se inventa otro sitio para subir lo mismo)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        cancion = _disco_project_release_song(session_db, project)
+        if cancion is None:
+            flash("Este proyecto no tiene una canción de lanzamiento.", "warning")
+            return redirect(safe_next_or(destino))
+        # El enlace de entrega, pidiendo SOLO la autoría.
+        link = SongMasterDeliveryLink(
+            song_id=cancion.id, token=uuid.uuid4().hex,
+            sections_json=["AUTHORAL"], materials_json=[],
+            fields_json={"authoral": {"ask": True, "required": True}},
+            status="ACTIVE", data={},
+            requested_by_user_id=_safe_uuid((_current_user_state() or {}).get("user_id")),
+            requested_by_nick=((_current_user_state() or {}).get("nick") or None))
+        session_db.add(link)
+        session_db.flush()
+        enlace = _song_delivery_public_url(link)
+        cuerpo = ('<p style="margin:0;">Necesitamos el <strong>reparto autoral</strong> de la obra: '
+                  'quiénes son los autores, con qué porcentaje y con qué editorial. Rellénalo en el '
+                  'enlace.</p>')
+        html_correo = _disco_project_email_shell(
+            session_db, project, title="Reparto autoral", body_html=cuerpo,
+            button_label="Rellenar el reparto", button_url=enlace,
+            note=(request.form.get("note") or ""))
+        filas = _notify_apply_prefs(session_db,
+                                   _artist_notification_recipients(session_db, project.artist_id,
+                                                                   "EDITORIAL") or [])
+        salieron = []
+        for f in filas:
+            ok, _err = _notify_send_row(
+                session_db, f, subject="Reparto autoral · %s" % _disco_project_title(project),
+                html=html_correo,
+                sms_text="%s: necesitamos el reparto autoral · %s"
+                         % (_disco_project_title(project), enlace),
+                kind="EDITORIAL")
+            if ok:
+                salieron.append(f.get("name") or f.get("email"))
+        prod = _disco_prod(project)
+        fila = dict(prod.get("authorship") or {})
+        fila["asked_at"] = _now_madrid().isoformat()
+        fila["asked_by"] = ((_current_user_state() or {}).get("nick") or "")
+        prod["authorship"] = fila
+        project.production_payload = prod
+        session_db.commit()
+        if salieron:
+            flash("Se le ha pedido el reparto a %s." % ", ".join([str(x) for x in salieron]), "success")
+        else:
+            flash(Markup("No se pudo escribir al artista. Puedes mandarle este enlace: "
+                         "<a href='%s'>%s</a>" % (escape(enlace), escape(enlace))), "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[autoría] no se pudo pedir el reparto")
+        flash("No se pudo pedir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/autoria/permiso", endpoint="disco_project_authorship_permission")
+@admin_required
+def disco_project_authorship_permission(project_id):
+    """PEDIR EL PERMISO DE EDICIÓN a Registros y Sello (ellos mandan y gestionan la autorización).
+
+    Hace falta cuando un autor de FUERA tiene más del 50% de una obra que **no se ha publicado
+    nunca**. Se les manda con los datos de quién tiene que firmarlo."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        estado = _disco_authorship_state(session_db, project)
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        listo = _flag_arg("done")
+        prod = _disco_prod(project)
+        fila = dict(prod.get("authorship") or {})
+        permiso = dict(fila.get("permission") or {})
+        if listo:
+            # Lo marca REGISTROS/SELLO cuando ya lo ha mandado y gestionado.
+            if not (yo in _registros_user_ids(session_db) or is_master() or can_edit_discografica()):
+                return forbid("Esto lo marca Registros o el Sello.")
+            permiso["done_at"] = _now_madrid().isoformat()
+            permiso["done_by"] = ((_current_user_state() or {}).get("nick") or "")
+            _notify_resolve(session_db, "DISCO_AUTHOR_PERMISSION", str(project.id))
+        else:
+            if not can_edit_discografica():
+                return forbid("No tienes permisos.")
+            if not estado["permission_needed"]:
+                flash("Aquí no hace falta permiso de edición.", "warning")
+                return redirect(safe_next_or(destino))
+            permiso["asked_at"] = _now_madrid().isoformat()
+            permiso["asked_by"] = ((_current_user_state() or {}).get("nick") or "")
+            permiso["note"] = (request.form.get("note") or "").strip()
+            quienes = " · ".join("%s (%s%s)" % (a["name"], a["pct_label"],
+                                                (", %s" % a["publisher"]) if a["publisher"] else "")
+                                 for a in estado["permission_people"])
+            _notify_users(session_db, _registros_user_ids(session_db), "TAREA",
+                          "Autorización para la primera divulgación: %s"
+                          % _disco_project_title(project),
+                          ("Hay que mandarla a %s. La obra no se ha publicado nunca.%s"
+                           % (quienes, (" Nota: %s" % permiso["note"]) if permiso["note"] else ""))[:600],
+                          url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                          ref_type="DISCO_AUTHOR_PERMISSION", ref_id=str(project.id))
+        fila["permission"] = permiso
+        prod["authorship"] = fila
+        project.production_payload = prod
+        session_db.commit()
+        flash("Permiso gestionado." if listo else
+              "Pedido a Registros y Sello: ellos mandan la autorización.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[autoría] no se pudo gestionar el permiso")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
 
 
 @app.post("/discografica/proyectos/<project_id>/materiales/aprobacion", endpoint="disco_project_materials_approval")
@@ -27538,7 +27876,7 @@ def disco_project_logistics_done(project_id):
             return forbid("Esta logística la lleva otra persona.")
         prod = _disco_prod(project)
         fila = dict(_disco_logistics(project))
-        deshacer = _truthy(request.form.get("undo"))
+        deshacer = _flag_arg("undo")
         fila["done_at"] = ("" if deshacer else _now_madrid().isoformat())
         fila["done_by"] = ("" if deshacer else ((_current_user_state() or {}).get("nick") or ""))
         prod["logistics"] = fila

@@ -927,6 +927,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo nuevo del contexto (`logistics`, `logistics_notes`) hay que quitarlo del de la **bolsa**
   (`bag_ctx`) o `render_template` revienta con «got multiple values».
 
+- **PROYECTO · LA AUTORÍA: el reparto y el permiso de edición** (ago 2026):
+  · **Confirmar el reparto autoral** (`disco_project_authorship_confirm`): los autores y sus % viven
+  donde siempre (la pestaña **Editorial** de la canción, `SongEditorialShare`) y aquí **se
+  confirman**; con eso **REGISTROS y SELLO** reciben el aviso para preparar el **acuerdo de reparto**.
+  ⚠️ **No se confirma un reparto que no suma 100** (lo comprueba el servidor y el botón sale
+  desactivado): es el reparto de la obra.
+  · **Pedírselo al artista** (`disco_project_authorship_ask`): se le manda el **enlace de ENTREGA de
+  siempre** con **solo su sección autoral** — no se inventa otro sitio para subir lo mismo — por su
+  canal `EDITORIAL`.
+  · **EL PERMISO DE EDICIÓN** (`DISCO_AUTHOR_PERMISSION_PCT` = 50): si un autor **no es de
+  Plataforma** (`_publisher_is_platform`) y tiene **más del 50%** de una obra que **no se ha publicado
+  nunca**, hace falta su permiso. Se le pide a **Registros y Sello**, que son quienes **mandan y
+  gestionan** la «Autorización para la primera divulgación, reproducción y distribución de obra
+  musical» (`disco_project_authorship_permission`), y ellos la marcan como gestionada.
+  ⚠️ «No publicada» = su fecha de lanzamiento es futura **o** sigue provisional.
+  ⚠️ **`_flag_arg`** es el punto único de un interruptor que llega **por el formulario o por la URL**:
+  los menús de las tareas solo pueden hacer POST **a una URL** (sin campos), así que un `?undo=1`
+  tiene que valer igual que un `<input name="undo">`.
+
 - **PROYECTO · APROBACIÓN DE LOS MATERIALES** (ago 2026): diseño sube las creatividades, las revisa
   el **jefe de producto** y las manda al artista (y al colaborador después, en cadena) —
   `#dpMaterialsApprovalModal` → `disco_project_materials_approval`, aprobación de kind

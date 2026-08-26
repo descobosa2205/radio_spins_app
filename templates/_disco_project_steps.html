@@ -883,6 +883,136 @@
   </div>
 </div>
 
+{# ---------------------------------------------------------------- LA AUTORÍA
+   Confirmar el reparto (con eso Registros y Sello preparan el acuerdo), pedírselo al artista y, si un
+   autor de fuera tiene más de la mitad de una obra inédita, pedir el permiso de edición. #}
+{% set au = authorship or {} %}
+<div class="modal fade" id="dpAuthorshipModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_authorship_confirm', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-feather-pointed me-2 text-danger"></i>Confirmar el reparto autoral</h5>
+          <div class="text-muted small">Al confirmarlo, <strong>Registros y Sello</strong> preparan el acuerdo de reparto.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if au.authors %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-2">
+              <thead><tr><th>Autor</th><th>Rol</th><th>Editorial</th><th class="text-end">%</th></tr></thead>
+              <tbody>
+                {% for a in au.authors %}
+                  <tr{% if a.needs_permission %} class="table-warning"{% endif %}>
+                    <td>{{ a.name }}
+                      {% if a.needs_permission %}
+                        <span class="badge text-bg-warning text-dark ms-1"
+                              title="No es de Plataforma y tiene más del {{ author_permission_pct }}%: hace falta su permiso de edición">
+                          <i class="fa fa-file-signature me-1"></i>permiso</span>
+                      {% endif %}</td>
+                    <td class="small text-muted">{{ a.role_label }}</td>
+                    <td class="small">{{ a.publisher or '—' }}</td>
+                    <td class="text-end fw-semibold">{{ a.pct_label }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot><tr>
+                <th colspan="3" class="text-end">Total</th>
+                <th class="text-end {{ 'text-danger' if not au.sums_100 else 'text-success' }}">{{ '%g'|format(au.total_pct) }}%</th>
+              </tr></tfoot>
+            </table>
+          </div>
+          {% if not au.sums_100 %}
+            <div class="alert alert-danger py-2 small mb-0">
+              El reparto tiene que sumar 100%. Ajústalo en
+              <a href="{{ au.url }}">la pestaña Editorial de la canción</a>.
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="alert alert-warning mb-0">
+            Todavía no hay autores. Ponlos en <a href="{{ au.url }}">la pestaña Editorial</a> o
+            pídeselo al artista.
+          </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"
+                {% if not au.authors or not au.sums_100 %}disabled{% endif %}>
+          <i class="fa fa-check me-1"></i>Confirmar el reparto</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="dpAuthorshipAskModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_authorship_ask', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Pedirle el reparto al artista</h5>
+          <div class="text-muted small">Le llega el enlace de entrega de siempre, con su sección autoral.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Nota (opcional)</label>
+        <textarea class="form-control" name="note" rows="3"
+                  placeholder="Lo que quieras decirle además del texto de siempre…"></textarea>
+        {% if au.asked_label %}
+          <div class="form-text mt-2">Ya se le pidió el {{ au.asked_label }}.</div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-paper-plane me-1"></i>Pedírselo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="dpAuthorPermissionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_authorship_permission', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-file-signature me-2 text-danger"></i>Permiso de edición</h5>
+          <div class="text-muted small">
+            Lo manda y lo gestiona <strong>Registros y Sello</strong>: la «Autorización para la primera
+            divulgación, reproducción y distribución de obra musical».
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% if au.permission_people %}
+          <div class="alert alert-warning">
+            Hace falta el permiso de
+            <strong>{{ au.permission_people | map(attribute='name') | join(', ') }}</strong>:
+            {{ 'no son' if au.permission_people|length > 1 else 'no es' }} de Plataforma y
+            {{ 'tienen' if au.permission_people|length > 1 else 'tiene' }} más del
+            {{ author_permission_pct }}% de una obra que no se ha publicado nunca.
+          </div>
+        {% endif %}
+        <label class="form-label">Nota para Registros (opcional)</label>
+        <textarea class="form-control" name="note" rows="3"
+                  placeholder="Lo que necesiten saber para mandarlo"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-paper-plane me-1"></i>Pedirlo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- APROBACIÓN DE LOS MATERIALES
    Diseño los sube, los revisa el jefe de producto y los manda al artista (y al colaborador después).
    Hasta que están aprobados no se pueden usar ni compartir. #}

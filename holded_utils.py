@@ -803,23 +803,25 @@ class HoldedClient:
                 for c in (filtrados or []):
                     if self._contact_matches(c, cif, ""):
                         return c
-                if v2:
+                if v2 and not objetivo_nombre:
                     return None          # el filtro exacto ya ha dicho que no está
             except HoldedError:
                 pass
-        if v2 and objetivo_nombre:
-            # Por NOMBRE, la v2 tiene su búsqueda (prefijo).
+        if cif and objetivo_nombre:
+            # ⚠️⚠️ NO SE CREA UN CONTACTO QUE YA ESTÁ. Con CIF y sin encontrarlo, se busca TAMBIÉN por
+            # NOMBRE antes de darlo por nuevo: en Holded hay contactos dados de alta a mano SIN NIF (o
+            # con el NIF escrito de otra forma), y crear otro deja el proveedor duplicado y los datos
+            # de contacto a medias en las dos fichas.
             try:
-                filas = self._request("GET", API_V2 + "/contacts/search",
-                                      params={"name": objetivo_nombre, "limit": 50})
-                if isinstance(filas, dict):
-                    filas = filas.get("data") or filas.get("items") or []
-                for c in (filas or []):
-                    if self._contact_matches(c, "", objetivo_nombre):
-                        return c
+                por_nombre = self._find_contact_by_name(objetivo_nombre, max_pages)
+                if por_nombre is not None:
+                    return por_nombre
             except HoldedError:
                 pass
-            return None
+            if v2:
+                return None
+        if v2 and objetivo_nombre:
+            return self._find_contact_by_name(objetivo_nombre, max_pages)
         pagina = 1
         vistas = set()
         while pagina <= max_pages:
@@ -835,6 +837,39 @@ class HoldedClient:
                     return c
             # Defensa: si la página no avanza (misma respuesta), se corta. Sin esto, una cuenta que
             # devuelve siempre la misma página se recorrería 30 veces por gasto.
+            firma = tuple(sorted(str(c.get("id") or "") for c in filas))
+            if firma in vistas:
+                return None
+            vistas.add(firma)
+            pagina += 1
+        return None
+
+    def _find_contact_by_name(self, objetivo_nombre: str, max_pages: int = 30) -> dict | None:
+        """Un contacto por NOMBRE exacto (el de la facturación). En la v2, con su búsqueda."""
+        if not objetivo_nombre:
+            return None
+        if self.api_version == "v2":
+            try:
+                filas = self._request("GET", API_V2 + "/contacts/search",
+                                      params={"name": objetivo_nombre, "limit": 50})
+                if isinstance(filas, dict):
+                    filas = filas.get("data") or filas.get("items") or []
+                for c in (filas or []):
+                    if self._contact_matches(c, "", objetivo_nombre):
+                        return c
+            except HoldedError:
+                pass
+            return None
+        pagina, vistas = 1, set()
+        while pagina <= max_pages:
+            filas = self._request("GET", self._path("contacts"), params={"page": pagina})
+            if isinstance(filas, dict):
+                filas = filas.get("data") or []
+            if not filas:
+                return None
+            for c in filas:
+                if self._contact_matches(c, "", objetivo_nombre):
+                    return c
             firma = tuple(sorted(str(c.get("id") or "") for c in filas))
             if firma in vistas:
                 return None

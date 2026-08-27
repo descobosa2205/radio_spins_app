@@ -379,19 +379,6 @@
   </div>
 {% endif %}
 
-{# ---------- Pestañas principales ---------- #}
-<ul class="nav nav-tabs mb-3">
-  {% for key, label, icon in accounting_tabs %}
-    <li class="nav-item">
-      <a class="nav-link {% if tab == key %}active{% endif %}" href="{{ url_for('contabilidad_view', tab=key) }}">
-        <i class="fa {{ icon }} me-1"></i>{{ label }}
-        {# El número es de lo PENDIENTE: en «Contabilizado» un contador que solo crece no dice nada. #}
-        {% if key == 'pendiente' and counts.get(key) %}<span class="badge text-bg-secondary ms-1">{{ counts.get(key) }}</span>{% endif %}
-      </a>
-    </li>
-  {% endfor %}
-</ul>
-
 {# ---------- FILTRO POR EMPRESA DEL GRUPO (con su logo) ----------
    La misma idea que la rejilla de artistas de Discográfica: salen todas y, al pinchar una, se ve solo
    lo suyo. Se conserva en las pestañas (va en la URL como `empresa`). #}
@@ -414,6 +401,20 @@
         {% endif %}
         <span class="acct-cofilter__name">{{ c.name }}</span>
         {% if c.pending %}<span class="acct-cofilter__n">{{ c.pending }}</span>{% endif %}
+{# ---------- Pestañas principales ---------- #}
+<ul class="nav nav-tabs mb-3">
+  {% for key, label, icon in accounting_tabs %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab == key %}active{% endif %}" href="{{ url_for('contabilidad_view', tab=key) }}">
+        <i class="fa {{ icon }} me-1"></i>{{ label }}
+        {# El número es de lo PENDIENTE: en «Contabilizado» un contador que solo crece no dice nada. #}
+        {% if key == 'pendiente' and counts.get(key) %}<span class="badge text-bg-secondary ms-1">{{ counts.get(key) }}</span>{% endif %}
+      </a>
+    </li>
+  {% endfor %}
+</ul>
+
+
       </a>
     {% endfor %}
   </div>
@@ -472,11 +473,18 @@
                 <i class="fa fa-buildings me-1"></i>Todas las empresas</a>
               <span class="vr mx-1"></span>
             {% endif %}
+            {# ⚠️ Aquí TODO está pendiente de contabilizar, así que un filtro «Pendiente» no dice
+               nada: el trabajo de verdad es lo que TODAVÍA NO ESTÁ EN HOLDED. Por eso el filtro es
+               «Sin subir a Holded» (y el resto de estados se conservan para repasar). #}
             <span class="small text-muted me-1">Estado:</span>
             <a class="btn btn-sm {{ 'btn-secondary' if not estado_filtro else 'btn-outline-secondary' }}"
                href="{{ url_for('contabilidad_view', tab='pendiente', subtab=subtab) }}">Todos</a>
+            <a class="btn btn-sm {{ 'btn-secondary' if estado_filtro == 'SIN_HOLDED' else 'btn-outline-secondary' }}"
+               href="{{ url_for('contabilidad_view', tab='pendiente', subtab=subtab, estado='SIN_HOLDED') }}"
+               title="Lo que todavía no se ha subido a Holded">
+              <i class="fa fa-cloud me-1"></i>Sin subir a Holded</a>
             {% for key, label, badge, icon in accounting_states %}
-              {% if key != 'OMITIDO' %}
+              {% if key not in ('OMITIDO', 'PENDIENTE') %}
                 <a class="btn btn-sm {{ 'btn-secondary' if estado_filtro == key else 'btn-outline-secondary' }}"
                    href="{{ url_for('contabilidad_view', tab='pendiente', subtab=subtab, estado=key) }}">
                   <i class="fa {{ icon }} me-1"></i>{{ label }}</a>
@@ -573,9 +581,11 @@
               {{ acc_head() }}
               <tbody>
                 {# Las LIQUIDACIONES de royalties son facturas: van aquí arriba, no en un módulo aparte. #}
-                {% if not estado_filtro %}{% for r in royalty_pending %}{{ roy_row(r) }}{% endfor %}{% endif %}
+                {% if not estado_filtro or estado_filtro == 'SIN_HOLDED' %}
+                  {% for r in royalty_pending %}{{ roy_row(r) }}{% endfor %}
+                {% endif %}
                 {% for r in rows %}{{ acc_row(r) }}{% endfor %}
-                {% if not rows and not (royalty_pending and not estado_filtro) %}
+                {% if not rows and not (royalty_pending and estado_filtro in (None, '', 'SIN_HOLDED')) %}
                   <tr><td colspan="14" class="text-center text-muted py-4">
                     <i class="fa fa-circle-check me-1 text-success"></i>
                     {% if estado_filtro %}Nada con ese estado.{% else %}Nada pendiente de contabilizar aquí.{% endif %}

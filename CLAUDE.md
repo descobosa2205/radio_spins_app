@@ -3900,6 +3900,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pestaña se comía un 403 al devolver algo a pendiente).
   · Y en la fila de una liquidación se retiró el «Holded: nº» de texto: eso ya lo dice el **icono**.
 
+- ⚠️⚠️ **HOLDED · NO SE DUPLICAN CONTACTOS NI DOCUMENTOS** (ago 2026):
+  · **El contacto se BUSCA antes de crearlo, y en tres pasos** (punto único
+  `_holded_contact_for_promoter`): (1) el que ya se le apuntó a ese tercero **en esa empresa**
+  (`Promoter.holded_contact_ids` = `{company_id: contact_id}`, columna nueva: cada empresa del grupo
+  es una cuenta de Holded distinta), (2) el que haya en Holded **por NIF/CIF** y, si no aparece,
+  **por el NOMBRE DE LA FACTURACIÓN** (`_billing_name`, nunca el nick), y (3) solo entonces se crea.
+  ⚠️ Ese segundo intento por NOMBRE es el que evita el duplicado de verdad: en Holded hay contactos
+  dados de alta a mano **sin NIF**, y antes `find_contact` se rendía tras la búsqueda exacta por
+  `code` y creaba otro. Si se reutiliza uno sin NIF se avisa para añadírselo allí.
+  · **UNA FACTURA NO SE SUBE DOS VECES**: si ya tiene `holded_doc_id`, la subida se **rechaza con un
+  error** (no un aviso) en el punto único de la subida —así vale para el botón de la fila, para
+  «Subir todo» y para lo que venga—, porque un documento duplicado en la contabilidad no lo arregla
+  nadie desde aquí. «Subir todo» dice cuántas se ha saltado por eso.
+  · **El emisor de la factura de una LIQUIDACIÓN es el proveedor de SU factura**
+  (`_royalty_beneficiary_promoter` lo mira PRIMERO): al subirla por el enlace de esa liquidación,
+  quien la sube se identifica y la factura se guarda con su `promoter_id`. Mirando solo el
+  beneficiario, una liquidación de un artista sin integrantes salía como «no se sabe quién emite esta
+  factura» teniéndola delante (bug real). El beneficiario queda como respaldo para cuando aún no hay
+  factura.
+- **CONTABILIDAD · el filtro que hace falta es «SIN SUBIR A HOLDED»** (ago 2026): el filtro de
+  estado «Pendiente» no decía nada (en esa pestaña TODO está pendiente de contabilizar) y se
+  sustituye por **`ACCOUNTING_FILTER_NO_HOLDED`** («Sin subir a Holded», `holded_doc_id` vacío), que
+  es el trabajo que queda. Y el **filtro de EMPRESA va por encima de las pestañas**, que es lo
+  primero que se elige.
+- ⚠️ **LA RETENCIÓN SOLO SE PIDE SI LA FACTURA LA LLEVA** (ago 2026): en el formulario del proveedor
+  el campo nace **oculto** y solo sale si el lector la ha detectado (o si se pincha «Esta factura
+  lleva retención»). Un hueco de retención vacío invita a rellenarlo, y una retención que la factura
+  no tiene **descuadra los importes** y mete la factura en el listado fiscal de **Retenciones**.
+
 - ⚠️⚠️ **SUBIR A HOLDED NO ES CONTABILIZAR** (ago 2026). En la fila hay **un icono de Holded**
   (macro `acc_holded` de `contabilidad.html`, clases `.acct-holded` / `.acct-holded.is-up`) **antes**
   de la etiqueta de estado: **verde** cuando el documento ya está en Holded (con su número y cuándo se

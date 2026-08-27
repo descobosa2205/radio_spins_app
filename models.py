@@ -1625,6 +1625,10 @@ class Promoter(Base):
     # PREFERENCIA de comunicación: EMAIL | SMS (o NULL = lo de siempre, el correo). Solo tiene sentido
     # —y solo se pregunta en su ficha— cuando el tercero tiene LAS DOS COSAS: correo y teléfono.
     notify_channel = Column(Text)
+    # SU CONTACTO EN HOLDED, por empresa del grupo: {company_id: contact_id}. Se guarda la primera vez
+    # que se le sube un gasto y así no se vuelve a buscar (ni se corre el riesgo de crear un contacto
+    # duplicado). Es por empresa porque cada una es una cuenta de Holded distinta.
+    holded_contact_ids = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     address = Column(Text)            # domicilio (se autorrellena del DNI; editable)
     # Petición especial de HOTELES (aparece como nota junto a la persona en las rooming lists).
     hotel_notes = Column(Text)
@@ -7653,7 +7657,9 @@ def ensure_song_royalties_schema():
             ADD COLUMN IF NOT EXISTS contact_email text,
             ADD COLUMN IF NOT EXISTS contact_phone text,
             -- Cómo prefiere que le avisemos: EMAIL | SMS (NULL = el correo, que es el de siempre).
-            ADD COLUMN IF NOT EXISTS notify_channel text;
+            ADD COLUMN IF NOT EXISTS notify_channel text,
+            -- Su contacto en Holded por empresa del grupo: {company_id: contact_id}.
+            ADD COLUMN IF NOT EXISTS holded_contact_ids jsonb NOT NULL DEFAULT '{}'::jsonb;
         """,
         """
         CREATE TABLE IF NOT EXISTS promoter_emails (

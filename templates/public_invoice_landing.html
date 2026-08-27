@@ -421,7 +421,18 @@
                    podido sacar. La retención, únicamente si la factura la lleva. #}
                 <div class="col-12 col-md-6" data-meta-field="net"><label class="form-label">Base imponible</label><input class="form-control" id="invNet" inputmode="decimal" placeholder="0,00"></div>
                 <div class="col-12 col-md-6" data-meta-field="vat"><label class="form-label">IVA</label><input class="form-control" id="invVat" inputmode="decimal" placeholder="0,00"></div>
-                <div class="col-12 col-md-6" data-meta-field="retention"><label class="form-label">Retención <span class="text-muted">(si la hay)</span></label><input class="form-control" id="invRetention" inputmode="decimal" placeholder="0,00"></div>
+                {# ⚠️⚠️ LA RETENCIÓN SOLO SALE SI LA FACTURA LA LLEVA. Un hueco de retención vacío
+                   invita a rellenarlo, y una retención que la factura no tiene descuadra los
+                   importes (y hace aparecer la factura en el listado fiscal de Retenciones). Si la
+                   lleva y el lector no la vio, se añade con el enlace de debajo. #}
+                <div class="col-12 col-md-6 d-none" data-meta-field="retention" data-retention-box>
+                  <label class="form-label">Retención</label>
+                  <input class="form-control" id="invRetention" inputmode="decimal" placeholder="0,00">
+                </div>
+                <div class="col-12" data-retention-ask>
+                  <button type="button" class="btn btn-link btn-sm p-0" data-retention-add>
+                    <i class="fa fa-plus me-1"></i>Esta factura lleva retención</button>
+                </div>
                 <div class="col-12 col-md-6" data-meta-field="gross"><label class="form-label">Total de la factura</label><input class="form-control" id="invGross" inputmode="decimal" placeholder="0,00"></div>
                 <input type="hidden" id="invVatPct"><input type="hidden" id="invRetentionPct">
               </div>
@@ -957,6 +968,19 @@
     ['retention', 'invRetention', 'la retención', false],
   ];
 
+  // «Esta factura lleva retención»: la enseña (por si el lector no la vio). Al revés no hace falta:
+  // dejándola vacía no se guarda nada (un hueco vacío es «no lo sé», no «cero»).
+  document.addEventListener('click', function (ev) {
+    const b = ev.target && ev.target.closest && ev.target.closest('[data-retention-add]');
+    if (!b) return;
+    const campo = document.querySelector('[data-retention-box]');
+    if (!campo) return;
+    campo.dataset.retentionOn = '1';
+    if (window.invMarkMissing) window.invMarkMissing();
+    const inp = document.getElementById('invRetention');
+    if (inp) inp.focus();
+  });
+
   // Resalta en AMARILLO lo que está sin rellenar (y lo quita en cuanto se escribe).
   window.invMarkMissing = function () {
     META_CAMPOS.forEach(function (c) {
@@ -964,6 +988,17 @@
       const inp = document.getElementById(c[1]);
       if (!campo || !inp) return;
       const vacio = !(inp.value || '').trim();
+      // ⚠️ La RETENCIÓN es la excepción: se ve solo si la factura la trae (o si se pide a mano). El
+      // resto de campos se ven siempre, leídos o no.
+      if (c[0] === 'retention') {
+        const traeRet = !vacio || campo.dataset.retentionOn === '1';
+        campo.classList.toggle('d-none', !traeRet);
+        const pedir = document.querySelector('[data-retention-ask]');
+        if (pedir) pedir.classList.toggle('d-none', traeRet);
+        campo.classList.remove('inv-need');
+        inp.classList.remove('is-need');
+        return;
+      }
       campo.classList.remove('d-none');                 // se ven TODOS, leídos o no
       campo.classList.toggle('inv-need', vacio && c[3]);
       inp.classList.toggle('is-need', vacio && c[3]);

@@ -60669,7 +60669,23 @@ def _royalty_beneficiary_promoter(session_db, rec):
 
     Devuelve `(promoter, candidatos)`: con `promoter` puesto ya se puede crear la factura; si viene
     None y hay `candidatos`, hay que elegir.
+
+    ⚠️⚠️ **SI LA FACTURA YA ESTÁ SUBIDA, QUIEN LA EMITE ES SU PROVEEDOR**: al subirla por el enlace de
+    ESA liquidación, quien la sube se identifica con su DNI/CIF y la factura se guarda con su
+    `promoter_id` (que además es NOT NULL). Mirando solo el beneficiario, una liquidación de un
+    artista sin integrantes ni terceros vinculados salía como «no se sabe quién emite esta factura»
+    aunque la factura estuviera ahí con su emisor (bug real, ago 2026). Así que lo primero es la
+    factura y el beneficiario es el respaldo (para cuando todavía no hay factura).
     """
+    try:
+        inv = (session_db.get(SupplierInvoice, rec.invoice_id)
+               if getattr(rec, "invoice_id", None) else None)
+        if inv is not None and getattr(inv, "promoter_id", None):
+            emisor = session_db.get(Promoter, inv.promoter_id)
+            if emisor is not None:
+                return emisor, []
+    except Exception:
+        app.logger.exception("[royalties] no se pudo leer el emisor de la factura")
     kind = (getattr(rec, "beneficiary_kind", None) or "").upper()
     bid = getattr(rec, "beneficiary_id", None)
     if not bid:
@@ -76769,8 +76785,10 @@ def _accounting_upload_many(session_db, expenses, *, nick: str, royalties=None) 
             salida["skipped"] += 1
             continue
         if (expense.holded_doc_id or "").strip():
+            # Ya está en Holded: no se sube dos veces (se duplicaría el documento).
             salida["skipped"] += 1
-            continue          # ya está en Holded: no se sube dos veces
+            salida["already"] = salida.get("already", 0) + 1
+            continue
         try:
             with session_db.begin_nested():
                 res = _holded_upload_expense(session_db, expense, nick=nick)
@@ -76858,8 +76876,12 @@ def accounting_expense_upload(expense_id):
             flash("Gasto no encontrado.", "warning")
             return redirect(safe_next_or(url_for("contabilidad_view")))
         if (expense.holded_doc_id or "").strip():
-            flash("Este gasto ya está en Holded (documento %s)."
-                  % (expense.holded_doc_number or expense.holded_doc_id), "info")
+            # ⚠️ No se sube dos veces: en Holded quedaría un documento DUPLICADO.
+            flash("Esta factura YA está subida a Holded (documento %s)%s: no se sube otra vez para "
+                  "que no se duplique."
+                  % ((expense.holded_doc_number or expense.holded_doc_id),
+                     (" el %s" % expense.holded_uploaded_at.strftime("%d/%m/%Y %H:%M"))
+                     if getattr(expense, "holded_uploaded_at", None) else ""), "danger")
             return redirect(safe_next_or(url_for("contabilidad_view")))
         res = _holded_upload_expense(session_db, expense, nick=((_current_user_state() or {}).get("nick") or ""))
         session_db.commit()
@@ -76911,8 +76933,8 @@ def accounting_royalty_upload(liq_id):
             flash("Liquidación no encontrada.", "warning")
             return redirect(safe_next_or(url_for("contabilidad_view")))
         if (getattr(rec, "holded_doc_id", None) or "").strip():
-            flash("Esta liquidación ya está en Holded (documento %s)."
-                  % (rec.holded_doc_number or rec.holded_doc_id), "info")
+            flash("Esta liquidación YA está subida a Holded (documento %s): no se sube otra vez para "
+                  "que no se duplique." % (rec.holded_doc_number or rec.holded_doc_id), "danger")
             return redirect(safe_next_or(url_for("contabilidad_view")))
         res = _holded_upload_royalty(session_db, rec,
                                      nick=((_current_user_state() or {}).get("nick") or ""))
@@ -77220,14 +77242,21 @@ def contabilidad_view():
         if tab == "pendiente":
             if subtab == "bolsas":
                 bag_groups = _accounting_bag_groups(session_db, company_ids=scope)
-                if estado_filtro in ACCOUNTING_STATUS_LABELS:
+                if estado_filtro == ACCOUNTING_FILTER_NO_HOLDED:
+                    for g in bag_groups:
+                        g["rows"] = [r for r in g["rows"] if not r.get("holded_doc_id")]
+                    bag_groups = [g for g in bag_groups if g["rows"]]
+                elif estado_filtro in ACCOUNTING_STATUS_LABELS:
                     for g in bag_groups:
                         g["rows"] = [r for r in g["rows"] if r["accounting_status"] == estado_filtro]
                     bag_groups = [g for g in bag_groups if g["rows"]]
             else:
                 q = _accounting_base_query(session_db, doc_types=[ACCOUNTING_SUBTAB_DOC[subtab]],
                                            company_ids=scope)
-                if estado_filtro in ACCOUNTING_STATUS_LABELS:
+                if estado_filtro == ACCOUNTING_FILTER_NO_HOLDED:
+                    # LO QUE TODAVÍA NO ESTÁ EN HOLDED: es el trabajo que queda por hacer aquí.
+                    q = q.filter(func.coalesce(BagExpense.holded_doc_id, "") == "")
+                elif estado_filtro in ACCOUNTING_STATUS_LABELS:
                     q = q.filter(func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE"))
                                  == estado_filtro)
                 rows = _accounting_expense_rows(
@@ -77260,6 +77289,8 @@ def contabilidad_view():
         # aparte al final de la pantalla).
         royalty_pending = (_royalty_accounting_pending_rows(session_db, company_ids=scope)
                            if (tab == "pendiente" and subtab == "facturas") else [])
+        if royalty_pending and estado_filtro == ACCOUNTING_FILTER_NO_HOLDED:
+            royalty_pending = [r for r in royalty_pending if not r.get("holded_doc_id")]
         return render_template(
             "contabilidad.html",
             title="Contabilidad",
@@ -87629,6 +87660,10 @@ HOLDED_ACCOUNTING_STATES = [
     ("OMITIDO", "Omitido", "text-bg-light border text-dark", "fa-ban"),
 ]
 ACCOUNTING_STATUS_LABELS = {k: l for k, l, _c, _i in HOLDED_ACCOUNTING_STATES}
+# ⚠️ FILTRO de la pantalla que NO es un estado contable: «lo que todavía no está en Holded». En
+# «Pendiente de contabilizar» todo está pendiente, así que filtrar por «Pendiente» no dice nada; lo
+# que hace falta saber es qué queda por SUBIR.
+ACCOUNTING_FILTER_NO_HOLDED = "SIN_HOLDED"
 # Estados que sacan al gasto de «pendiente de contabilizar»: ya no hay nada que hacer con él.
 ACCOUNTING_DONE_STATUSES = {"CONTABILIZADO", "OMITIDO"}
 
@@ -88468,6 +88503,25 @@ def _accounting_invoice_number(session_db, expense) -> str:
     return (getattr(inv, "invoice_number", None) or "").strip()
 
 
+def _accounting_expense_promoter(session_db, expense):
+    """El TERCERO (o su sociedad) que emite la factura de un gasto: es su ficha la que recuerda el
+    contacto de Holded, para no volver a buscarlo ni duplicarlo."""
+    company = getattr(expense, "provider_company", None)
+    if company is not None:
+        return company
+    provider = getattr(expense, "provider", None)
+    if provider is not None:
+        return provider
+    # Si el gasto no lo trae, se mira su FACTURA (que sí lleva el proveedor: es NOT NULL).
+    try:
+        inv = _accounting_expense_invoice(session_db, expense)
+        if inv is not None and getattr(inv, "promoter_id", None):
+            return session_db.get(Promoter, inv.promoter_id)
+    except Exception:
+        app.logger.exception("[holded] no se pudo resolver el tercero del gasto")
+    return None
+
+
 def _accounting_provider_info(session_db, expense) -> dict:
     """Datos del PROVEEDOR de un gasto, tal como hay que crearlo en Holded."""
     provider = getattr(expense, "provider", None)
@@ -88752,6 +88806,72 @@ def _accounting_holded_payment_method_id(acc, metodo: str) -> str:
     return ""
 
 
+def _holded_remembered_contact(promoter, company_id) -> str:
+    """El id del contacto de Holded que YA se le resolvió a este tercero en esta empresa."""
+    if promoter is None or not company_id:
+        return ""
+    try:
+        return str((getattr(promoter, "holded_contact_ids", None) or {}).get(str(company_id)) or "").strip()
+    except Exception:
+        return ""
+
+
+def _holded_remember_contact(session_db, promoter, company_id, contact_id: str) -> None:
+    """Apunta en el TERCERO su contacto de Holded en esa empresa.
+
+    ⚠️⚠️ Es lo que evita duplicar contactos: la próxima vez no se busca ni se crea, se usa el que ya
+    existe. Por empresa, porque cada una es una cuenta de Holded distinta."""
+    if promoter is None or not company_id or not (contact_id or "").strip():
+        return
+    try:
+        mapa = dict(getattr(promoter, "holded_contact_ids", None) or {})
+        if mapa.get(str(company_id)) == str(contact_id):
+            return
+        mapa[str(company_id)] = str(contact_id)
+        promoter.holded_contact_ids = mapa
+        session_db.add(promoter)
+    except Exception:
+        app.logger.exception("[holded] no se pudo recordar el contacto del tercero")
+
+
+def _holded_contact_for_promoter(session_db, client, promoter, company_id, datos: dict,
+                                 avisos: list) -> str:
+    """El CONTACTO de Holded de un tercero: el recordado, el que ya existe allí o, si no, uno nuevo.
+
+    ⚠️⚠️ Punto ÚNICO de «no dupliques contactos en Holded»: (1) el que ya se le apuntó a ese tercero
+    en esa empresa, (2) el que haya en Holded buscándolo por **NIF/CIF** y, si no, por el **nombre de
+    la FACTURACIÓN** (nunca el nick: en Holded está dado de alta con su nombre fiscal), y (3) solo
+    entonces se crea. Lo que se resuelva se recuerda para la próxima."""
+    ya = _holded_remembered_contact(promoter, company_id)
+    if ya:
+        return ya
+    nombre = (datos.get("name") or "").strip()
+    cif = (datos.get("tax_id") or "").strip()
+    contact_id = ""
+    encontrado = client.find_contact(cif, name=nombre)
+    if encontrado:
+        contact_id = str(encontrado.get("id") or "").strip()
+        if cif and not any((encontrado.get(k) or "").strip()
+                           for k in ("code", "vatnumber", "vatNumber", "cif", "nif")):
+            avisos.append("En Holded ese contacto no tiene NIF: se ha reutilizado igualmente para no "
+                          "duplicarlo, pero conviene añadírselo allí.")
+    if not contact_id:
+        from holded_utils import contact_payload_for
+        if not (datos.get("postal_code") and datos.get("city")):
+            avisos.append("El proveedor se ha creado en Holded sin código postal o sin municipio: "
+                          "complétalos en su ficha para que la dirección fiscal esté bien.")
+        contact_id = client.create_contact(contact_payload_for(
+            client, name=(nombre or ("Proveedor " + cif)), tax_id=cif,
+            email=datos.get("email"), phone=datos.get("phone"),
+            address=datos.get("address"), postal_code=datos.get("postal_code"),
+            city=datos.get("city"), province=datos.get("province"),
+            country=(datos.get("country") or "España"),
+            is_person=bool(datos.get("is_person")),
+        ))
+    _holded_remember_contact(session_db, promoter, company_id, contact_id)
+    return contact_id
+
+
 def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
     """Sube UN gasto a Holded como compra nueva (o como ticket) y deja el resultado en el gasto.
 
@@ -88760,6 +88880,18 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
     """
     from holded_utils import (HoldedError, contact_payload_for, purchase_payload_for,
                               DOC_TYPE_INVOICE)
+    # ⚠️⚠️ YA ESTÁ EN HOLDED: no se sube otra vez. Subirla dos veces crea un documento DUPLICADO en la
+    # contabilidad, y eso no lo arregla nadie desde aquí. El candado va en este punto único, así que
+    # vale para el botón de la fila, para «Subir todo» y para cualquier camino que venga después.
+    if (getattr(expense, "holded_doc_id", None) or "").strip():
+        numero = (getattr(expense, "holded_doc_number", None) or "").strip()
+        cuando = (expense.holded_uploaded_at.strftime("%d/%m/%Y %H:%M")
+                  if getattr(expense, "holded_uploaded_at", None) else "")
+        return {"ok": False, "already": True, "warning": "",
+                "message": ("Esta factura YA está subida a Holded%s%s: no se sube otra vez para que "
+                            "no se duplique. Si hay que corregirla, se corrige en Holded."
+                            % ((" (documento %s)" % numero) if numero else "",
+                               (" el %s" % cuando) if cuando else ""))}
     bag = getattr(expense, "bag", None) or (session_db.get(WorkflowBag, expense.bag_id)
                                             if getattr(expense, "bag_id", None) else None)
     company_id = getattr(bag, "company_id", None)
@@ -88791,23 +88923,9 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
             return _holded_upload_fail(expense, "La factura no tiene proveedor: en Holded hace falta "
                                                 "el contacto para crear la compra.")
         try:
-            encontrado = client.find_contact(proveedor["tax_id"], name=proveedor["name"])
-            if encontrado:
-                contact_id = str(encontrado.get("id") or "").strip()
-            if not contact_id:
-                if not proveedor["postal_code"] or not proveedor["city"]:
-                    avisos.append("El proveedor se ha creado en Holded sin código postal o sin "
-                                  "municipio: complétalos en su ficha para que la dirección fiscal "
-                                  "esté bien.")
-                contact_id = client.create_contact(contact_payload_for(client,
-                    name=proveedor["name"] or ("Proveedor " + (proveedor["tax_id"] or "")),
-                    tax_id=proveedor["tax_id"],
-                    email=proveedor["email"], phone=proveedor["phone"],
-                    address=proveedor["address"], postal_code=proveedor["postal_code"],
-                    city=proveedor["city"], province=proveedor["province"],
-                    country=(proveedor["country"] or "España"),
-                    is_person=proveedor["is_person"],
-                ))
+            contact_id = _holded_contact_for_promoter(
+                session_db, client, _accounting_expense_promoter(session_db, expense),
+                company_id, proveedor, avisos)
         except HoldedError as exc:
             return _holded_upload_fail(expense, _holded_account_diagnosis(
                 session_db, acc, "No se ha podido preparar el proveedor en Holded: %s" % exc), acc)
@@ -88950,6 +89068,12 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
     """
     from holded_utils import (HoldedError, contact_payload_for, purchase_payload_for,
                               DOC_TYPE_INVOICE)
+    # ⚠️ Igual que un gasto: si YA está en Holded no se sube otra vez (se duplicaría el documento).
+    if (getattr(rec, "holded_doc_id", None) or "").strip():
+        numero = (getattr(rec, "holded_doc_number", None) or "").strip()
+        return {"ok": False, "already": True, "warning": "",
+                "message": ("Esta liquidación YA está subida a Holded%s: no se sube otra vez para que "
+                            "no se duplique." % ((" (documento %s)" % numero) if numero else ""))}
     company = _royalty_holded_company(session_db, rec)
     if company is None:
         return _holded_royalty_fail(rec, "No hay empresa del grupo a la que contabilizar la "
@@ -88982,21 +89106,15 @@ def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
     piezas = _fiscal_address_parts(promoter) if promoter is not None else {}
     contact_id = ""
     try:
-        encontrado = client.find_contact(cif, name=nombre)
-        if encontrado:
-            contact_id = str(encontrado.get("id") or "").strip()
-        if not contact_id:
-            if not (piezas.get("postal_code") and piezas.get("city")):
-                avisos.append("El proveedor se ha creado en Holded sin código postal o sin "
-                              "municipio: complétalos en su ficha.")
-            contact_id = client.create_contact(contact_payload_for(client,
-                name=nombre or ("Proveedor " + cif), tax_id=cif,
-                email=(getattr(promoter, "contact_email", None) or ""),
-                phone=(getattr(promoter, "contact_phone", None) or ""),
-                address=(piezas.get("address") or ""), postal_code=(piezas.get("postal_code") or ""),
-                city=(piezas.get("city") or ""), province=(piezas.get("province") or ""),
-                country=(piezas.get("country") or "España"), is_person=True,
-            ))
+        # El MISMO punto único que un gasto: el contacto recordado, el que ya está en Holded (por NIF
+        # y, si no, por el nombre de la facturación) y solo entonces uno nuevo.
+        correo, telefono = _promoter_email_phone(promoter)
+        contact_id = _holded_contact_for_promoter(session_db, client, promoter, company.id, {
+            "name": nombre, "tax_id": cif, "email": correo, "phone": telefono,
+            "address": (piezas.get("address") or ""), "postal_code": (piezas.get("postal_code") or ""),
+            "city": (piezas.get("city") or ""), "province": (piezas.get("province") or ""),
+            "country": (piezas.get("country") or "España"), "is_person": True,
+        }, avisos)
     except HoldedError as exc:
         return _holded_royalty_fail(rec, _holded_account_diagnosis(
             session_db, acc, "No se ha podido preparar el proveedor en Holded: %s" % exc), acc)

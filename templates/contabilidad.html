@@ -401,11 +401,20 @@
         {% endif %}
         <span class="acct-cofilter__name">{{ c.name }}</span>
         {% if c.pending %}<span class="acct-cofilter__n">{{ c.pending }}</span>{% endif %}
-{# ---------- Pestañas principales ---------- #}
+      </a>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{# ---------- Pestañas principales ----------
+   Van DEBAJO de la fila de empresas: primero se elige la empresa y luego la pestaña. Lo demás
+   (los enlaces, los contadores y cómo se conserva el filtro en la URL) es lo de siempre. #}
 <ul class="nav nav-tabs mb-3">
   {% for key, label, icon in accounting_tabs %}
     <li class="nav-item">
-      <a class="nav-link {% if tab == key %}active{% endif %}" href="{{ url_for('contabilidad_view', tab=key) }}">
+      <a class="nav-link {% if tab == key %}active{% endif %}"
+         href="{{ url_for('contabilidad_view', tab=key, empresa=company_filter or None,
+                          empresas=('todas' if showing_all_companies else None)) }}">
         <i class="fa {{ icon }} me-1"></i>{{ label }}
         {# El número es de lo PENDIENTE: en «Contabilizado» un contador que solo crece no dice nada. #}
         {% if key == 'pendiente' and counts.get(key) %}<span class="badge text-bg-secondary ms-1">{{ counts.get(key) }}</span>{% endif %}
@@ -413,12 +422,6 @@
     </li>
   {% endfor %}
 </ul>
-
-
-      </a>
-    {% endfor %}
-  </div>
-{% endif %}
 
 {% if tab == 'pendiente' %}
   {{ sub_nav('pendiente') }}

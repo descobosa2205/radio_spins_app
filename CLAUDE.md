@@ -1686,6 +1686,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Se calcula **en todas las pestañas** (la cabecera es común) y cuesta los intérpretes que ya
   están cargados más una consulta de los autores. **`_fmt_pct_es`** es el formateador de porcentajes
   de la casa (coma decimal, sin ceros de adorno), que no existía.
+  · **En un LISTADO se calcula EN BLOQUE**: **`_song_one_stop_map`** (los intérpretes y los autores
+  de todas las canciones de una vez, y lo cuelga en cada fila como `song.one_stop`), ya enganchado
+  en Discográfica sobre `display_song_rows`, así que la etiqueta sale también en el **repertorio**.
+  Medido: **4 consultas para 40 canciones** (2 si ya vienen con sus artistas cargados), no 80.
+  ⚠️ El N+1 escondido está en leer `song.artists` fila a fila: si alguna llega sin esa relación
+  cargada, el mapa las **precarga todas** con un `selectinload` (solo cuando hace falta, mirando
+  `sa_inspect(sg).unloaded`).
+  · **El FILTRO por one-stop no está puesto todavía** (Dani lo quiere en otro sitio): de momento
+  solo se ve la etiqueta. El dato ya está calculado y en bloque, así que filtrar es enchufarlo.
   Probado con la app real: one-stop · máster al 50% · con un intérprete de fuera · con una editorial
   ajena · sin autores · sin intérpretes · tercios que suman 99,99 · reparto que suma 90 · editorial
   heredada del tercero, y la etiqueta en las tres pestañas.

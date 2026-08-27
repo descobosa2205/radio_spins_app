@@ -43,6 +43,7 @@ from flask import (
     Response,
 )
 from sqlalchemy import func, text, or_, and_, case, bindparam, event as sa_event
+from sqlalchemy import inspect as sa_inspect
 
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -4852,6 +4853,45 @@ def _song_one_stop(session_db, song, *, interpreters=None, shares=None) -> dict:
     return {"ok": bool(master_ok and interpreters_ok and editorial_ok), "reasons": fallos,
             "master_ok": master_ok, "interpreters_ok": interpreters_ok, "editorial_ok": editorial_ok,
             "platform_pct": plataforma_pct, "collaborator": colaborador}
+
+
+def _song_one_stop_map(session_db, songs) -> dict[str, dict]:
+    """`_song_one_stop` de MUCHAS canciones, en DOS consultas (los intérpretes y los autores).
+
+    ⚠️ En un listado de 400 canciones, calcularlo de una en una serían 800 consultas. Se cuelga
+    además en cada fila como `song.one_stop`, para que la plantilla lo lea sin más."""
+    filas = [sg for sg in (songs or []) if getattr(sg, "id", None)]
+    if not filas:
+        return {}
+    ids = [sg.id for sg in filas]
+    # ⚠️ El criterio de los intérpretes compara con los ARTISTAS de la canción, y leer `song.artists`
+    # fila a fila es un N+1 (400 canciones = 400 consultas). Si alguna llega sin esa relación
+    # cargada, se precargan TODAS de una vez (en la misma sesión, así que rellena estas instancias).
+    try:
+        if any("artists" in sa_inspect(sg).unloaded for sg in filas):
+            (session_db.query(Song).options(selectinload(Song.artists))
+             .filter(Song.id.in_(ids)).all())
+    except Exception:
+        app.logger.exception("[one-stop] no se pudieron precargar los artistas")
+    interp = _song_interpreter_rows_map(session_db, ids)
+    shares: dict[str, list] = {}
+    try:
+        for sh in (session_db.query(SongEditorialShare)
+                   .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
+                            joinedload(SongEditorialShare.publishing_company))
+                   .filter(SongEditorialShare.song_id.in_(ids)).all()):
+            shares.setdefault(str(sh.song_id), []).append(sh)
+    except Exception:
+        app.logger.exception("[one-stop] no se pudieron leer los autores del listado")
+        return {}
+    salida = {}
+    for sg in filas:
+        sid = str(sg.id)
+        info = _song_one_stop(session_db, sg,
+                              interpreters=interp.get(sid, []), shares=shares.get(sid, []))
+        salida[sid] = info
+        setattr(sg, "one_stop", info)
+    return salida
 
 
 def _song_collaborator_from_names(artist_names: list[str] | None, interpreter_names: list[str] | None) -> str | None:
@@ -13607,6 +13647,9 @@ def discografica_view():
         display_song_rows.extend(extra_rows)
 
     song_display_map = _annotate_song_display_fields(session_db, display_song_rows, persist=True)
+    # Etiqueta ONE-STOP (máster 100% nuestro + sin intérpretes de fuera + autoría 100% de
+    # Plataforma): se calcula EN BLOQUE para todo el listado y se cuelga en cada fila.
+    _song_one_stop_map(session_db, display_song_rows)
 
     def _apply_display_collaborator(collection):
         for row in collection or []:

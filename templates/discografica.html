@@ -302,6 +302,12 @@
                                 <span class="badge text-bg-danger ms-1" title="Focus single · lanzamiento prioritario">
                                   <i class="fa fa-star me-1"></i>Focus</span>
                             {% endif %}
+                            {# ONE-STOP: se puede licenciar para una sincronización sin pedir permiso
+                               a nadie. Lo calcula `_song_one_stop` (no se marca a mano). #}
+                            {% if s.one_stop and s.one_stop.ok %}
+                              <span class="badge badge-onestop" title="One-stop: el máster es 100% nuestro, no hay intérpretes de fuera y la autoría es toda de Plataforma Musical. Se puede licenciar para una sincronización sin pedir permiso a nadie.">
+                                <i class="fa fa-clapperboard me-1"></i>One-stop</span>
+                            {% endif %}
                             {% if s.is_external_collab %}
                               <span class="badge text-bg-warning text-dark"><i class="fa fa-handshake me-1"></i>Colaboración externa</span>
                             {% elif s.is_distribution %}

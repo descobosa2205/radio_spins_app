@@ -1,0 +1,101 @@
+{# ============================================================================
+   REPERTORIO PARA SINCRONIZACIONES · landing pública (standalone).
+   Se llega desde la viñeta de contacto de cualquier tema. Los DOS logos del grupo arriba a la
+   derecha, el título centrado, y debajo las galletas por GÉNERO (con su icono sólido y cuántos
+   temas hay) o los ARTISTAS con su foto. Al elegir uno se ve su listado, con el MISMO reproductor
+   que las demos; el título de cada tema lleva a su página de syncro.
+   ⚠️ `playlist.js` es quien hace sonar las líneas: sin ese <script> se ven pero no suenan.
+   ============================================================================ #}
+<!doctype html>
+<html lang="{{ 'en' if lang == 'EN' else 'es' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ og_title }}</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ og_title }}">
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta name="twitter:card" content="summary_large_image">
+  {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
+  <style>
+    body{ background:#f6f7f8; }
+    .rep-wrap{ max-width:920px; margin:0 auto; padding:18px 14px 44px; }
+    .rep-head{ text-align:right; margin-bottom:.5rem; }
+    .rep-head img{ height:38px; width:auto; margin-left:12px; vertical-align:middle; }
+    .rep-title{ text-align:center; font-size:1.7rem; font-weight:800; margin:.4rem 0 1.4rem; }
+    .rep-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.85rem; }
+    .rep-cookie{ background:#fff; border:1px solid #e6e9ec; border-radius:14px; padding:1rem .9rem;
+                 text-align:center; text-decoration:none; color:inherit; display:block;
+                 transition:border-color .15s, transform .15s; }
+    .rep-cookie:hover{ border-color:var(--brand-accent,#007CA2); transform:translateY(-2px); }
+    .rep-cookie i{ font-size:1.6rem; color:var(--brand-accent,#007CA2); }
+    .rep-cookie__name{ font-weight:700; margin-top:.5rem; }
+    .rep-cookie__n{ color:#6b7280; font-size:.85rem; }
+    .rep-cookie img{ width:64px; height:64px; border-radius:50%; object-fit:cover; }
+  </style>
+</head>
+<body>
+  <div class="rep-wrap">
+    <div class="rep-head">
+      {% for url, nombre in brand_logos %}<img src="{{ url }}" alt="{{ nombre }}">{% endfor %}
+    </div>
+    <h1 class="rep-title">{{ t.repertoire_title }}</h1>
+
+    {# Ver por género o por artista #}
+    <div class="d-flex justify-content-center gap-2 mb-4">
+      <a class="btn btn-sm {{ 'btn-primary' if view == 'genero' else 'btn-outline-secondary' }}"
+         href="{{ url_for('public_sync_repertoire', lang=('en' if lang=='EN' else None), ver='genero') }}">
+        <i class="fa-solid fa-tags me-1"></i>{{ t.by_genre }}</a>
+      <a class="btn btn-sm {{ 'btn-primary' if view == 'artista' else 'btn-outline-secondary' }}"
+         href="{{ url_for('public_sync_repertoire', lang=('en' if lang=='EN' else None), ver='artista') }}">
+        <i class="fa-solid fa-user me-1"></i>{{ t.by_artist }}</a>
+    </div>
+
+    {% if selected %}
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <a class="btn btn-outline-secondary btn-sm"
+           href="{{ url_for('public_sync_repertoire', lang=('en' if lang=='EN' else None), ver=view) }}">
+          <i class="fa-solid fa-arrow-left"></i></a>
+        {% if selected_photo %}<img src="{{ selected_photo }}" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;">{% endif %}
+        <h2 class="h5 mb-0">{{ selected }}</h2>
+        <span class="text-muted small ms-2">{{ total }} {{ t.song_one if total == 1 else t.songs }}</span>
+      </div>
+      <ul class="pl-list list-unstyled mb-0">
+        {% import '_sync_song_row.html' as syncrow with context %}
+        {% for row in rows %}{{ syncrow.sync_row(row) }}{% endfor %}
+      </ul>
+    {% elif view == 'artista' %}
+      <div class="rep-grid">
+        {% for a in artists %}
+          <a class="rep-cookie" href="{{ url_for('public_sync_repertoire', lang=('en' if lang=='EN' else None), ver='artista', artista=a.id) }}">
+            <img src="{{ a.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+            <div class="rep-cookie__name">{{ a.name }}</div>
+            <div class="rep-cookie__n">{{ a.count }} {{ t.song_one if a.count == 1 else t.songs }}</div>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="rep-grid">
+        {% for g in genres %}
+          <a class="rep-cookie" href="{{ url_for('public_sync_repertoire', lang=('en' if lang=='EN' else None), genero=g.name) }}">
+            <i class="fa-solid {{ g.icon|replace('fa-','fa-') }}"></i>
+            <div class="rep-cookie__name">{{ g.name }}</div>
+            <div class="rep-cookie__n">{{ g.count }} {{ t.song_one if g.count == 1 else t.songs }}</div>
+          </a>
+        {% endfor %}
+      </div>
+      {% if not genres %}
+        <div class="text-center text-muted">—</div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
+</body>
+</html>

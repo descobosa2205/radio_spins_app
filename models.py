@@ -12298,10 +12298,12 @@ class SyncSubmission(Base):
     __tablename__ = "sync_submissions"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    # ⚠️ NULL-ables a propósito: un tema se puede mandar a un CORREO SUELTO, sin supervisor ni
+    # tercero detrás (se guarda su dirección en `notes`). Con NOT NULL, ese envío reventaba.
     supervisor_id = Column(PGUUID(as_uuid=True), ForeignKey("sync_supervisors.id", ondelete="CASCADE"),
-                           nullable=False, index=True)
+                           index=True)
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"),
-                         nullable=False, index=True)
+                         index=True)
     title = Column(Text, nullable=False)
     # La canción que se le manda, si es del repertorio (una sincronización puede ser de varias: van
     # en `payload['songs']`).
@@ -12354,4 +12356,7 @@ def ensure_syncros_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_sync_submissions_promoter ON sync_submissions(promoter_id, sent_at DESC);",
         "CREATE INDEX IF NOT EXISTS idx_sync_submissions_supervisor ON sync_submissions(supervisor_id, sent_at DESC);",
+        # Un envío a un correo suelto no tiene supervisor ni tercero.
+        "ALTER TABLE IF EXISTS sync_submissions ALTER COLUMN supervisor_id DROP NOT NULL;",
+        "ALTER TABLE IF EXISTS sync_submissions ALTER COLUMN promoter_id DROP NOT NULL;",
     ], "syncros_schema")

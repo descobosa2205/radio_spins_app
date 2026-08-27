@@ -53,25 +53,26 @@
 <div class="ficha-quick ficha-quick--end mb-0">
   {# ── SYNCRO: solo en un tema ONE-STOP (lo que se puede licenciar sin pedir permiso a nadie). ── #}
   {% if one_stop and one_stop.ok %}
-    {% if CAN_EDIT_SYNCROS %}
-      <button type="button" class="btn btn-sm {{ 'btn-outline-success' if sync_sent else 'btn-primary' }}"
-              data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}"
-              title="{{ sync_sent_tooltip or 'Enviar este tema a los Supervisors de Syncros' }}">
-        <i class="fa {{ 'fa-paper-plane' if sync_sent else 'fa-share-from-square' }} me-1"></i>
-        {{ 'Enviada a Supervisors' if sync_sent else 'Enviar a Supervisors' }}
+    <div class="dropdown">
+      {# Todo lo de Syncro cuelga de aquí, incluido el envío a Supervisors. #}
+      <button class="btn btn-sm {{ 'btn-outline-success' if sync_sent else 'btn-outline-secondary' }} dropdown-toggle"
+              type="button" data-bs-toggle="dropdown"
+              title="{{ sync_sent_tooltip or 'Compartir este tema para sincronizaciones' }}">
+        <i class="fa-solid fa-clapperboard me-1"></i>Compartir Syncro
         {% if sync_sent %}<span class="badge text-bg-success ms-1">{{ sync_sent_count }}</span>{% endif %}
       </button>
-    {% endif %}
-    <div class="dropdown">
-      <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-        <i class="fa fa-clapperboard me-1"></i>Compartir Syncro
-      </button>
       <ul class="dropdown-menu dropdown-menu-end">
-        <li><button class="dropdown-item" type="button" onclick="shareByMail('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</button></li>
+        {% if CAN_EDIT_SYNCROS %}
+          <li><button class="dropdown-item" type="button" data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}">
+            <i class="fa-solid {{ 'fa-paper-plane' if sync_sent else 'fa-share-from-square' }} fa-fw me-1"></i>
+            {{ 'Enviada a Supervisors · volver a enviar' if sync_sent else 'Enviar a Supervisors' }}</button></li>
+          <li><hr class="dropdown-divider"></li>
+        {% endif %}
+        <li><button class="dropdown-item" type="button" onclick="shareByMail('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
         <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>
-        <li><button class="dropdown-item" type="button" onclick="shareBySms('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>
-        <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ sync_share_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-        <li><a class="dropdown-item" href="{{ sync_share_url }}" target="_blank" rel="noopener"><i class="fa fa-eye fa-fw me-1"></i>Ver la página</a></li>
+        <li><button class="dropdown-item" type="button" onclick="shareBySms('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-solid fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>
+        <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ sync_share_url }}')"><i class="fa-solid fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+        <li><a class="dropdown-item" href="{{ sync_share_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-eye fa-fw me-1"></i>Ver la página</a></li>
       </ul>
     </div>
   {% endif %}

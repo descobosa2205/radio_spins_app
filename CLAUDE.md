@@ -1771,11 +1771,39 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   duplicados, los cuatro filtros, el alta a mano, la pestaña del tercero y los permisos (sin permiso
   403 · solo ver sin botones y con el POST rebotado · ver+editar).
 
-- **SYNCROS · pestaña ONE-STOP y el envío a SUPERVISORS** (ago 2026). Es la **PRIMERA** sección de
+- ⚠️⚠️ **ICONOS DE LA CASA EN UN CORREO: NADA DE EMOJIS** (ago 2026). En un correo no se puede usar
+  la fuente de iconos (ningún cliente carga Font Awesome), y por eso se habían colado emojis. Punto
+  único **`_sync_icon(nombre, email=…)`**: en la WEB emite `<i class="fa-solid …">` de siempre y en
+  el CORREO **el MISMO icono como PNG**, renderizado desde `fa-solid-900.ttf` con Pillow y servido
+  por **`brand_icon_png`** (`/icono/<nombre>.png?c=007CA2&s=32`, cacheado en memoria y con
+  `Cache-Control`). Los codepoints se leen UNA vez del propio `all.min.css` (`_fa_codepoints`).
+  ⚠️ Los iconos van en el **AZUL de la marca** (`#007CA2`), que es «el verde corporativo» de la casa
+  — no hay ningún verde: el de Bootstrap es el de «aprobado».
+  ⚠️ Un icono que no exista en esta versión de FA sale vacío: comprobarlo en `all.min.css` antes
+  (`fa-guitar-electric` y `fa-saxophone`, por ejemplo, NO existen).
+
+- **SYNCROS · pestaña REPERTORIO y el envío a SUPERVISORS** (ago 2026). Es la **PRIMERA** sección de
   Syncros: los temas que se pueden presentar para una sincronización **sin pedirle permiso a nadie**
   (el one-stop lo CALCULA `_song_one_stop_map`, así que este listado no puede desparejarse de la
   etiqueta de la ficha ni del repertorio). Cada tema tiene **«Supervisors»** y **compartir** por
   correo · WhatsApp · SMS · copiar enlace.
+  ⚠️ La pestaña se llama **«Repertorio»** (antes «One-stop», que es solo uno de sus filtros): ahí se
+  ve TODO lo que se puede presentar, con **filtro por ARTISTA** —rejilla de artistas y, al pinchar
+  uno, los suyos, igual que el repertorio de Discográfica— y **filtro One-stop**. Cada tema lleva su
+  **etiqueta de género**, su estado de envío y el **reproductor de las demos**. `?section=onestop`
+  sigue valiendo (enlaces guardados).
+  · **LAS FILAS SON LA MACRO DE LAS DEMOS** (`_playlist_row.html` → `pl_row`, vía
+  `_sync_song_row.html`): se escucha exactamente igual en Syncros, en la página del tema y en la
+  landing. ⚠️ Quien las use tiene que cargar **`playlist.js`**: sin él se ven pero **no suenan**.
+  `pl_row` acepta ya `detail_url` (el título es enlace; `playlist.js` ignora los clics en un `<a>`,
+  así que no choca con la reproducción) y `download_mp3_only` (un icono de descarga, sin desplegable).
+  · **LOS DATOS VAN CON SU ICONO Y SIN RÓTULO** (el icono ya dice qué es) y el **ARTISTA con su
+  foto**. Los botones (escuchar · **MP3** · ver letra) van **DEBAJO de los datos, dentro de la
+  tarjeta**, y el **contacto en su propia galleta**. **«Ver letra» solo si la canción tiene letra.**
+  · **Los DOS logos salen de la EMPRESA DEL GRUPO** (`_sync_brand_logos`, buscando «PIES» y
+  «PLATAFORMA»), que es donde están subidos — **no** de la editorial.
+  · **La DESCARGA es en MP3** (`public_sync_song_download`): el máster es un .wav enorme. Convierte
+  con el binario de imageio-ffmpeg (ffmpeg no está en el PATH) y, si falla, sirve el original.
   · **EL CONTENIDO ES UNO SOLO**: punto único **`_sync_pitch_html`** (estilos en línea, porque va por
   correo) + **`_sync_song_context`**, y lo pintan **el correo, la página del enlace y la vista
   previa** — no hay tres versiones que se desparejen. Lleva: los **DOS logos** (PIES y Plataforma
@@ -1820,8 +1848,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_country_iso2` + `COUNTRY_ISO2`, que también pinta la bandera en la fila del supervisor.
   ⚠️ El token del enlace es **OPACO** (`Song.sync_share_token`, UNIQUE) y **se crea con COMMIT**: con
   un flush sin commit se perdería y un enlace ya mandado dejaría de valer (bug real de las demos).
-  · Los tres endpoints públicos (`public_sync_song`, `_audio`, `_og_image`) están en las **tres**
-  listas; los de dentro (`sync_song_*`) se mapean a la sección `syncros` en los DOS mapeos.
+  · **LANDING PÚBLICA DEL REPERTORIO** (`public_sync_repertoire`, `/repertorio-sincronizaciones`),
+  a la que se llega desde la galleta de contacto de cualquier tema: los dos logos arriba a la
+  derecha, «Repertorio para Sincronizaciones» centrado y **galletas por GÉNERO** (con su icono
+  sólido —`_sync_genre_icon`— y cuántos temas hay) o **por ARTISTA** (con su foto). Al elegir uno se
+  ve su listado con el reproductor de las demos, su letra y su descarga; el **título lleva a la
+  página de syncro de ese tema** (la misma que se comparte). Sale también en inglés (`?lang=en`).
+  · **Las canciones SIN GÉNERO son una TAREA PENDIENTE** en la pestaña Repertorio (con enlace a cada
+  ficha): sin género no salen en el repertorio por géneros ni se pueden presentar bien.
+  ⚠️⚠️ **Los géneros del catálogo ANTIGUO estaban solo en `Song.genre` (texto)** y los listados van
+  por `SongGenre`, así que salían «sin género» aunque en su ficha se leyera uno.
+  **`_song_genres_backfill_once`** (marca `song_genres_backfill_v1`) los pasa a etiquetas partiendo
+  por comas, **solo en las canciones que aún no tienen ninguna**: no pisa nada puesto a mano.
+  ⚠️⚠️ **UN ENVÍO A UN CORREO SUELTO reventaba**: `SyncSubmission.supervisor_id` y `promoter_id` eran
+  `NOT NULL`. Ahora admiten NULL (la dirección se guarda en `notes`), porque se puede mandar a
+  alguien que no está en la lista.
+  · En la **ficha de la canción**, el envío a Supervisors vive **DENTRO del menú «Compartir Syncro»**
+  (con el resto de formas de compartir), no como botón aparte.
+  · Los endpoints públicos (`public_sync_song`, `_audio`, `_download`, `_og_image`,
+  `public_sync_repertoire`, `brand_icon_png`) están en las **tres** listas; los de dentro
+  (`sync_song_*`) se mapean a la sección `syncros` en los DOS mapeos.
 
 - **PLAYLIST** (ago 2026): listas de temas para **MANDARLAS**, en su pestaña de Discográfica
   (`/discografica?section=playlists`). Modelos **`Playlist`** + **`PlaylistItem`**

@@ -25,7 +25,10 @@
   </div>
   <div class="pl-row__main">
     <div class="pl-row__title">
-      <span>{{ it.title }}</span>
+      {# Con `detail_url`, el TÍTULO es un enlace a su ficha (Syncros). El resto de la fila sigue
+         reproduciendo: `playlist.js` ignora los clics en un <a>, así que no chocan. #}
+      {% if it.detail_url %}<a href="{{ it.detail_url }}" class="text-reset">{{ it.title }}</a>
+      {% else %}<span>{{ it.title }}</span>{% endif %}
       {# LETRA: si la hay, su icono (y al pincharlo se lee). #}
       {% if it.lyrics %}
         <button class="pl-tag pl-tag--lyrics" type="button" data-pl-lyrics="{{ it.id }}"
@@ -77,6 +80,11 @@
 
   <div class="pl-row__dur" data-pl-durlabel>{{ dur(it.duration_seconds) }}</div>
 
+  {# Descarga DIRECTA en MP3 (Syncros): un solo icono, sin desplegable. #}
+  {% if it.download_mp3_only %}
+    <a class="pl-row__dlbtn" href="{{ it.download_mp3_only }}" title="Descargar en MP3"
+       aria-label="Descargar en MP3"><i class="fa fa-download"></i></a>
+  {% endif %}
   {% if dl and it.download_wav_url %}
     <div class="dropdown pl-row__dl">
       <button class="pl-row__dlbtn" type="button" data-bs-toggle="dropdown"

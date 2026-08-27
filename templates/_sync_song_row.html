@@ -1,0 +1,20 @@
+{# ============================================================================
+   UNA LÍNEA DE TEMA PARA SYNCRO. Reutiliza la macro `pl_row` (la MISMA de las demos y las
+   playlists), así que se escucha exactamente igual; lo propio de Syncro —la etiqueta One-stop, los
+   géneros y el estado de envío— se le pasa como `badges`.
+   ⚠️ Quien la use tiene que cargar `playlist.js`: sin él las líneas se ven pero NO suenan.
+   ============================================================================ #}
+{% import '_playlist_row.html' as plr with context %}
+
+{% macro sync_row(row, link=true, sent=false) %}
+  {% set badges %}
+    {% if row.one_stop %}<span class="badge badge-onestop ms-1" title="One-stop: máster y edición al 100% nuestros"><i class="fa-solid fa-clapperboard me-1"></i>One-stop</span>{% endif %}
+    {% for g in row.genres %}<span class="badge rounded-pill sync-genre ms-1">{{ g }}</span>{% endfor %}
+    {% if sent and row.sent %}<span class="badge text-bg-success ms-1" title="{{ row.sent_tooltip }}"><i class="fa-solid fa-paper-plane me-1"></i>{{ row.sent_count }}</span>{% endif %}
+  {% endset %}
+  {{ plr.pl_row(dict(row,
+        stream_url=row.audio_url,
+        download_mp3_only=row.download_url,
+        detail_url=(row.share_url if link else ''),
+        subtitle=row.release_label), badges=badges) }}
+{% endmacro %}

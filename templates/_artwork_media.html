@@ -1,0 +1,40 @@
+{# ============================================================================
+   CÓMO SE VE UN CARTEL, en UN SOLO SITIO.
+
+   Un cartel puede ser una IMAGEN, un VÍDEO o un PDF, y se tiene que ver igual en los tres sitios
+   donde se enseña: la pestaña Cartelería de la actividad, el panel de la cartelería GENERAL
+   (evento / gira / ciclo) y la página pública que se comparte.
+   ⚠️ De qué es lo dice `artwork_kind(asset)` (global de plantilla): manda la columna `kind` y, en
+   los carteles anteriores a ella, su nombre o su mimetype.
+   ⚠️ Un VÍDEO se ve con su MINIATURA (la saca ffmpeg al subirlo, `_artwork_poster_schedule`) y,
+   mientras no la tenga, con un `<video class="video-thumb">` que salta a un fotograma intermedio
+   (motor global `static/js/video_thumb.js`; una página standalone tiene que cargarlo ella).
+   ============================================================================ #}
+
+{% macro art_media(asset, style='', cls='', pdf_cls='fs-1', dim=False) %}
+  {%- set k = artwork_kind(asset) -%}
+  {%- if k == 'VIDEO' -%}
+    {#- ⚠️ La miniatura va como `poster` del propio <video>, no como un <img> aparte: si la
+        miniatura fallara, el hueco NO se queda vacío (el sistema global de respaldo de imágenes
+        oculta una imagen que no carga) — se ve el fotograma del vídeo, y en el peor caso el
+        recuadro oscuro con el play. -#}
+    <span class="art-media art-media--video"{% if dim %} style="opacity:.75;"{% endif %}>
+      <video src="{{ asset.file_url }}" class="{{ cls }} video-thumb" style="{{ style }}"
+             preload="metadata" muted playsinline
+             {%- if asset.poster_url %} poster="{{ asset.poster_url }}"{% endif %}></video>
+      <i class="fa fa-play art-media__play"></i>
+    </span>
+  {%- elif k == 'PDF' -%}
+    <i class="fa fa-file-pdf {{ pdf_cls }} text-danger"></i>
+  {%- else -%}
+    <img src="{{ asset.file_url }}" alt="" class="{{ cls }}" style="{{ style }}{% if dim %}opacity:.75;{% endif %}" loading="lazy">
+  {%- endif -%}
+{% endmacro %}
+
+{# Un cartel en VÍDEO se ABRE para verlo (pop-up con el reproductor, `#artVideoModal`). Lo demás se
+   sigue abriendo en una pestaña, como siempre. #}
+{% macro art_open_attrs(asset) %}
+  {%- if artwork_kind(asset) == 'VIDEO' -%}
+    data-art-video="{{ asset.file_url }}" data-art-video-name="{{ asset.format_label or 'Cartel' }}"
+  {%- endif -%}
+{% endmacro %}

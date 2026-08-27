@@ -64,6 +64,16 @@
     .fmt__frame{ display:block; max-width:100%; border-radius:6px; overflow:hidden; background:#fff;
                  box-shadow:0 2px 10px rgba(15,23,42,.14); }
     .fmt__frame img{ width:100%; height:100%; object-fit:cover; display:block; }
+    /* ⚠️ Un cartel puede ser un VÍDEO: aquí se ve su MINIATURA con una chapa de play (esta página es
+       de descarga, no un reproductor). Sin miniatura todavía, el icono de película. */
+    .fmt__frame{ position:relative; }
+    .fmt__vid{ position:absolute; inset:0; display:grid; place-items:center; color:#fff;
+               background:rgba(0,0,0,.35); font-size:20px; }
+    .fmt__frame--vid{ background:#111; color:#fff; }
+    /* El icono de película va DEBAJO de la miniatura: si la miniatura no carga (o todavía no la hay)
+       el hueco no se queda vacío. */
+    .fmt__film{ position:absolute; top:6px; left:8px; font-size:13px; opacity:.75; }
+    .fmt__frame--vid img{ position:absolute; inset:0; }
     .fmt__body{ padding:12px 14px 14px; display:flex; gap:10px; align-items:flex-start;
                 flex:1 1 auto; }
     /* La INFOGRAFÍA del formato: la silueta con su misma proporción, para leerla de un vistazo. */
@@ -135,8 +145,17 @@
             {# Toda la tarjeta es el enlace de descarga: se pincha donde sea. #}
             <a class="fmt" href="{{ f.download_url }}" title="Descargar {{ f.format_label }}">
               <span class="fmt__shot">
-                <span class="fmt__frame" style="width:{{ f.frame_w }}px;height:{{ f.frame_h }}px;">
-                  <img src="{{ f.file_url }}" alt="{{ f.format_label }}" loading="lazy">
+                <span class="fmt__frame{% if f.is_video %} fmt__frame--vid{% endif %}" style="width:{{ f.frame_w }}px;height:{{ f.frame_h }}px;">
+                  {% if f.is_video %}
+                    <i class="fa fa-film fmt__film"></i>
+                    {% if f.poster_url %}<img src="{{ f.poster_url }}" alt="" loading="lazy"
+                         onerror="this.style.display='none';">{% endif %}
+                    <span class="fmt__vid"><i class="fa fa-play"></i></span>
+                  {% elif f.kind == 'PDF' %}
+                    <span class="fmt__vid" style="background:#fff;color:#dc3545;"><i class="fa fa-file-pdf"></i></span>
+                  {% else %}
+                    <img src="{{ f.file_url }}" alt="{{ f.format_label }}" loading="lazy">
+                  {% endif %}
                 </span>
               </span>
               <span class="fmt__body">

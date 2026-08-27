@@ -3314,6 +3314,46 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ciclo. Por eso existe **`_concert_group_refs`** (todas, de la más amplia a la más concreta) y la
   ficha pinta **un módulo por cada una** (`artwork_groups`); `_concert_group_ref` se conserva
   devolviendo la más CONCRETA (ciclo o gira antes que evento) para lo que ya la usaba.
+  ⚠️ El **respaldo** de la cartelería que se COMPARTE (`_concert_artwork_share_assets`) recorre esos
+  grupos del más CONCRETO al más amplio (`ARTWORK_GROUP_SHARE_ORDER`): antes solo miraba la gira y el
+  ciclo, así que la general de un EVENTO no salía en el enlace público ni en el aviso de venta.
+
+- **UN CARTEL PUEDE SER UN VÍDEO** (ago 2026): los anuncios de redes lo son casi siempre. Se sube
+  igual que una imagen o un PDF (arrastrando, en la ficha, en la cartelería general y en el enlace de
+  diseño/promotor) y se ve con su **miniatura** y una chapa de **play**; al pincharlo se abre en un
+  **pop-up con el reproductor** (`#artVideoModal`, uno para toda la app en `layout.html`, por
+  delegación sobre `data-art-video`).
+  · **De qué es cada cartel: punto único `_artwork_kind_of`** (global de plantilla **`artwork_kind`**)
+  → IMAGE | VIDEO | PDF. Manda la columna **`ConcertArtworkAsset.kind`** y, en los carteles
+  ANTERIORES a esa columna (todos con el valor por defecto IMAGE), su nombre o su mimetype
+  (`_artwork_asset_kind`, que quita la cola «?…» de las URL de Storage).
+  · **Cómo se PINTA: `templates/_artwork_media.html`** (macros `art_media` y `art_open_attrs`), usado
+  en los TRES sitios donde se enseña un cartel (la pestaña de la actividad, el panel de la general y
+  la página pública). Al añadir otro sitio, se usa ese macro.
+  ⚠️ La miniatura va como **`poster` del propio `<video class="video-thumb">`**, no como un `<img>`
+  aparte: si la miniatura fallara, el sistema global de respaldo de imágenes **oculta** el hueco
+  (`img[src*="/img/placeholder_photo"]{display:none}`) y el cartel desaparecía; así se ve el
+  fotograma del vídeo y, en el peor caso, el recuadro oscuro con el play.
+  · **La MINIATURA la saca ffmpeg en 2º plano** (`_artwork_poster_schedule` →
+  `ConcertArtworkAsset.poster_url`, el mismo motor `_video_generate_poster_bytes` que el póster de un
+  videoclip o de un vídeo de la galería, que lee por RANGO y no se baja el vídeo entero).
+  ⚠️ **El cartel PRINCIPAL es SIEMPRE una IMAGEN** (`_artwork_can_be_primary`): representa la
+  actividad en la miniatura del enlace, en el aviso de salida a la venta y en la cabecera de las
+  invitaciones. Lo comprueban el automático (`_artwork_pick_primary_by_squareness`) y **los dos
+  endpoints de marcarlo a mano** (esconder el botón no basta). `_artwork_image_src` da la URL usable
+  COMO IMAGEN (de un vídeo, su miniatura; de un PDF, nada) y con ella se elige la `og:image`;
+  `_concert_poster_url` (cabecera de invitaciones) exige IMAGE de verdad, ni siquiera la miniatura.
+  · **En la página pública NO se reproduce**: es de descarga, y servir un vídeo por el puente
+  (`public_artwork_file`, que lo baja a memoria y no admite `Range`) sería bajárselo entero en cada
+  carga. Se ve su miniatura (`?poster=1` en ese mismo puente) con el icono de película y el play, y
+  se descarga como los demás. Un vídeo sin medidas se dibuja **16:9**, no cuadrado.
+  ⚠️ **Un archivo que no se admite ya NO tumba el lote**: antes el `ValueError` de `upload_image`
+  (un `.heic`, un `.txt` que venía en la carpeta) reventaba el bucle, se deshacía TODO y los ya
+  subidos se quedaban en Storage sin fila. Ahora se apunta en `skipped` y **el modal lo dice** al
+  terminar, en vez de recargar como si todo hubiera entrado.
+  ⚠️ Los `<input type="file">` de los tres sitios llevan `accept="image/*,video/*,application/pdf"`
+  **y** los dos modales de dentro tenían un filtro en JS que **descartaba en silencio** todo lo que
+  no fuera imagen o PDF: un vídeo arrastrado desaparecía de la cola sin decir nada (bug real).
 
 - **Cartelería de TODA una gira / ciclo / evento**: `ConcertArtworkRequest` admite dueño GRUPO
   (`group_kind` TOUR|CYCLE + `group_id`, con `concert_id` NULL): una sola solicitud para todas sus

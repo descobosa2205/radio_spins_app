@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% import '_prod_owner_picker.html' as prod_owner with context %}
+{% import '_artwork_media.html' as artm with context %}
 {% block content %}
 <div class="mb-2">
   {% set _from_media = request.args.get('back') == 'media' %}
@@ -1412,7 +1413,7 @@
               {% for asset in current_artwork_assets if asset.validation_status == 'PENDING' %}
                 <div class="col-6 col-md-4 col-xl-3">
                   <div class="border rounded p-2 h-100 text-center" data-art-asset="{{ asset.id }}">
-                    {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;">{% else %}<i class="fa fa-file-pdf fs-1 text-danger"></i>{% endif %}
+                    <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;') }}</span>
                     <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
                     {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
                     {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
@@ -1441,7 +1442,7 @@
               {% for asset in pendientes %}
                 <div class="col-6 col-md-4 col-xl-3">
                   <div class="border rounded p-2 h-100 text-center">
-                    {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;opacity:.75;">{% else %}<i class="fa fa-file-pdf fs-1 text-danger"></i>{% endif %}
+                    <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
                     <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
                     <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
                     {% if asset.uploaded_by_nick %}<div class="small text-muted mt-1">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
@@ -1534,7 +1535,7 @@
                   <div class="border rounded p-3 h-100">
                     <div class="d-flex justify-content-between align-items-start gap-2">
                       <div class="d-flex gap-2 align-items-start">
-                        {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;">{% else %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% endif %}
+                        {% if artwork_kind(asset) == 'PDF' %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% else %}<span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;') }}</span>{% endif %}
                         <div>
                           <div class="fw-semibold">{{ asset.format_label }}{% if (visible_assets|length == 1) or asset.is_primary %}<span class="badge text-bg-warning text-dark ms-2" title="Se muestra en las cabeceras (invitaciones, enlaces)"><i class="fa fa-star me-1"></i>Principal</span>{% endif %}</div>
                           <div class="text-muted small text-break">{{ asset.original_name or asset.format_label }}</div>
@@ -1588,7 +1589,7 @@
                 <div class="col-12 col-xl-6">
                   <div class="border border-danger rounded p-3 h-100">
                     <div class="d-flex gap-2 align-items-start">
-                      {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;">{% else %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% endif %}
+                      {% if artwork_kind(asset) == 'PDF' %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% else %}<span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;') }}</span>{% endif %}
                       <div class="min-w-0">
                         <div class="fw-semibold text-truncate">{{ asset.format_label }}</div>
                         <div class="small text-danger">{{ asset.rejection_note or 'Hay que cambiarlo.' }}</div>
@@ -1926,7 +1927,7 @@
               <div>Arrastra aquí los carteles <span class="text-muted">(o carpetas enteras)</span>, o
                 <span class="text-primary text-decoration-underline" data-art-pick>pincha para elegirlos</span></div>
               <div class="small text-muted mt-1">Se sube cada archivo que haya dentro de la carpeta, no la carpeta.</div>
-              <input type="file" class="d-none" id="artworkFiles" multiple accept="image/*,application/pdf">
+              <input type="file" class="d-none" id="artworkFiles" multiple accept="image/*,video/*,application/pdf">
               <input type="file" class="d-none" id="artworkFolder" webkitdirectory directory multiple>
             </div>
             <div class="d-flex justify-content-center gap-2 mt-2">
@@ -1977,9 +1978,15 @@
         var cola = [], lista = document.getElementById('artworkQueue'),
             btn = document.getElementById('artworkUploadBtn'), msg = document.getElementById('artworkUploadMsg');
 
+        function icono(f) {
+          var t = (f && f.type) || '';
+          if (/^video\//.test(t)) return 'fa-film';
+          if (t === 'application/pdf') return 'fa-file-pdf';
+          return 'fa-image';
+        }
         function pintar() {
           lista.innerHTML = cola.map(function (f, i) {
-            return '<div class="fotos-fileitem"><span class="fotos-fileitem__thumb"><i class="fa fa-image"></i></span>' +
+            return '<div class="fotos-fileitem"><span class="fotos-fileitem__thumb"><i class="fa ' + icono(f) + '"></i></span>' +
               '<span class="fotos-fileitem__name text-truncate">' + (f.name || 'archivo') + '</span>' +
               '<button type="button" class="btn btn-sm btn-link text-danger" data-art-quitar="' + i + '"><i class="fa fa-xmark"></i></button></div>';
           }).join('');
@@ -1989,7 +1996,9 @@
         function añadir(files) {
           Array.prototype.forEach.call(files || [], function (f) {
             if (!f || !f.name || f.name.charAt(0) === '.') return;          // .DS_Store y compañía
-            if (f.type && !/^image\//.test(f.type) && f.type !== 'application/pdf') return;
+            // ⚠️ Un cartel puede ser un VÍDEO: si no se admite aquí, el archivo se descartaba en
+            // silencio y parecía que el arrastre «no cogía» nada.
+            if (f.type && !/^image\//.test(f.type) && !/^video\//.test(f.type) && f.type !== 'application/pdf') return;
             cola.push(f);
           });
           pintar();
@@ -2055,7 +2064,12 @@
           };
           xhr.onload = function () {
             var j = {}; try { j = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
-            if (j.ok) { window.location.reload(); }
+            if (j.ok) {
+              // Lo que no ha entrado NO se calla (un .heic, un archivo suelto de la carpeta).
+              if (j.skipped_count) alert('Subidos ' + (j.count || 0) + '. No se han podido subir ' +
+                  j.skipped_count + ': ' + (j.skipped || []).join(', '));
+              window.location.reload();
+            }
             else { btn.disabled = false; btn.innerHTML = '<i class="fa fa-cloud-arrow-up me-1"></i>Subir';
                    msg.className = 'small mt-2 text-danger'; msg.textContent = j.error || 'No se pudieron subir.'; }
           };

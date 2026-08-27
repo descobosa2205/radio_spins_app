@@ -5071,3 +5071,18 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
 .dbg__detail-head { display: flex; align-items: center; gap: .5rem; padding: 0 .6rem .35rem; }
 .dbg__detail .dbg__face { width: 28px; height: 28px; }
 .dbg__detail .dbp__list { padding-left: .4rem; }
+
+/* ============================================================================
+   CARTELERÍA · un cartel puede ser una IMAGEN, un VÍDEO o un PDF (macro `art_media`).
+   El vídeo se ve con su miniatura y una chapa de play encima; se abre en su pop-up.
+   ============================================================================ */
+.art-media{ position:relative; display:inline-block; line-height:0; max-width:100%; }
+.art-media img, .art-media video{ display:block; }
+.art-media--video{ background:#111; border-radius:10px; }
+.art-media video.video-thumb{ background:transparent; }
+/* Tamaño FIJO a propósito: la misma chapa vale en la miniatura de 64 px y en la vista de 140 px
+   (en em se comía la de 64). */
+.art-media__play{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); pointer-events:none;
+  width:26px; height:26px; border-radius:999px; background:rgba(0,0,0,.55); color:#fff; font-size:11px;
+  display:flex; align-items:center; justify-content:center; padding-left:2px; }
+[data-art-video]{ cursor:pointer; }

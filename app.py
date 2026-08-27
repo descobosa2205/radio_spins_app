@@ -1391,6 +1391,8 @@ def inject_globals():
         OG_DEFAULT_IMAGE=_external_url_for("og_default_image"),
         # El icono de un tipo de proyecto discográfico («Single + Videoclip» son dos iconos y un +).
         disco_kind_icon=_disco_kind_icon_html,
+        # CARTELERÍA: de qué es un cartel (IMAGE | VIDEO | PDF), para pintarlo como toca.
+        artwork_kind=_artwork_kind_of,
         linked_mini=linked_mini,
         # DIRECCIÓN FISCAL: se pide en piezas (Holded las necesita separadas) y se muestra junta.
         fiscal_parts=_fiscal_parts_for_form,
@@ -3110,13 +3112,72 @@ def _parse_uuid_list(values) -> list[str]:
     return out
 
 
+# Qué es cada cartel. ⚠️ Un cartel puede ser un VÍDEO: los anuncios de redes lo son casi siempre.
+ARTWORK_VIDEO_EXTS = {'.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv', '.mpeg', '.mpg'}
+
+
+def _artwork_asset_kind(filename: str, mime: str = '') -> str:
+    """IMAGE | VIDEO | PDF, por la extensión (y por el mimetype como respaldo).
+
+    ⚠️ Vale igual con un nombre de archivo o con una URL: se le quita la cola (`?…`), que en las de
+    Storage siempre está —`get_public_url` deja incluso el «?» suelto— y dejaría la extensión sin
+    reconocer."""
+    fname = (filename or '').lower().strip().split('?', 1)[0].split('#', 1)[0]
+    ext = os.path.splitext(fname)[1]
+    if ext == '.pdf' or (mime or '').strip().lower() == 'application/pdf':
+        return 'PDF'
+    if ext in ARTWORK_VIDEO_EXTS or (mime or '').strip().lower().startswith('video/'):
+        return 'VIDEO'
+    return 'IMAGE'
+
+
 def _upload_artwork_file(file_storage):
+    """Sube UN cartel y devuelve (url, mime, kind).
+
+    ⚠️ Un VÍDEO no puede pasar por `upload_image` (convierte y valida como imagen): va por
+    `upload_file`, que lo guarda tal cual y admite archivos grandes sin cargarlos en memoria."""
     if not file_storage or not getattr(file_storage, 'filename', ''):
-        return None, None
+        return None, None, 'IMAGE'
     fname = (file_storage.filename or '').lower().strip()
-    if fname.endswith('.pdf'):
-        return upload_pdf(file_storage, 'concert_artwork'), 'application/pdf'
-    return upload_image(file_storage, 'concert_artwork'), (getattr(file_storage, 'mimetype', '') or '').strip() or None
+    mime = (getattr(file_storage, 'mimetype', '') or '').strip() or None
+    kind = _artwork_asset_kind(fname, mime or '')
+    if kind == 'PDF':
+        return upload_pdf(file_storage, 'concert_artwork'), 'application/pdf', 'PDF'
+    if kind == 'VIDEO':
+        return (upload_file(file_storage, 'concert_artwork',
+                            allowed_extensions=ARTWORK_VIDEO_EXTS), mime, 'VIDEO')
+    return upload_image(file_storage, 'concert_artwork'), mime, 'IMAGE'
+
+
+def _artwork_kind_of(asset) -> str:
+    """IMAGE | VIDEO | PDF de un cartel YA guardado (punto único; global de plantilla `artwork_kind`).
+
+    ⚠️ Manda la columna `kind`, pero los carteles ANTERIORES a esa columna salen todos como IMAGE
+    (es su valor por defecto), así que si el nombre o el mimetype dicen otra cosa, mandan ellos."""
+    kind = (getattr(asset, 'kind', '') or '').strip().upper()
+    if kind in ('VIDEO', 'PDF'):
+        return kind
+    return _artwork_asset_kind((getattr(asset, 'original_name', None) or getattr(asset, 'file_url', None) or ''),
+                               getattr(asset, 'mime_type', None) or '')
+
+
+def _artwork_image_src(asset) -> str:
+    """La URL del cartel que se puede usar COMO IMAGEN (miniatura, previsualización de un enlace).
+
+    Un vídeo no es una imagen: se usa su miniatura, y si todavía no la tiene, no hay imagen."""
+    if asset is None:
+        return ''
+    kind = _artwork_kind_of(asset)
+    if kind == 'VIDEO':
+        return (getattr(asset, 'poster_url', None) or '').strip()
+    if kind == 'PDF':
+        return ''
+    return (getattr(asset, 'file_url', None) or '').strip()
+
+
+def _artwork_can_be_primary(asset) -> bool:
+    """El cartel PRINCIPAL representa la actividad (miniatura del enlace, avisos): es una IMAGEN."""
+    return _artwork_kind_of(asset) == 'IMAGE'
 
 
 def _concert_artwork_snapshot(concert: Concert | None) -> dict:
@@ -3364,8 +3425,13 @@ def _artwork_notify_resolve_if_done(session_db, row) -> None:
 def _artwork_pick_primary_by_squareness(row: ConcertArtworkRequest) -> None:
     """Si ningún cartel vigente es principal, marca el MÁS CUADRADO (por dimensiones medidas
     en el navegador al subir; sin dimensiones cuenta como poco cuadrado)."""
-    assets = [a for a in (row.assets or []) if not getattr(a, 'is_archived', False)]
-    if not assets or any(getattr(a, 'is_primary', False) for a in assets):
+    vigentes = [a for a in (row.assets or []) if not getattr(a, 'is_archived', False)]
+    if not vigentes or any(getattr(a, 'is_primary', False) for a in vigentes):
+        return
+    # ⚠️ Solo una IMAGEN puede ser el principal: es la que representa a la actividad (la miniatura
+    # del enlace, el aviso de salida a la venta). Un vídeo o un PDF no valen ahí.
+    assets = [a for a in vigentes if _artwork_can_be_primary(a)]
+    if not assets:
         return
 
     def squareness(a):
@@ -5810,6 +5876,43 @@ def _song_video_poster_schedule(material_id, url) -> None:
                 s2.close()
         except Exception:
             pass
+
+    try:
+        threading.Thread(target=_trabajo, daemon=True).start()
+    except Exception:
+        pass
+
+
+def _artwork_poster_schedule(asset_id, url) -> None:
+    """La MINIATURA de un cartel en VÍDEO, en 2º plano, guardada en `ConcertArtworkAsset.poster_url`.
+
+    ⚠️ Mismo motor que el póster de un videoclip o de un vídeo de la galería
+    (`_video_generate_poster_bytes`, que lee por RANGO y no se baja el vídeo entero). Best-effort: si
+    no sale, el hueco se queda con el icono de vídeo."""
+    if not asset_id or not url or not _ffmpeg_exe():
+        return
+
+    def _trabajo():
+        try:
+            data = _video_generate_poster_bytes(url)
+            if not data:
+                return
+            poster = _upload_bytes(data, "concert_artwork/posters/%s.jpg" % str(asset_id),
+                                   "image/jpeg", upsert=True)
+            if not poster:
+                return
+            s2 = db()
+            try:
+                row = s2.get(ConcertArtworkAsset, to_uuid(asset_id))
+                if row is not None and not (getattr(row, "poster_url", None) or "").strip():
+                    row.poster_url = poster
+                    s2.commit()
+            except Exception:
+                s2.rollback()
+            finally:
+                s2.close()
+        except Exception:
+            app.logger.exception("[carteleria] no se pudo sacar la miniatura del vídeo")
 
     try:
         threading.Thread(target=_trabajo, daemon=True).start()
@@ -46100,7 +46203,7 @@ def concert_artwork_public_upload(token):
                 if not fs or not getattr(fs, 'filename', ''):
                     continue
                 label = (labels[i] if i < len(labels) else '').strip() or Path(fs.filename).stem
-                file_url, mime_type = _upload_artwork_file(fs)
+                file_url, mime_type, kind = _upload_artwork_file(fs)
                 if not file_url:
                     continue
                 for existing in list(row.assets or []):
@@ -46114,6 +46217,7 @@ def concert_artwork_public_upload(token):
                     file_url=file_url,
                     original_name=fs.filename,
                     mime_type=mime_type,
+                    kind=kind,
                     width=_parse_optional_positive_int((widths[i] if i < len(widths) else '') or ''),
                     height=_parse_optional_positive_int((heights[i] if i < len(heights) else '') or ''),
                     # Lo que sube el PROMOTOR queda pendiente de validar por diseño.
@@ -46384,13 +46488,17 @@ def _concert_group_refs(concert) -> list[tuple[str, object]]:
     return salida
 
 
+# Del grupo más CONCRETO al más amplio (lo usan la cartelería que se comparte y `_concert_group_ref`).
+ARTWORK_GROUP_SHARE_ORDER = ("CYCLE", "TOUR", "EVENT")
+
+
 def _concert_group_ref(concert):
     """(kind, id) del grupo MÁS CONCRETO de una actividad (compatibilidad: el primero de los suyos)."""
     refs = _concert_group_refs(concert)
     if not refs:
         return None, None
     # El más concreto: el ciclo o la gira antes que el evento.
-    for k in ("CYCLE", "TOUR", "EVENT"):
+    for k in ARTWORK_GROUP_SHARE_ORDER:
         for kind, gid in refs:
             if kind == k:
                 return kind, gid
@@ -46513,18 +46621,27 @@ def group_artwork_upload_direct(gkind, gid):
         ficheros = request.files.getlist("files") or request.files.getlist("file")
         etiquetas = request.form.getlist("labels")
         anchos, altos = request.form.getlist("widths"), request.form.getlist("heights")
-        subidos = []
+        subidos, fallidos = [], []
         for i, fs in enumerate(ficheros):
             if not fs or not getattr(fs, "filename", ""):
                 continue
-            file_url, mime_type = _upload_artwork_file(fs)
+            try:
+                file_url, mime_type, kind = _upload_artwork_file(fs)
+            except Exception as exc_f:
+                # ⚠️ Un archivo que no se admite (un .heic, un .txt que venía en la carpeta) NO puede
+                # tumbar el lote: antes reventaba el bucle, se deshacía TODO y los ya subidos se
+                # quedaban en Storage sin fila. Se apunta y se sigue con los demás.
+                app.logger.exception("[carteleria] no se pudo subir un archivo")
+                fallidos.append("%s (%s)" % (getattr(fs, 'filename', 'archivo'), exc_f))
+                continue
             if not file_url:
+                fallidos.append(getattr(fs, 'filename', 'archivo'))
                 continue
             nombre = (etiquetas[i] if i < len(etiquetas) else "") or fs.filename or "Cartel"
             nombre = os.path.basename(str(nombre).replace("\\", "/")).strip() or "Cartel"
             asset = ConcertArtworkAsset(
                 artwork_request_id=row.id, format_label=os.path.splitext(nombre)[0][:120],
-                file_url=file_url, original_name=nombre[:200], mime_type=mime_type,
+                file_url=file_url, original_name=nombre[:200], mime_type=mime_type, kind=kind,
                 width=_parse_optional_positive_int((anchos[i] if i < len(anchos) else "") or ""),
                 height=_parse_optional_positive_int((altos[i] if i < len(altos) else "") or ""),
                 validation_status=("APPROVED" if aprobado_ya else "PENDING"),
@@ -46533,9 +46650,14 @@ def group_artwork_upload_direct(gkind, gid):
             )
             session_db.add(asset)
             session_db.flush()
+            # Un cartel en VÍDEO se ve con su miniatura: la saca ffmpeg en 2º plano.
+            if kind == "VIDEO":
+                _artwork_poster_schedule(asset.id, asset.file_url)
             subidos.append({"id": str(asset.id), "label": asset.format_label})
         if not subidos:
-            return jsonify({"ok": False, "error": "No se pudo subir ningún archivo."}), 400
+            return jsonify({"ok": False,
+                            "error": ("No se pudo subir ningún archivo."
+                                      + (" Se han quedado fuera: " + ", ".join(fallidos[:5]) if fallidos else ""))}), 400
         hay_pendientes = any((a.validation_status or "APPROVED") == "PENDING"
                              for a in (row.assets or []) if not a.is_archived)
         row.status = "REVIEW" if hay_pendientes else "UPLOADED"
@@ -46543,7 +46665,9 @@ def group_artwork_upload_direct(gkind, gid):
             _artwork_pick_primary_by_squareness(row)
         row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
         session_db.commit()
-        return jsonify({"ok": True, "assets": subidos, "count": len(subidos)})
+        return jsonify({"ok": True, "assets": subidos, "count": len(subidos),
+                        # Lo que no ha entrado NO se calla: el modal lo dice.
+                        "skipped": fallidos[:5], "skipped_count": len(fallidos)})
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("group_artwork_upload_direct")
@@ -46603,10 +46727,14 @@ def group_artwork_asset_primary(gkind, gid, asset_id):
         row = _artwork_group_request(session_db, gkind, gid)
         asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
         if row is not None and asset is not None and str(asset.artwork_request_id) == str(row.id):
-            for otro in (row.assets or []):
-                otro.is_primary = (otro.id == asset.id)
-            session_db.commit()
-            flash('Cartel principal de la gira actualizado.', 'success')
+            if not _artwork_can_be_primary(asset):
+                flash('El cartel principal tiene que ser una imagen: es la que representa a la '
+                      'actividad en los enlaces y en los avisos.', 'warning')
+            else:
+                for otro in (row.assets or []):
+                    otro.is_primary = (otro.id == asset.id)
+                session_db.commit()
+                flash('Cartel principal de la gira actualizado.', 'success')
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo marcar el principal: {exc}', 'danger')
@@ -46692,12 +46820,21 @@ def concert_artwork_upload_direct(cid):
         etiquetas = request.form.getlist("labels")
         anchos = request.form.getlist("widths")
         altos = request.form.getlist("heights")
-        subidos = []
+        subidos, fallidos = [], []
         for i, fs in enumerate(ficheros):
             if not fs or not getattr(fs, "filename", ""):
                 continue
-            file_url, mime_type = _upload_artwork_file(fs)
+            try:
+                file_url, mime_type, kind = _upload_artwork_file(fs)
+            except Exception as exc_f:
+                # ⚠️ Un archivo que no se admite (un .heic, un .txt que venía en la carpeta) NO puede
+                # tumbar el lote: antes reventaba el bucle, se deshacía TODO y los ya subidos se
+                # quedaban en Storage sin fila. Se apunta y se sigue con los demás.
+                app.logger.exception("[carteleria] no se pudo subir un archivo")
+                fallidos.append("%s (%s)" % (getattr(fs, 'filename', 'archivo'), exc_f))
+                continue
             if not file_url:
+                fallidos.append(getattr(fs, 'filename', 'archivo'))
                 continue
             # De una carpeta llega la ruta completa: la etiqueta es el nombre del archivo.
             nombre = (etiquetas[i] if i < len(etiquetas) else "") or fs.filename or "Cartel"
@@ -46708,6 +46845,7 @@ def concert_artwork_upload_direct(cid):
                 file_url=file_url,
                 original_name=nombre[:200],
                 mime_type=mime_type,
+                kind=kind,
                 width=_parse_optional_positive_int((anchos[i] if i < len(anchos) else "") or ""),
                 height=_parse_optional_positive_int((altos[i] if i < len(altos) else "") or ""),
                 # Lo que sube DISEÑO (o dirección) ya está aprobado; lo que sube cualquier otro
@@ -46718,9 +46856,14 @@ def concert_artwork_upload_direct(cid):
             )
             session_db.add(asset)
             session_db.flush()
+            # Un cartel en VÍDEO se ve con su miniatura: la saca ffmpeg en 2º plano.
+            if kind == "VIDEO":
+                _artwork_poster_schedule(asset.id, asset.file_url)
             subidos.append({"id": str(asset.id), "label": asset.format_label, "url": asset.file_url})
         if not subidos:
-            return jsonify({"ok": False, "error": "No se pudo subir ningún archivo."}), 400
+            return jsonify({"ok": False,
+                            "error": ("No se pudo subir ningún archivo."
+                                      + (" Se han quedado fuera: " + ", ".join(fallidos[:5]) if fallidos else ""))}), 400
         # Solo se marca «en revisión» si de verdad queda algo pendiente de aprobar.
         hay_pendientes = any((a.validation_status or 'APPROVED') == 'PENDING'
                              for a in (row.assets or []) if not a.is_archived)
@@ -46732,7 +46875,9 @@ def concert_artwork_upload_direct(cid):
         row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
         _artwork_notify_resolve_if_done(session_db, row)
         session_db.commit()
-        return jsonify({"ok": True, "assets": subidos, "count": len(subidos)})
+        return jsonify({"ok": True, "assets": subidos, "count": len(subidos),
+                        # Lo que no ha entrado NO se calla: el modal lo dice.
+                        "skipped": fallidos[:5], "skipped_count": len(fallidos)})
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("concert_artwork_upload_direct")
@@ -47372,6 +47517,10 @@ def concert_artwork_asset_primary(cid, asset_id):
         )
         if not asset:
             flash('Formato no encontrado.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+        if not _artwork_can_be_primary(asset):
+            flash('El cartel principal tiene que ser una imagen: es la que representa a la actividad '
+                  'en los enlaces y en los avisos.', 'warning')
             return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
         request_row = session.get(ConcertArtworkRequest, asset.artwork_request_id)
         for other in list(getattr(request_row, 'assets', None) or []):
@@ -85296,12 +85445,14 @@ def _concert_artwork_share_assets(session_db, concert) -> list:
         activos = [a for a in ((getattr(req, "assets", None) or []) if req else [])
                    if not bool(getattr(a, "is_archived", False))
                    and (getattr(a, "validation_status", None) or "APPROVED") == "APPROVED"]
-        # Los de TODA la gira o el ciclo valen igual: son los carteles de esta fecha también.
+        # Los GENERALES valen igual: son los carteles de esta fecha también. ⚠️ Se preguntan TODOS
+        # los grupos a los que pertenece (su evento, su gira y su ciclo), no solo la gira.
         if not activos:
-            for kind, gid in (("TOUR", getattr(concert, "purchased_tour_id", None)),
-                              ("CYCLE", getattr(concert, "cycle_festival_id", None))):
-                if not gid:
-                    continue
+            # Del más CONCRETO al más amplio: su ciclo, su gira y por último su evento.
+            grupos = sorted(_concert_group_refs(concert),
+                            key=lambda kg: ARTWORK_GROUP_SHARE_ORDER.index(kg[0])
+                            if kg[0] in ARTWORK_GROUP_SHARE_ORDER else 99)
+            for kind, gid in grupos:
                 activos = list(_artwork_group_context(session_db, kind, gid).get("gk_assets") or [])
                 if activos:
                     break
@@ -85397,6 +85548,9 @@ def _artwork_asset_public_row(session_db, concert, asset, token: str) -> dict:
                 except Exception:
                     aspect = 0.0
                 break
+    kind = _artwork_kind_of(asset)
+    if aspect <= 0 and kind == "VIDEO":
+        aspect = 16 / 9                 # un vídeo sin medidas se dibuja apaisado, no cuadrado
     nombre = (getattr(asset, "original_name", None) or "").strip()
     _base, ext = os.path.splitext(nombre)
     # La MINIATURA se dibuja con la proporción real dentro de un hueco fijo (todas las tarjetas del
@@ -85424,6 +85578,13 @@ def _artwork_asset_public_row(session_db, concert, asset, token: str) -> dict:
         # fuera: el enlace de la página y la miniatura de la previsualización.
         "file_url": url_for("public_artwork_file", token=token, asset_id=asset.id),
         "download_url": url_for("public_artwork_download", token=token, asset_id=asset.id),
+        # ⚠️ Un cartel puede ser un VÍDEO: aquí se enseña su MINIATURA (y se descarga como los
+        # demás). No se reproduce: esta página es de descarga, y servir un vídeo entero por el
+        # puente sería bajárselo a memoria en cada carga.
+        "kind": kind,
+        "is_video": kind == "VIDEO",
+        "poster_url": (url_for("public_artwork_file", token=token, asset_id=asset.id, poster=1)
+                       if (kind == "VIDEO" and (getattr(asset, "poster_url", None) or "").strip()) else ""),
     }
 
 
@@ -85521,11 +85682,16 @@ def public_artwork_view(token):
 
 @app.get("/carteles/<token>/formato/<asset_id>", endpoint="public_artwork_file")
 def public_artwork_file(token, asset_id):
-    """El cartel para VERLO en la página (la miniatura), servido por nuestro dominio."""
+    """El cartel para VERLO en la página (la miniatura), servido por nuestro dominio.
+
+    Con `?poster=1` se sirve la MINIATURA de un cartel en vídeo (la que saca ffmpeg al subirlo)."""
     with get_db() as session_db:
         _concert, asset = _artwork_public_asset_or_404(session_db, token, asset_id)
+        src = (asset.file_url or "")
+        if (request.args.get("poster") or "").strip() in ("1", "true", "si", "sí"):
+            src = (getattr(asset, "poster_url", None) or "").strip() or src
         try:
-            datos, ctype = _download_remote_content(asset.file_url, timeout=25)
+            datos, ctype = _download_remote_content(src, timeout=25)
         except Exception:
             app.logger.exception("[carteleria] no se pudo leer el cartel")
             abort(404)
@@ -85570,8 +85736,12 @@ def public_artwork_og_image(token):
         if concert is None:
             abort(404)
         assets = _concert_artwork_share_assets(session_db, concert)
-        principal = next((a for a in assets if bool(getattr(a, "is_primary", False))), None) or (assets[0] if assets else None)
-        src = ((getattr(principal, "file_url", None) or "").strip() if principal is not None else "")
+        # ⚠️ Aquí hace falta una IMAGEN: de un cartel en vídeo se usa su miniatura, y un PDF no vale.
+        principal = next((a for a in assets if bool(getattr(a, "is_primary", False))
+                          and _artwork_image_src(a)), None)
+        if principal is None:
+            principal = next((a for a in assets if _artwork_image_src(a)), None)
+        src = _artwork_image_src(principal)
         if not src:
             src = ((getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()
                    or url_for("static", filename="img/logo.png"))
@@ -96904,14 +97074,11 @@ def _concert_poster_url(concert) -> str:
     req = getattr(concert, "artwork_request", None)
     assets = [a for a in (getattr(req, "assets", None) or []) if not bool(getattr(a, "is_archived", False))]
 
-    def _is_image(a):
-        mt = (getattr(a, "mime_type", None) or "").lower()
-        if mt.startswith("image/"):
-            return True
-        url = (getattr(a, "file_url", None) or "").lower()
-        return url.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
-
-    images = [a for a in assets if _is_image(a) and (getattr(a, "file_url", None) or "").strip()]
+    # ⚠️ Aquí hace falta una IMAGEN de verdad (es la cabecera de las invitaciones y de los enlaces):
+    # un cartel en VÍDEO no vale, ni siquiera con su miniatura. De qué es cada cartel lo dice el
+    # punto único `_artwork_kind_of`.
+    images = [a for a in assets
+              if _artwork_kind_of(a) == "IMAGE" and (getattr(a, "file_url", None) or "").strip()]
     if not images:
         return ""
     # 1) El marcado como principal manualmente. 2) Si solo hay uno, ese. 3) Fallback: el más reciente.

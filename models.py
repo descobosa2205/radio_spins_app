@@ -3124,6 +3124,11 @@ class ConcertArtworkAsset(Base):
     file_url = Column(Text, nullable=False)
     original_name = Column(Text)
     mime_type = Column(Text)
+    # ⚠️ UN CARTEL PUEDE SER UN VÍDEO (los anuncios de redes lo son casi siempre): IMAGE | VIDEO | PDF.
+    # Se deduce del archivo al subirlo (`_artwork_asset_kind`) y se guarda para no tener que adivinarlo
+    # al pintar. El vídeo lleva además su MINIATURA (la saca ffmpeg en 2º plano, como los videoclips).
+    kind = Column(Text, nullable=False, server_default=text("'IMAGE'"))
+    poster_url = Column(Text)
     # Dimensiones (px) medidas en el navegador al subir; para mostrar el tamaño y elegir
     # como principal el más cuadrado.
     width = Column(Integer)
@@ -8789,6 +8794,12 @@ def ensure_concert_artwork_schema():
             ADD COLUMN IF NOT EXISTS reviewed_by_nick text;
         """,
         'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_uploader ON concert_artwork_assets(uploaded_by_user_id, validation_status);',
+        # Un cartel puede ser un VÍDEO (los anuncios de redes lo son casi siempre), con su miniatura.
+        """
+        ALTER TABLE IF EXISTS concert_artwork_assets
+            ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'IMAGE',
+            ADD COLUMN IF NOT EXISTS poster_url text;
+        """,
         # Estados nuevos del flujo de validación (REVIEW/CORRECTIONS): rehacer el CHECK.
         """
         DO $$

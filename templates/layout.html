@@ -448,6 +448,55 @@
 {% if CURRENT_USER %}<script src="{{ url_for('static', filename='js/notificaciones.js', v=ASSET_V) }}"></script>{% endif %}
 {# Miniatura de vídeo (fotograma intermedio) para cualquier <video class="video-thumb"> (global). #}
 <script src="{{ url_for('static', filename='js/video_thumb.js', v=ASSET_V) }}"></script>
+{# Un cartel en VÍDEO se ve en un pop-up (uno para toda la app, como el de un documento): lo abre
+   cualquier elemento con data-art-video="<url>". #}
+{% if session.get('user_id') %}
+<div class="modal fade" id="artVideoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="artVideoTitle">Cartel</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body text-center bg-dark">
+        <video id="artVideoEl" class="w-100" style="max-height:70vh;border-radius:8px;" controls playsinline></video>
+      </div>
+      <div class="modal-footer">
+        <a id="artVideoDl" class="btn btn-outline-secondary" href="#" download target="_blank" rel="noopener">
+          <i class="fa fa-download fa-fw me-1"></i>Descargar</a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  // Por DELEGACIÓN: los carteles se repintan (AJAX, paneles embebidos) y hay varios paneles por página.
+  document.addEventListener('click', function(ev){
+    var el = ev.target.closest && ev.target.closest('[data-art-video]');
+    if(!el) return;
+    var url = el.getAttribute('data-art-video') || '';
+    if(!url) return;
+    ev.preventDefault();
+    var modal = document.getElementById('artVideoModal');
+    var video = document.getElementById('artVideoEl');
+    if(!modal || !video || !window.bootstrap) { window.open(url, '_blank'); return; }
+    video.src = url;
+    var t = document.getElementById('artVideoTitle');
+    if(t) t.textContent = el.getAttribute('data-art-video-name') || 'Cartel';
+    var dl = document.getElementById('artVideoDl');
+    if(dl) dl.href = url;
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+  });
+  var m = document.getElementById('artVideoModal');
+  // Al cerrar se PARA (si no, sigue sonando de fondo).
+  if(m) m.addEventListener('hidden.bs.modal', function(){
+    var v = document.getElementById('artVideoEl');
+    if(v){ try { v.pause(); } catch(e){} v.removeAttribute('src'); v.load(); }
+  });
+})();
+</script>
+{% endif %}
 {# Escaneo de documentos (foto/PDF): render, recorte automático + manual y OCR (MRZ TD1/TD3).
    Módulo global window.DocScan; lo usan person_docs.js y doc_intake.js. Debe cargarse ANTES. #}
 <script src="{{ url_for('static', filename='js/doc_scan.js', v=ASSET_V) }}"></script>

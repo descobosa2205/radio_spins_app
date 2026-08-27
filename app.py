@@ -80447,6 +80447,10 @@ def _supplier_invoice_is_ghost(inv) -> bool:
 def _supplier_invoice_same_doc_key(inv) -> str:
     """Qué identifica a la MISMA factura física. Una factura puede haber entrado más de una vez (se
     sube dos veces, o entra por dos caminos): en la base tiene que aparecer UNA."""
+    # ⚠️ Una ORIGINAL y su RECTIFICATIVA son DOS documentos distintos aunque tengan el mismo importe
+    # (y aunque a la rectificativa no se le haya puesto número): no se pueden fusionar en una fila.
+    if getattr(inv, "rectifies_invoice_id", None) or getattr(inv, "rectified_by_invoice_id", None):
+        return "i:" + str(getattr(inv, "id", ""))
     url = (getattr(inv, "file_url", None) or "").strip()
     if url:
         # El «?» final que deja storage3 y los parámetros de firma no hacen distinta a la factura.
@@ -81601,6 +81605,12 @@ def supplier_invoice_reject(invoice_id):
         motivo = (request.form.get("reason") or "").strip() or "El importe no corresponde con el gasto."
         inv.status = "RECHAZADA"
         inv.reject_reason = motivo[:500]
+        # ⚠️ Una factura RECHAZADA deja de contar: se suelta su imputación a los gastos. Antes solo se
+        # actuaba sobre la liquidación de royalties, así que un gasto de bolsa se quedaba con una
+        # factura rechazada detrás contando su importe (y en pendiente de pago y en contabilidad).
+        for _fila in (session_db.query(BagExpenseInvoice)
+                      .filter(BagExpenseInvoice.supplier_invoice_id == inv.id).all()):
+            session_db.delete(_fila)
         rec = (session_db.get(RoyaltyLiquidation, inv.royalty_liquidation_id)
                if getattr(inv, "royalty_liquidation_id", None) else None)
         # ⚠️ Al rechazar, la liquidación VUELVE A LA ETAPA ANTERIOR y se suelta el vínculo SIEMPRE que

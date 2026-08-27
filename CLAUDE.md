@@ -3918,6 +3918,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pago es una lista de estados INCLUIDOS (`NO_PAGADO`/`PENDIENTE`/`PARCIAL`), sale solo.
   ⚠️ Los importes del pop-up salen de la original (se cambian si la rectificativa dice otra cosa) y en
   la fila de las DOS se dice el vínculo, que es lo que las convierte en una acción única.
+  ⚠️ **El par NO se fusiona en la base de facturas**: `_supplier_invoice_same_doc_key` agrupa por
+  archivo o por nº+importe, y una rectificativa con el mismo importe (o sin número puesto) se habría
+  pintado como una copia de la original. Lo que esté vinculado como original/rectificativa se
+  identifica siempre por su id.
+  ⚠️ Y de paso: **RECHAZAR una factura ya suelta su imputación** a los gastos. Antes solo actuaba
+  sobre la liquidación de royalties, así que un gasto de bolsa se quedaba con una factura RECHAZADA
+  detrás contando su importe —y seguía en pendiente de pago y en contabilidad—.
 
 - ⚠️⚠️ **HOLDED · NO SE DUPLICAN CONTACTOS NI DOCUMENTOS** (ago 2026):
   · **El contacto se BUSCA antes de crearlo, y en tres pasos** (punto único

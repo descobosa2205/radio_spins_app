@@ -285,6 +285,17 @@
                   <td>
                     <span class="badge {{ r.status_badge }}">{{ r.status_label }}</span>
                     {% if r.reject_reason %}<div class="small text-danger">{{ r.reject_reason }}</div>{% endif %}
+                    {# EL PAR original ↔ rectificativa: se dice en las dos filas, que son una cosa. #}
+                    {% if r.status == 'RECTIFICADA' %}
+                      <div class="small text-muted"><i class="fa fa-link me-1"></i>Compensada con su
+                        factura rectificativa</div>
+                    {% elif r.rectifies_id %}
+                      <div class="small text-muted"><i class="fa fa-link me-1"></i>Rectificativa de otra
+                        factura anterior</div>
+                    {% endif %}
+                    {% if r.status == 'ANULADA' %}
+                      <div class="small text-muted"><i class="fa fa-ban me-1"></i>Anulada{% if r.voided_label %} el {{ r.voided_label }}{% endif %}{% if r.voided_by %} por {{ r.voided_by }}{% endif %}{% if r.void_reason %} · {{ r.void_reason }}{% endif %}</div>
+                    {% endif %}
                     {# ALERTA de datos sin leer, a la vista y con el botón para corregirlos a mano:
                        una factura así no se puede validar ni contabilizar hasta que se completen. #}
                     {% if r.missing %}
@@ -381,6 +392,27 @@
                         {% endif %}
                         {% if supplier_can_edit %}
                           <li><hr class="dropdown-divider"></li>
+                          {# ANULAR o RECTIFICAR: una factura mal emitida se anula (no se contabiliza)
+                             o se compensa con una RECTIFICATIVA, que va con ella a contabilidad. #}
+                          {% if r.status == 'ANULADA' %}
+                            <li>
+                              <form method="post" action="{{ url_for('supplier_invoice_void', invoice_id=r.id) }}">
+                                <input type="hidden" name="next" value="{{ request.url }}">
+                                <input type="hidden" name="undo" value="1">
+                                <button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-2"></i>Desanular la factura</button>
+                              </form>
+                            </li>
+                          {% elif r.status != 'RECTIFICADA' %}
+                            <li><button class="dropdown-item" type="button" data-inv-void
+                                    data-inv-id="{{ r.id }}" data-inv-name="{{ r.invoice_number or 'la factura' }}">
+                              <i class="fa fa-ban fa-fw me-2"></i>Anular factura</button></li>
+                            <li><button class="dropdown-item" type="button" data-inv-rectify
+                                    data-inv-id="{{ r.id }}" data-inv-name="{{ r.invoice_number or 'la factura' }}"
+                                    data-inv-gross="{{ r.amount|eur|replace(' €','') if r.amount > 0 else '' }}"
+                                    data-inv-net="{{ r.net|eur|replace(' €','') if r.net > 0 else '' }}"
+                                    data-inv-vat="{{ r.vat|eur|replace(' €','') if r.vat > 0 else '' }}">
+                              <i class="fa fa-file-circle-plus fa-fw me-2"></i>Subir factura rectificativa</button></li>
+                          {% endif %}
                           <li>
                             <form method="post" action="{{ url_for('supplier_invoice_delete', invoice_id=r.id) }}"
                                   onsubmit="return confirm('Se va a eliminar esta factura. ¿Seguimos?');">
@@ -630,8 +662,75 @@
   </div></div>
 </div>
 
+{# ANULAR una factura: no se contabiliza, se archiva y se cierra. #}
+<div class="modal fade" id="invVoidModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" data-inv-void-form>
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-ban me-2 text-danger"></i>Anular factura</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="mb-2">Se va a anular <strong data-inv-void-name></strong>.</p>
+        <div class="alert alert-light border small py-2">
+          <i class="fa fa-circle-info me-1"></i>Una factura anulada <strong>no se contabiliza</strong>:
+          se archiva y se cierra. Su importe deja de contar, así que el gasto vuelve a estar sin
+          factura válida. Si lo que hay es una <strong>rectificativa</strong>, usa esa otra opción.
+        </div>
+        <label class="form-label">Motivo <span class="text-muted">(queda apuntado)</span></label>
+        <input class="form-control" name="reason" placeholder="Estaba mal emitida, se duplicó…">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-ban me-1"></i>Anular</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# SUBIR LA RECTIFICATIVA: compensa a la original y las dos van juntas a contabilidad. #}
+<div class="modal fade" id="invRectifyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+    <form method="post" enctype="multipart/form-data" data-inv-rectify-form>
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-file-circle-plus me-2 text-danger"></i>Factura rectificativa</h5>
+          <div class="text-muted small">Compensa a <strong data-inv-rectify-name></strong>: las dos van
+            juntas a contabilidad y el gasto deja de estar pendiente de pago.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label">El archivo de la rectificativa</label>
+        <input type="file" class="form-control" name="file" required accept=".pdf,image/*">
+        <div class="row g-2 mt-3">
+          <div class="col-md-6"><label class="form-label small">Nº de la rectificativa</label>
+            <input class="form-control" name="invoice_number"></div>
+          <div class="col-md-6"><label class="form-label small">Fecha de emisión</label>
+            <input type="date" class="form-control" name="issue_date"></div>
+          <div class="col-md-4"><label class="form-label small">Base imponible</label>
+            <div class="input-group"><input class="form-control" name="amount_net" data-money="1" inputmode="decimal" data-inv-rect-net><span class="input-group-text">€</span></div></div>
+          <div class="col-md-4"><label class="form-label small">IVA</label>
+            <div class="input-group"><input class="form-control" name="amount_tax" data-money="1" inputmode="decimal" data-inv-rect-vat><span class="input-group-text">€</span></div></div>
+          <div class="col-md-4"><label class="form-label small">Total</label>
+            <div class="input-group"><input class="form-control fw-semibold" name="amount_gross" data-money="1" inputmode="decimal" data-inv-rect-gross><span class="input-group-text">€</span></div></div>
+          <div class="col-12"><label class="form-label small">Concepto</label>
+            <input class="form-control" name="concept_text" placeholder="Rectificativa de la factura anterior"></div>
+        </div>
+        <div class="form-text mt-2">Los importes salen de la original: cámbialos si la rectificativa
+          dice otra cosa (si la anula del todo, van en negativo o a cero según la haya emitido).</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-check me-1"></i>Subir la rectificativa</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
 <script>
 (function () {
+  var URL_VOID = {{ url_for('supplier_invoice_void', invoice_id='__ID__')|tojson }};
+  var URL_RECTIFY = {{ url_for('supplier_invoice_rectify', invoice_id='__ID__')|tojson }};
   var URL_REPLACE = {{ url_for('supplier_invoice_replace', invoice_id='__ID__')|tojson }};
   var URL_EXP = {{ url_for('bag_expense_amount_save', expense_id='__ID__')|tojson }};
   document.addEventListener('click', function (e) {
@@ -643,6 +742,27 @@
       m.querySelector('[data-inv-replace-validated]').classList.toggle(
         'd-none', !rep.getAttribute('data-inv-validated'));
       if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show();
+      return;
+    }
+    var anu = e.target.closest('[data-inv-void]');
+    if (anu) {
+      var mv = document.getElementById('invVoidModal');
+      mv.querySelector('[data-inv-void-form]').setAttribute(
+        'action', URL_VOID.replace('__ID__', anu.getAttribute('data-inv-id') || ''));
+      mv.querySelector('[data-inv-void-name]').textContent = anu.getAttribute('data-inv-name') || 'la factura';
+      if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(mv).show();
+      return;
+    }
+    var rect = e.target.closest('[data-inv-rectify]');
+    if (rect) {
+      var mr = document.getElementById('invRectifyModal');
+      mr.querySelector('[data-inv-rectify-form]').setAttribute(
+        'action', URL_RECTIFY.replace('__ID__', rect.getAttribute('data-inv-id') || ''));
+      mr.querySelector('[data-inv-rectify-name]').textContent = rect.getAttribute('data-inv-name') || 'la factura';
+      mr.querySelector('[data-inv-rect-net]').value = rect.getAttribute('data-inv-net') || '';
+      mr.querySelector('[data-inv-rect-vat]').value = rect.getAttribute('data-inv-vat') || '';
+      mr.querySelector('[data-inv-rect-gross]').value = rect.getAttribute('data-inv-gross') || '';
+      if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(mr).show();
       return;
     }
     var exp = e.target.closest('[data-exp-amount]');

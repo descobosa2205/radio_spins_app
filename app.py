@@ -60547,10 +60547,22 @@ def _invoice_required_data_check(form) -> tuple[bool, str]:
         faltan.append("la base imponible")
     if _money_or_zero(dinero.get("amount_gross")) <= 0:
         faltan.append("el importe total")
-    if not faltan:
-        return True, ""
-    return False, ("No hemos podido leer %s: escríbelo a mano antes de enviar la factura."
-                   % _join_es(faltan))
+    if faltan:
+        return False, ("No hemos podido leer %s: escríbelo a mano antes de enviar la factura."
+                       % _join_es(faltan))
+    # ⚠️⚠️ UNA RETENCIÓN QUE LA FACTURA NO LLEVA DESCUADRA TODO: baja lo que se paga y mete la factura
+    # en el listado fiscal de Retenciones. Si con los números escritos base + IVA YA es el total, la
+    # retención no cabe ahí: se rechaza diciéndolo (el campo, además, solo se pide si la factura la
+    # trae).
+    base = _money_or_zero(dinero.get("amount_net"))
+    iva = _money_or_zero(dinero.get("amount_vat"))
+    ret = _money_or_zero(dinero.get("retention_amount"))
+    total = _money_or_zero(dinero.get("amount_gross"))
+    if ret > 0 and abs((base + iva) - total) <= Decimal("0.02") and abs(ret) > Decimal("0.02"):
+        return False, ("Has puesto una retención de %s, pero la base y el IVA ya suman el total de la "
+                       "factura (%s): si la factura no lleva retención, deja ese campo vacío."
+                       % (format_eur(ret), format_eur(total)))
+    return True, ""
 
 
 def _join_es(items) -> str:
@@ -62687,6 +62699,9 @@ BAG_PAYMENT_STATUS_LABELS = {
     "PENDIENTE": "Pendiente de pago",
     "PARCIAL": "Pago parcial",
     "PAGADO": "Pagado",
+    # COMPENSADO: su factura se rectificó y la rectificativa la compensa, así que no hay nada que
+    # pagar. Sale de «pendiente de pago» sin decir que se ha pagado (que no es verdad).
+    "COMPENSADO": "Compensado con la rectificativa",
 }
 BAG_COVERED_BY_LABELS = {
     "BOLSA": "Lo asume la bolsa",
@@ -80388,7 +80403,13 @@ SUPPLIER_INVOICE_STATUS_META = {
     "PENDIENTE": ("Pendiente de validar", "text-bg-warning text-dark"),
     "VALIDADA": ("Validada", "text-bg-success"),
     "RECHAZADA": ("Rechazada", "text-bg-danger"),
+    # ANULADA: mal emitida y sin rectificativa. No se contabiliza: se archiva y se cierra.
+    "ANULADA": ("Anulada", "text-bg-dark"),
+    # RECTIFICADA: la sustituye una rectificativa. Las dos van juntas a contabilidad y se compensan.
+    "RECTIFICADA": ("Rectificada", "text-bg-secondary"),
 }
+# Estados en los que una factura ya NO espera nada de nadie (ni pago ni validación).
+SUPPLIER_INVOICE_CLOSED_STATUSES = {"ANULADA", "RECTIFICADA", "RECHAZADA"}
 # Buzón al que se manda a quien ya tiene una factura VALIDADA y quiere cambiarla.
 ADMIN_INVOICE_CONTACT_EMAIL = "administracion@33producciones.es"
 INVOICE_ALREADY_UPLOADED_MSG = (
@@ -80673,6 +80694,15 @@ def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
             "status_label": etiqueta,
             "status_badge": clase,
             "reject_reason": (inv.reject_reason or ""),
+            # ANULADA / RECTIFICADA: el par original ↔ rectificativa es UNA sola cosa.
+            "void_reason": (getattr(inv, "void_reason", None) or ""),
+            "voided_label": (inv.voided_at.strftime("%d/%m/%Y")
+                             if getattr(inv, "voided_at", None) else ""),
+            "voided_by": (getattr(inv, "voided_by_nick", None) or ""),
+            "rectifies_id": (str(inv.rectifies_invoice_id)
+                             if getattr(inv, "rectifies_invoice_id", None) else ""),
+            "rectified_by_id": (str(inv.rectified_by_invoice_id)
+                                if getattr(inv, "rectified_by_invoice_id", None) else ""),
             "file_url": (inv.file_url or ""),
             "file_name": (inv.original_name or "Factura"),
             "is_pdf": ((inv.original_name or "").lower().endswith(".pdf")
@@ -81383,6 +81413,178 @@ def _supplier_invoice_reject_notify(session_db, inv, motivo: str) -> tuple[bool,
     if not ok:
         return False, (err or "No se pudo enviar el correo")
     return True, correo
+
+
+def _supplier_invoice_expense(session_db, inv):
+    """El GASTO de bolsa al que está imputada una factura (por su imputación o por su columna)."""
+    if inv is None:
+        return None
+    try:
+        fila = (session_db.query(BagExpenseInvoice)
+                .filter(BagExpenseInvoice.supplier_invoice_id == inv.id)
+                .order_by(BagExpenseInvoice.created_at.desc()).first())
+        if fila is not None and fila.bag_expense_id:
+            return session_db.get(BagExpense, fila.bag_expense_id)
+        if getattr(inv, "bag_expense_id", None):
+            return session_db.get(BagExpense, inv.bag_expense_id)
+    except Exception:
+        app.logger.exception("[facturas] no se pudo resolver el gasto de la factura")
+    return None
+
+
+def _supplier_invoice_release(session_db, inv) -> None:
+    """Suelta lo que arrastra una factura que deja de valer (anulada o rectificada).
+
+    ⚠️ Su IMPUTACIÓN a los gastos se borra (si no, su importe seguiría contando en la bolsa) y, si era
+    la de una liquidación de royalties, la liquidación vuelve a estar pendiente de factura."""
+    if inv is None:
+        return
+    try:
+        for fila in (session_db.query(BagExpenseInvoice)
+                     .filter(BagExpenseInvoice.supplier_invoice_id == inv.id).all()):
+            session_db.delete(fila)
+    except Exception:
+        app.logger.exception("[facturas] no se pudo soltar la imputación")
+    try:
+        rec = (session_db.get(RoyaltyLiquidation, inv.royalty_liquidation_id)
+               if getattr(inv, "royalty_liquidation_id", None) else None)
+        if rec is not None and str(getattr(rec, "invoice_id", "") or "") == str(inv.id):
+            rec.invoice_id = None
+            rec.invoice_uploaded_at = None
+            if (rec.status or "").upper() == "INVOICED":
+                rec.status = "SENT"
+            rec.updated_at = _now_madrid()
+    except Exception:
+        app.logger.exception("[facturas] no se pudo soltar la liquidación")
+
+
+@app.post("/facturas/subidas/<invoice_id>/anular", endpoint="supplier_invoice_void")
+@admin_required
+def supplier_invoice_void(invoice_id):
+    """ANULAR una factura: mal emitida y sin rectificativa.
+
+    No se contabiliza: se archiva y se cierra. Su importe deja de contar (se suelta la imputación) y,
+    si era la de una liquidación de royalties, la liquidación vuelve a estar pendiente de factura.
+    ⚠️ Se puede DESHACER mientras no haya una rectificativa por medio (`undo=1`)."""
+    if not can_edit_invoice_data():
+        return forbid("Tu usuario no puede anular facturas.")
+    session_db = db()
+    try:
+        inv = session_db.get(SupplierInvoice, to_uuid(invoice_id) or uuid.uuid4())
+        if inv is None:
+            abort(404)
+        estado = _current_user_state() or {}
+        if _flag_arg("undo"):
+            if (inv.status or "").upper() != "ANULADA":
+                flash("Esa factura no está anulada.", "warning")
+            else:
+                inv.status = "PENDIENTE"
+                inv.voided_at = None
+                inv.voided_by_nick = None
+                inv.void_reason = None
+                session_db.commit()
+                flash("Factura desanulada: vuelve a estar pendiente de validar.", "success")
+            return redirect(safe_next_or(request.form.get("next")
+                                         or url_for("invoices_view", tab="UPLOADED")))
+        if (inv.status or "").upper() == "RECTIFICADA":
+            flash("Esa factura ya está rectificada: la que vale es su rectificativa.", "warning")
+            return redirect(safe_next_or(request.form.get("next")
+                                         or url_for("invoices_view", tab="UPLOADED")))
+        motivo = (request.form.get("reason") or "").strip()
+        inv.status = "ANULADA"
+        inv.voided_at = _now_madrid()
+        inv.voided_by_nick = (estado.get("nick") or estado.get("email") or "").strip() or None
+        inv.void_reason = motivo[:500] or None
+        _supplier_invoice_release(session_db, inv)
+        # El gasto al que estaba imputada no se contabiliza con ella: se cierra ahí.
+        gasto = _supplier_invoice_expense(session_db, inv)
+        if gasto is not None:
+            _accounting_set_status(session_db, gasto, "OMITIDO",
+                                   nick=(estado.get("nick") or ""),
+                                   note=("Factura anulada%s" % ((": %s" % motivo) if motivo else "")))
+        session_db.commit()
+        flash("Factura anulada: no se contabiliza y queda archivada.%s"
+              % (" El gasto vuelve a estar sin factura válida." if gasto is not None else ""), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[facturas] no se pudo anular")
+        flash("No se pudo anular la factura: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(request.form.get("next") or url_for("invoices_view", tab="UPLOADED")))
+
+
+@app.post("/facturas/subidas/<invoice_id>/rectificativa", endpoint="supplier_invoice_rectify")
+@admin_required
+def supplier_invoice_rectify(invoice_id):
+    """SUBIR LA RECTIFICATIVA de una factura: la compensa, y las dos van juntas a contabilidad.
+
+    ⚠️⚠️ Las dos quedan VINCULADAS (`rectifies_invoice_id` / `rectified_by_invoice_id`) y son UNA sola
+    cosa: la original pasa a RECTIFICADA y su gasto deja de estar pendiente de pago (queda
+    **COMPENSADO**, que no es lo mismo que pagado), y las dos aparecen en contabilidad."""
+    if not can_edit_invoice_data():
+        return forbid("Tu usuario no puede subir rectificativas.")
+    session_db = db()
+    try:
+        inv = session_db.get(SupplierInvoice, to_uuid(invoice_id) or uuid.uuid4())
+        if inv is None:
+            abort(404)
+        if getattr(inv, "rectified_by_invoice_id", None):
+            flash("Esta factura ya tiene su rectificativa subida.", "warning")
+            return redirect(safe_next_or(request.form.get("next")
+                                         or url_for("invoices_view", tab="UPLOADED")))
+        fs = request.files.get("file")
+        if not (fs and getattr(fs, "filename", "")):
+            flash("Hace falta el archivo de la factura rectificativa.", "warning")
+            return redirect(safe_next_or(request.form.get("next")
+                                         or url_for("invoices_view", tab="UPLOADED")))
+        url = upload_file(fs, "invoices")
+        estado = _current_user_state() or {}
+        nueva = SupplierInvoice(
+            promoter_id=inv.promoter_id, source=(inv.source or "LANDING"),
+            bag_id=inv.bag_id, bag_expense_id=inv.bag_expense_id,
+            invoice_request_id=inv.invoice_request_id,
+            royalty_liquidation_id=inv.royalty_liquidation_id,
+            artist_text=inv.artist_text,
+            concept_text=("Rectificativa de %s" % (inv.invoice_number or "la factura anterior"))[:500],
+            target_user_id=inv.target_user_id, group_company_id=inv.group_company_id,
+            file_url=url, original_name=fs.filename, mime_type=(fs.mimetype or None),
+            # La sube administración a mano: entra ya VALIDADA (es quien valida).
+            status="VALIDADA", validated_at=_now_madrid(),
+            validated_by_nick=(estado.get("nick") or estado.get("email") or "").strip() or None,
+            rectifies_invoice_id=inv.id,
+        )
+        _invoice_apply_manual_data(nueva, request.form, concept_field="concept_text")
+        session_db.add(nueva)
+        session_db.flush()
+        inv.status = "RECTIFICADA"
+        inv.rectified_by_invoice_id = nueva.id
+        inv.updated_at = _now_madrid()
+        # ⚠️ La original SALE del proceso de pago y de la bolsa: su importe está compensado por la
+        # rectificativa, así que no hay nada que pagar (pero NO se dice que se ha pagado).
+        gasto = _supplier_invoice_expense(session_db, inv)
+        if gasto is not None:
+            gasto.payment_status = "COMPENSADO"
+            gasto.updated_at = _now_madrid()
+            session_db.add(gasto)
+            # Y la rectificativa queda imputada al MISMO gasto, para que las dos se vean juntas.
+            try:
+                _bag_expense_invoice_apply(
+                    session_db, gasto, file_url=nueva.file_url, file_name=nueva.original_name,
+                    file_mime=nueva.mime_type, invoice_number=nueva.invoice_number,
+                    amount=_money_or_zero(nueva.amount_gross), supplier_invoice_id=nueva.id)
+            except Exception:
+                app.logger.exception("[facturas] no se pudo imputar la rectificativa")
+        session_db.commit()
+        flash("Rectificativa subida y vinculada con la original. Las dos van a contabilidad y el "
+              "gasto queda compensado (ya no está pendiente de pago).", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[facturas] no se pudo subir la rectificativa")
+        flash("No se pudo subir la rectificativa: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(request.form.get("next") or url_for("invoices_view", tab="UPLOADED")))
 
 
 @app.post("/facturas/subidas/<invoice_id>/rechazar", endpoint="supplier_invoice_reject")

@@ -3900,6 +3900,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pestaña se comía un 403 al devolver algo a pendiente).
   · Y en la fila de una liquidación se retiró el «Holded: nº» de texto: eso ya lo dice el **icono**.
 
+- **ANULAR una factura o compensarla con una RECTIFICATIVA** (ago 2026). Una factura mal emitida no
+  se borra: se **anula** o se **rectifica**, y las dos opciones están en los **tres puntitos** de
+  cualquier factura de la base (`invoices.html`, con `can_edit_invoice_data()`).
+  · **ANULAR** (`supplier_invoice_void`, estado **`ANULADA`** + `voided_at/by/reason`): **no se
+  contabiliza**, se archiva y se cierra. Suelta lo que arrastraba (`_supplier_invoice_release`: su
+  imputación a los gastos y, si era la de una liquidación de royalties, la liquidación vuelve a estar
+  pendiente de factura) y su gasto pasa a **OMITIDO** en contabilidad. **Se puede deshacer**
+  (`undo=1`) mientras no haya rectificativa.
+  · **RECTIFICATIVA** (`supplier_invoice_rectify`): se sube el archivo y sus datos, y se crea una
+  factura NUEVA **VALIDADA** (la sube administración, que es quien valida) con
+  **`rectifies_invoice_id`** = la original; la original pasa a **`RECTIFICADA`** con
+  **`rectified_by_invoice_id`**. **Son UNA sola cosa**: las dos quedan imputadas al MISMO gasto y las
+  dos llegan a contabilidad.
+  ⚠️ El gasto **sale de pendiente de pago** con un estado propio, **`COMPENSADO`** («Compensado con la
+  rectificativa»): no se dice que se ha pagado —que no es verdad—, y como la consulta de pendiente de
+  pago es una lista de estados INCLUIDOS (`NO_PAGADO`/`PENDIENTE`/`PARCIAL`), sale solo.
+  ⚠️ Los importes del pop-up salen de la original (se cambian si la rectificativa dice otra cosa) y en
+  la fila de las DOS se dice el vínculo, que es lo que las convierte en una acción única.
+
 - ⚠️⚠️ **HOLDED · NO SE DUPLICAN CONTACTOS NI DOCUMENTOS** (ago 2026):
   · **El contacto se BUSCA antes de crearlo, y en tres pasos** (punto único
   `_holded_contact_for_promoter`): (1) el que ya se le apuntó a ese tercero **en esa empresa**

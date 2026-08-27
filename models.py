@@ -3317,8 +3317,20 @@ class SupplierInvoice(Base):
     original_name = Column(Text)
     mime_type = Column(Text)
     # PENDIENTE (recibida, sin validar) | VALIDADA | RECHAZADA
+    # PENDIENTE | VALIDADA | RECHAZADA | ANULADA (no se contabiliza: se archiva y se cierra) |
+    # RECTIFICADA (la sustituye una rectificativa, y las dos van juntas a contabilidad).
     status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
     reject_reason = Column(Text)
+    # ANULAR / RECTIFICAR: una factura mal emitida se anula, o se compensa con una RECTIFICATIVA. Las
+    # dos quedan VINCULADAS y van a contabilidad como una sola cosa; la original deja de estar
+    # pendiente de pago (se compensan entre ellas).
+    rectifies_invoice_id = Column(PGUUID(as_uuid=True),
+                                  ForeignKey("supplier_invoices.id", ondelete="SET NULL"))
+    rectified_by_invoice_id = Column(PGUUID(as_uuid=True),
+                                     ForeignKey("supplier_invoices.id", ondelete="SET NULL"))
+    voided_at = Column(DateTime(timezone=True))
+    voided_by_nick = Column(Text)
+    void_reason = Column(Text)
     validated_at = Column(DateTime(timezone=True))
     validated_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -8293,6 +8305,15 @@ def ensure_third_party_and_contract_sheet_schema():
             ADD COLUMN IF NOT EXISTS vat_pct numeric,
             ADD COLUMN IF NOT EXISTS retention_amount numeric,
             ADD COLUMN IF NOT EXISTS retention_pct numeric;
+        """,
+        # ANULAR una factura o compensarla con una RECTIFICATIVA: las dos quedan vinculadas.
+        """
+        ALTER TABLE IF EXISTS supplier_invoices
+            ADD COLUMN IF NOT EXISTS rectifies_invoice_id uuid REFERENCES supplier_invoices(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS rectified_by_invoice_id uuid REFERENCES supplier_invoices(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS voided_at timestamptz,
+            ADD COLUMN IF NOT EXISTS voided_by_nick text,
+            ADD COLUMN IF NOT EXISTS void_reason text;
         """,
         # Gastos/facturas de una PERSONA pendientes de asignar a una bolsa (formulario y Pleo).
         """

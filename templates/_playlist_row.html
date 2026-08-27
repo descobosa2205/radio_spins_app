@@ -29,8 +29,8 @@
          reproduciendo: `playlist.js` ignora los clics en un <a>, así que no chocan. #}
       {% if it.detail_url %}<a href="{{ it.detail_url }}" class="text-reset">{{ it.title }}</a>
       {% else %}<span>{{ it.title }}</span>{% endif %}
-      {# LETRA: si la hay, su icono (y al pincharlo se lee). #}
-      {% if it.lyrics %}
+      {# LETRA: si la hay, su icono (y al pincharlo se lee). Con `lyrics_right` va al final. #}
+      {% if it.lyrics and not it.lyrics_right %}
         <button class="pl-tag pl-tag--lyrics" type="button" data-pl-lyrics="{{ it.id }}"
                 title="Tiene letra"><i class="fa fa-align-left"></i></button>
       {% endif %}
@@ -80,6 +80,11 @@
 
   <div class="pl-row__dur" data-pl-durlabel>{{ dur(it.duration_seconds) }}</div>
 
+  {# LETRA a la derecha (Syncros): junto a la descarga, con el mismo aspecto. #}
+  {% if it.lyrics and it.lyrics_right %}
+    <button class="pl-row__dl-plain" type="button" data-pl-lyrics="{{ it.id }}"
+            title="Ver letra" aria-label="Ver letra"><i class="fa-solid fa-align-justify"></i></button>
+  {% endif %}
   {# Descarga DIRECTA en MP3 (Syncros): un solo icono, sin desplegable. #}
   {% if it.download_mp3_only %}
     <a class="pl-row__dl-plain" href="{{ it.download_mp3_only }}" title="Descargar en MP3"

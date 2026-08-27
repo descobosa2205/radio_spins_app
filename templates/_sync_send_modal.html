@@ -22,74 +22,7 @@
             <div class="col-12 col-lg-5">
               <div class="fw-semibold mb-2"><i class="fa fa-users me-1 text-danger"></i>¿A quién se le manda?</div>
 
-              <div class="d-flex flex-column gap-2 mb-2" data-sync-filters>
-                {% if send_types %}
-                  <div class="d-flex align-items-center gap-1 flex-wrap">
-                    <span class="small text-muted" style="min-width:58px;">Tipo</span>
-                    {% for key, label, icon in send_types %}
-                      <button type="button" class="btn btn-sm btn-primary" data-sync-f="type" data-sync-v="{{ key }}">
-                        <i class="fa {{ icon }} me-1"></i>{{ label }}</button>
-                    {% endfor %}
-                  </div>
-                {% endif %}
-                {% if send_regions or send_countries %}
-                  <div class="d-flex align-items-center gap-1 flex-wrap">
-                    <span class="small text-muted" style="min-width:58px;">Región</span>
-                    {% for key, label, icon in send_regions %}
-                      <button type="button" class="btn btn-sm btn-primary" data-sync-f="region" data-sync-v="{{ key }}">
-                        <i class="fa {{ icon }} me-1"></i>{{ label }}</button>
-                    {% endfor %}
-                    {% for c in send_countries %}
-                      <button type="button" class="btn btn-sm btn-primary" data-sync-f="country" data-sync-v="{{ c.name }}" title="{{ c.name }}">
-                        {% if c.flag %}<span style="font-size:1.15em;line-height:1;">{{ c.flag }}</span>{% else %}{{ c.name }}{% endif %}</button>
-                    {% endfor %}
-                  </div>
-                {% endif %}
-                <div class="d-flex align-items-center gap-1 flex-wrap">
-                  <span class="small text-muted" style="min-width:58px;">Idioma</span>
-                  {% for key, label in send_langs %}
-                    <button type="button" class="btn btn-sm btn-primary" data-sync-f="lang" data-sync-v="{{ key }}">{{ label }}</button>
-                  {% endfor %}
-                </div>
-              </div>
-
-              <div class="d-flex align-items-center justify-content-between mb-1">
-                <span class="small text-muted" id="syncSendCount"></span>
-                <div class="btn-group btn-group-sm">
-                  <button type="button" class="btn btn-outline-secondary" data-sync-all="1">Todos</button>
-                  <button type="button" class="btn btn-outline-secondary" data-sync-all="0">Ninguno</button>
-                </div>
-              </div>
-
-              <div class="border rounded" style="max-height:320px;overflow:auto;">
-                <ul class="list-group list-group-flush" id="syncSendList">
-                  {% for r in send_rows %}
-                    <li class="list-group-item py-2" data-sync-row
-                        data-type="{{ r.type }}" data-region="{{ r.region_kind }}"
-                        data-country="{{ r.region_country }}" data-lang="{{ r.comm_lang }}"
-                        {% if not r.email %}data-no-email="1"{% endif %}>
-                      <label class="d-flex align-items-center gap-2 mb-0" style="cursor:pointer;">
-                        <input class="form-check-input mt-0" type="checkbox" name="supervisor_ids"
-                               value="{{ r.id }}" {% if r.email %}checked{% else %}disabled{% endif %}>
-                        <img src="{{ r.photo }}" alt="" data-avatar="1"
-                             style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
-                        <span class="min-w-0 flex-grow-1">
-                          <span class="d-block small fw-semibold text-truncate">{{ r.name }}</span>
-                          <span class="d-block text-muted" style="font-size:.75rem;">
-                            {% if r.region_flag %}{{ r.region_flag }} {% endif %}{{ r.type_label }}
-                            {% if r.comm_lang == 'EN' %}· <i class="fa fa-language"></i> EN{% endif %}
-                            {% if not r.email %}· <span class="text-danger">sin correo</span>{% endif %}
-                          </span>
-                        </span>
-                      </label>
-                    </li>
-                  {% endfor %}
-                </ul>
-              </div>
-              {% if send_no_email %}
-                <div class="form-text"><i class="fa fa-circle-info me-1"></i>{{ send_no_email }} supervisor(es)
-                  no tienen correo en su ficha: no se les puede mandar.</div>
-              {% endif %}
+              <div id="syncSendTargets"><div class="text-muted small py-3"><i class="fa-solid fa-spinner fa-spin me-1"></i>Cargando…</div></div>
 
               <label class="form-label mt-3">Otros correos</label>
               <input class="form-control" name="extra_emails" placeholder="correo@empresa.com, otro@empresa.com">
@@ -136,6 +69,8 @@
   var modalEl = document.getElementById('syncSendModal');
   if (!modalEl) return;
   var URL_PREV = {{ url_for('sync_song_preview_html', song_id='__ID__')|tojson }};
+  var URL_TARGETS = {{ url_for('sync_send_targets')|tojson }};
+  var targetsCargados = false;
   var URL_SEND = {{ url_for('sync_song_send', song_id='__ID__')|tojson }};
   var songId = '', lang = 'ES';
   // Los filtros ACTIVOS: todos empiezan encendidos y se apagan al pinchar.
@@ -195,7 +130,7 @@
       songId = abre.getAttribute('data-sync-send');
       document.getElementById('syncSendTitle').textContent = abre.getAttribute('data-sync-title') || '';
       document.getElementById('syncSendForm').setAttribute('action', URL_SEND.replace('__ID__', songId));
-      aplica();
+      cargaDestinatarios();
       pinta();
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
@@ -204,6 +139,30 @@
   document.addEventListener('change', function (ev) {
     if (ev.target.closest('#syncSendList')) aplica();
   });
+
+  // Los destinatarios se piden AL ABRIR (una sola vez): con cientos de supervisores, meterlos en el
+  // HTML de la pantalla la hacía pesada y se llegaba a ver un instante sin estilos.
+  function cargaDestinatarios() {
+    if (targetsCargados) { aplica(); return; }
+    var zona = document.getElementById('syncSendTargets');
+    if (!zona) return;
+    fetch(URL_TARGETS, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (j) {
+        if (j && j.ok && j.html) {
+          zona.innerHTML = j.html;
+          targetsCargados = true;
+          off = { type: {}, region: {}, country: {}, lang: {} };
+          aplica();
+        } else {
+          zona.innerHTML = '<div class="text-danger small py-3">' +
+            ((j && j.error) || 'No se pudieron cargar los supervisores.') + '</div>';
+        }
+      })
+      .catch(function () {
+        zona.innerHTML = '<div class="text-danger small py-3">No se pudieron cargar los supervisores.</div>';
+      });
+  }
 
   function pinta() {
     var zona = document.getElementById('syncSendPreview');

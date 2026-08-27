@@ -74,7 +74,7 @@
         {% import '_sync_song_row.html' as syncrow with context %}
         <ul class="pl-list list-unstyled mb-0" data-playlist-player>
           {% for row in rep_rows %}
-            {{ syncrow.sync_row(row, sent=true) }}
+            {{ syncrow.sync_row(row, sent=true, to_detail=true) }}
             {% if can_edit %}
               <li class="pl-actions d-flex justify-content-end gap-2 mb-2">
                 <button type="button" class="btn btn-sm {{ 'btn-outline-success' if row.sent else 'btn-primary' }}"
@@ -187,7 +187,7 @@
                      style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
                 <div class="min-w-0 flex-grow-1">
                   <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <a class="fw-semibold text-decoration-none stretched-link" href="{{ row.url }}">{{ row.name }}</a>
+                    <a class="fw-semibold text-decoration-none text-reset stretched-link" href="{{ row.url }}">{{ row.name }}</a>
                     <span class="badge text-bg-secondary"><i class="fa {{ row.type_icon }} me-1"></i>{{ row.type_label }}</span>
                     <span class="badge text-bg-light border">{% if row.region_flag %}<span class="me-1" style="font-size:1.1em;line-height:1;">{{ row.region_flag }}</span>{% else %}<i class="fa {{ row.region_icon }} me-1"></i>{% endif %}{{ row.region_label }}</span>
                     {# Habla inglés: se le escribe en inglés (lo decide `comm_lang`). #}

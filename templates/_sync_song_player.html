@@ -1,4 +1,33 @@
-{# El reproductor de un tema para syncro: la MISMA fila de las demos (`pl_row`), sin enlace en el
-   título (aquí ya estamos en su página) y con su descarga en MP3. #}
-{% import '_sync_song_row.html' as syncrow with context %}
-<ul class="pl-list list-unstyled mb-0" data-playlist-player>{{ syncrow.sync_row(row, link=false) }}</ul>
+{# ============================================================================
+   EL REPRODUCTOR de un tema en su página de Syncro.
+   ⚠️ Aquí NO se usa la fila entera (`pl_row`): la portada, el título y el artista ya están arriba
+   en la tarjeta y se DUPLICABAN. Abajo va solo lo que hace falta: el PLAY con su barra de estado
+   al lado, y los iconos de letra y de descarga.
+   Lo mueve el mismo motor de las demos (`playlist.js`), que se engancha por `data-playlist-player`
+   y necesita esta estructura (`data-pl-row` + `data-pl-src` + la zona del reproductor).
+   ============================================================================ #}
+<ul class="pl-list list-unstyled mb-0 sync-player" data-playlist-player>
+  <li class="pl-row sync-player__row" data-pl-row data-pl-item="{{ row.id }}"
+      data-pl-src="{{ row.audio_url }}" data-pl-dur="{{ row.duration_seconds or '' }}">
+    <button type="button" class="sync-player__play" data-pl-toggle aria-label="{{ play_label }}">
+      <i class="fa-solid fa-play" data-pl-icon></i>
+    </button>
+    <span class="sync-player__label">{{ play_label }}</span>
+    <div class="sync-player__bar" data-pl-player-zone>
+      <div class="pl-track" data-pl-track role="slider" tabindex="0" aria-label="Posición">
+        <div class="pl-track__fill" data-pl-fill></div>
+        <span class="pl-track__knob" data-pl-knob></span>
+      </div>
+      <span class="pl-row__time" data-pl-time>0:00</span>
+    </div>
+    <span class="pl-row__dur ms-auto" data-pl-durlabel></span>
+    {% if row.has_lyrics %}
+      <a class="sync-player__ico" href="#letra" title="{{ lyrics_label }}" aria-label="{{ lyrics_label }}">
+        <i class="fa-solid fa-align-justify"></i></a>
+    {% endif %}
+    {% if row.download_url %}
+      <a class="sync-player__ico" href="{{ row.download_url }}" title="{{ download_label }}"
+         aria-label="{{ download_label }}"><i class="fa-solid fa-download"></i></a>
+    {% endif %}
+  </li>
+</ul>

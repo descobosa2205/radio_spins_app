@@ -6,7 +6,9 @@
    ============================================================================ #}
 {% import '_playlist_row.html' as plr with context %}
 
-{% macro sync_row(row, link=true, sent=false) %}
+{# `link` dice a dónde va el TÍTULO: dentro de la app, a la FICHA de la canción; en la landing
+   pública, a su página de syncro (allí no hay ficha a la que ir). #}
+{% macro sync_row(row, link=true, sent=false, to_detail=false) %}
   {% set badges %}
     {% if row.one_stop %}<span class="badge badge-onestop ms-1" title="One-stop: máster y edición al 100% nuestros"><i class="fa-solid fa-clapperboard me-1"></i>One-stop</span>{% endif %}
     {% for g in row.genres %}<span class="badge rounded-pill sync-genre ms-1">{{ g }}</span>{% endfor %}
@@ -15,6 +17,7 @@
   {{ plr.pl_row(dict(row,
         stream_url=row.audio_url,
         download_mp3_only=row.download_url,
-        detail_url=(row.share_url if link else ''),
+        lyrics_right=true,
+        detail_url=((row.detail_url if to_detail else row.share_url) if link else ''),
         subtitle=row.release_label), badges=badges) }}
 {% endmacro %}

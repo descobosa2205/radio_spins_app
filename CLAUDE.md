@@ -1771,6 +1771,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   duplicados, los cuatro filtros, el alta a mano, la pestaña del tercero y los permisos (sin permiso
   403 · solo ver sin botones y con el POST rebotado · ver+editar).
 
+- ⚠️⚠️ **UN LOGO DE EMPRESA DEL GRUPO NO LLEVA FONDO BLANCO** (ago 2026). Muchos se suben en PNG
+  con el blanco horneado y en la app se veían como un **rectángulo blanco** sobre el fondo gris —y
+  encima el helper `company_logo()` le ponía `background:#fff`, así que ni un PNG transparente se
+  libraba—. Ahora: sin ese `background`, y el logo se sirve por **`logo_clean_png`**
+  (`/logo-limpio.png?u=…`), que le quita el fondo en TRANSPARENTE.
+  ⚠️ Solo se quita el blanco **CONECTADO A LOS BORDES** (un relleno desde las cuatro esquinas), así
+  que lo blanco de DENTRO del logo —una letra, un hueco— no se toca (comprobado).
+  ⚠️ Solo admite imágenes **NUESTRAS** (`_is_own_media_url`: nuestro Storage o nuestro dominio): sin
+  eso sería un **proxy de imágenes abierto**. Si no se puede limpiar, redirige al original.
+  · Punto único **`_logo_clean_url`**, ya en `company_logo()` y en los logos de Syncros (envío,
+  vista previa y landing, en absoluto porque también van por correo). Cacheado en memoria.
+
 - ⚠️⚠️ **ICONOS DE LA CASA EN UN CORREO: NADA DE EMOJIS** (ago 2026). En un correo no se puede usar
   la fuente de iconos (ningún cliente carga Font Awesome), y por eso se habían colado emojis. Punto
   único **`_sync_icon(nombre, email=…)`**: en la WEB emite `<i class="fa-solid …">` de siempre y en
@@ -1802,6 +1814,32 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️⚠️ Además de cargar `playlist.js`, el `<ul>` tiene que llevar **`data-playlist-player`**: es lo
   que `initPlayer` busca. Sin ese atributo las filas se ven pero **no suenan y no sale la barra**
   (bug real: estaba puesta la clase `.pl-list` pero no el atributo).
+  ⚠️⚠️ **En la PÁGINA del tema NO se usa la fila entera**: la portada, el título y el artista ya
+  están arriba en la tarjeta y se **duplicaban**. Abajo va `_sync_song_player.html`: el **play con su
+  barra de estado al lado** y los iconos de **letra** y **descarga** (solo icono), movido por el
+  mismo motor. **Pinchar la PORTADA también reproduce** (`data-sync-cover`).
+  ⚠️ **MÓVIL**: el cuerpo es una `<table>` porque el mismo HTML va por correo, así que la página le
+  quita la maquetación de tabla por debajo de 576 px (`display:block`): la portada se ve **entera y
+  centrada** arriba, los datos debajo y la tabla de autores se lee sin partir palabras.
+  · **El título de una fila** lleva a la **FICHA de la canción** dentro de la app y a **su página de
+  syncro** en la landing pública (`to_detail` de la macro).
+  · En la página del tema, **botón de VOLVER arriba a la derecha** cuando se llega desde la app (se
+  abre en pestaña nueva, así que se usa el `referrer` del mismo dominio, no `history.back()`); en la
+  landing, arriba a la izquierda.
+  · El **texto de presentación del correo va a la IZQUIERDA**, no centrado.
+  · En el listado de Supervisors, el **nombre va en NEGRO** (`text-reset`): es el nombre de una
+  persona, no un enlace que haya que destacar.
+  · En **todas** las filas (dentro y en el repertorio abierto) van la **letra** y la **descarga**
+  como iconos **juntos a la derecha** (`lyrics_right` de `pl_row`): pegado al título, el de la letra
+  no se veía.
+  ⚠️⚠️ **LOS DESTINATARIOS DEL ENVÍO SE CARGAN AL ABRIR EL POP-UP** (`sync_send_targets` →
+  `_sync_send_targets.html`), no dentro del HTML de la pantalla: con cientos de supervisores —cada
+  uno con su foto— la ficha de la canción y Syncros pesaban muchísimo, tardaban y se llegaba a ver
+  un instante **la página SIN ESTILOS** (bug real, con captura). Medido con 60 supervisores: la
+  lista ya no viaja en la página.
+  · En la **cabecera de la ficha de la canción**, la etiqueta One-stop va **en la línea del artista**
+  (no al lado del título) y **no se pintan las personas vinculadas** al artista: eso es de la ficha
+  del artista, no de la canción.
   ⚠️ El icono de descarga de una fila NO usa `.pl-row__dlbtn` (ese es el botón de MENÚ de las demos,
   con su círculo blanco, que aquí no venía a cuento) sino `.pl-row__dl-plain`: solo el icono.
   `pl_row` acepta ya `detail_url` (el título es enlace; `playlist.js` ignora los clics en un `<a>`,

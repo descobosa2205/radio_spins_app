@@ -5132,3 +5132,31 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
 .sync-achip.is-on{ border-color:var(--brand-accent,#007CA2); box-shadow:inset 0 0 0 1px var(--brand-accent,#007CA2); }
 .sync-achip img{ width:24px; height:24px; border-radius:50%; object-fit:cover; }
 .sync-achip__n{ color:#6b7280; font-size:.75rem; }
+
+/* ── El REPRODUCTOR compacto de un tema en su página de Syncro ───────────────────────────────
+   Solo el play, su barra de estado al lado y los iconos de letra y descarga: la portada, el
+   título y el artista ya están arriba en la tarjeta (antes se duplicaban). */
+.sync-player__row{
+  display:flex; align-items:center; gap:.6rem; padding:.55rem .2rem; border:0;
+}
+.sync-player__play{
+  flex:0 0 auto; width:40px; height:40px; border-radius:50%; border:0; line-height:1;
+  background:var(--brand-accent,#007CA2); color:#fff; font-size:.95rem;
+}
+.sync-player__play:hover{ filter:brightness(1.08); }
+.sync-player__label{ font-weight:700; font-size:.9rem; white-space:nowrap; }
+/* ⚠️ La barra se ve SIEMPRE (no solo `is-playing`): es lo que dice por dónde va. */
+.sync-player__bar{ display:flex; align-items:center; gap:.5rem; flex:1 1 8rem; min-width:6rem; }
+.sync-player__ico{
+  flex:0 0 auto; color:#6b7280; text-decoration:none; padding:.3rem .4rem; line-height:1; font-size:1.05rem;
+}
+.sync-player__ico:hover{ color:var(--brand-accent,#007CA2); }
+.sync-player .pl-row__dur{ font-size:.8rem; }
+/* En MÓVIL: el nombre del botón sobra (el icono ya lo dice) y la barra se queda con su sitio. */
+@media (max-width: 575.98px){
+  .sync-player__label{ display:none; }
+  .sync-player__row{ gap:.45rem; }
+  .sync-player__play{ width:36px; height:36px; }
+}
+/* El botón de LETRA de una fila de Syncro comparte el aspecto del de descarga (van juntos). */
+button.pl-row__dl-plain{ border:0; background:transparent; }

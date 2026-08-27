@@ -1375,9 +1375,11 @@ def inject_globals():
         nombre, logo = _company_bits(company, name, logo_url)
         px = int(size or 40)
         if logo:
+            # ⚠️ SIN `background:#fff`: el logo se integra con el fondo de donde esté. Y se sirve por
+            # `_logo_clean_url`, que le quita el fondo blanco a los PNG que lo traen horneado.
             return Markup('<img class="%s" src="%s" alt="%s" title="%s" loading="lazy" '
-                          'style="width:%dpx;height:%dpx;object-fit:contain;background:#fff;">') % (
-                cls, logo, nombre, nombre, px, px)
+                          'style="width:%dpx;height:%dpx;object-fit:contain;">') % (
+                cls, _logo_clean_url(logo), nombre, nombre, px, px)
         return Markup('<span class="%s co-logo--empty" title="%s" '
                       'style="width:%dpx;height:%dpx;font-size:%dpx;">'
                       '<i class="fa fa-building"></i></span>') % (cls, nombre, px, px, max(12, px // 2))
@@ -17589,15 +17591,12 @@ def discografica_song_detail(song_id):
     sync_enabled = bool(getattr(s, "sync_enabled", False))
     sync_in_repertoire = bool(sync_enabled or one_stop.get("ok"))
     sync_share_url, sync_sent, sync_sent_count, sync_sent_tooltip = "", False, 0, ""
-    sync_send_ctx = {}
     if sync_in_repertoire:
         sync_share_url = _sync_song_share_url(session_db, s)
         _env = (_sync_sent_state(session_db, [s.id]) or {}).get(str(s.id)) or {}
         sync_sent = bool(_env)
         sync_sent_count = int(_env.get("count") or 0)
         sync_sent_tooltip = _env.get("tooltip") or ""
-        if can_edit_syncros():
-            sync_send_ctx = _sync_send_targets_context(session_db)
 
     # ISRCs
     isrc_codes = (
@@ -18036,7 +18035,6 @@ def discografica_song_detail(song_id):
         sync_sent_tooltip=sync_sent_tooltip,
         sync_enabled=sync_enabled,
         sync_in_repertoire=sync_in_repertoire,
-        **sync_send_ctx,
         distributors=session_db.query(Distributor).order_by(Distributor.name.asc()).all(),
         song_distributor=(session_db.get(Distributor, s.distributor_id) if s.distributor_id else None),
         isrc_codes=isrc_codes,
@@ -64142,7 +64140,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         "sync_supervisor_save": "syncros.supervisors", "sync_supervisor_delete": "syncros.supervisors",
         # Los temas ONE-STOP y su envío a supervisores: la sección Syncros.
         "sync_song_send": "syncros", "sync_song_preview_html": "syncros",
-        "sync_song_enable": "syncros",
+        "sync_song_enable": "syncros", "sync_send_targets": "syncros",
         "syncros_import_analyze": "syncros.supervisors", "syncros_import_apply": "syncros.supervisors",
         "integrations_view": "integraciones",
         # Pleo se configura por empresa desde Integraciones (los endpoints exigen además dirección).
@@ -119486,6 +119484,115 @@ _FA_CODEPOINTS: dict[str, str] = {}
 _FA_ICON_CACHE: dict[tuple, bytes] = {}
 
 
+# ── LOGOS SIN FONDO BLANCO ────────────────────────────────────────────────────────────────────
+# Muchos logos se suben en PNG con el fondo BLANCO horneado y en la app se ven como un rectángulo
+# blanco sobre el fondo gris. `logo_clean_png` los sirve con ese fondo en TRANSPARENTE: solo el
+# blanco CONECTADO A LOS BORDES (un relleno desde las cuatro esquinas), así que lo blanco de dentro
+# del propio logo —una letra, un hueco— no se toca.
+_LOGO_CLEAN_CACHE: dict[str, bytes] = {}
+_LOGO_CLEAN_MARK = (255, 0, 254)          # color improbable que marca lo que hay que hacer transparente
+
+
+def _is_own_media_url(url: str) -> bool:
+    """¿Esa imagen es NUESTRA? (nuestro Storage de Supabase o nuestro propio dominio).
+
+    ⚠️ Sin esto, `logo_clean_png` sería un **proxy de imágenes abierto**: cualquiera podría hacer que
+    el servidor se descargue lo que quisiera."""
+    try:
+        destino = urlsplit((url or "").strip())
+    except ValueError:
+        return False
+    if destino.scheme.lower() not in ("http", "https") or not destino.netloc:
+        return False
+    host = destino.netloc.lower()
+    propios = set()
+    for candidato in (os.getenv("SUPABASE_URL", "") or "", _public_base_url(),
+                      (os.getenv("EXTERNAL_BASE_URL", "") or "")):
+        try:
+            neto = urlsplit(candidato).netloc.lower()
+            if neto:
+                propios.add(neto)
+        except ValueError:
+            pass
+    if _CANONICAL_HOST:
+        propios.add(_CANONICAL_HOST.lower())
+    return host in propios
+
+
+def _logo_clean_bytes(url: str) -> bytes:
+    """El logo de esa URL en PNG con el fondo blanco de los bordes en transparente. b'' si no se puede."""
+    clave = (url or "").strip()
+    if not clave:
+        return b""
+    if clave in _LOGO_CLEAN_CACHE:
+        return _LOGO_CLEAN_CACHE[clave]
+    datos = b""
+    try:
+        from PIL import Image, ImageDraw
+        req = Request(clave, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=20) as resp:
+            crudo = resp.read()
+        img = Image.open(BytesIO(crudo)).convert("RGBA")
+        rgb = img.convert("RGB")
+        w, h = rgb.size
+        esquinas = [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]
+        tocado = False
+        for xy in esquinas:
+            px = rgb.getpixel(xy)
+            if min(px) < 230:             # esa esquina no es blanca: ahí no hay fondo que quitar
+                continue
+            ImageDraw.floodfill(rgb, xy, _LOGO_CLEAN_MARK, thresh=28)
+            tocado = True
+        if tocado:
+            alfa = img.getchannel("A")
+            marca = rgb.point(lambda v: 0)      # placeholder para no romper si algo falla
+            datos_rgb = rgb.load()
+            datos_a = alfa.load()
+            for y in range(h):
+                for x in range(w):
+                    if datos_rgb[x, y] == _LOGO_CLEAN_MARK:
+                        datos_a[x, y] = 0
+            img.putalpha(alfa)
+            del marca
+        buf = BytesIO()
+        img.save(buf, "PNG")
+        datos = buf.getvalue()
+    except Exception:
+        app.logger.exception("[logos] no se pudo limpiar el fondo de %s", clave[:120])
+        datos = b""
+    _LOGO_CLEAN_CACHE[clave] = datos
+    return datos
+
+
+def _logo_clean_url(url: str) -> str:
+    """La URL con la que se pinta un logo de empresa: la nuestra, que le quita el fondo blanco."""
+    limpia = (url or "").strip()
+    if not limpia:
+        return ""
+    try:
+        return url_for("logo_clean_png", u=limpia)
+    except Exception:
+        return limpia                     # fuera de una petición (un correo compuesto en un hilo)
+
+
+@app.get("/logo-limpio.png", endpoint="logo_clean_png")
+def logo_clean_png():
+    """Sirve un logo con el fondo blanco de los bordes en TRANSPARENTE. Público (va en `<img>`).
+
+    ⚠️ Solo se admiten URLs de NUESTRO almacenamiento o de nuestro dominio: si no, esto sería un
+    proxy de imágenes abierto (cualquiera podría hacer que el servidor descargue lo que quisiera)."""
+    url = (request.args.get("u") or "").strip()
+    if not url or not _is_own_media_url(url):
+        abort(404)
+    datos = _logo_clean_bytes(url)
+    if not datos:
+        return redirect(url)              # si no se pudo limpiar, el original tal cual
+    resp = make_response(datos)
+    resp.headers["Content-Type"] = "image/png"
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
+
+
 def _fa_codepoints() -> dict:
     """Mapa `nombre de icono -> carácter` leído UNA vez del CSS de Font Awesome."""
     global _FA_CODEPOINTS
@@ -119616,7 +119723,9 @@ def _sync_brand_logos(session_db) -> list[tuple[str, str]]:
             if clave in (co.name or "").upper():
                 url = _absolute_media_url((getattr(co, "logo_url", None) or "").strip())
                 if url:
-                    salida.append((url, (co.name or "").strip()))
+                    # ⚠️ SIN el fondo blanco horneado del PNG: se integra con el fondo de la página
+                    # y del correo. Absoluta, porque el mismo HTML va por correo.
+                    salida.append((_external_url_for("logo_clean_png", u=url), (co.name or "").strip()))
                 break
     return salida
 
@@ -119762,9 +119871,11 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
                           esc(t["one_stop"])))
 
     if ctx.get("cover_url"):
-        portada = ('<img src="%s" alt="" width="220" style="width:220px;height:220px;'
-                   'object-fit:cover;border-radius:12px;border:1px solid #e6e9ec;display:block;">'
-                   % esc(ctx["cover_url"]))
+        # ⚠️ En la WEB, pinchar la portada también reproduce (`data-sync-cover` lo cablea la página).
+        portada = ('<img src="%s" alt="" width="220" class="sync-cover"%s style="width:220px;'
+                   'height:220px;object-fit:cover;border-radius:12px;border:1px solid #e6e9ec;'
+                   'display:block;">'
+                   % (esc(ctx["cover_url"]), "" if email else ' data-sync-cover="1"'))
     else:
         portada = ('<div style="width:220px;height:220px;border-radius:12px;background:#f1f3f5;'
                    'border:1px solid #e6e9ec;"></div>')
@@ -119847,7 +119958,7 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
     intro = ""
     if with_intro:
         intro = ('<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#374151;'
-                 'text-align:center;">%s</p>' % esc(t["intro"]))
+                 'text-align:left;">%s</p>' % esc(t["intro"]))
 
     return (
         '<div style="max-width:680px;margin:0 auto;padding:22px;font-family:-apple-system,'
@@ -120265,6 +120376,25 @@ def _sync_song_by_token(session_db, token: str):
     return session_db.query(Song).filter(Song.sync_share_token == t).first()
 
 
+@app.get("/syncros/destinatarios", endpoint="sync_send_targets")
+@admin_required
+def sync_send_targets():
+    """Los supervisores a los que mandar un tema, **al abrir el pop-up**.
+
+    ⚠️ Antes esta lista se pintaba dentro del HTML de la pantalla (y de la ficha de la canción): con
+    cientos de supervisores —cada uno con su foto— la página pesaba muchísimo, tardaba y se llegaba
+    a ver un instante **sin estilos** (bug real). Ahora se pide cuando de verdad se necesita."""
+    if not can_edit_syncros():
+        return jsonify({"ok": False, "error": "Sin permiso."}), 403
+    session_db = db()
+    try:
+        return jsonify({"ok": True,
+                        "html": render_template("_sync_send_targets.html",
+                                                **_sync_send_targets_context(session_db))})
+    finally:
+        session_db.close()
+
+
 @app.get("/syncros/tema/<song_id>/previsualizar", endpoint="sync_song_preview_html")
 @admin_required
 def sync_song_preview_html(song_id):
@@ -120444,12 +120574,18 @@ def public_sync_song():
         # El REPRODUCTOR de verdad: la MISMA fila que las demos y las playlists, empotrada debajo
         # de los datos (`player_html`). Así se escucha igual en toda la app.
         fila = (_sync_song_rows(session_db, [song]) or [{}])[0]
-        reproductor = render_template("_sync_song_player.html", row=fila) if fila.get("audio_url") else ""
+        # ⚠️ Abajo va SOLO el reproductor (play + barra + letra + descarga): la portada, el título y
+        # el artista ya están arriba en la tarjeta y con la fila entera se DUPLICABAN.
+        reproductor = (render_template("_sync_song_player.html", row=fila,
+                                       play_label=ctx["t"]["play"], lyrics_label=ctx["t"]["lyrics"],
+                                       download_label=ctx["t"]["download"])
+                       if fila.get("audio_url") else "")
         cuerpo = _sync_pitch_html(
             ctx, with_intro=False,                      # en el enlace NO va el texto de presentación
             player_html=reproductor,
-            download_url=(fila.get("download_url") or "") if not reproductor else "",
-            lyrics_url=("#letra" if ctx["has_lyrics"] else ""),
+            # Con reproductor, la letra y la descarga ya van en él (solo icono).
+            download_url=("" if reproductor else (fila.get("download_url") or "")),
+            lyrics_url=("" if reproductor else ("#letra" if ctx["has_lyrics"] else "")),
             repertoire_url=_external_url_for("public_sync_repertoire",
                                              **({"lang": "en"} if ctx["lang"] == "EN" else {})),
             one_stop=bool(fila.get("one_stop")))
@@ -120629,8 +120765,6 @@ def syncros_view():
         }
         if seccion == "repertorio":
             ctx.update(_sync_repertoire_context(session_db))
-            # Los supervisores hacen falta también aquí: son los destinatarios del envío.
-            ctx.update(_sync_send_targets_context(session_db))
         else:
             ctx.update(_sync_supervisors_context(session_db))
         return render_template("syncros.html", **ctx)

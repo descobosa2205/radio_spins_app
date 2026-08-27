@@ -64232,7 +64232,8 @@ def _resolve_request_resource_key() -> str | None:
     # CORREGIR LOS DATOS de una factura se hace desde la base de facturas Y desde CONTABILIDAD, que es
     # donde es el trabajo del día. Sin esto, quien es de contabilidad y no tiene la base de facturas se
     # comía un 403 en el gate ANTES de llegar a la vista (que ya le dejaba pasar).
-    if endpoint in ("supplier_invoice_edit", "supplier_invoice_data_save"):
+    if endpoint in ("supplier_invoice_edit", "supplier_invoice_data_save",
+                    "supplier_invoice_void", "supplier_invoice_rectify"):
         return _first_access_key(INVOICE_EDIT_ACCESS_KEYS, "databases.invoices",
                                  edit=(request.method not in ("GET", "HEAD", "OPTIONS")))
     if (endpoint.startswith("invoice_") or endpoint.startswith("supplier_invoice")
@@ -76268,7 +76269,10 @@ def _accounting_retention_rows(session_db, *, year: int | None = None, limit: in
          .options(joinedload(SupplierInvoice.promoter))
          .filter(SupplierInvoice.retention_amount.isnot(None))
          .filter(SupplierInvoice.retention_amount > 0)
-         .filter(func.upper(func.coalesce(SupplierInvoice.status, "")) != "RECHAZADA"))
+         # ⚠️ Ni las RECHAZADAS ni las ANULADAS ni las RECTIFICADAS: no valen, así que su retención no
+         # se declara (la de la rectificativa sí, que es la que vale).
+         .filter(func.upper(func.coalesce(SupplierInvoice.status, ""))
+                 .notin_(["RECHAZADA", "ANULADA", "RECTIFICADA"])))
     if year:
         q = q.filter(or_(
             and_(SupplierInvoice.issue_date.isnot(None),
@@ -89060,7 +89064,9 @@ def _holded_contact_for_promoter(session_db, client, promoter, company_id, datos
     nombre = (datos.get("name") or "").strip()
     cif = (datos.get("tax_id") or "").strip()
     contact_id = ""
-    encontrado = client.find_contact(cif, name=nombre)
+    # ⚠️ `raise_on_error`: si Holded no ha podido contestar (403, 429, red), NO se crea un contacto que
+    # a lo mejor ya existe — la subida falla diciendo el motivo, que es lo correcto.
+    encontrado = client.find_contact(cif, name=nombre, raise_on_error=True)
     if encontrado:
         contact_id = str(encontrado.get("id") or "").strip()
         if cif and not any((encontrado.get(k) or "").strip()
@@ -89078,7 +89084,10 @@ def _holded_contact_for_promoter(session_db, client, promoter, company_id, datos
             address=datos.get("address"), postal_code=datos.get("postal_code"),
             city=datos.get("city"), province=datos.get("province"),
             country=(datos.get("country") or "España"),
-            is_person=bool(datos.get("is_person")),
+            # ⚠️ Persona o empresa lo dice el CIF (`_tax_id_kind`): con un CIF que empieza por letra es
+            # una EMPRESA, aunque en nuestra base esté como tercero particular.
+            is_person=(False if (cif and _tax_id_kind(cif) == "company")
+                       else bool(datos.get("is_person"))),
         ))
     _holded_remember_contact(session_db, promoter, company_id, contact_id)
     return contact_id

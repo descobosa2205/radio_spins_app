@@ -520,6 +520,9 @@ class HoldedClient:
         # Contactos ya buscados en ESTA tanda: subir 50 gastos del mismo proveedor no puede volver a
         # recorrer el listado de contactos 50 veces.
         self._contact_cache: dict[str, dict | None] = {}
+        # El último motivo por el que NO se pudo preguntar por un contacto (403, 429, red): sirve para
+        # NO crear un contacto que a lo mejor ya existe.
+        self._last_contact_error: Exception | None = None
         # Cabecera con la que se manda la clave. La documentada es `key`, pero hay cuentas que solo
         # responden con `X-API-KEY`, así que si la primera da «Invalid key» se prueba la otra y se
         # GUARDA la que funcione (mismo patrón que las rutas de adjuntar).
@@ -774,7 +777,7 @@ class HoldedClient:
     # -------------------------------------------------------------- Contactos
 
     def find_contact(self, tax_id: str | None, *, name: str | None = None,
-                     max_pages: int = 30) -> dict | None:
+                     max_pages: int = 30, raise_on_error: bool = False) -> dict | None:
         """Busca un contacto por CIF/DNI/NIE (y, si no hay, por nombre exacto).
 
         Primero se intenta el filtro del servidor y, si no filtra de verdad, se recorre el listado
@@ -786,7 +789,13 @@ class HoldedClient:
         clave = "cif:" + cif if cif else "nombre:" + objetivo_nombre
         if clave in self._contact_cache:
             return self._contact_cache[clave]
+        # ⚠️⚠️ «No está» y «no he podido preguntar» NO son lo mismo: con un 403 (falta permiso) o un
+        # 429 (rate limit) devolver None hace que arriba se CREE un contacto que ya existe. Con
+        # `raise_on_error` se propaga el motivo y la subida falla diciéndolo, que es lo correcto.
+        self._last_contact_error = None
         encontrado = self._find_contact_uncached(cif, objetivo_nombre, max_pages)
+        if encontrado is None and self._last_contact_error is not None and raise_on_error:
+            raise self._last_contact_error
         self._contact_cache[clave] = encontrado
         return encontrado
 
@@ -805,8 +814,8 @@ class HoldedClient:
                         return c
                 if v2 and not objetivo_nombre:
                     return None          # el filtro exacto ya ha dicho que no está
-            except HoldedError:
-                pass
+            except HoldedError as exc:
+                self._last_contact_error = exc
         if cif and objetivo_nombre:
             # ⚠️⚠️ NO SE CREA UN CONTACTO QUE YA ESTÁ. Con CIF y sin encontrarlo, se busca TAMBIÉN por
             # NOMBRE antes de darlo por nuevo: en Holded hay contactos dados de alta a mano SIN NIF (o
@@ -816,8 +825,8 @@ class HoldedClient:
                 por_nombre = self._find_contact_by_name(objetivo_nombre, max_pages)
                 if por_nombre is not None:
                     return por_nombre
-            except HoldedError:
-                pass
+            except HoldedError as exc:
+                self._last_contact_error = exc
             if v2:
                 return None
         if v2 and objetivo_nombre:
@@ -857,8 +866,8 @@ class HoldedClient:
                 for c in (filas or []):
                     if self._contact_matches(c, "", objetivo_nombre):
                         return c
-            except HoldedError:
-                pass
+            except HoldedError as exc:
+                self._last_contact_error = exc
             return None
         pagina, vistas = 1, set()
         while pagina <= max_pages:
@@ -942,6 +951,21 @@ class HoldedClient:
             cid = str(respuesta.get("id") or respuesta.get("contactId") or "").strip()
         if not cid:
             raise HoldedError("Holded no ha devuelto el id del contacto creado.")
+        # ⚠️⚠️ SE SIEMBRA EL CACHÉ: el contacto ya existe en Holded, así que el siguiente gasto del
+        # mismo proveedor en esta misma petición NO puede volver a buscarlo (find_contact había
+        # cacheado el «no está») ni crearlo otra vez. Y sobrevive al savepoint que deshace la BD si un
+        # gasto falla: en Holded el contacto ya está creado.
+        try:
+            nombre = (payload.get("name") or "").strip().casefold()
+            cif = norm_tax_id(payload.get("code") or payload.get("vatnumber"))
+            fila = {"id": cid, "name": payload.get("name"),
+                    "code": (payload.get("code") or payload.get("vatnumber") or "")}
+            if cif:
+                self._contact_cache["cif:" + cif] = fila
+            if nombre:
+                self._contact_cache["nombre:" + nombre] = fila
+        except Exception:
+            pass
         return cid
 
     # ------------------------------------------------------------- Documentos

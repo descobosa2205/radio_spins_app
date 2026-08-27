@@ -1708,6 +1708,9 @@ class PromoterCompany(Base):
     fiscal_city = Column(Text)
     fiscal_province = Column(Text)
     fiscal_country = Column(Text)
+    # Su contacto en HOLDED por empresa del grupo, igual que en `Promoter`: cuando factura la
+    # sociedad, es ELLA la que se da de alta allí, así que es aquí donde hay que recordarlo.
+    holded_contact_ids = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -7671,6 +7674,11 @@ def ensure_song_royalties_schema():
             -- Cómo prefiere que le avisemos: EMAIL | SMS (NULL = el correo, que es el de siempre).
             ADD COLUMN IF NOT EXISTS notify_channel text,
             -- Su contacto en Holded por empresa del grupo: {company_id: contact_id}.
+            ADD COLUMN IF NOT EXISTS holded_contact_ids jsonb NOT NULL DEFAULT '{}'::jsonb;
+        """,
+        # Y la SOCIEDAD igual: cuando factura ella, es ella la que se da de alta en Holded.
+        """
+        ALTER TABLE IF EXISTS promoter_companies
             ADD COLUMN IF NOT EXISTS holded_contact_ids jsonb NOT NULL DEFAULT '{}'::jsonb;
         """,
         """

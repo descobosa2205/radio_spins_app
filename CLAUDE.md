@@ -3922,6 +3922,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   archivo o por nº+importe, y una rectificativa con el mismo importe (o sin número puesto) se habría
   pintado como una copia de la original. Lo que esté vinculado como original/rectificativa se
   identifica siempre por su id.
+  ⚠️ Una factura **ANULADA o RECTIFICADA no sale en la pestaña de Retenciones**: no vale, así que su
+  retención no se declara (la de la rectificativa sí, que es la que vale).
   ⚠️ Y de paso: **RECHAZAR una factura ya suelta su imputación** a los gastos. Antes solo actuaba
   sobre la liquidación de royalties, así que un gasto de bolsa se quedaba con una factura RECHAZADA
   detrás contando su importe —y seguía en pendiente de pago y en contabilidad—.
@@ -3935,6 +3937,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Ese segundo intento por NOMBRE es el que evita el duplicado de verdad: en Holded hay contactos
   dados de alta a mano **sin NIF**, y antes `find_contact` se rendía tras la búsqueda exacta por
   `code` y creaba otro. Si se reutiliza uno sin NIF se avisa para añadírselo allí.
+  ⚠️ Lo recuerdan **`Promoter` Y `PromoterCompany`**: cuando factura la sociedad es ELLA la que se da
+  de alta en Holded, y sin su columna la asignación se perdía en silencio (`getattr` con defecto +
+  `try/except`), así que a ese proveedor se le buscaba —o se le creaba— el contacto en cada gasto.
+  ⚠️ **«No está» y «no he podido preguntar» no son lo mismo**: `find_contact(..., raise_on_error=True)`
+  propaga un 403 (falta permiso) o un 429; devolviendo None se creaba un contacto que ya existía.
+  ⚠️ **`create_contact` SIEMBRA el caché del cliente** (por CIF y por nombre): el siguiente gasto del
+  mismo proveedor en esa misma petición no vuelve a buscar (se había cacheado el «no está») ni a
+  crear — y eso **sobrevive al savepoint** de «Subir todo», que deshace la BD aunque en Holded el
+  contacto ya esté creado.
+  ⚠️ **Persona o empresa lo dice el CIF** (`_tax_id_kind`): con uno que empieza por letra va como
+  EMPRESA aunque en nuestra base esté como tercero particular.
   · **UNA FACTURA NO SE SUBE DOS VECES**: si ya tiene `holded_doc_id`, la subida se **rechaza con un
   error** (no un aviso) en el punto único de la subida —así vale para el botón de la fila, para
   «Subir todo» y para lo que venga—, porque un documento duplicado en la contabilidad no lo arregla

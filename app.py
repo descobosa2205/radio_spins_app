@@ -4756,6 +4756,104 @@ def _song_artist_name_list(song: Song | None = None, artists=None) -> list[str]:
     return out
 
 
+# Margen al sumar porcentajes: un reparto 33,33 + 33,33 + 33,34 tiene que contar como 100.
+ONE_STOP_PCT_TOLERANCE = Decimal("0.05")
+
+
+def _fmt_pct_es(value) -> str:
+    """Un porcentaje como se escribe aquí: coma decimal y sin ceros de adorno (100, 33,33, 12,5)."""
+    try:
+        d = Decimal(str(value or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        return "0"
+    d = d.quantize(Decimal("0.01"))
+    texto = format(d.normalize() if d == d.to_integral_value() else d, "f")
+    return texto.rstrip("0").rstrip(".").replace(".", ",") if "." in texto else texto
+
+
+def _song_one_stop(session_db, song, *, interpreters=None, shares=None) -> dict:
+    """¿Esta canción es **ONE-STOP**? (todo se licencia con una sola parte: nosotros).
+
+    Es lo que la hace apta para una SINCRONIZACIÓN sin ir a pedir permiso a nadie, así que se
+    calcula, no se marca a mano. Hacen falta las TRES cosas:
+      1. el **máster es 100% nuestro** (`Song.master_ownership_pct`),
+      2. **no hay más intérpretes que los artistas propios** (ningún colaborador de fuera), y
+      3. la **editorial es 100% de autores de Plataforma Musical**.
+
+    Devuelve `{ok, reasons, master_ok, interpreters_ok, editorial_ok, platform_pct, collaborator}`.
+    `reasons` dice lo que falla, para poder explicarlo al pasar el ratón: una etiqueta que no está
+    tiene que poder justificarse sin abrir tres pestañas.
+    ⚠️ **Sin autores registrados NO es one-stop**: que no conste la autoría no significa que sea
+    nuestra, y de una sincronización responde quien la licencia.
+    """
+    fallos: list[str] = []
+    if song is None:
+        return {"ok": False, "reasons": ["No hay canción."], "master_ok": False,
+                "interpreters_ok": False, "editorial_ok": False,
+                "platform_pct": Decimal("0"), "collaborator": ""}
+
+    # 1) EL MÁSTER
+    try:
+        master_pct = Decimal(str(getattr(song, "master_ownership_pct", 0) or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        master_pct = Decimal("0")
+    master_ok = master_pct >= (Decimal("100") - ONE_STOP_PCT_TOLERANCE)
+    if not master_ok:
+        fallos.append("El máster no es nuestro al 100%% (%s%%)." % _fmt_pct_es(master_pct))
+
+    # 2) LOS INTÉRPRETES: los de la canción menos los artistas propios (el mismo criterio con el que
+    #    se calcula el «colaborador» que se ve en su cabecera).
+    if interpreters is None:
+        interpreters = (session_db.query(SongInterpreter)
+                        .filter(SongInterpreter.song_id == song.id)
+                        .order_by(SongInterpreter.created_at.asc()).all())
+    partes = _song_display_parts(song, interpreters)
+    colaborador = (partes.get("collaborator") or "").strip()
+    tiene_artista = bool(partes.get("artist_names"))
+    interpreters_ok = tiene_artista and not colaborador
+    if not tiene_artista:
+        fallos.append("La canción no tiene ningún artista propio asignado.")
+    elif colaborador:
+        fallos.append("Hay intérpretes que no son artistas nuestros: %s." % colaborador)
+
+    # 3) LA EDITORIAL: el 100% de la obra en autores cuya editorial es Plataforma Musical.
+    if shares is None:
+        shares = (session_db.query(SongEditorialShare)
+                  .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
+                           joinedload(SongEditorialShare.publishing_company))
+                  .filter(SongEditorialShare.song_id == song.id).all())
+    total_pct, plataforma_pct, ajenos = Decimal("0"), Decimal("0"), []
+    for sh in (shares or []):
+        try:
+            pct = Decimal(str(getattr(sh, "pct", 0) or 0))
+        except (InvalidOperation, TypeError, ValueError):
+            pct = Decimal("0")
+        total_pct += pct
+        if _publisher_is_platform(_share_publisher(sh)):
+            plataforma_pct += pct
+        else:
+            nombre = _promoter_display_name(getattr(sh, "promoter", None)) or "un autor"
+            editorial = (getattr(_share_publisher(sh), "name", "") or "sin editorial").strip()
+            ajenos.append("%s (%s)" % (nombre, editorial))
+    if not shares:
+        editorial_ok = False
+        fallos.append("No hay autores registrados en la pestaña Editorial.")
+    else:
+        editorial_ok = (plataforma_pct >= (Decimal("100") - ONE_STOP_PCT_TOLERANCE)
+                        and abs(total_pct - Decimal("100")) <= ONE_STOP_PCT_TOLERANCE)
+        if not editorial_ok:
+            if ajenos:
+                fallos.append("La editorial no es toda nuestra: %s." % ", ".join(ajenos[:4]))
+            elif abs(total_pct - Decimal("100")) > ONE_STOP_PCT_TOLERANCE:
+                fallos.append("El reparto autoral no suma 100%% (suma %s%%)." % _fmt_pct_es(total_pct))
+            else:
+                fallos.append("Solo el %s%% de la autoría es de Plataforma Musical." % _fmt_pct_es(plataforma_pct))
+
+    return {"ok": bool(master_ok and interpreters_ok and editorial_ok), "reasons": fallos,
+            "master_ok": master_ok, "interpreters_ok": interpreters_ok, "editorial_ok": editorial_ok,
+            "platform_pct": plataforma_pct, "collaborator": colaborador}
+
+
 def _song_collaborator_from_names(artist_names: list[str] | None, interpreter_names: list[str] | None) -> str | None:
     artist_keys = {_norm_person_name_key(name) for name in (artist_names or []) if _norm_person_name_key(name)}
     out: list[str] = []
@@ -17277,6 +17375,11 @@ def discografica_song_detail(song_id):
         s.collaborator = display_parts.get("collaborator") or None
         session_db.flush()
 
+    # ¿ONE-STOP? (máster 100% nuestro + sin intérpretes de fuera + autoría 100% de Plataforma).
+    # Va en la CABECERA, que se pinta en todas las pestañas, así que se calcula siempre: son los
+    # intérpretes ya cargados más una consulta de los autores.
+    one_stop = _song_one_stop(session_db, s, interpreters=interpreters)
+
     # ISRCs
     isrc_codes = (
         session_db.query(SongISRCCode)
@@ -17705,6 +17808,7 @@ def discografica_song_detail(song_id):
         edit=edit,
         status=st,
         interpreters=interpreters,
+        one_stop=one_stop,
         distributors=session_db.query(Distributor).order_by(Distributor.name.asc()).all(),
         song_distributor=(session_db.get(Distributor, s.distributor_id) if s.distributor_id else None),
         isrc_codes=isrc_codes,

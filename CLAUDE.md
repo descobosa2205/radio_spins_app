@@ -1662,6 +1662,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   inaceptable. Y ⚠️ **`Song` NO tiene `artist_id`**: su artista va por **`SongArtist`** (N:M).
   ⚠️ Se emite también **`og:image:type`**: sin él, WhatsApp y algunos móviles descartan la foto.
 
+- **ETIQUETA «ONE-STOP» de una canción** (ago 2026, punto único **`_song_one_stop`**): sale en la
+  **cabecera de la ficha de la canción** (junto a PROVISIONAL / EXPLÍCITA / FOCUS SINGLE), en el
+  **azul de la marca** y con la **claqueta** (`fa-clapperboard`, el mismo icono de la sección
+  Syncros: es para lo que sirve). **Se CALCULA, no se marca a mano**, y hacen falta las TRES cosas:
+  · el **máster es 100% nuestro** (`Song.master_ownership_pct`),
+  · **no hay más intérpretes que los artistas propios** — ningún `SongInterpreter` que no sea uno de
+    sus `SongArtist`, con el MISMO criterio que el «colaborador» que ya se ve en su cabecera
+    (`_song_display_parts` → `_song_collaborator_from_names`), y
+  · la **autoría es 100% de Plataforma Musical** (`SongEditorialShare` + `_publisher_is_platform`
+    sobre `_share_publisher`, que respeta la editorial CONGELADA del registro y cae a la del tercero
+    en los antiguos).
+  Con eso la obra se puede licenciar para una **sincronización** sin pedirle permiso a nadie.
+  ⚠️ **Sin autores registrados NO es one-stop**: que no conste la autoría no significa que sea
+  nuestra, y de una sincronización responde quien la licencia. Tampoco lo es si el reparto autoral
+  **no suma 100** (aunque todo lo declarado sea de Plataforma): falta obra por declarar.
+  ⚠️ Los porcentajes se comparan con **`Decimal`** y un margen de `ONE_STOP_PCT_TOLERANCE` (0,05):
+  un reparto 33,33 + 33,33 + 33,34 tiene que contar como 100.
+  ⚠️ Una canción **sin ninguna fila de intérpretes** (el caso normal del catálogo) SÍ cuenta: ahí
+  `_song_display_parts` cae a los artistas propios, así que no hay colaborador.
+  · Devuelve además **`reasons`**, los motivos por los que NO lo es, para poder explicarlo al pasar
+  el ratón: una etiqueta que no está tiene que poder justificarse sin abrir tres pestañas.
+  · Se calcula **en todas las pestañas** (la cabecera es común) y cuesta los intérpretes que ya
+  están cargados más una consulta de los autores. **`_fmt_pct_es`** es el formateador de porcentajes
+  de la casa (coma decimal, sin ceros de adorno), que no existía.
+  Probado con la app real: one-stop · máster al 50% · con un intérprete de fuera · con una editorial
+  ajena · sin autores · sin intérpretes · tercios que suman 99,99 · reparto que suma 90 · editorial
+  heredada del tercero, y la etiqueta en las tres pestañas.
+
 - **SYNCROS · SUPERVISORS** (ago 2026): sección nueva (`/syncros`, permiso `syncros` +
   `syncros.supervisors`) para las **sincronizaciones** —música para anuncios, cine y televisión—. Su
   primera sección son los **Supervisors**: los terceros con los que se sincroniza.

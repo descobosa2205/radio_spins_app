@@ -5086,3 +5086,8 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
   width:26px; height:26px; border-radius:999px; background:rgba(0,0,0,.55); color:#fff; font-size:11px;
   display:flex; align-items:center; justify-content:center; padding-left:2px; }
 [data-art-video]{ cursor:pointer; }
+
+/* ── Etiqueta ONE-STOP de la cabecera de una canción ─────────────────────────────────────────
+   Va en el AZUL de la marca (el color de Syncros, que es para lo que sirve: una obra que se puede
+   licenciar entera con una sola parte). Se calcula, no se marca a mano: ver `_song_one_stop`. */
+.badge-onestop{ background:var(--brand-accent,#007CA2); color:#fff; }

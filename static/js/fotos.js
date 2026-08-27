@@ -321,8 +321,11 @@
   }
   function updateBulk() {
     var n = Object.keys(selected).length;
-    bulkBar.classList.toggle('d-none', n <= 1);
-    bulkBar.classList.toggle('d-flex', n > 1);
+    // ⚠️⚠️ CON UNA SOLA YA SE PUEDE HACER TODO: la barra (y sus tres puntitos) salía a partir de DOS,
+    // así que seleccionar una foto para pedir su aprobación —o para compartirla, moverla o
+    // borrarla— no ofrecía nada y parecía que no se podía (lo dijo Dani en los eventos).
+    bulkBar.classList.toggle('d-none', n < 1);
+    bulkBar.classList.toggle('d-flex', n >= 1);
     selCountEl.textContent = n + (n === 1 ? ' seleccionada' : ' seleccionadas');
     var vis = allVisibleIds();
     selectAll.checked = vis.length > 0 && vis.every(function (id) { return selected[id]; });

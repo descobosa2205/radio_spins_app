@@ -339,45 +339,12 @@
     <h5 class="mb-0"><i class="fa fa-calculator me-2 text-danger"></i>{{ title }}</h5>
     <div class="small text-muted">{{ subtitle }}</div>
   </div>
-  {% if not holded_ready %}
-    <a class="btn btn-outline-danger btn-sm" href="{{ url_for('integrations_view') }}#tab-holded">
-      <i class="fa fa-plug me-1"></i>Configurar Holded</a>
-  {% endif %}
 </div>
 
-{# ⚠️ EL ESTADO DE HOLDED POR EMPRESA. Cada documento se contabiliza en SU empresa (una liquidación
-   de royalties en PIES, un gasto de bolsa en la que promueve), así que una clave buena en una empresa
-   no vale para la otra: aquí se ve de un golpe cuál está lista y cuál no, con el último error.
-   Solo se pinta si a alguna le falta algo. #}
-{% set holded_pend = (holded_status or [])|rejectattr('ready')|list %}
-{% if holded_pend and (holded_status or [])|length %}
-  <div class="alert alert-warning">
-    <div class="d-flex align-items-start gap-2">
-      <i class="fa fa-plug mt-1"></i>
-      <div class="min-w-0 flex-grow-1">
-        <div class="fw-semibold">Holded: hay empresas sin conexión lista</div>
-        <div class="small text-muted mb-2">
-          Cada documento se contabiliza en <strong>su</strong> empresa, así que la clave tiene que
-          estar en la que toca (las liquidaciones de royalties van a PIES).
-        </div>
-        <ul class="mb-0 small">
-          {% for h in holded_pend %}
-            <li>
-              <strong>{{ h.name }}</strong>:
-              {% if not h.has_key %}sin API Key
-              {% elif not h.active %}la integración está desactivada (clave de {{ h.key_len }} caracteres)
-              {% elif h.error %}último error: {{ h.error }}
-              {% else %}sin probar{% endif %}
-            </li>
-          {% endfor %}
-        </ul>
-      </div>
-      <a class="btn btn-sm btn-outline-danger flex-shrink-0"
-         href="{{ url_for('integrations_view') }}#tab-holded">
-        <i class="fa fa-gear me-1"></i>Arreglarlo</a>
-    </div>
-  </div>
-{% endif %}
+{# ⚠️ AQUÍ NO SE AVISA DEL ESTADO DE LAS INTEGRACIONES: esta pantalla es para contabilizar, y el
+   estado de las conexiones (claves, errores, empresas sin configurar) se ve y se arregla en
+   Integraciones → Holded, que es su sitio. Si una empresa no tiene Holded, su botón de subir ya sale
+   desactivado diciendo por qué, que es donde hace falta saberlo. #}
 
 {# ---------- FILTRO POR EMPRESA DEL GRUPO (con su logo) ----------
    La misma idea que la rejilla de artistas de Discográfica: salen todas y, al pinchar una, se ve solo
@@ -394,12 +361,15 @@
       <a class="acct-cofilter__item{{ ' is-on' if company_filter == c.id }}" title="{{ c.name }}"
          href="{{ url_for('contabilidad_view', tab=tab, subtab=subtab, estado=estado_filtro or None,
                           empresa=c.id, empresas=('todas' if showing_all_companies else None)) }}">
+        {# ⚠️ CON LOGO NO SE ESCRIBE EL NOMBRE: el logo ya dice de quién es y la fila se lee de un
+           golpe (la misma regla que la columna «Empresa» de la tabla). El nombre solo sale cuando no
+           hay logo, y en los dos casos se ve al pasar el ratón (`title`). #}
         {% if c.logo_url %}
           <img src="{{ c.logo_url }}" alt="{{ c.name }}">
         {% else %}
           <span class="acct-cofilter__all"><i class="fa fa-building"></i></span>
+          <span class="acct-cofilter__name">{{ c.name }}</span>
         {% endif %}
-        <span class="acct-cofilter__name">{{ c.name }}</span>
         {% if c.pending %}<span class="acct-cofilter__n">{{ c.pending }}</span>{% endif %}
       </a>
     {% endfor %}

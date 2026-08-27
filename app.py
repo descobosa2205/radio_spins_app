@@ -77360,10 +77360,9 @@ def contabilidad_view():
             royalty_pending=royalty_pending,
             royalty_done=royalty_done,
             holded_ready=_holded_configured_any(session_db),
-            # ⚠️ El estado de Holded POR EMPRESA: cada documento se contabiliza en la suya, así que
-            # tener una clave buena en una empresa no sirve para la que toca. Solo se pinta el aviso
-            # si a alguna le falta algo.
-            holded_status=_holded_accounts_status(session_db),
+            # ⚠️ El estado de las CONEXIONES no se pinta aquí (esta pantalla es para contabilizar):
+            # se ve y se arregla en Integraciones → Holded, que es donde se toca. Lo único que queda
+            # en la fila es su botón de subir desactivado cuando esa empresa no tiene Holded.
             # EL FILTRO POR EMPRESA: todas con su logo y lo que tienen pendiente; al pinchar una, solo
             # se ve lo suyo.
             company_filters=_accounting_company_filters(session_db, scope=(

@@ -4674,6 +4674,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - Hay refinamiento global de Bootstrap en `styles.css` (botones, tarjetas, navbar, tablas, pestañas,
   formularios). Landing pública en `landing.html` (standalone).
 
+- ⚠️ **FOTOS · CON UNA SOLA SELECCIONADA YA SE PUEDE HACER TODO** (ago 2026): la barra de acciones en
+  bloque (y sus **tres puntitos**: pedir aprobación, marcar el estado, añadir a un álbum, editar en
+  bloque, descargar, compartir, eliminar) salía a partir de **DOS** fotos (`n <= 1` en
+  `updateBulk`, `fotos.js`), así que seleccionar UNA para pedir su aprobación no ofrecía nada y
+  parecía que la aprobación no estaba puesta —pasó en las fotos de un EVENTO, donde el circuito
+  funciona igual: `PHOTO_OWNER_TYPES` incluye `EVENT` y `fotos_approval_create` lo acepta—.
+- **CONTABILIDAD · ahí no se avisa del estado de las INTEGRACIONES** (ago 2026): el aviso de
+  «empresas sin conexión lista» y el botón de configurar Holded se retiraron de esa pantalla —es para
+  contabilizar, y las claves se ven y se arreglan en **Integraciones → Holded**—. Lo que queda es lo
+  útil en su sitio: el botón de subir de esa fila sale **desactivado** diciendo que su empresa no
+  tiene Holded.
+- **CONTABILIDAD · el filtro de empresa: SOLO EL LOGO** (ago 2026), y el nombre únicamente en las que
+  no lo tienen (la misma regla que la columna «Empresa» de la tabla); en los dos casos, el nombre al
+  pasar el ratón.
+
 - **Fotos / vídeos (galería transversal)**: pestaña **Fotos** en ficha de **concierto** y **acción**
   (+ pestaña agregada en **artista**). Modelos en `models.py`: `Photo` (polimórfico `owner_type`
   CONCERT|ACTION + `owner_id`, `artist_id` denormalizado, `photographer_promoter_id`), `PhotoAlbum`/

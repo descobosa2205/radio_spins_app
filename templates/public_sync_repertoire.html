@@ -41,6 +41,11 @@
 </head>
 <body>
   <div class="rep-wrap">
+    {# Volver a la página anterior (se llega aquí desde el tema que se estaba mirando). #}
+    <div class="mb-2">
+      <a class="btn btn-outline-secondary btn-sm" href="#" onclick="history.back(); return false;"
+         title="{{ t.back }}" aria-label="{{ t.back }}"><i class="fa-solid fa-arrow-left"></i></a>
+    </div>
     <div class="rep-head">
       {% for url, nombre in brand_logos %}<img src="{{ url }}" alt="{{ nombre }}">{% endfor %}
     </div>
@@ -65,7 +70,7 @@
         <h2 class="h5 mb-0">{{ selected }}</h2>
         <span class="text-muted small ms-2">{{ total }} {{ t.song_one if total == 1 else t.songs }}</span>
       </div>
-      <ul class="pl-list list-unstyled mb-0">
+      <ul class="pl-list list-unstyled mb-0" data-playlist-player>
         {% import '_sync_song_row.html' as syncrow with context %}
         {% for row in rows %}{{ syncrow.sync_row(row) }}{% endfor %}
       </ul>

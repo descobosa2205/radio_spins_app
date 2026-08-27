@@ -82,8 +82,8 @@
 
   {# Descarga DIRECTA en MP3 (Syncros): un solo icono, sin desplegable. #}
   {% if it.download_mp3_only %}
-    <a class="pl-row__dlbtn" href="{{ it.download_mp3_only }}" title="Descargar en MP3"
-       aria-label="Descargar en MP3"><i class="fa fa-download"></i></a>
+    <a class="pl-row__dl-plain" href="{{ it.download_mp3_only }}" title="Descargar en MP3"
+       aria-label="Descargar en MP3"><i class="fa-solid fa-download"></i></a>
   {% endif %}
   {% if dl and it.download_wav_url %}
     <div class="dropdown pl-row__dl">

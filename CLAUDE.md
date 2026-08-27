@@ -1787,14 +1787,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (el one-stop lo CALCULA `_song_one_stop_map`, así que este listado no puede desparejarse de la
   etiqueta de la ficha ni del repertorio). Cada tema tiene **«Supervisors»** y **compartir** por
   correo · WhatsApp · SMS · copiar enlace.
-  ⚠️ La pestaña se llama **«Repertorio»** (antes «One-stop», que es solo uno de sus filtros): ahí se
-  ve TODO lo que se puede presentar, con **filtro por ARTISTA** —rejilla de artistas y, al pinchar
-  uno, los suyos, igual que el repertorio de Discográfica— y **filtro One-stop**. Cada tema lleva su
-  **etiqueta de género**, su estado de envío y el **reproductor de las demos**. `?section=onestop`
-  sigue valiendo (enlaces guardados).
+  ⚠️⚠️ **QUÉ ESTÁ EN EL REPERTORIO** (punto único `_sync_repertoire_songs`): las **habilitadas a
+  mano** en su ficha (`Song.sync_enabled`, «Habilitar para Syncro») **y las ONE-STOP**, que entran
+  solas por serlo. Así, un tema que no es one-stop se puede presentar igualmente si alguien lo
+  decide, y uno que lo es no hay que acordarse de marcarlo. Lo usan la sección y la landing, así que
+  dentro y fuera se ve el mismo repertorio; el ENVÍO lo vuelve a comprobar.
+  ⚠️ La pestaña se llama **«Repertorio»** (antes «One-stop», que es solo uno de sus filtros) y
+  enseña **el LISTADO directamente**: los **artistas son un FILTRO** (chips con su foto), no una
+  pantalla previa. **La agrupación por géneros o por artistas es solo del repertorio ABIERTO** que
+  consultan los supervisores. Filtro **One-stop** aparte. `?section=onestop` sigue valiendo.
   · **LAS FILAS SON LA MACRO DE LAS DEMOS** (`_playlist_row.html` → `pl_row`, vía
   `_sync_song_row.html`): se escucha exactamente igual en Syncros, en la página del tema y en la
-  landing. ⚠️ Quien las use tiene que cargar **`playlist.js`**: sin él se ven pero **no suenan**.
+  landing, **con su barra de reproducción al lado de los datos** (parar, ver por dónde va y moverse).
+  ⚠️⚠️ Además de cargar `playlist.js`, el `<ul>` tiene que llevar **`data-playlist-player`**: es lo
+  que `initPlayer` busca. Sin ese atributo las filas se ven pero **no suenan y no sale la barra**
+  (bug real: estaba puesta la clase `.pl-list` pero no el atributo).
+  ⚠️ El icono de descarga de una fila NO usa `.pl-row__dlbtn` (ese es el botón de MENÚ de las demos,
+  con su círculo blanco, que aquí no venía a cuento) sino `.pl-row__dl-plain`: solo el icono.
   `pl_row` acepta ya `detail_url` (el título es enlace; `playlist.js` ignora los clics en un `<a>`,
   así que no choca con la reproducción) y `download_mp3_only` (un icono de descarga, sin desplegable).
   · **LOS DATOS VAN CON SU ICONO Y SIN RÓTULO** (el icono ya dice qué es) y el **ARTISTA con su
@@ -1854,8 +1863,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   sólido —`_sync_genre_icon`— y cuántos temas hay) o **por ARTISTA** (con su foto). Al elegir uno se
   ve su listado con el reproductor de las demos, su letra y su descarga; el **título lleva a la
   página de syncro de ese tema** (la misma que se comparte). Sale también en inglés (`?lang=en`).
-  · **Las canciones SIN GÉNERO son una TAREA PENDIENTE** en la pestaña Repertorio (con enlace a cada
-  ficha): sin género no salen en el repertorio por géneros ni se pueden presentar bien.
+  · **Las canciones SIN GÉNERO son una TAREA PENDIENTE de quien es REGISTROS y SELLO a la vez**
+  (`_is_registros_sello` + módulo de Inicio `HOME_SONGS_NO_GENRE`), **no** del apartado de Syncros:
+  sin género un tema no se puede presentar bien (ni a radio, ni a una playlist, ni a un supervisor).
+  Dirección lo ve también, y la tarea **desaparece sola** cuando no queda ninguno.
   ⚠️⚠️ **Los géneros del catálogo ANTIGUO estaban solo en `Song.genre` (texto)** y los listados van
   por `SongGenre`, así que salían «sin género» aunque en su ficha se leyera uno.
   **`_song_genres_backfill_once`** (marca `song_genres_backfill_v1`) los pasa a etiquetas partiendo

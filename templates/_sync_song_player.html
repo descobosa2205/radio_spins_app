@@ -1,4 +1,4 @@
 {# El reproductor de un tema para syncro: la MISMA fila de las demos (`pl_row`), sin enlace en el
    título (aquí ya estamos en su página) y con su descarga en MP3. #}
 {% import '_sync_song_row.html' as syncrow with context %}
-<ul class="pl-list list-unstyled mb-0">{{ syncrow.sync_row(row, link=false) }}</ul>
+<ul class="pl-list list-unstyled mb-0" data-playlist-player>{{ syncrow.sync_row(row, link=false) }}</ul>

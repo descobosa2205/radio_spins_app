@@ -22,29 +22,10 @@
 
 {% if section == 'repertorio' %}
   {# ══ REPERTORIO PARA SYNCRO ═══════════════════════════════════════════════════════════════════
-     Todo lo que se puede presentar. El filtro por ARTISTA funciona como el repertorio de
-     Discográfica (rejilla de artistas → las suyas) y el de One-stop deja solo lo que se licencia
-     con una sola parte. Cada tema se escucha con el MISMO reproductor de las demos. ══ #}
-  {% if rep_no_genre_total %}
-    {# TAREA PENDIENTE: sin género no se puede presentar bien un tema (ni por radio, ni a un
-       supervisor, ni en la landing). #}
-    <div class="alert alert-warning d-flex align-items-start gap-2">
-      <i class="fa-solid fa-tags mt-1"></i>
-      <div class="flex-grow-1">
-        <strong>{{ rep_no_genre_total }} tema{{ '' if rep_no_genre_total == 1 else 's' }} sin género.</strong>
-        Ponles el suyo (puede ser más de uno) en su ficha: sin género no salen en el repertorio por
-        géneros ni se pueden presentar bien.
-        <div class="mt-2 d-flex flex-wrap gap-2">
-          {% for row in rep_no_genre[:12] %}
-            <a class="badge text-bg-light border text-decoration-none" href="{{ row.detail_url }}?tab=informacion">
-              {{ row.title }} <span class="text-muted">· {{ row.artist_name }}</span></a>
-          {% endfor %}
-          {% if rep_no_genre_total > 12 %}<span class="badge text-bg-light border">y {{ rep_no_genre_total - 12 }} más</span>{% endif %}
-        </div>
-      </div>
-    </div>
-  {% endif %}
-
+     El LISTADO de lo que se puede presentar: las habilitadas a mano en su ficha y las ONE-STOP
+     (que entran solas). Los artistas son un FILTRO, no una pantalla previa — la agrupación por
+     géneros o artistas es solo del repertorio ABIERTO que consultan los supervisores.
+     Cada tema se escucha con el MISMO reproductor de las demos. ══ #}
   <div class="card mb-3">
     <div class="card-body">
       <form method="get" class="d-flex align-items-center gap-2 flex-wrap mb-3">
@@ -61,63 +42,59 @@
            title="Solo los temas que se licencian con una sola parte">
           <i class="fa-solid fa-clapperboard me-1"></i>One-stop
           <span class="badge text-bg-light ms-1">{{ rep_onestop_total }}</span></a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('public_sync_repertoire') }}"
+           target="_blank" rel="noopener" title="La página que ven los supervisores">
+          <i class="fa-solid fa-up-right-from-square me-1"></i>Repertorio abierto</a>
         <span class="ms-auto small text-muted">{{ rep_total }} tema{{ '' if rep_total == 1 else 's' }}</span>
       </form>
 
-      {% if not rep_artist %}
-        {# La rejilla de ARTISTAS: se pincha uno y se ven los suyos (igual que en Discográfica). #}
-        {% if rep_artists %}
-          <div class="sync-agrid mb-3">
-            {% for a in rep_artists %}
-              <a class="sync-acard"
-                 href="{{ url_for('syncros_view', section='repertorio', artista=a.id, onestop=(1 if rep_only_onestop else None)) }}">
-                <img src="{{ a.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
-                <div class="sync-acard__name">{{ a.name }}</div>
-                <div class="sync-acard__n">{{ a.count }} tema{{ '' if a.count == 1 else 's' }}</div>
-              </a>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="text-muted small">Todavía no hay repertorio que presentar.</div>
-        {% endif %}
-      {% else %}
-        <div class="d-flex align-items-center gap-2 mb-3">
-          <a class="btn btn-outline-secondary btn-sm"
-             href="{{ url_for('syncros_view', section='repertorio', onestop=(1 if rep_only_onestop else None)) }}">
-            <i class="fa-solid fa-arrow-left"></i></a>
-          <img src="{{ rep_artist.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
-               style="width:38px;height:38px;border-radius:50%;object-fit:cover;">
-          <h2 class="h5 mb-0">{{ rep_artist.name }}</h2>
-          <span class="small text-muted ms-2">{{ rep_artist.count }} tema{{ '' if rep_artist.count == 1 else 's' }}</span>
+      {# Los ARTISTAS, como FILTRO (el listado se ve siempre debajo). #}
+      {% if rep_artists %}
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+          <a class="btn btn-sm {{ 'btn-outline-secondary' if rep_artist_id else 'btn-primary' }}"
+             href="{{ url_for('syncros_view', section='repertorio', q=(rep_q or None), onestop=(1 if rep_only_onestop else None)) }}">Todos</a>
+          {% for a in rep_artists %}
+            <a class="sync-achip {{ 'is-on' if rep_artist_id == a.id }}"
+               href="{{ url_for('syncros_view', section='repertorio', artista=a.id, q=(rep_q or None), onestop=(1 if rep_only_onestop else None)) }}"
+               title="{{ a.name }} · {{ a.count }} tema{{ '' if a.count == 1 else 's' }}">
+              <img src="{{ a.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+              <span>{{ a.name }}</span><span class="sync-achip__n">{{ a.count }}</span>
+            </a>
+          {% endfor %}
         </div>
-        {% if not rep_rows %}
-          <div class="text-muted small">Nada que enseñar con estos filtros.</div>
-        {% else %}
-          {% import '_sync_song_row.html' as syncrow with context %}
-          <ul class="pl-list list-unstyled mb-0">
-            {% for row in rep_rows %}
-              {{ syncrow.sync_row(row, sent=true) }}
-              {% if can_edit %}
-                <li class="pl-actions d-flex justify-content-end gap-2 mb-2">
-                  <button type="button" class="btn btn-sm {{ 'btn-outline-success' if row.sent else 'btn-primary' }}"
-                          data-sync-send="{{ row.id }}" data-sync-title="{{ row.title }}"
-                          title="{{ row.sent_tooltip or 'Enviar este tema a los Supervisors' }}">
-                    <i class="fa-solid {{ 'fa-paper-plane' if row.sent else 'fa-share-from-square' }} me-1"></i>Supervisors</button>
-                  <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa-solid fa-share-nodes"></i></button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                      <li><a class="dropdown-item" href="mailto:?subject={{ ('Syncro ' ~ row.title)|urlencode }}&body={{ row.share_url|urlencode }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</a></li>
-                      <li><a class="dropdown-item" href="https://wa.me/?text={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
-                      <li><a class="dropdown-item" href="sms:?&body={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}"><i class="fa-solid fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
-                      <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ row.share_url }}"><i class="fa-solid fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-                      <li><a class="dropdown-item" href="{{ row.share_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-eye fa-fw me-1"></i>Ver la página</a></li>
-                    </ul>
-                  </div>
-                </li>
-              {% endif %}
-            {% endfor %}
-          </ul>
-        {% endif %}
+      {% endif %}
+
+      {% if not rep_rows %}
+        <div class="text-muted small">
+          {% if rep_q or rep_artist_id or rep_only_onestop %}Nada que enseñar con estos filtros.
+          {% else %}Todavía no hay repertorio para Syncro. Un tema entra solo si es <strong>One-stop</strong>,
+            y cualquiera se puede <strong>habilitar a mano</strong> desde su ficha.{% endif %}
+        </div>
+      {% else %}
+        {% import '_sync_song_row.html' as syncrow with context %}
+        <ul class="pl-list list-unstyled mb-0" data-playlist-player>
+          {% for row in rep_rows %}
+            {{ syncrow.sync_row(row, sent=true) }}
+            {% if can_edit %}
+              <li class="pl-actions d-flex justify-content-end gap-2 mb-2">
+                <button type="button" class="btn btn-sm {{ 'btn-outline-success' if row.sent else 'btn-primary' }}"
+                        data-sync-send="{{ row.id }}" data-sync-title="{{ row.title }}"
+                        title="{{ row.sent_tooltip or 'Enviar este tema a los Supervisors' }}">
+                  <i class="fa-solid {{ 'fa-paper-plane' if row.sent else 'fa-share-from-square' }} me-1"></i>Supervisors</button>
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa-solid fa-share-nodes"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="mailto:?subject={{ ('Syncro ' ~ row.title)|urlencode }}&body={{ row.share_url|urlencode }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</a></li>
+                    <li><a class="dropdown-item" href="https://wa.me/?text={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
+                    <li><a class="dropdown-item" href="sms:?&body={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}"><i class="fa-solid fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
+                    <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ row.share_url }}"><i class="fa-solid fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                    <li><a class="dropdown-item" href="{{ row.detail_url }}"><i class="fa-solid fa-music fa-fw me-1"></i>Abrir la ficha</a></li>
+                  </ul>
+                </div>
+              </li>
+            {% endif %}
+          {% endfor %}
+        </ul>
       {% endif %}
     </div>
   </div>

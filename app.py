@@ -17585,9 +17585,12 @@ def discografica_song_detail(song_id):
 
     # SYNCRO: los botones solo existen en un tema ONE-STOP, así que su contexto tampoco se calcula
     # para los demás (el enlace público se crea la primera vez que hace falta).
+    # SYNCRO: el menú sale en lo que está EN el repertorio (one-stop o habilitada a mano).
+    sync_enabled = bool(getattr(s, "sync_enabled", False))
+    sync_in_repertoire = bool(sync_enabled or one_stop.get("ok"))
     sync_share_url, sync_sent, sync_sent_count, sync_sent_tooltip = "", False, 0, ""
     sync_send_ctx = {}
-    if one_stop.get("ok"):
+    if sync_in_repertoire:
         sync_share_url = _sync_song_share_url(session_db, s)
         _env = (_sync_sent_state(session_db, [s.id]) or {}).get(str(s.id)) or {}
         sync_sent = bool(_env)
@@ -18031,6 +18034,8 @@ def discografica_song_detail(song_id):
         sync_sent=sync_sent,
         sync_sent_count=sync_sent_count,
         sync_sent_tooltip=sync_sent_tooltip,
+        sync_enabled=sync_enabled,
+        sync_in_repertoire=sync_in_repertoire,
         **sync_send_ctx,
         distributors=session_db.query(Distributor).order_by(Distributor.name.asc()).all(),
         song_distributor=(session_db.get(Distributor, s.distributor_id) if s.distributor_id else None),
@@ -21668,6 +21673,48 @@ def _disco_approval_decide(session_db, voter, aprueba: bool, note: str = "") -> 
         _disco_approval_notify(session_db, project, fila, siguiente)
         resultado["next_stage"] = siguiente
     return resultado
+
+
+def _is_registros_sello(profile) -> bool:
+    """¿Esta persona es de **REGISTROS y de SELLO a la vez**? (quien pone los géneros que faltan)."""
+    if profile is None:
+        return False
+    return _profile_in_department(profile, "Registros") and _profile_in_department(profile, "Sello")
+
+
+def _home_songs_without_genre() -> dict | None:
+    """TAREA PENDIENTE: los temas SIN GÉNERO, para quien es **Registros y Sello a la vez**.
+
+    ⚠️ Es tarea SUYA, no de Syncros: sin género un tema no se puede presentar bien (ni a radio, ni a
+    una playlist, ni a un supervisor). Dirección lo ve también.
+    ⚠️ Un tema puede llevar MÁS DE UN género: el enlace lleva a su ficha, que es donde se ponen."""
+    state = _current_user_state() or {}
+    perfil = state.get("profile")
+    if not (_is_registros_sello(perfil) or int(state.get("role") or 0) == 10):
+        return None
+    session_db = db()
+    try:
+        con_genero = {str(r[0]) for r in session_db.query(SongGenre.song_id).distinct().all()}
+        filas = (session_db.query(Song)
+                 .options(selectinload(Song.artists))
+                 .filter(Song.is_provisional.is_(False))
+                 .order_by(Song.release_date.desc().nullslast(), Song.title.asc()).all())
+    except Exception:
+        app.logger.exception("[generos] no se pudo montar la tarea de géneros")
+        return None
+    finally:
+        session_db.close()
+    sin = [c for c in filas if str(c.id) not in con_genero]
+    if not sin:
+        return None                      # la tarea desaparece sola en cuanto no queda ninguna
+    return {
+        "total": len(sin),
+        "rows": [{"id": str(c.id), "title": (c.title or "").strip(),
+                  "artist_name": ", ".join(_song_artist_name_list(song=c)) or "—",
+                  "cover_url": (getattr(c, "cover_url", None) or "").strip(),
+                  "url": url_for("discografica_song_detail", song_id=str(c.id), tab="informacion")}
+                 for c in sin[:12]],
+    }
 
 
 def _direccion_sello_user_ids(session_db) -> list[str]:
@@ -64095,6 +64142,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         "sync_supervisor_save": "syncros.supervisors", "sync_supervisor_delete": "syncros.supervisors",
         # Los temas ONE-STOP y su envío a supervisores: la sección Syncros.
         "sync_song_send": "syncros", "sync_song_preview_html": "syncros",
+        "sync_song_enable": "syncros",
         "syncros_import_analyze": "syncros.supervisors", "syncros_import_apply": "syncros.supervisors",
         "integrations_view": "integraciones",
         # Pleo se configura por empresa desde Integraciones (los endpoints exigen además dirección).
@@ -66998,6 +67046,10 @@ def inject_personnel_globals():
         "HOME_PITCH_PENDING": (_home_pitch_pending()
                                if _dept and "_home_pitch_pending" in globals()
                                and has_access_key("discografica", include_descendants=True) else []),
+        # REGISTROS + SELLO: los temas SIN GÉNERO (sin él no se pueden presentar bien). ⚠️ Es tarea
+        # de quien tiene las DOS funciones, no del apartado de Syncros.
+        "HOME_SONGS_NO_GENRE": (_home_songs_without_genre()
+                                if _home and "_home_songs_without_genre" in globals() else None),
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if _dept and "_home_pending_peticiones" in globals() else [],
         # MIS PETICIONES: las que ha hecho esta persona, para ver cómo van. Es de cada uno, así que
         # no depende de ningún permiso de sección.
@@ -119917,23 +119969,35 @@ def _sync_song_rows(session_db, canciones, *, one_stop_map=None) -> list[dict]:
     return filas
 
 
-def _sync_repertoire_context(session_db) -> dict:
-    """El REPERTORIO para Syncro: todo lo que se puede presentar, con sus filtros.
+def _sync_repertoire_songs(session_db):
+    """Las canciones que están EN el repertorio de Syncro: las **habilitadas a mano** y las
+    **ONE-STOP** (que entran solas por serlo).
 
-    ⚠️ El filtro por ARTISTA funciona como el del repertorio de Discográfica: primero la rejilla de
-    artistas con su número y, al pinchar uno, solo las suyas (`?artista=<id>`)."""
-    q = (request.args.get("q") or "").strip()
-    solo_os = _truthy(request.args.get("onestop"))
-    artista_id = _safe_uuid((request.args.get("artista") or "").strip())
-
+    ⚠️ Punto único: lo usan la sección de Syncros y la landing pública, así que dentro y fuera se ve
+    el mismo repertorio."""
     canciones = (session_db.query(Song)
                  .options(selectinload(Song.artists))
                  .filter(Song.is_provisional.is_(False))
                  .order_by(Song.release_date.desc().nullslast(), Song.title.asc()).all())
-    filas = _sync_song_rows(session_db, canciones)
+    mapa = _song_one_stop_map(session_db, canciones)
+    elegidas = [c for c in canciones
+                if bool(getattr(c, "sync_enabled", False)) or (mapa.get(str(c.id)) or {}).get("ok")]
+    return elegidas, mapa
 
-    # La rejilla de artistas: los que tienen repertorio (con el filtro one-stop ya aplicado, para
-    # que el número diga lo que se va a ver).
+
+def _sync_repertoire_context(session_db) -> dict:
+    """El REPERTORIO para Syncro: **el LISTADO** de lo que se puede presentar, con sus filtros.
+
+    ⚠️ Aquí se ve la LISTA directamente (los artistas son un filtro, no una pantalla previa): la
+    agrupación por géneros o por artistas es solo del **repertorio abierto** que consultan los
+    supervisores (`public_sync_repertoire`)."""
+    q = (request.args.get("q") or "").strip()
+    solo_os = _truthy(request.args.get("onestop"))
+    artista_id = _safe_uuid((request.args.get("artista") or "").strip())
+
+    canciones, mapa_os = _sync_repertoire_songs(session_db)
+    filas = _sync_song_rows(session_db, canciones, one_stop_map=mapa_os)
+
     base = [f for f in filas if (f["one_stop"] or not solo_os)]
     artistas, mapa_art = {}, {}
     for c in canciones:
@@ -119964,12 +120028,8 @@ def _sync_repertoire_context(session_db) -> dict:
         "rep_artists": rejilla,
         "rep_artist_id": str(artista_id) if artista_id else "",
         "rep_artist": ({"id": str(artista_id), "name": (getattr(elegido, "name", "") or ""),
-                        "photo": (getattr(elegido, "photo_url", "") or ""),
-                        "count": len(base)} if elegido is not None else None),
+                        "photo": (getattr(elegido, "photo_url", "") or "")} if elegido is not None else None),
         "rep_onestop_total": len([f for f in filas if f["one_stop"]]),
-        # Las que NO tienen género: es una tarea pendiente (sin género no se pueden presentar bien).
-        "rep_no_genre": [f for f in filas if not f["genres"]][:60],
-        "rep_no_genre_total": len([f for f in filas if not f["genres"]]),
     }
 
 
@@ -120234,6 +120294,38 @@ def sync_song_preview_html(song_id):
         session_db.close()
 
 
+@app.post("/syncros/tema/<song_id>/habilitar", endpoint="sync_song_enable")
+@admin_required
+def sync_song_enable(song_id):
+    """Habilita (o deshabilita) un tema para SYNCRO desde su ficha.
+
+    ⚠️ El repertorio de Syncros enseña las **habilitadas** y las **ONE-STOP**: un tema que no es
+    one-stop se puede presentar igualmente si alguien decide que sí, y uno que lo es entra solo."""
+    if not (can_edit_syncros() or can_edit_discografica()):
+        return forbid("No tienes permiso para habilitar temas para Syncro.")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if song is None:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        quitar = _truthy(request.form.get("undo")) or _truthy(request.args.get("undo"))
+        song.sync_enabled = not quitar
+        if song.sync_enabled:
+            song.sync_enabled_at = _now_madrid()
+            song.sync_enabled_by_nick = (_current_user_state().get("nick") or "").strip() or None
+        session_db.commit()
+        flash("Tema habilitado para Syncro." if song.sync_enabled
+              else "Tema retirado del repertorio de Syncro.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo cambiar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next") or request.referrer
+                    or url_for("discografica_song_detail", song_id=song_id))
+
+
 @app.post("/syncros/tema/<song_id>/enviar", endpoint="sync_song_send")
 @admin_required
 def sync_song_send(song_id):
@@ -120253,9 +120345,10 @@ def sync_song_send(song_id):
         if song is None:
             flash("Canción no encontrada.", "warning")
             return redirect(url_for("syncros_view"))
-        if not _song_one_stop(session_db, song)["ok"]:
-            # Esconder el botón no basta: lo que no es one-stop no se ofrece a un supervisor.
-            flash("Ese tema no es One-stop: no se puede presentar para sincronización.", "warning")
+        # Esconder el botón no basta: solo se presenta lo que está EN el repertorio de Syncro.
+        if not (bool(getattr(song, "sync_enabled", False)) or _song_one_stop(session_db, song)["ok"]):
+            flash("Ese tema no está en el repertorio de Syncro: habilítalo en su ficha o compruébalo.",
+                  "warning")
             return redirect(request.referrer or url_for("syncros_view"))
 
         ids = [i for i in request.form.getlist("supervisor_ids") if (i or "").strip()]
@@ -120380,11 +120473,8 @@ def public_sync_repertoire():
     try:
         lang = _sync_lang("EN" if (request.args.get("lang") or "").strip().lower() in ("en", "eng") else "ES")
         t = SYNC_TEXTS[lang]
-        canciones = (session_db.query(Song)
-                     .options(selectinload(Song.artists))
-                     .filter(Song.is_provisional.is_(False))
-                     .order_by(Song.release_date.desc().nullslast(), Song.title.asc()).all())
-        filas = [f for f in _sync_song_rows(session_db, canciones) if f["genres"] or f["one_stop"]]
+        canciones, mapa_os = _sync_repertoire_songs(session_db)
+        filas = _sync_song_rows(session_db, canciones, one_stop_map=mapa_os)
         vista = (request.args.get("ver") or "genero").strip().lower()
         if vista not in ("genero", "artista"):
             vista = "genero"

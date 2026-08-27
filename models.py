@@ -584,6 +584,12 @@ class Song(Base):
     # Token OPACO del enlace público del tema para SINCRONIZACIÓN (Syncros). Se crea la primera vez
     # que se comparte y no caduca: un enlace ya mandado a un supervisor tiene que seguir valiendo.
     sync_share_token = Column(Text, unique=True)
+    # HABILITADA PARA SYNCRO: se marca a mano en su ficha. El repertorio de Syncros enseña estas y
+    # las ONE-STOP (que entran solas por serlo), así que un tema que no es one-stop se puede
+    # presentar igualmente si alguien decide que sí.
+    sync_enabled = Column(Boolean, nullable=False, server_default=text("false"))
+    sync_enabled_at = Column(DateTime(timezone=True))
+    sync_enabled_by_nick = Column(Text)
     lyrics_updated_at = Column(DateTime(timezone=True))
     # FOCUS SINGLE: el lanzamiento PRIORITARIO. Se decide en el proyecto y es de la CANCIÓN (se ve
     # en su ficha y en el repertorio). `None` = todavía no se ha decidido, que no es lo mismo que
@@ -10383,6 +10389,9 @@ def ensure_chartmetric_schema():
         # reintenta pasados CM_AUTOLINK_RETRY_DAYS, porque un lanzamiento reciente aparece después).
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_isrc_checked_at timestamptz;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_share_token text;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_enabled boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_enabled_at timestamptz;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_enabled_by_nick text;",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_songs_sync_share_token ON songs(sync_share_token) WHERE sync_share_token IS NOT NULL;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_track text;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_links_locked jsonb NOT NULL DEFAULT '[]'::jsonb;",

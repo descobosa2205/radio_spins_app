@@ -52,7 +52,7 @@
    derecha y los que se añadan van saliendo a su izquierda. #}
 <div class="ficha-quick ficha-quick--end mb-0">
   {# ── SYNCRO: solo en un tema ONE-STOP (lo que se puede licenciar sin pedir permiso a nadie). ── #}
-  {% if one_stop and one_stop.ok %}
+  {% if sync_in_repertoire %}
     <div class="dropdown">
       {# Todo lo de Syncro cuelga de aquí, incluido el envío a Supervisors. #}
       <button class="btn btn-sm {{ 'btn-outline-success' if sync_sent else 'btn-outline-secondary' }} dropdown-toggle"
@@ -73,8 +73,32 @@
         <li><button class="dropdown-item" type="button" onclick="shareBySms('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-solid fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>
         <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ sync_share_url }}')"><i class="fa-solid fa-link fa-fw me-1"></i>Copiar enlace</button></li>
         <li><a class="dropdown-item" href="{{ sync_share_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-eye fa-fw me-1"></i>Ver la página</a></li>
+        {% if CAN_EDIT_SYNCROS or CAN_EDIT_DISCOGRAFICA %}
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            {# Un tema ONE-STOP entra solo en el repertorio; los demás, habilitándolos aquí. #}
+            {% if one_stop and one_stop.ok and not sync_enabled %}
+              <span class="dropdown-item-text small text-muted">
+                <i class="fa-solid fa-clapperboard fa-fw me-1"></i>En el repertorio por ser One-stop</span>
+            {% else %}
+              <form method="post" action="{{ url_for('sync_song_enable', song_id=song.id) }}" class="d-inline">
+                {% if sync_enabled %}<input type="hidden" name="undo" value="1">{% endif %}
+                <button class="dropdown-item" type="submit">
+                  <i class="fa-solid {{ 'fa-circle-minus' if sync_enabled else 'fa-circle-check' }} fa-fw me-1"></i>
+                  {{ 'Quitar del repertorio de Syncro' if sync_enabled else 'Habilitar para Syncro' }}</button>
+              </form>
+            {% endif %}
+          </li>
+        {% endif %}
       </ul>
     </div>
+  {% elif CAN_EDIT_SYNCROS or CAN_EDIT_DISCOGRAFICA %}
+    {# No está en el repertorio: el único botón es habilitarla. #}
+    <form method="post" action="{{ url_for('sync_song_enable', song_id=song.id) }}" class="d-inline">
+      <button class="btn btn-sm btn-outline-secondary" type="submit"
+              title="Ponerla en el repertorio para sincronizaciones">
+        <i class="fa-solid fa-clapperboard me-1"></i>Habilitar para Syncro</button>
+    </form>
   {% endif %}
   {% if CAN_EDIT_DISCOGRAFICA %}
     {# El modal vive fuera de las pestañas, así que el botón vale desde cualquiera. #}
@@ -3258,4 +3282,4 @@
 
 {# El pop-up de ENVIAR A SUPERVISORS: el MISMO que el del listado de Syncros (un solo sitio que
    mantener). Va fuera de las pestañas, así que el botón vale desde cualquiera. #}
-{% if one_stop and one_stop.ok and CAN_EDIT_SYNCROS %}{% include '_sync_send_modal.html' %}{% endif %}
+{% if sync_in_repertoire and CAN_EDIT_SYNCROS %}{% include '_sync_send_modal.html' %}{% endif %}

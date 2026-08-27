@@ -38,6 +38,10 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'documentos' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='documentos') }}"><i class="fa fa-id-card me-1"></i>Documentos</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'prl' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='prl') }}"><i class="fa fa-helmet-safety me-1"></i>Alta y PRL</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'adelantos' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='adelantos') }}"><i class="fa fa-hand-holding-dollar me-1"></i>Adelantos y deudas</a></li>
+  {# SYNCROS: la pestaña solo existe si este tercero es supervisor de sincronizaciones. #}
+  {% if sync_is_supervisor or tab == 'syncro' %}
+    <li class="nav-item"><a class="nav-link {% if tab == 'syncro' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='syncro') }}"><i class="fa fa-clapperboard me-1"></i>Syncro</a></li>
+  {% endif %}
 </ul>
 
 <div class="bg-white border border-top-0 rounded-bottom p-3">
@@ -148,6 +152,9 @@
     {% include '_person_documents_panel.html' %}
   {% elif tab == 'prl' %}
     {% include '_prl_docs_panel.html' %}
+  {% elif tab == 'syncro' %}
+    {% include '_promoter_syncro_tab.html' %}
+
   {% elif tab == 'adelantos' %}
     {# ADELANTOS Y DEUDAS con las empresas del grupo: lo que avisa al ir a pagarle algo. #}
     <div class="card mb-3">

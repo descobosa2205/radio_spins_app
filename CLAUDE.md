@@ -1641,6 +1641,71 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   sobre blanco (`alpha_composite`), lo que arregla también las og: de pitch, materiales y playlists.
   ⚠️ Sus ocho endpoints públicos están en las **tres** listas.
 
+- ⚠️⚠️ **LA PREVISUALIZACIÓN DE UNA DEMO NO ES «PLAYLIST»** (corregido ago 2026). La página que se
+  comparte es **la misma plantilla** para una playlist y para una maqueta (`public_playlist.html`, que
+  es lo que hace que se vean y suenen igual), y el título estaba **escrito a mano ahí**: al compartir
+  una demo, la tarjeta de WhatsApp y el SMS decían «Playlist». Ahora lo da el servidor, punto único
+  **`_share_preview_meta(pl, items, is_demo=…)`**:
+  · **demo** → «**Demo · \<nombre\>**» y en la sublínea **el ARTISTA** (si se sabe);
+  · **playlist** → «**Playlist · \<nombre\>**» y en la sublínea **cuántos temas** lleva.
+  Con eso, la tarjeta, el `twitter:` y el **título de la pestaña** dicen siempre lo mismo.
+  · **LA MINIATURA va en cascada: la PORTADA → la FOTO DEL ARTISTA → el LOGO del back office**
+  (`_share_og_image_response`, que sirve la primera que se pueda leer y, si ninguna vale, redirige a
+  `og_default_image` —el «33» a 1200×630—). ⚠️ Antes el último respaldo era la imagen de «sin
+  portada», que en una tarjeta no dice nada; y una portada CAÍDA daba un 404, que en WhatsApp se ve
+  como un enlace pelado.
+  ⚠️⚠️ **Y la miniatura de una demo NO se pintaba nunca** (bug real): `public_demo_share` pasaba la
+  URL como **`og_image`** y la plantilla lee **`og_image_url`**. Al añadir una og:image a una página,
+  comprobar el nombre EXACTO de la clave que espera su plantilla.
+  ⚠️ En una playlist las fuentes se leen **en BLOQUE** (una consulta para las portadas de sus temas y
+  otra para las fotos de sus artistas): con decenas de temas, una consulta por cada uno sería
+  inaceptable. Y ⚠️ **`Song` NO tiene `artist_id`**: su artista va por **`SongArtist`** (N:M).
+  ⚠️ Se emite también **`og:image:type`**: sin él, WhatsApp y algunos móviles descartan la foto.
+
+- **SYNCROS · SUPERVISORS** (ago 2026): sección nueva (`/syncros`, permiso `syncros` +
+  `syncros.supervisors`) para las **sincronizaciones** —música para anuncios, cine y televisión—. Su
+  primera sección son los **Supervisors**: los terceros con los que se sincroniza.
+  · ⚠️⚠️ **UN SUPERVISOR ES UN TERCERO**: su nombre, su foto, su email, su teléfono y sus documentos
+  viven en su `Promoter` de siempre y **aquí NO se duplican**. **`SyncSupervisor`** (uno por tercero,
+  `promoter_id` UNIQUE) solo añade la FACETA de syncro: **tipo** (`SYNC_SUPERVISOR_TYPES`: Music
+  Supervisor · Agencia de publicidad · Productora de anuncios, que se ve como **etiqueta** y filtra),
+  **dónde opera** (`region_kind` GLOBAL | LATAM | **COUNTRY** + `region_country`, en dos campos para
+  que el filtro no dependa de cómo se escriba el país) e **idiomas** (`languages`, JSONB; **todos
+  nacen con español e inglés** —`SYNC_DEFAULT_LANGUAGES`— y se añaden o se quitan).
+  · **SUBIR DESDE FICHERO** (botón arriba a la derecha): motor puro **`sync_import.py`**, que
+  **reutiliza el LECTOR de la importación de terceros** (`promoter_import.read_rows`/`parse_columns`,
+  que ya sabe de cabeceras desplazadas, «N.º de teléfono» y los decimales que mete Excel); lo único
+  propio es a qué campos se vuelca cada columna y cómo se normalizan el tipo, la región y los
+  idiomas («Music Supervisors», «Agencia Publicidad», «Latam», «ES/EN/PT», «Spanish and English»…).
+  Tres pasos: fichero → columnas (lo que no se reconoce se pregunta) → importar.
+  ⚠️ **NO SE DUPLICAN TERCEROS**: se identifican por **email** (el de la ficha y los de su pestaña de
+  contacto) y, si no lo traen, por nombre exacto; a quien ya está se le **reutiliza** la ficha y solo
+  se le añade la de Syncro, y **reimportar el mismo fichero no crea nada** (comprobado). Lo que ya
+  está escrito en su ficha de tercero **no se pisa nunca**: solo se rellena lo que tenga vacío.
+  ⚠️ Cada fila va en su **savepoint**: una que falle no tumba las demás, y se dice cuáles.
+  · **AÑADIR A MANO, en DOS pantallas** (`_sync_supervisor_modals.html` + `static/js/syncros.js`):
+  paso 1 = **buscador de terceros en vivo con su foto** (`api_sync_promoter_search`, que además marca
+  quién **ya está en Syncros** para no ofrecerlo dos veces) y, en la última fila, **crear el tercero
+  con lo escrito**; paso 2 = los campos de Syncro. El email y el teléfono **solo se piden si su ficha
+  no los tiene** (`_sync_apply_contact`, que nunca pisa un dato y los sincroniza con su pestaña de
+  contacto por el punto único de siempre).
+  · **Pestaña «Syncro» en la ficha del tercero** (`_promoter_syncro_tab.html`): su ficha de syncro
+  (editable inline) y **las sincronizaciones que se le han enviado, con su fecha** (`SyncSubmission`,
+  con `promoter_id` denormalizado para pintarla sin pasar por el supervisor). ⚠️ La pestaña **solo
+  existe si el tercero es supervisor** (`sync_is_supervisor`), y hay que tenerla en la **lista blanca
+  de `tab`** de `promoter_detail_view` (si no, cae en «general» sin dar ningún error).
+  · **Los filtros solo ofrecen lo que puede devolver algo** (misma regla que los tipos del calendario
+  de agenda): un filtro vacío solo hace ruido. El idioma y el texto se filtran en Python (el idioma
+  vive en un JSONB y el nombre se compone del tercero, no es una columna de esta tabla).
+  ⚠️ Cuántas sincronizaciones se le han enviado a cada uno sale de **UNA** consulta agrupada: con
+  cientos de supervisores, una por fila sería inaceptable.
+  ⚠️ **Quitar de Syncros NO borra el tercero** (`sync_supervisor_delete`): solo su ficha de syncro.
+  ⚠️ Sus endpoints se llaman **`sync_*` / `syncros_*`**, fuera de cualquier prefijo ya cubierto, así
+  que hay que mapearlos a mano en los DOS mapeos; el buscador va en `SUPPORT_READ_ENDPOINTS` (es una
+  búsqueda). Probado con la app real: pantalla, importación de un .xlsx de verdad, reimportación sin
+  duplicados, los cuatro filtros, el alta a mano, la pestaña del tercero y los permisos (sin permiso
+  403 · solo ver sin botones y con el POST rebotado · ver+editar).
+
 - **PLAYLIST** (ago 2026): listas de temas para **MANDARLAS**, en su pestaña de Discográfica
   (`/discografica?section=playlists`). Modelos **`Playlist`** + **`PlaylistItem`**
   (`ensure_playlists_schema`). Una línea es una **CANCIÓN** del repertorio, una **DEMO**, un **TÍTULO**
@@ -3373,6 +3438,43 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Los `<input type="file">` de los tres sitios llevan `accept="image/*,video/*,application/pdf"`
   **y** los dos modales de dentro tenían un filtro en JS que **descartaba en silencio** todo lo que
   no fuera imagen o PDF: un vídeo arrastrado desaparecía de la cola sin decir nada (bug real).
+
+- **LOGOTIPOS E IMAGEN DE MARCA de una gira / ciclo / evento** (ago 2026): es la **PRIMERA sección**
+  de la cartelería GENERAL del grupo, donde se suben **los formatos del logo** (principal,
+  horizontal, negativo, isotipo, cabecera de redes, manual de marca…) y donde se marca **cuál es
+  LA IMAGEN de la gira** — la misma que se ve en su ficha y en los listados, igual que la foto de un
+  artista.
+  · **No es un modelo nuevo**: son `ConcertArtworkAsset` de la MISMA solicitud del grupo con
+  **`category`** (`ARTWORK_ASSET_CATEGORIES`: **POSTER** = cartel · **LOGO** = pieza de marca), así
+  que reutilizan la subida (con carpetas), la aprobación de diseño, las miniaturas de vídeo y el
+  compartir. Las piezas ANTERIORES a la columna son todas POSTER (`_artwork_asset_category`, global
+  de plantilla **`artwork_category`**).
+  ⚠️⚠️ **PERO NO SE MEZCLAN**: cada categoría tiene su sección, su subida y su ZIP
+  (`group_artwork_download_all?category=LOGO`), y **todo lo que SALE de casa es solo POSTER** — el
+  enlace público de cartelería, su descarga y el aviso de salida a la venta
+  (`_artwork_group_assets(..., category=…)` y el filtro de `_concert_artwork_share_assets`). Un logo
+  no es lo que se le manda al artista ni al promotor.
+  ⚠️ Por lo mismo, **`_artwork_pick_primary_by_squareness(row, category)`** trabaja **por categoría**
+  y `group_artwork_asset_primary` solo desmarca dentro de la suya: sin eso, la primera pieza de marca
+  se quedaba como **cartel** principal de la gira (y marcar un logo desmarcaba el cartel).
+  · **La imagen principal se APLICA al grupo**: `_artwork_group_apply_brand_image` escribe
+  **`logo_url`** (`ARTWORK_GROUP_IMAGE_FIELD`) de `PurchasedTour` / `CycleFestival` / `AppEvent`, que
+  es el campo que YA pinta toda la app — mismo patrón que la portada de un proyecto discográfico: no
+  se guarda un dato paralelo. El punto único es **`_artwork_group_sync_brand_image`**, llamado desde
+  los CUATRO caminos que la pueden cambiar (subir, aprobar, marcar principal y borrar), así que la
+  sección de marca y la imagen de la gira **no se pueden desparejar**.
+  ⚠️ Al borrar la principal, la imagen pasa a la siguiente pieza de marca y, si no queda ninguna, el
+  grupo **se queda sin imagen** en vez de apuntar a un archivo borrado (`clear_if_empty`).
+  ⚠️ Solo una **IMAGEN** puede ser la imagen del grupo (`_artwork_can_be_primary`): un vectorial o un
+  paquete no. Y por eso existe el kind **`FILE`** (`ARTWORK_FILE_EXTS`: `.ai`, `.eps`, `.zip`,
+  `.psd`, `.indd`) — un logo de imprenta **no se puede pintar**, así que se ve con su icono y se
+  descarga; va por `upload_file` (`upload_image` solo admite PNG/JPG/WEBP/GIF/**SVG**).
+  · UI: la sección vive en `templates/_artwork_group_panel.html` (y por tanto sale igual en la ficha
+  del grupo y, en solo lectura, dentro de cada fecha). **El modal de subida es UNO** para las dos
+  categorías y ⚠️ **la categoría se fija EN EL CLIC** (`data-gart-open="LOGO|POSTER"`), no en
+  `shown.bs.modal`, que con `modal_stack.js` por medio no siempre llega. En marca, cada archivo lleva
+  su **nombre de formato** (con el catálogo `ARTWORK_BRAND_FORMATS` sugerido en un `datalist`); en
+  carteles el nombre lo sigue poniendo el archivo.
 
 - **Cartelería de TODA una gira / ciclo / evento**: `ConcertArtworkRequest` admite dueño GRUPO
   (`group_kind` TOUR|CYCLE + `group_id`, con `concert_id` NULL): una sola solicitud para todas sus

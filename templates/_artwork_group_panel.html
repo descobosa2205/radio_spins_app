@@ -6,10 +6,136 @@
    Contexto (lo da `_artwork_group_context`): gk_kind, gk_id, gk_name, gk_request, gk_assets
    (aprobados), gk_pending, gk_rejected. Con `gk_readonly` se pinta como MÓDULO de solo lectura
    (dentro de la ficha de una fecha): sin subir, sin aprobar y sin borrar; compartir y descargar sí.
+
+   ⚠️ AL PRINCIPIO va «LOGOTIPOS E IMAGEN DE MARCA» (gk_brand / gk_brand_pending /
+   gk_brand_rejected): los formatos del logo de la gira/ciclo/evento. La pieza marcada como
+   PRINCIPAL es **la imagen de la gira** — la misma que se ve en su ficha y en los listados, igual
+   que la foto de un artista (el servidor la aplica a `logo_url`, `_artwork_group_apply_brand_image`).
+   Comparten solicitud con los carteles pero NO se mezclan: cada categoría tiene su sección, su
+   subida y su ZIP, y lo que sale de casa (enlace público, aviso de salida a la venta) son solo los
+   carteles.
    ============================================================================ #}
 {% import '_artwork_media.html' as artm with context %}
 {% set _puede_editar = (not gk_readonly) and CAN_EDIT_CONCERTS %}
 {% set _share_text = ('Carteles ' ~ gk_name ~ ':\n' ~ (gk_assets|map(attribute='file_url')|join('\n'))) %}
+{% set _brand_share = ('Logos ' ~ gk_name ~ ':\n' ~ (gk_brand|map(attribute='file_url')|join('\n'))) %}
+{% set _img_label = {'TOUR': 'Imagen de la gira', 'EVENT': 'Imagen del evento'}.get(gk_kind, 'Imagen del ciclo') %}
+
+{# ============ LOGOTIPOS E IMAGEN DE MARCA (va PRIMERO: es la identidad del grupo) ============ #}
+<div class="card {{ 'mt-3' if gk_readonly else '' }} mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+      <h6 class="mb-0">
+        <i class="fa fa-copyright me-1 text-danger"></i>Logotipos e imagen de marca
+        {% if gk_brand %}<span class="badge text-bg-primary ms-1">{{ gk_brand|length }}</span>{% endif %}
+      </h6>
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        {% if gk_brand %}
+          <div class="dropdown">
+            <button class="btn btn-outline-danger btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir</button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="mailto:?subject={{ ('Logos ' ~ gk_name)|urlencode }}&body={{ _brand_share|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+              <li><a class="dropdown-item" href="https://wa.me/?text={{ _brand_share|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
+              <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ gk_brand|map(attribute='file_url')|join('\n') }}"><i class="fa fa-link fa-fw me-1"></i>Copiar los enlaces</button></li>
+              <li><a class="dropdown-item" href="{{ url_for('group_artwork_download_all', gkind=gk_kind, gid=gk_id, category='LOGO') }}"><i class="fa fa-file-zipper fa-fw me-1"></i>Descargar todos</a></li>
+            </ul>
+          </div>
+        {% endif %}
+        {% if _puede_editar %}
+          <button class="btn btn-danger btn-sm" type="button" data-gart-open="LOGO"><i class="fa fa-cloud-arrow-up me-1"></i>Subir logos</button>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if not gk_brand and not gk_brand_pending and not gk_brand_rejected %}
+      <div class="text-muted small">
+        {% if gk_readonly %}Todavía no hay logotipos ni imagen de marca.
+        {% else %}Todavía no hay logotipos. Sube los formatos que haya (principal, horizontal,
+          negativo, isotipo…) y marca uno como <strong>{{ _img_label|lower }}</strong>: es la imagen
+          que se ve en su ficha y en los listados. Se admiten PNG, JPG, SVG, PDF y también el
+          vectorial de imprenta o un paquete (.ai, .eps, .zip).{% endif %}
+      </div>
+    {% endif %}
+
+    {% if gk_brand %}
+      <div class="row g-3">
+        {% for asset in gk_brand %}
+          <div class="col-6 col-md-4 col-xl-3">
+            <div class="border rounded p-2 h-100 text-center {{ 'border-warning' if asset.is_primary else '' }}">
+              <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:110px;object-fit:contain;', pdf_cls='fs-1') }}</span>
+              <div class="fw-semibold small mt-2 text-truncate" title="{{ asset.format_label }}">{{ asset.format_label }}</div>
+              {% if asset.is_primary %}
+                <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-star me-1"></i>{{ _img_label }}</span>
+              {% endif %}
+              {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
+              <div class="d-flex justify-content-center gap-1 mt-2 flex-wrap">
+                <a class="btn btn-sm btn-outline-secondary" href="{{ asset.file_url }}" target="_blank" rel="noopener" download title="Descargar"><i class="fa fa-download"></i></a>
+                <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset.file_url }}" title="Copiar el enlace"><i class="fa fa-link"></i></button>
+                {% if _puede_editar %}
+                  {% if not asset.is_primary and artwork_kind(asset) == 'IMAGE' %}
+                    <form method="post" action="{{ url_for('group_artwork_asset_primary', gkind=gk_kind, gid=gk_id, asset_id=asset.id) }}">
+                      <button class="btn btn-sm btn-outline-secondary" title="Marcarla como {{ _img_label|lower }}"><i class="fa fa-star"></i></button>
+                    </form>
+                  {% endif %}
+                  <form method="post" action="{{ url_for('group_artwork_asset_delete', gkind=gk_kind, gid=gk_id, asset_id=asset.id) }}" onsubmit="return confirm('¿Eliminar este logotipo?');">
+                    <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                  </form>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if gk_brand_pending %}
+      <hr>
+      <h6 class="mb-2 text-warning-emphasis"><i class="fa fa-clock me-1"></i>Pendientes de aprobación por diseño</h6>
+      <div class="row g-3">
+        {% for asset in gk_brand_pending %}
+          <div class="col-6 col-md-4 col-xl-3">
+            <div class="border rounded p-2 h-100 text-center">
+              <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:110px;object-fit:contain;', dim=True) }}</span>
+              <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
+              {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
+              {% if can_validate_artwork and not gk_readonly %}
+                <div class="d-flex justify-content-center gap-2 mt-2">
+                  <button type="button" class="btn btn-success btn-sm" data-gart-ok="{{ asset.id }}" title="Aprobar"><i class="fa fa-check"></i></button>
+                  <button type="button" class="btn btn-outline-danger btn-sm" data-gart-no="{{ asset.id }}" title="Rechazar y pedir cambios"><i class="fa fa-xmark"></i></button>
+                </div>
+              {% else %}
+                <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if gk_brand_rejected and not gk_readonly %}
+      <hr>
+      <h6 class="mb-2 text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Rechazados por diseño</h6>
+      <div class="row g-3">
+        {% for asset in gk_brand_rejected %}
+          <div class="col-12 col-xl-6">
+            <div class="border border-danger rounded p-3 h-100 d-flex gap-2 align-items-start">
+              <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:contain;', pdf_cls='fs-3') }}</span>
+              <div class="min-w-0">
+                <div class="fw-semibold text-truncate">{{ asset.format_label }}</div>
+                <div class="small text-danger">{{ asset.rejection_note or 'Hay que cambiarlo.' }}</div>
+                {% if _puede_editar %}
+                  <form method="post" action="{{ url_for('group_artwork_asset_delete', gkind=gk_kind, gid=gk_id, asset_id=asset.id) }}" class="mt-2" onsubmit="return confirm('¿Quitar este logotipo rechazado?');">
+                    <button class="btn btn-sm btn-outline-secondary"><i class="fa fa-trash me-1"></i>Quitar</button>
+                  </form>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
 
 <div class="card {{ 'mt-3' if gk_readonly else '' }}">
   <div class="card-body">
@@ -35,7 +161,7 @@
           </div>
         {% endif %}
         {% if _puede_editar %}
-          <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#groupArtworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
+          <button class="btn btn-danger btn-sm" type="button" data-gart-open="POSTER"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
         {% endif %}
       </div>
     </div>
@@ -142,7 +268,7 @@
     <div class="modal-dialog modal-lg modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="fa fa-cloud-arrow-up me-2"></i>Subir carteles de {{ gk_name }}</h5>
+          <h5 class="modal-title"><i class="fa fa-cloud-arrow-up me-2"></i><span data-gart-title>Subir carteles</span> de {{ gk_name }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
@@ -150,10 +276,18 @@
             <i class="fa fa-clock me-1"></i>Quedan <strong>pendientes de aprobación por diseño</strong> (salvo que los subas tú siendo diseño).
             Valen para <strong>todas las fechas</strong>: se verán en cada una, en su propio módulo.
           </div>
+          <div class="alert alert-light border small d-none" data-gart-brand-help>
+            <i class="fa fa-circle-info me-1"></i>Sube <strong>cada formato del logo</strong> y ponle nombre
+            (principal, horizontal, negativo, isotipo…). Después marca uno como
+            <strong>{{ _img_label|lower }}</strong>: será la imagen que se vea en su ficha y en los listados.
+          </div>
+          <datalist id="gartBrandFormats">
+            {% for f in gk_brand_formats %}<option value="{{ f }}"></option>{% endfor %}
+          </datalist>
           <div class="fotos-dropzone" id="gartDropzone" data-file-drop="off">
             <i class="fa fa-cloud-arrow-up fa-2x mb-2"></i>
             <div>Arrastra aquí los carteles <span class="text-muted">(o carpetas enteras)</span>, o <span class="text-primary text-decoration-underline" data-gart-pick>pincha para elegirlos</span></div>
-            <input type="file" class="d-none" id="gartFiles" multiple accept="image/*,video/*,application/pdf">
+            <input type="file" class="d-none" id="gartFiles" multiple accept="image/*,video/*,application/pdf,.ai,.eps,.zip,.psd,.indd">
             <input type="file" class="d-none" id="gartFolder" webkitdirectory directory multiple>
           </div>
           <div class="d-flex justify-content-center gap-2 mt-2">
@@ -198,28 +332,42 @@
     if (zona) {
       var cola = [], lista = document.getElementById('gartQueue'),
           btn = document.getElementById('gartUploadBtn'), msg = document.getElementById('gartMsg'),
-          inputFiles = document.getElementById('gartFiles'), inputFolder = document.getElementById('gartFolder');
+          inputFiles = document.getElementById('gartFiles'), inputFolder = document.getElementById('gartFolder'),
+          // CARTEL o pieza de MARCA: lo decide el botón que abre el modal.
+          categoria = 'POSTER';
       function icono(f) {
         var t = (f && f.type) || '';
         if (/^video\//.test(t)) return 'fa-film';
         if (t === 'application/pdf') return 'fa-file-pdf';
         return 'fa-image';
       }
+      function sinExt(n) { return String(n || '').replace(/\.[^.]+$/, ''); }
       function pintar() {
         lista.innerHTML = cola.map(function (f, i) {
+          // En MARCA se pone nombre a cada formato (el catálogo se sugiere en el datalist); en
+          // carteles el nombre lo pone el propio archivo, como siempre.
+          var nombre = (categoria === 'LOGO')
+            ? '<input type="text" class="form-control form-control-sm" data-gart-label="' + i + '"' +
+              ' list="gartBrandFormats" placeholder="Formato (p. ej. Logo horizontal)"' +
+              ' value="' + sinExt(f.name).replace(/"/g, '&quot;') + '">'
+            : '<span class="fotos-fileitem__name text-truncate">' + (f.name || '') + '</span>';
           return '<div class="fotos-fileitem"><span class="fotos-fileitem__thumb"><i class="fa ' + icono(f) + '"></i></span>' +
-            '<span class="fotos-fileitem__name text-truncate">' + (f.name || '') + '</span>' +
+            nombre +
             '<button type="button" class="btn btn-sm btn-link text-danger" data-gart-quitar="' + i + '"><i class="fa fa-xmark"></i></button></div>';
         }).join('');
         btn.disabled = !cola.length;
         msg.textContent = cola.length ? (cola.length + ' archivo(s) listos para subir') : '';
       }
+      // Un vectorial de imprenta o un paquete: el navegador no les pone `type`, así que se
+      // reconocen por la extensión (si no, el arrastre los descartaba en silencio).
+      var EXT_ARCHIVO = /\.(ai|eps|zip|psd|indd)$/i;
       function anadir(files) {
         Array.prototype.forEach.call(files || [], function (f) {
           if (!f || !f.name || f.name.charAt(0) === '.') return;
           // ⚠️ Un cartel puede ser un VÍDEO: si no se admite aquí, el archivo se descartaba en
           // silencio y parecía que el arrastre «no cogía» nada.
-          if (f.type && !/^image\//.test(f.type) && !/^video\//.test(f.type) && f.type !== 'application/pdf') return;
+          if (f.type && !/^image\//.test(f.type) && !/^video\//.test(f.type)
+              && f.type !== 'application/pdf' && !EXT_ARCHIVO.test(f.name)) return;
           cola.push(f);
         });
         pintar();
@@ -263,7 +411,12 @@
       btn.addEventListener('click', function () {
         if (!cola.length) return;
         var fd = new FormData();
-        cola.forEach(function (f) { fd.append('files', f, f.name); fd.append('labels', f.name); });
+        fd.append('category', categoria);
+        cola.forEach(function (f, i) {
+          fd.append('files', f, f.name);
+          var campo = lista.querySelector('[data-gart-label="' + i + '"]');
+          fd.append('labels', (campo && campo.value.trim()) || f.name);
+        });
         btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
         fetch(URL_SUBIR, { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd })
           .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -276,6 +429,22 @@
             else { btn.disabled = false; btn.innerHTML = 'Subir'; msg.className = 'small mt-2 text-danger'; msg.textContent = (j && j.error) || 'No se pudieron subir.'; }
           })
           .catch(function () { btn.disabled = false; btn.innerHTML = 'Subir'; msg.textContent = 'No se pudieron subir.'; });
+      });
+
+      // ⚠️ La categoría se fija EN EL CLIC, no en `shown.bs.modal`: con `modal_stack.js` por medio
+      // ese evento no siempre llega, y el modal se abriría sin saber qué se está subiendo.
+      document.querySelectorAll('[data-gart-open]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          categoria = (b.getAttribute('data-gart-open') === 'LOGO') ? 'LOGO' : 'POSTER';
+          var esMarca = (categoria === 'LOGO');
+          var t = document.querySelector('[data-gart-title]');
+          if (t) t.textContent = esMarca ? 'Subir logotipos' : 'Subir carteles';
+          var ayuda = document.querySelector('[data-gart-brand-help]');
+          if (ayuda) ayuda.classList.toggle('d-none', !esMarca);
+          cola.length = 0; pintar();
+          msg.className = 'small mt-2'; msg.textContent = '';
+          bootstrap.Modal.getOrCreateInstance(document.getElementById('groupArtworkUploadModal')).show();
+        });
       });
     }
 

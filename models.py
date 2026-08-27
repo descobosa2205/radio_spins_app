@@ -3124,10 +3124,16 @@ class ConcertArtworkAsset(Base):
     file_url = Column(Text, nullable=False)
     original_name = Column(Text)
     mime_type = Column(Text)
-    # ⚠️ UN CARTEL PUEDE SER UN VÍDEO (los anuncios de redes lo son casi siempre): IMAGE | VIDEO | PDF.
+    # ⚠️ UN CARTEL PUEDE SER UN VÍDEO (los anuncios de redes lo son casi siempre): IMAGE | VIDEO |
+    # PDF | FILE (un vectorial de imprenta o un paquete: .ai, .eps, .zip — se descarga, no se pinta).
     # Se deduce del archivo al subirlo (`_artwork_asset_kind`) y se guarda para no tener que adivinarlo
     # al pintar. El vídeo lleva además su MINIATURA (la saca ffmpeg en 2º plano, como los videoclips).
     kind = Column(Text, nullable=False, server_default=text("'IMAGE'"))
+    # QUÉ ES la pieza: POSTER (un cartel) | LOGO (logotipo o imagen de marca de la gira/ciclo/evento).
+    # Van en la MISMA solicitud del grupo pero se ven en secciones distintas y NO se mezclan: lo que
+    # se comparte, el ZIP y el enlace público de cartelería son solo los POSTER. El LOGO marcado como
+    # principal es **la imagen de la gira** (se aplica a `logo_url` del grupo).
+    category = Column(Text, nullable=False, server_default=text("'POSTER'"))
     poster_url = Column(Text)
     # Dimensiones (px) medidas en el navegador al subir; para mostrar el tamaño y elegir
     # como principal el más cuadrado.
@@ -8800,6 +8806,13 @@ def ensure_concert_artwork_schema():
             ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'IMAGE',
             ADD COLUMN IF NOT EXISTS poster_url text;
         """,
+        # Logotipos e imagen de marca de una gira/ciclo/evento: viven con los carteles, en su
+        # propia categoría (POSTER | LOGO).
+        """
+        ALTER TABLE IF EXISTS concert_artwork_assets
+            ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'POSTER';
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_category ON concert_artwork_assets(artwork_request_id, category);',
         # Estados nuevos del flujo de validación (REVIEW/CORRECTIONS): rehacer el CHECK.
         """
         DO $$
@@ -12168,3 +12181,104 @@ def ensure_vacations_schema():
         # Extras de vacaciones por persona (luna de miel y los que se añadan).
         "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS vacation_extras jsonb NOT NULL DEFAULT '[]'::jsonb;",
     ], "vacations_schema")
+
+
+# ============================================================================
+# SYNCROS · sincronizaciones (música para anuncios, cine y televisión)
+#
+# ⚠️ Un SUPERVISOR **es un tercero** (`Promoter`): sus datos de contacto, su ficha fiscal y sus
+# documentos viven donde siempre y NO se duplican aquí. Esta tabla solo añade lo que es propio de
+# las sincronizaciones (qué tipo de agente es, dónde opera y en qué idiomas), de modo que el mismo
+# tercero aparece en Terceros y en Syncros → Supervisors.
+# ============================================================================
+class SyncSupervisor(Base):
+    """Ficha de SYNCRO de un tercero: por qué está en Syncros y cómo se le manda música."""
+
+    __tablename__ = "sync_supervisors"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    # Uno por tercero: la ficha de Syncro es una FACETA suya, no otra ficha.
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"),
+                         nullable=False, unique=True, index=True)
+    # MUSIC_SUPERVISOR | AD_AGENCY | AD_PRODUCER (etiqueta en el listado y filtro).
+    sup_type = Column(Text, nullable=False, server_default=text("'MUSIC_SUPERVISOR'"))
+    # DÓNDE OPERA: un país (COUNTRY + `region_country`), LATAM o GLOBAL. Se guarda en dos campos
+    # para que el filtro no dependa de cómo se escriba el país.
+    region_kind = Column(Text, nullable=False, server_default=text("'GLOBAL'"))
+    region_country = Column(Text)
+    # IDIOMAS en los que se le mandan las sincronizaciones. Todos nacen con español e inglés, y se
+    # pueden añadir o quitar.
+    languages = Column(JSONB, nullable=False, server_default=text("""'["ES","EN"]'::jsonb"""))
+    notes = Column(Text)
+    is_archived = Column(Boolean, nullable=False, server_default=text("false"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter", lazy="joined")
+
+
+class SyncSubmission(Base):
+    """Una sincronización ENVIADA a un supervisor: qué se le mandó y cuándo.
+
+    Es lo que lista la pestaña **Syncro** de la ficha del tercero. `promoter_id` va denormalizado
+    para poder pintar esa pestaña sin pasar por el supervisor."""
+
+    __tablename__ = "sync_submissions"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    supervisor_id = Column(PGUUID(as_uuid=True), ForeignKey("sync_supervisors.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    title = Column(Text, nullable=False)
+    # La canción que se le manda, si es del repertorio (una sincronización puede ser de varias: van
+    # en `payload['songs']`).
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="SET NULL"))
+    language = Column(Text)
+    channel = Column(Text, nullable=False, server_default=text("'EMAIL'"))
+    sent_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_by_nick = Column(Text)
+    notes = Column(Text)
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
+
+def ensure_syncros_schema():
+    """Syncros: la ficha de sincronizaciones de un tercero y lo que se le ha enviado."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS sync_supervisors (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_id uuid NOT NULL UNIQUE REFERENCES promoters(id) ON DELETE CASCADE,
+            sup_type text NOT NULL DEFAULT 'MUSIC_SUPERVISOR',
+            region_kind text NOT NULL DEFAULT 'GLOBAL',
+            region_country text,
+            languages jsonb NOT NULL DEFAULT '["ES","EN"]'::jsonb,
+            notes text,
+            is_archived boolean NOT NULL DEFAULT false,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_sync_supervisors_type ON sync_supervisors(sup_type);",
+        "CREATE INDEX IF NOT EXISTS idx_sync_supervisors_region ON sync_supervisors(region_kind, region_country);",
+        """
+        CREATE TABLE IF NOT EXISTS sync_submissions (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            supervisor_id uuid NOT NULL REFERENCES sync_supervisors(id) ON DELETE CASCADE,
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            title text NOT NULL,
+            song_id uuid REFERENCES songs(id) ON DELETE SET NULL,
+            language text,
+            channel text NOT NULL DEFAULT 'EMAIL',
+            sent_at timestamptz DEFAULT now(),
+            sent_by_nick text,
+            notes text,
+            payload jsonb NOT NULL DEFAULT '{}'::jsonb
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_sync_submissions_promoter ON sync_submissions(promoter_id, sent_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_sync_submissions_supervisor ON sync_submissions(supervisor_id, sent_at DESC);",
+    ], "syncros_schema")

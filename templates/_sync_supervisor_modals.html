@@ -1,0 +1,181 @@
+{# ============================================================================
+   SYNCROS · añadir un supervisor (a mano o desde un fichero).
+
+   ⚠️ Un supervisor ES un tercero: el paso 1 BUSCA en la base de terceros (resultados en vivo, con
+   su foto) y solo crea uno nuevo si de verdad no está. El paso 2 son los campos propios de Syncro.
+   Reutiliza las clases `.pi-*` de la importación de terceros y el lector de ficheros de la casa.
+   ============================================================================ #}
+
+{# ============================ AÑADIR SUPERVISOR ============================ #}
+<div class="modal fade" id="supNewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-user-tie me-2"></i>Añadir supervisor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('sync_supervisor_save') }}" id="supNewForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="hidden" name="promoter_id" data-sup-pid>
+        <input type="hidden" name="new_name" data-sup-newname>
+        <div class="modal-body">
+
+          {# ---------- PASO 1: quién es ---------- #}
+          <div data-sup-step="1">
+            <label class="form-label fw-semibold">¿Quién es? Búscalo en la base de terceros</label>
+            <input type="search" class="form-control" data-sup-search autocomplete="off"
+                   placeholder="Escribe su nombre, su email o su teléfono…">
+            <div class="form-text">Si no está, al final de la lista puedes crearlo con lo que hayas escrito.</div>
+            <div class="mt-2" data-sup-results></div>
+          </div>
+
+          {# ---------- PASO 2: los campos de Syncro ---------- #}
+          <div data-sup-step="2" class="d-none">
+            <div class="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
+              <img data-sup-chosen-photo class="pi-avatar" src="" alt="" data-avatar="1">
+              <div class="min-w-0">
+                <div class="fw-semibold" data-sup-chosen-name></div>
+                <div class="small text-muted" data-sup-chosen-sub></div>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" data-sup-back>
+                <i class="fa fa-arrow-left me-1"></i>Cambiar
+              </button>
+            </div>
+
+            {# Contacto: solo se piden si su ficha de tercero no los tiene (nunca se pisa un dato). #}
+            <div class="row g-3 d-none" data-sup-contact>
+              <div class="col-12 col-md-6">
+                <label class="form-label">Email</label>
+                <input type="email" class="form-control" name="contact_email" data-sup-email>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label">Teléfono</label>
+                <input type="text" class="form-control" name="contact_phone" data-sup-phone>
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <label class="form-label fw-semibold">Tipo</label>
+              <div class="d-flex gap-2 flex-wrap">
+                {% for key, label in sync_types %}
+                  <label class="invitation-radio-option">
+                    <input type="radio" name="sup_type" value="{{ key }}" {% if loop.first %}checked{% endif %} class="d-none">
+                    <span><i class="fa fa-check-circle me-1"></i>{{ label }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <label class="form-label fw-semibold">¿Dónde opera?</label>
+              <div class="d-flex gap-2 flex-wrap">
+                {% for key, label in sync_region_kinds %}
+                  <label class="invitation-radio-option">
+                    <input type="radio" name="region_kind" value="{{ key }}" {% if loop.first %}checked{% endif %}
+                           class="d-none" data-sup-region>
+                    <span><i class="fa fa-check-circle me-1"></i>{{ label }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+              <div class="mt-2 d-none" data-sup-country>
+                <input type="text" class="form-control" name="region_country" placeholder="¿Qué país?"
+                       data-address-autocomplete data-addr="full">
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <label class="form-label fw-semibold">Idiomas de las sincronizaciones</label>
+              <div class="filter-chips">
+                {% for key, label in sync_languages %}
+                  <label class="filter-chip">
+                    <input type="checkbox" name="languages" value="{{ key }}" class="d-none"
+                           {% if key in sync_default_languages %}checked{% endif %}>
+                    <i class="fa fa-check"></i>{{ label }}
+                  </label>
+                {% endfor %}
+              </div>
+              <div class="form-text">Todos empiezan con <strong>español e inglés</strong>: quita o añade los que hagan falta.</div>
+            </div>
+
+            <div class="mt-3">
+              <label class="form-label">Notas</label>
+              <textarea class="form-control" name="notes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary d-none" data-sup-submit><i class="fa fa-check me-1"></i>Añadir a Syncros</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ============================ SUBIR DESDE FICHERO ============================ #}
+<div class="modal fade" id="supImportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-file-arrow-up me-2"></i>Subir supervisores desde un fichero</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        {# ---------- PASO 1: el fichero ---------- #}
+        <div data-si-step="1">
+          <label class="pi-drop" for="supImportFile" role="button" tabindex="0" data-si-drop data-file-drop="off">
+            <i class="fa fa-file-excel pi-drop__icon"></i>
+            <div>Arrastra aquí el <strong>Excel (.xlsx)</strong> o el <strong>CSV</strong>, o pincha para elegirlo</div>
+            <div class="small text-muted mt-1">Se detectan el nombre, el email, el teléfono, el tipo, la región y los idiomas.</div>
+          </label>
+          <input type="file" id="supImportFile" class="d-none" accept=".xlsx,.xls,.csv,text/csv">
+          <div class="small mt-2" data-si-msg></div>
+        </div>
+
+        {# ---------- PASO 2: las columnas ---------- #}
+        <div data-si-step="2" class="d-none">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+            <div><strong data-si-file></strong> <span class="text-muted small" data-si-count></span></div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-si-restart>
+              <i class="fa fa-rotate-left me-1"></i>Otro fichero
+            </button>
+          </div>
+          <div class="alert alert-warning small d-none" data-si-unknown></div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle pi-cols">
+              <thead><tr>
+                <th>Columna del fichero</th><th>Ejemplo</th><th style="width:34%;">¿Qué es?</th>
+              </tr></thead>
+              <tbody data-si-cols></tbody>
+            </table>
+          </div>
+        </div>
+
+        {# ---------- PASO 3: el resultado ---------- #}
+        <div data-si-step="3" class="d-none">
+          <div data-si-result></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-success d-none" data-si-apply>
+          <i class="fa fa-check me-1"></i>Importar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ⚠️ La configuración va ANTES del <script src>: si no, el motor arranca sin `window.SYNCROS`. #}
+<script>
+  window.SYNCROS = {
+    buscar: {{ url_for('api_sync_promoter_search')|tojson }},
+    analizar: {{ url_for('syncros_import_analyze')|tojson }},
+    aplicar: {{ url_for('syncros_import_apply')|tojson }},
+    tipos: {{ sync_types|tojson }},
+    idiomas: {{ sync_languages|tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='js/syncros.js') }}"></script>

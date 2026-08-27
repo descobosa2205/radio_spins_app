@@ -1,7 +1,8 @@
 {# ============================================================================
    CÓMO SE VE UN CARTEL, en UN SOLO SITIO.
 
-   Un cartel puede ser una IMAGEN, un VÍDEO o un PDF, y se tiene que ver igual en los tres sitios
+   Una pieza puede ser una IMAGEN, un VÍDEO, un PDF o un ARCHIVO que solo se descarga (el vectorial
+   de un logo, un .zip), y se tiene que ver igual en los tres sitios
    donde se enseña: la pestaña Cartelería de la actividad, el panel de la cartelería GENERAL
    (evento / gira / ciclo) y la página pública que se comparte.
    ⚠️ De qué es lo dice `artwork_kind(asset)` (global de plantilla): manda la columna `kind` y, en
@@ -26,6 +27,10 @@
     </span>
   {%- elif k == 'PDF' -%}
     <i class="fa fa-file-pdf {{ pdf_cls }} text-danger"></i>
+  {%- elif k == 'FILE' -%}
+    {#- El vectorial de imprenta de un logo (.ai/.eps) o un paquete (.zip): no se puede pintar,
+        así que se ve con su icono y se descarga. -#}
+    <i class="fa fa-file-zipper {{ pdf_cls }} text-secondary"></i>
   {%- else -%}
     <img src="{{ asset.file_url }}" alt="" class="{{ cls }}" style="{{ style }}{% if dim %}opacity:.75;{% endif %}" loading="lazy">
   {%- endif -%}

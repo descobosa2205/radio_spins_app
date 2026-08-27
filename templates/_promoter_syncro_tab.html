@@ -1,0 +1,143 @@
+{# ============================================================================
+   Pestaña SYNCRO de la ficha de un tercero: su ficha de sincronizaciones (tipo, dónde opera y en
+   qué idiomas) y LAS SINCRONIZACIONES QUE SE LE HAN ENVIADO, con su fecha.
+   Contexto: `_sync_promoter_tab_context`.
+   ============================================================================ #}
+
+{% if not sync_row %}
+  <div class="alert alert-light border">
+    <i class="fa fa-circle-info me-1"></i>Este tercero <strong>no está en Syncros</strong>.
+    Se añade desde <a href="{{ url_for('syncros_view') }}">Syncros → Supervisors</a>.
+  </div>
+{% else %}
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+        <h6 class="mb-0"><i class="fa fa-clapperboard me-1 text-danger"></i>Ficha de Syncro</h6>
+        {% if sync_can_edit %}
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-edit-toggle="#syncEditForm">
+            <i class="fa fa-pen me-1"></i>Editar
+          </button>
+        {% endif %}
+      </div>
+
+      {# ---- Vista consolidada (solo lo que está relleno) ---- #}
+      <div data-section-view>
+        <div class="d-flex gap-2 flex-wrap mb-2">
+          <span class="badge text-bg-secondary"><i class="fa {{ sync_row.type_icon }} me-1"></i>{{ sync_row.type_label }}</span>
+          <span class="badge text-bg-light border"><i class="fa {{ sync_row.region_icon }} me-1"></i>{{ sync_row.region_label }}</span>
+          {% for l in sync_row.language_labels %}<span class="badge text-bg-light border">{{ l }}</span>{% endfor %}
+        </div>
+        {% if sync_row.notes %}<div class="small text-muted">{{ sync_row.notes }}</div>{% endif %}
+      </div>
+
+      {# ---- Edición inline (los mismos campos que al añadirlo) ---- #}
+      {% if sync_can_edit %}
+        <form method="post" action="{{ url_for('sync_supervisor_save') }}" id="syncEditForm" class="d-none mt-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="promoter_id" value="{{ promoter.id }}">
+          <input type="hidden" name="next" value="{{ url_for('promoter_detail_view', pid=promoter.id, tab='syncro') }}">
+
+          <label class="form-label fw-semibold">Tipo</label>
+          <div class="d-flex gap-2 flex-wrap mb-3">
+            {% for key, label in sync_types %}
+              <label class="invitation-radio-option">
+                <input type="radio" name="sup_type" value="{{ key }}" class="d-none"
+                       {% if sync_row.type == key %}checked{% endif %}>
+                <span><i class="fa fa-check-circle me-1"></i>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+
+          <label class="form-label fw-semibold">¿Dónde opera?</label>
+          <div class="d-flex gap-2 flex-wrap">
+            {% for key, label in sync_region_kinds %}
+              <label class="invitation-radio-option">
+                <input type="radio" name="region_kind" value="{{ key }}" class="d-none" data-syncro-region
+                       {% if sync_row.region_kind == key %}checked{% endif %}>
+                <span><i class="fa fa-check-circle me-1"></i>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="mt-2 {% if sync_row.region_kind != 'COUNTRY' %}d-none{% endif %}" data-syncro-country>
+            <input type="text" class="form-control" name="region_country" placeholder="¿Qué país?"
+                   value="{{ sync_sup.region_country or '' }}" data-address-autocomplete data-addr="full">
+          </div>
+
+          <label class="form-label fw-semibold mt-3">Idiomas de las sincronizaciones</label>
+          <div class="filter-chips">
+            {% for key, label in sync_languages %}
+              <label class="filter-chip">
+                <input type="checkbox" name="languages" value="{{ key }}" class="d-none"
+                       {% if key in sync_row.languages %}checked{% endif %}>
+                <i class="fa fa-check"></i>{{ label }}
+              </label>
+            {% endfor %}
+          </div>
+
+          <label class="form-label mt-3">Notas</label>
+          <textarea class="form-control" name="notes" rows="2">{{ sync_sup.notes or '' }}</textarea>
+
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+            <button type="button" class="btn btn-outline-secondary" data-edit-cancel="#syncEditForm">Cancelar</button>
+            <a class="btn btn-outline-secondary ms-auto" href="{{ url_for('syncros_view') }}">
+              <i class="fa fa-arrow-right me-1"></i>Ir a Syncros
+            </a>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---- Lo que se le ha enviado ---- #}
+  <div class="card">
+    <div class="card-body">
+      <h6 class="mb-3"><i class="fa fa-paper-plane me-1 text-danger"></i>Sincronizaciones enviadas
+        {% if sync_submissions %}<span class="badge text-bg-primary ms-1">{{ sync_submissions|length }}</span>{% endif %}
+      </h6>
+      {% if not sync_submissions %}
+        <div class="text-muted small">Todavía no se le ha enviado ninguna sincronización.</div>
+      {% else %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead><tr>
+              <th>Sincronización</th><th>Tema</th><th>Idioma</th><th>Enviada</th><th>Por</th>
+            </tr></thead>
+            <tbody>
+              {% for r in sync_submissions %}
+                <tr>
+                  <td class="fw-semibold">{{ r.title }}{% if r.notes %}<div class="small text-muted fw-normal">{{ r.notes }}</div>{% endif %}</td>
+                  <td>{% if r.song_id %}<a href="{{ url_for('discografica_song_detail', song_id=r.song_id) }}">{{ r.song_title or 'Ver el tema' }}</a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                  <td>{{ r.language or '—' }}</td>
+                  <td class="text-nowrap">{{ r.sent_at_label }}</td>
+                  <td>{{ r.sent_by_nick or '—' }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    // El país solo se pide si la región ES un país (y si no, se deshabilita: un campo oculto se
+    // envía igual).
+    var zona = document.querySelector('[data-syncro-country]');
+    if (!zona) return;
+    function pinta() {
+      var m = document.querySelector('[data-syncro-region]:checked');
+      var esPais = m && m.value === 'COUNTRY';
+      zona.classList.toggle('d-none', !esPais);
+      var i = zona.querySelector('input');
+      if (i) i.disabled = !esPais;
+    }
+    document.querySelectorAll('[data-syncro-region]').forEach(function (r) {
+      r.addEventListener('change', pinta);
+    });
+    pinta();
+  })();
+  </script>
+{% endif %}

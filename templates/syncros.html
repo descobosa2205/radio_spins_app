@@ -1,0 +1,164 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ============================================================================
+   SYNCROS · sincronizaciones (música para anuncios, cine y televisión).
+   La primera sección es SUPERVISORS: los terceros con los que se sincroniza.
+   ⚠️ Un supervisor ES un tercero: su nombre, foto, email y teléfono salen de su ficha de siempre
+   (aquí no se duplican) y su fila lleva a la pestaña «Syncro» de esa ficha.
+   ============================================================================ #}
+
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h1 class="h4 mb-0"><i class="fa {{ SECTION_ICONS.get('syncros', 'fa-clapperboard') }} me-2"></i>Syncros</h1>
+</div>
+
+<ul class="nav nav-tabs contract-tabs mb-3">
+  {% for key, label, icon in sections %}
+    <li class="nav-item">
+      <a class="nav-link {% if section == key %}active{% endif %}"
+         href="{{ url_for('syncros_view', section=key) }}"><i class="fa {{ icon }} me-1"></i>{{ label }}</a>
+    </li>
+  {% endfor %}
+</ul>
+
+{% if section == 'supervisors' %}
+  <div class="card mb-3">
+    <div class="card-body">
+      {# ---- Buscador + botones (a la derecha, en orden de uso) ---- #}
+      <form method="get" class="d-flex align-items-center gap-2 flex-wrap mb-3" id="supFilters">
+        <input type="hidden" name="section" value="supervisors">
+        {% for t in sup_filter_type %}<input type="hidden" name="tipo" value="{{ t }}">{% endfor %}
+        {% for r in sup_filter_region %}<input type="hidden" name="region" value="{{ r }}">{% endfor %}
+        {% for l in sup_filter_lang %}<input type="hidden" name="idioma" value="{{ l }}">{% endfor %}
+        <div class="flex-grow-1" style="min-width:220px;max-width:420px;">
+          <input type="search" class="form-control" name="q" value="{{ sup_q }}"
+                 placeholder="Buscar por nombre, email, teléfono, tipo o región…">
+        </div>
+        <button class="btn btn-outline-secondary"><i class="fa fa-magnifying-glass"></i></button>
+        <div class="ms-auto d-flex flex-row-reverse gap-2 flex-wrap">
+          {% if can_edit %}
+            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#supImportModal">
+              <i class="fa fa-file-arrow-up me-1"></i>Subir desde fichero
+            </button>
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#supNewModal">
+              <i class="fa fa-plus me-1"></i>Añadir supervisor
+            </button>
+          {% endif %}
+        </div>
+      </form>
+
+      {# ---- Filtros: solo los que de verdad pueden devolver algo ---- #}
+      {% if sup_types or sup_regions or sup_langs %}
+        <div class="d-flex flex-column gap-2 mb-3" data-sup-filters>
+          {% if sup_types %}
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="small text-muted" style="min-width:64px;">Tipo</span>
+              {% for key, label, icon in sup_types %}
+                <button type="button" class="btn btn-sm {{ 'btn-primary' if key in sup_filter_type else 'btn-outline-secondary' }}"
+                        data-sup-chip="tipo" data-sup-value="{{ key }}"><i class="fa {{ icon }} me-1"></i>{{ label }}</button>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if sup_regions %}
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="small text-muted" style="min-width:64px;">Región</span>
+              {% for key, label, icon in sup_regions %}
+                <button type="button" class="btn btn-sm {{ 'btn-primary' if key in sup_filter_region else 'btn-outline-secondary' }}"
+                        data-sup-chip="region" data-sup-value="{{ key }}"><i class="fa {{ icon }} me-1"></i>{{ label }}</button>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if sup_langs %}
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="small text-muted" style="min-width:64px;">Idioma</span>
+              {% for key, label in sup_langs %}
+                <button type="button" class="btn btn-sm {{ 'btn-primary' if key in sup_filter_lang else 'btn-outline-secondary' }}"
+                        data-sup-chip="idioma" data-sup-value="{{ key }}">{{ label }}</button>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      {% if not sup_rows %}
+        <div class="text-muted small">
+          {% if sup_q or sup_filter_type or sup_filter_region or sup_filter_lang %}
+            No hay ningún supervisor que cumpla los filtros.
+          {% else %}
+            Todavía no hay supervisores. Añádelos uno a uno o <strong>sube un fichero</strong> con la
+            lista: se detectan el nombre, el email, el teléfono, el tipo, la región y los idiomas.
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="small text-muted mb-2">{{ sup_total }} supervisor{{ 'es' if sup_total != 1 else '' }}</div>
+        <div class="list-group list-group-flush">
+          {% for row in sup_rows %}
+            <div class="list-group-item ctask position-relative">
+              <div class="d-flex align-items-center gap-3 flex-wrap">
+                <img src="{{ row.photo }}" alt="" data-avatar="1"
+                     style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
+                <div class="min-w-0 flex-grow-1">
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <a class="fw-semibold text-decoration-none stretched-link" href="{{ row.url }}">{{ row.name }}</a>
+                    <span class="badge text-bg-secondary"><i class="fa {{ row.type_icon }} me-1"></i>{{ row.type_label }}</span>
+                    <span class="badge text-bg-light border"><i class="fa {{ row.region_icon }} me-1"></i>{{ row.region_label }}</span>
+                    {% for l in row.language_labels %}<span class="badge text-bg-light border">{{ l }}</span>{% endfor %}
+                  </div>
+                  <div class="small text-muted d-flex align-items-center gap-3 flex-wrap mt-1">
+                    {% if row.email %}<span class="text-nowrap"><i class="fa fa-envelope me-1"></i>{{ row.email }}</span>{% endif %}
+                    {% if row.phone %}<span class="text-nowrap"><i class="fa fa-phone me-1"></i>{{ row.phone }}</span>{% endif %}
+                    <span class="text-nowrap"><i class="fa fa-paper-plane me-1"></i>
+                      {% if row.submissions %}{{ row.submissions }} sincronización{{ 'es' if row.submissions != 1 else '' }} enviada{{ 's' if row.submissions != 1 else '' }}
+                      {% else %}Sin sincronizaciones enviadas{% endif %}</span>
+                  </div>
+                </div>
+                {% if can_edit %}
+                  <div class="ctask__actions dropdown position-relative" style="z-index:3;">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li><a class="dropdown-item" href="{{ row.url }}"><i class="fa fa-pen fa-fw me-1"></i>Ver y editar su ficha de Syncro</a></li>
+                      <li><hr class="dropdown-divider"></li>
+                      <li>
+                        <form method="post" action="{{ url_for('sync_supervisor_delete', sid=row.id) }}"
+                              data-confirm="¿Quitar a {{ row.name }} de Syncros? Su ficha de tercero NO se borra.">
+                          <input type="hidden" name="next" value="{{ request.full_path }}">
+                          <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Quitar de Syncros</button>
+                        </form>
+                      </li>
+                    </ul>
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if can_edit %}
+    {% include '_sync_supervisor_modals.html' %}
+  {% endif %}
+{% endif %}
+
+<script>
+(function () {
+  // Los filtros son chips: se acumulan y se aplican recargando con la URL (mismo patrón que el
+  // resto de listados servidos).
+  var form = document.getElementById('supFilters');
+  if (!form) return;
+  document.querySelectorAll('[data-sup-chip]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var campo = b.getAttribute('data-sup-chip'), valor = b.getAttribute('data-sup-value');
+      var ya = form.querySelector('input[name="' + campo + '"][value="' + valor + '"]');
+      if (ya) { ya.remove(); }
+      else {
+        var i = document.createElement('input');
+        i.type = 'hidden'; i.name = campo; i.value = valor;
+        form.appendChild(i);
+      }
+      form.submit();
+    });
+  });
+})();
+</script>
+{% endblock %}

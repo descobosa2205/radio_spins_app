@@ -321,6 +321,7 @@ from models import (
     VacationDay,
     UserContract,
     ensure_vacations_schema,
+    ensure_syncros_schema,
     ensure_song_demos_schema,
     ensure_playlists_schema,
     ensure_disco_projects_schema,
@@ -331,8 +332,11 @@ from models import (
     ensure_third_party_intake_schema,
     ArtistTemplate,
     ensure_artist_templates_schema,
+    SyncSupervisor,
+    SyncSubmission,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
+import sync_import  # lector de ficheros de supervisores de sincronización (motor puro)
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
 import invoice_read  # motor puro de LECTURA de facturas (nº, fechas e importes del PDF)
 import promoter_import  # motor puro de IMPORTACIÓN de terceros (columnas de un Excel/CSV)
@@ -1399,6 +1403,7 @@ def inject_globals():
         disco_kind_icon=_disco_kind_icon_html,
         # CARTELERÍA: de qué es un cartel (IMAGE | VIDEO | PDF), para pintarlo como toca.
         artwork_kind=_artwork_kind_of,
+        artwork_category=_artwork_asset_category,
         linked_mini=linked_mini,
         # DIRECCIÓN FISCAL: se pide en piezas (Holded las necesita separadas) y se muestra junta.
         fiscal_parts=_fiscal_parts_for_form,
@@ -3120,11 +3125,16 @@ def _parse_uuid_list(values) -> list[str]:
 
 # Qué es cada cartel. ⚠️ Un cartel puede ser un VÍDEO: los anuncios de redes lo son casi siempre.
 ARTWORK_VIDEO_EXTS = {'.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv', '.mpeg', '.mpg'}
+# Piezas que NO se pintan y solo se descargan: el vectorial de imprenta de un logo y los paquetes.
+ARTWORK_FILE_EXTS = {'.ai', '.eps', '.zip', '.psd', '.indd'}
 
 
 def _artwork_asset_kind(filename: str, mime: str = '') -> str:
-    """IMAGE | VIDEO | PDF, por la extensión (y por el mimetype como respaldo).
+    """IMAGE | VIDEO | PDF | FILE, por la extensión (y por el mimetype como respaldo).
 
+    **FILE** es lo que no se puede pintar y solo se descarga: el vectorial de imprenta de un logo
+    (.ai, .eps) o un paquete con todos sus formatos (.zip). Se ve con su icono y **no puede ser el
+    principal** (`_artwork_can_be_primary` exige IMAGE).
     ⚠️ Vale igual con un nombre de archivo o con una URL: se le quita la cola (`?…`), que en las de
     Storage siempre está —`get_public_url` deja incluso el «?» suelto— y dejaría la extensión sin
     reconocer."""
@@ -3134,6 +3144,8 @@ def _artwork_asset_kind(filename: str, mime: str = '') -> str:
         return 'PDF'
     if ext in ARTWORK_VIDEO_EXTS or (mime or '').strip().lower().startswith('video/'):
         return 'VIDEO'
+    if ext in ARTWORK_FILE_EXTS:
+        return 'FILE'
     return 'IMAGE'
 
 
@@ -3152,16 +3164,20 @@ def _upload_artwork_file(file_storage):
     if kind == 'VIDEO':
         return (upload_file(file_storage, 'concert_artwork',
                             allowed_extensions=ARTWORK_VIDEO_EXTS), mime, 'VIDEO')
+    if kind == 'FILE':
+        # Un logo vectorial (.ai/.eps) o un paquete (.zip): se guarda tal cual para descargarlo.
+        return (upload_file(file_storage, 'concert_artwork',
+                            allowed_extensions=ARTWORK_FILE_EXTS), mime, 'FILE')
     return upload_image(file_storage, 'concert_artwork'), mime, 'IMAGE'
 
 
 def _artwork_kind_of(asset) -> str:
-    """IMAGE | VIDEO | PDF de un cartel YA guardado (punto único; global de plantilla `artwork_kind`).
+    """IMAGE | VIDEO | PDF | FILE de un cartel YA guardado (punto único; global `artwork_kind`).
 
     ⚠️ Manda la columna `kind`, pero los carteles ANTERIORES a esa columna salen todos como IMAGE
     (es su valor por defecto), así que si el nombre o el mimetype dicen otra cosa, mandan ellos."""
     kind = (getattr(asset, 'kind', '') or '').strip().upper()
-    if kind in ('VIDEO', 'PDF'):
+    if kind in ('VIDEO', 'PDF', 'FILE'):
         return kind
     return _artwork_asset_kind((getattr(asset, 'original_name', None) or getattr(asset, 'file_url', None) or ''),
                                getattr(asset, 'mime_type', None) or '')
@@ -3428,10 +3444,15 @@ def _artwork_notify_resolve_if_done(session_db, row) -> None:
         app.logger.exception("[avisos] no se pudo cerrar el aviso de la solicitud de diseño")
 
 
-def _artwork_pick_primary_by_squareness(row: ConcertArtworkRequest) -> None:
-    """Si ningún cartel vigente es principal, marca el MÁS CUADRADO (por dimensiones medidas
-    en el navegador al subir; sin dimensiones cuenta como poco cuadrado)."""
-    vigentes = [a for a in (row.assets or []) if not getattr(a, 'is_archived', False)]
+def _artwork_pick_primary_by_squareness(row: ConcertArtworkRequest, category: str = "POSTER") -> None:
+    """Si ninguna pieza vigente de esa categoría es principal, marca la MÁS CUADRADA (por dimensiones
+    medidas en el navegador al subir; sin dimensiones cuenta como poco cuadrado).
+
+    ⚠️ **Por CATEGORÍA**: los carteles y los logotipos comparten solicitud, así que sin acotarlo un
+    logo podía quedarse como cartel principal de la gira (y al revés)."""
+    cat = _artwork_category_arg(category)
+    vigentes = [a for a in (row.assets or [])
+                if not getattr(a, 'is_archived', False) and _artwork_asset_category(a) == cat]
     if not vigentes or any(getattr(a, 'is_primary', False) for a in vigentes):
         return
     # ⚠️ Solo una IMAGEN puede ser el principal: es la que representa a la actividad (la miniatura
@@ -29625,6 +29646,11 @@ def _demo_share_context(session_db, demo, *, token: str | None = None) -> dict:
         "items": [fila],
         "brand": _playlist_brand(session_db, demo),
         "public_url": _demo_share_url(session_db, demo),
+        # Lo que se ve al compartirlo (título y sublínea): punto único, para que la tarjeta de
+        # WhatsApp, la del SMS y el título del navegador digan lo mismo.
+        "share_preview": _share_preview_meta({"name": fila_demo["title"],
+                                              "cover_url": fila_demo["cover_url"]},
+                                             [fila], is_demo=True),
         "share_subject": "Maqueta %s" % (fila_demo["title"] or ""),
         "is_public": bool(token),
         "demo_share": True,
@@ -29741,8 +29767,10 @@ def public_demo_share(token):
         if demo is None:
             abort(404)
         ctx = _demo_share_context(session_db, demo, token=token)
+        # ⚠️ La clave es `og_image_url`, que es la que lee la plantilla: con `og_image` la miniatura
+        # de una maqueta compartida NO se pintaba nunca (bug real).
         return render_template("public_playlist.html", **ctx,
-                               og_image=_external_url_for("public_demo_share_og_image", token=token))
+                               og_image_url=_external_url_for("public_demo_share_og_image", token=token))
     finally:
         session_db.close()
 
@@ -29777,26 +29805,17 @@ def public_demo_share_download(token):
 
 @app.get("/maqueta/<token>/og.jpg", endpoint="public_demo_share_og_image")
 def public_demo_share_og_image(token):
-    """La miniatura al compartir: la portada de la maqueta y, si no tiene, la del «sin portada»."""
+    """La miniatura al compartir: la PORTADA de la maqueta, la FOTO DEL ARTISTA y, si no hay ninguna,
+    el LOGO del back office (punto único `_share_og_image_response`)."""
     session_db = db()
     try:
         demo = _demo_by_share_token(session_db, token)
         if demo is None:
             abort(404)
-        fuente = (getattr(demo, "cover_url", None) or "").strip()
-        if not fuente:
-            artista = (session_db.get(Artist, demo.artist_id) if getattr(demo, "artist_id", None) else None)
-            fuente = (getattr(artista, "photo_url", None) or "").strip()
-        # ⚠️ Sin portada, la MISMA imagen de «sin portada» que en las canciones y las playlists (no el
-        # logo): en WhatsApp y en SMS se ve lo que se vería en la app. Es un PNG a propósito.
-        respaldo = url_for("static", filename="img/cover_placeholder.png")
-        # ⚠️ Si la portada no se puede leer (una URL caída), se cae al «sin portada» en vez de dejar la
-        # previsualización en 404: en WhatsApp un 404 se ve como un enlace pelado.
-        data = (_og_image_jpeg_bytes(fuente) if fuente else None) or _og_image_jpeg_bytes(respaldo)
-        if not data:
-            abort(404)
-        return Response(data, mimetype="image/jpeg",
-                        headers={"Cache-Control": "public, max-age=86400"})
+        artista = (session_db.get(Artist, demo.artist_id) if getattr(demo, "artist_id", None) else None)
+        fuentes = [v for v in ((getattr(demo, "cover_url", None) or "").strip(),
+                               (getattr(artista, "photo_url", None) or "").strip()) if v]
+        return _share_og_image_response(fuentes)
     finally:
         session_db.close()
 
@@ -31087,6 +31106,8 @@ def public_playlist_view(token):
         pl = _playlist_by_token(session_db, token)
         ctx = _playlist_context(session_db, pl, token=token)
         ctx["og_image_url"] = _external_url_for("public_playlist_og_image", token=token)
+        # Título y sublínea de la previsualización (mismo punto único que al compartir una demo).
+        ctx["share_preview"] = _share_preview_meta(ctx.get("pl"), ctx.get("items"), is_demo=False)
         return render_template("public_playlist.html", **ctx)
 
 
@@ -31107,28 +31128,85 @@ def public_playlist_download(token, item_id):
         return _playlist_download_response(session_db, pl, item, request.args.get("fmt"))
 
 
+def _share_preview_meta(pl: dict | None, items: list | None, *, is_demo: bool) -> dict:
+    """Qué se ve al compartir un enlace de PLAYLIST o de DEMO (título y sublínea).
+
+    Punto único: lo usan la página pública (sus `og:`) y su miniatura, así que **la tarjeta de
+    WhatsApp, la del SMS y el título del navegador dicen siempre lo mismo**.
+    · demo     → «Demo · <nombre>» y debajo el ARTISTA (si se sabe).
+    · playlist → «Playlist · <nombre>» y debajo CUÁNTOS TEMAS lleva.
+    """
+    pl = pl or {}
+    items = items or []
+    nombre = (pl.get("name") or "").strip()
+    if is_demo:
+        artista = ""
+        for it in items:
+            artista = (it.get("artist_name") or "").strip()
+            if artista:
+                break
+        return {"title": ("Demo · %s" % nombre) if nombre else "Demo",
+                "subtitle": artista}
+    n = int(pl.get("songs_count") or 0)
+    return {"title": ("Playlist · %s" % nombre) if nombre else "Playlist",
+            "subtitle": ("%d tema%s" % (n, "" if n == 1 else "s")) if n else ""}
+
+
+def _share_og_image_response(fuentes: list[str]):
+    """Sirve la primera imagen que se pueda leer y, si ninguna vale, el LOGO del back office.
+
+    ⚠️ Nunca un 404: en WhatsApp un 404 se ve como un enlace pelado."""
+    for fuente in (fuentes or []):
+        data = _og_image_jpeg_bytes(fuente)
+        if data:
+            return Response(data, mimetype="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=86400"})
+    return redirect(url_for("og_default_image"))
+
+
 @app.get("/playlist/<token>/og.jpg", endpoint="public_playlist_og_image")
 def public_playlist_og_image(token):
-    """La miniatura del enlace: la PORTADA de la playlist y, si no tiene, la de su primer tema."""
+    """La miniatura del enlace: la PORTADA de la playlist, la de sus temas, la FOTO DEL ARTISTA y,
+    si no hay nada, el LOGO del back office (punto único `_share_og_image_response`)."""
     with get_db() as session_db:
         pl = _playlist_by_token(session_db, token)
-        fuente = (pl.cover_url or "").strip()
-        if not fuente:
-            for item in _playlist_items_ordered(session_db, pl):
-                if (item.kind or "").strip().upper() == "SONG" and item.song_id:
-                    song = session_db.get(Song, item.song_id)
-                    fuente = (getattr(song, "cover_url", None) or "").strip()
-                    if fuente:
-                        break
-        if not fuente:
-            # ⚠️ Sin portada se enseña la MISMA imagen de «sin portada» que en las canciones (no el
-            # logo): en WhatsApp, en SMS y en el enlace se ve lo que se vería en la app.
-            # Es un PNG a propósito: la miniatura og: es un JPEG y Pillow no lee el SVG.
-            fuente = url_for("static", filename="img/cover_placeholder.png")
-    data = _og_image_jpeg_bytes(fuente) if fuente else None
-    if not data:
-        abort(404)
-    return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
+        fuentes, song_ids, demo_ids = [], [], []
+        portada = (pl.cover_url or "").strip()
+        if portada:
+            fuentes.append(portada)
+        for item in _playlist_items_ordered(session_db, pl):
+            tipo = (item.kind or "").strip().upper()
+            if tipo == "SONG" and item.song_id:
+                song_ids.append(item.song_id)
+            elif tipo == "DEMO" and getattr(item, "demo_id", None):
+                demo_ids.append(item.demo_id)
+
+        def anadir(v):
+            v = (v or "").strip()
+            if v and v not in fuentes:
+                fuentes.append(v)
+
+        # ⚠️ En BLOQUE: una playlist puede tener decenas de temas y una consulta por cada uno para
+        # la miniatura sería inaceptable. ⚠️ `Song` NO tiene `artist_id`: su artista va por
+        # `SongArtist` (N:M).
+        if song_ids:
+            for (cover,) in session_db.query(Song.cover_url).filter(Song.id.in_(song_ids)).all():
+                anadir(cover)
+            for (foto,) in (session_db.query(Artist.photo_url)
+                            .join(SongArtist, SongArtist.artist_id == Artist.id)
+                            .filter(SongArtist.song_id.in_(song_ids)).all()):
+                anadir(foto)
+        if demo_ids:
+            artist_ids = []
+            for cover, aid in (session_db.query(SongDemo.cover_url, SongDemo.artist_id)
+                               .filter(SongDemo.id.in_(demo_ids)).all()):
+                anadir(cover)
+                if aid:
+                    artist_ids.append(aid)
+            if artist_ids:
+                for (foto,) in session_db.query(Artist.photo_url).filter(Artist.id.in_(artist_ids)).all():
+                    anadir(foto)
+    return _share_og_image_response(fuentes)
 
 
 SONG_DELIVERY_SECTIONS = [
@@ -46426,6 +46504,56 @@ def _artwork_ensure_request(session_db, concert):
 # evento, en su pestaña de Cartelería junto a la particular de esa fecha.
 ARTWORK_GROUP_KINDS = {"TOUR": "gira", "CYCLE": "ciclo", "EVENT": "evento"}
 
+# QUÉ ES cada pieza de la cartelería de un grupo. Van en la MISMA solicitud (así se reutilizan la
+# subida, la aprobación de diseño, las miniaturas de vídeo y el compartir) pero **no se mezclan**:
+# cada una tiene su sección en el panel y todo lo que SALE de casa (el ZIP, el enlace público de
+# cartelería, el aviso de salida a la venta) es solo `POSTER`.
+ARTWORK_ASSET_CATEGORIES = {"POSTER": "Cartel", "LOGO": "Logotipo / imagen de marca"}
+
+# Formatos que se sugieren al subir una pieza de marca (se puede escribir cualquier otro).
+ARTWORK_BRAND_FORMATS = [
+    "Logo principal", "Logo horizontal", "Logo vertical", "Isotipo / símbolo",
+    "Logo en negativo (blanco)", "Logo en negro", "Logo sobre fondo", "Imagen de marca",
+    "Cabecera para redes", "Foto de perfil", "Paleta de color", "Tipografías",
+    "Manual de marca", "Pack con todos los formatos",
+]
+
+# La imagen de marca principal ES la imagen del grupo: se aplica a esta columna, que es la que ya
+# pinta toda la app (la cabecera de la ficha, los listados, el one-sheet…).
+ARTWORK_GROUP_IMAGE_FIELD = "logo_url"
+
+
+def _artwork_asset_category(asset) -> str:
+    """POSTER | LOGO de una pieza ya guardada (punto único; global de plantilla `artwork_category`).
+
+    ⚠️ Las piezas ANTERIORES a la columna no la traen: todas son carteles (POSTER)."""
+    cat = (getattr(asset, "category", "") or "").strip().upper()
+    return cat if cat in ARTWORK_ASSET_CATEGORIES else "POSTER"
+
+
+def _artwork_category_arg(value: str | None) -> str:
+    """Normaliza la categoría que llega por formulario o por la URL (por defecto, cartel)."""
+    cat = (value or "").strip().upper()
+    return cat if cat in ARTWORK_ASSET_CATEGORIES else "POSTER"
+
+
+def _artwork_group_apply_brand_image(session_db, kind: str, gid, asset) -> bool:
+    """La imagen de marca PRINCIPAL pasa a ser **la imagen de la gira/ciclo/evento**.
+
+    Es el mismo patrón que la portada de un proyecto discográfico (`_disco_artwork_apply_to_release`):
+    no se guarda un dato paralelo, se escribe el campo donde esa imagen ya vivía (`logo_url`), que es
+    el que pinta la cabecera de la ficha, los listados y el one-sheet.
+    ⚠️ Solo una IMAGEN puede representar al grupo (`_artwork_can_be_primary`): un .ai o un .zip no.
+    """
+    grupo, _n = _artwork_group_owner(session_db, kind, gid)
+    if grupo is None or asset is None or not _artwork_can_be_primary(asset):
+        return False
+    url = (getattr(asset, "file_url", "") or "").strip()
+    if not url:
+        return False
+    setattr(grupo, ARTWORK_GROUP_IMAGE_FIELD, url)
+    return True
+
 
 def _artwork_group_owner(session_db, kind: str, gid):
     """(objeto del grupo, etiqueta legible) para TOUR (gira comprada) o CYCLE (ciclo/festival/evento)."""
@@ -46446,6 +46574,34 @@ def _artwork_group_owner(session_db, kind: str, gid):
     return None, ""
 
 
+def _artwork_group_sync_brand_image(session_db, kind: str, gid, row, clear_if_empty: bool = False) -> None:
+    """Deja la imagen del grupo igual a su pieza de marca PRINCIPAL aprobada.
+
+    Punto único llamado desde los cuatro caminos que la pueden cambiar (subir, aprobar, marcar
+    principal y borrar), así que la imagen de la gira y la sección de marca **no se pueden
+    desparejar**. Con `clear_if_empty` (al borrar) se limpia si ya no queda ninguna: mejor sin
+    imagen que apuntando a un archivo que no existe.
+    """
+    if row is None:
+        return
+    principal = None
+    for a in (row.assets or []):
+        if getattr(a, "is_archived", False) or _artwork_asset_category(a) != "LOGO":
+            continue
+        if (a.validation_status or "APPROVED") != "APPROVED" or not a.is_primary:
+            continue
+        if _artwork_can_be_primary(a):
+            principal = a
+            break
+    if principal is not None:
+        _artwork_group_apply_brand_image(session_db, kind, gid, principal)
+        return
+    if clear_if_empty:
+        grupo, _n = _artwork_group_owner(session_db, kind, gid)
+        if grupo is not None:
+            setattr(grupo, ARTWORK_GROUP_IMAGE_FIELD, None)
+
+
 def _artwork_group_request(session_db, kind: str, gid, create: bool = False):
     """La solicitud de cartelería del grupo (se crea vacía si hace falta)."""
     k = (kind or "").strip().upper()
@@ -46463,14 +46619,21 @@ def _artwork_group_request(session_db, kind: str, gid, create: bool = False):
     return row
 
 
-def _artwork_group_assets(session_db, kind: str, gid, only_approved: bool = True) -> list:
-    """Carteles del grupo (por defecto solo los aprobados, que son los que se pueden usar)."""
+def _artwork_group_assets(session_db, kind: str, gid, only_approved: bool = True,
+                          category: str = "POSTER") -> list:
+    """Piezas del grupo (por defecto los CARTELES aprobados, que son los que se pueden usar).
+
+    ⚠️ `category` es obligatorio de facto: los carteles y los logotipos viven en la misma solicitud,
+    así que sin filtrar se colarían los logos en el ZIP, en el enlace público y en los avisos."""
     row = _artwork_group_request(session_db, kind, gid)
     if row is None:
         return []
+    cat = _artwork_category_arg(category)
     salida = []
     for a in (row.assets or []):
         if getattr(a, "is_archived", False):
+            continue
+        if _artwork_asset_category(a) != cat:
             continue
         if only_approved and (a.validation_status or "APPROVED") != "APPROVED":
             continue
@@ -46517,14 +46680,30 @@ def _artwork_group_context(session_db, kind: str, gid) -> dict:
     grupo, nombre = _artwork_group_owner(session_db, kind, gid)
     row = _artwork_group_request(session_db, kind, gid)
     todos = [a for a in ((row.assets if row else None) or []) if not a.is_archived]
+
+    def _por(cat, estado):
+        """Las piezas de una categoría en un estado, la PRINCIPAL primero."""
+        filas = [a for a in todos
+                 if _artwork_asset_category(a) == cat
+                 and (a.validation_status or "APPROVED") == estado]
+        return sorted(filas, key=lambda x: (not bool(x.is_primary), x.created_at or datetime.min))
+
     return {
         "gk_kind": (kind or "").upper(),
         "gk_id": str(gid) if gid else "",
         "gk_name": nombre,
         "gk_request": row,
-        "gk_assets": [a for a in todos if (a.validation_status or "APPROVED") == "APPROVED"],
-        "gk_pending": [a for a in todos if (a.validation_status or "APPROVED") == "PENDING"],
-        "gk_rejected": [a for a in todos if (a.validation_status or "APPROVED") == "REJECTED"],
+        # CARTELES
+        "gk_assets": _por("POSTER", "APPROVED"),
+        "gk_pending": _por("POSTER", "PENDING"),
+        "gk_rejected": _por("POSTER", "REJECTED"),
+        # LOGOTIPOS E IMAGEN DE MARCA (sección propia, al principio del panel)
+        "gk_brand": _por("LOGO", "APPROVED"),
+        "gk_brand_pending": _por("LOGO", "PENDING"),
+        "gk_brand_rejected": _por("LOGO", "REJECTED"),
+        "gk_brand_formats": ARTWORK_BRAND_FORMATS,
+        # La imagen que representa hoy al grupo (la que pinta su ficha y los listados).
+        "gk_image_url": (getattr(grupo, ARTWORK_GROUP_IMAGE_FIELD, None) or "").strip() if grupo else "",
     }
 
 
@@ -46624,6 +46803,8 @@ def group_artwork_upload_direct(gkind, gid):
         row = _artwork_group_request(session_db, gkind, gid, create=True)
         estado = _current_user_state()
         aprobado_ya = _can_validate_artwork()
+        # CARTEL o pieza de MARCA (logotipo): misma solicitud, secciones distintas.
+        categoria = _artwork_category_arg(request.form.get("category"))
         ficheros = request.files.getlist("files") or request.files.getlist("file")
         etiquetas = request.form.getlist("labels")
         anchos, altos = request.form.getlist("widths"), request.form.getlist("heights")
@@ -46651,6 +46832,7 @@ def group_artwork_upload_direct(gkind, gid):
                 width=_parse_optional_positive_int((anchos[i] if i < len(anchos) else "") or ""),
                 height=_parse_optional_positive_int((altos[i] if i < len(altos) else "") or ""),
                 validation_status=("APPROVED" if aprobado_ya else "PENDING"),
+                category=categoria,
                 uploaded_by_user_id=to_uuid(estado.get("user_id")),
                 uploaded_by_nick=(estado.get("nick") or "").strip() or None,
             )
@@ -46668,7 +46850,10 @@ def group_artwork_upload_direct(gkind, gid):
                              for a in (row.assets or []) if not a.is_archived)
         row.status = "REVIEW" if hay_pendientes else "UPLOADED"
         if not hay_pendientes:
-            _artwork_pick_primary_by_squareness(row)
+            # ⚠️ Por CATEGORÍA: si no, la primera pieza de marca podía quedarse como cartel principal.
+            _artwork_pick_primary_by_squareness(row, categoria)
+            if categoria == "LOGO":
+                _artwork_group_sync_brand_image(session_db, gkind, gid, row)
         row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
         session_db.commit()
         return jsonify({"ok": True, "assets": subidos, "count": len(subidos),
@@ -46714,7 +46899,10 @@ def group_artwork_asset_review(gkind, gid, asset_id):
         if not pendientes:
             row.status = "UPLOADED" if aprobados else "CORRECTIONS"
         if aprobados:
-            _artwork_pick_primary_by_squareness(row)
+            for _cat in ARTWORK_ASSET_CATEGORIES:
+                _artwork_pick_primary_by_squareness(row, _cat)
+        # Un logotipo recién aprobado que es el principal ES la imagen del grupo.
+        _artwork_group_sync_brand_image(session_db, gkind, gid, row)
         row.updated_at = ahora
         session_db.commit()
         return jsonify({"ok": True, "status": asset.validation_status, "pending": len(pendientes)})
@@ -46733,14 +46921,24 @@ def group_artwork_asset_primary(gkind, gid, asset_id):
         row = _artwork_group_request(session_db, gkind, gid)
         asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
         if row is not None and asset is not None and str(asset.artwork_request_id) == str(row.id):
+            categoria = _artwork_asset_category(asset)
             if not _artwork_can_be_primary(asset):
-                flash('El cartel principal tiene que ser una imagen: es la que representa a la '
-                      'actividad en los enlaces y en los avisos.', 'warning')
+                flash('La pieza principal tiene que ser una imagen: es la que representa a la '
+                      'gira en las cabeceras, los enlaces y los avisos.', 'warning')
             else:
+                # ⚠️ Solo dentro de SU categoría: marcar un logotipo no puede desmarcar el cartel
+                # principal (comparten solicitud).
                 for otro in (row.assets or []):
-                    otro.is_primary = (otro.id == asset.id)
-                session_db.commit()
-                flash('Cartel principal de la gira actualizado.', 'success')
+                    if _artwork_asset_category(otro) == categoria:
+                        otro.is_primary = (otro.id == asset.id)
+                if categoria == "LOGO":
+                    _artwork_group_apply_brand_image(session_db, gkind, gid, asset)
+                    session_db.commit()
+                    flash('Imagen de la gira actualizada: es la que se ve en su ficha y en los '
+                          'listados.', 'success')
+                else:
+                    session_db.commit()
+                    flash('Cartel principal de la gira actualizado.', 'success')
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo marcar el principal: {exc}', 'danger')
@@ -46757,9 +46955,18 @@ def group_artwork_asset_delete(gkind, gid, asset_id):
         row = _artwork_group_request(session_db, gkind, gid)
         asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
         if row is not None and asset is not None and str(asset.artwork_request_id) == str(row.id):
+            categoria = _artwork_asset_category(asset)
+            era_principal = bool(getattr(asset, "is_primary", False))
             session_db.delete(asset)
+            session_db.flush()
+            if categoria == "LOGO" and era_principal:
+                # Se ha borrado la imagen del grupo: pasa a serlo la siguiente pieza de marca (y si
+                # no queda ninguna, el grupo se queda sin imagen en vez de apuntar a un archivo
+                # borrado).
+                _artwork_pick_primary_by_squareness(row, "LOGO")
+                _artwork_group_sync_brand_image(session_db, gkind, gid, row, clear_if_empty=True)
             session_db.commit()
-            flash('Cartel eliminado.', 'success')
+            flash('Pieza eliminada.', 'success')
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo eliminar: {exc}', 'danger')
@@ -46771,13 +46978,16 @@ def group_artwork_asset_delete(gkind, gid, asset_id):
 @app.get('/carteleria-grupo/<gkind>/<gid>/descargar-todos', endpoint='group_artwork_download_all')
 @admin_required
 def group_artwork_download_all(gkind, gid):
-    """Todos los carteles aprobados de la gira/evento en un ZIP."""
+    """Todas las piezas aprobadas de la gira/evento en un ZIP (carteles o, con `?category=LOGO`,
+    los logotipos e imagen de marca)."""
     session_db = db()
     try:
         _grupo, nombre = _artwork_group_owner(session_db, gkind, gid)
-        assets = _artwork_group_assets(session_db, gkind, gid, only_approved=True)
+        categoria = _artwork_category_arg(request.args.get('category'))
+        assets = _artwork_group_assets(session_db, gkind, gid, only_approved=True, category=categoria)
         if not assets:
-            flash('No hay carteles aprobados que descargar.', 'warning')
+            flash('No hay %s aprobados que descargar.'
+                  % ('logotipos' if categoria == 'LOGO' else 'carteles'), 'warning')
             return redirect(request.referrer or url_for('home'))
         buf, usados = BytesIO(), set()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -53241,7 +53451,8 @@ def promoter_detail_view(pid):
             flash('Tercero no encontrado.', 'warning')
             return redirect(url_for('promoters_view'))
         tab = (request.args.get('tab') or 'general').strip().lower()
-        if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones', 'documentos', 'prl', 'adelantos'}:
+        if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones', 'documentos', 'prl',
+                       'adelantos', 'syncro'}:
             tab = 'general'
         # ⚠️ CRUCE de los datos de contacto: si la ficha tiene correo o teléfono, tiene que verse en su
         # pestaña (y al revés). Se hace al abrir la ficha, así que los terceros de antes quedan al día
@@ -53367,6 +53578,9 @@ def promoter_detail_view(pid):
             promoter_invitations_past=promoter_invitations_past,
             promoter_commitments_active=promoter_commitments_active,
             promoter_commitments_past=promoter_commitments_past,
+            # SYNCROS: la ficha de sincronizaciones del tercero y lo que se le ha enviado.
+            **(_sync_promoter_tab_context(session, promoter) if tab == 'syncro' else {}),
+            sync_is_supervisor=bool(_sync_supervisor_for_promoter(session, promoter.id)),
             entity_links=_entity_link_rows(session, 'promoter', promoter.id),
             entity_link_context={'type': 'promoter', 'id': str(promoter.id), 'label': promoter.nick or 'tercero'},
             entity_link_types=APP33_ENTITY_LINK_TYPES,
@@ -57952,6 +58166,7 @@ def _bootstrap_schema_bg():
         (ensure_geo_schema, "ensure_geo_schema"),
         (ensure_invoice_attempts_schema, "ensure_invoice_attempts_schema"),
         (ensure_vacations_schema, "ensure_vacations_schema"),
+        (ensure_syncros_schema, "ensure_syncros_schema"),
         (ensure_song_demos_schema, "ensure_song_demos_schema"),
         (ensure_playlists_schema, "ensure_playlists_schema"),
         (ensure_disco_projects_schema, "ensure_disco_projects_schema"),
@@ -63050,6 +63265,8 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "contratacion.simulaciones", "label": "Simulaciones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 180, "description": "Simulaciones económicas de actividades (importes)."},
 
     {"key": "playlisting", "label": "Playlisting", "section_key": "playlisting", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 185, "description": "Playlisting: seguimiento de canciones en playlists y pitching (datos de streaming)."},
+    {"key": "syncros", "label": "Syncros", "section_key": "syncros", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 186, "description": "Sincronizaciones: música para anuncios, cine y televisión."},
+    {"key": "syncros.supervisors", "label": "Supervisors", "section_key": "syncros", "parent_key": "syncros", "level": "TAB", "economic_capable": False, "sort_order": 187, "description": "Los terceros con los que se sincroniza (music supervisors, agencias de publicidad y productoras de anuncios): su tipo, dónde operan, en qué idiomas y qué se les ha enviado. Editar permite añadirlos (a mano o desde un fichero) y cambiar su ficha de Syncro."},
 
     # ACCIONES: fusionadas en «Actividades» (ago 2026). El recurso se CONSERVA porque las acciones que
     # ya existían siguen teniendo su ficha (y quitarlo se llevaría por delante todos sus permisos:
@@ -63521,12 +63738,15 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     fixed = {
         "summary_view": "radio.reportes", "plays_view": "radio.actualizar", "stations_view": "radio.emisoras",
         "sales_report_view": "ventas.reportes", "sales_update_view": "ventas.actualizar",
+        "syncros_view": "syncros.supervisors",
         "discografica_view": "discografica", "discografica_song_detail": "discografica.canciones",
         "discografica_album_detail": "discografica.canciones", "artist_detail_view": "artists",
         "contracting_view": "contratacion", "concerts_view": "contratacion.conciertos",
         "concert_detail_view": "contratacion.conciertos", "quadrantes_view": "contratacion.cuadrantes",
         "songs_view": "discografica.canciones", "song_update": "discografica.canciones",
         "song_delete": "discografica.canciones", "playlisting_view": "playlisting",
+        "sync_supervisor_save": "syncros.supervisors", "sync_supervisor_delete": "syncros.supervisors",
+        "syncros_import_analyze": "syncros.supervisors", "syncros_import_apply": "syncros.supervisors",
         "integrations_view": "integraciones",
         # Pleo se configura por empresa desde Integraciones (los endpoints exigen además dirección).
         "pleo_account_save": "integraciones", "pleo_account_test": "integraciones",
@@ -64501,6 +64721,11 @@ def _resolve_request_resource_key() -> str | None:
         return "discografica.canciones"
     if endpoint == "playlisting_view":
         return "playlisting"
+    # SYNCROS: la pantalla y todo lo que se hace ahí. ⚠️ Sus endpoints se llaman `sync_*` y
+    # `syncros_*`, fuera de cualquier prefijo ya cubierto, así que hay que mapearlos a mano.
+    if (endpoint == "syncros_view" or endpoint.startswith("syncros_")
+            or endpoint.startswith("sync_supervisor")):
+        return "syncros.supervisors"
     if (endpoint == "integrations_view" or endpoint.startswith("pleo_")
             or endpoint.startswith("cabify_") or endpoint.startswith("cm_")
             or endpoint.startswith("holded_account_") or endpoint == "api_cm_search"
@@ -64831,6 +65056,8 @@ def _resource_default_url(key: str) -> str:
         "databases.banks": url_for("banks_view"),
         "databases.buyers": url_for("buyers_view"),
         "playlisting": url_for("playlisting_view"),
+        "syncros": url_for("syncros_view"),
+        "syncros.supervisors": url_for("syncros_view"),
         "promocion": url_for("marketing_view"),
         "promo": url_for("promo_view"),
         "diseno": url_for("diseno_view"),
@@ -64959,6 +65186,7 @@ SECTION_ICONS = {
     "contratacion": "fa-file-signature",
     "contratacion.conciertos": "fa-guitar",
     "playlisting": "fa-list-ol",
+    "syncros": "fa-clapperboard",
     "promocion": "fa-bullhorn",
     "promo": "fa-microphone-lines",
     "diseno": "fa-palette",
@@ -65018,6 +65246,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "artists", "label": "Artistas", "url": _resource_default_url("artists")},
         {"type": "link", "key": "discografica", "label": "Discográfica", "url": _resource_default_url("discografica")},
         {"type": "link", "key": "playlisting", "label": "Playlisting", "url": _resource_default_url("playlisting")},
+        {"type": "link", "key": "syncros", "label": "Syncros", "url": _resource_default_url("syncros")},
         {"type": "link", "key": "registros", "label": "Registros", "url": _resource_default_url("registros")},
         {"type": "link", "key": "fotos", "label": "Fotos / Vídeos", "url": _resource_default_url("fotos")},
         {"type": "link", "key": "actividades", "label": "Actividades", "url": _resource_default_url("actividades")},
@@ -66727,6 +66956,7 @@ SUPPORT_READ_ENDPOINTS = {
     "concert_sale_notice_view",
     "roadmap_templates_list",
     "api_media_artist_activities",
+    "api_sync_promoter_search",
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
     # Quién manda una maqueta: busca en terceros, personal y artistas de una sola vez.
@@ -85506,9 +85736,12 @@ def _concert_artwork_share_assets(session_db, concert) -> list:
         return []
     try:
         req = getattr(concert, "artwork_request", None)
+        # ⚠️ Solo CARTELES: los logotipos e imagen de marca viven en la misma solicitud y no son lo
+        # que se comparte con el artista o el promotor.
         activos = [a for a in ((getattr(req, "assets", None) or []) if req else [])
                    if not bool(getattr(a, "is_archived", False))
-                   and (getattr(a, "validation_status", None) or "APPROVED") == "APPROVED"]
+                   and (getattr(a, "validation_status", None) or "APPROVED") == "APPROVED"
+                   and _artwork_asset_category(a) == "POSTER"]
         # Los GENERALES valen igual: son los carteles de esta fecha también. ⚠️ Se preguntan TODOS
         # los grupos a los que pertenece (su evento, su gira y su ciclo), no solo la gira.
         if not activos:
@@ -118577,6 +118810,520 @@ def _register_merge_routes():
 
 
 _register_merge_routes()
+
+# ============================================================================
+# SYNCROS · SUPERVISORES DE SINCRONIZACIÓN
+#
+# ⚠️ Un supervisor **ES un tercero** (`Promoter`): su nombre, su email, su teléfono, su foto y sus
+# documentos viven en su ficha de siempre y aquí NO se duplican. `SyncSupervisor` solo añade la
+# FACETA de sincronizaciones (qué tipo de agente es, dónde opera y en qué idiomas), así que el mismo
+# tercero se ve en Bases de datos → Terceros y en Syncros → Supervisors, y al darlo de alta aquí se
+# reutiliza el que ya exista en vez de crear uno nuevo.
+# ============================================================================
+
+SYNC_SUPERVISOR_TYPES = sync_import.SUPERVISOR_TYPES
+SYNC_TYPE_LABELS = sync_import.TYPE_LABELS
+SYNC_REGION_KINDS = sync_import.REGION_KINDS
+SYNC_LANGUAGES = sync_import.LANGUAGES
+SYNC_LANGUAGE_LABELS = sync_import.LANGUAGE_LABELS
+SYNC_DEFAULT_LANGUAGES = sync_import.DEFAULT_LANGUAGES
+
+# Icono de cada tipo, para la etiqueta del listado.
+SYNC_TYPE_ICONS = {
+    "MUSIC_SUPERVISOR": "fa-headphones",
+    "AD_AGENCY": "fa-lightbulb",
+    "AD_PRODUCER": "fa-clapperboard",
+}
+SYNC_REGION_ICONS = {"GLOBAL": "fa-earth-americas", "LATAM": "fa-globe", "COUNTRY": "fa-flag"}
+
+# Las secciones de la pantalla (Supervisors es la primera).
+SYNCROS_SECTIONS = [("supervisors", "Supervisors", "fa-user-tie")]
+
+
+def can_edit_syncros() -> bool:
+    """Quién puede tocar Syncros: su sección, el sello (es material discográfico) o dirección."""
+    return (has_access_key("syncros", edit=True, include_descendants=True)
+            or can_edit_discografica() or is_master())
+
+
+def _sync_type_label(value: str) -> str:
+    return SYNC_TYPE_LABELS.get((value or "").strip().upper(), "Sin tipo")
+
+
+def _sync_region_label(kind: str, country: str = "") -> str:
+    """Punto único de cómo se escribe una región: «Global» · «Latinoamérica» · el país."""
+    k = (kind or "").strip().upper()
+    if k == "COUNTRY":
+        return (country or "").strip() or "Un país (sin decir cuál)"
+    return dict(SYNC_REGION_KINDS).get(k, "Global")
+
+
+def _sync_languages_clean(values) -> list[str]:
+    """Los idiomas que se guardan: del catálogo, sin repetir y en el orden del catálogo."""
+    pedidos = set()
+    for v in (values or []):
+        code = (str(v) or "").strip().upper()
+        if code in SYNC_LANGUAGE_LABELS:
+            pedidos.add(code)
+    return [code for code, _l in SYNC_LANGUAGES if code in pedidos]
+
+
+def _sync_languages_labels(values) -> list[str]:
+    return [SYNC_LANGUAGE_LABELS[c] for c in _sync_languages_clean(values)]
+
+
+def _sync_supervisor_for_promoter(session_db, promoter_id):
+    """La ficha de Syncro de un tercero (o None): es lo que decide si sale en Syncros."""
+    pid = to_uuid(str(promoter_id or "")) or None
+    if not pid:
+        return None
+    return (session_db.query(SyncSupervisor)
+            .filter(SyncSupervisor.promoter_id == pid).first())
+
+
+def _sync_supervisor_row(sup, promoter=None, submissions: int = 0) -> dict:
+    """Una fila del listado de Supervisors (y la cabecera de su ficha)."""
+    p = promoter if promoter is not None else getattr(sup, "promoter", None)
+    nombre = _promoter_display_name(p) if p is not None else "Sin nombre"
+    correo, telefono = _promoter_email_phone(p) if p is not None else ("", "")
+    tipo = (getattr(sup, "sup_type", "") or "").strip().upper()
+    return {
+        "id": str(sup.id),
+        "promoter_id": str(sup.promoter_id),
+        "name": nombre,
+        "photo": (getattr(p, "logo_url", "") or "").strip() or _default_avatar_url(),
+        "email": correo,
+        "phone": telefono,
+        "type": tipo,
+        "type_label": _sync_type_label(tipo),
+        "type_icon": SYNC_TYPE_ICONS.get(tipo, "fa-user-tie"),
+        "region_kind": (getattr(sup, "region_kind", "") or "GLOBAL").strip().upper(),
+        "region_label": _sync_region_label(getattr(sup, "region_kind", ""), getattr(sup, "region_country", "")),
+        "region_icon": SYNC_REGION_ICONS.get((getattr(sup, "region_kind", "") or "GLOBAL").strip().upper(), "fa-flag"),
+        "languages": _sync_languages_clean(getattr(sup, "languages", None)),
+        "language_labels": _sync_languages_labels(getattr(sup, "languages", None)),
+        "notes": (getattr(sup, "notes", "") or "").strip(),
+        "submissions": int(submissions or 0),
+        "url": url_for("promoter_detail_view", pid=str(sup.promoter_id), tab="syncro"),
+    }
+
+
+def _sync_supervisors_context(session_db) -> dict:
+    """El listado de Supervisors con sus filtros (tipo, región, idioma y texto libre)."""
+    filtro_tipo = [t for t in request.args.getlist("tipo") if (t or "").strip().upper() in SYNC_TYPE_LABELS]
+    filtro_region = [r for r in request.args.getlist("region")
+                     if (r or "").strip().upper() in dict(SYNC_REGION_KINDS)]
+    filtro_idioma = [l for l in request.args.getlist("idioma") if (l or "").strip().upper() in SYNC_LANGUAGE_LABELS]
+    q = (request.args.get("q") or "").strip()
+
+    query = (session_db.query(SyncSupervisor)
+             .options(joinedload(SyncSupervisor.promoter))
+             .filter(SyncSupervisor.is_archived.is_(False)))
+    if filtro_tipo:
+        query = query.filter(SyncSupervisor.sup_type.in_([t.upper() for t in filtro_tipo]))
+    if filtro_region:
+        query = query.filter(SyncSupervisor.region_kind.in_([r.upper() for r in filtro_region]))
+    todos = query.all()
+
+    # Cuántas sincronizaciones se le han enviado a cada uno: UNA consulta agrupada (con cientos de
+    # supervisores, una por fila sería inaceptable).
+    enviados = {}
+    if todos:
+        for sid, n in (session_db.query(SyncSubmission.supervisor_id, func.count(SyncSubmission.id))
+                       .filter(SyncSubmission.supervisor_id.in_([s.id for s in todos]))
+                       .group_by(SyncSubmission.supervisor_id).all()):
+            enviados[str(sid)] = int(n or 0)
+
+    filas = [_sync_supervisor_row(s, submissions=enviados.get(str(s.id), 0)) for s in todos]
+    # El idioma y el texto se filtran en Python: el idioma vive en un JSONB y el nombre se compone
+    # del tercero (no es una columna de esta tabla).
+    if filtro_idioma:
+        pedidos = {l.upper() for l in filtro_idioma}
+        filas = [f for f in filas if pedidos & set(f["languages"])]
+    if q:
+        clave = _norm_text_key(q)
+        filas = [f for f in filas
+                 if clave in _norm_text_key(" ".join([f["name"], f["email"], f["phone"],
+                                                      f["type_label"], f["region_label"]]))]
+    filas.sort(key=lambda f: _norm_text_key(f["name"]))
+
+    # Solo se ofrecen los filtros que de verdad pueden devolver algo (misma regla que los tipos del
+    # calendario de agenda: un filtro vacío solo hace ruido).
+    tipos_con_algo = {f["type"] for f in filas} | {t.upper() for t in filtro_tipo}
+    regiones_con_algo = {f["region_kind"] for f in filas} | {r.upper() for r in filtro_region}
+    idiomas_con_algo = {c for f in filas for c in f["languages"]} | {l.upper() for l in filtro_idioma}
+    return {
+        "sup_rows": filas,
+        "sup_total": len(filas),
+        "sup_q": q,
+        "sup_filter_type": [t.upper() for t in filtro_tipo],
+        "sup_filter_region": [r.upper() for r in filtro_region],
+        "sup_filter_lang": [l.upper() for l in filtro_idioma],
+        "sup_types": [(k, l, SYNC_TYPE_ICONS.get(k, "fa-user-tie")) for k, l in SYNC_SUPERVISOR_TYPES
+                      if k in tipos_con_algo],
+        "sup_regions": [(k, l, SYNC_REGION_ICONS.get(k, "fa-flag")) for k, l in SYNC_REGION_KINDS
+                        if k in regiones_con_algo],
+        "sup_langs": [(k, l) for k, l in SYNC_LANGUAGES if k in idiomas_con_algo],
+    }
+
+
+@app.get("/syncros", endpoint="syncros_view")
+@admin_required
+def syncros_view():
+    """Syncros. La primera sección es **Supervisors** (los terceros con los que se sincroniza)."""
+    seccion = (request.args.get("section") or "supervisors").strip().lower()
+    if seccion not in {k for k, _l, _i in SYNCROS_SECTIONS}:
+        seccion = "supervisors"
+    session_db = db()
+    try:
+        ctx = {
+            "section": seccion,
+            "sections": SYNCROS_SECTIONS,
+            "can_edit": can_edit_syncros(),
+            "sync_types": SYNC_SUPERVISOR_TYPES,
+            "sync_region_kinds": SYNC_REGION_KINDS,
+            "sync_languages": SYNC_LANGUAGES,
+            "sync_default_languages": SYNC_DEFAULT_LANGUAGES,
+        }
+        ctx.update(_sync_supervisors_context(session_db))
+        return render_template("syncros.html", **ctx)
+    finally:
+        session_db.close()
+
+
+def _sync_form_values(form) -> dict:
+    """Los campos de Syncro que llegan de un formulario (crear o editar), ya normalizados."""
+    tipo = (form.get("sup_type") or "").strip().upper()
+    if tipo not in SYNC_TYPE_LABELS:
+        tipo = sync_import.DEFAULT_TYPE
+    region_kind = (form.get("region_kind") or "").strip().upper()
+    if region_kind not in dict(SYNC_REGION_KINDS):
+        region_kind = sync_import.DEFAULT_REGION_KIND
+    pais = (form.get("region_country") or "").strip()[:80]
+    if region_kind != "COUNTRY":
+        pais = ""
+    idiomas = _sync_languages_clean(form.getlist("languages"))
+    return {
+        "sup_type": tipo,
+        "region_kind": region_kind,
+        "region_country": pais or None,
+        # Sin marcar ninguno se queda con los de siempre: español e inglés.
+        "languages": idiomas or list(SYNC_DEFAULT_LANGUAGES),
+        "notes": (form.get("notes") or "").strip() or None,
+    }
+
+
+@app.post("/syncros/supervisores/guardar", endpoint="sync_supervisor_save")
+@admin_required
+def sync_supervisor_save():
+    """Da de alta (o actualiza) la ficha de SYNCRO de un tercero.
+
+    El tercero puede venir elegido del buscador (`promoter_id`) o crearse aquí mismo con lo escrito
+    (`new_name`), que es el mismo patrón del alta rápida del resto de la app."""
+    if not can_edit_syncros():
+        return forbid("No tienes permiso para gestionar Syncros.")
+    session_db = db()
+    try:
+        pid = to_uuid((request.form.get("promoter_id") or "").strip() or "")
+        promoter = session_db.get(Promoter, pid) if pid else None
+        if promoter is None:
+            nombre = (request.form.get("new_name") or "").strip()
+            if not nombre:
+                flash("Elige un tercero o escribe el nombre del nuevo.", "warning")
+                return redirect(url_for("syncros_view"))
+            promoter = Promoter(nick=_intake_unique_nick(session_db, nombre))
+            correo = (request.form.get("new_email") or "").strip()
+            telefono = (request.form.get("new_phone") or "").strip()
+            if correo:
+                promoter.contact_email = correo
+            if telefono:
+                promoter.contact_phone = telefono
+            session_db.add(promoter)
+            session_db.flush()
+        sup = _sync_supervisor_for_promoter(session_db, promoter.id)
+        nuevo = sup is None
+        if sup is None:
+            sup = SyncSupervisor(promoter_id=promoter.id,
+                                 created_by_nick=(_current_user_state().get("nick") or "").strip() or None)
+            session_db.add(sup)
+        for campo, valor in _sync_form_values(request.form).items():
+            setattr(sup, campo, valor)
+        sup.is_archived = False
+        sup.updated_at = _now_madrid()
+        # Los datos de contacto son del TERCERO: si se han escrito aquí y su ficha no los tenía, se
+        # guardan allí (no se duplican en Syncros).
+        _sync_apply_contact(session_db, promoter, request.form)
+        session_db.commit()
+        flash("%s en Syncros." % ("Supervisor añadido" if nuevo else "Ficha de Syncro actualizada"), "success")
+        return redirect(request.form.get("next") or url_for("syncros_view"))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("sync_supervisor_save")
+        flash("No se pudo guardar: %s" % exc, "danger")
+        return redirect(url_for("syncros_view"))
+    finally:
+        session_db.close()
+
+
+def _sync_apply_contact(session_db, promoter, form) -> None:
+    """El email y el teléfono son del TERCERO: se rellenan solo si su ficha los tenía vacíos.
+
+    ⚠️ Nunca se pisa un dato que ya estaba escrito (misma regla que la importación de terceros), y
+    el email entra además en su pestaña de datos de contacto por el punto único de siempre."""
+    correo = (form.get("contact_email") or "").strip()
+    telefono = (form.get("contact_phone") or "").strip()
+    tocado = False
+    if correo and not (promoter.contact_email or "").strip():
+        promoter.contact_email = correo
+        tocado = True
+    if telefono and not (promoter.contact_phone or "").strip():
+        promoter.contact_phone = telefono
+        tocado = True
+    if tocado:
+        try:
+            _promoter_sync_contact_rows(session_db, promoter)
+        except Exception:
+            app.logger.exception("[syncros] no se pudieron sincronizar los datos de contacto")
+
+
+@app.post("/syncros/supervisores/<sid>/quitar", endpoint="sync_supervisor_delete")
+@admin_required
+def sync_supervisor_delete(sid):
+    """Saca a un tercero de Syncros. ⚠️ NO borra el tercero: solo su ficha de sincronizaciones."""
+    if not can_edit_syncros():
+        return forbid("No tienes permiso para gestionar Syncros.")
+    session_db = db()
+    try:
+        sup = session_db.get(SyncSupervisor, to_uuid(sid))
+        if sup is not None:
+            session_db.delete(sup)
+            session_db.commit()
+            flash("Se ha quitado de Syncros. El tercero sigue en la base de datos.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo quitar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next") or request.referrer or url_for("syncros_view"))
+
+
+@app.get("/api/syncros/terceros", endpoint="api_sync_promoter_search")
+@admin_required
+def api_sync_promoter_search():
+    """Buscador de terceros para añadir un supervisor: en vivo, con su foto, y diciendo quién YA
+    está en Syncros (para no ofrecerlo dos veces)."""
+    q = (request.args.get("q") or "").strip()
+    session_db = db()
+    try:
+        query = session_db.query(Promoter)
+        clause = _promoter_search_clause(session_db, q) if q else None
+        if clause is not None:
+            query = query.filter(clause)
+        fuera = _inactive_user_ids(session_db)  # no aplica a terceros, pero mantiene el patrón
+        filas = query.order_by(Promoter.nick.asc()).limit(20).all()
+        ya = {str(r[0]) for r in session_db.query(SyncSupervisor.promoter_id).all()}
+        out = []
+        for p in filas:
+            correo, telefono = _promoter_email_phone(p)
+            out.append({
+                "id": str(p.id),
+                "name": _promoter_display_name(p),
+                "photo": (p.logo_url or "").strip() or _default_avatar_url(),
+                "email": correo,
+                "phone": telefono,
+                "in_syncros": str(p.id) in ya,
+            })
+        return jsonify({"ok": True, "results": out})
+    except Exception as exc:
+        app.logger.exception("api_sync_promoter_search")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+# ── IMPORTACIÓN DESDE FICHERO ───────────────────────────────────────────────────────
+# El LECTOR es el mismo que el de la importación de terceros (`sync_import` reutiliza
+# `promoter_import.read_rows`/`parse_columns`); lo propio es a qué campos se vuelca cada columna.
+
+@app.post("/syncros/importar/analizar", endpoint="syncros_import_analyze")
+@admin_required
+def syncros_import_analyze():
+    """Lee el fichero y devuelve SUS COLUMNAS con el campo que se les ha reconocido."""
+    if not can_edit_syncros():
+        return jsonify({"ok": False, "error": "No tienes permiso para gestionar Syncros."}), 403
+    f = request.files.get("file")
+    if not f or not getattr(f, "filename", ""):
+        return jsonify({"ok": False, "error": "Sube un fichero de Excel (.xlsx) o CSV."}), 400
+    try:
+        data = f.read()
+        if not data:
+            return jsonify({"ok": False, "error": "El fichero está vacío."}), 400
+        parsed = sync_import.parse_file(data, getattr(f, "filename", ""))
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "No se pudo leer el fichero: %s" % exc}), 400
+    if not parsed["rows"]:
+        return jsonify({"ok": False, "error": "El fichero no tiene ninguna fila con datos."}), 400
+    return jsonify({
+        "ok": True,
+        "filename": getattr(f, "filename", ""),
+        "columns": parsed["columns"],
+        "rows": parsed["rows"],
+        "count": parsed["sheet_rows"],
+        "unknown": sum(1 for c in parsed["columns"] if not c["field"]),
+        "fields": [{"key": k, "label": l} for k, l, _t, _a in sync_import.FIELDS],
+    })
+
+
+@app.post("/syncros/importar/aplicar", endpoint="syncros_import_apply")
+@admin_required
+def syncros_import_apply():
+    """Da de alta los supervisores del fichero.
+
+    ⚠️ NO se duplican terceros: si el email (o el nombre) ya es de un tercero, se REUTILIZA su ficha
+    y solo se le añade la de Syncro; y si ya estaba en Syncros, se le completa lo que tuviera vacío.
+    Cada fila va en su savepoint: una que falle no tumba las demás.
+    """
+    if not can_edit_syncros():
+        return jsonify({"ok": False, "error": "No tienes permiso para gestionar Syncros."}), 403
+    payload = request.get_json(silent=True) or {}
+    fichas = sync_import.apply_mapping(payload.get("rows") or [], payload.get("mapping") or {})
+    if not fichas:
+        return jsonify({"ok": False, "error": "Con las columnas elegidas no queda ningún dato que importar."}), 400
+    session_db = db()
+    nuevos, reutilizados, actualizados, errores = [], [], [], []
+    try:
+        nick = (_current_user_state().get("nick") or "").strip() or None
+        for ficha in fichas:
+            values = (ficha or {}).get("values") or {}
+            nombre = (values.get("name") or "").strip()
+            correo = (values.get("email") or "").strip()
+            if not nombre and not correo:
+                continue
+            try:
+                with session_db.begin_nested():
+                    promoter, ya_estaba = _sync_find_or_create_promoter(session_db, values)
+                    sup = _sync_supervisor_for_promoter(session_db, promoter.id)
+                    if sup is None:
+                        sup = SyncSupervisor(promoter_id=promoter.id, created_by_nick=nick)
+                        session_db.add(sup)
+                        (reutilizados if ya_estaba else nuevos).append(promoter.nick)
+                    else:
+                        actualizados.append(promoter.nick)
+                    if values.get("sup_type"):
+                        sup.sup_type = values["sup_type"]
+                    if values.get("region_kind"):
+                        sup.region_kind = values["region_kind"]
+                        sup.region_country = values.get("region_country") or None
+                    idiomas = _sync_languages_clean(values.get("languages"))
+                    if idiomas:
+                        sup.languages = idiomas
+                    elif not _sync_languages_clean(sup.languages):
+                        sup.languages = list(SYNC_DEFAULT_LANGUAGES)
+                    if values.get("notes") and not (sup.notes or "").strip():
+                        sup.notes = values["notes"]
+                    sup.is_archived = False
+                    sup.updated_at = _now_madrid()
+            except Exception as exc:
+                errores.append("%s: %s" % (nombre or correo, exc))
+        session_db.commit()
+        return jsonify({"ok": True, "created": nuevos, "linked": reutilizados,
+                        "updated": actualizados, "errors": errores,
+                        "count": len(nuevos) + len(reutilizados) + len(actualizados)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("syncros_import_apply")
+        return jsonify({"ok": False, "error": "No se pudieron importar: %s" % exc}), 400
+    finally:
+        session_db.close()
+
+
+def _sync_find_or_create_promoter(session_db, values: dict):
+    """(tercero, ¿ya estaba?) para una fila del fichero.
+
+    Se identifica por **email** y, si no lo trae, por nombre exacto (nick o nombre y apellidos): así
+    importar la misma lista dos veces no crea terceros repetidos. Lo que ya está escrito en su ficha
+    NO se pisa; solo se rellena lo que tenga vacío."""
+    correo = (values.get("email") or "").strip()
+    nombre = (values.get("name") or "").strip()
+    telefono = (values.get("phone") or "").strip()
+    promoter = None
+    if correo:
+        promoter = (session_db.query(Promoter)
+                    .filter(func.lower(Promoter.contact_email) == correo.lower()).first())
+        if promoter is None:
+            fila = (session_db.query(PromoterEmail)
+                    .filter(func.lower(PromoterEmail.email) == correo.lower()).first())
+            if fila is not None:
+                promoter = session_db.get(Promoter, fila.promoter_id)
+    if promoter is None and nombre:
+        clave = _norm_text_key(nombre)
+        for p in (session_db.query(Promoter)
+                  .filter(_sa_contains_text(Promoter.nick, nombre[:40])).limit(20).all()):
+            if _norm_text_key(_promoter_display_name(p)) == clave or _norm_text_key(p.nick or "") == clave:
+                promoter = p
+                break
+    ya_estaba = promoter is not None
+    if promoter is None:
+        promoter = Promoter(nick=_intake_unique_nick(session_db, nombre or correo))
+        session_db.add(promoter)
+        session_db.flush()
+    if correo and not (promoter.contact_email or "").strip():
+        promoter.contact_email = correo
+    if telefono and not (promoter.contact_phone or "").strip():
+        promoter.contact_phone = telefono
+    if values.get("company") and not (promoter.notes or "").strip():
+        promoter.notes = values["company"]
+    return promoter, ya_estaba
+
+
+def _sync_submissions_rows(session_db, promoter_id) -> list[dict]:
+    """Las sincronizaciones que se le han enviado a un tercero (pestaña **Syncro** de su ficha)."""
+    pid = to_uuid(str(promoter_id or "")) or None
+    if not pid:
+        return []
+    filas = (session_db.query(SyncSubmission)
+             .filter(SyncSubmission.promoter_id == pid)
+             .order_by(SyncSubmission.sent_at.desc()).all())
+    cancion_ids = [f.song_id for f in filas if f.song_id]
+    canciones = {}
+    if cancion_ids:
+        for s in session_db.query(Song).filter(Song.id.in_(cancion_ids)).all():
+            canciones[str(s.id)] = s
+    out = []
+    for f in filas:
+        cancion = canciones.get(str(f.song_id)) if f.song_id else None
+        out.append({
+            "id": str(f.id),
+            "title": (f.title or "").strip(),
+            "song_title": (getattr(cancion, "title", "") or "").strip(),
+            "song_id": str(f.song_id) if f.song_id else "",
+            "language": SYNC_LANGUAGE_LABELS.get((f.language or "").strip().upper(), ""),
+            "channel": (f.channel or "EMAIL").strip().upper(),
+            "sent_at": f.sent_at,
+            "sent_at_label": f.sent_at.strftime("%d/%m/%Y %H:%M") if f.sent_at else "",
+            "sent_by_nick": (f.sent_by_nick or "").strip(),
+            "notes": (f.notes or "").strip(),
+        })
+    return out
+
+
+def _sync_promoter_tab_context(session_db, promoter) -> dict:
+    """Contexto de la pestaña **Syncro** de la ficha de un tercero."""
+    sup = _sync_supervisor_for_promoter(session_db, getattr(promoter, "id", None))
+    envios = _sync_submissions_rows(session_db, getattr(promoter, "id", None))
+    return {
+        "sync_sup": sup,
+        "sync_row": _sync_supervisor_row(sup, promoter=promoter, submissions=len(envios)) if sup else None,
+        "sync_submissions": envios,
+        "sync_types": SYNC_SUPERVISOR_TYPES,
+        "sync_region_kinds": SYNC_REGION_KINDS,
+        "sync_languages": SYNC_LANGUAGES,
+        "sync_default_languages": SYNC_DEFAULT_LANGUAGES,
+        "sync_can_edit": can_edit_syncros(),
+    }
+
 
 
 if __name__ == "__main__":

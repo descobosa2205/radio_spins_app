@@ -1821,6 +1821,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ **MÓVIL**: el cuerpo es una `<table>` porque el mismo HTML va por correo, así que la página le
   quita la maquetación de tabla por debajo de 576 px (`display:block`): la portada se ve **entera y
   centrada** arriba, los datos debajo y la tabla de autores se lee sin partir palabras.
+  ⚠️ **Las dos páginas públicas se ADAPTAN AL ANCHO DE LA VENTANA** (`width:100%`, tope 1400 px):
+  antes se quedaban en una columna estrecha en el centro. El `max-width:680px` que lleva el cuerpo
+  **en línea** es para el CORREO (ahí sí hace falta) y la página lo anula con un `!important`; el
+  correo lo conserva.
   · **El título de una fila** lleva a la **FICHA de la canción** dentro de la app y a **su página de
   syncro** en la landing pública (`to_detail` de la macro).
   · En la página del tema, **botón de VOLVER arriba a la derecha** cuando se llega desde la app (se

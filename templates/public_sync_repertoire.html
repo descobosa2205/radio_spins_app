@@ -24,11 +24,12 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
   <style>
     body{ background:#f6f7f8; }
-    .rep-wrap{ max-width:920px; margin:0 auto; padding:18px 14px 44px; }
+    /* Se adapta al ANCHO DE LA VENTANA (antes se quedaba en una columna estrecha en el centro). */
+    .rep-wrap{ width:100%; max-width:1400px; margin:0 auto; padding:18px 20px 44px; }
     .rep-head{ text-align:right; margin-bottom:.5rem; }
     .rep-head img{ height:38px; width:auto; margin-left:12px; vertical-align:middle; }
     .rep-title{ text-align:center; font-size:1.7rem; font-weight:800; margin:.4rem 0 1.4rem; }
-    .rep-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.85rem; }
+    .rep-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:.85rem; }
     .rep-cookie{ background:#fff; border:1px solid #e6e9ec; border-radius:14px; padding:1rem .9rem;
                  text-align:center; text-decoration:none; color:inherit; display:block;
                  transition:border-color .15s, transform .15s; }

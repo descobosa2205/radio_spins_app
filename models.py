@@ -567,6 +567,9 @@ class Song(Base):
     cm_links_locked = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     cm_link_status = Column(Text)
     cm_refreshed_at = Column(DateTime(timezone=True))
+    # Cuándo se buscó su ISRC en Chartmetric sin encontrarlo (para no repetir la llamada en cada
+    # refresco). Se limpia en cuanto se vincula.
+    cm_isrc_checked_at = Column(DateTime(timezone=True))
     release_date = Column(Date, nullable=False)
     cover_url = Column(Text)
 
@@ -10342,6 +10345,10 @@ def ensure_chartmetric_schema():
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_links_locked jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_link_status text;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_refreshed_at timestamptz;",
+        # Cuándo se buscó por última vez su ISRC en Chartmetric SIN encontrarlo: así el casado
+        # automático no vuelve a gastar una llamada por la misma canción en cada refresco (se
+        # reintenta pasados CM_AUTOLINK_RETRY_DAYS, porque un lanzamiento reciente aparece después).
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_isrc_checked_at timestamptz;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_track text;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_links_locked jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_link_status text;",

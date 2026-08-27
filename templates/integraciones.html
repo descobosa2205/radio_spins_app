@@ -811,12 +811,20 @@
           <div class="card-body">
             <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
               <h2 class="h5 mb-0">Canciones · enlaces y reproducciones</h2>
-              <form method="post" class="mb-0" data-inline data-inline-target="#cmZoneSongs"
-                    data-confirm="Actualizará las reproducciones de las canciones con track de Chartmetric (consume crédito). ¿Continuar?">
-                <button name="action" value="refresh_songs_chartmetric" class="btn btn-sm btn-primary"><i class="fa fa-cloud-arrow-down me-1"></i>Actualizar reproducciones</button>
-              </form>
+              <div class="d-flex gap-2 flex-wrap">
+                {# ⚠️ Dos formularios SEPARADOS: dos botones con name="action" en el mismo formulario
+                   se pisan (bug ya documentado en esta pantalla). #}
+                <form method="post" class="mb-0" data-inline data-inline-target="#cmZoneSongs"
+                      data-confirm="Buscará en Chartmetric el ISRC de las canciones que aún no tienen track y las vinculará solas (consume crédito). ¿Continuar?">
+                  <button name="action" value="autolink_chartmetric" class="btn btn-sm btn-outline-primary"><i class="fa fa-link me-1"></i>Vincular por ISRC</button>
+                </form>
+                <form method="post" class="mb-0" data-inline data-inline-target="#cmZoneSongs"
+                      data-confirm="Actualizará las reproducciones de las canciones con track de Chartmetric (consume crédito). ¿Continuar?">
+                  <button name="action" value="refresh_songs_chartmetric" class="btn btn-sm btn-primary"><i class="fa fa-cloud-arrow-down me-1"></i>Actualizar reproducciones</button>
+                </form>
+              </div>
             </div>
-            <p class="text-muted small mb-2">Los enlaces se resuelven solos al actualizar los artistas (el ISRC se busca en seco, sin guiones). Si alguno falta o está mal: «Re-resolver» reintenta desde Chartmetric y <strong>«Vincular»</strong> deja pegar el enlace de Chartmetric o buscar la canción por nombre. Para corregir un enlace concreto, ábrelo en la ficha y pincha el icono en gris (queda fijado).</p>
+            <p class="text-muted small mb-2"><strong>Al pulsar «Actualizar todos»</strong> (arriba, en Chartmetric) las canciones que no tengan track <strong>se vinculan solas buscando su ISRC</strong> en Chartmetric — en seco, sin guiones, que es como lo espera su API—; se hace por tandas para no gastar los créditos de golpe, y «Vincular por ISRC» lo fuerza ahora mismo. Si alguno falta o está mal: «Re-resolver» reintenta desde Chartmetric y <strong>«Vincular»</strong> deja pegar el enlace de Chartmetric o buscar la canción por nombre. Para corregir un enlace concreto, ábrelo en la ficha y pincha el icono en gris (queda fijado).</p>
             {# Buscador para localizar NUESTRA canción en la lista (que es larga). #}
             <div class="input-group input-group-sm mb-3" style="max-width:420px;">
               <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>

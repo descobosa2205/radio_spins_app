@@ -5914,6 +5914,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   nosotros: `dd/mm/aaaa · Origen → Destino` (fecha en formato de España). La `description` de Cabify
   **no se usa nunca**: es donde vienen los suplementos y ensucia la información.
 
+- **CHARTMETRIC · las canciones SE VINCULAN SOLAS por su ISRC** (ago 2026,
+  `_cm_autolink_songs_by_isrc`): al pulsar **«Actualizar todos»** —y en el refresco diario y en el
+  cron— las canciones que siguen **sin `cm_track`** se buscan **por su ISRC** en Chartmetric y se
+  vinculan, rellenando además sus **enlaces de plataforma** (`…/get-ids`, que es lo que deja los
+  botones puestos). Orden de la pasada: **artistas → vincular por ISRC → reproducciones**, así lo
+  recién vinculado ya trae sus datos sin pulsar nada más. Botón **«Vincular por ISRC»** en la
+  subpestaña de Canciones para forzarlo en el momento (en primer plano, para poder decir cuántas han
+  entrado).
+  ⚠️⚠️ **Esto es lo que `_cm_resolve_artist_song_links` NO puede hacer**: ese solo casa contra los
+  tracks que la API devuelve **para ese artista**, así que una canción que no esté en esa lista **no
+  se vinculaba nunca sola** (había que ir a «Actualizar» una a una).
+  ⚠️ El ISRC se manda **SIN GUIONES** (`cm.norm_isrc`, el punto único; con ellos Chartmetric no
+  encuentra nada) y se prueban **todos** los de la canción: el del campo y los de la pestaña de
+  códigos (`SongISRCCode`), que es donde los tiene la mayoría. Los códigos se leen de UNA consulta
+  para todas las candidatas.
+  ⚠️ **Cuesta créditos**, así que: **tope por pasada** (`CM_AUTOLINK_PER_RUN` = 60, y se dice cuántas
+  quedan), una canción **sin ISRC no gasta ninguna llamada**, y lo que **no aparece se apunta** en
+  `Song.cm_isrc_checked_at` para no volver a preguntarlo en cada refresco — se reintenta pasados
+  `CM_AUTOLINK_RETRY_DAYS` (7) días, porque un lanzamiento reciente entra en su catálogo después.
+  ⚠️⚠️ Si la API **FALLA** (sin créditos, 429, red) **se para y NO se marca nada**: «no he podido
+  preguntar» no es «no está» (con lo contrario se descartarían canciones buenas durante una semana).
+  ⚠️ Los dos botones de esa cabecera van en **formularios SEPARADOS**: dos `name="action"` en el
+  mismo formulario se pisan (bug ya conocido de esta pantalla).
+  Probado con un Chartmetric simulado: el ISRC de la pestaña guardado con guiones se pregunta en seco,
+  la que existe se vincula con sus enlaces, la que no queda apuntada, la segunda pasada no gasta
+  ninguna llamada, a los 9 días se reintenta, con la API caída no se marca nada, el tope funciona y el
+  refresco general lo llama en su orden.
+
 - ⚠️⚠️ **CHARTMETRIC · las DOS rutas que estaban mal** (ago 2026, bug real: una canción vinculada por
   el buscador se quedaba **sin enlaces y sin reproducciones**, con «Cannot GET
   /api/track/170983676/spotify/stats»). Las rutas de verdad, confirmadas en su referencia

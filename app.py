@@ -111597,6 +111597,26 @@ def integrations_view():
                 s.close()
             threading.Thread(target=_chartmetric_refresh_all_bg, daemon=True).start()
             flash(f"Refresco de {n} artista(s) en marcha en segundo plano. Vuelve en unos minutos y recarga la página.", "info")
+        elif action == "autolink_chartmetric":
+            # Vincular por ISRC, EN PRIMER PLANO: son pocas llamadas y así se dice al momento
+            # cuántas han entrado y cuántas quedan (en 2º plano no habría forma de saberlo).
+            s = db()
+            try:
+                res = _cm_autolink_songs_by_isrc(s, force=True)
+            finally:
+                s.close()
+            if res.get("error"):
+                flash("Chartmetric ha fallado al buscar por ISRC: %s" % res["error"], "danger")
+            if res.get("linked"):
+                flash("%s canción(es) vinculadas por su ISRC: %s%s."
+                      % (res["linked"], ", ".join(res["names"]),
+                         "…" if res["linked"] > len(res["names"]) else ""), "success")
+            elif not res.get("error"):
+                flash("Ninguna canción nueva se ha podido vincular por su ISRC "
+                      "(se han buscado %s)." % res.get("checked", 0), "info")
+            if res.get("pending"):
+                flash("Quedan %s canción(es) por buscar (se hacen por tandas para no gastar los "
+                      "créditos de golpe): vuelve a pulsarlo." % res["pending"], "info")
         elif action == "refresh_songs_chartmetric":
             threading.Thread(target=lambda: _cm_refresh_songs_due_bg(force_all=True), daemon=True).start()
             flash("Actualizando reproducciones de canciones en segundo plano. Recarga en unos minutos.", "info")
@@ -112294,6 +112314,91 @@ def _cm_resolve_artist_song_links(session_db, artist, track_objs) -> None:
         _cm_apply_song_links(sg, cm_track, urls)
 
 
+# Cuántas canciones se buscan por ISRC en cada pasada (cada una gasta 1-2 llamadas a Chartmetric) y
+# cada cuánto se reintenta una que no apareció (un lanzamiento reciente entra en su catálogo días
+# después, así que no se descarta para siempre).
+CM_AUTOLINK_PER_RUN = 60
+CM_AUTOLINK_RETRY_DAYS = 7
+
+
+def _cm_autolink_songs_by_isrc(session_db, *, limit: int = CM_AUTOLINK_PER_RUN,
+                               force: bool = False, artist_id=None) -> dict:
+    """Vincula solas las canciones SIN track de Chartmetric **buscando su ISRC** en la API.
+
+    ⚠️ Esto es lo que `_cm_resolve_artist_song_links` NO puede hacer: ese casa contra los tracks que
+    Chartmetric ya devolvió para el artista, así que una canción que no esté en esa lista no se
+    vinculaba nunca. Aquí se PREGUNTA por el ISRC (`get_track_ids_from_isrc`, que lo manda **en
+    seco**: `cm.norm_isrc` le quita los guiones, porque con ellos Chartmetric no encuentra nada).
+
+    · Se prueban **todos** los ISRC de la canción (el del campo y los de la pestaña de códigos).
+    · Al vincularla se rellenan también sus enlaces de plataforma (`…/get-ids`), que es lo que deja
+      los botones puestos.
+    · Lo que NO aparece se apunta en `cm_isrc_checked_at` y no se vuelve a preguntar hasta pasados
+      `CM_AUTOLINK_RETRY_DAYS` días: si no, cada refresco gastaría las mismas llamadas inútiles.
+    ⚠️ Si la API FALLA (sin créditos, 429, red) se **para y no se marca nada**: «no he podido
+    preguntar» no es «no está» (la regla de la casa; si no, se descartarían canciones buenas).
+    """
+    import chartmetric_utils as cm
+    salida = {"linked": 0, "checked": 0, "pending": 0, "error": None, "names": []}
+    if not cm.chartmetric_configured():
+        salida["error"] = "Chartmetric no está configurado."
+        return salida
+
+    corte = _now_madrid() - timedelta(days=CM_AUTOLINK_RETRY_DAYS)
+    query = session_db.query(Song).filter(or_(Song.cm_track.is_(None), Song.cm_track == ""))
+    if artist_id is not None:
+        query = query.join(SongArtist, SongArtist.song_id == Song.id).filter(SongArtist.artist_id == artist_id)
+    if not force:
+        query = query.filter(or_(Song.cm_isrc_checked_at.is_(None), Song.cm_isrc_checked_at < corte))
+    candidatas = query.order_by(Song.release_date.desc().nullslast()).all()
+
+    # Los ISRC de todas ellas, de UNA consulta (no una por canción).
+    codigos = {}
+    ids = [sg.id for sg in candidatas]
+    if ids:
+        for fila in session_db.query(SongISRCCode).filter(SongISRCCode.song_id.in_(ids)).all():
+            codigos.setdefault(str(fila.song_id), []).append(getattr(fila, "code", None))
+
+    for sg in candidatas:
+        posibles = [c for c in ([getattr(sg, "isrc", None)] + codigos.get(str(sg.id), [])) if c]
+        if not posibles:
+            continue                      # sin ISRC no hay nada que buscar (no gasta llamada)
+        if salida["checked"] >= limit:
+            salida["pending"] += 1
+            continue
+        salida["checked"] += 1
+        cm_track = ""
+        try:
+            for code in posibles:
+                res = cm.get_track_ids_from_isrc(code, raise_on_error=True) or {}
+                cm_track = str(_cm_first(res, "cm_track", "id", "chartmetric_id", "chartmetric_ids") or "")
+                if cm_track:
+                    break
+        except Exception as exc:
+            # No se ha podido preguntar: se deja para la próxima SIN marcar nada.
+            salida["error"] = str(exc)[:200]
+            break
+        if not cm_track:
+            sg.cm_isrc_checked_at = _now_madrid()
+            continue
+        urls = {}
+        try:
+            urls = _cm_urls_from_get_ids(cm.get_track_platform_ids(cm_track) or {}, "track")
+        except Exception:
+            app.logger.exception("[chartmetric] no se pudieron leer los ids de plataforma de %s", cm_track)
+        _cm_apply_song_links(sg, cm_track, urls)
+        sg.cm_isrc_checked_at = None       # ya está vinculada: la marca deja de tener sentido
+        salida["linked"] += 1
+        if len(salida["names"]) < 12:
+            salida["names"].append((sg.title or "").strip() or str(sg.id))
+    try:
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[chartmetric] no se pudo guardar el casado por ISRC")
+    return salida
+
+
 def _cm_es_punto(x) -> bool:
     """¿Es un punto de una serie? (lleva fecha y valor)"""
     return isinstance(x, dict) and (("timestp" in x) or ("date" in x)) and ("value" in x or "count" in x)
@@ -112573,8 +112678,25 @@ def _chartmetric_refresh_all_bg():
         pass
     finally:
         s.close()
-    # Tras resolver artistas (que fija cm_track y enlaces de las canciones), refrescar las
-    # reproducciones de las canciones vencidas por cadencia (diario/semanal/mensual).
+    # Tras los artistas, VINCULAR SOLAS las canciones que sigan sin track buscando su ISRC en
+    # Chartmetric: el casado del artista solo mira los tracks que la API devuelve para él, así que
+    # sin esto una canción que no esté en esa lista no se vinculaba nunca.
+    s2 = db()
+    try:
+        res = _cm_autolink_songs_by_isrc(s2)
+        if res.get("linked"):
+            app.logger.info("[chartmetric] %s canción(es) vinculadas por su ISRC.", res["linked"])
+        if res.get("pending"):
+            app.logger.info("[chartmetric] quedan %s canción(es) por buscar (tope por pasada).",
+                            res["pending"])
+        if res.get("error"):
+            app.logger.warning("[chartmetric] el casado por ISRC se ha parado: %s", res["error"])
+    except Exception:
+        app.logger.exception("[chartmetric] casado por ISRC")
+    finally:
+        s2.close()
+    # Y por último las reproducciones de las canciones vencidas por cadencia (diario/semanal/
+    # mensual), que ya incluyen las que se acaban de vincular.
     try:
         _cm_refresh_songs_due_bg()
     except Exception:

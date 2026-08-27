@@ -51,6 +51,30 @@
    Se llena de DERECHA a IZQUIERDA (`ficha-quick--end`): el primero de aquí es el de más a la
    derecha y los que se añadan van saliendo a su izquierda. #}
 <div class="ficha-quick ficha-quick--end mb-0">
+  {# ── SYNCRO: solo en un tema ONE-STOP (lo que se puede licenciar sin pedir permiso a nadie). ── #}
+  {% if one_stop and one_stop.ok %}
+    {% if CAN_EDIT_SYNCROS %}
+      <button type="button" class="btn btn-sm {{ 'btn-outline-success' if sync_sent else 'btn-primary' }}"
+              data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}"
+              title="{{ sync_sent_tooltip or 'Enviar este tema a los Supervisors de Syncros' }}">
+        <i class="fa {{ 'fa-paper-plane' if sync_sent else 'fa-share-from-square' }} me-1"></i>
+        {{ 'Enviada a Supervisors' if sync_sent else 'Enviar a Supervisors' }}
+        {% if sync_sent %}<span class="badge text-bg-success ms-1">{{ sync_sent_count }}</span>{% endif %}
+      </button>
+    {% endif %}
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+        <i class="fa fa-clapperboard me-1"></i>Compartir Syncro
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><button class="dropdown-item" type="button" onclick="shareByMail('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</button></li>
+        <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>
+        <li><button class="dropdown-item" type="button" onclick="shareBySms('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>
+        <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ sync_share_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+        <li><a class="dropdown-item" href="{{ sync_share_url }}" target="_blank" rel="noopener"><i class="fa fa-eye fa-fw me-1"></i>Ver la página</a></li>
+      </ul>
+    </div>
+  {% endif %}
   {% if CAN_EDIT_DISCOGRAFICA %}
     {# El modal vive fuera de las pestañas, así que el botón vale desde cualquiera. #}
     <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#masterDeliveryModal">
@@ -3230,3 +3254,7 @@
 {% endif %}
 
 {% endblock %}
+
+{# El pop-up de ENVIAR A SUPERVISORS: el MISMO que el del listado de Syncros (un solo sitio que
+   mantener). Va fuera de las pestañas, así que el botón vale desde cualquiera. #}
+{% if one_stop and one_stop.ok and CAN_EDIT_SYNCROS %}{% include '_sync_send_modal.html' %}{% endif %}

@@ -20,7 +20,78 @@
   {% endfor %}
 </ul>
 
-{% if section == 'supervisors' %}
+{% if section == 'onestop' %}
+  {# ══ TEMAS ONE-STOP ══════════════════════════════════════════════════════════════════════════
+     Lo que se puede presentar a un supervisor sin pedirle permiso a nadie. El one-stop se CALCULA
+     (`_song_one_stop`), así que este listado no puede desparejarse de la etiqueta de la ficha. ══ #}
+  <div class="card mb-3">
+    <div class="card-body">
+      <form method="get" class="d-flex align-items-center gap-2 flex-wrap mb-3">
+        <input type="hidden" name="section" value="onestop">
+        <div class="flex-grow-1" style="min-width:220px;max-width:420px;">
+          <input type="search" class="form-control" name="q" value="{{ os_q }}"
+                 placeholder="Buscar por canción, artista o género…">
+        </div>
+        <button class="btn btn-outline-secondary"><i class="fa fa-magnifying-glass"></i></button>
+        <span class="ms-auto small text-muted">{{ os_total }} tema{{ '' if os_total == 1 else 's' }} One-stop</span>
+      </form>
+
+      {% if not os_rows %}
+        <div class="text-muted small">
+          {% if os_q %}Ningún tema One-stop cumple la búsqueda.
+          {% else %}Todavía no hay temas One-stop. Un tema lo es cuando el máster es 100% nuestro, no
+            hay intérpretes de fuera y la autoría es toda de Plataforma Musical.{% endif %}
+        </div>
+      {% else %}
+        <ul class="list-group list-group-flush">
+          {% for row in os_rows %}
+            <li class="list-group-item d-flex align-items-center gap-3 flex-wrap">
+              <img src="{{ row.cover_url or DEFAULT_COVER_URL }}" alt="" class="cover-square"
+                   style="width:56px;height:56px;object-fit:cover;border-radius:8px;">
+              <div class="min-w-0 flex-grow-1">
+                <div class="fw-semibold d-flex align-items-center gap-2 flex-wrap">
+                  <a href="{{ row.detail_url }}" class="text-decoration-none text-reset">{{ row.title }}</a>
+                  <span class="badge badge-onestop" title="Máster y edición al 100% nuestros"><i class="fa fa-clapperboard me-1"></i>One-stop</span>
+                  {% if row.sent %}
+                    {# Ya se le ha mandado a supervisores: cuándo y a quién, al pasar el ratón. #}
+                    <span class="badge text-bg-success" title="{{ row.sent_tooltip }}">
+                      <i class="fa fa-paper-plane me-1"></i>Enviada ({{ row.sent_count }})</span>
+                  {% endif %}
+                </div>
+                <div class="small text-muted d-flex align-items-center gap-2 flex-wrap">
+                  {{ artist_avatar(row.artist_photo, row.artist_name) }}<span>{{ row.artist_name }}</span>
+                  {% if row.release_label %}<span><i class="fa fa-calendar-day me-1"></i>{{ row.release_label }}</span>{% endif %}
+                  {% for g in row.genres %}<span class="badge rounded-pill text-bg-light border">{{ g }}</span>{% endfor %}
+                </div>
+              </div>
+              <div class="d-flex gap-2 flex-wrap">
+                {% if can_edit %}
+                  <button type="button" class="btn btn-sm {{ 'btn-outline-success' if row.sent else 'btn-primary' }}"
+                          data-sync-send="{{ row.id }}" data-sync-title="{{ row.title }}"
+                          title="{{ row.sent_tooltip or 'Enviar este tema a los Supervisors' }}">
+                    <i class="fa {{ 'fa-paper-plane' if row.sent else 'fa-share-from-square' }} me-1"></i>Supervisors</button>
+                {% endif %}
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="mailto:?subject={{ ('Syncro ' ~ row.title)|urlencode }}&body={{ row.share_url|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+                    <li><a class="dropdown-item" href="https://wa.me/?text={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
+                    <li><a class="dropdown-item" href="sms:?&body={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
+                    <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ row.share_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                    <li><a class="dropdown-item" href="{{ row.share_url }}" target="_blank" rel="noopener"><i class="fa fa-eye fa-fw me-1"></i>Ver la página</a></li>
+                  </ul>
+                </div>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if can_edit %}{% include '_sync_send_modal.html' %}{% endif %}
+
+{% elif section == 'supervisors' %}
   <div class="card mb-3">
     <div class="card-body">
       {# ---- Buscador + botones (a la derecha, en orden de uso) ---- #}
@@ -58,12 +129,18 @@
               {% endfor %}
             </div>
           {% endif %}
-          {% if sup_regions %}
+          {% if sup_regions or sup_countries %}
             <div class="d-flex align-items-center gap-2 flex-wrap">
               <span class="small text-muted" style="min-width:64px;">Región</span>
               {% for key, label, icon in sup_regions %}
                 <button type="button" class="btn btn-sm {{ 'btn-primary' if key in sup_filter_region else 'btn-outline-secondary' }}"
                         data-sup-chip="region" data-sup-value="{{ key }}"><i class="fa {{ icon }} me-1"></i>{{ label }}</button>
+              {% endfor %}
+              {# Un chip POR PAÍS, con su BANDERA (el nombre, al pasar el ratón). #}
+              {% for c in sup_countries %}
+                <button type="button" class="btn btn-sm {{ 'btn-primary' if c.value in sup_filter_region else 'btn-outline-secondary' }}"
+                        data-sup-chip="region" data-sup-value="{{ c.value }}" title="{{ c.name }}">
+                  {% if c.flag %}<span style="font-size:1.15em;line-height:1;">{{ c.flag }}</span>{% else %}<i class="fa fa-flag me-1"></i>{{ c.name }}{% endif %}</button>
               {% endfor %}
             </div>
           {% endif %}
@@ -100,7 +177,11 @@
                   <div class="d-flex align-items-center gap-2 flex-wrap">
                     <a class="fw-semibold text-decoration-none stretched-link" href="{{ row.url }}">{{ row.name }}</a>
                     <span class="badge text-bg-secondary"><i class="fa {{ row.type_icon }} me-1"></i>{{ row.type_label }}</span>
-                    <span class="badge text-bg-light border"><i class="fa {{ row.region_icon }} me-1"></i>{{ row.region_label }}</span>
+                    <span class="badge text-bg-light border">{% if row.region_flag %}<span class="me-1" style="font-size:1.1em;line-height:1;">{{ row.region_flag }}</span>{% else %}<i class="fa {{ row.region_icon }} me-1"></i>{% endif %}{{ row.region_label }}</span>
+                    {# Habla inglés: se le escribe en inglés (lo decide `comm_lang`). #}
+                    {% if row.comm_lang == 'EN' %}
+                      <span class="badge text-bg-info" title="Se le escribe en INGLÉS: sus correos salen traducidos"><i class="fa fa-language me-1"></i>Habla inglés</span>
+                    {% endif %}
                     {% for l in row.language_labels %}<span class="badge text-bg-light border">{{ l }}</span>{% endfor %}
                   </div>
                   <div class="small text-muted d-flex align-items-center gap-3 flex-wrap mt-1">

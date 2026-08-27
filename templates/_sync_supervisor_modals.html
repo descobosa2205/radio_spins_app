@@ -98,6 +98,22 @@
               <div class="form-text">Todos empiezan con <strong>español e inglés</strong>: quita o añade los que hagan falta.</div>
             </div>
 
+            {# ⚠️ EN QUÉ IDIOMA SE LE ESCRIBE: distinto de los idiomas en los que opera. Marcado,
+               todo lo que se le mande sale en inglés (menos el nombre de la canción y del artista). #}
+            <div class="mt-3">
+              <label class="form-label fw-semibold">¿En qué idioma se le escribe?</label>
+              <div class="filter-chips">
+                <label class="filter-chip">
+                  <input type="checkbox" name="speaks_english" value="1" class="d-none"
+                         {% if sup_edit and sup_edit.comm_lang == 'EN' %}checked{% endif %}>
+                  <i class="fa fa-check"></i><i class="fa fa-language me-1"></i>Habla inglés
+                </label>
+              </div>
+              <div class="form-text">Sin marcarlo se le escribe en <strong>español</strong>. Marcado, sus
+                correos y su enlace salen <strong>en inglés</strong> —traducido todo menos el nombre de
+                la canción y del artista—.</div>
+            </div>
+
             <div class="mt-3">
               <label class="form-label">Notas</label>
               <textarea class="form-control" name="notes" rows="2"></textarea>

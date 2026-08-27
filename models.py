@@ -581,6 +581,9 @@ class Song(Base):
     # adelante.
     work_declaration_signed = Column(Boolean, nullable=False, server_default=text("false"))
     lyrics_text = Column(Text)
+    # Token OPACO del enlace público del tema para SINCRONIZACIÓN (Syncros). Se crea la primera vez
+    # que se comparte y no caduca: un enlace ya mandado a un supervisor tiene que seguir valiendo.
+    sync_share_token = Column(Text, unique=True)
     lyrics_updated_at = Column(DateTime(timezone=True))
     # FOCUS SINGLE: el lanzamiento PRIORITARIO. Se decide en el proyecto y es de la CANCIÓN (se ve
     # en su ficha y en el repertorio). `None` = todavía no se ha decidido, que no es lo mismo que
@@ -10379,6 +10382,8 @@ def ensure_chartmetric_schema():
         # automático no vuelve a gastar una llamada por la misma canción en cada refresco (se
         # reintenta pasados CM_AUTOLINK_RETRY_DAYS, porque un lanzamiento reciente aparece después).
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_isrc_checked_at timestamptz;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS sync_share_token text;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_songs_sync_share_token ON songs(sync_share_token) WHERE sync_share_token IS NOT NULL;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_track text;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_links_locked jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_link_status text;",
@@ -12272,6 +12277,9 @@ class SyncSupervisor(Base):
     # IDIOMAS en los que se le mandan las sincronizaciones. Todos nacen con español e inglés, y se
     # pueden añadir o quitar.
     languages = Column(JSONB, nullable=False, server_default=text("""'["ES","EN"]'::jsonb"""))
+    # IDIOMA EN EL QUE SE LE ESCRIBE (ES | EN). No es lo mismo que `languages` (los idiomas en los
+    # que opera): esto decide en qué idioma sale su correo. «Habla inglés» = EN.
+    comm_lang = Column(Text, nullable=False, server_default=text("'ES'"))
     notes = Column(Text)
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     created_by_nick = Column(Text)
@@ -12327,6 +12335,8 @@ def ensure_syncros_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_sync_supervisors_type ON sync_supervisors(sup_type);",
         "CREATE INDEX IF NOT EXISTS idx_sync_supervisors_region ON sync_supervisors(region_kind, region_country);",
+        # Idioma en el que se le escribe (ES | EN): «Habla inglés» manda el correo en inglés.
+        "ALTER TABLE IF EXISTS sync_supervisors ADD COLUMN IF NOT EXISTS comm_lang text NOT NULL DEFAULT 'ES';",
         """
         CREATE TABLE IF NOT EXISTS sync_submissions (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

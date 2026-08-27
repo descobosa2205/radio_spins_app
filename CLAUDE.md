@@ -1771,6 +1771,58 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   duplicados, los cuatro filtros, el alta a mano, la pestaña del tercero y los permisos (sin permiso
   403 · solo ver sin botones y con el POST rebotado · ver+editar).
 
+- **SYNCROS · pestaña ONE-STOP y el envío a SUPERVISORS** (ago 2026). Es la **PRIMERA** sección de
+  Syncros: los temas que se pueden presentar para una sincronización **sin pedirle permiso a nadie**
+  (el one-stop lo CALCULA `_song_one_stop_map`, así que este listado no puede desparejarse de la
+  etiqueta de la ficha ni del repertorio). Cada tema tiene **«Supervisors»** y **compartir** por
+  correo · WhatsApp · SMS · copiar enlace.
+  · **EL CONTENIDO ES UNO SOLO**: punto único **`_sync_pitch_html`** (estilos en línea, porque va por
+  correo) + **`_sync_song_context`**, y lo pintan **el correo, la página del enlace y la vista
+  previa** — no hay tres versiones que se desparejen. Lleva: los **DOS logos** (PIES y Plataforma
+  Musical) arriba a la derecha, «**Nuevo tema para Sincronización**» centrado, el texto de
+  presentación, y la **portada a la izquierda** con su ficha a la derecha (título con la **etiqueta
+  One-Stop** a su derecha, artista, fecha de publicación, géneros en etiquetas, la discográfica con su
+  logo y la **tabla de autores** con rol, % y editorial), el **reproductor**, **«Ver letra»** y el
+  **contacto de sincronizaciones** (`SYNC_CONTACT_*`: Daniel Martínez · sync@piesrecords.com ·
+  +34915001883, con `mailto:` —asunto «Syncro \<canción\>»— y `tel:` clicables en el icono y en el texto).
+  ⚠️ **En el ENLACE no va el texto de presentación** (`with_intro=False`), como pidió Dani.
+  ⚠️ En un correo **no corre JavaScript**: ahí el play y la letra son ENLACES a la página pública; en
+  la página sí suena (mismo motor que las demos, `media_chip.js`) y la letra se abre en un pop-up.
+  ⚠️ El audio va por **NUESTRO puente** (`public_sync_song_audio` → `_playlist_audio_response`, con
+  `Range`): la dirección de Storage no sale nunca a la página.
+  · **Previsualización del enlace**: «**Syncro · \<canción\> (\<artista\>)**» y debajo «**One-Stop ·
+  \<géneros\>**» (`_sync_og_title` / `_sync_og_description`), con la **portada** como miniatura
+  (cascada portada → foto del artista → logo, vía `_share_og_image_response`).
+  · **EL IDIOMA lo decide el supervisor** (`SyncSupervisor.comm_lang`, «Habla inglés» en su ficha y en
+  el alta): a un anglo le llega **todo traducido menos el nombre de la canción y del artista**
+  (`SYNC_TEXTS`, los dos idiomas en un solo sitio) y su **enlace también** (`?lang=en`). En el listado
+  de Supervisors sale con su etiqueta.
+  ⚠️ No es lo mismo que `languages` (los idiomas en los que OPERA, donde casi todos tienen los dos):
+  esto es en qué idioma se le ESCRIBE.
+  · **EL ENVÍO** (`sync_song_send`, pop-up único `_sync_send_modal.html`, que se incluye en el listado
+  **y en la ficha de la canción**): vista previa como la de los correos (con selector Español/Inglés,
+  `sync_song_preview_html`) y, al lado, a quién se le manda. ⚠️ **Los filtros nacen TODOS ACTIVADOS y
+  al desactivar uno se QUITAN del envío** —al revés que en el listado, donde no filtrar es ver
+  todo—; debajo, la lista completa para **omitir a alguien concreto**, y se puede **añadir un correo
+  a mano** (con su idioma). El cuerpo se compone **una vez por idioma**, no uno por destinatario.
+  ⚠️ Quien no tiene correo en su ficha sale **deshabilitado** y se dice cuántos son: no se le puede
+  mandar.
+  ⚠️ Un tema que **no es one-stop no se envía** aunque se llame al endpoint a mano.
+  · **Queda registrado** en `SyncSubmission` (a quién, cuándo, idioma y canal) y de ahí sale la marca
+  **«Enviada a Supervisors»** con su icono: en el listado, y en la ficha el botón cambia a «Enviada a
+  Supervisors» — al pasar el ratón, **cuándo y a quién** (`_sync_sent_state`, UNA consulta).
+  ⚠️⚠️ **`SyncSubmission` NO tiene relación `promoter`** (solo la columna): con un `joinedload` la
+  lectura reventaba **dentro de su `try`** y la marca no aparecía NUNCA (bug real que sacó la prueba).
+  Los nombres se resuelven con una consulta en bloque.
+  · **El FILTRO DE REGIÓN de Supervisors ofrece los PAÍSES, con su BANDERA**: antes había un chip
+  «Un país» que no filtraba nada. Ahora son `GLOBAL`, `LATAM` y un chip **por país** presente
+  (`country:<nombre>`), pintado con su bandera (el nombre, al pasar el ratón) — `_country_flag` /
+  `_country_iso2` + `COUNTRY_ISO2`, que también pinta la bandera en la fila del supervisor.
+  ⚠️ El token del enlace es **OPACO** (`Song.sync_share_token`, UNIQUE) y **se crea con COMMIT**: con
+  un flush sin commit se perdería y un enlace ya mandado dejaría de valer (bug real de las demos).
+  · Los tres endpoints públicos (`public_sync_song`, `_audio`, `_og_image`) están en las **tres**
+  listas; los de dentro (`sync_song_*`) se mapean a la sección `syncros` en los DOS mapeos.
+
 - **PLAYLIST** (ago 2026): listas de temas para **MANDARLAS**, en su pestaña de Discográfica
   (`/discografica?section=playlists`). Modelos **`Playlist`** + **`PlaylistItem`**
   (`ensure_playlists_schema`). Una línea es una **CANCIÓN** del repertorio, una **DEMO**, un **TÍTULO**

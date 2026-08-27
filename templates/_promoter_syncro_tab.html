@@ -25,7 +25,7 @@
       <div data-section-view>
         <div class="d-flex gap-2 flex-wrap mb-2">
           <span class="badge text-bg-secondary"><i class="fa {{ sync_row.type_icon }} me-1"></i>{{ sync_row.type_label }}</span>
-          <span class="badge text-bg-light border"><i class="fa {{ sync_row.region_icon }} me-1"></i>{{ sync_row.region_label }}</span>
+          <span class="badge text-bg-light border">{% if sync_row.region_flag %}<span class="me-1" style="font-size:1.1em;line-height:1;">{{ sync_row.region_flag }}</span>{% else %}<i class="fa {{ sync_row.region_icon }} me-1"></i>{% endif %}{{ sync_row.region_label }}</span>
           {% for l in sync_row.language_labels %}<span class="badge text-bg-light border">{{ l }}</span>{% endfor %}
         </div>
         {% if sync_row.notes %}<div class="small text-muted">{{ sync_row.notes }}</div>{% endif %}
@@ -74,6 +74,17 @@
               </label>
             {% endfor %}
           </div>
+
+          {# En qué idioma se le escribe (no es lo mismo que los idiomas en los que opera). #}
+          <label class="form-label fw-semibold mt-3">¿En qué idioma se le escribe?</label>
+          <div class="filter-chips">
+            <label class="filter-chip">
+              <input type="checkbox" name="speaks_english" value="1" class="d-none"
+                     {% if sync_row.comm_lang == 'EN' %}checked{% endif %}>
+              <i class="fa fa-check"></i><i class="fa fa-language me-1"></i>Habla inglés
+            </label>
+          </div>
+          <div class="form-text">Marcado, sus correos y su enlace salen en inglés (menos el nombre de la canción y del artista).</div>
 
           <label class="form-label mt-3">Notas</label>
           <textarea class="form-control" name="notes" rows="2">{{ sync_sup.notes or '' }}</textarea>

@@ -1,0 +1,221 @@
+{# ============================================================================
+   ENVIAR UN TEMA A LOS SUPERVISORS.
+   Vista previa como la de los correos + a quién se le manda. ⚠️ Los filtros nacen **todos
+   activados** y al desactivar uno se QUITAN del envío (al revés que en el listado, donde no filtrar
+   es ver todo): se quita lo que no toca. Debajo, la lista completa para omitir a alguien concreto,
+   añadir un tercero o pegar un correo a mano.
+   ⚠️ Cada supervisor lo recibe en SU idioma (`comm_lang`): a un anglo, todo traducido menos el
+   nombre de la canción y del artista.
+   ============================================================================ #}
+<div class="modal fade" id="syncSendModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" id="syncSendForm" action="">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-share-from-square me-2"></i>Enviar a Supervisors ·
+            <span id="syncSendTitle" class="fw-normal"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            {# ---- A QUIÉN ---- #}
+            <div class="col-12 col-lg-5">
+              <div class="fw-semibold mb-2"><i class="fa fa-users me-1 text-danger"></i>¿A quién se le manda?</div>
+
+              <div class="d-flex flex-column gap-2 mb-2" data-sync-filters>
+                {% if send_types %}
+                  <div class="d-flex align-items-center gap-1 flex-wrap">
+                    <span class="small text-muted" style="min-width:58px;">Tipo</span>
+                    {% for key, label, icon in send_types %}
+                      <button type="button" class="btn btn-sm btn-primary" data-sync-f="type" data-sync-v="{{ key }}">
+                        <i class="fa {{ icon }} me-1"></i>{{ label }}</button>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                {% if send_regions or send_countries %}
+                  <div class="d-flex align-items-center gap-1 flex-wrap">
+                    <span class="small text-muted" style="min-width:58px;">Región</span>
+                    {% for key, label, icon in send_regions %}
+                      <button type="button" class="btn btn-sm btn-primary" data-sync-f="region" data-sync-v="{{ key }}">
+                        <i class="fa {{ icon }} me-1"></i>{{ label }}</button>
+                    {% endfor %}
+                    {% for c in send_countries %}
+                      <button type="button" class="btn btn-sm btn-primary" data-sync-f="country" data-sync-v="{{ c.name }}" title="{{ c.name }}">
+                        {% if c.flag %}<span style="font-size:1.15em;line-height:1;">{{ c.flag }}</span>{% else %}{{ c.name }}{% endif %}</button>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                <div class="d-flex align-items-center gap-1 flex-wrap">
+                  <span class="small text-muted" style="min-width:58px;">Idioma</span>
+                  {% for key, label in send_langs %}
+                    <button type="button" class="btn btn-sm btn-primary" data-sync-f="lang" data-sync-v="{{ key }}">{{ label }}</button>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="d-flex align-items-center justify-content-between mb-1">
+                <span class="small text-muted" id="syncSendCount"></span>
+                <div class="btn-group btn-group-sm">
+                  <button type="button" class="btn btn-outline-secondary" data-sync-all="1">Todos</button>
+                  <button type="button" class="btn btn-outline-secondary" data-sync-all="0">Ninguno</button>
+                </div>
+              </div>
+
+              <div class="border rounded" style="max-height:320px;overflow:auto;">
+                <ul class="list-group list-group-flush" id="syncSendList">
+                  {% for r in send_rows %}
+                    <li class="list-group-item py-2" data-sync-row
+                        data-type="{{ r.type }}" data-region="{{ r.region_kind }}"
+                        data-country="{{ r.region_country }}" data-lang="{{ r.comm_lang }}"
+                        {% if not r.email %}data-no-email="1"{% endif %}>
+                      <label class="d-flex align-items-center gap-2 mb-0" style="cursor:pointer;">
+                        <input class="form-check-input mt-0" type="checkbox" name="supervisor_ids"
+                               value="{{ r.id }}" {% if r.email %}checked{% else %}disabled{% endif %}>
+                        <img src="{{ r.photo }}" alt="" data-avatar="1"
+                             style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+                        <span class="min-w-0 flex-grow-1">
+                          <span class="d-block small fw-semibold text-truncate">{{ r.name }}</span>
+                          <span class="d-block text-muted" style="font-size:.75rem;">
+                            {% if r.region_flag %}{{ r.region_flag }} {% endif %}{{ r.type_label }}
+                            {% if r.comm_lang == 'EN' %}· <i class="fa fa-language"></i> EN{% endif %}
+                            {% if not r.email %}· <span class="text-danger">sin correo</span>{% endif %}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </div>
+              {% if send_no_email %}
+                <div class="form-text"><i class="fa fa-circle-info me-1"></i>{{ send_no_email }} supervisor(es)
+                  no tienen correo en su ficha: no se les puede mandar.</div>
+              {% endif %}
+
+              <label class="form-label mt-3">Otros correos</label>
+              <input class="form-control" name="extra_emails" placeholder="correo@empresa.com, otro@empresa.com">
+              <div class="form-text">Para mandárselo a alguien que no está en la lista. Se separan por comas.</div>
+              <div class="mt-2">
+                <label class="form-label small mb-1">Idioma de esos correos</label>
+                <select class="form-select form-select-sm" name="extra_lang" style="max-width:200px;">
+                  <option value="ES">Español</option>
+                  <option value="EN">Inglés</option>
+                </select>
+              </div>
+
+              <label class="form-label mt-3">Nota (opcional)</label>
+              <textarea class="form-control" name="note" rows="2"
+                        placeholder="Se añade arriba del correo, antes del tema."></textarea>
+            </div>
+
+            {# ---- VISTA PREVIA ---- #}
+            <div class="col-12 col-lg-7">
+              <div class="d-flex align-items-center justify-content-between mb-2">
+                <span class="fw-semibold"><i class="fa fa-eye me-1 text-danger"></i>Vista previa</span>
+                <div class="btn-group btn-group-sm" role="group">
+                  <button type="button" class="btn btn-outline-secondary active" data-sync-prev="ES">Español</button>
+                  <button type="button" class="btn btn-outline-secondary" data-sync-prev="EN">Inglés</button>
+                </div>
+              </div>
+              <div class="border rounded bg-white" style="max-height:520px;overflow:auto;" id="syncSendPreview">
+                <div class="p-4 text-center text-muted small"><i class="fa fa-spinner fa-spin me-1"></i>Cargando…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" id="syncSendBtn"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var modalEl = document.getElementById('syncSendModal');
+  if (!modalEl) return;
+  var URL_PREV = {{ url_for('sync_song_preview_html', song_id='__ID__')|tojson }};
+  var URL_SEND = {{ url_for('sync_song_send', song_id='__ID__')|tojson }};
+  var songId = '', lang = 'ES';
+  // Los filtros ACTIVOS: todos empiezan encendidos y se apagan al pinchar.
+  var off = { type: {}, region: {}, country: {}, lang: {} };
+
+  function filas() { return Array.prototype.slice.call(document.querySelectorAll('[data-sync-row]')); }
+
+  function aplica() {
+    var n = 0;
+    filas().forEach(function (li) {
+      var fuera = off.type[li.dataset.type] || off.region[li.dataset.region]
+        || (li.dataset.country && off.country[li.dataset.country]) || off.lang[li.dataset.lang];
+      li.classList.toggle('d-none', !!fuera);
+      var chk = li.querySelector('input[type=checkbox]');
+      if (!chk || chk.disabled) return;
+      // Al apagar un filtro, sus supervisores se QUITAN del envío.
+      if (fuera) chk.checked = false;
+      if (chk.checked) n++;
+    });
+    var c = document.getElementById('syncSendCount');
+    if (c) c.textContent = n + ' seleccionado' + (n === 1 ? '' : 's');
+  }
+
+  document.addEventListener('click', function (ev) {
+    var chip = ev.target.closest('[data-sync-f]');
+    if (chip) {
+      var f = chip.getAttribute('data-sync-f'), v = chip.getAttribute('data-sync-v');
+      if (off[f][v]) { delete off[f][v]; chip.classList.add('btn-primary'); chip.classList.remove('btn-outline-secondary'); }
+      else { off[f][v] = true; chip.classList.remove('btn-primary'); chip.classList.add('btn-outline-secondary'); }
+      aplica();
+      return;
+    }
+    var todos = ev.target.closest('[data-sync-all]');
+    if (todos) {
+      var on = todos.getAttribute('data-sync-all') === '1';
+      filas().forEach(function (li) {
+        if (li.classList.contains('d-none')) return;
+        var chk = li.querySelector('input[type=checkbox]');
+        if (chk && !chk.disabled) chk.checked = on;
+      });
+      aplica();
+      return;
+    }
+    var idioma = ev.target.closest('[data-sync-prev]');
+    if (idioma) {
+      lang = idioma.getAttribute('data-sync-prev');
+      document.querySelectorAll('[data-sync-prev]').forEach(function (b) {
+        b.classList.toggle('active', b === idioma);
+      });
+      pinta();
+      return;
+    }
+    // ⚠️ La canción se fija EN EL CLIC, no en shown.bs.modal: con modal_stack.js por medio ese
+    // evento no siempre llega (bug ya conocido de esta app).
+    var abre = ev.target.closest('[data-sync-send]');
+    if (abre) {
+      songId = abre.getAttribute('data-sync-send');
+      document.getElementById('syncSendTitle').textContent = abre.getAttribute('data-sync-title') || '';
+      document.getElementById('syncSendForm').setAttribute('action', URL_SEND.replace('__ID__', songId));
+      aplica();
+      pinta();
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+  });
+
+  document.addEventListener('change', function (ev) {
+    if (ev.target.closest('#syncSendList')) aplica();
+  });
+
+  function pinta() {
+    var zona = document.getElementById('syncSendPreview');
+    if (!zona || !songId) return;
+    zona.innerHTML = '<div class="p-4 text-center text-muted small"><i class="fa fa-spinner fa-spin me-1"></i>Cargando…</div>';
+    fetch(URL_PREV.replace('__ID__', songId) + '?lang=' + lang, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (j) {
+        zona.innerHTML = (j && j.ok && j.html) ? j.html
+          : '<div class="p-4 text-danger small">' + ((j && j.error) || 'No se pudo cargar la vista previa.') + '</div>';
+      })
+      .catch(function () { zona.innerHTML = '<div class="p-4 text-danger small">No se pudo cargar la vista previa.</div>'; });
+  }
+})();
+</script>

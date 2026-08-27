@@ -1662,6 +1662,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   inaceptable. Y ⚠️ **`Song` NO tiene `artist_id`**: su artista va por **`SongArtist`** (N:M).
   ⚠️ Se emite también **`og:image:type`**: sin él, WhatsApp y algunos móviles descartan la foto.
 
+- **GÉNEROS de una canción · ETIQUETAS** (ago 2026): `MusicGenre` (catálogo, `norm_key` UNIQUE) +
+  `SongGenre` (N:M con posición), `ensure_song_genres_schema`. El catálogo se **siembra** con los
+  habituales (`SONG_GENRE_SEED`, 44) y es **ABIERTO**: lo que no esté se crea al vuelo desde el
+  propio campo (`_song_genre_get_or_create`), y `norm_key` (sin acentos, minúsculas) evita el
+  duplicado — «Pop», «pop» y «POP» son el mismo género.
+  · Punto único de guardado **`_apply_song_genres(session_db, song, nombres, present=)`**: crea los
+  que falten, respeta el orden y **parte por comas** (un campo suelto puede traer «Pop, Rock»).
+  ⚠️ **Mantiene `Song.genre` como ESPEJO en texto**: de ahí lo leen el Label Copy y todo lo que ya
+  lo enseñaba, así que no hay dos verdades — la lista manda y el texto la sigue.
+  ⚠️ **Con CENTINELA** (`song_genres_present`): si el formulario no trae el campo, no se toca nada
+  (un guardado parcial no puede borrar los géneros; la misma regla que las responsabilidades de
+  administración).
+  · Lectura: `_song_genre_names` (una canción) y **`_song_genres_map`** (muchas, en UNA consulta,
+  para listados). Catálogo para sugerir: `_song_genre_catalog` (va a un `<datalist>`).
+  · **Se editan en la ficha** (pestaña Información) con el MISMO gestor de chips que las etiquetas de
+  una actividad: `initConcertTagManager` acepta ya **`fieldName`** y **`prefix`** (por defecto los de
+  concierto, así que los conciertos no cambian), y en la vista consolidada salen como etiquetas.
+  ⚠️ El JS del editor va en **`DOMContentLoaded`**: los scripts en línea de una plantilla corren
+  ANTES de `scripts.js`, así que antes no existiría `initConcertTagManager`.
+  · **OBLIGATORIO al crear un PROYECTO DISCOGRÁFICO con AUDIO** (paso 9 del asistente,
+  `data-sw-when="ALBUM,EP,SINGLE,SINGLE_VIDEOCLIP"` — todos menos un videoclip suelto, donde el audio
+  ya existe con sus géneros). Lo comprueba **también el servidor** (`disco_project_create`: esconder
+  el paso no basta) y se aplica a **todas las canciones del lanzamiento** (el género es de la
+  canción, así que en un álbum va en cada tema).
+  ⚠️ Un género escrito y sin pulsar Enter cuenta igual: al enviar se añade al vuelo.
+  · Las canciones que ya existían **se quedan sin género** hasta que se editen: no se puede inventar
+  el género de un catálogo entero.
+
 - **ETIQUETA «ONE-STOP» de una canción** (ago 2026, punto único **`_song_one_stop`**): sale en la
   **cabecera de la ficha de la canción** (junto a PROVISIONAL / EXPLÍCITA / FOCUS SINGLE), en el
   **azul de la marca** y con la **claqueta** (`fa-clapperboard`, el mismo icono de la sección

@@ -466,8 +466,34 @@
                 </div>
 
                 <div class="col-12 col-md-8">
-                  <label class="form-label">Género</label>
-                  <input name="genre" class="form-control" value="{{ song.genre or '' }}">
+                  <label class="form-label">Géneros <span class="text-muted small">(etiquetas)</span></label>
+                  {# Mismo gestor de chips que las etiquetas de una actividad, con su propio name.
+                     El catálogo se sugiere en un datalist y lo que no esté se crea al vuelo. #}
+                  <input type="hidden" name="song_genres_present" value="1">
+                  <div id="songGenreChips" class="d-flex flex-wrap"></div>
+                  <div id="songGenreHidden"></div>
+                  <div class="input-group">
+                    <input id="songGenreInput" class="form-control" list="songGenreCatalog"
+                           placeholder="Escribe un género y pulsa Enter (Pop, Flamenco…)" autocomplete="off">
+                    <button type="button" class="btn btn-outline-secondary" id="songGenreAdd"><i class="fa fa-plus"></i></button>
+                  </div>
+                  <datalist id="songGenreCatalog">
+                    {% for g in song_genre_catalog or [] %}<option value="{{ g }}"></option>{% endfor %}
+                  </datalist>
+                  {# ⚠️ En DOMContentLoaded: los scripts en línea corren ANTES de scripts.js, así que
+                     aquí todavía no existiría `initConcertTagManager`. #}
+                  <script>
+                    document.addEventListener('DOMContentLoaded', function () {
+                      if (!window.initConcertTagManager || !document.getElementById('songGenreInput')) return;
+                      var gm = window.initConcertTagManager({
+                        inputId: 'songGenreInput', chipsId: 'songGenreChips', hiddenId: 'songGenreHidden',
+                        fieldName: 'song_genres[]', prefix: '',
+                        initialTags: {{ (song_genres or [])|tojson|forceescape }}
+                      });
+                      var add = document.getElementById('songGenreAdd');
+                      if (add && gm) add.addEventListener('click', function () { gm.addFromInput(); });
+                    });
+                  </script>
                 </div>
 
                 <div class="col-12">
@@ -655,7 +681,9 @@
                     <tr><th>BPM</th><td>{{ song.bpm }}</td></tr>
                   {% endif %}
 
-                  {% if song.genre %}
+                  {% if song_genres %}
+                    <tr><th>Géneros</th><td>{% for g in song_genres %}<span class="badge rounded-pill text-bg-light border me-1">{{ g }}</span>{% endfor %}</td></tr>
+                  {% elif song.genre %}
                     <tr><th>Género</th><td>{{ song.genre }}</td></tr>
                   {% endif %}
 

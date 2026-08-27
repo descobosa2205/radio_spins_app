@@ -211,6 +211,25 @@
             </div>
           </div>
         </section>
+
+        {# GÉNEROS: OBLIGATORIO en todo proyecto con AUDIO (todos menos un videoclip suelto, donde el
+           audio ya existe con sus géneros). Se aplican a las canciones del lanzamiento. #}
+        <section class="sw-step" data-step="9" data-title="Género" data-sw-when="ALBUM,EP,SINGLE,SINGLE_VIDEOCLIP">
+          <div class="sw-step__q"><i class="fa fa-tags me-2 text-danger"></i>¿De qué género es?</div>
+          <div class="sw-step__h">Se puede poner más de uno. Es obligatorio: es con lo que se presenta
+            el tema (a radio, a playlists y a sincronizaciones).</div>
+          <div id="dpGenreChips" class="d-flex flex-wrap"></div>
+          <div id="dpGenreHidden"></div>
+          <div class="input-group" style="max-width:520px;">
+            <input id="dpGenreInput" class="form-control" list="dpGenreCatalog"
+                   placeholder="Escribe un género y pulsa Enter (Pop, Flamenco…)" autocomplete="off">
+            <button type="button" class="btn btn-outline-secondary" id="dpGenreAdd"><i class="fa fa-plus"></i></button>
+          </div>
+          <datalist id="dpGenreCatalog">
+            {% for g in song_genre_catalog or [] %}<option value="{{ g }}"></option>{% endfor %}
+          </datalist>
+          <div class="form-text" id="dpGenreMsg"></div>
+        </section>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev>
@@ -229,6 +248,35 @@
    de progreso y cablea «Siguiente» y el auto-avance (`data-sw-advance`). Cada asistente carga su
    motor en su propio parcial (igual que los de promoción, giras y ciclos). #}
 <script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
+<script>
+  // GÉNEROS del proyecto: el mismo gestor de chips de las etiquetas de una actividad.
+  (function () {
+    document.addEventListener('DOMContentLoaded', function () {
+      if (!window.initConcertTagManager || !document.getElementById('dpGenreInput')) return;
+      var gm = window.initConcertTagManager({
+        inputId: 'dpGenreInput', chipsId: 'dpGenreChips', hiddenId: 'dpGenreHidden',
+        fieldName: 'song_genres[]', prefix: ''
+      });
+      var add = document.getElementById('dpGenreAdd');
+      if (add) add.addEventListener('click', function () { gm.addFromInput(); });
+      // ⚠️ Obligatorio: sin género no se envía (el servidor lo vuelve a comprobar).
+      var form = document.getElementById('dpGenreInput').closest('form');
+      if (form) form.addEventListener('submit', function (ev) {
+        var paso = document.querySelector('.sw-step[data-step="9"]');
+        var toca = paso && !paso.classList.contains('d-none') && !paso.hasAttribute('disabled');
+        if (!toca) return;
+        if (gm.getTags().length) return;
+        // Un género escrito y sin pulsar Enter cuenta igual: se añade al vuelo.
+        gm.addFromInput();
+        if (gm.getTags().length) return;
+        ev.preventDefault();
+        var msg = document.getElementById('dpGenreMsg');
+        if (msg) { msg.className = 'form-text text-danger'; msg.textContent = 'Pon al menos un género.'; }
+        document.getElementById('dpGenreInput').focus();
+      });
+    });
+  })();
+</script>
 <script>
 (function () {
   var root = document.getElementById('discoProjectForm');

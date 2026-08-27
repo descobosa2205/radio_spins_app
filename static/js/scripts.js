@@ -236,6 +236,11 @@ function initArtistContractControls(){
 }
 
 function initConcertTagManager(opts){
+  // Opciones: fieldName (name de los ocultos) y prefix (lo que se pinta delante del chip). Por
+  // defecto, lo de los conciertos — así el mismo gestor sirve para las etiquetas de una actividad
+  // y para los GÉNEROS de una canción sin duplicar código.
+  const fieldName = opts.fieldName || 'concert_tags[]';
+  const prefix = (opts.prefix === undefined) ? '#' : opts.prefix;
   const input = document.getElementById(opts.inputId);
   const chipsWrap = document.getElementById(opts.chipsId);
   const hiddenWrap = document.getElementById(opts.hiddenId);
@@ -255,7 +260,7 @@ function initConcertTagManager(opts){
     values.forEach((tag, idx) => {
       const chip = document.createElement('span');
       chip.className = 'badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 me-2 mb-2';
-      chip.innerHTML = `<span>#${tag}</span><button type="button" class="btn btn-sm p-0 border-0 bg-transparent text-danger" aria-label="Eliminar"><i class="fa fa-times"></i></button>`;
+      chip.innerHTML = `<span>${prefix}${tag}</span><button type="button" class="btn btn-sm p-0 border-0 bg-transparent text-danger" aria-label="Eliminar"><i class="fa fa-times"></i></button>`;
       chip.querySelector('button').addEventListener('click', () => {
         values.splice(idx, 1);
         sync();
@@ -264,7 +269,7 @@ function initConcertTagManager(opts){
 
       const hidden = document.createElement('input');
       hidden.type = 'hidden';
-      hidden.name = 'concert_tags[]';
+      hidden.name = fieldName;
       hidden.value = tag;
       hiddenWrap.appendChild(hidden);
     });

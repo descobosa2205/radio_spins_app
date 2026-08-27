@@ -1544,6 +1544,36 @@ class AlbumStatus(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class MusicGenre(Base):
+    """Catálogo de GÉNEROS musicales (etiquetas de una canción).
+
+    Es un catálogo abierto: se siembra con los habituales y se le añaden los que hagan falta al
+    vuelo (`norm_key` es único, así que «Pop», «pop» y «POP» son el mismo género y no se duplican).
+    """
+
+    __tablename__ = "music_genres"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    # Nombre normalizado (sin acentos, minúsculas): la clave para no duplicar.
+    norm_key = Column(Text, nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SongGenre(Base):
+    """Géneros de una canción (N:M). El texto plano se mantiene además en `Song.genre` como espejo,
+    porque de ahí lo leen el Label Copy y el resto de la app."""
+
+    __tablename__ = "song_genres"
+
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), primary_key=True)
+    genre_id = Column(PGUUID(as_uuid=True), ForeignKey("music_genres.id", ondelete="CASCADE"), primary_key=True)
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    genre = relationship("MusicGenre")
+
+
 class SongArtist(Base):
     __tablename__ = "songs_artists"
     song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), primary_key=True)
@@ -11499,6 +11529,32 @@ class UserContract(Base):
         Index("idx_user_contracts_user", "user_id"),
         Index("idx_user_contracts_start", "user_id", "start_date"),
     )
+
+
+def ensure_song_genres_schema():
+    """Géneros de una canción (catálogo + N:M). Idempotente, sin Alembic."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS music_genres (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            norm_key text NOT NULL UNIQUE,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS song_genres (
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            genre_id uuid NOT NULL REFERENCES music_genres(id) ON DELETE CASCADE,
+            position integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now(),
+            PRIMARY KEY (song_id, genre_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_song_genres_song ON song_genres(song_id);",
+        "CREATE INDEX IF NOT EXISTS idx_song_genres_genre ON song_genres(genre_id);",
+    ])
 
 
 def ensure_song_demos_schema():

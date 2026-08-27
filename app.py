@@ -188,6 +188,8 @@ from models import (
     SongProductionContract,
     SongStatus,
     SongArtist,
+    MusicGenre,
+    SongGenre,
     RadioStation,
     Week,
     Play,
@@ -324,6 +326,7 @@ from models import (
     ensure_vacations_schema,
     ensure_syncros_schema,
     ensure_song_demos_schema,
+    ensure_song_genres_schema,
     ensure_playlists_schema,
     ensure_disco_projects_schema,
     ensure_song_radio_schema,
@@ -4853,6 +4856,121 @@ def _song_one_stop(session_db, song, *, interpreters=None, shares=None) -> dict:
     return {"ok": bool(master_ok and interpreters_ok and editorial_ok), "reasons": fallos,
             "master_ok": master_ok, "interpreters_ok": interpreters_ok, "editorial_ok": editorial_ok,
             "platform_pct": plataforma_pct, "collaborator": colaborador}
+
+
+# ── GÉNEROS de una canción ────────────────────────────────────────────────────────────────────
+# Catálogo con el que nace la casa. Es ABIERTO: se le añaden los que hagan falta al vuelo desde el
+# propio campo (`_song_genre_get_or_create`), y `norm_key` evita el duplicado por acentos o mayúsculas.
+SONG_GENRE_SEED = [
+    "Pop", "Rock", "Indie", "Flamenco", "Rumba", "Copla", "Reggaetón", "Trap", "Hip Hop", "R&B",
+    "Electrónica", "House", "Techno", "Dance", "Latin", "Salsa", "Bachata", "Cumbia", "Bolero",
+    "Jazz", "Blues", "Soul", "Funk", "Country", "Folk", "Cantautor", "Clásica", "Banda sonora",
+    "Reggae", "Ska", "Punk", "Metal", "Hardcore", "Gospel", "Sevillanas", "Fusión", "Instrumental",
+    "Infantil", "Navidad", "Bolero flamenco", "Afrobeat", "Drill", "Garage", "Ambient",
+]
+
+
+def _norm_genre_key(value) -> str:
+    """Clave de un género: sin acentos, sin dobles espacios y en minúsculas (para no duplicar)."""
+    return _norm_text_key(re.sub(r"\s+", " ", str(value or "").strip()))
+
+
+def _song_genre_get_or_create(session_db, name: str):
+    """El género del catálogo con ese nombre, creándolo si no está. None si el nombre está vacío."""
+    limpio = re.sub(r"\s+", " ", str(name or "").strip())
+    clave = _norm_genre_key(limpio)
+    if not clave:
+        return None
+    fila = session_db.query(MusicGenre).filter(MusicGenre.norm_key == clave).first()
+    if fila is None:
+        fila = MusicGenre(name=limpio, norm_key=clave)
+        session_db.add(fila)
+        try:
+            session_db.flush()
+        except Exception:
+            # Carrera entre workers: otro lo acaba de crear. Se coge el que ya está.
+            session_db.rollback()
+            fila = session_db.query(MusicGenre).filter(MusicGenre.norm_key == clave).first()
+    return fila
+
+
+def _song_genres_seed_once() -> None:
+    """Siembra el catálogo de géneros la primera vez (marca en `AppSetting`)."""
+    session_db = db()
+    try:
+        if _get_app_setting("song_genres_seed_v1"):
+            return
+        for nombre in SONG_GENRE_SEED:
+            _song_genre_get_or_create(session_db, nombre)
+        session_db.commit()
+        _set_app_setting("song_genres_seed_v1", "1")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[generos] no se pudo sembrar el catálogo")
+    finally:
+        session_db.close()
+
+
+def _song_genre_names(session_db, song_id) -> list[str]:
+    """Los géneros de UNA canción, en su orden."""
+    sid = to_uuid(str(song_id or "")) or None
+    if not sid:
+        return []
+    filas = (session_db.query(SongGenre)
+             .options(joinedload(SongGenre.genre))
+             .filter(SongGenre.song_id == sid)
+             .order_by(SongGenre.position.asc(), SongGenre.created_at.asc()).all())
+    return [(getattr(f.genre, "name", "") or "").strip() for f in filas if getattr(f, "genre", None)]
+
+
+def _song_genres_map(session_db, song_ids) -> dict[str, list[str]]:
+    """Los géneros de MUCHAS canciones, en UNA consulta (para listados)."""
+    ids = [to_uuid(str(x)) for x in (song_ids or []) if to_uuid(str(x))]
+    if not ids:
+        return {}
+    salida: dict[str, list[str]] = {}
+    for f in (session_db.query(SongGenre)
+              .options(joinedload(SongGenre.genre))
+              .filter(SongGenre.song_id.in_(ids))
+              .order_by(SongGenre.position.asc(), SongGenre.created_at.asc()).all()):
+        nombre = (getattr(f.genre, "name", "") or "").strip()
+        if nombre:
+            salida.setdefault(str(f.song_id), []).append(nombre)
+    return salida
+
+
+def _apply_song_genres(session_db, song, nombres, *, present: bool = True) -> list[str]:
+    """Fija los géneros de una canción (crea los que no estén en el catálogo) y devuelve los nombres.
+
+    ⚠️ `present=False` = el formulario NO traía el campo: no se toca nada (así un guardado parcial no
+    borra los géneros, la misma regla que el centinela de las responsabilidades de administración).
+    ⚠️ Mantiene **`Song.genre`** como ESPEJO en texto: de ahí lo leen el Label Copy y todo lo que ya
+    lo enseñaba, así que no hay dos verdades — la lista manda y el texto la sigue.
+    """
+    if not present or song is None:
+        return _song_genre_names(session_db, getattr(song, "id", None))
+    vistos, finales = set(), []
+    for bruto in (nombres or []):
+        # Un campo suelto puede traer «Pop, Rock» de una vez: se parte por comas.
+        for trozo in re.split(r"[,;]", str(bruto or "")):
+            fila = _song_genre_get_or_create(session_db, trozo)
+            if fila is None or str(fila.id) in vistos:
+                continue
+            vistos.add(str(fila.id))
+            finales.append(fila)
+    session_db.query(SongGenre).filter(SongGenre.song_id == song.id).delete(synchronize_session=False)
+    for i, fila in enumerate(finales):
+        session_db.add(SongGenre(song_id=song.id, genre_id=fila.id, position=i))
+    nombres_finales = [(f.name or "").strip() for f in finales]
+    song.genre = ", ".join(nombres_finales) or None
+    session_db.flush()
+    return nombres_finales
+
+
+def _song_genre_catalog(session_db) -> list[str]:
+    """El catálogo completo, para sugerir en el campo (datalist)."""
+    return [(g.name or "").strip() for g in
+            session_db.query(MusicGenre).order_by(MusicGenre.name.asc()).all() if (g.name or "").strip()]
 
 
 def _song_one_stop_map(session_db, songs) -> dict[str, dict]:
@@ -12648,6 +12766,9 @@ def discografica_view():
     # asistente necesita además el repertorio y los proyectos en marcha (para un videoclip).
     projects_ctx = _disco_projects_context(session_db) if section == "proyectos" else None
     project_wizard = _disco_project_wizard_context(session_db) if section == "proyectos" else None
+    # El catálogo de GÉNEROS lo sugiere el paso obligatorio del asistente de proyectos y el editor
+    # de la ficha de la canción (es una ayuda: el campo admite cualquiera y lo crea al vuelo).
+    song_genre_catalog = _song_genre_catalog(session_db) if section in ("proyectos", "canciones") else []
 
     # Solo artistas con contrato Discográfico / Catálogo / Distribución (para alta de canciones)
     contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
@@ -13676,6 +13797,7 @@ def discografica_view():
         demos_ctx=demos_ctx,
         projects_ctx=projects_ctx,
         project_wizard=project_wizard,
+        song_genre_catalog=song_genre_catalog,
         # PLAYLIST: el listado (una debajo de otra), solo en su pestaña.
         playlist_rows=playlist_rows,
         demo_origins=DEMO_ORIGINS,
@@ -17423,6 +17545,9 @@ def discografica_song_detail(song_id):
     # intérpretes ya cargados más una consulta de los autores.
     one_stop = _song_one_stop(session_db, s, interpreters=interpreters)
 
+    # GÉNEROS (etiquetas): se ven en la vista consolidada y se editan en Información.
+    song_genres = _song_genre_names(session_db, s.id)
+
     # ISRCs
     isrc_codes = (
         session_db.query(SongISRCCode)
@@ -17852,6 +17977,8 @@ def discografica_song_detail(song_id):
         status=st,
         interpreters=interpreters,
         one_stop=one_stop,
+        song_genres=song_genres,
+        song_genre_catalog=(_song_genre_catalog(session_db) if tab == "informacion" else []),
         distributors=session_db.query(Distributor).order_by(Distributor.name.asc()).all(),
         song_distributor=(session_db.get(Distributor, s.distributor_id) if s.distributor_id else None),
         isrc_codes=isrc_codes,
@@ -18551,7 +18678,13 @@ def discografica_song_info_update(song_id):
         else:
             s.bpm = None
 
-        s.genre = (request.form.get("genre") or "").strip() or None
+        # GÉNEROS: son etiquetas (`SongGenre`), y `Song.genre` se mantiene como espejo en texto.
+        # ⚠️ Con centinela: si el formulario no trae el campo, no se tocan (un guardado parcial no
+        # puede borrar los géneros). El campo de texto suelto sigue valiendo por compatibilidad.
+        if "song_genres_present" in request.form or "song_genres[]" in request.form:
+            _apply_song_genres(session_db, s, request.form.getlist("song_genres[]"), present=True)
+        elif "genre" in request.form:
+            _apply_song_genres(session_db, s, [(request.form.get("genre") or "")], present=True)
         s.copyright_text = (request.form.get("copyright_text") or "").strip() or None
 
         s.recording_engineer = (request.form.get("recording_engineer") or "").strip() or None
@@ -23551,6 +23684,11 @@ def disco_project_create():
         if kind not in DISCO_PROJECT_LABELS:
             flash("Elige qué tipo de proyecto es.", "warning")
             return redirect(url_for("discografica_view", section="proyectos"))
+        # ⚠️ En un proyecto con AUDIO el GÉNERO es obligatorio: lo pide el asistente y lo vuelve a
+        # comprobar el servidor (esconder el paso no basta). Un videoclip suelto no lo lleva.
+        if kind != "VIDEOCLIP" and not [g for g in request.form.getlist("song_genres[]") if (g or "").strip()]:
+            flash("Dile al menos un género al proyecto: es obligatorio para poder presentarlo.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
 
         estado = _current_user_state() or {}
         project = DiscoProject(
@@ -23620,6 +23758,12 @@ def disco_project_create():
                 song_id=(fila.get("created_song_id") or fila.get("song_id")),
                 is_existing=bool(fila.get("song_id")),
             ))
+        # GÉNEROS: son obligatorios en un proyecto con AUDIO y se aplican a todas las canciones del
+        # lanzamiento (el género es de la canción, así que en un álbum va en cada tema).
+        generos = request.form.getlist("song_genres[]")
+        if generos:
+            for cancion in (_disco_project_release_songs(session_db, project) or []):
+                _apply_song_genres(session_db, cancion, generos, present=True)
         # Y su bolsa de gastos (la hoja de ruta y el calendario se montan sobre el propio proyecto).
         _ensure_project_bag(session_db, project)
         session_db.commit()
@@ -58314,6 +58458,7 @@ def _bootstrap_schema_bg():
         (ensure_invoice_attempts_schema, "ensure_invoice_attempts_schema"),
         (ensure_vacations_schema, "ensure_vacations_schema"),
         (ensure_syncros_schema, "ensure_syncros_schema"),
+        (ensure_song_genres_schema, "ensure_song_genres_schema"),
         (ensure_song_demos_schema, "ensure_song_demos_schema"),
         (ensure_playlists_schema, "ensure_playlists_schema"),
         (ensure_disco_projects_schema, "ensure_disco_projects_schema"),
@@ -58375,6 +58520,7 @@ def _bootstrap_schema_bg():
     # Una sola vez: la RECAUDACIÓN del reporte de ventas (permiso nuevo, apagado para todos) se
     # concede a Ticketing, que es quien lleva las entradas.
     _safe_ensure(lambda: globals()["_sales_revenue_access_seed"](), "_sales_revenue_access_seed")
+    _safe_ensure(lambda: globals()["_song_genres_seed_once"](), "_song_genres_seed_once")
     # Una sola vez: las peticiones que ya se habían APROBADO vuelven al proceso por pasos (el
     # aprobado antiguo creaba un borrador vacío y no dejaba constancia, así que no reclamaban nada).
     _safe_ensure(lambda: globals()["_peticion_stub_backfill_once"](),

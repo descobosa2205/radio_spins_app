@@ -3304,6 +3304,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Si no hay de dónde volver (enlace directo, pestaña nueva) se sigue el `href`, que es el destino
   «padre» de esa pantalla. Opt-out: `data-no-smart-back`. Cmd/Ctrl/⇧/clic central no lo interceptan.
 
+- **CARTELERÍA GENERAL DE UN EVENTO** (ago 2026): un **evento** (el sujeto, `AppEvent`) tiene su
+  propia pestaña **Cartelería** con los carteles **comunes a TODAS sus actividades**, y en cada
+  actividad de ese evento se ven **también** —en su propio módulo, junto a los de esa fecha—.
+  · Es la MISMA pieza que la de una gira o un ciclo: `ARTWORK_GROUP_KINDS` gana la clave **`EVENT`**
+  (con `AppEvent` en `_artwork_group_owner`) y los endpoints `group_artwork_*` la aceptan solos,
+  porque validan contra ese catálogo.
+  ⚠️ **Una fecha puede tener MÁS DE UNA cartelería general**: la de su evento y la de su gira o
+  ciclo. Por eso existe **`_concert_group_refs`** (todas, de la más amplia a la más concreta) y la
+  ficha pinta **un módulo por cada una** (`artwork_groups`); `_concert_group_ref` se conserva
+  devolviendo la más CONCRETA (ciclo o gira antes que evento) para lo que ya la usaba.
+
 - **Cartelería de TODA una gira / ciclo / evento**: `ConcertArtworkRequest` admite dueño GRUPO
   (`group_kind` TOUR|CYCLE + `group_id`, con `concert_id` NULL): una sola solicitud para todas sus
   fechas. Panel reutilizable `templates/_artwork_group_panel.html` (contexto `_artwork_group_context`)

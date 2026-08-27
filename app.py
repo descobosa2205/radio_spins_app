@@ -42040,6 +42040,9 @@ def event_detail_view(eid):
             entity_links=_entity_link_rows(s, "event", ev.id),
             entity_link_context={"type": "event", "id": str(ev.id), "label": ev.name},
             fotos_ctx=(_build_fotos_context(s, "EVENT", ev.id) if tab == "fotos" else None),
+            # CARTELERÍA GENERAL del evento: la común a TODAS sus actividades (la misma pieza que la
+            # de una gira o un ciclo). Solo se calcula en su pestaña.
+            **(_artwork_group_context(s, "EVENT", ev.id) if tab == "carteleria" else {}),
             entity_link_types=APP33_ENTITY_LINK_TYPES,
             entity_links_can_edit=can_edit_catalogs(),
             CAN_EDIT=can_edit_catalogs(),
@@ -45754,10 +45757,14 @@ def concert_detail_view(cid):
         # Carteles de TODA la gira/ciclo/evento al que pertenece la fecha: se ven aquí en su propio
         # módulo, aparte de los carteles de esta fecha.
         grupo_art = {}
+        grupos_art = []
         if tab == "carteleria":
-            _gk, _gid = _concert_group_ref(c)
-            if _gk and _gid:
-                grupo_art = _artwork_group_context(session, _gk, _gid)
+            # ⚠️ Puede haber MÁS DE UNA general: la del EVENTO (común a todas sus fechas) y la de su
+            # gira o ciclo. Cada una en su módulo, y debajo las de esta fecha.
+            for _gk, _gid in _concert_group_refs(c):
+                if _gk and _gid:
+                    grupos_art.append(_artwork_group_context(session, _gk, _gid))
+            grupo_art = grupos_art[0] if grupos_art else {}
         # ACTIVAR LA PRODUCCIÓN = decir QUIÉN de producción se encarga. Hace falta en TODA actividad
         # que va a producción y no tiene responsable: mientras no lo tenga, nadie la está
         # produciendo y le sale como tarea pendiente a quien la creó.
@@ -45914,6 +45921,9 @@ def concert_detail_view(cid):
             production_people=_production_people(session),
             production_owner_name=_concert_production_owner_name(session, c),
             **grupo_art,
+            # Todas las cartelerías GENERALES que le tocan a esta fecha (evento, gira, ciclo): una
+            # puede tener varias, y cada una se pinta en su módulo.
+            artwork_groups=grupos_art,
             result_calc=(result_ctx["calc"] if result_ctx else None),
             result_module=(result_ctx["module"] if result_ctx else None),
             result_et_income=(result_ctx.get("et_income") if result_ctx else False),
@@ -46301,7 +46311,10 @@ def _artwork_ensure_request(session_db, concert):
 #  aparte del de la fecha, para que se sepa cuál es cuál. Mismo circuito: subir a mano → aprobación
 #  de diseño uno a uno → compartir/descargar.
 # ---------------------------------------------------------------------------
-ARTWORK_GROUP_KINDS = {"TOUR": "gira", "CYCLE": "ciclo"}
+# ⚠️ Un EVENTO (el sujeto, `AppEvent`) también tiene cartelería GENERAL: la común de todas sus
+# actividades, sea cual sea el contenedor de cada una. Se ve en su ficha y, en cada actividad de ese
+# evento, en su pestaña de Cartelería junto a la particular de esa fecha.
+ARTWORK_GROUP_KINDS = {"TOUR": "gira", "CYCLE": "ciclo", "EVENT": "evento"}
 
 
 def _artwork_group_owner(session_db, kind: str, gid):
@@ -46317,6 +46330,9 @@ def _artwork_group_owner(session_db, kind: str, gid):
         row = session_db.get(CycleFestival, gid)
         etiqueta = CYCLE_FESTIVAL_KIND_LABELS.get((getattr(row, "kind", "") or "").upper(), "Ciclo")
         return row, (getattr(row, "name", "") or etiqueta)
+    if k == "EVENT":
+        row = session_db.get(AppEvent, gid)
+        return row, (getattr(row, "name", "") or "Evento")
     return None, ""
 
 
@@ -46352,13 +46368,33 @@ def _artwork_group_assets(session_db, kind: str, gid, only_approved: bool = True
     return sorted(salida, key=lambda x: (not bool(x.is_primary), x.created_at or datetime.min))
 
 
-def _concert_group_ref(concert):
-    """(kind, id) del grupo al que pertenece una actividad: su gira comprada o su ciclo/festival/evento."""
+def _concert_group_refs(concert) -> list[tuple[str, object]]:
+    """TODOS los grupos cuya cartelería GENERAL vale para esta actividad, del más amplio al más
+    concreto: su EVENTO (la común de todas sus fechas), su gira comprada y su ciclo/festival.
+
+    ⚠️ Son compatibles: una fecha de un evento puede estar además en un ciclo, y en su pestaña de
+    Cartelería se ven las dos generales (cada una en su módulo) más las suyas."""
+    salida = []
+    if getattr(concert, "event_id", None):
+        salida.append(("EVENT", concert.event_id))
     if getattr(concert, "purchased_tour_id", None):
-        return "TOUR", concert.purchased_tour_id
+        salida.append(("TOUR", concert.purchased_tour_id))
     if getattr(concert, "cycle_festival_id", None):
-        return "CYCLE", concert.cycle_festival_id
-    return None, None
+        salida.append(("CYCLE", concert.cycle_festival_id))
+    return salida
+
+
+def _concert_group_ref(concert):
+    """(kind, id) del grupo MÁS CONCRETO de una actividad (compatibilidad: el primero de los suyos)."""
+    refs = _concert_group_refs(concert)
+    if not refs:
+        return None, None
+    # El más concreto: el ciclo o la gira antes que el evento.
+    for k in ("CYCLE", "TOUR", "EVENT"):
+        for kind, gid in refs:
+            if kind == k:
+                return kind, gid
+    return refs[0]
 
 
 def _artwork_group_context(session_db, kind: str, gid) -> dict:

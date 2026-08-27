@@ -1893,12 +1893,17 @@
     </div>
     {% endif %}
 
-    {# ---------- CARTELES DE LA GIRA / CICLO / EVENTO ----------
-       Los de TODA la gira se ven también aquí, en su propio módulo y separados de los de esta fecha,
-       para saber cuál es cuál. Se pueden compartir estos, los de la fecha, o los dos juntos. #}
-    {% if gk_id %}
-      {% with gk_readonly = True %}{% include '_artwork_group_panel.html' %}{% endwith %}
-    {% endif %}
+    {# ---------- CARTELES GENERALES (del EVENTO, de la GIRA o del CICLO) ----------
+       Los comunes a todas las fechas se ven también aquí, cada uno en su módulo y separados de los de
+       esta fecha, para saber cuál es cuál. Una fecha puede tener MÁS DE UNO (la general de su evento
+       y la de su ciclo). Se pueden compartir estos, los de la fecha, o los dos juntos. #}
+    {% for _g in (artwork_groups or []) %}
+      {% with gk_readonly = True, gk_kind = _g.gk_kind, gk_id = _g.gk_id, gk_name = _g.gk_name,
+              gk_request = _g.gk_request, gk_assets = _g.gk_assets, gk_pending = _g.gk_pending,
+              gk_rejected = _g.gk_rejected %}
+        {% include '_artwork_group_panel.html' %}
+      {% endwith %}
+    {% endfor %}
 
     {# ---------- SUBIR CARTELES A MANO (arrastrando archivos o carpetas) ----------
        Lo subido queda PENDIENTE de que diseño le dé el OK: se ve, pero no se puede usar hasta

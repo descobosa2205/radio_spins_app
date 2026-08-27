@@ -37,6 +37,7 @@
 </div>
 
 {% set tabs = [('datos','Datos','fa-circle-info'), ('actividades','Actividades y giras','fa-calendar-day'),
+               ('carteleria','Cartelería','fa-images'),
                ('personas','Vinculaciones','fa-link'), ('fotos','Fotos / Vídeos','fa-images'),
                ('resultado','Resultado','fa-chart-line'), ('simulaciones','Simulaciones','fa-calculator'),
                ('gastos','Plantillas de gastos','fa-receipt')] %}
@@ -131,6 +132,16 @@
         {% endif %}
       </div>
     </div>
+
+  {% elif tab == 'carteleria' %}
+    {# CARTELERÍA GENERAL del evento: la común a TODAS sus actividades. En cada actividad se ve
+       también, en su propio módulo, junto a la particular de esa fecha. #}
+    <div class="alert alert-light border small">
+      <i class="fa fa-circle-info me-1"></i>Son los carteles <strong>comunes a todas las
+      actividades</strong> de este evento: se ven también en la pestaña de Cartelería de cada fecha,
+      al lado de los suyos.
+    </div>
+    {% include '_artwork_group_panel.html' %}
 
   {% elif tab == 'personas' %}
     {% include '_entity_links_panel.html' %}

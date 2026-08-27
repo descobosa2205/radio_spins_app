@@ -226,17 +226,36 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   huérfanos **en cascada** y se llevaría por delante todos los permisos ya concedidos.
 - **Iconos de sección**: dict `SECTION_ICONS` en `app.py`, inyectado al contexto; usado en el menú
   (`layout.html`) y en permisos.
-- **RECAUDACIÓN del reporte de ventas = permiso PROPIO** (`SALES_REVENUE_ACCESS_KEY` =
-  `ventas.recaudacion`, subpestaña de `ventas.reportes`): nace **apagada para todos**; **dirección**
+- **RECAUDACIÓN del reporte de ventas = el interruptor ECONÓMICO de «Reporte de ventas»**
+  (`SALES_REVENUE_ACCESS_KEY` = **`ventas.reportes`**, ago 2026): con **«Ver»** se ve **cómo van las
+  ventas SIN importes** (vendidas hoy, total, aforo, pendientes, %, punto de empate, sold out) y con
+  **«Ver datos económicos»** se ve además la **recaudación**. Nace apagada para todos; **dirección**
   la ve siempre y a **Ticketing** se le concede en el arranque (`_sales_revenue_access_seed`, marca
   `sales_revenue_access_seed_v1`). Punto único **`can_view_sales_revenue()`**, que sustituye a
   `can_view_economics()` en el reporte (pantalla, A4, columnas de dinero del Excel), en el **informe
   por concierto** (`sales_event_report_view`/`_pdf`) y en el reparto del **correo**
   (`_sales_report_recipients`, que decide quién recibe la variante con importes).
-  ⚠️ Se comprueba el **grant EXACTO** de ese recurso, no con `_state_has_access`: ese acepta los
-  ANCESTROS, así que cualquiera con economía en `ventas` seguiría viendo la recaudación (que es justo
-  lo que se quería cerrar). Las filas del permiso existen para todo el mundo con los flags a `false`
-  (el catálogo las crea así): lo que manda es `can_view_basic`/`can_view_econ`.
+  ⚠️⚠️ **Antes era una SUBPESTAÑA propia (`ventas.recaudacion`) y el interruptor económico no servía
+  para nada** (bug real): al tener una hija, el grant de `ventas.reportes` se guardaba **siempre a
+  False** (`_coherent_grant_values` deriva los contenedores de sus hijas) y en la pantalla de Accesos
+  ni se pintaba, así que la **ÚNICA** forma de abrir el reporte era conceder la subpestaña… que ya
+  daba los importes, porque `can_view_sales_revenue()` aceptaba `can_view_basic OR can_view_econ`.
+  Resultado: el perfil «ve cómo van las ventas sin ver la recaudación» **no se podía conceder**.
+  ⚠️ Ahora se mira **`can_view_econ`** (o `can_edit`, que por coherencia implica el económico), nunca
+  el básico. Y sigue comprobándose el **grant EXACTO**, no con `_state_has_access`: ese acepta los
+  ANCESTROS, así que cualquiera con economía en `ventas` seguiría viendo la recaudación. Las filas del
+  permiso existen para todo el mundo con los flags a `false` (el catálogo las crea así).
+  ⚠️ Quien ACTUALIZA ventas (`ventas.actualizar`) no ve por eso la recaudación del reporte: son
+  permisos distintos.
+
+- ⚠️⚠️ **RETIRAR UN RECURSO DE PERMISOS SE LLEVA SUS GRANTS: hay que TRASLADARLOS**
+  (`MIGRATED_ACCESS_KEYS`, ago 2026). `_sync_access_resources` **poda** lo que esté en
+  `LEGACY_REMOVED_ACCESS_KEYS` y los grants caen **en cascada**, así que quien tenía el acceso lo
+  perdería sin más. La tabla `MIGRATED_ACCESS_KEYS` (`clave vieja → (clave nueva, econ)`) dice a dónde
+  va cada uno y **`_sales_revenue_grants_migrate`** lo traslada **ANTES de la poda**, dentro de la
+  propia función de sincronización. Es idempotente y **no necesita marca de «hecho»**: en cuanto la
+  clave vieja se poda no queda nada que mover, así que tampoco resucita lo que dirección haya quitado
+  a mano después. Al retirar un recurso, añadirlo a las DOS listas.
 - **Inicio · acciones rápidas por departamento**: botones bajo la cabecera del personal
   (`HOME_QUICK_ACTIONS` ← `_build_home_quick_actions`, catálogo `_home_quick_action_defs`, reparto
   `_HOME_QUICK_BY_DEPARTMENT` por `UserProfile.departments`: Contratación/Sello/Registros/

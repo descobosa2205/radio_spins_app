@@ -633,9 +633,15 @@ NON_CONCERT_CACHE_LABELS = {
     "GIRAS_COMPRADAS": "Con caché", "CADIZ": "Con caché", "GRATUITO": "Sin caché",
 }
 
-# La RECAUDACIÓN del reporte de ventas es una característica con su propio permiso: nace apagada
-# para todos (dirección la ve siempre, y a Ticketing se le concede de salida).
-SALES_REVENUE_ACCESS_KEY = "ventas.recaudacion"
+# La RECAUDACIÓN del reporte de ventas la manda el interruptor ECONÓMICO de «Reporte de ventas»:
+# con «Ver» se ve cómo van las ventas SIN importes y con «Ver datos económicos» se ve la recaudación.
+# Nace apagada para todos (dirección la ve siempre, y a Ticketing se le concede de salida).
+# ⚠️ Antes esto era una SUBPESTAÑA propia (`ventas.recaudacion`), y eso hacía que el interruptor
+# económico no sirviera para nada: al tener una hija, el grant de `ventas.reportes` se guardaba
+# siempre a False (`_coherent_grant_values`), así que la ÚNICA forma de abrir el reporte era tener
+# la subpestaña... que ya daba los importes. La clave vieja está en `LEGACY_REMOVED_ACCESS_KEYS` y
+# sus permisos se migran aquí con `_sales_revenue_grants_migrate`.
+SALES_REVENUE_ACCESS_KEY = "ventas.reportes"
 
 SALES_SECTION_ORDER = ["EMPRESA", "GIRAS_COMPRADAS", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {k: CONCERT_SALE_TYPE_LABELS[k] for k in SALES_SECTION_ORDER}
@@ -50875,12 +50881,12 @@ def _sales_report_recipients() -> list[dict]:
             if not email or "@" not in email:
                 continue
             role = int(u.role or 0)
-            # MISMA regla que la pantalla: la recaudación es su propia característica
-            # (`ventas.recaudacion`), concedida expresamente. Si en pantalla no la ve, por correo
+            # MISMA regla que la pantalla (`can_view_sales_revenue`): la recaudación la manda el
+            # interruptor ECONÓMICO de «Reporte de ventas». Si en pantalla no la ve, por correo
             # tampoco. ⚠️ Se mira el grant EXACTO: por el padre («ventas») la vería cualquiera con
             # economía en Ventas, que es justo lo que se quería cerrar.
             _grant = (grants_by_user.get(u.id, {}) or {}).get(SALES_REVENUE_ACCESS_KEY)
-            econ = role == 10 or bool(_grant and (_grant.get("can_view_basic") or _grant.get("can_view_econ")))
+            econ = role == 10 or bool(_grant and (_grant.get("can_view_econ") or _grant.get("can_edit")))
             out.append({"id": str(u.id), "nick": (p.nick or _email_to_nick(email)).strip(),
                         "email": email, "photo": p.photo_url or "", "econ": bool(econ)})
         out.sort(key=lambda x: x["nick"].lower())
@@ -62990,11 +62996,10 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "radio.emisoras", "label": "Emisoras", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 103, "description": "Alta y edición de emisoras de radio."},
 
     {"key": "ventas", "label": "Ventas", "section_key": "ventas", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 110, "description": "Venta de entradas: informes y carga de cifras (con importes)."},
-    {"key": "ventas.reportes", "label": "Reporte de ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 111, "description": "Informe de ventas con importes. Página «Reporte de ventas»."},
+    {"key": "ventas.reportes", "label": "Reporte de ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 111, "description": "Página «Reporte de ventas». Con «Ver» se ve CÓMO VAN LAS VENTAS sin importes (vendidas, aforo, pendientes, % y punto de empate). El interruptor ECONÓMICO añade la RECAUDACIÓN (bruta y neta, rebate, el informe por concierto y las columnas de dinero del Excel y del A4), y es también quien decide si esa persona recibe el correo del reporte con importes."},
     {"key": "ventas.actualizar", "label": "Actualizar ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 112, "description": "Carga/actualización de cifras de venta de entradas."},
     # La RECAUDACIÓN es una característica aparte: se concede a quien tiene que ver el dinero de las
     # entradas (dirección y ticketing de salida), no a todo el que entra en el reporte.
-    {"key": "ventas.recaudacion", "label": "Recaudación del reporte", "section_key": "ventas", "parent_key": "ventas.reportes", "level": "SUBTAB", "economic_capable": True, "sort_order": 113, "description": "Ver los IMPORTES del reporte de ventas (recaudación bruta y neta, precios, informe por concierto y su columna de dinero). Sin esto, el reporte se ve sin importes."},
 
     {"key": "artists", "label": "Artistas", "section_key": "artists", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 120, "description": "Ficha de artistas y todas sus pestañas (Artistas)."},
     {"key": "artists.datos", "label": "Datos del artista", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 121, "description": "Pestaña «Datos» del artista: información general, foto, redes."},
@@ -63745,7 +63750,58 @@ def _rebuild_resource_caches(resource_rows: list[dict]):
 LEGACY_REMOVED_ACCESS_KEYS = {
     "concerts", "concerts.vista", "concerts.facturacion", "concerts.alta",
     "quadrantes", "marketing",
+    # La recaudación era una subpestaña propia y ahora es el interruptor ECONÓMICO de
+    # «Reporte de ventas»; `_sales_revenue_grants_migrate` pasa los permisos antes de podarla.
+    "ventas.recaudacion",
 }
+
+# Clave retirada -> (clave nueva, econ). Al retirar un recurso, `_sync_access_resources` lo borra y
+# sus grants caen EN CASCADA: lo que aquí figure se traslada ANTES de la poda, así nadie pierde un
+# acceso que ya tenía concedido. No necesita marca de "hecho": en cuanto la clave vieja desaparece,
+# la migración no encuentra nada que mover.
+MIGRATED_ACCESS_KEYS = {
+    "ventas.recaudacion": ("ventas.reportes", True),
+}
+
+
+def _sales_revenue_grants_migrate(session_db, existing: dict, desired: dict) -> None:
+    """Traslada los grants de un recurso RETIRADO a su recurso nuevo (`MIGRATED_ACCESS_KEYS`).
+
+    Se llama desde `_sync_access_resources` **antes de la poda**: al borrar el recurso viejo sus
+    grants caen en cascada, así que quien tenía el acceso lo perdería sin más. Es idempotente y no
+    necesita marca de "hecho": en cuanto la clave vieja se poda, no queda nada que mover (y por eso
+    tampoco resucita nada que dirección haya quitado a mano después).
+    """
+    for old_key, (new_key, econ) in MIGRATED_ACCESS_KEYS.items():
+        if old_key not in existing or new_key not in desired:
+            continue                      # ya podada, o el destino todavía no está en el catálogo
+        try:
+            viejos = (session_db.query(UserAccessGrant)
+                      .filter(UserAccessGrant.resource_key == old_key).all())
+        except Exception:
+            app.logger.exception("[accesos] no se pudieron leer los permisos de %s", old_key)
+            return
+        if not viejos:
+            continue
+        nuevos = {g.user_id: g for g in (session_db.query(UserAccessGrant)
+                                         .filter(UserAccessGrant.resource_key == new_key).all())}
+        tocados = 0
+        for old in viejos:
+            if not (old.can_view_basic or old.can_view_econ or old.can_edit):
+                continue                  # no tenía nada concedido: no hay nada que trasladar
+            grant = nuevos.get(old.user_id)
+            if grant is None:
+                grant = UserAccessGrant(user_id=old.user_id, resource_key=new_key)
+                session_db.add(grant)
+                nuevos[old.user_id] = grant
+            grant.can_view_basic = True
+            if econ:
+                grant.can_view_econ = True
+            tocados += 1
+        session_db.flush()
+        if tocados:
+            app.logger.info("[accesos] %s -> %s: permisos trasladados a %s persona(s).",
+                            old_key, new_key, tocados)
 
 
 def _sync_access_resources(session_db):
@@ -63788,6 +63844,9 @@ def _sync_access_resources_once(session_db):
             rec.level = row.get("level") or rec.level
             rec.economic_capable = bool(row.get("economic_capable"))
             rec.sort_order = int(row.get("sort_order") or 0)
+    # ANTES de podar: traslada los permisos de las claves retiradas a su clave nueva. La poda
+    # borra el recurso y sus grants caen en cascada, así que esto tiene que ir por delante.
+    _sales_revenue_grants_migrate(session_db, existing, desired)
     # Poda segura: elimina recursos retirados (legado) y auto-descubiertos que ya no aplican
     # (p. ej. los "auto.*" fantasma que clonaban pantallas ya cubiertas). NO toca recursos
     # curados ni de modelo: solo legado conocido y "auto.*" huérfanos. Los grants caen en cascada.
@@ -64613,16 +64672,20 @@ def can_edit_invoice_data() -> bool:
 def can_view_sales_revenue() -> bool:
     """¿Ve esta persona la RECAUDACIÓN del reporte de venta de entradas?
 
-    Es una **característica propia** (`SALES_REVENUE_ACCESS_KEY`), no una consecuencia de tener
-    economía en otra parte: la recaudación nace **desactivada para todo el mundo**. Dirección la ve
-    siempre y a **Ticketing** se le concede de salida (`_sales_revenue_access_seed`).
-    ⚠️ Se comprueba el grant EXACTO de ese recurso: `_state_has_access` daría acceso por el padre
-    (`ventas`), y entonces cualquiera con economía en Ventas la seguiría viendo."""
+    Lo manda el interruptor **ECONÓMICO** de «Reporte de ventas» (`SALES_REVENUE_ACCESS_KEY`): con
+    «Ver» a secas se ve **cómo van las ventas sin importes** y con el económico se ve la
+    recaudación. Nace apagada para todo el mundo; dirección la ve siempre y a **Ticketing** se le
+    concede de salida (`_sales_revenue_access_seed`).
+    ⚠️ Se comprueba el grant EXACTO de ese recurso: `_state_has_access` lo daría también por el
+    padre (`ventas`), y entonces cualquiera con economía en Ventas seguiría viendo la recaudación.
+    ⚠️ Y se mira `can_view_econ` (o `can_edit`, que por coherencia implica el económico), **no**
+    `can_view_basic`: con el OR de antes, tener el reporte ya daba los importes y el interruptor
+    económico no decidía nada."""
     state = _current_user_state()
     if int(state.get("role") or 0) == 10:
         return True
     grant = (state.get("grants") or {}).get(SALES_REVENUE_ACCESS_KEY)
-    return bool(grant and (grant.get("can_view_basic") or grant.get("can_view_econ")))
+    return bool(grant and (grant.get("can_view_econ") or grant.get("can_edit")))
 
 
 def can_edit_radio() -> bool:
@@ -70464,8 +70527,9 @@ def _personnel_tabs_access_seed(session_db=None) -> None:
 def _sales_revenue_access_seed() -> None:
     """Concede la RECAUDACIÓN del reporte de ventas al departamento de **Ticketing**, una vez.
 
-    La recaudación nace desactivada para todo el mundo (es un permiso propio). Dirección la ve
-    siempre por su rol; ticketing es quien lleva las entradas, así que se le da de salida y luego
+    O sea: le enciende el interruptor **económico** de «Reporte de ventas»
+    (`SALES_REVENUE_ACCESS_KEY`). La recaudación nace apagada para todo el mundo; dirección la ve
+    siempre por su rol y ticketing es quien lleva las entradas, así que se le da de salida y luego
     dirección la concede o la quita a quien quiera."""
     session_db = db()
     try:

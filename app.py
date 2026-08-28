@@ -2612,9 +2612,12 @@ def _artist_member_apply_nick(session_db, person, promoter) -> bool:
                    .first())
         if ocupado:
             return False
-        # Lo que se pierde del nick anterior se conserva como nombre oficial si estaba vacío.
-        if not (promoter.first_name or "").strip() and not (promoter.last_name or "").strip():
+        # ⚠️ El nick pasa a ser el del artista, así que el NOMBRE OFICIAL tiene que quedar escrito:
+        # es la única clave por la que esta ficha se reconoce como la de esa persona. Sin esto, tras
+        # renombrarla dejaba de casar con su integrante y la unificación no volvía a funcionar.
+        if not (promoter.first_name or "").strip():
             promoter.first_name = (person.first_name or "").strip() or None
+        if not (promoter.last_name or "").strip():
             promoter.last_name = (person.last_name or "").strip() or None
         promoter.nick = nombre
         session_db.add(promoter)
@@ -4504,10 +4507,24 @@ def _pick_artist_commitment_from_rows(rows, concept_variants: list[str], materia
 
     vset = {(_norm_text_key(x) or "") for x in (concept_variants or []) if (x or "").strip()}
     candidates = []
+    # ⚠️⚠️ El CONCEPTO de un compromiso es TEXTO LIBRE en la ficha del artista, así que en la base
+    # hay de todo: «Editorial», «Derechos editoriales», «Edición musical», «Editorial 50/50»…
+    # Comparando solo por pertenencia EXACTA a la lista, cualquier variante se quedaba fuera y el
+    # contrato **no se detectaba** —un integrante con contrato editorial se quedaba sin su reparto—.
+    # Se acepta también que el concepto CONTENGA una de las variantes; los catálogos son disjuntos
+    # entre sí (editorial · discográfico · management…), así que no se pisan.
+    def _casa(concepto: str) -> bool:
+        n = _norm_text_key(concepto or "")
+        if not n:
+            return False
+        if n in vset:
+            return True
+        return any(v and (v in n or n in v) for v in vset)
+
     for m, c in (rows or []):
         if not m or not c:
             continue
-        if _norm_text_key(getattr(m, "concept", "")) not in vset:
+        if not _casa(getattr(m, "concept", "")):
             continue
 
         signed_date = getattr(c, "signed_date", None)
@@ -7513,7 +7530,8 @@ def _share_publisher(share):
 # Manda lo VIGENTE EL DÍA DEL REGISTRO (por si las condiciones cambian): al registrar la obra en SGAE
 # el reparto se **congela** en el propio registro de autoría. Con «reparto especial» se fija a mano
 # (los dos porcentajes suman siempre 100 sobre la parte del autor) y eso pisa al contrato.
-EDITORIAL_CONTRACT_CONCEPTS = ["editorial", "editoriales", "edición", "edicion", "editorial musical"]
+EDITORIAL_CONTRACT_CONCEPTS = ["editorial", "editoriales", "edición", "edicion",
+                              "editorial musical", "derechos editoriales", "publishing"]
 PLATFORM_PUBLISHER_NAME = "plataforma musical"
 
 
@@ -7688,8 +7706,18 @@ def _artist_notification_recipients(session_db, artist_id, channel, *, fallback=
 
 
 def _publisher_is_platform(publisher) -> bool:
-    """¿Esta editorial somos nosotros (Plataforma Musical)?"""
-    return _norm_text_key(getattr(publisher, "name", "") or "") == _norm_text_key(PLATFORM_PUBLISHER_NAME)
+    """¿Esta editorial somos NOSOTROS (Plataforma Musical)?
+
+    ⚠️ Se compara con TOLERANCIA: el nombre lo escribe una persona al dar de alta la editorial, así
+    que en la base aparece como «Plataforma Musical», «Plataforma Musical S.L.», «PLATAFORMA MUSICAL
+    SL»… Con una igualdad exacta, cualquiera de esas variantes dejaba de ser «nuestra» y el autor se
+    quedaba **sin su reparto editorial y sin que se pintara nada** en la ficha (el bloque entero
+    cuelga de `is_platform`). Basta con que el nombre CONTENGA «plataforma musical»."""
+    nombre = _norm_text_key(getattr(publisher, "name", "") or "")
+    if not nombre:
+        return False
+    patron = _norm_text_key(PLATFORM_PUBLISHER_NAME)
+    return nombre == patron or (bool(patron) and patron in nombre)
 
 
 def _share_split_frozen(share) -> bool:
@@ -7748,6 +7776,10 @@ def _artist_editorial_split(session_db, artist_id, *, as_of=None, material_date=
             session_db, to_uuid(str(artist_id)), EDITORIAL_CONTRACT_CONCEPTS,
             material_date=material_date, as_of_date=(as_of or today_local()))
     except Exception:
+        # ⚠️ Sin log, un fallo aquí (p. ej. comparar fechas con y sin zona horaria al ordenar los
+        # compromisos) sale por pantalla como «este artista no tiene contrato editorial», que es
+        # indistinguible de la verdad y manda a buscar el problema donde no está.
+        app.logger.exception("No se pudo resolver el contrato editorial del artista %s", artist_id)
         return salida
     if commitment is None:
         return salida

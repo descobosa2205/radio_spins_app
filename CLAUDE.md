@@ -5398,6 +5398,41 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`item_kind == 'SONG'`): en un álbum ese campo es su **Product Code** y `|isrc` lo destrozaría. Es
   el mismo criterio que ya aplicaba el PDF.
 
+- ⚠️⚠️ **EL CONCEPTO DE UN COMPROMISO ES TEXTO LIBRE: se compara con TOLERANCIA** (ago 2026). En la
+  ficha del artista el `concept` de un compromiso se escribe a mano (`<input name="concept">`), así
+  que en la base hay «Editorial», «Derechos editoriales», «Edición musical», «Editorial 50/50»… y
+  `_pick_artist_commitment_from_rows` lo comparaba por **pertenencia EXACTA** a una lista de cinco
+  valores: cualquier variante se quedaba fuera y **el contrato no se detectaba** —un integrante con
+  contrato editorial se quedaba sin su reparto, sin ningún aviso—.
+  · Ahora casa también si el concepto **CONTIENE** una de las variantes (o al revés). Los catálogos
+  son **disjuntos** entre sí (`EDITORIAL_CONTRACT_CONCEPTS` · `RECORD_DEAL_CONCEPTS` · management ·
+  booking · distribución…), así que no se pisan: comprobado que «Discográfico» no cuela como
+  editorial ni «Editorial» como discográfico.
+  · Al añadir un catálogo de conceptos nuevo, comprobar que no comparte palabra con los que ya hay.
+
+- ⚠️ **«PLATAFORMA MUSICAL» SE RECONOCE CON TOLERANCIA** (ago 2026): el nombre de la editorial lo
+  escribe una persona al darla de alta, así que en la base está como «Plataforma Musical»,
+  «Plataforma Musical S.L.», «PLATAFORMA MUSICAL SL»… `_publisher_is_platform` comparaba por
+  igualdad exacta, y con cualquier variante el autor dejaba de ser «nuestro»: sin reparto y **sin
+  que se pintara nada** en la ficha (el bloque entero cuelga de `is_platform`). Ahora basta con que
+  el nombre CONTENGA «plataforma musical».
+
+- **DIAGNÓSTICO del reparto editorial**: `tools/diag_reparto_editorial.py "Nombre del autor"`
+  (opcional `--cancion "Título"`). Recorre la cadena entera y dice **dónde se corta**: las fichas de
+  tercero con ese nombre (y si hay duplicados), de qué artistas es integrante, los compromisos de sus
+  contratos marcando cuál cuenta como editorial, y por cada parte autoral la editorial del registro
+  frente a la de la ficha, si está congelado, si se puede calcular hoy, qué contrato sale y **qué se
+  pinta de verdad en la ficha**. Solo lee.
+  ⚠️ Lo primero que hay que mirar cuando «no se aplica el contrato» es la **última línea**: si el
+  contrato aparece pero lo que se pinta es «NADA», el corte está en `_song_editorial_split_map`
+  (editorial que no es Plataforma, o el `continue` de `_share_split_applies_live`), no en el contrato.
+
+- ⚠️ **Al renombrar la ficha de un solista con el nombre del artista, el NOMBRE OFICIAL tiene que
+  quedar escrito** (`_artist_member_apply_nick`): el nick pasa a ser «DePol» y, si el nombre y los
+  apellidos se quedan vacíos, la ficha pierde su única clave de identidad y **deja de casar con su
+  integrante**, así que la unificación no vuelve a funcionar. Antes solo se rellenaban si faltaban
+  LOS DOS; ahora, cada uno por su lado.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

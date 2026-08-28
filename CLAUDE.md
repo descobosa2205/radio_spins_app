@@ -5458,6 +5458,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Si el título es muy largo la etiqueta envuelve igualmente: es preferible a recortar el nombre
   del tema.
 
+- **REPORTE DE VENTAS · el filtro de artistas y eventos es el MISMO que el del repertorio** (ago
+  2026): se pincha uno y se ven **SOLO los suyos** (selección única, con «Todos» delante), con su
+  foto pequeña (`.artist-mini`) y el elegido en oscuro.
+  ⚠️ Antes eran chips que **nacían TODOS activos y se iban desactivando** (con «Todos»/«Ninguno»
+  aparte), que es lo contrario de lo que se espera al pinchar un artista. El motor ya tenía la
+  selección única para los chips de tipo y estado; los de artista se han pasado a ese patrón
+  (`currentArtistSet` devuelve `null` con la clave vacía = sin filtrar).
+  ⚠️ Las claves NO son siempre un UUID de artista: son `str(artist_id)`, **`event:<slug>`** para un
+  concierto sin artista con nombre de festival, y **`otros`** para el resto (`filter_entities`). El
+  filtro sigue siendo del NAVEGADOR y compara la clave con el `data-artist` de cada tarjeta, así que
+  las tres formas valen; el filtro del SERVIDOR solo entiende UUIDs.
+  · No hay totales que recalcular: la plantilla no pinta los `kpis` del servidor (esos solo van en el
+  correo), y los importes de cada tarjeta son suyos.
+
+- ⚠️ **EL BOTÓN «TODOS» DE UN FILTRO TAMBIÉN ALTERNA** (`refreshGroupButtons`, ago 2026): se quedaba
+  siempre `btn-dark`, así que al elegir un artista quedaban **DOS botones oscuros** y parecía que los
+  dos estaban puestos. Ahora solo el elegido va oscuro. Vale para los cuatro filtros del repertorio
+  (canciones, álbumes, editorial, colaboraciones) y para el del reporte de ventas.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

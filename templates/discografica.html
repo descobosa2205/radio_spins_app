@@ -1860,10 +1860,11 @@
       const current = btn.getAttribute(attrName) || 'all';
       const active = current === selectedValue;
       btn.classList.toggle('active', active);
-      if (current !== 'all') {
-        btn.classList.toggle('btn-dark', active);
-        btn.classList.toggle('btn-outline-secondary', !active);
-      }
+      // ⚠️ El botón «Todos» TAMBIÉN alterna: antes se quedaba siempre `btn-dark`, así que al elegir
+      // un artista quedaban DOS botones oscuros y parecía que los dos estaban puestos. Solo el
+      // elegido va oscuro.
+      btn.classList.toggle('btn-dark', active);
+      btn.classList.toggle('btn-outline-secondary', !active);
     });
   }
 

@@ -39,11 +39,16 @@
   var groupMode = null;       // null | 'artist' | 'type'
 
   function currentArtistSet() {
+    // ⚠️ Selección ÚNICA, como el filtro del repertorio de Discográfica: se pincha un artista o un
+    // evento y se ven SOLO los suyos. El botón «Todos» lleva la clave vacía y devuelve `null`, que
+    // es «sin filtrar». Antes era multi-toggle (nacían todos activos y se iban quitando), que es lo
+    // contrario de lo que se espera al pinchar un artista.
     if (!artistChips) return null;
+    var sel = artistChips.querySelector('[data-artist-chip].active');
+    var clave = sel ? (sel.getAttribute('data-artist-chip') || '') : '';
+    if (!clave) return null;
     var s = new Set();
-    artistChips.querySelectorAll('[data-artist-chip].active').forEach(function (b) {
-      s.add(b.getAttribute('data-artist-chip'));
-    });
+    s.add(clave);
     return s;
   }
 
@@ -125,23 +130,28 @@
     if (empty) empty.classList.toggle('d-none', anyVisible);
   }
 
-  // --- Chips de artista (multi-toggle) ---
-  if (artistChips) {
+  // --- Chips de artista y evento: SELECCIÓN ÚNICA, con el activo en oscuro ---
+  // El mismo intercambio de clases que en el repertorio (`refreshGroupButtons`): solo el botón
+  // elegido va `btn-dark` y el resto `btn-outline-secondary`, incluido el «Todos».
+  function pintaArtistas(elegido) {
+    if (!artistChips) return;
     artistChips.querySelectorAll('[data-artist-chip]').forEach(function (b) {
-      b.addEventListener('click', function () { b.classList.toggle('active'); apply(); });
+      var clave = b.getAttribute('data-artist-chip') || '';
+      var activo = clave === elegido;
+      b.classList.toggle('active', activo);
+      // El «Todos» alterna igual que los demás: solo el elegido va oscuro.
+      b.classList.toggle('btn-dark', activo);
+      b.classList.toggle('btn-outline-secondary', !activo);
     });
   }
-  document.querySelectorAll('[data-artist-all]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var on = btn.getAttribute('data-artist-all') === 'on';
-      if (artistChips) {
-        artistChips.querySelectorAll('[data-artist-chip]').forEach(function (b) {
-          b.classList.toggle('active', on);
-        });
-      }
-      apply();
+  if (artistChips) {
+    artistChips.querySelectorAll('[data-artist-chip]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        pintaArtistas(b.getAttribute('data-artist-chip') || '');
+        apply();
+      });
     });
-  });
+  }
 
   // --- Selección única (tipo / estado) ---
   function wireSingle(container, cb) {

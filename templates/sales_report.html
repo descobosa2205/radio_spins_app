@@ -35,24 +35,24 @@
 {% if filter_entities is defined and filter_entities %}
 <div class="sales-filters card card-body mb-3" id="salesFilters">
 
-  {# --- Artistas y eventos: chips con foto, todos activos por defecto (se desactivan al pulsar) --- #}
+  {# --- Artistas y eventos: el MISMO filtro que el repertorio de Discográfica --------------------
+       Se pincha uno y se ven SOLO los suyos (selección única, con «Todos» delante), con su foto
+       pequeña y el activo en oscuro. Antes eran chips que nacían todos activos y se iban
+       desactivando —lo contrario de lo que se espera al pinchar un artista—. --- #}
   <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
     <label class="form-label mb-0 fw-semibold small text-muted text-uppercase">Artistas y eventos</label>
-    <div class="d-flex align-items-center gap-1">
-      <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-artist-all="on">Todos</button>
-      <span class="text-muted">·</span>
-      <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-artist-all="off">Ninguno</button>
-      <button type="button" class="btn btn-outline-secondary btn-sm ms-2" data-group-mode="artist" title="Agrupar por artista">
-        <i class="fa fa-layer-group me-1"></i>Agrupar por artistas
-      </button>
-    </div>
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-group-mode="artist" title="Agrupar por artista">
+      <i class="fa fa-layer-group me-1"></i>Agrupar por artistas
+    </button>
   </div>
-  <div class="sales-chip-row mb-3" id="salesArtistChips">
+  <div class="d-flex flex-wrap gap-2 mb-3" id="salesArtistChips" data-single="1">
+    <button type="button" class="btn btn-sm btn-dark active" data-artist-chip="">Todos</button>
     {% for e in filter_entities %}
-      <button type="button" class="sales-chip active" data-artist-chip="{{ e.key }}" title="{{ e.name }}">
-        {% if e.photo %}<img src="{{ e.photo }}" alt="" onerror="this.style.display='none'">
-        {% else %}<span class="sales-chip__ico"><i class="fa {{ 'fa-calendar-star' if e.kind == 'event' else 'fa-user' }}"></i></span>{% endif %}
-        <span class="sales-chip__t">{{ e.name }}</span>
+      <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2"
+              data-artist-chip="{{ e.key }}" title="{{ e.name }}">
+        {% if e.photo %}<img src="{{ e.photo }}" class="artist-mini" alt="">
+        {% else %}<i class="fa {{ 'fa-calendar-star' if e.kind == 'event' else 'fa-user' }} text-muted"></i>{% endif %}
+        <span>{{ e.name }}</span>
       </button>
     {% endfor %}
   </div>

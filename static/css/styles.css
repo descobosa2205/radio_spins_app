@@ -3897,16 +3897,21 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
    El texto se lee tal cual se escribió (saltos de línea) y JUSTIFICADO, igual que
    en el PDF y en el correo: un solo diseño en tres sitios. */
 /* El TITULAR destacado del pitch: sale antes del texto en la ficha, el PDF, el correo y el enlace. */
-.pitch-headline { margin:0 0 .6rem; font-size:1.15rem; font-weight:800; line-height:1.3; color:var(--brand-primary); }
+/* El TITULAR va CENTRADO sobre el texto del pitch (igual que en el PDF, el correo y el enlace). */
+.pitch-headline { margin:0 0 .6rem; font-size:1.15rem; font-weight:800; line-height:1.3;
+                  color:var(--brand-primary); text-align:center; }
 .pitch-text {
-  white-space: pre-line;
   text-align: justify;
   font-size: .96rem;
   line-height: 1.75;
   color: #212529;
 }
+.pitch-text p{ margin:0 0 .8rem; }
+.pitch-text p:last-child{ margin-bottom:0; }
 /* El mismo texto en un hueco pequeño (el pitch que llega en una entrega de masters). */
-.pitch-text--sm { font-size: .88rem; line-height: 1.6; }
+/* ⚠️ Ese hueco pequeño enseña el pitch TAL CUAL lo ha escrito un tercero (texto plano con sus
+   saltos), así que ahí sí hace falta respetarlos. */
+.pitch-text--sm { font-size: .88rem; line-height: 1.6; white-space: pre-line; }
 /* ⚠️ El pitch se escribe YA JUSTIFICADO: es como va a salir en la ficha, en el PDF, en el correo y
    en el enlace público, así que el cuadro donde se teclea lo enseña igual. */
 .pitch-input { text-align: justify; }
@@ -5382,3 +5387,18 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   /* La duración y los iconos, también a la altura de la portada. */
   .rep-list .pl-row__dur, .rep-list .pl-row__dl-plain{ align-self:center; }
 }
+
+/* ── EDITOR DE TEXTO CON FORMATO (pitch) ───────────────────────────────────────────────────── */
+.rich-editor{ border:1px solid #ced4da; border-radius:.5rem; background:#fff; overflow:hidden; }
+.rich-editor__bar{ display:flex; align-items:center; gap:.25rem; padding:.35rem .5rem;
+                   border-bottom:1px solid #edf0f5; background:#f8f9fb; }
+.rich-editor__btn{ border:0; background:transparent; border-radius:.35rem; width:30px; height:28px;
+                   color:#495057; line-height:1; }
+.rich-editor__btn:hover{ background:#e9ecef; color:#111827; }
+.rich-editor__hint{ margin-left:auto; font-size:.75rem; color:#8a94a6; }
+.rich-editor__area{ padding:.6rem .75rem; outline:none; font-size:.96rem; line-height:1.7;
+                    max-height:60vh; overflow:auto; }
+.rich-editor__area:focus{ box-shadow:inset 0 0 0 2px rgba(227,61,72,.12); }
+.rich-editor__area p{ margin:0 0 .7rem; }
+.rich-editor__area p:last-child{ margin-bottom:0; }
+.rich-editor__area:empty::before{ content:attr(data-placeholder); color:#adb5bd; }

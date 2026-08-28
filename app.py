@@ -57,6 +57,7 @@ from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 from html import unescape
+from html.parser import HTMLParser
 from difflib import SequenceMatcher
 from collections import defaultdict, deque
 from types import SimpleNamespace
@@ -8451,6 +8452,30 @@ def _pitch_context(session_db, kind, obj) -> dict:
     artist_photo = (getattr(artist, 'photo_url', None) or '').strip()
     title = (getattr(obj, 'title', None) or '').strip() or '—'
     token = _pitch_share_token(kind, obj.id)
+
+    # GÉNEROS, que salen como etiquetas bajo la fecha de publicación (con el mismo icono que en
+    # Syncros: `_sync_genre_icon` es el punto único). En un álbum son los de sus temas, sin repetir.
+    genre_names: list[str] = []
+    try:
+        if kind == 'ALBUM':
+            ids = [r.song_id for r in
+                   session_db.query(AlbumTrack).filter(AlbumTrack.album_id == obj.id)
+                   .order_by(AlbumTrack.track_number.asc(), AlbumTrack.created_at.asc()).all()
+                   if r.song_id]
+            mapa = _song_genres_map(session_db, ids) if ids else {}
+            vistos = set()
+            for sid in ids:
+                for g in mapa.get(str(sid), []):
+                    clave = _norm_text_key(g)
+                    if clave and clave not in vistos:
+                        vistos.add(clave)
+                        genre_names.append(g)
+        else:
+            genre_names = _song_genre_names(session_db, obj.id)
+    except Exception:
+        app.logger.exception('[pitch] no se pudieron leer los géneros')
+
+    raw_text = (getattr(obj, 'pitch_text', None) or '').strip()
     return {
         'kind': kind,
         'id': str(obj.id),
@@ -8464,9 +8489,15 @@ def _pitch_context(session_db, kind, obj) -> dict:
         'preview_url': cover_url or artist_photo,
         'release_date': getattr(obj, 'release_date', None),
         'release_label': (obj.release_date.strftime('%d/%m/%Y') if getattr(obj, 'release_date', None) else '—'),
-        # El TITULAR destacado del pitch (sale en grande antes del texto).
+        'genres': [{'name': g, 'icon': _sync_genre_icon(g)} for g in genre_names],
+        # El TITULAR destacado del pitch (sale en grande y CENTRADO antes del texto).
         'pitch_title': (getattr(obj, 'pitch_title', None) or '').strip(),
-        'pitch_text': (getattr(obj, 'pitch_text', None) or '').strip(),
+        'pitch_text': raw_text,
+        # El pitch puede llevar NEGRITA, cursiva y subrayado: los párrafos ya vienen como HTML
+        # seguro (punto único `_pitch_paragraph_htmls`), y `pitch_plain` es lo mismo sin formato.
+        'pitch_paragraphs': _pitch_paragraph_htmls(raw_text),
+        'pitch_editor_html': _pitch_editor_html(raw_text),
+        'pitch_plain': _pitch_plain_text(raw_text),
         'pitch_updated_at': getattr(obj, 'pitch_updated_at', None),
         'brand': _pies_brand_assets(session_db),
         'detail_url': detail_url,
@@ -8486,6 +8517,189 @@ def _pitch_paragraphs(text: str) -> list[str]:
         return []
     chunks = [chunk.strip() for chunk in body.split('\n\n') if chunk.strip()]
     return chunks or [body]
+
+
+# ── EL TEXTO DEL PITCH PUEDE LLEVAR NEGRITA, CURSIVA Y SUBRAYADO ────────────────────────────────
+# El pitch se escribe (o se PEGA desde un Word o un Google Docs) con su formato, y ese formato
+# tiene que llegar igual a la ficha, al PDF, al correo y a la página pública.
+# ⚠️ Lo que se guarda es HTML **saneado a mano** (aquí no hay `bleach`): solo negrita, cursiva,
+#    subrayado, párrafos y saltos; todo lo demás se tira y el texto se escapa, así que lo pegado
+#    de fuera no puede colar ni estilos ni scripts.
+# ⚠️ Los pitchs ANTIGUOS son texto plano con saltos de línea: se siguen leyendo igual
+#    (`_pitch_is_html` decide) y no hay nada que migrar.
+PITCH_INLINE_TAGS = {"b", "i", "u"}
+PITCH_TAG_ALIASES = {"strong": "b", "em": "i", "ins": "u"}
+
+
+class _PitchHtmlCleaner(HTMLParser):
+    """Deja en pie SOLO negrita, cursiva, subrayado, párrafos y saltos; el resto se descarta.
+
+    Un `<span style="font-weight:700">` (que es como pega el formato Word/Docs) se convierte en su
+    etiqueta: si no, al pegar desde fuera se perdería la negrita."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out: list[str] = []
+        self.abiertas: list[list[str]] = []   # etiquetas emitidas por cada elemento abierto
+        self.mudo = 0                         # dentro de <script>/<style> no se copia ni el texto
+
+    def _estilo_tags(self, attrs) -> list[str]:
+        estilo = ""
+        for k, v in (attrs or []):
+            if (k or "").lower() == "style":
+                estilo = (v or "").lower()
+        fuera = []
+        if re.search(r"font-weight\s*:\s*(bold|[6-9]\d\d)", estilo):
+            fuera.append("b")
+        if re.search(r"font-style\s*:\s*italic", estilo):
+            fuera.append("i")
+        if re.search(r"text-decoration[^;]*underline", estilo):
+            fuera.append("u")
+        return fuera
+
+    def handle_starttag(self, tag, attrs):
+        tag = (tag or "").lower()
+        if tag in ("script", "style"):
+            self.mudo += 1
+            self.abiertas.append([])
+            return
+        tag = PITCH_TAG_ALIASES.get(tag, tag)
+        if tag == "br":
+            self.out.append("<br>")
+            return
+        emitidas = []
+        if tag in PITCH_INLINE_TAGS:
+            emitidas.append(tag)
+        elif tag in ("p", "div"):
+            # Un bloque nuevo = un párrafo nuevo (los `<div>` que meten los navegadores incluidos).
+            if self.out and not "".join(self.out).endswith("</p>"):
+                self.out.append("</p>")
+            self.out.append("<p>")
+            emitidas.append("p")
+        emitidas.extend(t for t in self._estilo_tags(attrs) if t not in emitidas)
+        for t in emitidas:
+            if t != "p":
+                self.out.append("<%s>" % t)
+        self.abiertas.append(emitidas)
+
+    def handle_startendtag(self, tag, attrs):
+        if (tag or "").lower() == "br":
+            self.out.append("<br>")
+
+    def handle_endtag(self, tag):
+        tag = (tag or "").lower()
+        if tag == "br":
+            return
+        if tag in ("script", "style"):
+            self.mudo = max(0, self.mudo - 1)
+        if not self.abiertas:
+            return
+        for t in reversed(self.abiertas.pop()):
+            self.out.append("</%s>" % t)
+
+    def handle_data(self, data):
+        if data and not self.mudo:
+            self.out.append(html.escape(data))
+
+    def result(self) -> str:
+        while self.abiertas:
+            for t in reversed(self.abiertas.pop()):
+                self.out.append("</%s>" % t)
+        return "".join(self.out)
+
+
+def _fa_icon_png_path(nombre: str, color: str = "374151", size: int = 40) -> str:
+    """El icono sólido `nombre` como PNG **en disco**, para poder meterlo en un PDF.
+
+    ⚠️ Un `Paragraph` de ReportLab admite `<img src="ruta">`, pero NO bytes ni un data URI, así que
+    el PNG (que `_fa_icon_png` ya cachea en memoria) se deja también en un fichero de caché."""
+    try:
+        datos = _fa_icon_png(nombre, color, size)
+        if not datos:
+            return ""
+        carpeta = Path(tempfile.gettempdir()) / "app33_fa_icons"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        ruta = carpeta / ("%s_%s_%d.png" % (re.sub(r"[^a-z0-9-]", "", (nombre or "").lower()), color, size))
+        if not ruta.exists() or ruta.stat().st_size != len(datos):
+            ruta.write_bytes(datos)
+        return str(ruta)
+    except Exception:
+        app.logger.exception("[pitch] no se pudo preparar el icono para el PDF")
+        return ""
+
+
+def _pitch_is_html(value: str) -> bool:
+    """¿Lo guardado ya lleva formato? (los pitchs antiguos son texto plano)."""
+    return bool(re.search(r"<\s*(/?)(p|br|b|strong|i|em|u|div|span)\b", value or "", re.I))
+
+
+def _pitch_clean_html(value: str) -> str:
+    """Sanea lo que llega del editor. Devuelve HTML con solo `<p> <br> <b> <i> <u>`."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if not _pitch_is_html(value):
+        # Texto plano: se respeta tal cual (se escapa al pintarlo).
+        return value.replace("\r\n", "\n").replace("\r", "\n").strip()
+    limpiador = _PitchHtmlCleaner()
+    try:
+        limpiador.feed(value)
+        limpiador.close()
+        salida = limpiador.result()
+    except Exception:
+        app.logger.exception("[pitch] no se pudo limpiar el HTML del pitch")
+        return re.sub(r"<[^>]+>", "", value).strip()
+    # Se cierra el último párrafo abierto y se tiran los vacíos.
+    salida = re.sub(r"<p>\s*(<br>\s*)*", "<p>", salida)
+    if salida.count("<p>") > salida.count("</p>"):
+        salida += "</p>"
+    salida = re.sub(r"<p>\s*</p>", "", salida)
+    return salida.strip()
+
+
+def _pitch_paragraph_htmls(value: str) -> list[str]:
+    """Los PÁRRAFOS del pitch, ya como HTML seguro (sin el `<p>` de fuera).
+
+    Punto único: lo usan la ficha, el PDF, el correo y la página pública, así que el formato se ve
+    igual en los cuatro sitios."""
+    value = (value or "").strip()
+    if not value:
+        return []
+    if not _pitch_is_html(value):
+        return [html.escape(chunk).replace("\n", "<br>") for chunk in _pitch_paragraphs(value)]
+    limpio = _pitch_clean_html(value)
+    trozos = [t.strip() for t in re.split(r"</p>\s*", limpio) if t.strip()]
+    fuera = []
+    for t in trozos:
+        t = re.sub(r"^\s*<p>", "", t).strip()
+        t = re.sub(r"^(<br>\s*)+|(\s*<br>)+$", "", t).strip()
+        if t:
+            fuera.append(t)
+    return fuera or [re.sub(r"</?p>", "", limpio).strip()]
+
+
+def _pitch_editor_html(value: str) -> str:
+    """Lo guardado, listo para el EDITOR (párrafos de verdad; un texto plano se convierte)."""
+    return "".join("<p>%s</p>" % p for p in _pitch_paragraph_htmls(value))
+
+
+def _pitch_plain_text(value: str) -> str:
+    """El pitch SIN formato (para resúmenes, comparaciones y cualquier sitio que no pinte HTML)."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if not _pitch_is_html(value):
+        return value
+    texto = re.sub(r"<\s*br\s*/?>", "\n", value, flags=re.I)
+    texto = re.sub(r"</\s*p\s*>", "\n\n", texto, flags=re.I)
+    texto = re.sub(r"<[^>]+>", "", texto)
+    return unescape(texto).strip()
+
+
+def _pitch_pdf_markup(inline_html: str) -> str:
+    """El mismo párrafo, con el marcado que entiende ReportLab (`<b> <i> <u> <br/>`)."""
+    salida = re.sub(r"<\s*br\s*/?>", "<br/>", inline_html or "", flags=re.I)
+    return salida
 
 
 def _build_pitch_pdf_bytes(session_db, kind, obj_id) -> tuple[bytes, str]:
@@ -8527,17 +8741,38 @@ def _build_pitch_pdf_bytes(session_db, kind, obj_id) -> tuple[bytes, str]:
     story.append(Paragraph('Pitch', title_style))
     story.append(Spacer(1, 0.4*cm))
 
-    # Viñeta del lanzamiento: portada + título + intérpretes + fecha + Single/Álbum.
+    # Viñeta del lanzamiento: portada + título + intérpretes + fecha + Single/Álbum + géneros.
+    # ⚠️ La fecha y el tipo van como ETIQUETAS (igual que en el correo y en la página pública), no
+    # como dos líneas sueltas de texto: `<font backColor>` es lo que ReportLab da para eso.
+    chip_style = ParagraphStyle('PitchChip', parent=small_style, fontSize=9.5, leading=16)
     cover = _rl_image_flowable_from_url(
         ctx['cover_url'] or url_for('static', filename='img/placeholder_photo.png'), 3.2, 3.2)
+    chips = ('<font backColor="#f3f4f6">&nbsp;<b>Fecha de publicación:</b> '
+             f'{html.escape(ctx["release_label"])}&nbsp;</font>'
+             '&nbsp;&nbsp;'
+             '<font backColor="#111827" color="#ffffff">&nbsp;'
+             f'{html.escape(ctx["badge_label"] or "")}&nbsp;</font>')
     right_col = [
         Paragraph(html.escape(ctx['title']), name_style),
         Spacer(1, 0.12*cm),
         Paragraph(f"<b>Intérpretes:</b> {html.escape(ctx['interpreters_label'])}", small_style),
-        Paragraph(f"<b>Fecha de publicación:</b> {html.escape(ctx['release_label'])}", small_style),
-        Spacer(1, 0.1*cm),
-        Paragraph(f"<b>{html.escape(ctx['badge_label'])}</b>", small_style),
+        Spacer(1, 0.16*cm),
+        Paragraph(chips, chip_style),
     ]
+    # GÉNEROS: debajo de la fecha, cada uno con su icono.
+    generos = ctx.get('genres') or []
+    if generos:
+        partes = []
+        for g in generos:
+            icono = _fa_icon_png_path((g.get('icon') or 'fa-music').replace('fa-', ''), '374151', 36)
+            # ⚠️ El icono va FUERA del `<font backColor>`: dentro, ReportLab deja el hueco y NO
+            # dibuja la imagen (comprobado).
+            img = (f'<img src="{html.escape(icono)}" width="9" height="9" valign="middle"/>&nbsp;'
+                   if icono else '')
+            partes.append('%s<font backColor="#f3f4f6">&nbsp;%s&nbsp;</font>'
+                          % (img, html.escape(g.get('name') or '')))
+        right_col.append(Spacer(1, 0.16*cm))
+        right_col.append(Paragraph('&nbsp;&nbsp;'.join(partes), chip_style))
     galleta = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.7*cm, 13.3*cm])
     galleta.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -8550,12 +8785,13 @@ def _build_pitch_pdf_bytes(session_db, kind, obj_id) -> tuple[bytes, str]:
     story.append(Spacer(1, 0.55*cm))
 
     if (ctx.get('pitch_title') or '').strip():
-        # El TITULAR: en grande y en el rojo de la casa, justo antes del texto.
+        # El TITULAR: en grande, en el rojo de la casa y CENTRADO sobre el texto del pitch.
         story.append(Paragraph(html.escape(ctx['pitch_title'].strip()), ParagraphStyle(
             'PitchHeadline', parent=body_style, fontName='Helvetica-Bold', fontSize=16, leading=20,
-            alignment=0, textColor=colors.HexColor('#E33D48'), spaceAfter=10)))
-    for chunk in _pitch_paragraphs(ctx['pitch_text']):
-        story.append(Paragraph(html.escape(chunk).replace('\n', '<br/>'), body_style))
+            alignment=TA_CENTER, textColor=colors.HexColor('#E33D48'), spaceAfter=10)))
+    # El texto va JUSTIFICADO (body_style) y conserva la negrita, la cursiva y el subrayado.
+    for chunk in ctx.get('pitch_paragraphs') or []:
+        story.append(Paragraph(_pitch_pdf_markup(chunk), body_style))
 
     doc.build(story)
     base = f"Pitch - {ctx['artist_name']} - {ctx['title']}".replace('/', '-').replace('\\', '-').strip()
@@ -8591,11 +8827,31 @@ def _pitch_email_html(ctx: dict, *, note: str = '') -> str:
 
     body_html = ''
     if (ctx.get('pitch_title') or '').strip():
+        # El TITULAR va CENTRADO sobre el texto del pitch (igual que en el PDF y en la app).
         body_html += ('<h2 style="margin:0 0 14px;font-size:22px;line-height:1.3;color:#E33D48;'
-                      f'font-weight:800;">{html.escape(ctx["pitch_title"].strip())}</h2>')
-    for chunk in _pitch_paragraphs(ctx.get('pitch_text') or ''):
+                      f'font-weight:800;text-align:center;">{html.escape(ctx["pitch_title"].strip())}</h2>')
+    # Los párrafos ya vienen saneados (`<b> <i> <u> <br>`): el formato del pitch se respeta.
+    for chunk in (ctx.get('pitch_paragraphs') or []):
         body_html += ('<p style="margin:0 0 14px;font-size:15px;line-height:1.75;color:#111827;'
-                      f'text-align:justify;">{html.escape(chunk).replace(chr(10), "<br/>")}</p>')
+                      f'text-align:justify;">{chunk}</p>')
+
+    # GÉNEROS: etiquetas bajo la fecha de publicación. ⚠️ En un CORREO no se puede usar la fuente
+    # de iconos: el icono va como PNG (`brand_icon_png`), que es el punto único de la casa.
+    genres_html = ''
+    if ctx.get('genres'):
+        chips = []
+        for g in ctx['genres']:
+            nombre = (g.get('icon') or 'fa-music').replace('fa-', '')
+            try:
+                icon_url = _external_url_for('brand_icon_png', nombre=nombre, c='374151', s=32)
+            except Exception:
+                icon_url = ''
+            img = (f'<img src="{html.escape(icon_url)}" width="12" height="12" alt="" '
+                   'style="vertical-align:-2px;margin-right:5px;">' if icon_url else '')
+            chips.append('<span style="display:inline-block;margin:4px 6px 0 0;padding:6px 10px;'
+                         'border-radius:999px;background:#f3f4f6;color:#111827;font-size:13px;">'
+                         f'{img}{html.escape(g.get("name") or "")}</span>')
+        genres_html = '<div style="margin-top:4px;">%s</div>' % ''.join(chips)
 
     note_html = ''
     if (note or '').strip():
@@ -8623,6 +8879,7 @@ def _pitch_email_html(ctx: dict, *, note: str = '') -> str:
                     <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#f3f4f6;color:#111827;font-size:13px;"><strong>Fecha de publicación:</strong> {html.escape(ctx.get('release_label') or '—')}</span>
                     <span style="display:inline-block;margin-left:6px;padding:6px 10px;border-radius:999px;background:#111827;color:#ffffff;font-size:13px;">{html.escape(ctx.get('badge_label') or '')}</span>
                   </div>
+                  {genres_html}
                 </td>
               </tr>
             </table>
@@ -22031,14 +22288,18 @@ def _disco_pitch_state(session_db, project, release_song=None) -> dict:
     """¿Está el pitch? ¿Se le ha pedido al artista su inspiración? ¿Qué ha contado?"""
     cancion = release_song if release_song is not None else _disco_project_release_song(session_db, project)
     fila = _disco_pitch(project)
+    # ⚠️ `text` es lo GUARDADO (puede llevar negrita/cursiva/subrayado y así vuelve al editor);
+    # el resumen se hace con el texto sin formato, que si no saldrían las etiquetas.
     texto = ((getattr(cancion, "pitch_text", None) or "").strip() if cancion is not None else "")
+    plano = _pitch_plain_text(texto)
     titular = ((getattr(cancion, "pitch_title", None) or "").strip() if cancion is not None else "")
     return {
         "song": cancion,
-        "has_pitch": bool(texto),
+        "has_pitch": bool(plano),
         "title": titular,
         "text": texto,
-        "resumen": (titular or (texto[:80] + ("…" if len(texto) > 80 else ""))),
+        "text_html": _pitch_editor_html(texto),
+        "resumen": (titular or (plano[:80] + ("…" if len(plano) > 80 else ""))),
         "asked": bool(fila.get("asked_at")),
         "asked_label": _iso_date_label(fila.get("asked_at")),
         "artist_text": (fila.get("artist_text") or ""),
@@ -22079,7 +22340,9 @@ def _pitch_examples(session_db, artist_id=None, limit: int = 12) -> dict:
                                           if getattr(a, "name", None)]) or "—",
                 "cover_url": (cancion.cover_url or ""),
                 "pitch_title": (cancion.pitch_title or ""),
-                "pitch_text": (cancion.pitch_text or ""),
+                # ⚠️ SIN formato: el modal de ejemplos lo pinta escapado (si no, se verían las
+                # etiquetas del pitch).
+                "pitch_text": _pitch_plain_text(cancion.pitch_text or ""),
                 "date_label": (cancion.release_date.strftime("%d/%m/%Y")
                                if getattr(cancion, "release_date", None) else ""),
                 "url": url_for("discografica_song_detail", song_id=cancion.id, tab="informacion"),
@@ -30239,8 +30502,8 @@ def disco_project_pitch_save(project_id):
         if cancion is None:
             flash("Este proyecto no tiene una canción de lanzamiento.", "warning")
             return redirect(safe_next_or(destino))
-        texto = (request.form.get("pitch_text") or "").strip()
-        if not texto:
+        texto = _pitch_clean_html(request.form.get("pitch_text") or "")
+        if not _pitch_plain_text(texto):
             flash("Escribe el pitch.", "warning")
             return redirect(safe_next_or(destino))
         cancion.pitch_title = (request.form.get("pitch_title") or "").strip() or None
@@ -34622,7 +34885,9 @@ def _pitch_save(kind, obj_id):
         if not obj:
             flash("Lanzamiento no encontrado.", "warning")
             return redirect(url_for("discografica_view", section="canciones"))
-        text = (request.form.get("pitch_text") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        # ⚠️ Se SANEA: el pitch puede llevar negrita, cursiva y subrayado (se escribe o se pega con
+        # su formato), y lo que se guarda es HTML limitado a eso (`_pitch_clean_html`).
+        text = _pitch_clean_html((request.form.get("pitch_text") or "").replace("\r\n", "\n").replace("\r", "\n"))
         obj.pitch_title = (request.form.get("pitch_title") or "").strip() or None
         obj.pitch_text = text or None
         obj.pitch_updated_at = datetime.now(TZ_MADRID) if text else None
@@ -34754,7 +35019,8 @@ def public_pitch_view(token):
         if not obj or not (getattr(obj, "pitch_text", None) or "").strip():
             abort(404)
         ctx = _pitch_context(session_db, kind, obj)
-        ctx["paragraphs"] = _pitch_paragraphs(ctx["pitch_text"])
+        # Los párrafos ya vienen como HTML seguro (con su negrita, cursiva y subrayado).
+        ctx["paragraphs"] = ctx["pitch_paragraphs"]
         ctx["og_image_url"] = _external_url_for("public_pitch_og_image", token=token)
         return render_template("public_pitch.html", **ctx)
 

@@ -40,7 +40,10 @@
     .chip--kind{ background:#111827; color:#fff; }
     .body{ margin-top:26px; }
     .body p{ margin:0 0 14px; font-size:16px; line-height:1.8; text-align:justify; }
-    .headline { margin:0 0 14px; font-size:1.5rem; line-height:1.25; color:#E33D48; font-weight:800; }
+    /* El TITULAR va CENTRADO sobre el texto del pitch (igual que en el PDF y en el correo). */
+    .headline { margin:0 0 14px; font-size:1.5rem; line-height:1.25; color:#E33D48; font-weight:800;
+                text-align:center; }
+    .chip img{ vertical-align:-2px; margin-right:5px; }
     .actions{ margin-top:28px; text-align:center; }
     .btn{ display:inline-block; padding:13px 22px; border-radius:999px; background:var(--brand-primary);
           color:#fff; font-size:15px; font-weight:700; text-decoration:none; }
@@ -67,13 +70,23 @@
             <span class="chip"><strong>Fecha de publicación:</strong> {{ release_label }}</span>
             <span class="chip chip--kind">{{ badge_label }}</span>
           </div>
+          {# GÉNEROS, debajo de la fecha. ⚠️ Esta página es standalone y no carga Font Awesome: el
+             icono va como PNG (`brand_icon_png`), el mismo que se usa en los correos. #}
+          {% if genres %}
+            <div class="chips">
+              {% for g in genres %}
+                <span class="chip"><img src="{{ url_for('brand_icon_png', nombre=g.icon|replace('fa-',''), c='374151', s=32) }}" width="13" height="13" alt="">{{ g.name }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
         </div>
       </section>
 
       <section class="body">
         {# El TITULAR destacado, antes del texto (que va justificado). #}
         {% if pitch_title %}<h2 class="headline">{{ pitch_title }}</h2>{% endif %}
-        {% for chunk in paragraphs %}<p>{{ chunk }}</p>{% endfor %}
+        {# Ya vienen saneados a `<b> <i> <u> <br>` en el servidor: el formato se respeta. #}
+        {% for chunk in paragraphs %}<p>{{ chunk|safe }}</p>{% endfor %}
       </section>
 
       <div class="actions">

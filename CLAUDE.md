@@ -5577,6 +5577,37 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ De paso: **«Playlisting» salía DOS veces** en el menú (un `<li>` fijo en `layout.html` además
   del que ya trae `NAV_MENU` con su propio permiso). El fijo se retiró.
 
+- **PITCH · el TITULAR CENTRADO, los GÉNEROS en la cabecera y el TEXTO CON FORMATO** (ago 2026):
+  · El **titular** va **centrado** sobre el texto del pitch en los cuatro sitios (la ficha, el PDF,
+  el correo y la página pública): es el mismo contenido, así que se ve igual en todos.
+  · En la **cabecera del lanzamiento**, debajo de la fecha, salen las **etiquetas de GÉNERO con su
+  icono** (`_sync_genre_icon`, el mismo de Syncros: punto único). En un álbum son los géneros de
+  sus temas, sin repetir.
+  ⚠️ En el **PDF**, la fecha y el tipo («Single») van como **etiquetas** —`<font backColor>`, que
+  es lo que ReportLab da para eso— igual que en el correo y en el enlace; el icono del género va
+  **FUERA** del `<font backColor>`: dentro, ReportLab deja el hueco y **no dibuja la imagen**
+  (comprobado). El PNG del icono se saca con **`_fa_icon_png_path`**, porque un `Paragraph` admite
+  `<img src="ruta">` pero no bytes ni un data URI.
+  ⚠️ En el **correo** y en la **página pública** (standalone, sin Font Awesome) el icono va como
+  PNG por `brand_icon_png`, el punto único de la casa.
+  · **EL PITCH ADMITE NEGRITA, CURSIVA Y SUBRAYADO**, también **al PEGARLO** desde un Word o un
+  Google Docs. Editor único `templates/_rich_text_field.html` + **`static/js/rich_text.js`**
+  (global, no-op sin `[data-rich-editor]`), usado por la ficha del lanzamiento y por el paso del
+  proyecto. Lo pegado se limpia en el navegador —un `<span style="font-weight:700">`, que es como
+  pega Word, se convierte en `<b>`— y **se vuelve a sanear en el SERVIDOR**
+  (**`_pitch_clean_html`**, con `HTMLParser` de la stdlib: aquí no hay `bleach`), que deja **solo**
+  `<p> <br> <b> <i> <u>` y escapa todo lo demás.
+  ⚠️ Los pitchs ANTIGUOS son texto plano con saltos y **se siguen leyendo igual** (`_pitch_is_html`
+  lo decide): no hay nada que migrar.
+  ⚠️ Puntos únicos de lectura: **`_pitch_paragraph_htmls`** (los párrafos ya como HTML seguro, que
+  usan la ficha, el PDF —con `_pitch_pdf_markup`—, el correo y el enlace), **`_pitch_editor_html`**
+  (lo que se le da al editor) y **`_pitch_plain_text`** (sin formato). Lo que NO pinta HTML tiene
+  que usar el plano: el resumen del paso del proyecto y el modal de «ejemplos anteriores» (que lo
+  escapa), o se verían las etiquetas.
+  ⚠️ `.pitch-text` ya no lleva `white-space: pre-line` (ahora son párrafos de verdad); el hueco
+  pequeño que enseña el pitch **tal cual lo escribió un tercero** en una entrega de masters
+  (`.pitch-text--sm`) sí lo conserva.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

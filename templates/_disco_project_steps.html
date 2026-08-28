@@ -1,3 +1,4 @@
+{% import '_rich_text_field.html' as rich with context %}
 {# ============================================================================================
    LOS POP-UPS DE LOS PASOS DE AUDIO de un proyecto discográfico.
    Cada tarea de la lista abre el suyo (`modal` de la tarea) y guarda con su propio endpoint:
@@ -1846,8 +1847,9 @@
             <input class="form-control form-control-lg" name="pitch_title" value="{{ ps.title or '' }}"
                    placeholder="La frase con la que se presenta">
             <label class="form-label mt-3">El pitch</label>
-            <textarea class="form-control" name="pitch_text" rows="14"
-                      placeholder="El texto con el que se presenta el lanzamiento…">{{ ps.text or '' }}</textarea>
+            {# Mismo editor que en la ficha: se conserva la negrita, la cursiva y el subrayado. #}
+            {{ rich.rich_text('pitch_text', ps.text_html or '',
+                              'El texto con el que se presenta el lanzamiento…', '300px') }}
           </div>
           <div class="col-12 col-lg-5">
             {% if ps.artist_text %}

@@ -1,0 +1,20 @@
+{# ============================================================================================
+   CAMPO DE TEXTO CON FORMATO (negrita · cursiva · subrayado). Punto único: lo usan el pitch de la
+   ficha del lanzamiento y el del paso del proyecto, así que el editor es el mismo en los dos.
+   `value_html` tiene que venir ya SANEADO del servidor (`_pitch_editor_html`).
+   El motor es `static/js/rich_text.js` (global).
+   ============================================================================================ #}
+{% macro rich_text(name, value_html='', placeholder='', min_height='220px') %}
+<div class="rich-editor" data-rich-editor>
+  <div class="rich-editor__bar">
+    <button type="button" class="rich-editor__btn" data-rich-cmd="bold" title="Negrita"><i class="fa fa-bold"></i></button>
+    <button type="button" class="rich-editor__btn" data-rich-cmd="italic" title="Cursiva"><i class="fa fa-italic"></i></button>
+    <button type="button" class="rich-editor__btn" data-rich-cmd="underline" title="Subrayado"><i class="fa fa-underline"></i></button>
+    <button type="button" class="rich-editor__btn" data-rich-cmd="removeFormat" title="Quitar el formato"><i class="fa fa-eraser"></i></button>
+    <span class="rich-editor__hint">Se conserva la negrita, la cursiva y el subrayado, también al pegar.</span>
+  </div>
+  <div class="rich-editor__area" contenteditable="true" data-rich-area
+       data-placeholder="{{ placeholder }}" style="min-height:{{ min_height }};">{{ value_html|safe }}</div>
+  <input type="hidden" name="{{ name }}" data-rich-input>
+</div>
+{% endmacro %}

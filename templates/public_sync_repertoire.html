@@ -29,6 +29,12 @@
     .rep-head{ text-align:right; margin-bottom:.5rem; }
     .rep-head img{ height:38px; width:auto; margin-left:12px; vertical-align:middle; }
     .rep-title{ text-align:center; font-size:1.7rem; font-weight:800; margin:.4rem 0 1.4rem; }
+    /* En MÓVIL el título cabe en UNA línea (se ajusta al ancho en vez de partirse en dos). */
+    @media (max-width: 575.98px){
+      .rep-title{ font-size:clamp(1rem, 5.4vw, 1.35rem); white-space:nowrap; margin:.3rem 0 1rem; }
+      .rep-wrap{ padding:12px 10px 36px; }
+      .rep-head img{ height:32px; }
+    }
     .rep-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:.85rem; }
     .rep-cookie{ background:#fff; border:1px solid #e6e9ec; border-radius:14px; padding:1rem .9rem;
                  text-align:center; text-decoration:none; color:inherit; display:block;

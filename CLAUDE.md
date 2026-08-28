@@ -1892,8 +1892,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ En la previsualización, **«One-Stop» solo se dice si el tema LO ES**: un tema habilitado a mano
   no lo es, y decirlo sería mentir justo en lo que le importa a un supervisor. El **género** va
   siempre al lado.
-  · **EL ASUNTO del correo**: «**Nuevo tema para Syncro, \<canción\> (One-Stop)**» (`_sync_subject`),
-  con «(One-Stop)» **solo si lo es** y el nombre de la canción sin traducir.
+  · **EL ASUNTO del correo**: «**Nuevo tema para Syncro, \<canción\>, \<artista\> (One-Stop)**»
+  (`_sync_subject`), con «(One-Stop)» **solo si lo es**; el nombre de la canción y el del artista no
+  se traducen.
+  · **EL TEXTO** dice de quién es («…este nuevo single **de \<artista\>**») y, **solo si el tema es
+  ONE-STOP**, añade una segunda línea: «Además, este tema es One-Stop, ya que nosotros gestionamos el
+  100% de los derechos editoriales, discográficos y de management del artista».
+  · **Los dos MÓDULOS miden lo mismo** (el de la canción con `table-layout:fixed`: sin eso se
+  ensanchaba con su contenido y no cuadraba con el de contacto), y la letra del de la canción es un
+  punto mayor. Los **dos logos** van en una **fila de tabla** con la misma altura: sueltos en un div,
+  cada PNG se apoyaba a una altura distinta según su proporción.
+  · **El botón de «más repertorio» va al FINAL del módulo de contacto** (a todo el ancho, tras una
+  línea): al lado quitaba sitio y el cargo, el correo y el teléfono se partían.
   ⚠️⚠️ **SOLO cuenta como «enviada a Supervisors» lo que va a un SUPERVISOR**: el envío guarda el
   canal (`SUPERVISOR` o `EMAIL`) y `_sync_sent_state` **filtra por `supervisor_id`**. Mandárselo a un
   tercero por correo —o por WhatsApp o SMS, que ni pasan por el servidor— **no** marca la fila ni
@@ -1904,8 +1914,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   nuestra o no se puede limpiar, **redirige al original**: un 404 ahí deja el logo roto, que es peor
   que enseñarlo con su fondo.
   · **MÓVIL del listado**: el título arriba, **debajo sus etiquetas** (One-stop, géneros, novedad) y
-  debajo el **artista y la fecha**; los huecos de los iconos de la derecha se **reservan siempre**
-  (`.pl-row__dl-plain.is-empty`) para que todas las filas midan lo mismo.
+  debajo el **artista y la fecha** —en la MISMA línea, sin que salte sola—; los huecos de los iconos
+  de la derecha se **reservan siempre** (`.pl-row__dl-plain.is-empty`) para que todas las filas midan
+  lo mismo. Al reproducir, la **barra sale DEBAJO** de artista y fecha, a todo el ancho: la fila solo
+  crece hacia abajo en vez de descolocarse.
+  ⚠️⚠️ **UNA LISTA DE TEMAS NO ES UNA TABLA**, así que la red de seguridad de móvil (que arregla las
+  tablas) no la cubría: los botones de la derecha no se encogían, al título le quedaba ancho CERO y
+  el nombre salía **en vertical, una letra por línea** (bug real en el repertorio del back office).
+  La regla vive ya en esa misma red (`@media (max-width: 767.98px)`): `.pl-row` envuelve, su main
+  lleva `min-width:0` y los botones caen a su propia línea.
+  · En la **ficha pública en móvil**, los dos logos se quedan **en línea** (el `display:block` del
+  apilado los ponía uno sobre otro) y la fila del título usa `table-layout:auto` (con `fixed` el
+  título se llevaba todo el ancho y la etiqueta se salía por la derecha).
+  · El **título de la landing** cabe en UNA línea en móvil (`clamp` + `nowrap`).
   · **MÓVIL de la ficha del tema**: el título GRANDE con su etiqueta One-stop **a la derecha** (la
   fila no se apila, y el título se queda con el ancho que sobra: con las dos celdas a `auto` la
   etiqueta se salía por la derecha y el `overflow-x:hidden` la recortaba), el rótulo del responsable

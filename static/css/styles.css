@@ -4543,6 +4543,16 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
   .nav:not(.flex-column):not(.navbar-nav) > .nav-item,
   .nav:not(.flex-column):not(.navbar-nav) > .nav-link { flex: 0 0 auto; }
   .nav-link, .nav-item > a, .nav-item > button { white-space: nowrap; }
+  /* LISTAS DE TEMAS (Syncros, demos, playlists): no son una tabla, así que la regla de arriba no
+     las cubría. Sin esto, los botones de la derecha no se encogen y al título le queda ancho CERO:
+     el nombre sale en vertical, una letra por línea. La fila envuelve y el título recupera su sitio. */
+  .pl-row { flex-wrap: wrap; }
+  .pl-row__main { min-width: 0; flex: 1 1 12rem; }
+  .pl-row__title, .pl-row__artist { min-width: 0; }
+  .pl-row__title > a, .pl-row__title > span { overflow-wrap: anywhere; }
+  /* Los botones de la fila, en su propia línea (así no le roban el ancho al título). */
+  .pl-row .btn, .pl-row .dropdown { flex: 0 0 auto; }
+  .pl-row > .dropdown, .pl-row > .btn { margin-top: .25rem; }
   .nav::-webkit-scrollbar { height: 3px; }
   /* Fichas de material (vídeo + sus datos): en móvil el texto baja debajo de la miniatura en vez
      de quedarse en una columna de 6 px partiendo las palabras. */
@@ -5199,4 +5209,19 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   /* Los iconos de la derecha, alineados arriba y con su hueco siempre reservado. */
   .pl-row .pl-row__dl-plain,
   .pl-row .dropdown{ align-self:flex-start; margin-top:.15rem; }
+}
+
+/* ── MÓVIL del listado de Syncro (ajustes finos) ─────────────────────────────────────────────
+   La FECHA se queda en la misma línea que el artista (no salta sola) y la BARRA de reproducción
+   aparece DEBAJO de artista y fecha, a todo el ancho, en vez de meterse a la altura del título y
+   descolocarlo todo: al reproducir, la fila solo crece hacia abajo. */
+@media (max-width: 575.98px){
+  .pl-row__artist{ display:flex; align-items:center; gap:.35rem; flex-wrap:nowrap; min-width:0; }
+  .pl-row__artist > span:first-of-type{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+                                        min-width:0; }
+  .pl-row__artist .pl-row__tag{ flex:0 0 auto; white-space:nowrap; }
+  /* La barra, en su propia línea debajo de los datos (y ocupando todo el ancho de la fila). */
+  .pl-row{ flex-wrap:wrap; }
+  .pl-row.is-playing .pl-row__player{ flex:0 0 100%; order:10; margin-top:.4rem; }
+  .pl-row__dur{ order:9; }
 }

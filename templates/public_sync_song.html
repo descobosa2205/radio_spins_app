@@ -42,12 +42,25 @@
        El HTML es una <table> porque el mismo cuerpo va por correo, así que aquí se le quita la
        maquetación de tabla para que no estruje la portada ni parta los textos. ── */
     @media (max-width: 575.98px){
-      .sync-wrap{ padding:10px 8px 32px; }
-      .sync-wrap table{ width:100% !important; }
+      .sync-wrap{ padding:10px 12px 32px; }
+      /* ⚠️ El módulo de la CANCIÓN tiene que medir lo MISMO que el de contacto: sin esto se salía
+         por la derecha y se perdían los iconos de letra y descarga. */
+      .sync-wrap table{ width:100% !important; max-width:100% !important; table-layout:fixed !important; }
+      .sync-wrap .sync-authors__table{ table-layout:auto !important; }
+      /* ⚠️ Los DOS LOGOS se quedan en LÍNEA (el `display:block` de abajo los apilaba uno sobre otro)
+         y la fila del TÍTULO reparte a su medida (con `fixed` el título se llevaba todo el ancho y
+         la etiqueta se salía por la derecha). */
+      .sync-wrap .sync-logos{ width:auto !important; display:inline-table !important;
+                              table-layout:auto !important; }
+      .sync-wrap .sync-logos tr{ display:table-row !important; }
+      .sync-wrap .sync-logos td{ display:table-cell !important; width:auto !important;
+                                 padding:0 0 0 10px !important; }
+      .sync-wrap .sync-titlerow{ table-layout:auto !important; }
       .sync-wrap table tr, .sync-wrap table td{ display:block !important; width:100% !important; }
       .sync-wrap td{ padding:12px !important; }
+      /* La PORTADA, entera y centrada. */
       .sync-wrap .sync-cover{ width:100% !important; height:auto !important; aspect-ratio:1/1;
-                              max-width:320px; margin:0 auto; }
+                              max-width:300px; margin:0 auto !important; }
       .sync-wrap h1{ font-size:20px !important; }
       /* ── EL TÍTULO del tema: GRANDE y con su etiqueta One-stop a la DERECHA (esa fila NO se
          apila: se queda como tabla). ── */
@@ -60,7 +73,7 @@
       .sync-wrap .sync-title,
       .sync-wrap .sync-badge{ display:table-cell !important; padding:0 !important;
                               vertical-align:middle !important; }
-      .sync-wrap .sync-title{ width:100% !important; font-size:24px !important; line-height:1.15 !important;
+      .sync-wrap .sync-title{ width:auto !important; font-size:22px !important; line-height:1.15 !important;
                               overflow-wrap:anywhere; }
       .sync-wrap .sync-badge{ width:1% !important; text-align:right !important;
                               padding-left:8px !important; white-space:nowrap; }

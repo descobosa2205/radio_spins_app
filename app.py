@@ -119754,7 +119754,9 @@ SYNC_CONTACT_PHONE = "+34915001883"
 SYNC_TEXTS = {
     "ES": {
         "title": "Nuevo tema para Sincronización",
-        "intro": "Queremos presentarte este nuevo single para que lo valores para posibles sincronizaciones.",
+        "intro": "Queremos presentarte este nuevo single de %s para que lo valores para posibles sincronizaciones.",
+        "intro_one_stop": ("Además, este tema es One-Stop, ya que nosotros gestionamos el 100% de los "
+                           "derechos editoriales, discográficos y de management del artista."),
         "artist": "Artista", "release": "Fecha de publicación", "genres": "Género",
         "label": "Compañía Discográfica", "authors": "Autores", "author": "Autor",
         "role": "Tipo de autor", "pct": "% de autoría", "publisher": "Compañía editorial",
@@ -119771,7 +119773,9 @@ SYNC_TEXTS = {
     },
     "EN": {
         "title": "New track for Sync Licensing",
-        "intro": "We would like to introduce this new single for you to consider for possible sync placements.",
+        "intro": "We would like to introduce this new single by %s for you to consider for possible sync placements.",
+        "intro_one_stop": ("This track is also One-Stop: we control 100% of the publishing, master and "
+                           "artist management rights."),
         "artist": "Artist", "release": "Release date", "genres": "Genre",
         "label": "Record label", "authors": "Writers", "author": "Writer",
         "role": "Role", "pct": "Share", "publisher": "Publisher",
@@ -119830,12 +119834,15 @@ def _sync_artist_photo(song) -> str:
     return ""
 
 
-def _sync_subject(t: dict, titulo: str, *, one_stop: bool) -> str:
-    """El ASUNTO del correo: «Nuevo tema para Syncro, \<canción\> (One-Stop)».
+def _sync_subject(t: dict, titulo: str, *, one_stop: bool, artista: str = "") -> str:
+    """El ASUNTO del correo: «Nuevo tema para Syncro, \<canción\>, \<artista\> (One-Stop)».
 
     ⚠️ «(One-Stop)» solo si el tema LO ES: es lo que primero mira un supervisor, y decirlo de un tema
-    que no lo es sería mentir. El nombre de la canción no se traduce."""
+    que no lo es sería mentir. El nombre de la canción y el del artista NO se traducen."""
     base = "%s, %s" % (t["subject_lead"], titulo or "—")
+    artista = (artista or "").strip()
+    if artista and artista != "—":
+        base += ", %s" % artista
     return "%s (%s)" % (base, t["one_stop"].title()) if one_stop else base
 
 
@@ -119890,7 +119897,8 @@ def _sync_song_context(session_db, song, *, lang: str = "ES") -> dict:
                     "email": SYNC_CONTACT_EMAIL, "phone": SYNC_CONTACT_PHONE},
         # El ASUNTO del correo: «Nuevo tema para Syncro, <canción> (One-Stop)». El nombre de la
         # canción no se traduce; lo de «(One-Stop)» solo si el tema LO ES (lo pone `_sync_subject`).
-        "subject": _sync_subject(t, (song.title or "").strip(), one_stop=False),
+        "subject": _sync_subject(t, (song.title or "").strip(), one_stop=False,
+                                 artista=", ".join(artistas)),
     }
 
 
@@ -119925,12 +119933,18 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
     ico = lambda n, size=16: _sync_icon(n, email=email, size=size)
 
     # ── Los DOS logos del grupo (PIES y Plataforma Musical), arriba a la derecha ──
-    logos = ""
+    # ⚠️ Los logos van en una FILA DE TABLA con `vertical-align:middle` y la MISMA altura: sueltos
+    # en un div, cada PNG se apoyaba a una altura distinta según su proporción.
+    celdas = ""
     for url, nombre in ctx.get("brand_logos") or []:
         if url:
-            logos += ('<img src="%s" alt="%s" style="height:34px;width:auto;margin-left:12px;'
-                      'vertical-align:middle;">' % (esc(url), esc(nombre)))
-    if not logos:
+            celdas += ('<td style="vertical-align:middle;padding:0 0 0 14px;text-align:center;">'
+                       '<img src="%s" alt="%s" style="height:30px;width:auto;display:block;'
+                       'margin:0 auto;"></td>' % (esc(url), esc(nombre)))
+    if celdas:
+        logos = ('<table class="sync-logos" style="border-collapse:collapse;margin-left:auto;'
+                 'display:inline-table;"><tr>%s</tr></table>' % celdas)
+    else:
         logos = '<span style="font-size:13px;color:#6b7280;">%s</span>' % esc(ctx.get("label_name"))
 
     generos = "".join(
@@ -119993,7 +120007,7 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
                     'border-radius:50%%;object-fit:cover;vertical-align:middle;margin-right:6px;">'
                     % esc(foto))
     artista += '<strong style="vertical-align:middle;">%s</strong>' % esc(ctx.get("artist_name"))
-    bloque_artista = ('<div style="margin-top:9px;font-size:14px;color:#111827;">%s</div>'
+    bloque_artista = ('<div style="margin-top:10px;font-size:15px;color:#111827;">%s</div>'
                       % artista if foto else dato(ico("user"), "<strong>%s</strong>" % esc(ctx.get("artist_name"))))
 
     sello = ""
@@ -120031,9 +120045,10 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
     asunto = quote("%s %s" % (t["subject"], ctx.get("title") or ""))
     mas_repertorio = ""
     if repertoire_url:
-        mas_repertorio = ('<div style="margin-top:12px;"><a href="%s" style="display:inline-block;'
+        mas_repertorio = ('<div style="margin-top:16px;padding-top:14px;'
+                          'border-top:1px solid #eef1f4;"><a href="%s" style="display:inline-block;'
                           'background:#fff;color:#111827;text-decoration:none;border:1px solid #d6dbe0;'
-                          'border-radius:8px;padding:9px 14px;font-size:13.5px;font-weight:700;">'
+                          'border-radius:8px;padding:10px 16px;font-size:14px;font-weight:700;">'
                           '%s&nbsp; %s</a></div>'
                           % (esc(repertoire_url), ico("compact-disc", 13), esc(t["more_repertoire"])))
     contacto = (
@@ -120041,24 +120056,32 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
         'border:1px solid #e6e9ec;border-radius:14px;margin-top:14px;"><tr><td style="padding:16px 18px;">'
         '<div style="font-size:11px;font-weight:800;color:#9aa4ae;text-transform:uppercase;'
         'letter-spacing:.06em;margin-bottom:8px;">%s</div>'
-        '<table class="sync-contact__grid" style="width:100%%;border-collapse:collapse;"><tr>'
-        '<td class="sync-contact__data" style="vertical-align:top;">'
-        '<div style="font-size:15px;font-weight:700;color:#111827;">%s</div>'
-        '<div class="sync-contact__role" style="font-size:13px;color:#6b7280;margin-bottom:8px;">%s</div>'
+        '<div style="font-size:15.5px;font-weight:700;color:#111827;">%s</div>'
+        '<div class="sync-contact__role" style="font-size:13.5px;color:#6b7280;margin-bottom:8px;'
+        'white-space:nowrap;">%s</div>'
         '<div class="sync-contact__line" style="margin-top:6px;"><a href="mailto:%s?subject=%s" '
-        'style="color:#00637f;text-decoration:none;font-size:14px;white-space:nowrap;">%s&nbsp; %s</a></div>'
+        'style="color:#00637f;text-decoration:none;font-size:14.5px;white-space:nowrap;">%s&nbsp; %s</a></div>'
         '<div class="sync-contact__line" style="margin-top:6px;"><a href="tel:%s" '
-        'style="color:#00637f;text-decoration:none;font-size:14px;white-space:nowrap;">%s&nbsp; %s</a></div>'
-        '</td><td class="sync-contact__cta" style="vertical-align:bottom;text-align:right;">%s</td>'
-        '</tr></table></td></tr></table>'
+        'style="color:#00637f;text-decoration:none;font-size:14.5px;white-space:nowrap;">%s&nbsp; %s</a></div>'
+        '%s</td></tr></table>'
         % (esc(t["contact"]), esc(c["name"]), esc(c["role"]),
            esc(c["email"]), asunto, ico("envelope"), esc(c["email"]),
            esc(c["phone"]), ico("phone"), esc(c["phone"]), mas_repertorio))
 
     intro = ""
     if with_intro:
-        intro = ('<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#374151;'
-                 'text-align:left;">%s</p>' % esc(t["intro"]))
+        # El texto lleva el ARTISTA, y si el tema es ONE-STOP se dice en una segunda línea.
+        try:
+            texto = t["intro"] % esc(ctx.get("artist_name") or "")
+        except (TypeError, ValueError):
+            texto = esc(t["intro"])
+        intro = ('<p style="margin:0 0 6px;font-size:15px;line-height:1.55;color:#374151;'
+                 'text-align:left;">%s</p>' % texto)
+        if one_stop and t.get("intro_one_stop"):
+            intro += ('<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#374151;'
+                      'text-align:left;">%s</p>' % esc(t["intro_one_stop"]))
+        else:
+            intro = intro.replace("margin:0 0 6px;", "margin:0 0 18px;", 1)
 
     return (
         '<div style="max-width:680px;margin:0 auto;padding:22px;font-family:-apple-system,'
@@ -120067,8 +120090,8 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
         '<h1 style="margin:8px 0 14px;font-size:23px;line-height:1.25;text-align:center;'
         'color:#111827;">%s</h1>'
         '%s'
-        '<table style="width:100%%;border-collapse:collapse;background:#fff;border:1px solid #e6e9ec;'
-        'border-radius:14px;"><tr>'
+        '<table style="width:100%%;border-collapse:collapse;table-layout:fixed;background:#fff;'
+        'border:1px solid #e6e9ec;border-radius:14px;"><tr>'
         '<td style="padding:16px;vertical-align:top;width:236px;">%s</td>'
         '<td style="padding:16px 16px 16px 0;vertical-align:top;">'
         '<table class="sync-titlerow" style="width:100%%;border-collapse:collapse;"><tr>'
@@ -120640,7 +120663,8 @@ def sync_song_send(song_id):
                                                  **({"lang": "en"} if lang == "EN" else {})),
                 one_stop=bool(fila.get("one_stop")))
             asuntos[lang] = _sync_subject(ctx["t"], ctx.get("title") or "",
-                                          one_stop=bool(fila.get("one_stop")))
+                                          one_stop=bool(fila.get("one_stop")),
+                                          artista=ctx.get("artist_name") or "")
 
         enviados, fallidos = 0, []
         nota = (request.form.get("note") or "").strip()

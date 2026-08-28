@@ -5294,6 +5294,85 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   del integrante y él no trae (el aviso de que aún no tiene ficha y sus preferencias de viaje) se
   añade debajo.
 
+- ⚠️⚠️ **UN `<script>` DENTRO DE UNA ZONA `data-inline-zone` NO SE VUELVE A EJECUTAR** (bug real y
+  de PÉRDIDA DE DATOS, ago 2026). `ajax_inline.js` guarda una sección reemplazando la zona entera
+  (`DOMParser` + `zone.replaceWith(fresh)`), y un `<script>` que sale de `DOMParser` nace *already
+  started*: **al adoptarlo no se ejecuta**, y los listeners pegados a los nodos viejos mueren con
+  ellos. Sin ningún error en la consola.
+  · Pasó con los **GÉNEROS de una canción**: el gestor se cableaba en un `<script>` dentro de
+  `#song-info-zone`, así que **tras el primer guardado dejaba de funcionar todo** (ni el clic, ni
+  Enter, ni el «+»), y —lo grave— como los ocultos los pintaba el JS, `#songGenreHidden` llegaba
+  **vacío** al segundo guardado: con el centinela `song_genres_present` puesto, `_apply_song_genres`
+  **borraba TODOS los géneros de la canción**. Verificado: cuatro géneros → ninguno.
+  · **Las dos reglas que lo evitan**, y que valen para cualquier cosa que se edite inline:
+    1. **El ESTADO lo pinta el SERVIDOR**, no el JavaScript: cada etiqueta lleva DENTRO su propio
+       `<input type="hidden">`. Si el JS no arranca, se ve y se envía igual — y no se pierde nada.
+    2. **El cableado va en un JS GLOBAL y por DELEGACIÓN en `document`** (`static/js/song_genres.js`,
+       cargado en `layout.html`): da igual cuántas veces se repinte la zona. Los conciertos ya lo
+       hacían así (su init vive fuera y se re-engancha con `ficha:shown`).
+  · Detector: buscar `<script>` (que no sea `type="application/json"`) dentro de un elemento con
+  `data-inline-zone` que sea destino de un `data-inline-target`. Hoy **no queda ninguno**: el de
+  `integraciones.html` es delegación en `document`, que sobrevive al reemplazo.
+
+- ⚠️⚠️ **UN `<datalist>` NATIVO NO SIRVE PARA «AL ELEGIR, HACER ALGO»** (ago 2026): al pinchar una
+  de sus opciones cada navegador dispara unos eventos distintos (y a veces ninguno reconocible), así
+  que elegir un género **«no hacía nada»**. Donde haga falta reaccionar a la elección se usa la lista
+  propia de la casa (`.ta-results`), que es DOM normal y pinchar es un clic de verdad. El datalist
+  se queda solo para sugerir texto que el usuario confirma con Enter.
+
+- **GÉNEROS de una canción · cómo se añaden** (ago 2026): **pinchar uno de la lista lo añade** y el
+  **«+»** es para dar de alta uno que todavía no existe (también con Enter). Motor
+  `static/js/song_genres.js`; las etiquetas y sus ocultos los sirve el servidor (ver arriba).
+
+- ⚠️⚠️ **CHARTMETRIC · `obj` puede venir como ARRAY** (bug real, ago 2026). Su OpenAPI declara la
+  respuesta de **`/api/track/{type}/{id}/get-ids`** con `obj` como **lista** (un elemento por ISRC),
+  y `get_track_ids_from_isrc` solo aceptaba un dict: devolvía **`{}` SIEMPRE**, así que **«Vincular
+  por ISRC» no vinculaba ni una** —mientras que buscando ese mismo ISRC a mano la canción aparecía a
+  la primera, porque ese camino acaba cayendo en `/api/search`—. `get_album_ids_from_upc` sí lo
+  contemplaba; era una asimetría. Repasadas TODAS las funciones del cliente: ninguna queda sin
+  manejar la lista.
+  · **RESPALDO**: si `get-ids` no resuelve, la vinculación automática busca el ISRC con
+  `search_tracks` (el camino que se sabe que funciona) y **solo acepta el resultado si trae ESE
+  ISRC**: por texto salen homónimos de otros artistas y vincular al equivocado es peor que no
+  vincular.
+  ⚠️ Las canciones que el bug marcó como «ese ISRC no está» (`cm_isrc_checked_at`, que evita
+  repreguntar en 7 días) llevaban una marca **falsa**: `_cm_isrc_checked_reset_once` (marca
+  `cm_isrc_checked_reset_v1`) las devuelve a la cola una vez.
+  · Y el ISRC se enseña **en seco** también en los listados que lo leían crudo de `Song.isrc`
+  (Integraciones, royalties, radio): pasan por `_norm_isrc`.
+
+- **REPERTORIO de Syncros · la línea, en tres filas** (ago 2026, `.rep-list`): **título** (con
+  **One-stop** y **Novedad** a su lado) · **los GÉNEROS** en la segunda · **artista y fecha** en la
+  tercera, con la portada a **84 px** y el bloque de datos a esa misma altura. Igual **dentro de la
+  app y en el repertorio público**.
+  ⚠️ El tamaño va en UNA variable (`--rep-cover`) que toman el hueco **y la imagen**:
+  `.pl-row__cover img` lleva su propio `width/height`, así que cambiando solo el contenedor la
+  portada se quedaba a 56 px dentro de un hueco de 84 y todo salía descuadrado (bug real).
+  ⚠️ Quien salta de línea es el bloque de **géneros** (`.sync-genres`, al 100%), no el título: si el
+  título ocupara toda la fila, One-stop y Novedad bajarían con los géneros.
+
+- **ISRC · el estado se dice AL PASAR EL RATÓN** (ago 2026): en el módulo de la ficha se retiró la
+  nota explicativa; cada código lleva su color (verde registrado en AGEDI · ámbar pendiente) y en el
+  tooltip se dice el estado y, si ya está registrado, **cuándo** (`SongStatus.agedi_updated_at`).
+
+- ⚠️⚠️ **EL REPARTO EDITORIAL LO DECIDE LA EDITORIAL DEL REGISTRO, NO LA FICHA DEL AUTOR** (bug real
+  de dinero, ago 2026). `_share_split_applies_live` exigía **dos** cosas: que el registro fuera de
+  Plataforma **y** que la ficha del tercero tuviera HOY editorial de Plataforma. Eso dejó de
+  funcionar en cuanto el cambio de editorial pasó a ser **«solo en esta canción»** por defecto: al
+  guardar un autor ya no se toca su ficha, así que se queda sin editorial y **el reparto dejaba de
+  aplicarse aunque el registro dijera Plataforma** — un integrante con contrato editorial se quedaba
+  sin su porcentaje (caso real: Pol Gutiérrez Molina, integrante de DePol).
+  ⚠️ El síntoma es engañoso: `_editorial_split_for_author` **sí encuentra el contrato**; lo que
+  falla es `_song_editorial_split_map`, que se salta la parte con un `continue` y devuelve el mapa
+  **VACÍO**, así que en la ficha no se pinta nada. Al depurar hay que mirar el MAPA, no solo el
+  contrato.
+  · Ahora manda la editorial **congelada en el registro** (que es la regla de la casa desde que la
+  editorial se congela por registro): si el registro trae la suya, eso es lo pactado para esa obra.
+  La ficha del tercero solo decide en los registros ANTIGUOS, que no llevan editorial propia.
+  · Comprobados los cinco casos: registro=Plataforma con la ficha vacía → **se aplica**; registro con
+  OTRA editorial → no; registro vacío con la ficha en Plataforma → sí; registro vacío con la ficha en
+  otra → no.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

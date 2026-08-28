@@ -2686,6 +2686,33 @@ def _promoter_member_unify(session_db, promoter):
     return promoter
 
 
+def _cm_isrc_checked_reset_once():
+    """Borra las marcas de «ese ISRC no está en Chartmetric» que dejó un fallo NUESTRO.
+
+    ⚠️ `get_track_ids_from_isrc` devolvía **{} siempre** (la API contesta `obj` como ARRAY y solo se
+    aceptaba un objeto), así que la vinculación automática daba por «no encontradas» a TODAS las
+    canciones y las apuntaba en `cm_isrc_checked_at` para no repreguntar en una semana. Esas marcas
+    son falsas: se limpian una vez para que se vuelvan a intentar con el código ya arreglado."""
+    marca = "cm_isrc_checked_reset_v1"
+    s = db()
+    try:
+        if (_get_app_setting(marca) or "").strip():
+            return
+        n = (s.query(Song)
+             .filter(Song.cm_isrc_checked_at.isnot(None),
+                     or_(Song.cm_track.is_(None), Song.cm_track == ""))
+             .update({Song.cm_isrc_checked_at: None}, synchronize_session=False))
+        s.commit()
+        _set_app_setting(marca, "1")
+        if n:
+            app.logger.info("Chartmetric: %s canciones vuelven a intentarse por ISRC", n)
+    except Exception:
+        s.rollback()
+        app.logger.exception("No se pudieron limpiar las marcas de ISRC comprobado")
+    finally:
+        s.close()
+
+
 def _isrc_dashes_backfill_once():
     """Quita los guiones de los ISRC ya guardados (arreglo PUNTUAL).
 
@@ -7675,12 +7702,20 @@ def _share_split_frozen(share) -> bool:
 def _share_split_applies_live(share) -> bool:
     """¿Se le puede CALCULAR hoy el reparto a esta parte autoral?
 
-    Hacen falta las dos cosas: que el registro sea de **Plataforma Musical** (la editorial congelada en
-    el propio registro) y que el autor **siga siendo nuestro** ahora mismo. Si deja de serlo —le cambian
-    la editorial o se la quitan— de ahí en adelante no se aplica ningún porcentaje; lo anterior se
-    mantiene porque quedó congelado al registrar la obra (`_share_split_frozen`)."""
+    Manda la editorial **DEL REGISTRO** (la que quedó congelada en `SongEditorialShare` el día que se
+    guardó): eso es lo pactado para ESA obra, y es la regla de la casa desde que la editorial se
+    congela por registro.
+
+    ⚠️⚠️ Antes se exigía ADEMÁS que la ficha del tercero tuviera hoy editorial de Plataforma, y eso
+    se convirtió en un fallo en cuanto el cambio de editorial pasó a ser **«solo en esta canción»**
+    por defecto: la ficha del autor ya no se toca al guardarlo, así que se quedaba sin editorial y
+    **el reparto dejaba de aplicarse aunque el registro dijera Plataforma** (caso real: un integrante
+    con contrato editorial al que no se le aplicaba nada). La ficha del tercero solo decide en los
+    registros ANTIGUOS, que no llevan editorial propia y se caen a la suya."""
     if not _publisher_is_platform(_share_publisher(share)):
         return False
+    if getattr(share, "publishing_company_id", None):
+        return True                      # el registro trae su editorial: es lo pactado para la obra
     promoter = getattr(share, "promoter", None)
     return _publisher_is_platform(getattr(promoter, "publishing_company", None) if promoter else None)
 
@@ -11402,7 +11437,7 @@ def _build_afavor_groups(session_db, sem_start: date, selected_artist_id=None) -
             "artist_name": (art.name if art else ""),
             "collaborators": ", ".join(others),
             "release_date": (s_row.release_date.strftime("%d/%m/%Y") if getattr(s_row, "release_date", None) else ""),
-            "isrc": (getattr(s_row, "isrc", None) or ""),
+            "isrc": _norm_isrc(getattr(s_row, "isrc", None)),
             "company": (_promoter_display_name(company) or company.nick or "") if company is not None else "",
             "company_id": company_id,
             "our_pct": our_pct,
@@ -14137,7 +14172,7 @@ def discografica_view():
                 interpreters_str = ", ".join(inames) if inames else ""
 
                 # isrc
-                isrc = isrc_by_song.get(sid) or (s.isrc or "")
+                isrc = _norm_isrc(isrc_by_song.get(sid) or s.isrc)
 
                 # entradas del periodo
                 if income_view == "month":
@@ -17222,7 +17257,7 @@ def discografica_income_report_pdf():
                 {
                     "title": (row.song_title or "").strip(),
                     "interpreters": ", ".join(interpreters),
-                    "isrc": isrc_map.get(sid_s) or ((row.song_isrc or "").strip()),
+                    "isrc": _norm_isrc(isrc_map.get(sid_s) or row.song_isrc),
                     "kind": _song_kind_from_flags(bool(row.is_distribution), bool(row.is_catalog)),
                     "gross": gross_value,
                     "net": net_value,
@@ -18391,6 +18426,9 @@ def discografica_song_detail(song_id):
     current_isrcs = _current_song_isrcs(session_db, s.id, include_song_field=True)
     agedi_registered_isrcs = _norm_isrc_list(getattr(st, "agedi_registered_isrcs", []) or [])
     agedi_pending_isrcs = [code for code in current_isrcs if code not in set(agedi_registered_isrcs)]
+    # CUÁNDO se registró en AGEDI (se dice al pasar el ratón por el código, que es donde se mira).
+    _agedi_dt = getattr(st, "agedi_updated_at", None)
+    agedi_registered_on = _format_madrid_datetime_label(_agedi_dt) if _agedi_dt else ""
 
     song_materials = _build_song_material_context(session_db, s, material_rows=material_rows)
     materials_status = song_materials.get("completion") or materials_status
@@ -18816,6 +18854,7 @@ def discografica_song_detail(song_id):
         current_isrcs=current_isrcs,
         agedi_registered_isrcs=agedi_registered_isrcs,
         agedi_pending_isrcs=agedi_pending_isrcs,
+        agedi_registered_on=agedi_registered_on,
         song_type_label=song_type_label,
         song_type_badge_class=song_type_badge_class,
         days_remaining=days_remaining,
@@ -59824,6 +59863,8 @@ def _bootstrap_schema_bg():
                  "_artist_members_unify_backfill_once")
     # Los ISRC pasan a escribirse en seco (es con lo que se encuentran fuera).
     _safe_ensure(lambda: globals()["_isrc_dashes_backfill_once"](), "_isrc_dashes_backfill_once")
+    # Las canciones marcadas como «no está en Chartmetric» por el fallo del array vuelven a la cola.
+    _safe_ensure(lambda: globals()["_cm_isrc_checked_reset_once"](), "_cm_isrc_checked_reset_once")
     # Una sola vez: poner el PREFIJO DEL PAÍS a los teléfonos que ya estaban guardados sin él (los
     # de Enterticket llegaban «34600…», sin el «+», y así no se les puede mandar ni un SMS ni un
     # WhatsApp). De aquí en adelante lo hace el guardado. Ver `_phones_normalize_backfill`.
@@ -114012,6 +114053,24 @@ def _cm_autolink_songs_by_isrc(session_db, *, limit: int = CM_AUTOLINK_PER_RUN,
             for code in posibles:
                 res = cm.get_track_ids_from_isrc(code, raise_on_error=True) or {}
                 cm_track = str(_cm_first(res, "cm_track", "id", "chartmetric_id", "chartmetric_ids") or "")
+                if not cm_track:
+                    # ⚠️ RESPALDO: lo que no resuelve `get-ids` se busca con el MISMO camino que
+                    # funciona a mano (buscar el ISRC en `/api/search`). Se acepta solo si el
+                    # resultado trae ESE ISRC: por texto pueden salir homónimos de otros artistas.
+                    try:
+                        for fila in (cm.search_tracks(code, limit=5) or []):
+                            if not isinstance(fila, dict):
+                                continue
+                            suyo = cm.norm_isrc(_cm_first(fila, "isrc", "isrc_code") or "")
+                            if suyo and suyo != cm.norm_isrc(code):
+                                continue
+                            posible = str(_cm_first(fila, "cm_track", "id", "chartmetric_id",
+                                                    "chartmetric_ids") or "")
+                            if posible:
+                                cm_track = posible
+                                break
+                    except Exception:
+                        app.logger.exception("Chartmetric: fallo buscando el ISRC %s", code)
                 if cm_track:
                     break
         except Exception as exc:
@@ -114262,7 +114321,7 @@ def _cm_song_review_rows(session_db, limit=400):
             "id": str(s.id),
             "title": s.title or "—",
             "artists": ", ".join([a.name for a in (getattr(s, "artists", None) or [])]) or "—",
-            "isrc": s.isrc or "",
+            "isrc": _norm_isrc(s.isrc),
             "cm_track": s.cm_track or "",
             "status": s.cm_link_status or "PENDING",
             "links": links,

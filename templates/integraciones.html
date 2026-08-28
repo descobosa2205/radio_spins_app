@@ -839,7 +839,7 @@
                   {# El ISRC se busca también EN SECO: el filtro parte por los guiones, así que pegando
                      «ESA2A2500001» no encontraba la fila que lo tiene como «ES-A2A-25-00001». #}
                   <tr data-cm-search="{{ r.title }} {{ r.artists }} {{ r.isrc }} {{ r.isrc|replace('-','') }} {{ r.cm_track }}">
-                    <td><a href="{{ r.detail_url }}" class="text-decoration-none">{{ r.title }}</a>{% if r.isrc %}<div class="small text-muted">{{ r.isrc }}</div>{% endif %}</td>
+                    <td><a href="{{ r.detail_url }}" class="text-decoration-none">{{ r.title }}</a>{% if r.isrc %}<div class="small text-muted">{{ r.isrc|isrc }}</div>{% endif %}</td>
                     <td class="small">{{ r.artists }}</td>
                     <td>{{ cm_link_icons(r.links) }}</td>
                     <td>{% if r.spotify_plays %}<strong>{{ r.spotify_plays }}</strong>{% else %}<span class="text-muted">—</span>{% endif %}</td>

@@ -72,7 +72,7 @@
         </div>
       {% else %}
         {% import '_sync_song_row.html' as syncrow with context %}
-        <ul class="pl-list list-unstyled mb-0" data-playlist-player>
+        <ul class="pl-list rep-list list-unstyled mb-0" data-playlist-player>
           {% for row in rep_rows %}
             {# Los BOTONES van DENTRO de la fila (`menu`), no colgando debajo. #}
             {% set menu %}

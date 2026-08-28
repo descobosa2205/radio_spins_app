@@ -10,11 +10,18 @@
 {# `link` = el título es un enlace; `to_detail` = a la ficha de la canción (dentro de la app) en vez
    de a su página pública. `menu` es el HTML de los botones de la derecha. #}
 {% macro sync_row(row, link=true, sent=false, to_detail=false, menu='') %}
+  {# ⚠️ El ORDEN importa: One-stop, Novedad y «enviada» van pegados al título; los GÉNEROS van en
+     su propio bloque, que en escritorio ocupa toda la línea y por eso cae a la SEGUNDA fila. Si se
+     colaran en medio, lo que viniera detrás bajaría con ellos. #}
   {% set badges %}
     {% if row.one_stop %}{{ one_stop_badge('ms-1') }}{% endif %}
-    {% for g in row.genres %}<span class="badge rounded-pill sync-genre ms-1">{{ g }}</span>{% endfor %}
     {% if row.is_new %}<span class="badge sync-new ms-1" title="Publicada hace menos de 15 días">Novedad</span>{% endif %}
     {% if sent and row.sent %}<span class="badge text-bg-success ms-1" title="{{ row.sent_tooltip }}"><i class="fa-solid fa-paper-plane me-1"></i>{{ row.sent_count }}</span>{% endif %}
+    {% if row.genres %}
+      <span class="sync-genres">
+        {% for g in row.genres %}<span class="badge rounded-pill sync-genre">{{ g }}</span>{% endfor %}
+      </span>
+    {% endif %}
   {% endset %}
   {{ plr.pl_row(dict(row,
         stream_url=row.audio_url,

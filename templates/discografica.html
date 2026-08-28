@@ -198,11 +198,10 @@
 
     {% if CAN_EDIT_DISCOGRAFICA %}
       {% if repertorio_tab == 'canciones' %}
-        {# Volcar los datos de los Label Copy ANTIGUOS: va ANTES de «Añadir canción». #}
+        {# Volcar los datos de los Label Copy ANTIGUOS. Va a la derecha, JUSTO ANTES del «+». #}
         <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#lcBulkModal"
-                title="Subir Label Copy en PDF y volcar sus datos">
-          <i class="fa fa-file-import"></i> Actualización de datos en bloque
-        </button>
+                title="Subir LC: sube los Label Copy en PDF y vuelca sus datos"
+                aria-label="Subir LC"><i class="fa fa-file-import"></i></button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSongModal">
           <i class="fa fa-plus"></i> Añadir canción
         </button>

@@ -5334,9 +5334,21 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
    La portada crece a la vez para que el bloque de datos siga ocupando su misma altura.
    ⚠️ Solo en el repertorio (`.rep-list`): en las playlists y en las demos la línea sigue igual. */
 @media (min-width: 768px){
-  .rep-list .pl-row__cover{ width:84px; height:84px; }
+  /* ⚠️ El tamaño va en UNA variable y lo toman el hueco Y LA IMAGEN: `.pl-row__cover img` lleva su
+     propio `width/height` fijo, así que cambiando solo el contenedor la portada se quedaba a 56 px
+     dentro de un hueco de 84 y todo salía descuadrado (bug real). Así no se pueden desparejar. */
+  .rep-list{ --rep-cover: 84px; }
+  .rep-list .pl-row__cover,
+  .rep-list .pl-row__cover img{ width:var(--rep-cover); height:var(--rep-cover); }
+
+  /* Los datos ocupan la ALTURA DE LA PORTADA y van centrados con ella. */
+  .rep-list .pl-row__main{ display:flex; flex-direction:column; justify-content:center;
+    min-height:var(--rep-cover); gap:.15rem; }
   .rep-list .pl-row__title{ display:flex; flex-wrap:wrap; align-items:center; gap:.3rem; row-gap:.35rem; }
-  /* El título ocupa toda la primera fila, así las etiquetas caen a la segunda. */
-  .rep-list .pl-row__title > a, .rep-list .pl-row__title > span:first-child{ flex:0 0 100%; }
-  .rep-list .pl-row__artist{ margin-top:.15rem; }
+  /* ⚠️ El título NO ocupa toda la fila: One-stop y Novedad tienen que quedarse A SU LADO. Quien
+     salta de línea es el bloque de GÉNEROS, que ocupa el ancho completo. */
+  .rep-list .sync-genres{ flex:0 0 100%; display:flex; flex-wrap:wrap; gap:.3rem; margin:0; }
+  .rep-list .pl-row__artist{ margin-top:0; }
+  /* La duración y los iconos, también a la altura de la portada. */
+  .rep-list .pl-row__dur, .rep-list .pl-row__dl-plain{ align-self:center; }
 }

@@ -206,6 +206,10 @@ def get_track(cm_track: int | str) -> dict:
     except RuntimeError:
         return {}
     obj = data.get("obj", data) if isinstance(data, dict) else data
+    # ⚠️ Como en el resto: `obj` puede venir envuelto en una LISTA. Aceptando solo un dict, la
+    # respuesta buena se descartaba y quedaba en «no hay datos» (el bug de `get-ids` por ISRC).
+    if isinstance(obj, list):
+        obj = next((x for x in obj if isinstance(x, dict)), {})
     return obj if isinstance(obj, dict) else {}
 
 
@@ -240,6 +244,13 @@ def get_track_ids_from_isrc(isrc: str, raise_on_error: bool = False) -> dict:
             raise
         return {}
     obj = data.get("obj", data) if isinstance(data, dict) else data
+    # ⚠️⚠️ `obj` viene como ARRAY (un elemento por ISRC), no como objeto: su propio OpenAPI lo
+    # declara así. Aceptando solo un dict, esta función devolvía **{} SIEMPRE** y la vinculación
+    # automática daba todas las canciones por «no encontradas» —mientras que buscándolas a mano con
+    # el mismo ISRC aparecían a la primera, porque ese camino acaba cayendo en /api/search— (bug
+    # real). `get_album_ids_from_upc` ya lo contemplaba; esta no.
+    if isinstance(obj, list):
+        obj = next((x for x in obj if isinstance(x, dict)), {})
     return obj if isinstance(obj, dict) else {}
 
 

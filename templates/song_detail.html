@@ -525,57 +525,36 @@
 
                 <div class="col-12 col-md-8">
                   <label class="form-label">Géneros <span class="text-muted small">(etiquetas)</span></label>
-                  {# Mismo gestor de chips que las etiquetas de una actividad, con su propio name.
-                     El catálogo se sugiere en un datalist y lo que no esté se crea al vuelo. #}
                   <input type="hidden" name="song_genres_present" value="1">
-                  <div id="songGenreChips" class="d-flex flex-wrap"></div>
-                  <div id="songGenreHidden"></div>
-                  <div class="input-group">
-                    <input id="songGenreInput" class="form-control" list="songGenreCatalog"
-                           placeholder="Busca un género, o escribe uno nuevo y pulsa +" autocomplete="off">
-                    <button type="button" class="btn btn-outline-secondary" id="songGenreAdd"
-                            title="Añadir el género que has escrito (para uno que todavía no existe)"><i class="fa fa-plus"></i></button>
+                  {# ⚠️⚠️ LAS ETIQUETAS Y SUS OCULTOS LOS PINTA EL SERVIDOR, no el JavaScript.
+                     Esta zona se REEMPLAZA entera al guardar (`ajax_inline`), y los scripts de
+                     dentro no se vuelven a ejecutar: con el estado en JS, tras el primer guardado
+                     no se veía ningún género y el segundo guardado los BORRABA todos (bug real de
+                     pérdida de datos). Así se ven y se envían aunque el JS no llegue a arrancar.
+                     El motor es `static/js/song_genres.js`, GLOBAL y por delegación. #}
+                  <div class="position-relative" data-genre-picker data-genre-field="song_genres[]">
+                    <div class="d-flex flex-wrap" data-genre-chips>
+                      {% for g in song_genres or [] %}
+                        <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 me-2 mb-2" data-genre-chip>
+                          <span>{{ g }}</span>
+                          <button type="button" class="btn btn-sm p-0 border-0 bg-transparent text-danger"
+                                  data-genre-del aria-label="Quitar"><i class="fa fa-times"></i></button>
+                          <input type="hidden" name="song_genres[]" value="{{ g }}">
+                        </span>
+                      {% endfor %}
+                    </div>
+                    <div class="input-group">
+                      <input class="form-control" data-genre-input autocomplete="off"
+                             placeholder="Busca un género, o escribe uno nuevo y pulsa +">
+                      <button type="button" class="btn btn-outline-secondary" data-genre-add
+                              title="Añadir el género que has escrito (para uno que todavía no existe)"><i class="fa fa-plus"></i></button>
+                    </div>
+                    <div class="ta-results" data-genre-results></div>
+                    {# El catálogo, para sugerir. Va como JSON (no se ejecuta), así que se lee bien
+                       aunque la zona se repinte. #}
+                    <script type="application/json" data-genre-catalog>{{ (song_genre_catalog or [])|tojson }}</script>
                   </div>
-                  <datalist id="songGenreCatalog">
-                    {% for g in song_genre_catalog or [] %}<option value="{{ g }}"></option>{% endfor %}
-                  </datalist>
-                  {# ⚠️ En DOMContentLoaded: los scripts en línea corren ANTES de scripts.js, así que
-                     aquí todavía no existiría `initConcertTagManager`. #}
-                  <script>
-                    document.addEventListener('DOMContentLoaded', function () {
-                      if (!window.initConcertTagManager || !document.getElementById('songGenreInput')) return;
-                      var gm = window.initConcertTagManager({
-                        inputId: 'songGenreInput', chipsId: 'songGenreChips', hiddenId: 'songGenreHidden',
-                        fieldName: 'song_genres[]', prefix: '',
-                        {# ⚠️⚠️ Aquí `|tojson` va SOLO, sin `forceescape`: dentro de un <script> el
-                           navegador NO decodifica las entidades HTML, así que `&#34;` llega tal cual
-                           al JS, el bloque entero es inválido y NO SE EJECUTA —por eso los géneros
-                           no se cogían ni con Enter ni con el «+» (bug real)—. `forceescape` es para
-                           los ATRIBUTOS (onclick=…, data-…=…), donde la comilla sí cortaría. #}
-                        initialTags: {{ (song_genres or [])|tojson }}
-                      });
-                      var add = document.getElementById('songGenreAdd');
-                      if (add && gm) add.addEventListener('click', function () { gm.addFromInput(); });
-                      // ⚠️ ELEGIR uno de la lista ya lo AÑADE (no hay que pulsar nada más); el «+»
-                      // queda para dar de alta uno que no existe todavía. Chrome y Safari marcan la
-                      // selección con `insertReplacementText`; en los que no, se detecta porque el
-                      // valor salta de golpe y coincide EXACTAMENTE con una opción del catálogo.
-                      var campo = document.getElementById('songGenreInput');
-                      var catalogo = Array.prototype.map.call(
-                        document.querySelectorAll('#songGenreCatalog option'),
-                        function (o) { return (o.value || '').trim(); });
-                      var previo = '';
-                      campo.addEventListener('input', function (ev) {
-                        var v = (campo.value || '').trim();
-                        var saltó = v.length - previo.length > 1;
-                        previo = v;
-                        var esSeleccion = (ev.inputType === 'insertReplacementText') || (!ev.inputType) || saltó;
-                        if (!esSeleccion || !v) return;
-                        var casa = catalogo.some(function (g) { return g.toLowerCase() === v.toLowerCase(); });
-                        if (casa && gm) { gm.addFromInput(); previo = ''; }
-                      });
-                    });
-                  </script>
+                  <div class="form-text">Pincha uno de la lista para añadirlo. Si no está, escríbelo y pulsa <strong>+</strong>.</div>
                 </div>
 
                 <div class="col-12">
@@ -874,7 +853,7 @@
                 </button>
               {% endif %}
             </div>
-            <div class="text-muted small mt-1">Audio / Vídeo, principal y subproductos. <span class="ms-1">Verde: registrado en AGEDI · ámbar: pendiente.</span></div>
+
             <div class="mt-2">
               {% if isrc_codes and (isrc_codes|length) > 0 %}
                 <div class="table-responsive">
@@ -897,15 +876,16 @@
                           <td class="text-nowrap">{{ c.kind }}</td>
                           {# ⚠️ El código lleva AQUÍ su estado (verde registrado en AGEDI, ámbar
                              pendiente): antes se decía dos veces —en unas pastillas encima y otra
-                             vez en esta tabla— y era el mismo dato repetido. #}
+                             vez en esta tabla— y era el mismo dato repetido. Al pasar el ratón se
+                             dice el estado y, si ya está registrado, CUÁNDO se registró. #}
                           <td class="text-nowrap">
                             {% set _cod = c.code|isrc %}
                             {% if _cod in agedi_registered_isrcs %}
-                              <span class="badge text-bg-success" title="Registrado en AGEDI">{{ c.display_code or _cod }}</span>
+                              <span class="badge text-bg-success" title="Registrado en AGEDI{% if agedi_registered_on %} el {{ agedi_registered_on }}{% endif %}">{{ c.display_code or _cod }}</span>
                             {% elif _cod in agedi_pending_isrcs %}
                               <span class="badge text-bg-warning text-dark" title="Pendiente de registrar en AGEDI">{{ c.display_code or _cod }}</span>
                             {% else %}
-                              <span class="badge text-bg-light text-dark">{{ c.display_code or _cod }}</span>
+                              <span class="badge text-bg-light text-dark" title="Sin estado de registro">{{ c.display_code or _cod }}</span>
                             {% endif %}
                           </td>
                           <td>

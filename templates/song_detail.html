@@ -532,8 +532,9 @@
                   <div id="songGenreHidden"></div>
                   <div class="input-group">
                     <input id="songGenreInput" class="form-control" list="songGenreCatalog"
-                           placeholder="Escribe un género y pulsa Enter (Pop, Flamenco…)" autocomplete="off">
-                    <button type="button" class="btn btn-outline-secondary" id="songGenreAdd"><i class="fa fa-plus"></i></button>
+                           placeholder="Busca un género, o escribe uno nuevo y pulsa +" autocomplete="off">
+                    <button type="button" class="btn btn-outline-secondary" id="songGenreAdd"
+                            title="Añadir el género que has escrito (para uno que todavía no existe)"><i class="fa fa-plus"></i></button>
                   </div>
                   <datalist id="songGenreCatalog">
                     {% for g in song_genre_catalog or [] %}<option value="{{ g }}"></option>{% endfor %}
@@ -546,10 +547,33 @@
                       var gm = window.initConcertTagManager({
                         inputId: 'songGenreInput', chipsId: 'songGenreChips', hiddenId: 'songGenreHidden',
                         fieldName: 'song_genres[]', prefix: '',
-                        initialTags: {{ (song_genres or [])|tojson|forceescape }}
+                        {# ⚠️⚠️ Aquí `|tojson` va SOLO, sin `forceescape`: dentro de un <script> el
+                           navegador NO decodifica las entidades HTML, así que `&#34;` llega tal cual
+                           al JS, el bloque entero es inválido y NO SE EJECUTA —por eso los géneros
+                           no se cogían ni con Enter ni con el «+» (bug real)—. `forceescape` es para
+                           los ATRIBUTOS (onclick=…, data-…=…), donde la comilla sí cortaría. #}
+                        initialTags: {{ (song_genres or [])|tojson }}
                       });
                       var add = document.getElementById('songGenreAdd');
                       if (add && gm) add.addEventListener('click', function () { gm.addFromInput(); });
+                      // ⚠️ ELEGIR uno de la lista ya lo AÑADE (no hay que pulsar nada más); el «+»
+                      // queda para dar de alta uno que no existe todavía. Chrome y Safari marcan la
+                      // selección con `insertReplacementText`; en los que no, se detecta porque el
+                      // valor salta de golpe y coincide EXACTAMENTE con una opción del catálogo.
+                      var campo = document.getElementById('songGenreInput');
+                      var catalogo = Array.prototype.map.call(
+                        document.querySelectorAll('#songGenreCatalog option'),
+                        function (o) { return (o.value || '').trim(); });
+                      var previo = '';
+                      campo.addEventListener('input', function (ev) {
+                        var v = (campo.value || '').trim();
+                        var saltó = v.length - previo.length > 1;
+                        previo = v;
+                        var esSeleccion = (ev.inputType === 'insertReplacementText') || (!ev.inputType) || saltó;
+                        if (!esSeleccion || !v) return;
+                        var casa = catalogo.some(function (g) { return g.toLowerCase() === v.toLowerCase(); });
+                        if (casa && gm) { gm.addFromInput(); previo = ''; }
+                      });
                     });
                   </script>
                 </div>
@@ -850,21 +874,7 @@
                 </button>
               {% endif %}
             </div>
-            <div class="text-muted small mt-1">Audio / Vídeo, principal y subproductos.</div>
-            {% if current_isrcs and (current_isrcs|length) > 0 %}
-              <div class="d-flex gap-1 flex-wrap mt-2">
-                {% for code in current_isrcs %}
-                  {% if code in agedi_registered_isrcs %}
-                    <span class="badge text-bg-success">{{ code|isrc }}</span>
-                  {% elif code in agedi_pending_isrcs %}
-                    <span class="badge text-bg-warning text-dark">{{ code|isrc }}</span>
-                  {% else %}
-                    <span class="badge text-bg-light text-dark">{{ code|isrc }}</span>
-                  {% endif %}
-                {% endfor %}
-              </div>
-            {% endif %}
-
+            <div class="text-muted small mt-1">Audio / Vídeo, principal y subproductos. <span class="ms-1">Verde: registrado en AGEDI · ámbar: pendiente.</span></div>
             <div class="mt-2">
               {% if isrc_codes and (isrc_codes|length) > 0 %}
                 <div class="table-responsive">
@@ -885,7 +895,19 @@
                       {% for c in grupo %}
                         <tr>
                           <td class="text-nowrap">{{ c.kind }}</td>
-                          <td class="text-nowrap">{{ c.display_code or c.code|isrc }}</td>
+                          {# ⚠️ El código lleva AQUÍ su estado (verde registrado en AGEDI, ámbar
+                             pendiente): antes se decía dos veces —en unas pastillas encima y otra
+                             vez en esta tabla— y era el mismo dato repetido. #}
+                          <td class="text-nowrap">
+                            {% set _cod = c.code|isrc %}
+                            {% if _cod in agedi_registered_isrcs %}
+                              <span class="badge text-bg-success" title="Registrado en AGEDI">{{ c.display_code or _cod }}</span>
+                            {% elif _cod in agedi_pending_isrcs %}
+                              <span class="badge text-bg-warning text-dark" title="Pendiente de registrar en AGEDI">{{ c.display_code or _cod }}</span>
+                            {% else %}
+                              <span class="badge text-bg-light text-dark">{{ c.display_code or _cod }}</span>
+                            {% endif %}
+                          </td>
                           <td>
                             {% if c.is_primary %}
                               <span class="badge text-bg-primary">Principal</span>
@@ -2818,6 +2840,9 @@
             <div class="modal-body">
               <input type="hidden" name="share_id" id="editorialShareId">
               <input type="hidden" name="promoter_id" id="editorialPromoterId">
+              {# El INTEGRANTE de un artista que aún no tiene ficha de tercero: al guardar se le crea
+                 la suya ya vinculada, así se le aplican las condiciones del contrato del artista. #}
+              <input type="hidden" name="artist_person_id" id="editorialArtistPersonId">
               <input type="hidden" name="publishing_company_id" id="editorialPublisherId">
               {# El ALCANCE del cambio de editorial (lo rellena el pop-up de aviso). #}
               <input type="hidden" name="publisher_scope" id="editorialPublisherScope" value="ONE">

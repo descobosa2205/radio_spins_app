@@ -344,6 +344,7 @@ import sim_calc  # motor de cálculo puro de Simulaciones
 import sync_import  # lector de ficheros de supervisores de sincronización (motor puro)
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
 import invoice_read  # motor puro de LECTURA de facturas (nº, fechas e importes del PDF)
+import labelcopy_read  # motor puro de LECTURA de los Label Copy en PDF
 import promoter_import  # motor puro de IMPORTACIÓN de terceros (columnas de un Excel/CSV)
 import address_utils  # cómo se escribe una dirección (motor puro, único formato)
 import buyer_import  # importar compradores desde un fichero (motor puro)
@@ -2440,6 +2441,315 @@ def _ensure_promoter_for_artist_person(session_db, person, link_promoter_id=None
     return match
 
 
+# ==========================================================================================
+# UN AUTOR QUE ES INTEGRANTE DE UN ARTISTA = UNA SOLA FICHA
+#
+# ⚠️⚠️ Los autores de una obra casi nunca son «el artista»: son las PERSONAS que forman parte de
+# él. El contrato (editorial, discográfico) se firma con el ARTISTA y se le aplica a sus
+# integrantes (`_editorial_split_for_author` sube del integrante a su artista con
+# `ArtistPerson.promoter_id`). Si esa persona tiene DOS fichas —la del integrante y otra suelta
+# creada al darla de alta como autor— el autor de la canción apunta a la suelta, que no es
+# integrante de nadie, y **no se le detectan las condiciones del contrato**: se queda sin su
+# reparto editorial y sin lo que le toca en facturación y royalties (bug real).
+#
+# Por eso las dos fichas se UNEN SOLAS: se re-apunta todo a una, y si el artista tiene UN SOLO
+# integrante (un solista) esa ficha toma como NICK el nombre del artista —los datos oficiales
+# (nombre, apellidos, DNI) son siempre los de la persona, que es quien firma y factura—.
+# ==========================================================================================
+
+def _person_name_key(*partes) -> str:
+    """El nombre de una persona, normalizado, para reconocerla."""
+    return _norm_text_key(" ".join([str(p or "").strip() for p in partes if str(p or "").strip()]))
+
+
+def _promoter_person_keys(promoter) -> set:
+    """Con qué se reconoce a este tercero: su DNI y sus nombres."""
+    if promoter is None:
+        return set()
+    claves = set()
+    dni = _prl_norm_dni(getattr(promoter, "tax_id", "") or "")
+    if dni:
+        claves.add("dni:" + dni)
+    for nombre in (_person_name_key(promoter.first_name, promoter.last_name),
+                   _person_name_key(promoter.nick)):
+        if nombre:
+            claves.add("nom:" + nombre)
+    return claves
+
+
+def _artist_person_keys(person) -> set:
+    """Lo mismo para un integrante."""
+    if person is None:
+        return set()
+    claves = set()
+    nombre = _person_name_key(person.first_name, person.last_name)
+    if nombre:
+        claves.add("nom:" + nombre)
+    return claves
+
+
+def _artist_solo_name(session_db, artist_id) -> str:
+    """El nombre del ARTISTA, pero SOLO si tiene un único integrante.
+
+    Con un solo integrante, el artista ES esa persona (un solista), así que su ficha puede llamarse
+    como el artista. Con varios, el nick del artista no identifica a ninguno."""
+    aid = to_uuid(str(artist_id or ""))
+    if not aid:
+        return ""
+    try:
+        cuantos = session_db.query(func.count(ArtistPerson.id)).filter(ArtistPerson.artist_id == aid).scalar() or 0
+        if cuantos != 1:
+            return ""
+        art = session_db.get(Artist, aid)
+        return (getattr(art, "name", "") or "").strip() if art is not None and not art.event_id else ""
+    except Exception:
+        app.logger.exception("No se pudo mirar si el artista %s es un solista", artist_id)
+        return ""
+
+
+def _promoter_merge_into(session_db, keep, drop) -> bool:
+    """Funde el tercero `drop` en `keep`: re-apunta todo lo suyo y completa lo que le falte al bueno.
+
+    ⚠️ Solo COMPLETA los huecos del que se queda: un dato ya escrito no se pisa nunca."""
+    if keep is None or drop is None or keep.id == drop.id:
+        return False
+    try:
+        for campo in ("first_name", "last_name", "tax_id", "contact_email", "contact_phone",
+                      "logo_url", "address", "bank_account", "publishing_company_id",
+                      "fiscal_address", "hotel_notes", "notify_channel"):
+            if hasattr(keep, campo) and not (getattr(keep, campo, None) or None):
+                valor = getattr(drop, campo, None)
+                if valor:
+                    setattr(keep, campo, valor)
+        session_db.add(keep)
+        session_db.flush()
+        _merge_repoint_references(session_db, Promoter, keep.id, drop.id)
+        try:
+            _merge_repoint_polymorphic(session_db, MERGE_KINDS["promoter"], keep.id, drop.id)
+        except Exception:
+            app.logger.exception("Fusión de terceros: no se pudieron re-apuntar las vinculaciones")
+        session_db.delete(drop)
+        session_db.flush()
+        app.logger.info("Fichas de tercero fusionadas: %s ← %s", keep.id, drop.id)
+        return True
+    except Exception:
+        app.logger.exception("No se pudieron fusionar los terceros %s y %s",
+                             getattr(keep, "id", None), getattr(drop, "id", None))
+        return False
+
+
+def _promoter_duplicates_of(session_db, promoter, limit: int = 20) -> list:
+    """Otros terceros que son LA MISMA PERSONA que este (mismo DNI, o mismo nombre completo).
+
+    ⚠️ El nombre solo vale si NINGUNO de los dos tiene un DNI que los desmienta: dos personas
+    distintas pueden llamarse igual, y fundirlas sería mucho peor que dejar el duplicado."""
+    if promoter is None:
+        return []
+    claves = _promoter_person_keys(promoter)
+    if not claves:
+        return []
+    dni = _prl_norm_dni(getattr(promoter, "tax_id", "") or "")
+    nombres = [c[4:] for c in claves if c.startswith("nom:")]
+    salida, vistos = [], {str(promoter.id)}
+    try:
+        if dni:
+            for p in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).limit(4000).all():
+                if str(p.id) not in vistos and _prl_norm_dni(p.tax_id or "") == dni:
+                    vistos.add(str(p.id))
+                    salida.append(p)
+        for nombre in nombres:
+            if len(salida) >= limit:
+                break
+            cond = or_(_sa_contains_text(Promoter.nick, nombre),
+                       _sa_contains_text(func.concat(func.coalesce(Promoter.first_name, ""), " ",
+                                                     func.coalesce(Promoter.last_name, "")), nombre))
+            for p in session_db.query(Promoter).filter(cond).limit(40).all():
+                if str(p.id) in vistos:
+                    continue
+                otro = _prl_norm_dni(p.tax_id or "")
+                if dni and otro and otro != dni:
+                    continue                       # el DNI dice que NO es la misma persona
+                if nombre in {c[4:] for c in _promoter_person_keys(p) if c.startswith("nom:")}:
+                    vistos.add(str(p.id))
+                    salida.append(p)
+    except Exception:
+        app.logger.exception("No se pudieron buscar duplicados de %s", getattr(promoter, "id", None))
+    return salida[:limit]
+
+
+def _artist_person_promoter_match(session_db, person):
+    """El tercero que YA existe para este integrante (por DNI o por su nombre completo)."""
+    claves = _artist_person_keys(person)
+    nombre = _person_name_key(person.first_name, person.last_name)
+    if not nombre:
+        return None
+    try:
+        cond = or_(_sa_contains_text(Promoter.nick, nombre),
+                   _sa_contains_text(func.concat(func.coalesce(Promoter.first_name, ""), " ",
+                                                 func.coalesce(Promoter.last_name, "")), nombre))
+        for p in session_db.query(Promoter).filter(cond).limit(40).all():
+            if _promoter_person_keys(p) & claves:
+                return p
+    except Exception:
+        app.logger.exception("No se pudo buscar el tercero del integrante %s", getattr(person, "id", None))
+    return None
+
+
+def _artist_member_apply_nick(session_db, person, promoter) -> bool:
+    """Si el artista es un SOLISTA, su ficha pasa a llamarse como el artista.
+
+    ⚠️ Solo el NICK: el nombre, los apellidos y el DNI son los OFICIALES de la persona (es quien
+    firma y quien factura). Y si ese nick ya lo tiene OTRO tercero no se toca nada: `nick` es
+    único, y renombrarlo a «X (2)» sería peor que dejarlo como está."""
+    if promoter is None or person is None:
+        return False
+    nombre = _artist_solo_name(session_db, getattr(person, "artist_id", None))
+    if not nombre or _norm_text_key(promoter.nick or "") == _norm_text_key(nombre):
+        return False
+    try:
+        ocupado = (session_db.query(Promoter.id)
+                   .filter(func.lower(Promoter.nick) == nombre.lower(), Promoter.id != promoter.id)
+                   .first())
+        if ocupado:
+            return False
+        # Lo que se pierde del nick anterior se conserva como nombre oficial si estaba vacío.
+        if not (promoter.first_name or "").strip() and not (promoter.last_name or "").strip():
+            promoter.first_name = (person.first_name or "").strip() or None
+            promoter.last_name = (person.last_name or "").strip() or None
+        promoter.nick = nombre
+        session_db.add(promoter)
+        session_db.flush()
+        return True
+    except Exception:
+        app.logger.exception("No se pudo poner el nombre del artista como nick de %s", promoter.id)
+        return False
+
+
+def _artist_person_unify(session_db, person, *, create: bool = False):
+    """Deja al integrante con UNA sola ficha de tercero (fusionando lo que haya) y devuelve esa ficha.
+
+    Es el punto único: lo llaman el alta y la edición de un integrante, el relleno puntual y el
+    guardado de un autor."""
+    if person is None:
+        return None
+    actual = _artist_person_promoter(session_db, person)
+    if actual is None:
+        actual = _artist_person_promoter_match(session_db, person)
+        if actual is None and not create:
+            return None
+        if actual is None:
+            actual = _ensure_promoter_for_artist_person(session_db, person)
+        else:
+            person.promoter_id = actual.id
+            session_db.add(person)
+            session_db.flush()
+    for otro in _promoter_duplicates_of(session_db, actual):
+        # Se queda el que YA es el del integrante; el otro se funde en él.
+        _promoter_merge_into(session_db, actual, otro)
+    _artist_member_apply_nick(session_db, person, actual)
+    return actual
+
+
+def _promoter_member_unify(session_db, promoter):
+    """Al revés: un TERCERO que resulta ser integrante de un artista (aunque nadie los vinculara).
+
+    Es lo que hace que a un autor se le apliquen las condiciones del contrato de su artista."""
+    if promoter is None:
+        return promoter
+    if _promoter_member_artist_ids(session_db, promoter.id):
+        return promoter                                   # ya es integrante: nada que unir
+    claves = _promoter_person_keys(promoter)
+    if not claves:
+        return promoter
+    nombres = [c[4:] for c in claves if c.startswith("nom:")]
+    if not nombres:
+        return promoter
+    try:
+        cond = or_(*[_sa_contains_text(func.concat(func.coalesce(ArtistPerson.first_name, ""), " ",
+                                                   func.coalesce(ArtistPerson.last_name, "")), n)
+                     for n in nombres])
+        for person in session_db.query(ArtistPerson).filter(cond).limit(40).all():
+            if not (_artist_person_keys(person) & claves):
+                continue
+            otro = _artist_person_promoter(session_db, person)
+            if otro is not None and otro.id != promoter.id:
+                _promoter_merge_into(session_db, otro, promoter)   # manda la del integrante
+                return otro
+            if otro is None:
+                person.promoter_id = promoter.id
+                session_db.add(person)
+                session_db.flush()
+            _artist_member_apply_nick(session_db, person, promoter)
+            return promoter
+    except Exception:
+        app.logger.exception("No se pudo unir el tercero %s con su integrante", promoter.id)
+    return promoter
+
+
+def _isrc_dashes_backfill_once():
+    """Quita los guiones de los ISRC ya guardados (arreglo PUNTUAL).
+
+    ⚠️ El formato de la casa pasa a ser el código EN SECO, que es con el que se encuentra fuera
+    (Chartmetric no devuelve nada con guiones). Lo que ya estaba escrito con ellos se limpia una
+    vez; a partir de ahí lo hace `_norm_isrc` al guardar."""
+    marca = "isrc_no_dashes_v1"
+    s = db()
+    try:
+        if (_get_app_setting(marca) or "").strip():
+            return
+        tocados = 0
+        for sg in s.query(Song).filter(Song.isrc.isnot(None)).all():
+            limpio = _norm_isrc(sg.isrc)
+            if limpio and limpio != (sg.isrc or ""):
+                sg.isrc = limpio
+                tocados += 1
+        for c in s.query(SongISRCCode).all():
+            limpio = _norm_isrc(getattr(c, "code", ""))
+            if limpio and limpio != (c.code or ""):
+                c.code = limpio
+                tocados += 1
+        s.commit()
+        _set_app_setting(marca, "1")
+        if tocados:
+            app.logger.info("ISRC sin guiones: %s códigos limpiados", tocados)
+    except Exception:
+        s.rollback()
+        app.logger.exception("No se pudieron limpiar los guiones de los ISRC")
+    finally:
+        s.close()
+
+
+def _artist_members_unify_backfill_once():
+    """Arreglo PUNTUAL de lo que ya estaba mal: integrantes sin ficha y fichas duplicadas.
+
+    ⚠️ Solo une lo que es la MISMA persona sin lugar a dudas (mismo DNI o mismo nombre completo sin
+    un DNI que lo desmienta). No crea fichas de tercero a quien no la tenga: eso se hace al usarla."""
+    marca = "artist_member_unify_v1"
+    s = db()
+    try:
+        if (_get_app_setting(marca) or "").strip():
+            return
+        hechos = 0
+        for person in s.query(ArtistPerson).all():
+            try:
+                with s.begin_nested():
+                    antes = str(getattr(person, "promoter_id", "") or "")
+                    pro = _artist_person_unify(s, person, create=False)
+                    if pro is not None and str(pro.id) != antes:
+                        hechos += 1
+            except Exception:
+                app.logger.exception("Relleno de integrantes: falló %s", getattr(person, "id", None))
+        s.commit()
+        _set_app_setting(marca, "1")
+        if hechos:
+            app.logger.info("Integrantes unidos con su ficha de tercero: %s", hechos)
+    except Exception:
+        s.rollback()
+        app.logger.exception("No se pudo hacer el relleno de integrantes")
+    finally:
+        s.close()
+
+
 def _artist_person_cards(session_db, artist, can_edit: bool) -> list:
     """Personas del artista con TODO lo de su ficha de tercero, para pintarlas en la ficha del
     artista (documentos con OCR, tarjetas, viaje y datos de facturación)."""
@@ -2520,6 +2830,11 @@ def artist_person_data_save(person_id):
             promoter.travel_prefs = _parse_travel_prefs_form(request.form)
             promoter.travel_departure_flight = (request.form.get("travel_departure_flight") or "").strip() or None
             promoter.travel_departure_train = (request.form.get("travel_departure_train") or "").strip() or None
+        # ⚠️ UNA SOLA FICHA: si esta persona ya estaba dada de alta como tercero por otro lado (p. ej.
+        # como autora de una canción), las dos se funden aquí; y si el artista es un solista, su ficha
+        # pasa a llamarse como el artista. De eso depende que se le apliquen las condiciones de su
+        # contrato en editorial, royalties y facturación.
+        _artist_person_unify(session_db, person, create=True)
         session_db.commit()
         flash("Datos de la persona guardados.", "success")
         return redirect(volver)
@@ -4727,12 +5042,14 @@ def _isrc_key(val: str | None) -> str:
 
 
 def _norm_isrc(val: str | None) -> str:
-    raw = _isrc_key(val)
-    if not raw:
-        return ""
-    if len(raw) == 12:
-        return f"{raw[:2]}-{raw[2:5]}-{raw[5:7]}-{raw[7:]}"
-    return raw
+    """El ISRC tal como se escribe en la casa: **EN SECO, sin guiones**.
+
+    ⚠️⚠️ Antes se le ponían guiones (ES-A2A-25-00001) porque se lee mejor, pero es la forma con la
+    que NO se encuentra nada fuera: **Chartmetric no devuelve resultados con guiones** y por eso
+    había canciones que no se vinculaban solas y que, al buscarlas a mano con el código seguido,
+    aparecían a la primera (bug real). Como es el punto único, con esto se muestra y se guarda
+    igual en toda la app; lo que se pegue con guiones se limpia solo al pasar por aquí."""
+    return _isrc_key(val)
 
 
 def _norm_isrc_list(values) -> list[str]:
@@ -7417,13 +7734,17 @@ def _promoter_member_artist_ids(session_db, promoter_id) -> list[str]:
     pid = to_uuid(str(promoter_id or ""))
     if not pid:
         return []
-    cache = getattr(g, "_member_artist_cache", None)
-    if cache is None:
-        cache = {}
-        try:
+    # ⚠️ El caché vive en `g`, que SOLO existe dentro de una petición: esto se llama también desde
+    # el relleno del arranque y desde un hilo, y ahí `getattr(g, ...)` revienta con «Working
+    # outside of application context» (bug real). Sin contexto simplemente no se cachea.
+    cache = None
+    try:
+        cache = getattr(g, "_member_artist_cache", None)
+        if cache is None:
+            cache = {}
             g._member_artist_cache = cache
-        except Exception:
-            pass
+    except Exception:
+        cache = {}
     clave = str(pid)
     if clave in cache:
         return cache[clave]
@@ -8247,6 +8568,380 @@ def _pitch_email_html(ctx: dict, *, note: str = '') -> str:
       </div>
     </div>
     '''
+
+
+# ==========================================================================================
+# ACTUALIZACIÓN EN BLOQUE desde los LABEL COPY en PDF (herramienta para volcar el catálogo
+# ANTIGUO). Se suben varios PDF a la vez, cada uno puede traer VARIAS canciones, y de cada
+# una se decide CAMPO A CAMPO qué se queda: lo que dice el LC o lo que ya hay en la ficha.
+#
+# ⚠️ Lo que se puede VINCULAR (autores, su editorial, intérpretes, productores…) no se guarda
+# como texto suelto: se buscan las coincidencias en la base y se elige a quién corresponde
+# —con su foto, como en el resto de la app— o se crea sobre la marcha. Un LC que solo trae el
+# nombre escrito no puede decidir por su cuenta que ese «Marta Ruiz» es nuestra Marta Ruiz.
+# ==========================================================================================
+
+# Cada campo: clave · etiqueta · cómo se enseña y se guarda.
+LC_FIELDS = (
+    ("title",                "Título",                  "text"),
+    ("interpreters",         "Intérpretes",             "artists"),
+    ("version",              "Versión",                 "text"),
+    ("release_date",         "Fecha de publicación",    "date"),
+    ("isrcs",                "Códigos ISRC",            "codes"),
+    ("duration_seconds",     "Duración",                "duration"),
+    ("tiktok_start_seconds", "Inicio en Tik Tok",       "duration"),
+    ("bpm",                  "BPM",                     "number"),
+    ("genre",                "Género",                  "genres"),
+    ("copyright_text",       "Copyright",               "text"),
+    ("producers",            "Productor",               "people"),
+    ("recording_engineer",   "Ingeniero de grabación",  "person"),
+    ("studio",               "Estudio de grabación",    "text"),
+    ("recording_date",       "Fecha de grabación",      "date"),
+    ("mixing_engineer",      "Ingeniero de mezcla",     "person"),
+    ("mastering_engineer",   "Ingeniero de mastering",  "person"),
+    ("arrangers",            "Arreglista",              "people"),
+    ("musicians",            "Músicos",                 "musicians"),
+    ("authors",              "Reparto autoral",         "authors"),
+)
+LC_FIELD_LABELS = {k: e for k, e, _t in LC_FIELDS}
+LC_FIELD_KINDS = {k: t for k, _e, t in LC_FIELDS}
+LC_MAX_FILES = 25
+
+
+def _lc_norm_code(v) -> str:
+    """Un ISRC se compara SIN guiones ni espacios: el mismo código se escribe de las dos formas."""
+    return re.sub(r"[^A-Z0-9]", "", str(v or "").upper())
+
+
+def _lc_secs_label(v) -> str:
+    try:
+        v = int(v)
+    except Exception:
+        return ""
+    return "%d:%02d" % (v // 60, v % 60) if v >= 60 else "0:%02d" % v
+
+
+def _lc_date_label(v) -> str:
+    if not v:
+        return ""
+    if isinstance(v, str):
+        try:
+            v = date.fromisoformat(v[:10])
+        except Exception:
+            return v
+    try:
+        return v.strftime("%d/%m/%Y")
+    except Exception:
+        return str(v)
+
+
+def _lc_person_options(session_db, nombre: str, limit: int = 6, *, members: bool = False) -> list:
+    """Terceros que se parecen a ese nombre, CON SU FOTO, para elegir a quién corresponde.
+
+    ⚠️ Con `members=True` salen también los INTEGRANTES de artistas que todavía no tienen ficha de
+    tercero (llevan `person_id` en vez de `id`): un autor casi siempre es un integrante, y de su
+    artista salen las condiciones del contrato. Sin ellos habría que crearlo otra vez y la ficha
+    nueva se quedaría sin contrato."""
+    nombre = (nombre or "").strip()
+    if not nombre:
+        return []
+    try:
+        clause = _promoter_search_clause(session_db, nombre)
+        q = session_db.query(Promoter)
+        if clause is not None:
+            q = q.filter(clause)
+        filas = q.order_by(Promoter.nick.asc()).limit(limit).all()
+    except Exception:
+        app.logger.exception("LC: no se pudieron buscar terceros para %r", nombre)
+        return []
+    clave = _norm_text_key(nombre)
+    salida = []
+    for p in filas:
+        etiqueta = _promoter_display_name(p) or (p.nick or "")
+        salida.append({
+            "id": str(p.id),
+            "label": etiqueta,
+            "photo": (p.logo_url or "") or _default_avatar_url(),
+            "sub": (p.contact_email or "").strip(),
+            "exact": _norm_text_key(etiqueta) == clave,
+        })
+    if members:
+        try:
+            cond = _sa_contains_text(
+                func.concat(func.coalesce(ArtistPerson.first_name, ""), " ",
+                            func.coalesce(ArtistPerson.last_name, "")), nombre)
+            for person in (session_db.query(ArtistPerson)
+                           .options(joinedload(ArtistPerson.artist))
+                           .filter(cond, ArtistPerson.promoter_id.is_(None)).limit(limit).all()):
+                art = getattr(person, "artist", None)
+                etiqueta = _artist_person_full_name(person) or ""
+                if not etiqueta:
+                    continue
+                salida.append({
+                    "id": "", "person_id": str(person.id), "label": etiqueta,
+                    "photo": (getattr(art, "photo_url", "") or "") or _default_avatar_url(),
+                    "sub": ("Integrante de " + art.name) if art is not None else "Integrante",
+                    "exact": _norm_text_key(etiqueta) == clave,
+                })
+        except Exception:
+            app.logger.exception("LC: fallo buscando integrantes para %r", nombre)
+    salida.sort(key=lambda r: (not r["exact"], r["label"].lower()))
+    return salida[:limit + 3]
+
+
+def _lc_publisher_options(session_db, nombre: str, limit: int = 6) -> list:
+    """Editoriales parecidas, con su logo."""
+    nombre = (nombre or "").strip()
+    if not nombre:
+        return []
+    try:
+        q = session_db.query(PublishingCompany)
+        q = q.filter(_sa_contains_text(PublishingCompany.name, nombre))
+        filas = q.order_by(PublishingCompany.name.asc()).limit(limit).all()
+    except Exception:
+        app.logger.exception("LC: no se pudieron buscar editoriales para %r", nombre)
+        return []
+    clave = _norm_text_key(nombre)
+    return sorted(
+        [{"id": str(p.id), "label": p.name or "", "photo": (p.logo_url or ""),
+          "exact": _norm_text_key(p.name or "") == clave} for p in filas],
+        key=lambda r: (not r["exact"], r["label"].lower()),
+    )
+
+
+def _lc_artist_options(session_db, nombre: str, limit: int = 6) -> list:
+    """Artistas parecidos, con su foto."""
+    nombre = (nombre or "").strip()
+    if not nombre:
+        return []
+    try:
+        filas = (session_db.query(Artist)
+                 .filter(Artist.event_id.is_(None))
+                 .filter(_sa_contains_text(Artist.name, nombre))
+                 .order_by(Artist.name.asc()).limit(limit).all())
+    except Exception:
+        app.logger.exception("LC: no se pudieron buscar artistas para %r", nombre)
+        return []
+    clave = _norm_text_key(nombre)
+    return sorted(
+        [{"id": str(a.id), "label": a.name or "", "photo": (a.photo_url or "") or _default_avatar_url(),
+          "exact": _norm_text_key(a.name or "") == clave} for a in filas],
+        key=lambda r: (not r["exact"], r["label"].lower()),
+    )
+
+
+def _lc_song_current(session_db, song) -> dict:
+    """Lo que la canción tiene HOY, en la misma forma que devuelve el lector."""
+    if song is None:
+        return {}
+    codigos = [c for c in [(song.isrc or "").strip()] if c]
+    try:
+        for fila in (session_db.query(SongISRCCode)
+                     .filter(SongISRCCode.song_id == song.id).all()):
+            if (getattr(fila, "kind", "") or "AUDIO").upper() != "VIDEO" and (fila.code or "").strip():
+                codigos.append(fila.code.strip())
+    except Exception:
+        app.logger.exception("LC: no se pudieron leer los ISRC de %s", song.id)
+    vistos, isrcs = set(), []
+    for c in codigos:
+        if _lc_norm_code(c) and _lc_norm_code(c) not in vistos:
+            vistos.add(_lc_norm_code(c))
+            isrcs.append(c)
+
+    autores = []
+    try:
+        for sh in (session_db.query(SongEditorialShare)
+                   .options(joinedload(SongEditorialShare.promoter))
+                   .filter(SongEditorialShare.song_id == song.id).all()):
+            pro = getattr(sh, "promoter", None)
+            editorial = _share_publisher(sh)
+            autores.append({
+                "name": _promoter_display_name(pro) if pro else "",
+                "role": (sh.role or "").strip(),
+                "publisher": (getattr(editorial, "name", "") or "") if editorial else "",
+                "pct": float(sh.pct) if sh.pct is not None else None,
+            })
+    except Exception:
+        app.logger.exception("LC: no se pudo leer el reparto autoral de %s", song.id)
+
+    interpretes = []
+    try:
+        interpretes = [(r.name or "").strip()
+                       for r in (_song_interpreter_rows_map(session_db, [song.id]).get(str(song.id)) or [])
+                       if (r.name or "").strip()]
+    except Exception:
+        app.logger.exception("LC: no se pudieron leer los intérpretes de %s", song.id)
+    if not interpretes:
+        interpretes = [a.name for a in (song.artists or []) if getattr(a, "name", "")]
+
+    return {
+        "title": (song.title or "").strip(),
+        "interpreters": interpretes,
+        "version": (song.version or "").strip(),
+        "release_date": song.release_date.isoformat() if song.release_date else "",
+        "isrcs": isrcs,
+        "duration_seconds": song.duration_seconds,
+        "tiktok_start_seconds": song.tiktok_start_seconds,
+        "bpm": song.bpm,
+        "genre": ", ".join(_song_genre_names(session_db, song.id) or ([song.genre] if song.genre else [])),
+        "copyright_text": (song.copyright_text or "").strip(),
+        "producers": [x for x in (song.producers or []) if (x or "").strip()],
+        "recording_engineer": (song.recording_engineer or "").strip(),
+        "studio": (song.studio or "").strip(),
+        "recording_date": song.recording_date.isoformat() if song.recording_date else "",
+        "mixing_engineer": (song.mixing_engineer or "").strip(),
+        "mastering_engineer": (song.mastering_engineer or "").strip(),
+        "arrangers": [x for x in (song.arrangers or []) if (x or "").strip()],
+        "musicians": [x for x in (song.musicians or []) if isinstance(x, dict)],
+        "authors": autores,
+    }
+
+
+def _lc_show(campo: str, valor) -> str:
+    """Cómo se ENSEÑA el valor de un campo (a los dos lados de la comparación)."""
+    tipo = LC_FIELD_KINDS.get(campo, "text")
+    if valor in (None, "", [], {}):
+        return ""
+    if tipo == "duration":
+        return _lc_secs_label(valor)
+    if tipo == "date":
+        return _lc_date_label(valor)
+    if tipo == "musicians":
+        return " · ".join([((x.get("instrument") + ": ") if x.get("instrument") else "") + (x.get("name") or "")
+                           for x in valor if isinstance(x, dict)])
+    if tipo == "authors":
+        piezas = []
+        for a in valor:
+            trozo = a.get("name") or ""
+            if a.get("pct") is not None:
+                trozo += " (%s%%)" % _fmt_pct_es(a["pct"])
+            if a.get("publisher"):
+                trozo += " · " + a["publisher"]
+            piezas.append(trozo)
+        return " · ".join(piezas)
+    if isinstance(valor, (list, tuple)):
+        return ", ".join([str(x) for x in valor if str(x or "").strip()])
+    return str(valor)
+
+
+def _lc_same(campo: str, actual, nuevo) -> bool:
+    """¿Dicen lo mismo? Los códigos se comparan sin guiones y el texto sin acentos ni caja."""
+    if LC_FIELD_KINDS.get(campo) == "codes":
+        return sorted(_lc_norm_code(x) for x in (actual or [])) == sorted(_lc_norm_code(x) for x in (nuevo or []))
+    return _norm_text_key(_lc_show(campo, actual)) == _norm_text_key(_lc_show(campo, nuevo))
+
+
+def _lc_match_song(session_db, datos: dict):
+    """Casa una canción del LC con una del sistema: primero por ISRC, luego por título (y artista).
+
+    Devuelve (song, cómo se ha casado). Sin coincidencia, (None, "")."""
+    codigos = [_lc_norm_code(c) for c in (datos.get("isrcs") or []) if _lc_norm_code(c)]
+    if codigos:
+        try:
+            for sg in session_db.query(Song).filter(Song.isrc.isnot(None)).all():
+                if _lc_norm_code(sg.isrc) in codigos:
+                    return sg, "isrc"
+        except Exception:
+            app.logger.exception("LC: fallo casando por ISRC")
+        try:
+            fila = (session_db.query(SongISRCCode).all())
+            for c in fila:
+                if _lc_norm_code(getattr(c, "code", "")) in codigos and c.song_id:
+                    sg = session_db.get(Song, c.song_id)
+                    if sg is not None:
+                        return sg, "isrc"
+        except Exception:
+            app.logger.exception("LC: fallo casando por los códigos de la pestaña")
+
+    titulo = _norm_text_key(datos.get("title") or "")
+    if not titulo:
+        return None, ""
+    try:
+        candidatas = (session_db.query(Song)
+                      .options(selectinload(Song.artists))
+                      .filter(_sa_contains_text(Song.title, (datos.get("title") or "").strip()))
+                      .limit(40).all())
+    except Exception:
+        app.logger.exception("LC: fallo casando por título")
+        return None, ""
+    mismas = [sg for sg in candidatas if _norm_text_key(sg.title or "") == titulo]
+    if not mismas:
+        return None, ""
+    if len(mismas) == 1:
+        return mismas[0], "titulo"
+    # Con varias del mismo título manda el ARTISTA (una versión de cada artista es lo normal).
+    quiere = {_norm_text_key(x) for x in (datos.get("interpreters") or [])}
+    for sg in mismas:
+        nombres = {_norm_text_key(a.name or "") for a in (sg.artists or [])}
+        if quiere & nombres:
+            return sg, "titulo_artista"
+    return mismas[0], "titulo"
+
+
+def _lc_song_card(session_db, datos: dict, idx: int) -> dict:
+    """La ficha de una canción del LC: con qué casa, y la comparación campo a campo."""
+    song, motivo = _lc_match_song(session_db, datos)
+    actual = _lc_song_current(session_db, song) if song is not None else {}
+
+    filas = []
+    for campo, etiqueta, tipo in LC_FIELDS:
+        nuevo = datos.get(campo)
+        # El género llega como texto en el LC y se guarda como lista de etiquetas.
+        if campo == "genre" and nuevo:
+            nuevo = ", ".join(labelcopy_read.split_names(nuevo)) or nuevo
+        if nuevo in (None, "", [], {}):
+            continue
+        viejo = actual.get(campo)
+        fila = {
+            "key": campo, "label": etiqueta, "kind": tipo,
+            "new_show": _lc_show(campo, nuevo), "old_show": _lc_show(campo, viejo),
+            "new": nuevo, "same": _lc_same(campo, viejo, nuevo),
+            "had": bool(_lc_show(campo, viejo)),
+        }
+        # Los campos que se VINCULAN llevan sus candidatos, con foto.
+        if tipo in ("people", "person", "artists", "authors"):
+            fila["items"] = _lc_link_items(session_db, campo, tipo, nuevo)
+        filas.append(fila)
+
+    return {
+        "idx": idx,
+        "title": datos.get("title") or "",
+        "song_id": str(song.id) if song is not None else "",
+        "matched_by": motivo,
+        "match_label": {"isrc": "Casada por su ISRC", "titulo": "Casada por el título",
+                        "titulo_artista": "Casada por el título y el artista"}.get(motivo, ""),
+        "song_title": (song.title if song is not None else "") or "",
+        "song_artists": ", ".join([a.name for a in (song.artists or [])]) if song is not None else "",
+        "cover_url": (song.cover_url or "") if song is not None else "",
+        "interpreters_text": datos.get("interpreters_text") or "",
+        "fields": filas,
+        "is_new": song is None,
+    }
+
+
+def _lc_link_items(session_db, campo: str, tipo: str, valor) -> list:
+    """Cada nombre del campo con sus posibles fichas, para elegir a quién corresponde."""
+    salida = []
+    if tipo == "authors":
+        for a in (valor or []):
+            salida.append({
+                "name": a.get("name") or "",
+                "role": a.get("role") or "",
+                "pct": a.get("pct"),
+                "publisher": a.get("publisher") or "",
+                "options": _lc_person_options(session_db, a.get("name") or "", members=True),
+                "publisher_options": _lc_publisher_options(session_db, a.get("publisher") or ""),
+            })
+        return salida
+    nombres = valor if isinstance(valor, (list, tuple)) else [valor]
+    for n in nombres:
+        n = str(n or "").strip()
+        if not n:
+            continue
+        opciones = (_lc_artist_options(session_db, n) if tipo == "artists"
+                    else _lc_person_options(session_db, n))
+        salida.append({"name": n, "options": opciones})
+    return salida
 
 
 def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = False,
@@ -18254,8 +18949,20 @@ def discografica_song_editorial_share_save(song_id):
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
 
         # Resolver/crear tercero
+        # ⚠️ El buscador de autores ofrece también los INTEGRANTES de un artista que aún no tienen
+        # ficha de tercero: al elegir uno se le crea la suya YA VINCULADA al artista, que es lo que
+        # hace que se le apliquen las condiciones de su contrato.
         promoter = None
-        if promoter_id:
+        person_id = (request.form.get("artist_person_id") or "").strip() or None
+        if not promoter_id and person_id:
+            person = session_db.get(ArtistPerson, to_uuid(person_id) or uuid.uuid4())
+            if person is not None:
+                promoter = _artist_person_unify(session_db, person, create=True)
+                if promoter is not None:
+                    promoter_id = str(promoter.id)
+        if promoter is not None:
+            pass
+        elif promoter_id:
             promoter = session_db.get(Promoter, to_uuid(promoter_id))
             if not promoter:
                 flash("Tercero no encontrado.", "warning")
@@ -18274,6 +18981,10 @@ def discografica_song_editorial_share_save(song_id):
             promoter = Promoter(nick=nick)
             session_db.add(promoter)
             session_db.flush()
+
+        # ⚠️ Si este tercero resulta ser un INTEGRANTE de un artista (aunque nadie los hubiera
+        # vinculado), se unen en una sola ficha: de ahí salen las condiciones de su contrato.
+        promoter = _promoter_member_unify(session_db, promoter) or promoter
 
         # Actualizar datos extendidos del tercero (solo si vienen informados)
         if first_name:
@@ -53325,6 +54036,378 @@ def api_search_promoters():
 
 
 
+@app.post("/discografica/canciones/lc-bloque/analizar", endpoint="discografica_lc_bulk_analyze")
+@admin_required
+def discografica_lc_bulk_analyze():
+    """Lee los PDF de Label Copy que se han subido y devuelve las canciones que traen.
+
+    ⚠️ No guarda NADA: solo lee y compara. Lo que se conserva de cada campo se decide después,
+    canción a canción, en el asistente."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "No tienes permiso para editar el repertorio."}), 403
+    ficheros = [f for f in request.files.getlist("files") if f and (f.filename or "").strip()]
+    if not ficheros:
+        return jsonify({"ok": False, "error": "No has subido ningún PDF."}), 400
+    if len(ficheros) > LC_MAX_FILES:
+        return jsonify({"ok": False, "error": "De %d en %d como mucho." % (LC_MAX_FILES, LC_MAX_FILES)}), 400
+
+    session_db = db()
+    try:
+        canciones, avisos = [], []
+        for f in ficheros:
+            nombre = (f.filename or "").strip()
+            if not nombre.lower().endswith(".pdf"):
+                avisos.append("%s no es un PDF." % nombre)
+                continue
+            try:
+                datos = labelcopy_read.read_pdf(f.read())
+            except Exception:
+                app.logger.exception("LC en bloque: no se pudo leer %s", nombre)
+                avisos.append("No se pudo leer %s." % nombre)
+                continue
+            if not datos:
+                avisos.append("En %s no se ha encontrado ninguna canción." % nombre)
+                continue
+            for d in datos:
+                d["_file"] = nombre
+                canciones.append(d)
+
+        fichas = []
+        for i, d in enumerate(canciones):
+            ficha = _lc_song_card(session_db, d, i)
+            ficha["file"] = d.get("_file") or ""
+            ficha["raw"] = {k: v for k, v in d.items() if not k.startswith("_")}
+            fichas.append(ficha)
+        return jsonify({"ok": True, "songs": fichas, "warnings": avisos,
+                        "n_new": sum(1 for f in fichas if f["is_new"]),
+                        "n_match": sum(1 for f in fichas if not f["is_new"])})
+    finally:
+        session_db.close()
+
+
+def _lc_apply_fields(session_db, song, elegidos: dict, datos: dict) -> list:
+    """Escribe en la canción los campos que se han marcado. Devuelve lo que se ha cambiado."""
+    cambios = []
+
+    def texto(v):
+        return (str(v).strip() or None) if v not in (None, "") else None
+
+    for campo, valor in (elegidos or {}).items():
+        tipo = LC_FIELD_KINDS.get(campo)
+        if tipo is None:
+            continue
+        try:
+            if campo == "title" and texto(valor):
+                song.title = texto(valor)
+            elif campo == "version":
+                song.version = texto(valor)
+            elif campo == "copyright_text":
+                song.copyright_text = texto(valor)
+            elif campo == "studio":
+                song.studio = texto(valor)
+            elif campo in ("recording_engineer", "mixing_engineer", "mastering_engineer"):
+                setattr(song, campo, texto(valor))
+            elif campo in ("release_date", "recording_date"):
+                setattr(song, campo, parse_optional_date(valor) if valor else None)
+            elif campo == "bpm":
+                song.bpm = int(valor) if str(valor or "").strip().isdigit() else None
+            elif campo in ("duration_seconds", "tiktok_start_seconds"):
+                setattr(song, campo, int(valor) if str(valor or "").strip().isdigit() else None)
+            elif campo == "genre":
+                _apply_song_genres(session_db, song, labelcopy_read.split_names(str(valor or "")))
+            elif campo in ("producers", "arrangers"):
+                lista = valor if isinstance(valor, list) else labelcopy_read.split_names(str(valor or ""))
+                setattr(song, campo, [x for x in lista if str(x or "").strip()])
+            elif campo == "musicians":
+                song.musicians = [x for x in (valor or []) if isinstance(x, dict) and (x.get("name") or x.get("instrument"))]
+            elif campo == "isrcs":
+                _lc_apply_isrcs(session_db, song, valor if isinstance(valor, list) else [valor])
+            elif campo == "interpreters":
+                _lc_apply_interpreters(session_db, song, valor if isinstance(valor, list) else [])
+            elif campo == "authors":
+                _lc_apply_authors(session_db, song, valor if isinstance(valor, list) else [])
+            else:
+                continue
+            cambios.append(LC_FIELD_LABELS.get(campo, campo))
+        except Exception:
+            app.logger.exception("LC en bloque: no se pudo aplicar %s en %s", campo, getattr(song, "id", None))
+    return cambios
+
+
+def _lc_apply_isrcs(session_db, song, codigos: list):
+    """Los ISRC del LC: el primero es el de la ficha y todos entran en la pestaña de códigos.
+
+    ⚠️ No se borra ninguno de los que ya había: un código no se quita por no venir en un LC viejo."""
+    limpios, vistos = [], set()
+    for c in codigos or []:
+        c = str(c or "").strip()
+        if c and _lc_norm_code(c) not in vistos:
+            vistos.add(_lc_norm_code(c))
+            limpios.append(c)
+    if not limpios:
+        return
+    if not (song.isrc or "").strip():
+        song.isrc = limpios[0]
+    artista = _song_primary_artist(session_db, song)
+    if artista is None:
+        return                                  # `SongISRCCode.artist_id` es obligatorio
+    try:
+        ya = {_lc_norm_code(r.code) for r in
+              session_db.query(SongISRCCode).filter(SongISRCCode.song_id == song.id).all()}
+    except Exception:
+        app.logger.exception("LC: no se pudieron leer los códigos de %s", song.id)
+        return
+    for c in limpios:
+        if _lc_norm_code(c) in ya:
+            continue
+        session_db.add(SongISRCCode(song_id=song.id, artist_id=artista.id, kind="AUDIO",
+                                    code=c, is_primary=not ya))
+        ya.add(_lc_norm_code(c))
+
+
+def _lc_apply_interpreters(session_db, song, nombres: list):
+    """Los intérpretes que se hayan marcado (los que ya estaban NO se tocan)."""
+    try:
+        ya = {_norm_text_key(r.name or "") for r in
+              (_song_interpreter_rows_map(session_db, [song.id]).get(str(song.id)) or [])}
+        ya |= {_norm_text_key(a.name or "") for a in (song.artists or [])}
+    except Exception:
+        app.logger.exception("LC: no se pudieron leer los intérpretes de %s", song.id)
+        return
+    for n in nombres or []:
+        n = str(n or "").strip()
+        if n and _norm_text_key(n) not in ya:
+            session_db.add(SongInterpreter(song_id=song.id, name=n))
+            ya.add(_norm_text_key(n))
+
+
+def _lc_apply_authors(session_db, song, autores: list):
+    """El reparto autoral del LC.
+
+    Cada autor llega ya RESUELTO desde el asistente: con el id del tercero elegido (o el del
+    integrante, al que se le crea su ficha) y el de su editorial. ⚠️ Un autor que ya está en la
+    canción no se duplica: se completa lo que le falte."""
+    try:
+        actuales = (session_db.query(SongEditorialShare)
+                    .filter(SongEditorialShare.song_id == song.id).all())
+    except Exception:
+        app.logger.exception("LC: no se pudo leer el reparto de %s", song.id)
+        return
+    por_promotor = {str(sh.promoter_id): sh for sh in actuales if sh.promoter_id}
+
+    for a in autores or []:
+        pid = (a.get("promoter_id") or "").strip()
+        person_id = (a.get("artist_person_id") or "").strip()
+        promoter = None
+        if pid:
+            promoter = session_db.get(Promoter, to_uuid(pid) or uuid.uuid4())
+        elif person_id:
+            person = session_db.get(ArtistPerson, to_uuid(person_id) or uuid.uuid4())
+            promoter = _artist_person_unify(session_db, person, create=True) if person else None
+        elif (a.get("create_name") or "").strip():
+            nombre = a["create_name"].strip()
+            promoter = Promoter(nick=_intake_unique_nick(session_db, nombre))
+            partes = nombre.split(" ", 1)
+            promoter.first_name = partes[0]
+            promoter.last_name = partes[1] if len(partes) > 1 else None
+            session_db.add(promoter)
+            session_db.flush()
+        if promoter is None:
+            continue
+        # ⚠️ Si resulta ser integrante de un artista, se une con su ficha: de ahí salen las
+        # condiciones de su contrato (reparto editorial, royalties).
+        promoter = _promoter_member_unify(session_db, promoter) or promoter
+
+        editorial = None
+        if (a.get("publishing_company_id") or "").strip():
+            editorial = session_db.get(PublishingCompany, to_uuid(a["publishing_company_id"]) or uuid.uuid4())
+        elif (a.get("publisher_name") or "").strip():
+            nombre = a["publisher_name"].strip()
+            editorial = (session_db.query(PublishingCompany)
+                         .filter(func.lower(PublishingCompany.name) == nombre.lower()).first())
+            if editorial is None:
+                editorial = PublishingCompany(name=nombre)
+                session_db.add(editorial)
+                session_db.flush()
+
+        pct = a.get("pct")
+        try:
+            pct = Decimal(str(pct)) if pct not in (None, "") else None
+        except Exception:
+            pct = None
+        rol = _lc_author_role(a.get("role"))
+
+        sh = por_promotor.get(str(promoter.id))
+        if sh is None:
+            sh = SongEditorialShare(song_id=song.id, promoter_id=promoter.id, role=rol, pct=pct)
+            if editorial is not None:
+                sh.publishing_company_id = editorial.id
+            session_db.add(sh)
+            por_promotor[str(promoter.id)] = sh
+        else:
+            if pct is not None:
+                sh.pct = pct
+            if rol and not (sh.role or "").strip():
+                sh.role = rol
+            if editorial is not None and not sh.publishing_company_id:
+                sh.publishing_company_id = editorial.id
+        # La editorial del LC es la que tenía en ESA obra: no se toca la ficha del autor (el
+        # cambio «para todas de aquí en adelante» se pide a mano, con su aviso).
+    session_db.flush()
+
+
+def _lc_author_role(v) -> str:
+    """El rol del LC al que guarda la app (AUTHOR · COMPOSER · AUTHOR_COMPOSER)."""
+    n = _norm_text_key(v or "")
+    if not n:
+        return "AUTHOR"
+    if ("letra" in n and ("musica" in n or "music" in n)) or "autor y compositor" in n:
+        return "AUTHOR_COMPOSER"
+    if "compositor" in n or "composer" in n or "musica" in n:
+        return "COMPOSER"
+    return "AUTHOR"
+
+
+@app.post("/discografica/canciones/lc-bloque/aplicar", endpoint="discografica_lc_bulk_apply")
+@admin_required
+def discografica_lc_bulk_apply():
+    """Guarda lo elegido de UNA canción: actualiza la que casó o crea la que no existía."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "No tienes permiso para editar el repertorio."}), 403
+    payload = request.get_json(silent=True) or {}
+    elegidos = payload.get("fields") or {}
+    session_db = db()
+    try:
+        song = None
+        sid = (payload.get("song_id") or "").strip()
+        if sid:
+            song = session_db.get(Song, to_uuid(sid) or uuid.uuid4())
+            if song is None:
+                return jsonify({"ok": False, "error": "Esa canción ya no existe."}), 404
+        else:
+            # ---- CREAR la canción que no estaba ----
+            titulo = (elegidos.get("title") or payload.get("title") or "").strip()
+            if not titulo:
+                return jsonify({"ok": False, "error": "Sin título no se puede crear la canción."}), 400
+            artist_id = (payload.get("artist_id") or "").strip()
+            artista = session_db.get(Artist, to_uuid(artist_id) or uuid.uuid4()) if artist_id else None
+            if artista is None:
+                return jsonify({"ok": False, "error": "Elige de qué artista es la canción."}), 400
+            # ⚠️ `Song.release_date` es NOT NULL: si el LC no la trae, se pone la de hoy y ya se
+            # corregirá en su ficha (mismo criterio que al pasar una demo al repertorio).
+            fecha = parse_optional_date(elegidos.get("release_date")) or today_local()
+            song = Song(title=titulo, release_date=fecha)
+            session_db.add(song)
+            session_db.flush()
+            session_db.add(SongArtist(song_id=song.id, artist_id=artista.id))
+            session_db.flush()
+
+        cambios = _lc_apply_fields(session_db, song, elegidos, payload.get("raw") or {})
+        session_db.commit()
+        return jsonify({"ok": True, "song_id": str(song.id), "title": song.title,
+                        "created": not bool(sid), "changed": cambios,
+                        "url": url_for("discografica_song_detail", song_id=song.id)})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("LC en bloque: no se pudo guardar")
+        return jsonify({"ok": False, "error": "No se ha podido guardar. Inténtalo otra vez."}), 500
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/canciones/lc-bloque/artistas", endpoint="discografica_lc_bulk_artists")
+@admin_required
+def discografica_lc_bulk_artists():
+    """Artistas para decir de quién es una canción que hay que crear (con su foto)."""
+    q = (request.args.get("q") or "").strip()
+    session_db = db()
+    try:
+        query = session_db.query(Artist).filter(Artist.event_id.is_(None))
+        if q:
+            query = query.filter(_sa_contains_text(Artist.name, q))
+        filas = query.order_by(Artist.name.asc()).limit(30).all()
+        return jsonify([{"id": str(a.id), "label": a.name or "",
+                         "photo": (a.photo_url or "") or _default_avatar_url()} for a in filas])
+    finally:
+        session_db.close()
+
+
+@app.get("/api/search/autores", endpoint="api_search_authors")
+@admin_required
+def api_search_authors():
+    """Buscador de AUTORES: terceros **y** integrantes de artistas.
+
+    ⚠️ Un autor casi siempre es un integrante de un artista, y de ahí salen las condiciones de su
+    contrato (editorial, royalties). Buscando solo en terceros, a quien estaba dado de alta como
+    integrante y no como tercero había que crearlo otra vez —y esa ficha nueva, al no ser de ningún
+    integrante, se quedaba sin contrato (bug real)—. Aquí salen los dos, y al elegir un integrante
+    sin ficha se le crea la suya vinculada (`artist_person_id`)."""
+    q = (request.args.get("q") or request.args.get("term") or "").strip()
+    session = db()
+    try:
+        salida, vistos = [], set()
+
+        def artista_de(promoter_id):
+            ids = _promoter_member_artist_ids(session, promoter_id)
+            if not ids:
+                return None
+            art = session.get(Artist, to_uuid(ids[0]) or uuid.uuid4())
+            return art if (art is not None and not art.event_id) else None
+
+        query = session.query(Promoter).options(joinedload(Promoter.publishing_company))
+        clause = _promoter_search_clause(session, q)
+        if clause is not None:
+            query = query.filter(clause)
+        for p in query.order_by(Promoter.nick.asc()).limit(20).all():
+            art = artista_de(p.id)
+            pub = p.publishing_company
+            salida.append({
+                "id": str(p.id),
+                "label": _promoter_display_name(p) or (p.nick or "Sin nombre"),
+                "first_name": (p.first_name or "").strip(),
+                "last_name": (p.last_name or "").strip(),
+                "publishing_company_id": str(pub.id) if pub else "",
+                "publishing_company_name": (pub.name or "") if pub else "",
+                "logo_url": (p.logo_url or "") or _default_avatar_url(),
+                "artist_name": (art.name if art is not None else ""),
+                "sub": ("Integrante de " + art.name) if art is not None else (p.contact_email or "").strip(),
+            })
+            vistos.add(str(p.id))
+
+        # Integrantes que TODAVÍA no tienen ficha de tercero: se les crea al elegirlos.
+        if q:
+            try:
+                cond = _sa_contains_text(
+                    func.concat(func.coalesce(ArtistPerson.first_name, ""), " ",
+                                func.coalesce(ArtistPerson.last_name, "")), q)
+                for person in (session.query(ArtistPerson)
+                               .options(joinedload(ArtistPerson.artist))
+                               .filter(cond).limit(20).all()):
+                    if person.promoter_id and str(person.promoter_id) in vistos:
+                        continue
+                    if person.promoter_id:
+                        continue                     # ya está arriba (o no casa la búsqueda): no se repite
+                    art = getattr(person, "artist", None)
+                    if art is not None and art.event_id:
+                        continue
+                    salida.append({
+                        "id": "",
+                        "artist_person_id": str(person.id),
+                        "label": _artist_person_full_name(person) or "Sin nombre",
+                        "first_name": (person.first_name or "").strip(),
+                        "last_name": (person.last_name or "").strip(),
+                        "publishing_company_id": "", "publishing_company_name": "",
+                        "logo_url": (getattr(art, "photo_url", "") or "") or _default_avatar_url(),
+                        "artist_name": (art.name if art is not None else ""),
+                        "sub": ("Integrante de " + art.name) if art is not None else "Integrante",
+                    })
+            except Exception:
+                app.logger.exception("Buscador de autores: fallo con los integrantes")
+        return jsonify(salida[:25])
+    finally:
+        session.close()
+
+
 @app.get("/api/vinculaciones/search", endpoint="api_entity_link_search")
 @admin_required
 def api_entity_link_search():
@@ -58735,6 +59818,12 @@ def _bootstrap_schema_bg():
     # puntual, no la norma: lo normal es que se congele al registrar. Ver `_editorial_split_backfill`.
     _safe_ensure(lambda: globals()["_editorial_split_backfill_once"](),
                  "_editorial_split_backfill_once")
+    # Une los integrantes con su ficha de tercero (y funde los duplicados): sin eso, a un autor que
+    # es integrante de un artista no se le detectan las condiciones de su contrato.
+    _safe_ensure(lambda: globals()["_artist_members_unify_backfill_once"](),
+                 "_artist_members_unify_backfill_once")
+    # Los ISRC pasan a escribirse en seco (es con lo que se encuentran fuera).
+    _safe_ensure(lambda: globals()["_isrc_dashes_backfill_once"](), "_isrc_dashes_backfill_once")
     # Una sola vez: poner el PREFIJO DEL PAÍS a los teléfonos que ya estaban guardados sin él (los
     # de Enterticket llegaban «34600…», sin el «+», y así no se les puede mandar ni un SMS ni un
     # WhatsApp). De aquí en adelante lo hace el guardado. Ver `_phones_normalize_backfill`.
@@ -67505,7 +68594,7 @@ SUPPORT_READ_ENDPOINTS = {
     "roadmap_templates_list",
     "api_media_artist_activities",
     "api_sync_promoter_search",
-    "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
+    "api_search_promoters", "api_search_authors", "api_search_publishing_companies", "api_search_ticketers",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
     # Quién manda una maqueta: busca en terceros, personal y artistas de una sola vez.
     "api_demo_sender_search",
@@ -109195,11 +110284,14 @@ def _office_calendar_image() -> str:
 
 
 def _default_avatar_url() -> str:
-    """El muñequito gris (personal/terceros sin foto). Mismo que el global `DEFAULT_AVATAR_URL`."""
+    """El muñequito gris (personal/terceros sin foto). Mismo que el global `DEFAULT_AVATAR_URL`.
+
+    ⚠️ `DEFAULT_AVATAR_URL` solo existe en el contexto de las PLANTILLAS: en Python hay que
+    construirlo (y fuera de una petición `url_for` revienta, de ahí la ruta fija de respaldo)."""
     try:
         return url_for("static", filename="img/avatar_placeholder.png")
     except Exception:
-        return ""
+        return "/static/img/avatar_placeholder.png"
 
 
 def _office_calendar_logos() -> list[str]:
@@ -119835,7 +120927,8 @@ SYNC_TEXTS = {
         "role": "Tipo de autor", "pct": "% de autoría", "publisher": "Compañía editorial",
         "play": "Escuchar el tema", "lyrics": "Ver letra", "lyrics_title": "Letra",
         "contact": "Contacto para Sincronizaciones", "one_stop": "ONE-STOP",
-        "download": "Descargar el tema en MP3", "more_repertoire": "Ver más repertorio para sincronizaciones",
+        "download": "Descargar el tema en MP3", "preparing": "Preparando la descarga…",
+        "more_repertoire": "Ver más repertorio para sincronizaciones",
         "repertoire_title": "Repertorio para Sincronizaciones",
         "by_genre": "Por género", "by_artist": "Por artista", "songs": "temas", "song_one": "tema",
         "back": "Volver",
@@ -119854,7 +120947,8 @@ SYNC_TEXTS = {
         "role": "Role", "pct": "Share", "publisher": "Publisher",
         "play": "Listen to the track", "lyrics": "View lyrics", "lyrics_title": "Lyrics",
         "contact": "Sync Licensing contact", "one_stop": "ONE-STOP",
-        "download": "Download the track as MP3", "more_repertoire": "Browse more repertoire for sync",
+        "download": "Download the track as MP3", "preparing": "Preparing the download…",
+        "more_repertoire": "Browse more repertoire for sync",
         "repertoire_title": "Repertoire for Sync Licensing",
         "by_genre": "By genre", "by_artist": "By artist", "songs": "tracks", "song_one": "track",
         "back": "Back",
@@ -119908,7 +121002,7 @@ def _sync_artist_photo(song) -> str:
 
 
 def _sync_subject(t: dict, titulo: str, *, one_stop: bool, artista: str = "") -> str:
-    """El ASUNTO del correo: «Nuevo tema para Syncro, \<canción\>, \<artista\> (One-Stop)».
+    """El ASUNTO del correo: «Nuevo tema para Syncro, <canción>, <artista> (One-Stop)».
 
     ⚠️ «(One-Stop)» solo si el tema LO ES: es lo que primero mira un supervisor, y decirlo de un tema
     que no lo es sería mentir. El nombre de la canción y el del artista NO se traducen."""
@@ -119988,6 +121082,19 @@ def _sync_icon(nombre: str, *, email: bool, size: int = 16, color: str = "007CA2
                 'style="width:%dpx;height:%dpx;vertical-align:-2px;">'
                 % (escape(url), size, size, size, size))
     return '<i class="fa-solid fa-%s" style="color:#%s;"></i>' % (escape(nombre), escape(color))
+
+
+def _sync_url_with(url: str, **params) -> str:
+    """Añade parámetros a un enlace de Syncros (que ya puede llevar `?lang=en`).
+
+    ⚠️ En un correo no corre JavaScript, así que lo que la página tiene que HACER al abrirse
+    —reproducir el tema, abrir la letra, empezar la descarga— se le dice por la URL."""
+    if not url:
+        return ""
+    extra = "&".join("%s=%s" % (k, quote(str(v))) for k, v in params.items() if v not in (None, ""))
+    if not extra:
+        return url
+    return url + ("&" if "?" in url else "?") + extra
 
 
 def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
@@ -120626,11 +121733,11 @@ def sync_song_preview_html(song_id):
         enlace = _sync_song_share_url(session_db, song, lang=lang)
         fila = (_sync_song_rows(session_db, [song]) or [{}])[0]
         cuerpo = _sync_pitch_html(
-            ctx, with_intro=True, email=True, play_url=enlace,
-            download_url=(_external_url_for("public_sync_song_download",
-                                            token=(song.sync_share_token or ""))
-                          if fila.get("download_url") else ""),
-            lyrics_url=(enlace if ctx["has_lyrics"] else ""),
+            ctx, with_intro=True, email=True, play_url=_sync_url_with(enlace, play=1),
+            # ⚠️ La descarga va a la FICHA con `?descargar=1`, no al archivo: preparar el MP3 tarda
+            # y el enlace directo dejaba al navegador en blanco todo ese rato.
+            download_url=(_sync_url_with(enlace, descargar=1) if fila.get("download_url") else ""),
+            lyrics_url=(_sync_url_with(enlace, letra=1) if ctx["has_lyrics"] else ""),
             repertoire_url=_external_url_for("public_sync_repertoire",
                                              **({"lang": "en"} if lang == "EN" else {})),
             one_stop=bool(fila.get("one_stop")))
@@ -120727,11 +121834,9 @@ def sync_song_send(song_id):
             enlace = _sync_song_share_url(session_db, song, lang=lang)
             fila = (_sync_song_rows(session_db, [song]) or [{}])[0]
             cuerpos[lang] = _sync_pitch_html(
-                ctx, with_intro=True, email=True, play_url=enlace,
-                download_url=(_external_url_for("public_sync_song_download",
-                                                token=(song.sync_share_token or ""))
-                              if fila.get("download_url") else ""),
-                lyrics_url=(enlace if ctx["has_lyrics"] else ""),
+                ctx, with_intro=True, email=True, play_url=_sync_url_with(enlace, play=1),
+                download_url=(_sync_url_with(enlace, descargar=1) if fila.get("download_url") else ""),
+                lyrics_url=(_sync_url_with(enlace, letra=1) if ctx["has_lyrics"] else ""),
                 repertoire_url=_external_url_for("public_sync_repertoire",
                                                  **({"lang": "en"} if lang == "EN" else {})),
                 one_stop=bool(fila.get("one_stop")))
@@ -120901,7 +122006,7 @@ def _sync_og_title(ctx: dict) -> str:
 
 
 def _sync_og_description(ctx: dict, *, one_stop: bool = True) -> str:
-    """El subtítulo de la previsualización: «One-Stop · \<géneros\>».
+    """El subtítulo de la previsualización: «One-Stop · <géneros>».
 
     ⚠️ «One-Stop» solo si el tema LO ES: un tema habilitado a mano no lo es, y decirlo sería mentir
     justo en lo que le importa a un supervisor."""

@@ -48,11 +48,20 @@
 </head>
 <body>
   <div class="rep-wrap">
-    {# Volver a la página anterior (se llega aquí desde el tema que se estaba mirando). #}
-    <div class="mb-2">
-      <a class="btn btn-outline-secondary btn-sm" href="#" onclick="history.back(); return false;"
-         title="{{ t.back }}" aria-label="{{ t.back }}"><i class="fa-solid fa-arrow-left"></i></a>
-    </div>
+    {# VOLVER: a quien viene DE LA APP se le lleva al back office (si no, no había forma de salir
+       del enlace público); a un supervisor de fuera, a la página anterior si la hay. #}
+    {% if session.get('user_id') %}
+      <div class="mb-2">
+        <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('syncros_view') }}" title="{{ t.back }}"
+           aria-label="{{ t.back }}"><i class="fa-solid fa-arrow-left"></i></a>
+      </div>
+    {% else %}
+      <div class="mb-2" id="repBack" style="display:none;">
+        <a class="btn btn-outline-secondary btn-sm btn-volver" href="#" onclick="history.back(); return false;"
+           title="{{ t.back }}" aria-label="{{ t.back }}"><i class="fa-solid fa-arrow-left"></i></a>
+      </div>
+      <script>if (document.referrer) document.getElementById('repBack').style.display = '';</script>
+    {% endif %}
     <div class="rep-head">
       {% for url, nombre in brand_logos %}<img src="{{ url }}" alt="{{ nombre }}">{% endfor %}
     </div>
@@ -77,7 +86,7 @@
         <h2 class="h5 mb-0">{{ selected }}</h2>
         <span class="text-muted small ms-2">{{ total }} {{ t.song_one if total == 1 else t.songs }}</span>
       </div>
-      <ul class="pl-list list-unstyled mb-0" data-playlist-player>
+      <ul class="pl-list rep-list list-unstyled mb-0" data-playlist-player>
         {% import '_sync_song_row.html' as syncrow with context %}
         {% for row in rows %}{{ syncrow.sync_row(row) }}{% endfor %}
       </ul>

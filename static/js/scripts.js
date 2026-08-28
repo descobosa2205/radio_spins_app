@@ -511,7 +511,11 @@ function initEditorialTab(){
   const newPublisherError = document.getElementById('newPublisherError');
 
   // Typeaheads
-  initTypeahead('editorialPromoterSearch', 'editorialPromoterId', '/api/search/promoters');
+  // ⚠️ AUTORES: se busca en terceros Y en los INTEGRANTES de los artistas. Un autor casi siempre
+  // es un integrante, y de su artista salen las condiciones del contrato; con el buscador de
+  // terceros a secas había que volver a crearlo y esa ficha nueva se quedaba sin contrato.
+  initTypeahead('editorialPromoterSearch', 'editorialPromoterId', '/api/search/autores',
+                { extra: { artist_person_id: 'editorialArtistPersonId' } });
   initTypeahead('editorialPublisherInput', 'editorialPublisherId', '/api/search/publishing_companies');
 
   function showPublisherError(msg){

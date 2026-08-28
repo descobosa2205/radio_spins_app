@@ -1,0 +1,82 @@
+{# ============================================================================
+   ACTUALIZACIÓN DE DATOS EN BLOQUE desde los LABEL COPY en PDF.
+
+   Herramienta para volcar el catálogo ANTIGUO: se suben varios PDF (cada uno puede traer varias
+   canciones), se leen y luego se revisa CANCIÓN A CANCIÓN qué se queda —a la izquierda lo que dice
+   el LC, a la derecha lo que hay ahora—. Lo que se puede VINCULAR (autores, su editorial,
+   intérpretes) se busca en la base y se elige a quién corresponde, con su foto, o se crea al vuelo.
+   Al final, las canciones que no están en el sistema se crean una a una.
+
+   Motor: `static/js/lc_bulk.js` · endpoints `discografica_lc_bulk_*`.
+   ============================================================================ #}
+
+<div class="modal fade" id="lcBulkModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-file-import me-2"></i>Actualizar datos desde Label Copy</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        {# ---------- PASO 1: los PDF ---------- #}
+        <div data-lc-step="1">
+          <label class="pi-drop" for="lcBulkFiles" role="button" tabindex="0" data-lc-drop data-file-drop="off">
+            <i class="fa fa-file-pdf pi-drop__icon"></i>
+            <div>Arrastra aquí los <strong>Label Copy en PDF</strong>, o pincha para elegirlos</div>
+            <div class="small text-muted mt-1">Puedes subir varios a la vez, y cada PDF puede traer varias canciones.</div>
+          </label>
+          <input type="file" id="lcBulkFiles" class="d-none" accept="application/pdf,.pdf" multiple>
+          <ul class="lc-files mt-3" data-lc-files></ul>
+          <div class="small mt-2" data-lc-msg></div>
+        </div>
+
+        {# ---------- PASO 2: canción a canción ---------- #}
+        <div data-lc-step="2" class="d-none">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <div class="lc-progress">
+              <span class="fw-semibold" data-lc-pos></span>
+              <span class="text-muted small ms-2" data-lc-file></span>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-lc-prev>
+                <i class="fa fa-arrow-left me-1"></i>Anterior
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-lc-skip>
+                Saltar esta<i class="fa fa-arrow-right ms-1"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="alert alert-warning small d-none" data-lc-warnings></div>
+          <div data-lc-card></div>
+        </div>
+
+        {# ---------- PASO 3: el resumen ---------- #}
+        <div data-lc-step="3" class="d-none">
+          <div data-lc-result></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-primary d-none" data-lc-analyze>
+          <i class="fa fa-wand-magic-sparkles me-1"></i>Actualizar datos
+        </button>
+        <button type="button" class="btn btn-success d-none" data-lc-save>
+          <i class="fa fa-check me-1"></i>Guardar y seguir
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.LC_BULK = {
+    analizar: {{ url_for('discografica_lc_bulk_analyze')|tojson }},
+    aplicar: {{ url_for('discografica_lc_bulk_apply')|tojson }},
+    artistas: {{ url_for('discografica_lc_bulk_artists')|tojson }},
+    autores: {{ url_for('api_search_authors')|tojson }},
+    editoriales: {{ url_for('api_search_publishing_companies')|tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='js/lc_bulk.js', v=ASSET_V) }}"></script>

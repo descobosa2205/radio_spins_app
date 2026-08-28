@@ -5166,6 +5166,134 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   rutas candidatas no se han podido probar contra la API. Si la buena no fuera ninguna de las tres, el
   aviso de la pantalla lo dirá con el error exacto de Chartmetric.
 
+- **REPERTORIO · ACTUALIZAR LOS DATOS EN BLOQUE desde los LABEL COPY en PDF** (ago 2026): botón
+  **«Actualización de datos en bloque»** a la izquierda de «+ Añadir canción» (Discográfica →
+  Repertorio → Canciones). Es la herramienta para volcar el catálogo **ANTIGUO**: se suben **varios
+  PDF a la vez**, cada uno puede traer **varias canciones**, y de cada una se decide **campo a
+  campo** qué se queda —a la IZQUIERDA lo que dice el LC, a la DERECHA lo que hay ahora—.
+  · Motor de lectura: **`labelcopy_read.py`** (puro, ni Flask ni BD), que reutiliza el lector de
+  renglones de `invoice_read.pdf_rows` (con el texto plano los rótulos y los valores salen en
+  bloques separados y desordenados). Reconoce los campos por su RÓTULO con alias
+  (`FIELDS`) y la tabla de **Reparto autoral** (Autor · Rol · Editorial · %).
+  ⚠️ **El PDF se parte por el rótulo «Título»**, no por la portada «Label Copy»: los LC de otras
+  fuentes no la llevan.
+  ⚠️ Los ISRC se cortan **antes de la palabra «vídeo»**: un LC trae los de audio y los de vídeo en
+  el mismo renglón y aquí solo valen los de AUDIO.
+  · Backend: `LC_FIELDS` (qué campos y de qué tipo) · `_lc_song_card` (con qué canción casa y la
+  comparación) · `_lc_match_song` (**por ISRC**, luego por título, y con varias del mismo título
+  manda el artista) · `_lc_apply_fields` · endpoints `discografica_lc_bulk_analyze` / `_apply` /
+  `_artists`. UI: `_lc_bulk_modal.html` + `static/js/lc_bulk.js` + clases `.lc-*`.
+  · ⚠️⚠️ **LO QUE SE VINCULA NO SE GUARDA COMO TEXTO**: los autores, su editorial y los intérpretes
+  se buscan en la base y se elige **a quién corresponde** —con su foto— o se crea al vuelo. Un
+  nombre escrito en un PDF no puede decidir por su cuenta a qué ficha apunta. En los autores salen
+  además los **INTEGRANTES** de artistas que aún no tienen ficha de tercero
+  (`_lc_person_options(..., members=True)`), que es de donde salen las condiciones del contrato.
+  · **Lo que ya coincide se PLIEGA** (`<details>`): con 18 campos y 3 distintos, lo que hay que
+  decidir se perdía entre lo que no hay que tocar.
+  · **Las que no están en el sistema se CREAN** una a una, eligiendo el artista (buscador con foto).
+  ⚠️ `Song.release_date` es NOT NULL: sin fecha en el LC se pone la de hoy (mismo criterio que al
+  pasar una demo al repertorio).
+  ⚠️ **Nada se borra**: los ISRC y los intérpretes que ya estaban se conservan (un código no se
+  quita por no venir en un LC viejo) y un autor que ya está no se duplica, se completa.
+  ⚠️ Prueba de regresión hecha con LC REALES de la propia app (uno y dos temas en un PDF) y con uno
+  «de fuera» en formato genérico.
+
+- ⚠️⚠️ **UN AUTOR QUE ES INTEGRANTE DE UN ARTISTA = UNA SOLA FICHA** (bug de dinero, ago 2026).
+  Los autores de una obra casi nunca son «el artista»: son las PERSONAS que forman parte de él, y el
+  contrato (editorial, discográfico) se firma con el ARTISTA y se les aplica a ellas. Si esa persona
+  tenía **DOS fichas** —la del integrante y otra suelta creada al darla de alta como autora— el
+  autor de la canción apuntaba a la suelta, que no es integrante de nadie, y **no se le detectaban
+  las condiciones del contrato**: se quedaba sin su reparto editorial y sin lo que le toca en
+  facturación y royalties.
+  · Ahora las fichas **se unen solas**: punto único **`_artist_person_unify`** (del integrante a su
+  tercero) y **`_promoter_member_unify`** (al revés), que llaman el alta y la edición de un
+  integrante, el guardado de un autor, el volcado de LC y el relleno puntual
+  **`_artist_members_unify_backfill_once`** (marca `artist_member_unify_v1`).
+  · **La fusión re-apunta todo** con el motor que ya existía (`_merge_repoint_references`) y **solo
+  COMPLETA los huecos** del que se queda: un dato ya escrito no se pisa nunca.
+  · **El NICK pasa a ser el nombre del ARTISTA solo si tiene UN único integrante**
+  (`_artist_solo_name`): con varios, el nombre del artista no identifica a ninguno. El nombre, los
+  apellidos y el DNI son SIEMPRE los oficiales de la persona (es quien firma y quien factura).
+  ⚠️ Si ese nick ya lo tiene otro tercero **no se toca nada**: `Promoter.nick` es único y renombrarlo
+  a «X (2)» sería peor.
+  ⚠️ **Solo se une lo que es la MISMA persona sin lugar a dudas** (`_promoter_duplicates_of`): mismo
+  DNI, o mismo nombre completo **sin un DNI que lo desmienta**. Dos personas distintas pueden
+  llamarse igual, y fundirlas sería mucho peor que dejar el duplicado.
+  · **El buscador de autores busca en terceros Y en integrantes** (`api_search_authors`,
+  `/api/search/autores`, en `SUPPORT_READ_ENDPOINTS`): los que no tienen ficha viajan como
+  `artist_person_id` y se les crea la suya YA VINCULADA al elegirlos. El typeahead admite ahora
+  `opciones.extra` (campos del resultado a otros ocultos) y pinta un **subtítulo** («Integrante de
+  Los Ñus»).
+  ⚠️ **`_promoter_member_artist_ids` usaba `g` sin protección** y reventaba con «Working outside of
+  application context» al llamarlo desde el relleno del arranque o desde un hilo (bug real).
+  · Probado con la app real: el autor integrante de OTRA banda recibía el contrato de la banda de la
+  canción (70/30) y ahora recibe el suyo (40/60); el solista queda con el nick del artista y el
+  nombre oficial intacto; y de dos fichas queda una.
+
+- ⚠️⚠️ **LOS ISRC SE ESCRIBEN EN SECO, SIN GUIONES** (ago 2026). `_norm_isrc` es el punto único y
+  **antes AÑADÍA los guiones** (ES-A2A-25-00001) porque se lee mejor; pero es la forma con la que
+  **no se encuentra nada fuera**: Chartmetric no devuelve resultados con guiones, y por eso había
+  canciones que no se vinculaban solas y que, buscándolas a mano con el código seguido, aparecían a
+  la primera. Ahora devuelve el código en seco, así que se muestra y se guarda igual en toda la app
+  y lo que se pegue con guiones **se limpia solo** al pasar por ahí. Relleno puntual
+  `_isrc_dashes_backfill_once` (marca `isrc_no_dashes_v1`) para lo ya guardado.
+  · **Al vincular a mano en Chartmetric, la barra viene con el ISRC** (no con el título) y busca
+  sola: por el título salen homónimos de otros artistas.
+  · **En la ficha, el ISRC se dice UNA vez**: estaba en unas pastillas con el color del estado
+  **y otra vez** en la tabla de abajo. Ahora solo la tabla, con **su estado en el propio código**
+  (verde registrado en AGEDI · ámbar pendiente).
+
+- ⚠️⚠️ **`|forceescape` DENTRO DE UN `<script>` ROMPE EL JS** (bug real, ago 2026). En un `<script>`
+  el navegador **NO decodifica las entidades HTML**, así que `{{ x|tojson|forceescape }}` llega
+  literalmente como `[&#34;Rock&#34;]`, el bloque entero es **sintaxis inválida y no se ejecuta**.
+  Efecto: **los géneros de una canción no se cargaban ni se podían añadir** (ni con Enter ni con el
+  «+»), sin ningún error visible. Dentro de un `<script>` va **`|tojson` a secas**; `forceescape` es
+  para los ATRIBUTOS (`onclick="…"`, `data-x="…"`), donde la comilla doble sí cortaría el atributo.
+  Comprobación: `forceescape` dentro de `<script>` tiene que salir **vacío** (detector en el
+  histórico de esta épica; los ~40 usos restantes son todos de atributo, que es lo correcto).
+
+- **GÉNEROS de una canción · elegir uno ya lo añade** (ago 2026): al pinchar un resultado de la
+  lista la etiqueta se pone sola; el **«+»** queda para dar de alta uno que **todavía no existe**.
+  La selección se reconoce por `inputType === 'insertReplacementText'` (Chrome y Safari) y, en los
+  que no lo marcan, porque el valor **salta de golpe** y coincide exactamente con una opción del
+  catálogo.
+
+- ⚠️ **UN ICONO DENTRO DE UNA ETIQUETA VA EN EL COLOR DE LA ETIQUETA** (bug real, ago 2026): la
+  cabecera de una ficha pinta de azul todos los iconos de su línea de datos (`.ficha-hero__facts i`),
+  así que el de **One-Stop salía AZUL SOBRE EL FONDO AZUL** de la propia etiqueta —estaba ahí, con su
+  hueco, pero era invisible—. `.badge-onestop i` fuerza `color:inherit` (y anula el ancho y el margen
+  que esa regla le pone). Al meter un badge con icono dentro de la cabecera, comprobarlo.
+
+- **SYNCROS · lo que el correo no puede hacer, lo hace la PÁGINA** (ago 2026): en un correo no corre
+  JavaScript, así que sus botones llevan la orden **en la URL** (`_sync_url_with`) y la ficha pública
+  la ejecuta al abrirse: **`?play=1`** reproduce sola · **`?letra=1`** abre el pop-up de la letra ·
+  **`?descargar=1`** empieza la descarga.
+  ⚠️ **La descarga NO va al archivo**: preparar el MP3 tarda y el enlace directo dejaba al navegador
+  **en blanco** todo ese rato. Se baja por `fetch` con la **animación de espera** de la propia página
+  (`.sync-wait`, que es standalone y no tiene el loader global) y, si falla, se cae al enlace de
+  siempre.
+  · **BOTÓN DE VOLVER** en la ficha pública y en el repertorio, arriba a la izquierda
+  (`.btn-volver`), **solo con sesión iniciada**: a un supervisor de fuera no se le enseña un botón
+  que le llevaría a la pantalla de acceso. Antes dependía solo del `referrer`, que no siempre llega,
+  y desde la app se entraba sin forma de salir.
+  · **El REPERTORIO externo, en ESCRITORIO, se lee en TRES filas** (`.rep-list`): el título · sus
+  etiquetas (One-stop, géneros, novedad) · el artista y la fecha, con la **portada a 84 px** para que
+  el bloque de datos siga ocupando su altura. Solo ahí: en las playlists y en las demos la línea
+  sigue igual.
+
+- ⚠️ **EL SUBRAYADO DE UNA FILA VA SOBRE EL TEXTO, NO SOBRE LA LÍNEA** (bug real, ago 2026):
+  `.pl-row__title` es el CONTENEDOR del título **y sus etiquetas** (One-Stop, géneros), así que un
+  `text-decoration` ahí pintaba una raya que las cruzaba todas —y en la fila que está sonando, en
+  **ROJO**—. Se acota a `> a` / `> span:first-child`, y la fila que suena se distingue solo por el
+  color.
+
+- ⚠️ **FICHA DEL ARTISTA · UN SOLO MÓDULO de datos y documentos por integrante** (bug real, ago
+  2026): se pintaba el módulo común (`_person_identity_summary.html`, el mismo que en personal y en
+  tercero) **y además** un bloque propio con el DNI, el email, el teléfono, las pastillas y las
+  etiquetas de documentos, así que **todo salía dos veces**. Queda solo el módulo común; lo que era
+  del integrante y él no trae (el aviso de que aún no tiene ficha y sus preferencias de viaje) se
+  añade debajo.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

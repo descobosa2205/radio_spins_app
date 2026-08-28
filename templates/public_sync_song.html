@@ -103,14 +103,20 @@
     }
   </style>
 </head>
-<body>
+<body data-t-preparando="{{ ctx.t.preparing or 'Preparando la descarga…' }}">
   <div class="sync-wrap">
     {# VOLVER a donde se venía: solo cuando se llega desde la app (si no, no hay a dónde volver).
        Se abre en pestaña nueva, así que `history.back()` no serviría: se usa el referrer. #}
-    <div class="d-none justify-content-end mb-2" id="syncBack">
-      <a class="btn btn-outline-secondary btn-sm" href="#" title="{{ ctx.t.back }}"
-         aria-label="{{ ctx.t.back }}"><i class="fa-solid fa-arrow-left"></i></a>
-    </div>
+    {# VOLVER al back office. ⚠️ Solo para quien viene DE LA APP (tiene sesión): a un supervisor
+       de fuera no se le enseña un botón que le llevaría a una pantalla de acceso. Antes dependía
+       solo del `referrer`, que no siempre llega (un enlace abierto en otra pestaña, un correo),
+       así que desde la app se entraba y no había forma de salir. #}
+    {% if session.get('user_id') %}
+      <div class="mb-2" id="syncBack">
+        <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('syncros_view') }}" title="{{ ctx.t.back }}"
+           aria-label="{{ ctx.t.back }}"><i class="fa-solid fa-arrow-left"></i></a>
+      </div>
+    {% endif %}
     {{ body_html|safe }}
   </div>
 
@@ -140,9 +146,7 @@
       } catch (e) { return; }
       var caja = document.getElementById('syncBack');
       if (!caja) return;
-      caja.querySelector('a').setAttribute('href', ref);
-      caja.classList.remove('d-none');
-      caja.classList.add('d-flex');
+      caja.querySelector('a').setAttribute('href', ref);   // se vuelve a donde se estaba
     })();
     // «Ver letra»: en la página abre el pop-up en vez de navegar (el mismo HTML va por correo, y
     // allí es un enlace de verdad).
@@ -159,6 +163,66 @@
         if (play) { ev.preventDefault(); play.click(); }
       }
     });
+
+    // ── DESCARGA: nunca una pantalla en blanco ──────────────────────────────────────────────
+    // ⚠️ Preparar el MP3 tarda (hay que convertirlo), y el enlace a pelo dejaba al navegador en
+    // blanco todo ese rato: parecía que no pasaba nada. Se baja por `fetch` enseñando la
+    // animación de la casa y, al terminar, se entrega el archivo.
+    (function () {
+      var capa = null;
+      function mostrar(txt) {
+        if (!capa) {
+          capa = document.createElement('div');
+          capa.className = 'sync-wait';
+          capa.innerHTML = '<div class="sync-wait__box"><div class="sync-wait__spin"></div>' +
+                           '<div class="sync-wait__t"></div></div>';
+          document.body.appendChild(capa);
+        }
+        capa.querySelector('.sync-wait__t').textContent = txt || '';
+        capa.style.display = 'flex';
+      }
+      function ocultar() { if (capa) capa.style.display = 'none'; }
+
+      window.syncDescargar = function (url, nombre) {
+        if (!url) return;
+        mostrar(document.body.getAttribute('data-t-preparando') || 'Preparando la descarga…');
+        fetch(url).then(function (r) {
+          if (!r.ok) throw new Error('http ' + r.status);
+          return r.blob();
+        }).then(function (b) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(b);
+          a.download = nombre || 'audio.mp3';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
+        }).catch(function () {
+          window.location.href = url;              // si algo falla, el enlace de siempre
+        }).finally(ocultar);
+      };
+
+      document.addEventListener('click', function (ev) {
+        var a = ev.target.closest('a[href*="/descargar"], a[data-sync-download]');
+        if (!a || ev.metaKey || ev.ctrlKey || ev.button === 1) return;
+        ev.preventDefault();
+        window.syncDescargar(a.getAttribute('href'), a.getAttribute('data-download-name') || '');
+      });
+
+      // ── Lo que se pide desde el CORREO ──────────────────────────────────────────────────
+      // «Escuchar» reproduce sola, «Ver letra» abre el pop-up y «Descargar» arranca la descarga:
+      // el correo no puede hacer nada de eso, así que lo dice en la URL y lo hace la página.
+      var qs = new URLSearchParams(window.location.search);
+      if (qs.get('letra') === '1' && document.getElementById('syncLyrics')) {
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('syncLyrics')).show();
+      }
+      if (qs.get('play') === '1') {
+        var b = document.querySelector('.sync-player__play');
+        if (b) setTimeout(function () { b.click(); }, 60);
+      }
+      if (qs.get('descargar') === '1') {
+        var d = document.querySelector('a[href*="/descargar"]');
+        if (d) window.syncDescargar(d.getAttribute('href'), '');
+      }
+    })();
   </script>
 </body>
 </html>

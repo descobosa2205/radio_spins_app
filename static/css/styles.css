@@ -4384,8 +4384,11 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .pl-row:hover .pl-row__play, .pl-row.is-playing .pl-row__play{ display:flex; }
 .pl-row__main{ flex:1 1 10rem; min-width:0; }
 .pl-row__title{ font-weight:700; }
-.pl-row:hover .pl-row__title, .pl-row.is-playing .pl-row__title{ text-decoration:underline; }
-.pl-row.is-playing .pl-row__title{ color:var(--brand-primary); }
+/* ⚠️ El subrayado va SOBRE EL TEXTO del título, no sobre la línea: `.pl-row__title` es el
+   contenedor del título + sus etiquetas (One-Stop, géneros), así que un `text-decoration` aquí
+   pintaba una raya que las cruzaba todas —y en la fila que suena, ROJA— (bug real). */
+.pl-row:hover .pl-row__title > a, .pl-row:hover .pl-row__title > span:first-child{ text-decoration:underline; }
+.pl-row.is-playing .pl-row__title{ color:var(--brand-primary); text-decoration:none; }
 .pl-row__artist{
   display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
   color:#6b7280; font-size:.85rem; margin-top:.15rem;
@@ -5108,7 +5111,16 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
   font-size:.68rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
   line-height:1; white-space:nowrap; vertical-align:middle;
 }
-.badge-onestop i{ font-size:1.05em; opacity:1; margin-right:.1em; }
+/* ⚠️⚠️ El icono va SIEMPRE en el color de la etiqueta (blanco), nunca en el de su sitio.
+   La cabecera de una ficha pinta de AZUL todos los iconos de su línea de datos
+   (`.ficha-hero__facts i`), así que el de One-Stop salía AZUL SOBRE EL FONDO AZUL de la propia
+   etiqueta: estaba ahí, con su hueco, pero era invisible (bug real). Se duplica la clase para
+   ganar en especificidad sin recurrir a `!important`, y se anulan el ancho y el margen que esa
+   regla le pone (descuadraban el `gap` de la etiqueta). */
+.badge-onestop i, .badge-onestop.badge-onestop i{
+  color:inherit; font-size:1.05em; opacity:1;
+  width:auto; margin:0 .1em 0 0; text-align:inherit;
+}
 /* La etiqueta de GÉNERO: la misma píldora clara de siempre, en el azul de la casa. */
 .sync-genre{ background:#eef6f9; color:#00637f; border:1px solid #cfe6ee; font-weight:600; }
 /* Rejilla de ARTISTAS del repertorio (como la de Discográfica: se pincha y se ven los suyos). */
@@ -5242,4 +5254,89 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .ta-item img, .ta-item__noimg{
   width:26px; height:26px; object-fit:contain; flex:0 0 auto; border-radius:.3rem; background:#f4f6f8;
 }
-.ta-item__t{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* El nombre y, debajo, su subtítulo (p. ej. «Integrante de Los Ñus»). */
+.ta-item__t{ min-width:0; display:flex; flex-direction:column; line-height:1.2; }
+.ta-item__t, .ta-item__s{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ta-item__s{ color:#6c757d; font-size:.78rem; }
+
+/* ---- Syncros: la espera mientras se prepara una descarga (la página pública es standalone,
+   así que lleva su propia animación en vez de quedarse en blanco). ---- */
+.sync-wait{ position:fixed; inset:0; z-index:2000; display:none; align-items:center;
+  justify-content:center; background:rgba(255,255,255,.86); backdrop-filter:blur(2px); }
+.sync-wait__box{ text-align:center; color:#111827; }
+.sync-wait__spin{ width:44px; height:44px; margin:0 auto .8rem; border-radius:50%;
+  border:3px solid #e5e8ee; border-top-color:var(--brand-primary, #E33D48);
+  animation:syncSpin .8s linear infinite; }
+.sync-wait__t{ font-weight:600; }
+@keyframes syncSpin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce){ .sync-wait__spin{ animation-duration:2.4s; } }
+
+/* ============================================================================================
+   ACTUALIZACIÓN EN BLOQUE desde los Label Copy (`_lc_bulk_modal.html` + `js/lc_bulk.js`).
+   A la IZQUIERDA lo que dice el LC y a la DERECHA lo que hay ahora; lo marcado es lo que se queda.
+   ============================================================================================ */
+.lc-files{ list-style:none; margin:0; padding:0; }
+.lc-files li{ display:flex; align-items:center; gap:.5rem; padding:.4rem .6rem; border:1px solid #e5e8ee;
+  border-radius:.5rem; margin-bottom:.35rem; background:#fff; }
+.lc-files__n{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.lc-head{ display:flex; gap:1rem; align-items:center; flex-wrap:wrap; padding:.85rem 1rem; margin-bottom:1rem;
+  border:1px solid #e5e8ee; border-radius:.6rem; background:#f8fafc; }
+.lc-head--new{ background:#fffbeb; border-color:#fde68a; justify-content:space-between; }
+.lc-head__cover{ width:56px; height:56px; border-radius:.4rem; object-fit:cover; flex:0 0 auto; }
+.lc-head__artist{ min-width:15rem; flex:1 1 15rem; }
+.lc-artist-res{ display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.35rem; }
+.lc-artist{ display:inline-flex; align-items:center; gap:.4rem; border:1px solid #d6dbe0; background:#fff;
+  border-radius:2rem; padding:.2rem .7rem .2rem .2rem; font-size:.85rem; }
+.lc-artist img{ width:24px; height:24px; border-radius:50%; object-fit:cover; }
+
+.lc-field{ border:1px solid #e9ecef; border-radius:.6rem; padding:.75rem .9rem; margin-bottom:.7rem; }
+.lc-field__k{ font-weight:700; font-size:.9rem; margin-bottom:.5rem; }
+.lc-field__cols{ display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
+.lc-opt{ display:flex; gap:.5rem; align-items:flex-start; border:1px solid #e5e8ee; border-radius:.5rem;
+  padding:.5rem .65rem; cursor:pointer; background:#fff; }
+.lc-opt:has(input:checked){ border-color:var(--brand-accent, #007CA2); box-shadow:0 0 0 2px rgba(0,124,162,.12); }
+.lc-opt.is-empty{ background:#fbfbfc; }
+.lc-opt.is-same{ opacity:.75; }
+.lc-opt__b{ min-width:0; display:flex; flex-direction:column; }
+.lc-opt__t{ font-size:.72rem; text-transform:uppercase; letter-spacing:.02em; color:#6c757d; }
+.lc-opt__v{ font-size:.92rem; overflow-wrap:anywhere; }
+
+.lc-links{ margin-top:.7rem; border-top:1px dashed #e5e8ee; padding-top:.6rem; }
+.lc-link{ margin-bottom:.6rem; }
+.lc-link__n{ font-size:.88rem; font-weight:600; margin-bottom:.3rem; display:flex; align-items:center; gap:.35rem; }
+.lc-link__opts{ display:flex; flex-wrap:wrap; gap:.35rem; }
+.lc-link__pub{ margin-top:.45rem; padding-left:.9rem; border-left:2px solid #eef1f4; }
+.lc-pick{ display:inline-flex; align-items:center; gap:.4rem; border:1px solid #d6dbe0; border-radius:2rem;
+  padding:.2rem .75rem .2rem .2rem; cursor:pointer; background:#fff; font-size:.85rem; }
+.lc-pick:has(input:checked){ border-color:var(--brand-accent, #007CA2); background:#eef8fb; }
+.lc-pick input{ display:none; }
+.lc-pick img{ width:26px; height:26px; border-radius:50%; object-fit:cover; flex:0 0 auto; }
+.lc-pick__ico{ width:26px; height:26px; border-radius:50%; background:#eef1f4; display:inline-flex;
+  align-items:center; justify-content:center; color:#6c757d; }
+.lc-pick__t{ display:flex; flex-direction:column; line-height:1.15; }
+.lc-pick__t small{ color:#6c757d; font-size:.72rem; }
+
+.lc-same{ margin-top:.5rem; }
+.lc-same > summary{ cursor:pointer; color:#6c757d; font-size:.86rem; padding:.35rem 0; }
+.lc-same[open] > summary{ margin-bottom:.5rem; }
+
+.lc-result{ list-style:none; margin:0; padding:0; }
+.lc-result li{ padding:.45rem 0; border-bottom:1px solid #eef1f4; }
+
+@media (max-width: 767.98px){
+  .lc-field__cols{ grid-template-columns:1fr; }
+  .lc-head--new{ flex-direction:column; align-items:stretch; }
+}
+
+/* ---- REPERTORIO público de Syncros: la línea de un tema en TRES filas (escritorio) --------
+   1) el título · 2) sus etiquetas (One-stop, géneros, novedad) · 3) el artista y la fecha.
+   La portada crece a la vez para que el bloque de datos siga ocupando su misma altura.
+   ⚠️ Solo en el repertorio (`.rep-list`): en las playlists y en las demos la línea sigue igual. */
+@media (min-width: 768px){
+  .rep-list .pl-row__cover{ width:84px; height:84px; }
+  .rep-list .pl-row__title{ display:flex; flex-wrap:wrap; align-items:center; gap:.3rem; row-gap:.35rem; }
+  /* El título ocupa toda la primera fila, así las etiquetas caen a la segunda. */
+  .rep-list .pl-row__title > a, .rep-list .pl-row__title > span:first-child{ flex:0 0 100%; }
+  .rep-list .pl-row__artist{ margin-top:.15rem; }
+}

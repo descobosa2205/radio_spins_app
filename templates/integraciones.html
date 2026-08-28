@@ -848,6 +848,7 @@
                       <form method="post" action="{{ url_for('cm_song_reresolve', song_id=r.id) }}" class="d-inline mb-0" data-inline data-inline-target="#cmZoneSongs"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-primary" title="Re-resolver con Chartmetric"><i class="fa fa-rotate"></i></button></form>
                       <button type="button" class="btn btn-sm btn-outline-secondary" title="Vincular a mano (pegar enlace o buscar)"
                               data-cm-link="song" data-cm-id="{{ r.id }}" data-cm-name="{{ r.title }}"
+                              data-cm-isrc="{{ r.isrc|replace('-','') }}"
                               data-cm-track="{{ r.cm_track }}"><i class="fa fa-link"></i></button>
                       {# COMPROBAR RUTAS: pregunta a Chartmetric y dice qué contesta cada una (si la
                          ruta existe, si falta un permiso o si no hay créditos). Solo con id. #}
@@ -1767,9 +1768,13 @@ document.addEventListener('inline:updated', function (ev) {
       form.setAttribute('data-inline-target', kind === 'album' ? '#cmZoneAlbums' : '#cmZoneSongs');
       inId.value = btn.getAttribute('data-cm-id') || '';
       inUrl.value = '';
-      inQuery.value = btn.getAttribute('data-cm-name') || '';
+      // ⚠️ Se busca por el ISRC EN SECO, no por el nombre: es con lo que Chartmetric encuentra
+      // el tema (con guiones no devuelve nada, y por el título salen homónimos de otros artistas).
+      var isrc = (btn.getAttribute('data-cm-isrc') || '').replace(/[^A-Za-z0-9]/g, '');
+      inQuery.value = isrc || btn.getAttribute('data-cm-name') || '';
       elResults.innerHTML = '';
       elMsg.textContent = '';
+      if (isrc) buscar();                      // con el ISRC ya se puede buscar solo
       var actual = btn.getAttribute('data-cm-track') || '';
       elWhat.textContent = (kind === 'album' ? 'Álbum: ' : 'Canción: ') +
         (btn.getAttribute('data-cm-name') || '') + (actual ? ' · ahora vinculada al id ' + actual : '');

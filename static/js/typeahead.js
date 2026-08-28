@@ -7,7 +7,7 @@ function debounce(fn, ms){ let t; return function(...args){ clearTimeout(t); t=s
    cualquier otro con logo) salían pelados. Sin imagen se sigue usando el datalist de siempre, así
    que ningún buscador existente cambia de comportamiento.
    ============================================================================ */
-function initTypeahead(inputId, hiddenId, endpoint){
+function initTypeahead(inputId, hiddenId, endpoint, opciones){
   const input  = document.getElementById(inputId);
   // ⚠️ Si ese campo no está en la pantalla (se llama desde un script que corre en TODAS las
   // pestañas de la ficha), no hay nada que cablear: sin esta guarda petaba con
@@ -38,6 +38,15 @@ function initTypeahead(inputId, hiddenId, endpoint){
       ev.preventDefault();
       input.value = it.getAttribute('data-ta-label') || '';
       if (hidden) hidden.value = it.getAttribute('data-ta-id') || '';
+      // Campos EXTRA del resultado a sus propios ocultos (p. ej. el integrante de un artista que
+      // todavía no tiene ficha de tercero: viaja su `artist_person_id`).
+      try {
+        var extra = JSON.parse(it.getAttribute('data-ta-extra') || '{}');
+        Object.keys(extra).forEach(function (campo) {
+          var destino = document.getElementById(((opciones || {}).extra || {})[campo] || '');
+          if (destino) destino.value = extra[campo] == null ? '' : String(extra[campo]);
+        });
+      } catch (e) {}
       cerrar();
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
@@ -68,13 +77,20 @@ function initTypeahead(inputId, hiddenId, endpoint){
     // Con imagen: lista propia (el datalist se vacía para que no salgan las dos).
     dl.innerHTML = "";
     const b = caja();
+    const campos = Object.keys(((opciones || {}).extra) || {});
     b.innerHTML = (js || []).map(it => {
       const img = it.logo_url || it.photo_url || '';
       const nombre = it.label || it.name || '';
-      return '<button type="button" class="ta-item" data-ta-id="' + esc(it.id) + '" data-ta-label="' + esc(nombre) + '">' +
+      const sub = it.sub || '';
+      const extra = {};
+      campos.forEach(function (c) { extra[c] = it[c] == null ? '' : it[c]; });
+      return '<button type="button" class="ta-item" data-ta-id="' + esc(it.id) + '" data-ta-label="' + esc(nombre) + '"' +
+        (campos.length ? ' data-ta-extra="' + esc(JSON.stringify(extra)) + '"' : '') + '>' +
         (img ? '<img src="' + esc(img) + '" alt="" onerror="this.style.visibility=\'hidden\'">'
             : '<span class="ta-item__noimg"></span>') +
-        '<span class="ta-item__t">' + esc(nombre) + '</span></button>';
+        '<span class="ta-item__t">' + esc(nombre) +
+        (sub ? '<small class="ta-item__s">' + esc(sub) + '</small>' : '') +
+        '</span></button>';
     }).join('');
     b.style.display = js && js.length ? 'block' : 'none';
   }, 150);
@@ -91,6 +107,13 @@ function initTypeahead(inputId, hiddenId, endpoint){
       if(o.value === val){ foundId = o.dataset.id || ""; break; }
     }
     if (hidden) hidden.value = foundId;
+    if (!foundId) {
+      const mapa = ((opciones || {}).extra) || {};
+      Object.keys(mapa).forEach(function (c) {
+        const destino = document.getElementById(mapa[c]);
+        if (destino) destino.value = '';
+      });
+    }
   }
 
   input.addEventListener('change', resolveSelection);

@@ -81,16 +81,22 @@
   <div class="pl-row__dur" data-pl-durlabel>{{ dur(it.duration_seconds) }}</div>
 
   {# LETRA a la derecha (Syncros): junto a la descarga, con el mismo aspecto. #}
-  {% if it.lyrics and it.lyrics_right %}
-    <button class="pl-row__dl-plain" type="button"
-            {% if it.lyrics_modal %}data-lyrics-modal="{{ it.title|e }}" data-lyrics-text="{{ it.lyrics|e }}"
-            {% else %}data-pl-lyrics="{{ it.id }}"{% endif %}
-            title="Ver letra" aria-label="Ver letra"><i class="fa-solid fa-align-justify"></i></button>
+  {% if it.lyrics_right %}
+    {% if it.lyrics %}
+      <button class="pl-row__dl-plain" type="button"
+              {% if it.lyrics_modal %}data-lyrics-modal="{{ it.title|e }}" data-lyrics-text="{{ it.lyrics|e }}"
+              {% else %}data-pl-lyrics="{{ it.id }}"{% endif %}
+              title="Ver letra" aria-label="Ver letra"><i class="fa-solid fa-align-justify"></i></button>
+    {% else %}
+      <span class="pl-row__dl-plain is-empty" aria-hidden="true"></span>
+    {% endif %}
   {% endif %}
   {# Descarga DIRECTA en MP3 (Syncros): un solo icono, sin desplegable. #}
   {% if it.download_mp3_only %}
     <a class="pl-row__dl-plain" href="{{ it.download_mp3_only }}" title="Descargar en MP3"
        aria-label="Descargar en MP3"><i class="fa-solid fa-download"></i></a>
+  {% elif it.lyrics_right %}
+    <span class="pl-row__dl-plain is-empty" aria-hidden="true"></span>
   {% endif %}
   {% if dl and it.download_wav_url %}
     <div class="dropdown pl-row__dl">

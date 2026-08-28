@@ -5098,7 +5098,7 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
   font-size:.68rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
   line-height:1; white-space:nowrap; vertical-align:middle;
 }
-.badge-onestop i{ font-size:.9em; opacity:.95; }
+.badge-onestop i{ font-size:1.05em; opacity:1; margin-right:.1em; }
 /* La etiqueta de GÉNERO: la misma píldora clara de siempre, en el azul de la casa. */
 .sync-genre{ background:#eef6f9; color:#00637f; border:1px solid #cfe6ee; font-weight:600; }
 /* Rejilla de ARTISTAS del repertorio (como la de Discográfica: se pincha y se ven los suyos). */
@@ -5180,3 +5180,23 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   border:0; background:transparent; color:#adb5bd; padding:.1rem .3rem; line-height:1; font-size:.75rem;
 }
 .ed-share__edit:hover{ color:var(--brand-accent,#007CA2); }
+
+/* Etiqueta de NOVEDAD (repertorio abierto): menos de 15 días desde el lanzamiento. Se cae sola. */
+.sync-new{ background:#fff1f2; color:#b02a37; border:1px solid #f5c2c7; font-weight:700; }
+/* El hueco RESERVADO de un icono que esa canción no tiene: así todas las filas miden lo mismo. */
+.pl-row__dl-plain.is-empty{ display:inline-block; width:1.6rem; height:1rem; }
+
+/* ── El listado de Syncro en MÓVIL ────────────────────────────────────────────────────────────
+   El título arriba, DEBAJO sus etiquetas (One-stop, géneros, novedad) y debajo el artista y la
+   fecha, para que se lea de un vistazo y todas las filas se vean iguales. */
+@media (max-width: 575.98px){
+  .pl-row{ align-items:flex-start; gap:.55rem; padding:.55rem .4rem; }
+  .pl-row__cover{ margin-top:.15rem; }
+  /* El título ocupa TODA la línea y las etiquetas caen debajo. */
+  .pl-row__title{ display:flex; flex-wrap:wrap; align-items:center; gap:.25rem; row-gap:.3rem; }
+  .pl-row__title > a, .pl-row__title > span:first-child{ flex:0 0 100%; }
+  .pl-row__artist{ flex-wrap:wrap; row-gap:.2rem; }
+  /* Los iconos de la derecha, alineados arriba y con su hueco siempre reservado. */
+  .pl-row .pl-row__dl-plain,
+  .pl-row .dropdown{ align-self:flex-start; margin-top:.15rem; }
+}

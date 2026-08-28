@@ -448,7 +448,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
+_CSRF_EXEMPT_ENDPOINTS = {"logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
     "concert_artwork_public_upload",
     "public_prl_upload_post",
     "public_bag_invoice_upload_post",
@@ -850,7 +850,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -63823,7 +63823,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -119658,11 +119658,16 @@ def logo_clean_png():
     ⚠️ Solo se admiten URLs de NUESTRO almacenamiento o de nuestro dominio: si no, esto sería un
     proxy de imágenes abierto (cualquiera podría hacer que el servidor descargue lo que quisiera)."""
     url = (request.args.get("u") or "").strip()
-    if not url or not _is_own_media_url(url):
+    if not url:
         abort(404)
+    # ⚠️⚠️ Si la imagen NO es nuestra, o no se puede limpiar, se REDIRIGE al original en vez de dar
+    # 404: un 404 aquí deja el logo ROTO (el cuadradito con interrogación), y eso es peor que
+    # enseñarlo con su fondo. No se descarga nada ajeno, así que sigue sin ser un proxy abierto.
+    if not _is_own_media_url(url):
+        return redirect(url)
     datos = _logo_clean_bytes(url)
     if not datos:
-        return redirect(url)              # si no se pudo limpiar, el original tal cual
+        return redirect(url)
     resp = make_response(datos)
     resp.headers["Content-Type"] = "image/png"
     resp.headers["Cache-Control"] = "public, max-age=604800"
@@ -119760,7 +119765,7 @@ SYNC_TEXTS = {
         "by_genre": "Por género", "by_artist": "Por artista", "songs": "temas", "song_one": "tema",
         "back": "Volver",
         "one_stop_help": "Máster y edición al 100% en nuestras manos: se licencia con una sola parte.",
-        "subject": "Syncro",
+        "subject": "Syncro", "subject_lead": "Nuevo tema para Syncro",
         "roles": {"AUTHOR": "Autor (letra)", "COMPOSER": "Compositor (música)",
                   "AUTHOR_COMPOSER": "Autor y compositor"},
     },
@@ -119777,7 +119782,7 @@ SYNC_TEXTS = {
         "by_genre": "By genre", "by_artist": "By artist", "songs": "tracks", "song_one": "track",
         "back": "Back",
         "one_stop_help": "Master and publishing 100% controlled by us: cleared with a single party.",
-        "subject": "Sync",
+        "subject": "Sync", "subject_lead": "New track for Sync",
         "roles": {"AUTHOR": "Lyricist", "COMPOSER": "Composer",
                   "AUTHOR_COMPOSER": "Writer / Composer"},
     },
@@ -119786,6 +119791,9 @@ SYNC_TEXTS = {
 
 # Las empresas del grupo cuyo logo va en la cabecera de todo lo de Syncros, en este orden.
 SYNC_BRAND_COMPANIES = ("PIES", "PLATAFORMA")
+
+# Cuántos días es «novedad» un lanzamiento (en el repertorio abierto sale su etiqueta).
+SYNC_NEW_DAYS = 15
 
 
 def _sync_brand_logos(session_db) -> list[tuple[str, str]]:
@@ -119820,6 +119828,15 @@ def _sync_artist_photo(song) -> str:
     except Exception:
         pass
     return ""
+
+
+def _sync_subject(t: dict, titulo: str, *, one_stop: bool) -> str:
+    """El ASUNTO del correo: «Nuevo tema para Syncro, \<canción\> (One-Stop)».
+
+    ⚠️ «(One-Stop)» solo si el tema LO ES: es lo que primero mira un supervisor, y decirlo de un tema
+    que no lo es sería mentir. El nombre de la canción no se traduce."""
+    base = "%s, %s" % (t["subject_lead"], titulo or "—")
+    return "%s (%s)" % (base, t["one_stop"].title()) if one_stop else base
 
 
 def _sync_lang(value) -> str:
@@ -119871,7 +119888,9 @@ def _sync_song_context(session_db, song, *, lang: str = "ES") -> dict:
         "contact": {"name": SYNC_CONTACT_NAME,
                     "role": (SYNC_CONTACT_ROLE_ES if lang == "ES" else SYNC_CONTACT_ROLE_EN),
                     "email": SYNC_CONTACT_EMAIL, "phone": SYNC_CONTACT_PHONE},
-        "subject": "%s %s" % (t["subject"], (song.title or "").strip()),
+        # El ASUNTO del correo: «Nuevo tema para Syncro, <canción> (One-Stop)». El nombre de la
+        # canción no se traduce; lo de «(One-Stop)» solo si el tema LO ES (lo pone `_sync_subject`).
+        "subject": _sync_subject(t, (song.title or "").strip(), one_stop=False),
     }
 
 
@@ -119933,9 +119952,10 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
         cab = ('<th style="text-align:%s;padding:0 8px 4px;font-size:11px;color:#9aa4ae;'
                'text-transform:uppercase;letter-spacing:.03em;font-weight:700;">%s</th>')
         tabla_autores = (
-            '<div style="margin-top:12px;">'
+            '<div class="sync-authors" style="margin-top:12px;">'
             '<div style="font-size:12px;font-weight:700;color:#111827;margin-bottom:4px;">%s&nbsp; %s</div>'
-            '<table style="width:100%%;border-collapse:collapse;"><tr>%s%s%s%s</tr>%s</table></div>'
+            '<table class="sync-authors__table" style="width:100%%;border-collapse:collapse;">'
+            '<tr>%s%s%s%s</tr>%s</table></div>'
             % (ico("pen-nib", 13), esc(t["authors"]),
                cab % ("left", esc(t["author"])), cab % ("left", esc(t["role"])),
                cab % ("right", esc(t["pct"])), cab % ("left", esc(t["publisher"])), filas_autores))
@@ -120017,19 +120037,19 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
                           '%s&nbsp; %s</a></div>'
                           % (esc(repertoire_url), ico("compact-disc", 13), esc(t["more_repertoire"])))
     contacto = (
-        '<table style="width:100%%;border-collapse:collapse;background:#fbfcfd;border:1px solid #e6e9ec;'
-        'border-radius:14px;margin-top:14px;"><tr><td style="padding:16px 18px;">'
+        '<table class="sync-contact" style="width:100%%;border-collapse:collapse;background:#fbfcfd;'
+        'border:1px solid #e6e9ec;border-radius:14px;margin-top:14px;"><tr><td style="padding:16px 18px;">'
         '<div style="font-size:11px;font-weight:800;color:#9aa4ae;text-transform:uppercase;'
         'letter-spacing:.06em;margin-bottom:8px;">%s</div>'
-        '<table style="width:100%%;border-collapse:collapse;"><tr>'
-        '<td style="vertical-align:top;">'
+        '<table class="sync-contact__grid" style="width:100%%;border-collapse:collapse;"><tr>'
+        '<td class="sync-contact__data" style="vertical-align:top;">'
         '<div style="font-size:15px;font-weight:700;color:#111827;">%s</div>'
-        '<div style="font-size:13px;color:#6b7280;margin-bottom:8px;">%s</div>'
-        '<div style="margin-top:6px;"><a href="mailto:%s?subject=%s" '
-        'style="color:#00637f;text-decoration:none;font-size:14px;">%s&nbsp; %s</a></div>'
-        '<div style="margin-top:6px;"><a href="tel:%s" '
-        'style="color:#00637f;text-decoration:none;font-size:14px;">%s&nbsp; %s</a></div>'
-        '</td><td style="vertical-align:bottom;text-align:right;">%s</td>'
+        '<div class="sync-contact__role" style="font-size:13px;color:#6b7280;margin-bottom:8px;">%s</div>'
+        '<div class="sync-contact__line" style="margin-top:6px;"><a href="mailto:%s?subject=%s" '
+        'style="color:#00637f;text-decoration:none;font-size:14px;white-space:nowrap;">%s&nbsp; %s</a></div>'
+        '<div class="sync-contact__line" style="margin-top:6px;"><a href="tel:%s" '
+        'style="color:#00637f;text-decoration:none;font-size:14px;white-space:nowrap;">%s&nbsp; %s</a></div>'
+        '</td><td class="sync-contact__cta" style="vertical-align:bottom;text-align:right;">%s</td>'
         '</tr></table></td></tr></table>'
         % (esc(t["contact"]), esc(c["name"]), esc(c["role"]),
            esc(c["email"]), asunto, ico("envelope"), esc(c["email"]),
@@ -120051,9 +120071,9 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
         'border-radius:14px;"><tr>'
         '<td style="padding:16px;vertical-align:top;width:236px;">%s</td>'
         '<td style="padding:16px 16px 16px 0;vertical-align:top;">'
-        '<table style="width:100%%;border-collapse:collapse;"><tr>'
-        '<td style="font-size:20px;font-weight:800;color:#111827;line-height:1.2;padding:0;">%s</td>'
-        '<td style="text-align:right;padding:0 0 0 10px;white-space:nowrap;">%s</td>'
+        '<table class="sync-titlerow" style="width:100%%;border-collapse:collapse;"><tr>'
+        '<td class="sync-title" style="font-size:20px;font-weight:800;color:#111827;line-height:1.2;padding:0;">%s</td>'
+        '<td class="sync-badge" style="text-align:right;padding:0 0 0 10px;white-space:nowrap;">%s</td>'
         '</tr></table>'
         '%s%s%s%s%s'
         '</td></tr>'
@@ -120144,6 +120164,9 @@ def _sync_song_rows(session_db, canciones, *, one_stop_map=None) -> list[dict]:
             "artist_ids": [str(getattr(a, "id", "")) for a in (getattr(c, "artists", None) or [])],
             "cover_url": (getattr(c, "cover_url", None) or "").strip(),
             "release_label": (c.release_date.strftime("%d/%m/%Y") if getattr(c, "release_date", None) else ""),
+            # NOVEDAD: menos de `SYNC_NEW_DAYS` días desde que salió (la etiqueta se cae sola).
+            "is_new": bool(getattr(c, "release_date", None)
+                           and 0 <= (today_local() - c.release_date).days < SYNC_NEW_DAYS),
             "genres": generos.get(sid, []),
             "one_stop": bool((mapa.get(sid) or {}).get("ok")),
             "has_lyrics": bool((getattr(c, "lyrics_text", None) or "").strip()),
@@ -120300,8 +120323,11 @@ def _sync_sent_state(session_db, song_ids) -> dict[str, dict]:
         return {}
     salida: dict[str, dict] = {}
     try:
+        # ⚠️ SOLO los envíos a SUPERVISORES: un correo suelto (o un WhatsApp) no es haber presentado
+        # el tema a los supervisores, así que no marca la fila ni cierra la tarea pendiente.
         filas = (session_db.query(SyncSubmission)
-                 .filter(SyncSubmission.song_id.in_(ids))
+                 .filter(SyncSubmission.song_id.in_(ids),
+                         SyncSubmission.supervisor_id.isnot(None))
                  .order_by(SyncSubmission.sent_at.desc()).all())
     except Exception:
         app.logger.exception("[syncro] no se pudieron leer los envíos")
@@ -120613,7 +120639,8 @@ def sync_song_send(song_id):
                 repertoire_url=_external_url_for("public_sync_repertoire",
                                                  **({"lang": "en"} if lang == "EN" else {})),
                 one_stop=bool(fila.get("one_stop")))
-            asuntos[lang] = ctx["subject"]
+            asuntos[lang] = _sync_subject(ctx["t"], ctx.get("title") or "",
+                                          one_stop=bool(fila.get("one_stop")))
 
         enviados, fallidos = 0, []
         nota = (request.form.get("note") or "").strip()
@@ -120627,11 +120654,15 @@ def sync_song_send(song_id):
                 fallidos.append(d["name"] or d["email"])
                 continue
             enviados += 1
+            # ⚠️ El CANAL distingue lo que va a un SUPERVISOR de un correo suelto: la marca de
+            # «enviada a Supervisors» solo cuenta lo primero (mandárselo a un tercero por correo,
+            # WhatsApp o SMS no es haberlo presentado a los supervisores).
             session_db.add(SyncSubmission(
                 supervisor_id=(getattr(d["sup"], "id", None) if d["sup"] is not None else None),
                 promoter_id=(getattr(d["sup"], "promoter_id", None) if d["sup"] is not None else None),
                 title=(song.title or "").strip() or "—", song_id=song.id,
-                language=d["lang"], channel="EMAIL", sent_by_nick=nick,
+                language=d["lang"], channel=("SUPERVISOR" if d["sup"] is not None else "EMAIL"),
+                sent_by_nick=nick,
                 notes=(None if d["sup"] is not None else d["email"]),
                 payload={"email": d["email"], "name": d["name"]}))
         session_db.commit()

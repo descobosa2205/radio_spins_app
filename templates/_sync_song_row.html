@@ -13,6 +13,7 @@
   {% set badges %}
     {% if row.one_stop %}{{ one_stop_badge('ms-1') }}{% endif %}
     {% for g in row.genres %}<span class="badge rounded-pill sync-genre ms-1">{{ g }}</span>{% endfor %}
+    {% if row.is_new %}<span class="badge sync-new ms-1" title="Publicada hace menos de 15 días">Novedad</span>{% endif %}
     {% if sent and row.sent %}<span class="badge text-bg-success ms-1" title="{{ row.sent_tooltip }}"><i class="fa-solid fa-paper-plane me-1"></i>{{ row.sent_count }}</span>{% endif %}
   {% endset %}
   {{ plr.pl_row(dict(row,

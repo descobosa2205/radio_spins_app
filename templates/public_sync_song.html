@@ -34,6 +34,8 @@
        ⚠️ El cuerpo lleva `max-width:680px` en línea porque el MISMO HTML va por correo, donde eso
        hace falta; aquí se le quita. */
     .sync-wrap{ width:100%; max-width:1400px; margin:0 auto; padding:18px 20px 40px; }
+    /* Nada puede empujar la página a lo ancho (el móvil se lee de un vistazo, sin scroll lateral). */
+    html, body{ overflow-x:hidden; }
     .sync-wrap > div[style*="max-width:680px"]{ max-width:100% !important; }
     .sync-cover{ cursor:pointer; }
     /* ── MÓVIL: la tarjeta se APILA (la portada arriba, entera y centrada, y debajo los datos).
@@ -46,14 +48,45 @@
       .sync-wrap td{ padding:12px !important; }
       .sync-wrap .sync-cover{ width:100% !important; height:auto !important; aspect-ratio:1/1;
                               max-width:320px; margin:0 auto; }
-      /* El título y su etiqueta One-stop, uno debajo del otro y sin cortarse. */
       .sync-wrap h1{ font-size:20px !important; }
-      .sync-wrap td[style*="text-align:right"]{ text-align:left !important; padding-top:8px !important; }
-      /* La tabla de AUTORES se desliza en horizontal en vez de partir las palabras. */
+      /* ── EL TÍTULO del tema: GRANDE y con su etiqueta One-stop a la DERECHA (esa fila NO se
+         apila: se queda como tabla). ── */
+      .sync-wrap .sync-titlerow,
+      .sync-wrap .sync-titlerow tr{ display:table !important; width:100% !important; }
+      .sync-wrap .sync-titlerow tr{ display:table-row !important; }
+      /* ⚠️ El TÍTULO se queda con todo el ancho que sobra y la ETIQUETA con lo justo: con las dos
+         a `auto` sumaban más que la pantalla y la etiqueta se salía por la derecha (y el
+         `overflow-x:hidden` la recortaba, así que parecía que no estaba). */
+      .sync-wrap .sync-title,
+      .sync-wrap .sync-badge{ display:table-cell !important; padding:0 !important;
+                              vertical-align:middle !important; }
+      .sync-wrap .sync-title{ width:100% !important; font-size:24px !important; line-height:1.15 !important;
+                              overflow-wrap:anywhere; }
+      .sync-wrap .sync-badge{ width:1% !important; text-align:right !important;
+                              padding-left:8px !important; white-space:nowrap; }
+      /* ── EL CONTACTO: el correo y el teléfono, cada uno en UNA sola línea; el rótulo del
+         responsable sin partirse; y el botón de «más repertorio» ABAJO DEL TODO. ── */
+      .sync-wrap .sync-contact__grid,
+      .sync-wrap .sync-contact__grid tr,
+      .sync-wrap .sync-contact__data,
+      .sync-wrap .sync-contact__cta{ display:block !important; width:100% !important; }
+      .sync-wrap .sync-contact__role{ white-space:nowrap; font-size:12.5px !important; }
+      .sync-wrap .sync-contact__line a{ font-size:13.5px !important; }
+      .sync-wrap .sync-contact__cta{ text-align:left !important; padding:0 !important; margin-top:14px; }
+      .sync-wrap .sync-contact__cta a{ display:block !important; text-align:center; }
+      /* ── La tabla de AUTORES se DESLIZA en horizontal en vez de partir las palabras
+         («COMPAÑÍ A EDITORIA L»): su contenedor lleva el scroll y ella un ancho mínimo. ── */
       .sync-wrap table table{ display:table !important; }
       .sync-wrap table table tr{ display:table-row !important; }
       .sync-wrap table table td, .sync-wrap table table th{ display:table-cell !important;
-        width:auto !important; padding:5px 6px !important; font-size:11.5px !important; }
+        width:auto !important; padding:5px 6px !important; font-size:11.5px !important;
+        white-space:nowrap; }
+      /* ⚠️ El scroll tiene que QUEDARSE dentro: sin `width:100%` + `min-width:0` en los padres, el
+         ancho mínimo de la tabla empuja toda la página y se sale por la derecha. */
+      .sync-wrap .sync-authors{ width:100%; max-width:100%; overflow-x:auto;
+                                -webkit-overflow-scrolling:touch; }
+      .sync-wrap .sync-authors__table{ min-width:420px; width:420px !important; }
+      .sync-wrap td, .sync-wrap tr, .sync-wrap table{ min-width:0 !important; max-width:100% !important; }
     }
   </style>
 </head>

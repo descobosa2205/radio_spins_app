@@ -1892,6 +1892,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ En la previsualización, **«One-Stop» solo se dice si el tema LO ES**: un tema habilitado a mano
   no lo es, y decirlo sería mentir justo en lo que le importa a un supervisor. El **género** va
   siempre al lado.
+  · **EL ASUNTO del correo**: «**Nuevo tema para Syncro, \<canción\> (One-Stop)**» (`_sync_subject`),
+  con «(One-Stop)» **solo si lo es** y el nombre de la canción sin traducir.
+  ⚠️⚠️ **SOLO cuenta como «enviada a Supervisors» lo que va a un SUPERVISOR**: el envío guarda el
+  canal (`SUPERVISOR` o `EMAIL`) y `_sync_sent_state` **filtra por `supervisor_id`**. Mandárselo a un
+  tercero por correo —o por WhatsApp o SMS, que ni pasan por el servidor— **no** marca la fila ni
+  cierra la tarea pendiente, aunque el envío sí queda registrado.
+  ⚠️⚠️ **`logo_clean_png` TIENE que estar en las listas de PÚBLICOS**: en una página pública sin
+  sesión el `<img>` se comía un 302 al login y el logo salía **roto** (el cuadradito con
+  interrogación) — pasó en el móvil, donde se abre el enlace sin sesión. Y si la imagen no es
+  nuestra o no se puede limpiar, **redirige al original**: un 404 ahí deja el logo roto, que es peor
+  que enseñarlo con su fondo.
+  · **MÓVIL del listado**: el título arriba, **debajo sus etiquetas** (One-stop, géneros, novedad) y
+  debajo el **artista y la fecha**; los huecos de los iconos de la derecha se **reservan siempre**
+  (`.pl-row__dl-plain.is-empty`) para que todas las filas midan lo mismo.
+  · **MÓVIL de la ficha del tema**: el título GRANDE con su etiqueta One-stop **a la derecha** (la
+  fila no se apila, y el título se queda con el ancho que sobra: con las dos celdas a `auto` la
+  etiqueta se salía por la derecha y el `overflow-x:hidden` la recortaba), el rótulo del responsable
+  en **una sola línea**, el correo y el teléfono cada uno en la suya y el botón de «más repertorio»
+  **abajo del todo**. La tabla de autores **se desliza** en vez de partir palabras.
+  · **NOVEDAD** (`SYNC_NEW_DAYS` = 15): en el repertorio abierto, un tema publicado hace menos de 15
+  días lleva su etiqueta al lado de la fecha. Se cae sola (se calcula, no se marca).
   ⚠️⚠️ **LOS DESTINATARIOS DEL ENVÍO SE CARGAN AL ABRIR EL POP-UP** (`sync_send_targets` →
   `_sync_send_targets.html`), no dentro del HTML de la pantalla: con cientos de supervisores —cada
   uno con su foto— la ficha de la canción y Syncros pesaban muchísimo, tardaban y se llegaba a ver

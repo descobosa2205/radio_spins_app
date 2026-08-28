@@ -5217,6 +5217,22 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   /* El título ocupa TODA la línea y las etiquetas caen debajo. */
   .pl-row__title{ display:flex; flex-wrap:wrap; align-items:center; gap:.25rem; row-gap:.3rem; }
   .pl-row__title > a, .pl-row__title > span:first-child{ flex:0 0 100%; }
+  /* ⚠️ En el REPERTORIO de Syncros (dentro de la app y en el abierto) se lee como en escritorio:
+     One-stop y Novedad se quedan AL LADO del título y solo los GÉNEROS bajan a la segunda fila.
+     Por eso aquí se deshace el `flex:0 0 100%` del título: quien salta de línea es `.sync-genres`. */
+  .rep-list .pl-row__title > a, .rep-list .pl-row__title > span:first-child{ flex:0 1 auto; min-width:0; }
+  .rep-list .sync-genres{ flex:0 0 100%; display:flex; flex-wrap:wrap; gap:.25rem; margin:0; }
+  /* En 375 px se aprieta lo justo para que One-stop y Novedad quepan AL LADO del título: la
+     etiqueta más compacta y menos hueco entre las piezas de la fila. Si el título es muy largo la
+     etiqueta envuelve igualmente —preferimos eso a recortar el nombre del tema—. */
+  .rep-list.pl-list .pl-row{ gap:.4rem; padding-left:.15rem; padding-right:.15rem; }
+  .rep-list .pl-row__title{ gap:.2rem; row-gap:.3rem; }
+  .rep-list .badge-onestop{ font-size:.58rem; padding:.26em .46em .26em .38em; letter-spacing:.03em; }
+  .rep-list .badge-onestop i{ font-size:.92em; }
+  .rep-list .sync-new{ font-size:.6rem; padding:.22em .46em; }
+  /* Los iconos de la derecha, más juntos (el hueco reservado se mantiene para que todas las filas
+     midan lo mismo, pero ocupando menos). */
+  .rep-list .pl-row__dl-plain{ min-width:1.35rem; }
   .pl-row__artist{ flex-wrap:wrap; row-gap:.2rem; }
   /* Los iconos de la derecha, alineados arriba y con su hueco siempre reservado. */
   .pl-row .pl-row__dl-plain,

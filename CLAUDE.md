@@ -5433,6 +5433,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   integrante**, así que la unificación no vuelve a funcionar. Antes solo se rellenaban si faltaban
   LOS DOS; ahora, cada uno por su lado.
 
+- **SYNCRO · EL CORREO SE ADAPTA AL ANCHO DE LA PANTALLA** (ago 2026). La portada tenía **236 px
+  FIJOS** en una tabla con `table-layout:fixed`, así que en un móvil a los datos les quedaban ~110 px:
+  el nombre del artista y la fecha se partían en dos líneas y la tabla de autores se salía por la
+  derecha (bug real, con captura). Por debajo de **520 px** la portada y los datos se **APILAN**,
+  cada uno a todo el ancho, y los dos módulos —la canción y el contacto— miden lo mismo.
+  ⚠️ Un correo no admite hojas externas: el `<style>` con la media query va **dentro del propio
+  cuerpo** que genera `_sync_pitch_html`. El cliente que no entienda media queries (los hay) sigue
+  viendo la maqueta de escritorio, que es la de antes — nunca peor que ahora.
+  ⚠️ Con `table-layout:fixed` **la columna sigue mandando aunque la celda sea `display:block`**: las
+  celdas se quedaban a 193 px de los 331 disponibles. Hay que pasar la tabla a `auto` **y la FILA
+  también a bloque**.
+  ⚠️ En la página pública la tabla de autores se forzaba a **420 px con scroll**, así que se
+  deslizaba SIEMPRE; ahora que hay sitio ocupa el ancho que hay (`width:100%`, cabeceras que
+  envuelven) y el scroll queda solo como red de seguridad.
+  · Medido a 375 px en el correo y en la página: nada se sale, nada se parte y los dos bloques miden
+  igual; y a 1100 px la maqueta de siempre (portada y datos lado a lado).
+
+- **REPERTORIO de Syncros en MÓVIL** (ago 2026): se lee como en escritorio —**One-stop y Novedad AL
+  LADO del título**, los **géneros en la segunda fila** y el artista y la fecha en la tercera—, en el
+  back office y en el abierto. Para eso, en `.rep-list` se deshace el `flex:0 0 100%` que la red de
+  seguridad de móvil pone al título (quien salta de línea es `.sync-genres`) y se aprieta lo justo el
+  espaciado de la fila: la etiqueta va más compacta y los iconos de la derecha ocupan menos.
+  ⚠️ Si el título es muy largo la etiqueta envuelve igualmente: es preferible a recortar el nombre
+  del tema.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

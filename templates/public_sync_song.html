@@ -98,7 +98,13 @@
          ancho mínimo de la tabla empuja toda la página y se sale por la derecha. */
       .sync-wrap .sync-authors{ width:100%; max-width:100%; overflow-x:auto;
                                 -webkit-overflow-scrolling:touch; }
-      .sync-wrap .sync-authors__table{ min-width:420px; width:420px !important; }
+      /* ⚠️ La tabla ocupa el ANCHO QUE HAY y solo se desliza si de verdad no cabe. Antes se le
+         forzaba 420 px, así que se deslizaba SIEMPRE; ahora que la portada y los datos se apilan
+         hay sitio de sobra y la tabla entera se lee sin tocar nada (las cabeceras envuelven). */
+      .sync-wrap .sync-authors__table{ min-width:0 !important; width:100% !important; }
+      .sync-wrap .sync-authors__table th,
+      .sync-wrap .sync-authors__table td{ font-size:11px !important; padding:4px 5px !important;
+                                          white-space:normal !important; }
       .sync-wrap td, .sync-wrap tr, .sync-wrap table{ min-width:0 !important; max-width:100% !important; }
     }
   </style>

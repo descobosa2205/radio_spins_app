@@ -121275,7 +121275,7 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
                    'display:block;">'
                    % (esc(ctx["cover_url"]), "" if email else ' data-sync-cover="1"'))
     else:
-        portada = ('<div style="width:220px;height:220px;border-radius:12px;background:#f1f3f5;'
+        portada = ('<div class="sync-cover-ph" style="width:220px;height:220px;border-radius:12px;background:#f1f3f5;'
                    'border:1px solid #e6e9ec;"></div>')
 
     def dato(icono, valor, extra=""):
@@ -121368,16 +121368,44 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
             intro = intro.replace("margin:0 0 6px;", "margin:0 0 18px;", 1)
 
     return (
-        '<div style="max-width:680px;margin:0 auto;padding:22px;font-family:-apple-system,'
+        # ⚠️⚠️ ADAPTADO AL ANCHO DE LA PANTALLA. La portada tenía 236 px FIJOS con
+        # `table-layout:fixed`, así que en un móvil a los datos les quedaban ~110 px: el nombre del
+        # artista y la fecha se partían en dos líneas y la tabla de autores se salía por la derecha
+        # (bug real, con captura). Por debajo de 520 px la portada y los datos se APILAN, cada uno a
+        # todo el ancho, y los dos módulos —la canción y el contacto— miden lo mismo.
+        # Un correo no admite hojas externas, así que el `<style>` va aquí dentro; el cliente que no
+        # entienda media queries (los hay) sigue viendo la maqueta de escritorio, que es la de antes.
+        '<style>'
+        '.sync-body{max-width:680px;margin:0 auto;padding:22px;background:#fff;}'
+        '@media only screen and (max-width:520px){'
+        '.sync-body{padding:14px !important;}'
+        # ⚠️ Con `table-layout:fixed` la columna sigue mandando aunque la celda sea `display:block`:
+        # se quedaban a 193 px de los 331 disponibles. La tabla pasa a `auto` y la FILA también a
+        # bloque, y así cada celda ocupa todo el ancho.
+        '.sync-card{table-layout:auto !important;}'
+        '.sync-card tr{display:block !important;width:100%% !important;}'
+        '.sync-card .sync-cell{display:block !important;width:100%% !important;}'
+        '.sync-card .sync-cell--cover{padding:14px 14px 0 !important;text-align:center !important;}'
+        '.sync-card .sync-cell--data{padding:12px 14px 14px !important;}'
+        '.sync-cover,.sync-cover-ph{width:100%% !important;max-width:260px !important;'
+        'height:auto !important;aspect-ratio:1/1;margin:0 auto !important;}'
+        '.sync-authors__table{table-layout:auto !important;}'
+        '.sync-authors__table th,.sync-authors__table td{font-size:11px !important;'
+        'padding:4px 5px !important;}'
+        '.sync-logos img{height:24px !important;}'
+        '}'
+        '</style>'
+        '<div class="sync-body" style="max-width:680px;margin:0 auto;padding:22px;'
+        'font-family:-apple-system,'
         'BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;background:#fff;">'
         '<div style="text-align:right;margin-bottom:6px;">%s</div>'
         '<h1 style="margin:8px 0 14px;font-size:23px;line-height:1.25;text-align:center;'
         'color:#111827;">%s</h1>'
         '%s'
-        '<table style="width:100%%;border-collapse:collapse;table-layout:fixed;background:#fff;'
-        'border:1px solid #e6e9ec;border-radius:14px;"><tr>'
-        '<td style="padding:16px;vertical-align:top;width:236px;">%s</td>'
-        '<td style="padding:16px 16px 16px 0;vertical-align:top;">'
+        '<table class="sync-card" style="width:100%%;border-collapse:collapse;table-layout:fixed;'
+        'background:#fff;border:1px solid #e6e9ec;border-radius:14px;"><tr>'
+        '<td class="sync-cell sync-cell--cover" style="padding:16px;vertical-align:top;width:236px;">%s</td>'
+        '<td class="sync-cell sync-cell--data" style="padding:16px 16px 16px 0;vertical-align:top;">'
         '<table class="sync-titlerow" style="width:100%%;border-collapse:collapse;"><tr>'
         '<td class="sync-title" style="font-size:20px;font-weight:800;color:#111827;line-height:1.2;padding:0;">%s</td>'
         '<td class="sync-badge" style="text-align:right;padding:0 0 0 10px;white-space:nowrap;">%s</td>'

@@ -5225,3 +5225,21 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   .pl-row.is-playing .pl-row__player{ flex:0 0 100%; order:10; margin-top:.4rem; }
   .pl-row__dur{ order:9; }
 }
+
+/* ── Sugerencias de un buscador CON MINIATURA (`typeahead.js`) ───────────────────────────────
+   Un `<datalist>` nativo no admite imágenes, así que cuando el endpoint devuelve logo o foto se
+   pinta esta lista: la editorial, el tercero o la ticketera se eligen viendo su logo. */
+.ta-results{
+  display:none; position:absolute; z-index:1080; left:0; right:0; margin-top:2px;
+  background:#fff; border:1px solid #e3e6eb; border-radius:.6rem; box-shadow:0 8px 24px rgba(20,25,35,.12);
+  max-height:16rem; overflow:auto;
+}
+.ta-item{
+  display:flex; align-items:center; gap:.55rem; width:100%; text-align:left; border:0;
+  background:transparent; padding:.35rem .6rem; font:inherit; color:inherit;
+}
+.ta-item:hover{ background:rgba(0,124,162,.07); }
+.ta-item img, .ta-item__noimg{
+  width:26px; height:26px; object-fit:contain; flex:0 0 auto; border-radius:.3rem; background:#f4f6f8;
+}
+.ta-item__t{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

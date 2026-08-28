@@ -7103,6 +7103,48 @@ def _rl_image_flowable_from_url(file_url: str | None, width_cm: float, height_cm
         return None
 
 
+# El ALCANCE de un cambio de editorial de un autor.
+PUBLISHER_SCOPE_ONE = "ONE"          # solo en esta canción (el snapshot del registro)
+PUBLISHER_SCOPE_FORWARD = "FORWARD"  # y en su ficha, para las canciones de aquí en adelante
+
+
+def _publisher_change_info(session_db, promoter, editorial) -> dict | None:
+    """¿Este autor CAMBIA de editorial? Devuelve el aviso (`antes`/`ahora`) o None si no cambia.
+
+    ⚠️ La editorial de un autor puede cambiar a partir de una fecha o de un tema, así que el cambio
+    **hay que preguntarlo**: puntual (solo esta canción) o de aquí en adelante. Punto único: lo usan
+    la ficha, la entrega de masters y las demos."""
+    if promoter is None or editorial is None:
+        return None
+    actual = getattr(promoter, "publishing_company_id", None)
+    if actual and str(actual) == str(editorial.id):
+        return None                       # no cambia nada
+    antes = session_db.get(PublishingCompany, actual) if actual else None
+    return {
+        "promoter_id": str(promoter.id),
+        "promoter_name": _promoter_display_name(promoter) or "—",
+        "before_id": (str(actual) if actual else ""),
+        "before_name": ((getattr(antes, "name", "") or "").strip() or "sin editorial"),
+        "after_id": str(editorial.id),
+        "after_name": (editorial.name or "").strip(),
+    }
+
+
+def _publisher_apply_change(session_db, promoter, editorial, scope: str) -> None:
+    """Aplica el cambio de editorial de un autor según su ALCANCE.
+
+    · `ONE` → **solo esta canción**: el registro guarda su snapshot y la ficha del autor no se toca.
+    · `FORWARD` → además se cambia en su ficha, así que vale **de aquí en adelante**.
+    ⚠️ En ninguno de los dos casos se tocan los registros ANTERIORES: cada uno conserva la editorial
+    que tenía congelada el día que se guardó (`SongEditorialShare.publishing_company_id`).
+    """
+    if promoter is None or editorial is None:
+        return
+    if (scope or "").strip().upper() == PUBLISHER_SCOPE_FORWARD:
+        promoter.publishing_company_id = editorial.id
+        session_db.add(promoter)
+
+
 def _share_publisher(share):
     """Editorial efectiva de un registro de autoría.
 
@@ -18242,8 +18284,11 @@ def discografica_song_editorial_share_save(song_id):
             promoter.contact_email = contact_email
         if contact_phone is not None and contact_phone != "":
             promoter.contact_phone = contact_phone
-        if publishing_company is not None:
-            promoter.publishing_company_id = publishing_company.id
+        # ⚠️ CAMBIO DE EDITORIAL: solo se toca la ficha del autor si se ha pedido «para todas de
+        # aquí en adelante». Por defecto el cambio es PUNTUAL (solo esta canción), que es lo que se
+        # guarda igualmente en el snapshot del registro.
+        _publisher_apply_change(session_db, promoter, publishing_company,
+                                request.form.get("publisher_scope") or PUBLISHER_SCOPE_ONE)
 
         # Validar suma de porcentajes (<= 100)
         q = session_db.query(func.coalesce(func.sum(SongEditorialShare.pct), 0)).filter(SongEditorialShare.song_id == sid)
@@ -18287,6 +18332,24 @@ def discografica_song_editorial_share_save(song_id):
         session_db.rollback()
         flash(f"Error guardando editorial: {e}", "danger")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
+    finally:
+        session_db.close()
+
+
+@app.get("/api/editorial/cambio-editorial", endpoint="api_publisher_change")
+@admin_required
+def api_publisher_change():
+    """¿Cambiar la editorial de este autor es un CAMBIO? Devuelve el aviso para preguntarlo.
+
+    Lo usa el pop-up de la ficha antes de guardar: «la editorial de X era A y pasa a B; ¿solo en
+    esta canción o de aquí en adelante?»."""
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, to_uuid((request.args.get("promoter_id") or "").strip() or ""))
+        editorial = session_db.get(PublishingCompany,
+                                   to_uuid((request.args.get("publishing_company_id") or "").strip() or ""))
+        info = _publisher_change_info(session_db, promoter, editorial)
+        return jsonify({"ok": True, "change": info})
     finally:
         session_db.close()
 
@@ -32787,6 +32850,8 @@ def public_song_master_delivery(token):
                 pcts = request.form.getlist("author_pct")
                 promoter_ids = request.form.getlist("author_promoter_id")
                 publishing_ids = request.form.getlist("author_publishing_id")
+                # El ALCANCE del cambio de editorial de cada autor (puntual o de aquí en adelante).
+                scopes = request.form.getlist("author_publisher_scope")
                 authors, total = [], 0.0
                 for i, nm in enumerate(names):
                     nm = (nm or "").strip()
@@ -32803,6 +32868,7 @@ def public_song_master_delivery(token):
                         "role": role, "pct": pct,
                         "promoter_id": (promoter_ids[i] if i < len(promoter_ids) else "").strip(),
                         "publishing_company_id": (publishing_ids[i] if i < len(publishing_ids) else "").strip(),
+                        "publisher_scope": (scopes[i] if i < len(scopes) else "").strip().upper(),
                     })
                     total += pct
                 if not authors and conf.get("authoral", {}).get("required"):
@@ -33155,11 +33221,11 @@ def discografica_song_delivery_consolidate(song_id, link_id):
                     editorial = session_db.get(PublishingCompany, to_uuid(pcid))
                 if not editorial:
                     editorial = _delivery_get_or_create_publishing(session_db, a.get("editorial"))
-                if editorial and getattr(promoter, "publishing_company_id", None) != editorial.id:
-                    # La editorial elegida pasa a ser la del tercero de aquí en adelante; los
-                    # registros ya guardados conservan su snapshot y no se ven afectados.
-                    promoter.publishing_company_id = editorial.id
-                    session_db.add(promoter)
+                # ⚠️ MISMO criterio que en la ficha: el cambio de editorial es PUNTUAL salvo que
+                # quien lo sube haya dicho «para todas de aquí en adelante» (`publisher_scope` de
+                # ese autor). Los registros anteriores no se tocan nunca.
+                _publisher_apply_change(session_db, promoter, editorial,
+                                        (a.get("publisher_scope") or PUBLISHER_SCOPE_ONE))
                 role = (a.get("role") or "AUTHOR").upper()
                 if role not in {"AUTHOR", "COMPOSER", "AUTHOR_COMPOSER"}:
                     role = "AUTHOR"
@@ -48923,8 +48989,13 @@ def api_search_publishing_companies():
             like = f"%{q}%"
             query = query.filter(_sa_contains_text(PublishingCompany.name, q))
         res = query.order_by(PublishingCompany.name.asc()).limit(20).all()
+        # ⚠️ Con su LOGO: los selectores de editorial se pintan con logo en TODA la app (aquí solo
+        # venían `id` y `label`, y por eso salían pelados).
         return jsonify([
-            {"id": str(pc.id), "label": pc.name} for pc in res
+            {"id": str(pc.id), "label": pc.name, "name": pc.name,
+             "logo_url": _absolute_media_url((getattr(pc, "logo_url", None) or "").strip()),
+             "photo_url": _absolute_media_url((getattr(pc, "logo_url", None) or "").strip())}
+            for pc in res
         ])
     finally:
         session_db.close()
@@ -67422,6 +67493,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "booking_request_convert", "booking_request_close",
 }
 SUPPORT_READ_ENDPOINTS = {
+    # Consultar si cambiar la editorial de un autor es un cambio: es una LECTURA.
+    "api_publisher_change",
     # Escáner de documentos: es una BÚSQUEDA (no cambia nada) y la usan terceros, personal,
     # invitaciones… cualquiera con sesión.
     "doc_scan_lookup",

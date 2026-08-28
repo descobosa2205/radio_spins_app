@@ -1879,6 +1879,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`data-sync-mode`) — `supervisors` (con sus filtros y su lista) y **`email`**, que solo deja elegir
   terceros/personal/artistas de la base o escribir direcciones. En modo correo no se pide la lista.
 
+- ⚠️⚠️ **CAMBIAR LA EDITORIAL DE UN AUTOR SE PREGUNTA** (ago 2026). La editorial de un autor puede
+  cambiar **a partir de una fecha o de un tema**, así que al elegir una distinta a la que tiene se
+  avisa —«la editorial de X era A y ahora pasa a B»— y se elige el **ALCANCE**:
+  · **Solo en esta canción** (`PUBLISHER_SCOPE_ONE`, lo de por defecto): se guarda en el snapshot del
+    registro (`SongEditorialShare.publishing_company_id`) y **su ficha no se toca**.
+  · **Para todas, de aquí en adelante** (`PUBLISHER_SCOPE_FORWARD`): además se cambia en su ficha
+    (`Promoter.publishing_company_id`).
+  ⚠️ **En ninguno de los dos casos se tocan las canciones ANTERIORES**: cada registro conserva la
+  editorial que quedó congelada el día que se guardó (comprobado: tras cambiar «para todas», la
+  canción vieja sigue con la suya).
+  · Puntos únicos **`_publisher_change_info`** (¿cambia? y el texto del aviso) y
+  **`_publisher_apply_change`** (qué se toca según el alcance), usados por **la ficha**, **la entrega
+  de masters** (el enlace público manda el alcance por autor) y las **demos**. Antes, los tres
+  cambiaban la ficha del autor **siempre y sin preguntar**.
+  · El aviso es el pop-up único `_publisher_scope_modal.html` (`window.pedirAlcanceEditorial`), que
+  consulta `api_publisher_change` y **no molesta si no hay cambio**.
+
+- ⚠️ **LOS SELECTORES DE EDITORIAL (y de cualquier cosa con logo) SE VEN CON SU LOGO**: un
+  `<datalist>` nativo **no admite imágenes**, así que `initTypeahead` pinta una **lista propia**
+  (`.ta-results`) cuando el endpoint devuelve `logo_url`/`photo_url`, y el datalist de siempre cuando
+  no. `api_search_publishing_companies` devolvía solo `id` y `label` — por eso las editoriales salían
+  peladas en la app mientras que en el enlace público sí tenían logo.
+
 - **REPARTO EDITORIAL en la ficha de la canción** (ago 2026): el autor se ve **como cualquier otro**
   (con su % de la obra) y **DEBAJO dos etiquetas grises claritas** (`.ed-share__tag`) dicen cuánto le
   queda a él (**«Autor X%»**) y cuánto a **«Plataforma Y%»**, con el detalle al pasar el ratón.

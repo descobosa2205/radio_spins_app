@@ -2806,9 +2806,11 @@
 
     {% if CAN_EDIT_DISCOGRAFICA %}
       <!-- Modal: Añadir / editar autor-compositor -->
+      {% include '_publisher_scope_modal.html' %}
       <div class="modal fade" id="editorialShareModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
-          <form class="modal-content" method="post" action="{{ url_for('discografica_song_editorial_share_save', song_id=song.id) }}">
+          <form class="modal-content" method="post" id="editorialShareForm"
+                action="{{ url_for('discografica_song_editorial_share_save', song_id=song.id) }}">
             <div class="modal-header">
               <h5 class="modal-title" id="editorialShareModalTitle">Añadir autor/compositor</h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -2817,6 +2819,8 @@
               <input type="hidden" name="share_id" id="editorialShareId">
               <input type="hidden" name="promoter_id" id="editorialPromoterId">
               <input type="hidden" name="publishing_company_id" id="editorialPublisherId">
+              {# El ALCANCE del cambio de editorial (lo rellena el pop-up de aviso). #}
+              <input type="hidden" name="publisher_scope" id="editorialPublisherScope" value="ONE">
 
               <div class="row g-2">
                 <div class="col-12">
@@ -3278,4 +3282,29 @@
    ⚠️⚠️ TIENEN que ir DENTRO de `{% block content %}`: fuera, Jinja los emite antes del `<!doctype>`
    y el navegador pinta esa parte SIN ESTILOS hasta que llega el CSS (bug real). #}
 {% if sync_in_repertoire and CAN_EDIT_SYNCROS %}{% include '_sync_send_modal.html' %}{% endif %}
+{% if CAN_EDIT_DISCOGRAFICA %}
+<script>
+  // ⚠️ CAMBIO DE EDITORIAL: antes de guardar se pregunta el alcance (solo esta canción o de aquí en
+  // adelante). Si no cambia de editorial, `pedirAlcanceEditorial` resuelve solo y no molesta.
+  (function () {
+    var form = document.getElementById('editorialShareForm');
+    if (!form) return;
+    var confirmado = false;
+    form.addEventListener('submit', function (ev) {
+      if (confirmado || !window.pedirAlcanceEditorial) return;
+      var pid = (document.getElementById('editorialPromoterId') || {}).value || '';
+      var ped = (document.getElementById('editorialPublisherId') || {}).value || '';
+      if (!pid || !ped) return;                    // autor nuevo o editorial por nombre: nada que avisar
+      ev.preventDefault();
+      window.pedirAlcanceEditorial(pid, ped).then(function (scope) {
+        if (!scope) return;                        // ha cancelado: no se guarda
+        document.getElementById('editorialPublisherScope').value = scope;
+        confirmado = true;
+        form.submit();
+      });
+    });
+  })();
+</script>
+{% endif %}
+
 {% endblock %}

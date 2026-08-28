@@ -1,0 +1,69 @@
+{# ============================================================================
+   AVISO al cambiar la EDITORIAL de un autor.
+   La editorial de un autor puede cambiar a partir de una fecha o de un tema, así que el cambio se
+   PREGUNTA: ¿solo en esta canción, o de aquí en adelante? Lo de antes no se toca nunca (cada
+   registro conserva la editorial que tenía congelada el día que se guardó).
+   Se usa con `window.pedirAlcanceEditorial(promoterId, publisherId)` → promesa con 'ONE' | 'FORWARD'
+   (o null si se cancela).
+   ============================================================================ #}
+<div class="modal fade" id="publisherScopeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-building-columns me-2"></i>Cambio de editorial</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">La editorial de <strong data-ps-name></strong> era
+          <strong data-ps-before></strong> y ahora pasa a <strong data-ps-after></strong>.</p>
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-outline-secondary text-start" data-ps-scope="ONE">
+            <i class="fa-solid fa-music fa-fw me-2"></i><strong>Solo en esta canción</strong>
+            <span class="d-block small text-muted ms-4">Su ficha no cambia: el resto de temas siguen igual.</span>
+          </button>
+          <button type="button" class="btn btn-outline-primary text-start" data-ps-scope="FORWARD">
+            <i class="fa-solid fa-forward fa-fw me-2"></i><strong>Para todas, de aquí en adelante</strong>
+            <span class="d-block small text-muted ms-4">Se cambia en su ficha. Las canciones ANTERIORES
+              no se tocan: cada una conserva la editorial con la que se guardó.</span>
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-link text-muted" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var URL_CAMBIO = {{ url_for('api_publisher_change')|tojson }};
+  window.pedirAlcanceEditorial = function (promoterId, publisherId) {
+    return new Promise(function (resolve) {
+      if (!promoterId || !publisherId) { resolve('ONE'); return; }
+      fetch(URL_CAMBIO + '?promoter_id=' + encodeURIComponent(promoterId) +
+            '&publishing_company_id=' + encodeURIComponent(publisherId),
+            { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (j) {
+          var c = j && j.change;
+          if (!c) { resolve('ONE'); return; }        // no cambia de editorial: nada que preguntar
+          var m = document.getElementById('publisherScopeModal');
+          if (!m) { resolve('ONE'); return; }
+          m.querySelector('[data-ps-name]').textContent = c.promoter_name || '';
+          m.querySelector('[data-ps-before]').textContent = c.before_name || '';
+          m.querySelector('[data-ps-after]').textContent = c.after_name || '';
+          var inst = bootstrap.Modal.getOrCreateInstance(m);
+          var hecho = false;
+          function elegir(v) { if (hecho) return; hecho = true; inst.hide(); resolve(v); }
+          m.querySelectorAll('[data-ps-scope]').forEach(function (b) {
+            b.onclick = function () { elegir(b.getAttribute('data-ps-scope')); };
+          });
+          m.addEventListener('hidden.bs.modal', function () { if (!hecho) { hecho = true; resolve(null); } },
+                             { once: true });
+          inst.show();
+        })
+        .catch(function () { resolve('ONE'); });
+    });
+  };
+})();
+</script>

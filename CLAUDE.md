@@ -5373,6 +5373,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   OTRA editorial → no; registro vacío con la ficha en Plataforma → sí; registro vacío con la ficha en
   otra → no.
 
+- ⚠️⚠️ **CHARTMETRIC · las cuatro trampas de la vinculación por ISRC** (ago 2026, sacadas por una
+  auditoría contra su OpenAPI):
+  · **`obj` viene como ARRAY** en `/api/track/{type}/{id}/get-ids` y solo se aceptaba un dict → la
+  función devolvía **`{}` siempre** y no se vinculaba NADA (ver arriba).
+  · ⚠️ **Un resultado de `/api/search` SIN ISRC se estaba aceptando**: el filtro era
+  `if suyo and suyo != code`, y con el campo vacío el `and` cortaba y pasaba. En su spec el `isrc`
+  de un resultado es **opcional**, así que se colaba cualquier homónimo. Ahora se exige que el ISRC
+  **coincida**: enganchar la canción al track de otro es mucho peor que no vincularla.
+  · **Se preguntaba DOS VECES por el mismo código**: el ISRC está en `Song.isrc` **y** en
+  `SongISRCCode`, y la lista no se deduplicaba (con el respaldo, cuatro llamadas donde basta una).
+  Se arma con `_norm_isrc_list`, que normaliza y quita repetidos. Importa porque **cada llamada
+  cuesta créditos**.
+  · **La búsqueda MANUAL nunca usaba `get-ids` para una canción**: a `_cm_first` le faltaba
+  `chartmetric_ids`, que es la clave que la API devuelve para un TRACK (la de álbum sí estaba, por
+  eso los discos sí resolvían por ahí). Caía siempre en `/api/search` — que es, precisamente, por lo
+  que a mano «sí encontraba» lo que la automática no.
+
+- ⚠️ **EL ISRC SE GUARDA EN SECO, TAMBIÉN AL VOLCAR UN LABEL COPY** (ago 2026): en el PDF vienen con
+  guiones y `_lc_apply_isrcs` los guardaba tal cual, así que **cada volcado volvía a meter el formato
+  viejo** y deshacía el arreglo. Ahora pasa por `_norm_isrc` al guardar (el relleno puntual va por
+  `isrc_no_dashes_v2`, porque el v1 ya había corrido).
+  ⚠️ En el detalle de una **liquidación de royalties** solo se normaliza el código de una CANCIÓN
+  (`item_kind == 'SONG'`): en un álbum ese campo es su **Product Code** y `|isrc` lo destrozaría. Es
+  el mismo criterio que ya aplicaba el PDF.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

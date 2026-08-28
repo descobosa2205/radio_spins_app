@@ -77,7 +77,9 @@
                   </div>
                 {% endif %}
               </td>
-              <td class="small">{{ it.get('code') or '—' }}{% if it.get('code_label') and not compact %}<div class="text-muted rliq__codelab">{{ it.get('code_label') }}</div>{% endif %}</td>
+              {# ⚠️ Solo el ISRC de una CANCIÓN se escribe en seco: en un álbum este campo es su
+                 Product Code y `|isrc` lo destrozaría. Es el mismo criterio que ya aplica el PDF. #}
+              <td class="small">{% if it.get('item_kind') == 'SONG' %}{{ (it.get('code')|isrc) or '—' }}{% else %}{{ it.get('code') or '—' }}{% endif %}{% if it.get('code_label') and not compact %}<div class="text-muted rliq__codelab">{{ it.get('code_label') }}</div>{% endif %}</td>
               <td class="small">{{ it.get('release_date') or '—' }}</td>
               <td class="text-end small">{{ (it.get('income') or 0)|eur }}</td>
               <td class="text-center small">{{ '%.2f'|format(it.get('pct')|float) }}%</td>

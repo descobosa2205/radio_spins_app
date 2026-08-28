@@ -2719,7 +2719,9 @@ def _isrc_dashes_backfill_once():
     ⚠️ El formato de la casa pasa a ser el código EN SECO, que es con el que se encuentra fuera
     (Chartmetric no devuelve nada con guiones). Lo que ya estaba escrito con ellos se limpia una
     vez; a partir de ahí lo hace `_norm_isrc` al guardar."""
-    marca = "isrc_no_dashes_v1"
+    # ⚠️ v2: el v1 ya corrió, y hasta ahora el volcado de Label Copy seguía guardando los
+    # códigos con guiones (venían así del PDF), así que hay que repasar otra vez.
+    marca = "isrc_no_dashes_v2"
     s = db()
     try:
         if (_get_app_setting(marca) or "").strip():
@@ -54179,7 +54181,9 @@ def _lc_apply_isrcs(session_db, song, codigos: list):
     ⚠️ No se borra ninguno de los que ya había: un código no se quita por no venir en un LC viejo."""
     limpios, vistos = [], set()
     for c in codigos or []:
-        c = str(c or "").strip()
+        # ⚠️ EN SECO al guardar: en el PDF vienen con guiones, y guardándolos así se volvía a meter
+        # en la base el formato viejo —deshaciendo el arreglo en cada volcado de Label Copy—.
+        c = _norm_isrc(c)
         if c and _lc_norm_code(c) not in vistos:
             vistos.add(_lc_norm_code(c))
             limpios.append(c)
@@ -114041,7 +114045,9 @@ def _cm_autolink_songs_by_isrc(session_db, *, limit: int = CM_AUTOLINK_PER_RUN,
             codigos.setdefault(str(fila.song_id), []).append(getattr(fila, "code", None))
 
     for sg in candidatas:
-        posibles = [c for c in ([getattr(sg, "isrc", None)] + codigos.get(str(sg.id), [])) if c]
+        # ⚠️ Sin dedupe se pregunta DOS VECES por el mismo código (está en `Song.isrc` y en
+        # `SongISRCCode`), y con el respaldo son cuatro llamadas donde basta una.
+        posibles = _norm_isrc_list([getattr(sg, "isrc", None)] + codigos.get(str(sg.id), []))
         if not posibles:
             continue                      # sin ISRC no hay nada que buscar (no gasta llamada)
         if salida["checked"] >= limit:
@@ -114061,8 +114067,12 @@ def _cm_autolink_songs_by_isrc(session_db, *, limit: int = CM_AUTOLINK_PER_RUN,
                         for fila in (cm.search_tracks(code, limit=5) or []):
                             if not isinstance(fila, dict):
                                 continue
+                            # ⚠️ El ISRC tiene que COINCIDIR. En `/api/search` el campo `isrc` es
+                            # opcional, así que con `if suyo and …` un resultado SIN ISRC pasaba el
+                            # filtro y se vinculaba a ciegas: enganchar la canción al track de otro
+                            # es mucho peor que no vincularla.
                             suyo = cm.norm_isrc(_cm_first(fila, "isrc", "isrc_code") or "")
-                            if suyo and suyo != cm.norm_isrc(code):
+                            if suyo != cm.norm_isrc(code):
                                 continue
                             posible = str(_cm_first(fila, "cm_track", "id", "chartmetric_id",
                                                     "chartmetric_ids") or "")
@@ -114654,7 +114664,10 @@ def api_cm_search():
             else:
                 code = cm.norm_isrc(q)
                 ids = cm.get_track_ids_from_isrc(code) if len(code) == 12 else {}
-            ref = str(_cm_first(ids, "cm_track", "cm_album", "id", "chartmetric_id") or "")
+            # ⚠️ `chartmetric_ids` es la clave que get-ids devuelve para un TRACK (la de álbum sí
+            # estaba, por eso los discos sí resolvían por aquí): sin ella la búsqueda manual de una
+            # canción nunca usaba el camino barato y siempre caía en /api/search.
+            ref = str(_cm_first(ids, "cm_track", "cm_album", "id", "chartmetric_id", "chartmetric_ids") or "")
             if ref:
                 datos = (cm.get_album(ref) if kind == "album" else cm.get_track(ref)) or {}
                 salida.append(_cm_search_result(datos or ids, kind, ref))

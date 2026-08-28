@@ -2538,10 +2538,16 @@ body.vmap-max-open { overflow: hidden; }
   background:#fff; color:#495057; font-size:.85rem; line-height:1.1; cursor:pointer;
   transition:background .15s, border-color .15s, color .15s, opacity .15s;
 }
-.sales-chip img, .sales-chip__ico {
+/* ⚠️ `.sales-chip img` se quitó del selector: los chips de artista eran los únicos con <img> y
+   ahora usan `.artist-mini` (el filtro es el del repertorio). `.sales-chip__ico` SÍ sigue vivo —lo
+   usan Tipo y Estado, y los botones de evento SIN foto del filtro de artistas—. */
+.sales-chip__ico {
   width:24px; height:24px; border-radius:50%; object-fit:cover; flex:0 0 auto;
   display:inline-flex; align-items:center; justify-content:center; background:#eef0f3; color:#6c757d;
 }
+/* En el filtro de artistas el hueco del icono mide como la foto (`.artist-mini`, 28 px): si no, un
+   evento sin foto quedaba un poco más bajo que un artista con ella. */
+#salesArtistChips .sales-chip__ico{ width:28px; height:28px; }
 .sales-chip__t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:14rem; }
 .sales-chip--sm { padding:.2rem .7rem; }
 .sales-chip--sm .sales-chip__ico { width:18px; height:18px; font-size:.72rem; }

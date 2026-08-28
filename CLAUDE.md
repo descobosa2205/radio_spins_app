@@ -5477,6 +5477,37 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   dos estaban puestos. Ahora solo el elegido va oscuro. Vale para los cuatro filtros del repertorio
   (canciones, álbumes, editorial, colaboraciones) y para el del reporte de ventas.
 
+- ⚠️ **UN FILTRO DE SELECCIÓN ÚNICA NO PUEDE PERDERSE EN UNA RECARGA** (ago 2026): el reporte de
+  ventas tiene un vigía que pregunta por las ventas de Enterticket cada 5 s y hace `location.reload()`
+  cuando llega un sync. Con el filtro antiguo (todos los artistas activos) la recarga devolvía el
+  mismo conjunto y nadie se enteraba; **con selección única te llevaba de vuelta a «Todos» en medio
+  del trabajo**. `safeReload()` aplaza ya la recarga si hay un modal abierto, y ahora también si hay
+  **artista, tipo, estado o búsqueda** puestos.
+  ⚠️ El vigía solo se pinta con eventos de Enterticket vinculados (`{% if et_stamp is defined and
+  et_map %}`), así que en una BD sin ellos ese bloque no existe.
+
+- ⚠️ **UN BUSCADOR TIENE QUE NORMALIZAR LOS DOS LADOS** (bug real, ago 2026): en el reporte de ventas
+  la consulta se limpiaba de acentos (`norm`) pero el pajar no —`data-search` lo pinta Jinja con
+  `|lower` a secas—, así que buscar «nus» no encontraba «Ñus» y «muñoz» no encontraba «Muñoz». El
+  repertorio no lo tenía porque normaliza los dos. Al añadir un buscador, comparar SIEMPRE
+  normalizado a los dos lados.
+
+- ⚠️ **EL A4 Y EL CORREO DEL REPORTE DE VENTAS SIGUEN MANDANDO EL DÍA COMPLETO**, no lo que se está
+  viendo (ago 2026). El servidor sí sabe filtrar (`_sales_report_filters_from_request`), pero el A4
+  compone su enlace con los filtros de la URL de carga y el JS no lo reescribe, y el formulario del
+  correo solo lleva la fecha. Antes no se notaba (todos los artistas activos = todo); **con selección
+  única lo normal es tener un artista puesto, así que la diferencia se ve a la primera**. Se ha
+  dejado así a propósito: el correo va a la empresa y mandar un reporte parcial sin darse cuenta es
+  peor que mandarlo entero.
+  ⚠️ Si algún día se conecta, ojo: las claves de los chips **no son todas UUIDs** (`event:<slug>` y
+  `otros` para los conciertos sin artista) y el filtro del servidor solo entiende UUIDs —mandarle
+  `?artist=event:…` no filtraría nada **en silencio**—, y el chip de ESTADO no tiene equivalente en
+  el servidor.
+  ⚠️ En esa misma tarjeta, **Tipo y Estado siguen siendo las píldoras rojas** (`.sales-chip`) mientras
+  el de artistas es un botón de Bootstrap: se cambió solo el que se pidió. Si se homogeneizan, ahí sí
+  se podría retirar `.sales-chip` del CSS (hoy lo necesitan esos dos grupos **y** `wireSingle`, que
+  selecciona por esa clase).
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

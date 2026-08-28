@@ -51,7 +51,7 @@
       <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2"
               data-artist-chip="{{ e.key }}" title="{{ e.name }}">
         {% if e.photo %}<img src="{{ e.photo }}" class="artist-mini" alt="">
-        {% else %}<i class="fa {{ 'fa-calendar-star' if e.kind == 'event' else 'fa-user' }} text-muted"></i>{% endif %}
+        {% else %}<span class="sales-chip__ico"><i class="fa {{ 'fa-calendar-star' if e.kind == 'event' else 'fa-user' }}"></i></span>{% endif %}
         <span>{{ e.name }}</span>
       </button>
     {% endfor %}
@@ -349,6 +349,17 @@ document.addEventListener('DOMContentLoaded', function () {
   var pending = false;  // hay datos nuevos, pero se aplaza la recarga si el usuario tiene un modal abierto
   function safeReload() {
     if (document.querySelector('.modal.show')) return false;  // no perder la nota/selección del envío
+    // ⚠️ Y NO SACAR A NADIE DE SU FILTRO: la recarga devuelve la pantalla a «Todos». Con el filtro
+    // antiguo (todos activos) eso no se notaba; ahora, con selección única, te llevaba de vuelta a
+    // «Todos» en medio del trabajo. Si hay algo filtrado o buscado, la recarga se aplaza.
+    var art = document.querySelector('#salesArtistChips [data-artist-chip].active');
+    if (art && (art.getAttribute('data-artist-chip') || '')) return false;
+    var tipo = document.querySelector('#salesTypeChips .sales-chip.active');
+    if (tipo && (tipo.getAttribute('data-type-chip') || '')) return false;
+    var estado = document.querySelector('#salesStateChips .sales-chip.active');
+    if (estado && (estado.getAttribute('data-state-chip') || '')) return false;
+    var busca = document.getElementById('salesSearch');
+    if (busca && (busca.value || '').trim()) return false;
     location.reload();
     return true;
   }

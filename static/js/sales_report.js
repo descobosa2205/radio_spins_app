@@ -1,7 +1,7 @@
 /* Reporte de ventas — filtrado y agrupado EN CLIENTE (estilo gestión de invitaciones).
  *
  * El servidor pinta todas las tarjetas (#salesList) ya en orden cronológico. Aquí:
- *  - Artistas/eventos: chips multi (todos activos por defecto; se desactivan al pulsar).
+ *  - Artistas/eventos: selección única con "Todos" (el MISMO filtro que el repertorio).
  *  - Tipo: selección única con "Todos".
  *  - Estado: Todos / Actualizado / Sin actualizar (selección única).
  *  - Búsqueda por texto.
@@ -57,7 +57,9 @@
     if (typeSel && card.getAttribute('data-type') !== typeSel) return false;
     if (stateSel === 'updated' && card.getAttribute('data-updated') !== '1') return false;
     if (stateSel === 'pending' && card.getAttribute('data-updated') !== '0') return false;
-    if (query && (card.getAttribute('data-search') || '').indexOf(query) === -1) return false;
+    // ⚠️ Los DOS lados normalizados: `query` viene sin acentos (`norm`) pero `data-search` lo pinta
+    // Jinja con `|lower` a secas, así que buscar «muñoz» no encontraba «Muñoz» (bug preexistente).
+    if (query && norm(card.getAttribute('data-search')).indexOf(query) === -1) return false;
     return true;
   }
 

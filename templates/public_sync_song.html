@@ -117,10 +117,28 @@
        de fuera no se le enseña un botón que le llevaría a una pantalla de acceso. Antes dependía
        solo del `referrer`, que no siempre llega (un enlace abierto en otra pestaña, un correo),
        así que desde la app se entraba y no había forma de salir. #}
-    {% if session.get('user_id') %}
-      <div class="mb-2" id="syncBack">
-        <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('syncros_view') }}" title="{{ ctx.t.back }}"
-           aria-label="{{ ctx.t.back }}"><i class="fa-solid fa-arrow-left"></i></a>
+    {# ANTERIOR / SIGUIENTE del REPERTORIO: solo cuando se ha llegado desde él (`?nav=rep`), que es
+       lo que lleva el enlace de cada fila del listado. Un enlace suelto no tiene listado que recorrer. #}
+    {% if session.get('user_id') or (sync_nav and (sync_nav.prev_url or sync_nav.next_url)) %}
+      <div class="mb-2 d-flex align-items-center gap-2" id="syncBack">
+        {% if session.get('user_id') %}
+          <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('syncros_view') }}" title="{{ ctx.t.back }}"
+             aria-label="{{ ctx.t.back }}"><i class="fa-solid fa-arrow-left"></i></a>
+        {% endif %}
+        {% if sync_nav and (sync_nav.prev_url or sync_nav.next_url) %}
+          <div class="btn-group ms-auto">
+            {% if sync_nav.prev_url %}
+              <a class="btn btn-outline-secondary btn-sm" href="{{ sync_nav.prev_url }}"
+                 title="{{ ctx.t.prev }}{% if sync_nav.prev_title %}: {{ sync_nav.prev_title }}{% endif %}"
+                 aria-label="{{ ctx.t.prev }}"><i class="fa-solid fa-chevron-left"></i></a>
+            {% endif %}
+            {% if sync_nav.next_url %}
+              <a class="btn btn-outline-secondary btn-sm" href="{{ sync_nav.next_url }}"
+                 title="{{ ctx.t.next }}{% if sync_nav.next_title %}: {{ sync_nav.next_title }}{% endif %}"
+                 aria-label="{{ ctx.t.next }}"><i class="fa-solid fa-chevron-right"></i></a>
+            {% endif %}
+          </div>
+        {% endif %}
       </div>
     {% endif %}
     {{ body_html|safe }}
@@ -152,7 +170,10 @@
       } catch (e) { return; }
       var caja = document.getElementById('syncBack');
       if (!caja) return;
-      caja.querySelector('a').setAttribute('href', ref);   // se vuelve a donde se estaba
+      // ⚠️ SOLO el botón de volver: en esa caja están también las flechas de anterior/siguiente,
+      // y con un `querySelector('a')` a secas se le cambiaba el destino a la primera de ellas.
+      var volver = caja.querySelector('.btn-volver');
+      if (volver) volver.setAttribute('href', ref);   // se vuelve a donde se estaba
     })();
     // «Ver letra»: en la página abre el pop-up en vez de navegar (el mismo HTML va por correo, y
     // allí es un enlace de verdad).

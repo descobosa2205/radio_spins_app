@@ -2,7 +2,7 @@
 {% block content %}
 
 <div class="mb-2">
-  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('discografica_view', section='canciones', rep_tab='albumes') }}" title="Volver a álbumes" aria-label="Volver a álbumes"><i class="fa fa-arrow-left"></i></a>
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ (ficha_nav and ficha_nav.back_url) or url_for('discografica_view', section='canciones', rep_tab='albumes') }}" title="Volver" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
 </div>
 {# PROVISIONAL: lo ha creado un PROYECTO discográfico y todavía se está preparando. #}
 <div class="ficha-hero{% if album.is_provisional %} is-provisional{% endif %}">
@@ -39,6 +39,23 @@
    Se llena de DERECHA a IZQUIERDA (`ficha-quick--end`): el primero de aquí es el de más a la
    derecha y los que se añadan van saliendo a su izquierda. #}
 <div class="ficha-quick ficha-quick--end mb-0">
+  {# ── ANTERIOR / SIGUIENTE del listado del que se viene (`?nav=…`). ─────────────────────────────
+     ⚠️ Conservan la PESTAÑA en la que se está y solo se pintan las que existen: en el primero
+     sale únicamente la de siguiente y en el último la de anterior. #}
+  {% if ficha_nav and (ficha_nav.prev_url or ficha_nav.next_url) %}
+    <div class="btn-group" role="group" aria-label="Ir a la ficha anterior o siguiente">
+      {% if ficha_nav.prev_url %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ ficha_nav.prev_url }}"
+           title="Anterior{% if ficha_nav.prev_title %}: {{ ficha_nav.prev_title }}{% endif %}"
+           aria-label="Anterior"><i class="fa fa-chevron-left"></i></a>
+      {% endif %}
+      {% if ficha_nav.next_url %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ ficha_nav.next_url }}"
+           title="Siguiente{% if ficha_nav.next_title %}: {{ ficha_nav.next_title }}{% endif %}"
+           aria-label="Siguiente"><i class="fa fa-chevron-right"></i></a>
+      {% endif %}
+    </div>
+  {% endif %}
   {# Compartir el Label Copy: vale desde cualquier pestaña (las funciones de compartir son globales). #}
   <div class="dropdown">
     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -64,7 +81,7 @@
   ] %}
   {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
     <li class="nav-item">
-      <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_album_detail', album_id=album.id, tab=k) }}">{{ label }}</a>
+      <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_album_detail', album_id=album.id, tab=k, **(ficha_nav_args or {})) }}">{{ label }}</a>
     </li>
   {% endfor %}
 </ul>

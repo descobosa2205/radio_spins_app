@@ -13519,6 +13519,263 @@ def _isrc_panel_context(session_db, *, isrc_tab: str = "repertorio", artist_id=N
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# FLECHAS de ANTERIOR / SIGUIENTE en las fichas de CANCIÓN y de ÁLBUM
+# -----------------------------------------------------------------------------------------------
+# Se abre una ficha desde un listado y se quiere ir a la siguiente sin volver atrás. La flecha
+# depende de DE DÓNDE SE VIENE (el repertorio discográfico, los lanzamientos o el repertorio de
+# Syncros), así que el listado viaja en la URL (`?nav=…`) y sus filtros con él (`nav_*`).
+# ⚠️ Se conserva la PESTAÑA en la que se está: si estás viendo «Editorial», la siguiente ficha se
+#    abre también en «Editorial» (y si esa pestaña no existe en el destino —de una canción a un
+#    álbum— se cae a «Información»).
+# ⚠️ En el primero solo sale la flecha de siguiente y en el último solo la de anterior.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+SONG_DETAIL_TABS = {
+    "informacion", "editorial", "materiales", "royalties", "ingresos",
+    "gastos", "promocion", "marketing", "radio", "playlisting",
+}
+ALBUM_DETAIL_TABS = {"informacion", "canciones", "materiales", "beneficiarios", "promocion", "marketing"}
+
+# Lo que define el listado de origen. `nav` dice cuál es y el resto son SUS filtros.
+FICHA_NAV_PARAMS = ("nav", "nav_artista", "nav_q", "nav_onestop")
+FICHA_NAV_KINDS = {"repertorio", "repertorio_albumes", "lanzamientos", "syncros"}
+
+
+def _ficha_nav_args(args=None) -> dict:
+    """Los parámetros de navegación que hay que ARRASTRAR (a las pestañas y a la ficha siguiente)."""
+    src = args if args is not None else request.args
+    fuera = {}
+    for k in FICHA_NAV_PARAMS:
+        v = (src.get(k) or "").strip()
+        if v:
+            fuera[k] = v
+    if fuera.get("nav") not in FICHA_NAV_KINDS:
+        return {}
+    return fuera
+
+
+def _ficha_nav_back_url(args: dict) -> str:
+    """A dónde vuelve la flecha de «Volver»: el listado del que se venía."""
+    nav = args.get("nav")
+    try:
+        if nav == "lanzamientos":
+            return url_for("discografica_view", section="lanzamientos")
+        if nav == "repertorio_albumes":
+            return url_for("discografica_view", section="canciones", rep_tab="albumes")
+        if nav == "syncros":
+            return url_for("syncros_view", section="repertorio",
+                           artista=(args.get("nav_artista") or None),
+                           q=(args.get("nav_q") or None),
+                           onestop=(1 if _truthy(args.get("nav_onestop")) else None))
+        if nav == "repertorio":
+            return url_for("discografica_view", section="canciones", rep_tab="canciones")
+    except Exception:
+        app.logger.exception("[ficha-nav] no se pudo construir el enlace de volver")
+    return ""
+
+
+def _ficha_nav_items(session_db, args: dict) -> list[dict]:
+    """La lista ORDENADA del listado de origen: [{kind, id, title}] (kind = SONG | ALBUM).
+
+    ⚠️ Tiene que salir en el MISMO orden en el que se ve la pantalla: si no, «el siguiente» no es
+    el que está debajo."""
+    nav = args.get("nav")
+    aid = _safe_uuid((args.get("nav_artista") or "").strip())
+
+    if nav == "repertorio":
+        q = (session_db.query(Song.id, Song.title, Artist.name)
+             .join(SongArtist, Song.id == SongArtist.song_id)
+             .join(Artist, Artist.id == SongArtist.artist_id))
+        if aid:
+            q = q.filter(SongArtist.artist_id == aid)
+        filas = q.order_by(Artist.name.asc(), Song.release_date.desc(), Song.title.asc()).all()
+        return [{"kind": "SONG", "id": str(sid), "title": (title or "").strip()}
+                for sid, title, _an in filas]
+
+    if nav == "repertorio_albumes":
+        q = (session_db.query(Album.id, Album.title, Artist.name)
+             .join(Artist, Artist.id == Album.artist_id))
+        if aid:
+            q = q.filter(Album.artist_id == aid)
+        filas = q.order_by(Artist.name.asc(), Album.release_date.desc(), Album.title.asc()).all()
+        return [{"kind": "ALBUM", "id": str(alid), "title": (title or "").strip()}
+                for alid, title, _an in filas]
+
+    if nav == "lanzamientos":
+        return [{"kind": it.get("kind") or "SONG", "id": str(it.get("item_id") or ""),
+                 "title": (it.get("title") or "").strip()}
+                for it in _disco_launch_items(session_db)]
+
+    if nav == "syncros":
+        filas = _sync_repertoire_filtered(
+            session_db,
+            artista_id=aid,
+            q=(args.get("nav_q") or "").strip(),
+            solo_os=_truthy(args.get("nav_onestop")),
+        )[0]
+        return [{"kind": "SONG", "id": f["id"], "title": f["title"]} for f in filas]
+
+    return []
+
+
+def _ficha_nav_url(item: dict, tab: str, args: dict) -> str:
+    """El enlace a una ficha del listado, CONSERVANDO la pestaña (si el destino la tiene)."""
+    extra = {k: v for k, v in (args or {}).items()}
+    if (item.get("kind") or "").upper() == "ALBUM":
+        return url_for("discografica_album_detail", album_id=item["id"],
+                       tab=(tab if tab in ALBUM_DETAIL_TABS else "informacion"), **extra)
+    return url_for("discografica_song_detail", song_id=item["id"],
+                   tab=(tab if tab in SONG_DETAIL_TABS else "informacion"), **extra)
+
+
+def _ficha_nav(session_db, *, kind: str, item_id, tab: str) -> dict | None:
+    """Las flechas de la ficha: a dónde va la anterior y la siguiente (o None si no hay listado).
+
+    Devuelve además `args` (lo que hay que arrastrar en los enlaces de las PESTAÑAS: sin eso, al
+    cambiar de pestaña se perdería el listado y las flechas desaparecerían)."""
+    args = _ficha_nav_args()
+    if not args:
+        return None
+    try:
+        items = _ficha_nav_items(session_db, args)
+    except Exception:
+        app.logger.exception("[ficha-nav] no se pudo reconstruir el listado de origen")
+        return None
+    kind = (kind or "SONG").upper()
+    sid = str(item_id)
+    idx = next((n for n, it in enumerate(items)
+                if it["id"] == sid and (it["kind"] or "SONG").upper() == kind), None)
+    if idx is None:
+        # La ficha ya no está en ese listado (le han cambiado la fecha, ha salido del filtro…):
+        # mejor no enseñar flechas que llevar a cualquier sitio.
+        return {"args": args, "prev_url": "", "next_url": "", "prev_title": "", "next_title": "",
+                "index": 0, "total": len(items), "back_url": _ficha_nav_back_url(args)}
+    prev_it = items[idx - 1] if idx > 0 else None
+    next_it = items[idx + 1] if (idx + 1) < len(items) else None
+    return {
+        "args": args,
+        "prev_url": (_ficha_nav_url(prev_it, tab, args) if prev_it else ""),
+        "prev_title": (prev_it or {}).get("title") or "",
+        "next_url": (_ficha_nav_url(next_it, tab, args) if next_it else ""),
+        "next_title": (next_it or {}).get("title") or "",
+        "index": idx + 1,
+        "total": len(items),
+        "back_url": _ficha_nav_back_url(args),
+    }
+
+
+def _disco_launch_items(session_db, contract_artist_ids=None) -> list[dict]:
+    """Los LANZAMIENTOS de la pestaña de Discográfica, ya ordenados.
+
+    ⚠️ Punto único: lo usan la pantalla y las FLECHAS de anterior/siguiente de las fichas de
+    canción y de álbum, así que «el siguiente lanzamiento» es exactamente el que se ve debajo
+    en el listado (canciones y álbumes mezclados, en el mismo orden)."""
+    launches_items: list[dict] = []
+    if contract_artist_ids is None:
+        contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
+    today = today_local()
+    launch_window_start = today - timedelta(days=7)
+    launch_window_end = today + timedelta(days=180)
+
+    launch_song_rows = []
+    if contract_artist_ids:
+        launch_song_rows = (
+            session_db.query(Song)
+            .join(SongArtist, Song.id == SongArtist.song_id)
+            .filter(SongArtist.artist_id.in_(list(contract_artist_ids)))
+            .filter(Song.release_date >= launch_window_start)
+            .filter(Song.release_date <= launch_window_end)
+            .distinct()
+            .options(selectinload(Song.artists))
+            .order_by(Song.release_date.asc(), Song.title.asc())
+            .all()
+        )
+    _annotate_song_display_fields(session_db, launch_song_rows, persist=True)
+    seen_launch_song_ids = set()
+    for song in launch_song_rows:
+        if not song or song.id in seen_launch_song_ids:
+            continue
+        seen_launch_song_ids.add(song.id)
+        release_date = getattr(song, 'release_date', None)
+        if not release_date:
+            continue
+        days_remaining = (release_date - today).days
+        is_new = release_date <= today and release_date >= (today - timedelta(days=7))
+        if days_remaining < 0 and not is_new:
+            continue
+        artist_label = ", ".join([a.name for a in (song.artists or []) if getattr(a, 'name', None)]) or "—"
+        launches_items.append({
+            'item_id': str(song.id),
+            'kind': 'SONG',
+            'kind_label': 'Canción',
+            'title': getattr(song, 'title', None) or '—',
+            'artist_label': artist_label,
+            'collaborator': (getattr(song, 'display_collaborator', None) or getattr(song, 'collaborator', None) or '').strip(),
+            'cover_url': (getattr(song, 'cover_url', None) or '').strip(),
+            'release_date': release_date,
+            'days_remaining': days_remaining,
+            'is_new': is_new,
+            # PROVISIONAL: lo está preparando un proyecto discográfico (se ve igual que en su
+            # ficha: el fondo rayado y su etiqueta).
+            'is_provisional': bool(getattr(song, 'is_provisional', False)),
+            # `nav`: las FLECHAS de la ficha recorren el listado de LANZAMIENTOS (canciones y
+            # álbumes mezclados, en este mismo orden).
+            'detail_url': url_for('discografica_song_detail', song_id=song.id, tab='informacion',
+                                  nav='lanzamientos'),
+        })
+
+    launch_album_rows = []
+    if contract_artist_ids:
+        launch_album_rows = (
+            session_db.query(Album)
+            .options(joinedload(Album.artist))
+            .filter(Album.artist_id.in_(list(contract_artist_ids)))
+            .filter(Album.release_date >= launch_window_start)
+            .filter(Album.release_date <= launch_window_end)
+            .order_by(Album.release_date.asc(), Album.title.asc())
+            .all()
+        )
+    for album in launch_album_rows:
+        release_date = getattr(album, 'release_date', None)
+        if not release_date:
+            continue
+        days_remaining = (release_date - today).days
+        is_new = release_date <= today and release_date >= (today - timedelta(days=7))
+        if days_remaining < 0 and not is_new:
+            continue
+        launches_items.append({
+            'item_id': str(album.id),
+            'kind': 'ALBUM',
+            'kind_label': 'EP' if (getattr(album, 'album_type', None) or '').strip().upper() == 'EP' else 'Disco',
+            'title': getattr(album, 'title', None) or '—',
+            'artist_label': (getattr(getattr(album, 'artist', None), 'name', None) or '').strip() or '—',
+            'collaborator': '',
+            'cover_url': (getattr(album, 'cover_url', None) or '').strip(),
+            'release_date': release_date,
+            'days_remaining': days_remaining,
+            'is_new': is_new,
+            'is_provisional': bool(getattr(album, 'is_provisional', False)),
+            'detail_url': url_for('discografica_album_detail', album_id=album.id, tab='informacion',
+                                  nav='lanzamientos'),
+        })
+
+    def _launch_sort_key(item: dict):
+        release_date = item.get('release_date') or date.max
+        ordinal = release_date.toordinal() if hasattr(release_date, 'toordinal') else 0
+        days_remaining = item.get('days_remaining')
+        is_future = days_remaining is not None and days_remaining >= 0
+        return (
+            0 if is_future else 1,
+            ordinal if is_future else -ordinal,
+            0 if item.get('kind') == 'SONG' else 1,
+            (item.get('title') or '').casefold(),
+        )
+
+    launches_items.sort(key=_launch_sort_key)
+    return launches_items
+
+
+
 @app.get("/discografica")
 @admin_required
 def discografica_view():
@@ -13705,100 +13962,7 @@ def discografica_view():
 
     if section == "lanzamientos":
         today = today_local()
-        launch_window_start = today - timedelta(days=7)
-        launch_window_end = today + timedelta(days=180)
-
-        launch_song_rows = []
-        if contract_artist_ids:
-            launch_song_rows = (
-                session_db.query(Song)
-                .join(SongArtist, Song.id == SongArtist.song_id)
-                .filter(SongArtist.artist_id.in_(list(contract_artist_ids)))
-                .filter(Song.release_date >= launch_window_start)
-                .filter(Song.release_date <= launch_window_end)
-                .distinct()
-                .options(selectinload(Song.artists))
-                .order_by(Song.release_date.asc(), Song.title.asc())
-                .all()
-            )
-        _annotate_song_display_fields(session_db, launch_song_rows, persist=True)
-        seen_launch_song_ids = set()
-        for song in launch_song_rows:
-            if not song or song.id in seen_launch_song_ids:
-                continue
-            seen_launch_song_ids.add(song.id)
-            release_date = getattr(song, 'release_date', None)
-            if not release_date:
-                continue
-            days_remaining = (release_date - today).days
-            is_new = release_date <= today and release_date >= (today - timedelta(days=7))
-            if days_remaining < 0 and not is_new:
-                continue
-            artist_label = ", ".join([a.name for a in (song.artists or []) if getattr(a, 'name', None)]) or "—"
-            launches_items.append({
-                'item_id': str(song.id),
-                'kind': 'SONG',
-                'kind_label': 'Canción',
-                'title': getattr(song, 'title', None) or '—',
-                'artist_label': artist_label,
-                'collaborator': (getattr(song, 'display_collaborator', None) or getattr(song, 'collaborator', None) or '').strip(),
-                'cover_url': (getattr(song, 'cover_url', None) or '').strip(),
-                'release_date': release_date,
-                'days_remaining': days_remaining,
-                'is_new': is_new,
-                # PROVISIONAL: lo está preparando un proyecto discográfico (se ve igual que en su
-                # ficha: el fondo rayado y su etiqueta).
-                'is_provisional': bool(getattr(song, 'is_provisional', False)),
-                'detail_url': url_for('discografica_song_detail', song_id=song.id, tab='informacion'),
-            })
-
-        launch_album_rows = []
-        if contract_artist_ids:
-            launch_album_rows = (
-                session_db.query(Album)
-                .options(joinedload(Album.artist))
-                .filter(Album.artist_id.in_(list(contract_artist_ids)))
-                .filter(Album.release_date >= launch_window_start)
-                .filter(Album.release_date <= launch_window_end)
-                .order_by(Album.release_date.asc(), Album.title.asc())
-                .all()
-            )
-        for album in launch_album_rows:
-            release_date = getattr(album, 'release_date', None)
-            if not release_date:
-                continue
-            days_remaining = (release_date - today).days
-            is_new = release_date <= today and release_date >= (today - timedelta(days=7))
-            if days_remaining < 0 and not is_new:
-                continue
-            launches_items.append({
-                'item_id': str(album.id),
-                'kind': 'ALBUM',
-                'kind_label': 'EP' if (getattr(album, 'album_type', None) or '').strip().upper() == 'EP' else 'Disco',
-                'title': getattr(album, 'title', None) or '—',
-                'artist_label': (getattr(getattr(album, 'artist', None), 'name', None) or '').strip() or '—',
-                'collaborator': '',
-                'cover_url': (getattr(album, 'cover_url', None) or '').strip(),
-                'release_date': release_date,
-                'days_remaining': days_remaining,
-                'is_new': is_new,
-                'is_provisional': bool(getattr(album, 'is_provisional', False)),
-                'detail_url': url_for('discografica_album_detail', album_id=album.id, tab='informacion'),
-            })
-
-        def _launch_sort_key(item: dict):
-            release_date = item.get('release_date') or date.max
-            ordinal = release_date.toordinal() if hasattr(release_date, 'toordinal') else 0
-            days_remaining = item.get('days_remaining')
-            is_future = days_remaining is not None and days_remaining >= 0
-            return (
-                0 if is_future else 1,
-                ordinal if is_future else -ordinal,
-                0 if item.get('kind') == 'SONG' else 1,
-                (item.get('title') or '').casefold(),
-            )
-
-        launches_items.sort(key=_launch_sort_key)
+        launches_items = _disco_launch_items(session_db, contract_artist_ids)
 
         cal_items_by_date: dict[date, list[dict]] = defaultdict(list)
         months_with_launches: set[date] = set()
@@ -18361,19 +18525,7 @@ def discografica_royalties_liquidation_status():
 @admin_required
 def discografica_song_detail(song_id):
     tab = (request.args.get("tab") or "informacion").lower().strip()
-    allowed_tabs = {
-        "informacion",
-        "editorial",
-        "materiales",
-        "royalties",
-        "ingresos",
-        "gastos",
-        "promocion",
-        "marketing",
-        "radio",
-        "playlisting",
-    }
-    if tab not in allowed_tabs:
+    if tab not in SONG_DETAIL_TABS:
         tab = "informacion"
 
     edit = bool((request.args.get("edit") or "").strip())
@@ -18861,11 +19013,16 @@ def discografica_song_detail(song_id):
         promo_entity_rows = _promo_rows_for_subject(session_db, "SONG", s.id)
         promo_spend = _promo_spend_rows(session_db, subject_type="SONG", subject_id=s.id)
 
+    # FLECHAS de anterior/siguiente: dependen del listado desde el que se ha llegado (`?nav=…`).
+    ficha_nav = _ficha_nav(session_db, kind="SONG", item_id=s.id, tab=tab)
+
     response = render_template(
         "song_detail.html",
         song=s,
         primary_artist=primary_artist,
         tab=tab,
+        ficha_nav=ficha_nav,
+        ficha_nav_args=((ficha_nav or {}).get("args") or {}),
         chartmetric_playlists=(_chartmetric_playlists_grouped(session_db, song_id=s.id) if tab == 'playlisting' else None),
         chartmetric_playlists_past=(_chartmetric_playlists_grouped(session_db, song_id=s.id, status="past") if tab == 'playlisting' else None),
         chartmetric_counts=(_chartmetric_playlist_counts(session_db, s.id) if tab == 'playlisting' else None),
@@ -35832,7 +35989,7 @@ def discografica_album_create():
 @admin_required
 def discografica_album_detail(album_id):
     tab = (request.args.get("tab") or "informacion").lower().strip()
-    if tab not in {"informacion", "canciones", "materiales", "beneficiarios", "promocion", "marketing"}:
+    if tab not in ALBUM_DETAIL_TABS:
         tab = "informacion"
 
     edit = bool((request.args.get("edit") or "").strip())
@@ -36046,11 +36203,15 @@ def discografica_album_detail(album_id):
         promo_entity_rows = _promo_rows_for_subject(session_db, "ALBUM", album.id)
         promo_spend = _promo_spend_rows(session_db, subject_type="ALBUM", subject_id=album.id)
 
+    ficha_nav = _ficha_nav(session_db, kind="ALBUM", item_id=album.id, tab=tab)
+
     response = render_template(
         "album_detail.html",
         album=album,
         artist=artist,
         tab=tab,
+        ficha_nav=ficha_nav,
+        ficha_nav_args=((ficha_nav or {}).get("args") or {}),
         edit=edit,
         # La MAQUETA del proyecto que creó este álbum: se ve mientras no haya másters.
         project_demos=[_demo_row_payload(session_db, d)
@@ -37072,8 +37233,12 @@ def plays_view():
         rank_map[si.song_id] = si.national_rank
 
     session_db.close()
+    # ¿Están ya subidas las tocadas de la semana? De eso depende que se ofrezca «Actualizar
+    # posiciones»: sin tocadas no hay nada que posicionar.
+    week_has_plays = any((v[0] or 0) > 0 for v in plays_map.values())
     return render_template(
         "plays.html",
+        week_has_plays=week_has_plays,
         week_start=week_start,
         week_label=week_label_range(week_start),
         prev_w=prev_w,
@@ -37134,6 +37299,188 @@ def plays_save():
         session_db.close()
 
     return redirect(url_for("plays_view", week=week_start.isoformat()) + f"#song-{song_id}")
+
+
+# ---------- ACTUALIZAR POSICIONES (de una semana, todo de una vez) ----------
+# Cuando ya están subidas las tocadas de la semana, lo que queda es poner las POSICIONES: la de
+# cada canción en cada emisora y la del ranking NACIONAL. Es un solo trabajo y se guarda de una
+# sola vez, así que vive en su propia pantalla en vez de en el formulario de cada canción.
+# ⚠️ Solo salen las EMISORAS con tocadas esa semana y, dentro de cada una, sus canciones ordenadas
+#    de la que más ha sonado a la que menos (que es el orden en el que se numeran).
+def _plays_positions_context(session_db, week_start: date) -> dict:
+    """Lo que se ve en «Actualizar posiciones»: las emisoras con tocadas y el ranking nacional."""
+    filas = (
+        session_db.query(Play, Song, RadioStation)
+        .join(Song, Song.id == Play.song_id)
+        .join(RadioStation, RadioStation.id == Play.station_id)
+        .filter(Play.week_start == week_start)
+        .filter(func.coalesce(Play.spins, 0) > 0)
+        .all()
+    )
+
+    # Artistas de cada canción, de UNA consulta (nada de una por fila).
+    song_ids = list({p.song_id for p, _s, _st in filas})
+    artistas = defaultdict(list)
+    if song_ids:
+        for sid, aname in (session_db.query(SongArtist.song_id, Artist.name)
+                           .join(Artist, Artist.id == SongArtist.artist_id)
+                           .filter(SongArtist.song_id.in_(song_ids)).all()):
+            if aname:
+                artistas[str(sid)].append(aname)
+
+    rank_map = {}
+    for si in (session_db.query(SongWeekInfo)
+               .filter(SongWeekInfo.week_start == week_start).all()):
+        rank_map[str(si.song_id)] = si.national_rank
+
+    def _song_row(song, spins, position):
+        sid = str(song.id)
+        return {
+            "song_id": sid,
+            "title": (song.title or "").strip() or "—",
+            "artist_label": ", ".join(artistas.get(sid, [])) or "—",
+            "cover_url": (getattr(song, "cover_url", None) or "").strip(),
+            "spins": int(spins or 0),
+            "position": position,
+        }
+
+    bloques = {}
+    totales = {}
+    canciones = {}
+    for play, song, station in filas:
+        b = bloques.setdefault(str(station.id), {
+            "station_id": str(station.id),
+            "name": (station.name or "").strip() or "—",
+            "logo_url": (getattr(station, "logo_url", None) or "").strip(),
+            "country_code": (getattr(station, "country_code", None) or "ES"),
+            "country_name": (getattr(station, "country_name", None) or ""),
+            "rows": [], "total_spins": 0,
+        })
+        b["rows"].append(_song_row(song, play.spins, play.position))
+        b["total_spins"] += int(play.spins or 0)
+        totales[str(song.id)] = totales.get(str(song.id), 0) + int(play.spins or 0)
+        canciones[str(song.id)] = song
+
+    for b in bloques.values():
+        b["rows"].sort(key=lambda r: (-r["spins"], _norm_text_key(r["title"])))
+
+    station_blocks = sorted(bloques.values(),
+                            key=lambda b: (-b["total_spins"], _norm_text_key(b["name"])))
+
+    # NACIONAL: solo las canciones que esa semana han sonado, de más a menos tocadas.
+    national_rows = []
+    for sid, total in totales.items():
+        song = canciones[sid]
+        fila = _song_row(song, total, rank_map.get(sid))
+        fila["national_rank"] = rank_map.get(sid)
+        national_rows.append(fila)
+    national_rows.sort(key=lambda r: (-r["spins"], _norm_text_key(r["title"])))
+
+    return {
+        "station_blocks": station_blocks,
+        "national_rows": national_rows,
+        "total_spins": sum(totales.values()),
+    }
+
+
+@app.get("/tocadas/posiciones", endpoint="plays_positions_view")
+@admin_required
+def plays_positions_view():
+    if not can_edit_radio():
+        return forbid("No tienes permisos para acceder a la actualización de tocadas.")
+    session_db = db()
+    try:
+        week_arg = (request.args.get("week") or "").strip()
+        week_start = monday_of(parse_date(week_arg)) if week_arg else monday_of(today_local()) - timedelta(days=7)
+        ctx = _plays_positions_context(session_db, week_start)
+        return render_template(
+            "plays_positions.html",
+            week_start=week_start,
+            week_label=week_label_range(week_start),
+            **ctx,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/tocadas/posiciones/guardar", endpoint="plays_positions_save")
+@admin_required
+def plays_positions_save():
+    """Guarda DE UNA VEZ las posiciones por emisora y las del ranking nacional de esa semana."""
+    if not can_edit_radio():
+        return forbid("No tienes permisos para modificar tocadas de radio.")
+    session_db = db()
+    week_start = monday_of(parse_date(request.form["week_start"]))
+    try:
+        ensure_week(session_db, week_start)
+
+        def _pos(valor):
+            valor = (valor or "").strip()
+            if not valor:
+                return None
+            try:
+                n = int(valor)
+            except ValueError:
+                return None
+            return n if n > 0 else None
+
+        # Posiciones por emisora: se escriben sobre las tocadas que YA existen (no se inventa una
+        # fila para una canción que esa semana no ha sonado en esa emisora).
+        cambios = {}
+        for key, val in request.form.items():
+            if not key.startswith("pos_"):
+                continue
+            try:
+                _p, station_id, song_id = key.split("_", 2)
+            except ValueError:
+                continue
+            st = _safe_uuid(station_id)
+            sg = _safe_uuid(song_id)
+            if not st or not sg:
+                continue
+            cambios[(sg, st)] = _pos(val)
+
+        tocadas = 0
+        if cambios:
+            filas = (session_db.query(Play)
+                     .filter(Play.week_start == week_start)
+                     .filter(Play.song_id.in_({sg for sg, _st in cambios}))
+                     .all())
+            for p in filas:
+                clave = (p.song_id, p.station_id)
+                if clave in cambios:
+                    p.position = cambios[clave]
+                    tocadas += 1
+
+        # Ranking NACIONAL de la semana.
+        nacionales = 0
+        info_map = {str(si.song_id): si for si in
+                    session_db.query(SongWeekInfo).filter(SongWeekInfo.week_start == week_start).all()}
+        for key, val in request.form.items():
+            if not key.startswith("nat_"):
+                continue
+            sg = _safe_uuid(key.split("_", 1)[1])
+            if not sg:
+                continue
+            valor = _pos(val)
+            fila = info_map.get(str(sg))
+            if fila is None:
+                if valor is None:
+                    continue
+                session_db.add(SongWeekInfo(song_id=sg, week_start=week_start, national_rank=valor))
+            else:
+                fila.national_rank = valor
+            nacionales += 1
+
+        session_db.commit()
+        flash("Posiciones guardadas (%d por emisora y %d del ranking nacional)." % (tocadas, nacionales),
+              "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando las posiciones: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("plays_positions_view", week=week_start.isoformat()))
 
 
 # ---------- IMPORTAR TOCADAS DESDE EXCEL ----------
@@ -65439,6 +65786,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "home"
     fixed = {
         "summary_view": "radio.reportes", "plays_view": "radio.actualizar", "stations_view": "radio.emisoras",
+        "plays_positions_view": "radio.actualizar", "plays_positions_save": "radio.actualizar",
         "sales_report_view": "ventas.reportes", "sales_update_view": "ventas.actualizar",
         "syncros_view": "syncros.supervisors",
         "discografica_view": "discografica", "discografica_song_detail": "discografica.canciones",
@@ -66161,7 +66509,8 @@ def _resolve_request_resource_key() -> str | None:
         return "home"
     if endpoint == "summary_view":
         return "radio.reportes"
-    if endpoint == "plays_view":
+    if endpoint in {"plays_view", "plays_save", "plays_positions_view", "plays_positions_save",
+                    "plays_import_analyze", "plays_import_apply"}:
         return "radio.actualizar"
     if endpoint == "stations_view":
         return "radio.emisoras"
@@ -121035,7 +121384,7 @@ SYNC_TEXTS = {
         "more_repertoire": "Ver más repertorio para sincronizaciones",
         "repertoire_title": "Repertorio para Sincronizaciones",
         "by_genre": "Por género", "by_artist": "Por artista", "songs": "temas", "song_one": "tema",
-        "back": "Volver",
+        "back": "Volver", "prev": "Anterior", "next": "Siguiente",
         "one_stop_help": "Máster y edición al 100% en nuestras manos: se licencia con una sola parte.",
         "subject": "Syncro", "subject_lead": "Nuevo tema para Syncro",
         "roles": {"AUTHOR": "Autor (letra)", "COMPOSER": "Compositor (música)",
@@ -121055,7 +121404,7 @@ SYNC_TEXTS = {
         "more_repertoire": "Browse more repertoire for sync",
         "repertoire_title": "Repertoire for Sync Licensing",
         "by_genre": "By genre", "by_artist": "By artist", "songs": "tracks", "song_one": "track",
-        "back": "Back",
+        "back": "Back", "prev": "Previous", "next": "Next",
         "one_stop_help": "Master and publishing 100% controlled by us: cleared with a single party.",
         "subject": "Sync", "subject_lead": "New track for Sync",
         "roles": {"AUTHOR": "Lyricist", "COMPOSER": "Composer",
@@ -121544,7 +121893,35 @@ def _sync_repertoire_songs(session_db):
             elegidas = [c for c in elegidas if str(c.id) in con_master]
         except Exception:
             app.logger.exception("[syncro] no se pudo comprobar el máster del repertorio")
+    # ⚠️ EL ORDEN es el del LANZAMIENTO: arriba lo más reciente (y a igualdad de fecha, por título).
+    # Se ordena aquí, en el punto único, para que la sección, sus filtros y la landing pública lo
+    # hereden sin depender de que cada pantalla se acuerde.
+    elegidas.sort(key=lambda c: (-(c.release_date.toordinal() if getattr(c, "release_date", None) else 0),
+                                 _norm_text_key(getattr(c, "title", "") or "")))
     return elegidas, mapa
+
+
+def _sync_repertoire_filtered(session_db, *, artista_id=None, q: str = "", solo_os: bool = False):
+    """El listado de Syncro ya FILTRADO. Devuelve `(filas, filas_sin_filtro_de_artista, mapa_art)`.
+
+    ⚠️ Punto único de «qué se ve y en qué orden»: lo usan la pantalla y las FLECHAS de anterior/
+    siguiente de la ficha, así que la siguiente canción es la que está debajo en la lista."""
+    canciones, mapa_os = _sync_repertoire_songs(session_db)
+    filas = _sync_song_rows(session_db, canciones, one_stop_map=mapa_os)
+    mapa_art = {}
+    for c in canciones:
+        for a in (getattr(c, "artists", None) or []):
+            mapa_art[str(a.id)] = a
+    base = [f for f in filas if (f["one_stop"] or not solo_os)]
+    salida = base
+    if artista_id:
+        salida = [f for f in salida if str(artista_id) in f["artist_ids"]]
+    q = (q or "").strip()
+    if q:
+        clave = _norm_text_key(q)
+        salida = [f for f in salida
+                  if clave in _norm_text_key(" ".join([f["title"], f["artist_name"]] + f["genres"]))]
+    return salida, base, mapa_art
 
 
 def _sync_repertoire_context(session_db) -> dict:
@@ -121557,15 +121934,11 @@ def _sync_repertoire_context(session_db) -> dict:
     solo_os = _truthy(request.args.get("onestop"))
     artista_id = _safe_uuid((request.args.get("artista") or "").strip())
 
-    canciones, mapa_os = _sync_repertoire_songs(session_db)
-    filas = _sync_song_rows(session_db, canciones, one_stop_map=mapa_os)
+    base, sin_artista, mapa_art = _sync_repertoire_filtered(
+        session_db, artista_id=artista_id, q=q, solo_os=solo_os)
 
-    base = [f for f in filas if (f["one_stop"] or not solo_os)]
-    artistas, mapa_art = {}, {}
-    for c in canciones:
-        for a in (getattr(c, "artists", None) or []):
-            mapa_art[str(a.id)] = a
-    for f in base:
+    artistas = {}
+    for f in sin_artista:
         for aid in f["artist_ids"]:
             d = artistas.setdefault(aid, {"id": aid, "name": "", "photo": "", "count": 0})
             d["count"] += 1
@@ -121575,12 +121948,17 @@ def _sync_repertoire_context(session_db) -> dict:
         d["photo"] = (getattr(a, "photo_url", "") or "").strip()
     rejilla = sorted(artistas.values(), key=lambda d: _norm_text_key(d["name"]))
 
+    # Las FLECHAS de la ficha necesitan saber de qué listado se viene (y con qué filtros).
+    nav_args = {"nav": "syncros"}
     if artista_id:
-        base = [f for f in base if str(artista_id) in f["artist_ids"]]
+        nav_args["nav_artista"] = str(artista_id)
     if q:
-        clave = _norm_text_key(q)
-        base = [f for f in base
-                if clave in _norm_text_key(" ".join([f["title"], f["artist_name"]] + f["genres"]))]
+        nav_args["nav_q"] = q
+    if solo_os:
+        nav_args["nav_onestop"] = "1"
+    for f in base:
+        f["detail_url"] = url_for("discografica_song_detail", song_id=f["id"], **nav_args)
+
     elegido = mapa_art.get(str(artista_id)) if artista_id else None
     return {
         "rep_rows": base,
@@ -121591,7 +121969,7 @@ def _sync_repertoire_context(session_db) -> dict:
         "rep_artist_id": str(artista_id) if artista_id else "",
         "rep_artist": ({"id": str(artista_id), "name": (getattr(elegido, "name", "") or ""),
                         "photo": (getattr(elegido, "photo_url", "") or "")} if elegido is not None else None),
-        "rep_onestop_total": len([f for f in filas if f["one_stop"]]),
+        "rep_onestop_total": len([f for f in sin_artista if f["one_stop"]]),
     }
 
 
@@ -122014,6 +122392,50 @@ def sync_song_send(song_id):
         session_db.close()
 
 
+def _sync_public_nav(session_db, song):
+    """Las FLECHAS de la ficha pública de un tema: anterior y siguiente DEL REPERTORIO abierto.
+
+    Solo salen cuando se ha llegado desde él (`?nav=rep`, que es lo que lleva el enlace de cada fila
+    del listado): un enlace suelto que llega por correo no tiene listado que recorrer."""
+    if (request.args.get("nav") or "").strip().lower() != "rep":
+        return None
+    try:
+        vista = (request.args.get("ver") or "genero").strip().lower()
+        if vista not in ("genero", "artista"):
+            vista = "genero"
+        genero = (request.args.get("genero") or "").strip()
+        artista = _safe_uuid((request.args.get("artista") or "").strip())
+        filas = _sync_public_repertoire_filtered(session_db, vista=vista, genero=genero,
+                                                 artista=artista)[0]
+        sid = str(song.id)
+        idx = next((n for n, f in enumerate(filas) if f["id"] == sid), None)
+        if idx is None:
+            return None
+        params = {"nav": "rep", "ver": vista}
+        if genero:
+            params["genero"] = genero
+        if artista:
+            params["artista"] = str(artista)
+        if (request.args.get("lang") or "").strip().lower() in ("en", "eng"):
+            params["lang"] = "en"
+        prev_f = filas[idx - 1] if idx > 0 else None
+        next_f = filas[idx + 1] if (idx + 1) < len(filas) else None
+        volver = _external_url_for("public_sync_repertoire",
+                                   **{k: v for k, v in params.items() if k != "nav"})
+        return {
+            "prev_url": (_sync_url_with(prev_f["share_url"], **params) if prev_f and prev_f.get("share_url") else ""),
+            "prev_title": (prev_f or {}).get("title") or "",
+            "next_url": (_sync_url_with(next_f["share_url"], **params) if next_f and next_f.get("share_url") else ""),
+            "next_title": (next_f or {}).get("title") or "",
+            "back_url": volver,
+            "index": idx + 1,
+            "total": len(filas),
+        }
+    except Exception:
+        app.logger.exception("[syncro] no se pudo montar la navegación del repertorio")
+        return None
+
+
 @app.get("/syncro", endpoint="public_sync_song")
 def public_sync_song():
     """Lo que ve quien recibe el enlace de un tema para sincronización.
@@ -122049,11 +122471,48 @@ def public_sync_song():
             one_stop=bool(fila.get("one_stop")))
         return render_template(
             "public_sync_song.html", ctx=ctx, body_html=cuerpo,
+            # Anterior/siguiente DEL REPERTORIO (solo si se ha llegado desde él).
+            sync_nav=_sync_public_nav(session_db, song),
             og_title=_sync_og_title(ctx),
             og_description=_sync_og_description(ctx, one_stop=bool(fila.get("one_stop"))),
             og_image_url=_external_url_for("public_sync_song_og_image", token=token))
     finally:
         session_db.close()
+
+
+def _sync_public_repertoire_filtered(session_db, *, vista: str = "genero", genero: str = "",
+                                     artista=None):
+    """El repertorio ABIERTO ya filtrado: `(filas, generos, artistas, elegido, titulo)`.
+
+    ⚠️ Punto único: lo usan la landing y las FLECHAS de anterior/siguiente de la ficha pública, así
+    que «el siguiente» es el que está debajo en la lista que se está mirando."""
+    canciones, mapa_os = _sync_repertoire_songs(session_db)
+    filas = _sync_song_rows(session_db, canciones, one_stop_map=mapa_os)
+
+    # Galletas por GÉNERO (con su número) y rejilla de ARTISTAS (con su foto).
+    generos, artistas = {}, {}
+    mapa_art = {str(a.id): a for c in canciones for a in (getattr(c, "artists", None) or [])}
+    for f in filas:
+        for g in f["genres"]:
+            d = generos.setdefault(_norm_text_key(g), {"name": g, "count": 0,
+                                                       "icon": _sync_genre_icon(g)})
+            d["count"] += 1
+        for aid in f["artist_ids"]:
+            d = artistas.setdefault(aid, {"id": aid, "count": 0,
+                                          "name": (getattr(mapa_art.get(aid), "name", "") or "").strip(),
+                                          "photo": (getattr(mapa_art.get(aid), "photo_url", "") or "").strip()})
+            d["count"] += 1
+
+    elegido, titulo_sel = None, ""
+    if vista == "artista" and artista:
+        filas = [f for f in filas if str(artista) in f["artist_ids"]]
+        elegido = mapa_art.get(str(artista))
+        titulo_sel = (getattr(elegido, "name", "") or "").strip()
+    elif genero:
+        clave = _norm_text_key(genero)
+        filas = [f for f in filas if clave in {_norm_text_key(g) for g in f["genres"]}]
+        titulo_sel = genero
+    return filas, generos, artistas, elegido, titulo_sel
 
 
 @app.get("/repertorio-sincronizaciones", endpoint="public_sync_repertoire")
@@ -122068,37 +122527,28 @@ def public_sync_repertoire():
     try:
         lang = _sync_lang("EN" if (request.args.get("lang") or "").strip().lower() in ("en", "eng") else "ES")
         t = SYNC_TEXTS[lang]
-        canciones, mapa_os = _sync_repertoire_songs(session_db)
-        filas = _sync_song_rows(session_db, canciones, one_stop_map=mapa_os)
         vista = (request.args.get("ver") or "genero").strip().lower()
         if vista not in ("genero", "artista"):
             vista = "genero"
         genero = (request.args.get("genero") or "").strip()
         artista = _safe_uuid((request.args.get("artista") or "").strip())
 
-        # Galletas por GÉNERO (con su número) y rejilla de ARTISTAS (con su foto).
-        generos, artistas = {}, {}
-        mapa_art = {str(a.id): a for c in canciones for a in (getattr(c, "artists", None) or [])}
-        for f in filas:
-            for g in f["genres"]:
-                d = generos.setdefault(_norm_text_key(g), {"name": g, "count": 0,
-                                                           "icon": _sync_genre_icon(g)})
-                d["count"] += 1
-            for aid in f["artist_ids"]:
-                d = artistas.setdefault(aid, {"id": aid, "count": 0,
-                                              "name": (getattr(mapa_art.get(aid), "name", "") or "").strip(),
-                                              "photo": (getattr(mapa_art.get(aid), "photo_url", "") or "").strip()})
-                d["count"] += 1
+        filas, generos_d, artistas_d, elegido, titulo_sel = _sync_public_repertoire_filtered(
+            session_db, vista=vista, genero=genero, artista=artista)
+        generos, artistas = generos_d, artistas_d
 
-        elegido, titulo_sel = None, ""
-        if vista == "artista" and artista:
-            filas = [f for f in filas if str(artista) in f["artist_ids"]]
-            elegido = mapa_art.get(str(artista))
-            titulo_sel = (getattr(elegido, "name", "") or "").strip()
-        elif genero:
-            clave = _norm_text_key(genero)
-            filas = [f for f in filas if clave in {_norm_text_key(g) for g in f["genres"]}]
-            titulo_sel = genero
+        # Las FLECHAS de la ficha pública recorren ESTE listado: el enlace de cada tema se lleva
+        # consigo desde dónde se ha abierto (`nav=rep` + los filtros de la pantalla).
+        nav_pub = {"nav": "rep", "ver": vista}
+        if genero:
+            nav_pub["genero"] = genero
+        if artista:
+            nav_pub["artista"] = str(artista)
+        if lang == "EN":
+            nav_pub["lang"] = "en"
+        for f in filas:
+            if f.get("share_url"):
+                f["share_url"] = _sync_url_with(f["share_url"], **nav_pub)
 
         return render_template(
             "public_sync_repertoire.html", lang=lang, t=t,

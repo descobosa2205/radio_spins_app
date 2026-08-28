@@ -1,0 +1,171 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ============================================================================================
+   ACTUALIZAR POSICIONES de una semana. Cuando ya están subidas las tocadas, lo que queda es poner
+   las posiciones: la de cada canción EN CADA EMISORA y la del ranking NACIONAL. Es un solo
+   trabajo, así que está todo en la misma pantalla y se guarda TODO A LA VEZ.
+   ⚠️ Solo salen las emisoras CON TOCADAS esa semana y, dentro de cada una, sus canciones de la
+      que más ha sonado a la que menos (que es el orden en el que se numeran).
+   ============================================================================================ #}
+
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('plays_view', week=week_start.isoformat()) }}"
+     title="Volver a las tocadas" aria-label="Volver a las tocadas"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1"><i class="fa fa-ranking-star me-2"></i>Actualizar posiciones</h1>
+    <div class="text-muted">Semana {{ week_label }} · {{ total_spins|k }} tocada{{ '' if total_spins == 1 else 's' }}</div>
+  </div>
+  {% if station_blocks or national_rows %}
+    <div class="d-flex align-items-center gap-2">
+      <button type="button" class="btn btn-outline-secondary" data-pos-autofill-all
+              title="Rellena todas las posiciones (por emisora y la nacional) según las tocadas">
+        <i class="fa fa-wand-magic-sparkles me-1"></i>Numerar todo por tocadas
+      </button>
+      <button type="submit" form="posForm" class="btn btn-primary">
+        <i class="fa fa-floppy-disk me-1"></i>Guardar todo
+      </button>
+    </div>
+  {% endif %}
+</div>
+
+{% if not station_blocks and not national_rows %}
+  <div class="alert alert-info">
+    Esta semana no hay ninguna tocada registrada, así que todavía no hay posiciones que poner.
+    <a href="{{ url_for('plays_view', week=week_start.isoformat()) }}">Sube las tocadas</a> y vuelve aquí.
+  </div>
+{% else %}
+
+<form method="post" id="posForm" action="{{ url_for('plays_positions_save') }}">
+  <input type="hidden" name="week_start" value="{{ week_start.isoformat() }}">
+
+  {# ── Una tarjeta por EMISORA (solo las que tienen tocadas) ───────────────────────────────── #}
+  {% for b in station_blocks %}
+    <div class="card mb-3" data-pos-block>
+      <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <span class="logo-country-wrap">
+            <img src="{{ b.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+            {% if (b.country_code or 'ES') != 'ES' %}<span class="country-flag-badge" title="{{ b.country_name or country_name_es(b.country_code) }}">{{ country_flag_emoji(b.country_code) }}</span>{% endif %}
+          </span>
+          <div>
+            <div class="fw-semibold">{{ b.name }}</div>
+            <div class="text-muted small">{{ b.rows|length }} canci{{ 'ón' if b.rows|length == 1 else 'ones' }} · {{ b.total_spins|k }} tocada{{ '' if b.total_spins == 1 else 's' }}</div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-pos-autofill
+                title="Pone 1, 2, 3… según las tocadas de esta emisora">
+          <i class="fa fa-wand-magic-sparkles me-1"></i>Numerar por tocadas
+        </button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:64px;">Portada</th>
+              <th>Canción</th>
+              <th class="text-nowrap" style="width:110px;">Tocadas</th>
+              <th class="text-nowrap" style="width:140px;">Posición</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in b.rows %}
+              <tr>
+                <td><img src="{{ r.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt=""></td>
+                <td>
+                  <div class="fw-semibold">{{ r.title }}</div>
+                  <div class="text-muted small">{{ r.artist_label }}</div>
+                </td>
+                <td class="fw-semibold">{{ r.spins|k }}</td>
+                <td>
+                  <input type="number" min="1" class="form-control" data-pos-input
+                         name="pos_{{ b.station_id }}_{{ r.song_id }}"
+                         value="{{ r.position if r.position is not none else '' }}"
+                         placeholder="—">
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endfor %}
+
+  {# ── RANKING NACIONAL: solo las canciones que han sonado esta semana ─────────────────────── #}
+  {% if national_rows %}
+    <div class="card mb-3" data-pos-block>
+      <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div>
+          <div class="fw-semibold"><i class="fa fa-flag me-1"></i>Posición en el ranking nacional</div>
+          <div class="text-muted small">{{ national_rows|length }} canci{{ 'ón' if national_rows|length == 1 else 'ones' }} con tocadas esta semana</div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-pos-autofill
+                title="Pone 1, 2, 3… según el total de tocadas de la semana">
+          <i class="fa fa-wand-magic-sparkles me-1"></i>Numerar por tocadas
+        </button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:64px;">Portada</th>
+              <th>Canción</th>
+              <th class="text-nowrap" style="width:150px;">Tocadas (total)</th>
+              <th class="text-nowrap" style="width:140px;">Posición</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in national_rows %}
+              <tr>
+                <td><img src="{{ r.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt=""></td>
+                <td>
+                  <div class="fw-semibold">{{ r.title }}</div>
+                  <div class="text-muted small">{{ r.artist_label }}</div>
+                </td>
+                <td class="fw-semibold">{{ r.spins|k }}</td>
+                <td>
+                  <input type="number" min="1" class="form-control" data-pos-input
+                         name="nat_{{ r.song_id }}"
+                         value="{{ r.national_rank if r.national_rank is not none else '' }}"
+                         placeholder="—">
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="d-flex justify-content-end gap-2 mb-4">
+    <a class="btn btn-outline-secondary" href="{{ url_for('plays_view', week=week_start.isoformat()) }}">Cancelar</a>
+    <button type="submit" class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Guardar todo</button>
+  </div>
+</form>
+
+<script>
+  // «Numerar por tocadas»: como las filas ya vienen de más a menos tocadas, basta con poner
+  // 1, 2, 3… en el orden en el que se ven. Es una ayuda: cualquiera se puede corregir a mano.
+  document.addEventListener('DOMContentLoaded', function () {
+    function numerar(bloque) {
+      var inputs = bloque.querySelectorAll('[data-pos-input]');
+      inputs.forEach(function (inp, i) { inp.value = String(i + 1); });
+    }
+    document.querySelectorAll('[data-pos-autofill]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var bloque = btn.closest('[data-pos-block]');
+        if (bloque) numerar(bloque);
+      });
+    });
+    var todos = document.querySelector('[data-pos-autofill-all]');
+    if (todos) {
+      todos.addEventListener('click', function () {
+        document.querySelectorAll('[data-pos-block]').forEach(numerar);
+      });
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}

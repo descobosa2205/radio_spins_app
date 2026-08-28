@@ -197,19 +197,24 @@
     </ul>
 
     {% if CAN_EDIT_DISCOGRAFICA %}
-      {% if repertorio_tab == 'canciones' %}
-        {# Volcar los datos de los Label Copy ANTIGUOS. Va a la derecha, JUSTO ANTES del «+». #}
-        <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#lcBulkModal"
-                title="Subir LC: sube los Label Copy en PDF y vuelca sus datos"
-                aria-label="Subir LC"><i class="fa fa-file-import"></i></button>
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSongModal">
-          <i class="fa fa-plus"></i> Añadir canción
-        </button>
-      {% else %}
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAlbumModal">
-          <i class="fa fa-plus"></i> Añadir Disco / EP
-        </button>
-      {% endif %}
+      {# ⚠️ Los botones van JUNTOS en su propia caja: sueltos dentro de un `justify-content-between`
+         de tres hijos, el de «Subir LC» se quedaba flotando en MITAD de la barra en vez de pegado
+         al «+ Añadir canción». #}
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        {% if repertorio_tab == 'canciones' %}
+          {# Volcar los datos de los Label Copy ANTIGUOS. Va JUSTO DELANTE del «+». #}
+          <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#lcBulkModal"
+                  title="Subir LC: sube los Label Copy en PDF y vuelca sus datos"
+                  aria-label="Subir LC"><i class="fa fa-file-import"></i></button>
+          <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSongModal">
+            <i class="fa fa-plus"></i> Añadir canción
+          </button>
+        {% else %}
+          <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAlbumModal">
+            <i class="fa fa-plus"></i> Añadir Disco / EP
+          </button>
+        {% endif %}
+      </div>
     {% endif %}
   </div>
 
@@ -282,9 +287,11 @@
                           data-song-artist="{{ artist.id }}"
                           data-song-external="{{ '1' if s.is_external_collab else '0' }}"
                           data-song-search="{{ (s.title ~ ' ' ~ artist.name ~ ' ' ~ (s.display_collaborator or s.collaborator or '') ~ ' ' ~ (song_audio_isrc_map.get(s.id) or s.isrc or '') ~ ' ' ~ type_label)|lower }}"
-                          data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}"
-                          onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}';"
-                          onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}'; }">
+                          {# `nav`: de qué listado se viene, para las FLECHAS de anterior/siguiente de la ficha. #}
+                          {% set song_href = url_for('discografica_song_detail', song_id=s.id, nav='repertorio', nav_artista=artist.id) %}
+                          data-href="{{ song_href }}"
+                          onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ song_href }}';"
+                          onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ song_href }}'; }">
                         {% if CAN_EDIT_DISCOGRAFICA %}
                         <td>
                           <input class="form-check-input song-bulk-check" type="checkbox" value="{{ s.id }}"
@@ -737,9 +744,10 @@
                         tabindex="0"
                         data-album-artist="{{ artist.id }}"
                         data-album-search="{{ (al.title ~ ' ' ~ artist.name ~ ' ' ~ type_label ~ ' ' ~ ownership_label ~ ' ' ~ physical_label)|lower }}"
-                        data-href="{{ url_for('discografica_album_detail', album_id=al.id) }}"
-                        onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}';"
-                        onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}'; }">
+                        {% set album_href = url_for('discografica_album_detail', album_id=al.id, nav='repertorio_albumes', nav_artista=artist.id) %}
+                        data-href="{{ album_href }}"
+                        onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ album_href }}';"
+                        onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ album_href }}'; }">
                       <td>
                         <img src="{{ al.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                       </td>

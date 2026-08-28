@@ -23,6 +23,14 @@
             data-week="{{ base_w.isoformat() }}" data-week-label="{{ week_label }}">
       <i class="fa fa-file-arrow-up me-1"></i>Subir Excel
     </button>
+    {# Con las tocadas de la semana ya subidas, lo que queda es poner las POSICIONES: todas de una
+       vez (por emisora y la del ranking nacional) en su propia pantalla. #}
+    {% if week_has_plays %}
+      <a class="btn btn-outline-primary" href="{{ url_for('plays_positions_view', week=base_w.isoformat()) }}"
+         title="Poner las posiciones por emisora y la del ranking nacional de esta semana">
+        <i class="fa fa-ranking-star me-1"></i>Actualizar posiciones
+      </a>
+    {% endif %}
     <div class="dropdown">
       <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
         Semanas anteriores

@@ -5508,6 +5508,60 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   se podría retirar `.sales-chip` del CSS (hoy lo necesitan esos dos grupos **y** `wireSingle`, que
   selecciona por esa clase).
 
+- **FICHA DE CANCIÓN Y DE ÁLBUM · FLECHAS de ANTERIOR y SIGUIENTE** (ago 2026): en la barra de
+  botones, **a la derecha del todo**, dos flechas para pasar a la ficha de al lado **sin volver al
+  listado**, y **conservando la PESTAÑA** (si estás en «Editorial», la siguiente se abre en
+  «Editorial»; si esa pestaña no existe en el destino —de una canción a un álbum— se cae a
+  «Información»). En la primera solo sale la de siguiente y en la última solo la de anterior.
+  · ⚠️⚠️ **«El siguiente» depende de DE DÓNDE SE VIENE**, así que el listado viaja en la URL:
+  **`?nav=`** (`repertorio` · `repertorio_albumes` · `lanzamientos` · `syncros`) y sus filtros con
+  él (`nav_artista`, `nav_q`, `nav_onestop`). Desde el **repertorio** se recorren las canciones (o
+  los álbumes) **de ESE artista**, que es su bloque en la pantalla; desde **Lanzamientos**, la lista
+  mezclada de canciones y álbumes tal como se ve; desde el **repertorio de Syncros**, sus temas con
+  los filtros que hubiera puestos.
+  · Motor: `_ficha_nav_args` · `_ficha_nav_items` · `_ficha_nav_url` · **`_ficha_nav`** (que la
+  ficha recibe como `ficha_nav`), y cada listado **reconstruye su orden con el MISMO código que lo
+  pinta** —`_disco_launch_items` (extraído de `discografica_view`), `_sync_repertoire_filtered` y
+  `_sync_public_repertoire_filtered`—: si no, «el siguiente» no sería el que está debajo.
+  ⚠️ Los enlaces de las **PESTAÑAS** arrastran `nav` (`**ficha_nav_args`): sin eso, al cambiar de
+  pestaña se perdería el listado y las flechas desaparecerían. Y el botón **«Volver»** lleva al
+  listado del que se viene (`back_url`), no siempre al repertorio.
+  ⚠️ Si la ficha **ya no está en ese listado** (le han cambiado la fecha, ha salido del filtro) no
+  se pintan flechas: mejor eso que llevar a cualquier sitio.
+  · **En la ficha PÚBLICA de Syncro** funciona igual (`?nav=rep` + `ver`/`genero`/`artista`, que es
+  lo que lleva el enlace de cada fila del **repertorio abierto**): `_sync_public_nav`, con sus
+  rótulos en los dos idiomas (`SYNC_TEXTS['prev'|'next']`). Un enlace suelto que llega por correo
+  **no** lleva `nav`, así que no enseña flechas: no hay listado que recorrer.
+  ⚠️ El JS del botón «Volver» de esa página cambiaba el destino del **primer `<a>`** de su caja: al
+  meter ahí las flechas, se lo cambiaba a la de «anterior». Ahora busca `.btn-volver`.
+
+- **REPERTORIO DE SYNCROS · arriba el LANZAMIENTO MÁS RECIENTE** (ago 2026): el orden se fija en el
+  punto único **`_sync_repertoire_songs`** (fecha desc y, a igualdad, por título), así que lo
+  heredan la sección, sus filtros por artista y por género y la **landing pública** sin que cada
+  pantalla tenga que acordarse.
+
+- **TOCADAS · «ACTUALIZAR POSICIONES», todas de una vez** (ago 2026): con las tocadas de la semana
+  ya subidas aparece el botón **«Actualizar posiciones»** (`plays_view` lo ofrece solo si
+  `week_has_plays`), que lleva a su propia pantalla (`plays_positions_view`,
+  `/tocadas/posiciones?week=…`, plantilla `plays_positions.html`): **una tarjeta por emisora —solo
+  las que tienen tocadas esa semana— con sus canciones de la que más ha sonado a la que menos** y,
+  debajo, la **posición en el ranking nacional** de las canciones que han sonado (también de más a
+  menos). Es **UN solo formulario**: se guarda todo a la vez (`plays_positions_save`, que escribe
+  `Play.position` y `SongWeekInfo.national_rank`).
+  · Botón **«Numerar por tocadas»** por bloque y uno global: como las filas ya vienen ordenadas,
+  pone 1, 2, 3… en ese orden. Es una ayuda; cualquiera se corrige a mano.
+  ⚠️ Las posiciones por emisora se escriben **sobre las tocadas que YA existen**: no se inventa una
+  fila para una canción que esa semana no ha sonado en esa emisora. Los campos van
+  `pos_<station_id>_<song_id>` y `nat_<song_id>` (los UUID no llevan guiones bajos, así que el
+  `split("_", 2)` es seguro).
+  ⚠️ Los endpoints nuevos hay que mapearlos en los **DOS** sitios (`fixed` de
+  `_coarse_endpoint_resource` y `_resolve_request_resource_key`) a `radio.actualizar`; la ruta
+  `/tocadas` ya los cubriría por prefijo, pero el mapeo explícito es el que manda.
+
+- ⚠️ **«SUBIR LC» va PEGADO a «+ Añadir canción»** (corregido ago 2026): los dos botones colgaban
+  sueltos de un `d-flex justify-content-between` de TRES hijos, así que el de «Subir LC» se quedaba
+  flotando **en mitad de la barra**. Van juntos en su propia caja.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

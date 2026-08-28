@@ -1,0 +1,28 @@
+{# Pop-up ÚNICO para ver la letra de un tema (Syncros). Lo abre cualquier `[data-lyrics-modal]` con
+   su título y su letra: así no hace falta un modal por canción ni desplegarla en la propia fila. #}
+<div class="modal fade" id="lyricsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-align-justify me-2"></i><span data-lyrics-title></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body"><div style="white-space:pre-wrap;line-height:1.6;" data-lyrics-body></div></div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-lyrics-modal]');
+    if (!b) return;
+    ev.preventDefault();
+    ev.stopPropagation();                       // que no arranque la canción
+    var m = document.getElementById('lyricsModal');
+    if (!m) return;
+    m.querySelector('[data-lyrics-title]').textContent = b.getAttribute('data-lyrics-modal') || '';
+    m.querySelector('[data-lyrics-body]').textContent = b.getAttribute('data-lyrics-text') || '';
+    bootstrap.Modal.getOrCreateInstance(m).show();
+  }, true);
+})();
+</script>

@@ -61,7 +61,7 @@
        una playlist solo llegan si el interruptor de notas está encendido). #}
     {% if note %}<div class="pl-row__note">{{ note|safe }}</div>
     {% elif it.notes %}<div class="pl-row__note"><i class="fa fa-note-sticky me-1 text-muted"></i>{{ it.notes }}</div>{% endif %}
-    {% if it.lyrics %}
+    {% if it.lyrics and not it.lyrics_modal %}
       <div class="pl-row__lyrics d-none" data-pl-lyrics-box="{{ it.id }}">{{ it.lyrics }}</div>
     {% endif %}
   </div>
@@ -82,7 +82,9 @@
 
   {# LETRA a la derecha (Syncros): junto a la descarga, con el mismo aspecto. #}
   {% if it.lyrics and it.lyrics_right %}
-    <button class="pl-row__dl-plain" type="button" data-pl-lyrics="{{ it.id }}"
+    <button class="pl-row__dl-plain" type="button"
+            {% if it.lyrics_modal %}data-lyrics-modal="{{ it.title|e }}" data-lyrics-text="{{ it.lyrics|e }}"
+            {% else %}data-pl-lyrics="{{ it.id }}"{% endif %}
             title="Ver letra" aria-label="Ver letra"><i class="fa-solid fa-align-justify"></i></button>
   {% endif %}
   {# Descarga DIRECTA en MP3 (Syncros): un solo icono, sin desplegable. #}

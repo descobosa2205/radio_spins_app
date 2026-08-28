@@ -75,6 +75,7 @@
         {% import '_sync_song_row.html' as syncrow with context %}
         {% for row in rows %}{{ syncrow.sync_row(row) }}{% endfor %}
       </ul>
+      {% include '_lyrics_modal.html' %}
     {% elif view == 'artista' %}
       <div class="rep-grid">
         {% for a in artists %}

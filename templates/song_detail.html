@@ -16,7 +16,7 @@
          cabecera de la CANCIÓN). La etiqueta One-stop va en esta misma línea, tras el artista. #}
       <span>{% if primary_artist %}{{ artist_avatar(primary_artist.photo_url, primary_artist.name, artist_id=primary_artist.id) }}<span data-artist-link="{{ primary_artist.id }}">{{ primary_artist.name }}</span>{% else %}<i class="fa fa-user"></i>—{% endif %}</span>
       {% if one_stop and one_stop.ok %}
-        <span><span class="badge badge-onestop" title="One-stop: el máster es 100% nuestro, no hay intérpretes de fuera y la autoría es toda de Plataforma Musical. Se puede licenciar para una sincronización sin pedir permiso a nadie."><i class="fa-solid fa-clapperboard"></i>One-stop</span></span>
+        <span>{{ one_stop_badge() }}</span>
       {% endif %}
       {% set song_collaborators = song.display_collaborator or song.collaborator %}
       {% if song_collaborators %}<span><i class="fa fa-users"></i>{{ song_collaborators }}</span>{% endif %}
@@ -73,7 +73,11 @@
             {{ 'Enviada a Supervisors · volver a enviar' if sync_sent else 'Enviar a Supervisors' }}</button></li>
           <li><hr class="dropdown-divider"></li>
         {% endif %}
-        <li><button class="dropdown-item" type="button" onclick="shareByMail('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
+        {% if CAN_EDIT_SYNCROS %}
+          <li><button class="dropdown-item" type="button" data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
+        {% else %}
+          <li><button class="dropdown-item" type="button" onclick="shareByMail('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
+        {% endif %}
         <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>
         <li><button class="dropdown-item" type="button" onclick="shareBySms('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-solid fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>
         <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ sync_share_url }}')"><i class="fa-solid fa-link fa-fw me-1"></i>Copiar enlace</button></li>

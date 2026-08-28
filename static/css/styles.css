@@ -5160,3 +5160,7 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
 }
 /* El botón de LETRA de una fila de Syncro comparte el aspecto del de descarga (van juntos). */
 button.pl-row__dl-plain{ border:0; background:transparent; }
+
+/* Los iconos y botones de una fila de Syncro, ALINEADOS con el resto (antes se iban arriba). */
+.pl-row .pl-row__dl-plain,
+.pl-row .dropdown{ align-self:center; }

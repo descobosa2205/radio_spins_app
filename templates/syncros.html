@@ -74,31 +74,50 @@
         {% import '_sync_song_row.html' as syncrow with context %}
         <ul class="pl-list list-unstyled mb-0" data-playlist-player>
           {% for row in rep_rows %}
-            {{ syncrow.sync_row(row, sent=true, to_detail=true) }}
-            {% if can_edit %}
-              <li class="pl-actions d-flex justify-content-end gap-2 mb-2">
-                <button type="button" class="btn btn-sm {{ 'btn-outline-success' if row.sent else 'btn-primary' }}"
+            {# Los BOTONES van DENTRO de la fila (`menu`), no colgando debajo. #}
+            {% set menu %}
+              {% if can_edit %}
+                <button type="button" class="btn btn-sm {{ 'btn-outline-success' if row.sent else 'btn-primary' }} ms-2"
                         data-sync-send="{{ row.id }}" data-sync-title="{{ row.title }}"
                         title="{{ row.sent_tooltip or 'Enviar este tema a los Supervisors' }}">
                   <i class="fa-solid {{ 'fa-paper-plane' if row.sent else 'fa-share-from-square' }} me-1"></i>Supervisors</button>
-                <div class="dropdown">
-                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa-solid fa-share-nodes"></i></button>
+                <div class="dropdown d-inline-block ms-1">
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" title="Compartir"><i class="fa-solid fa-share-nodes"></i></button>
                   <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" href="mailto:?subject={{ ('Syncro ' ~ row.title)|urlencode }}&body={{ row.share_url|urlencode }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</a></li>
+                    <li><button type="button" class="dropdown-item" data-sync-send="{{ row.id }}" data-sync-title="{{ row.title }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
                     <li><a class="dropdown-item" href="https://wa.me/?text={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
                     <li><a class="dropdown-item" href="sms:?&body={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}"><i class="fa-solid fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
                     <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ row.share_url }}"><i class="fa-solid fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-                    <li><a class="dropdown-item" href="{{ row.detail_url }}"><i class="fa-solid fa-music fa-fw me-1"></i>Abrir la ficha</a></li>
+                    {# ⚠️ «Abrir ficha» = la ficha PÚBLICA que reciben los supervisores. A la ficha de
+                       la canción se llega pinchando el título. #}
+                    <li><a class="dropdown-item" href="{{ row.share_url }}" target="_blank" rel="noopener"><i class="fa-solid fa-eye fa-fw me-1"></i>Abrir la ficha que reciben</a></li>
                   </ul>
                 </div>
-              </li>
-            {% endif %}
+                <div class="dropdown d-inline-block ms-1">
+                  <button class="btn btn-sm btn-link text-muted px-1" data-bs-toggle="dropdown" title="Más opciones"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="{{ row.detail_url }}"><i class="fa-solid fa-music fa-fw me-1"></i>Abrir la ficha de la canción</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                      <form method="post" action="{{ url_for('sync_song_enable', song_id=row.id) }}"
+                            data-confirm="¿Quitar «{{ row.title }}» del repertorio de Syncro? Se puede volver a activar desde su ficha.">
+                        <input type="hidden" name="undo" value="1">
+                        <button class="dropdown-item text-danger" type="submit">
+                          <i class="fa-solid fa-circle-minus fa-fw me-1"></i>Quitar del repertorio</button>
+                      </form>
+                    </li>
+                  </ul>
+                </div>
+              {% endif %}
+            {% endset %}
+            {{ syncrow.sync_row(row, sent=true, to_detail=true, menu=menu) }}
           {% endfor %}
         </ul>
       {% endif %}
     </div>
   </div>
 
+  {% include '_lyrics_modal.html' %}
   {% if can_edit %}{% include '_sync_send_modal.html' %}{% endif %}
   {# ⚠️ Sin `playlist.js` las líneas se ven pero NO suenan (mismo motor que las demos). #}
   <script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>

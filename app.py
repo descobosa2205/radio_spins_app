@@ -1329,7 +1329,32 @@ def _parse_optional_positive_int(value):
         return None
     
 # ---------- context ----------
-_ASSET_VERSION = str(int(time.time()))   # cambia en cada arranque → rompe la caché de css/js
+def _asset_version() -> str:
+    """La versión de los ficheros estáticos: la FECHA del más reciente (CSS y JS).
+
+    ⚠️⚠️ Antes era la hora de ARRANQUE, y eso rompía la caché del navegador todo el rato: cada
+    worker de gunicorn arranca en un instante distinto, así que la MISMA página servía
+    `styles.css?v=…` con un número u otro según a qué worker cayera. El navegador no podía cachear
+    nada y **se descargaba el CSS entero en cada carga** — de ahí el parpadeo de ver la página SIN
+    ESTILOS un segundo, y que todo tardara más (bug real, con captura).
+    Con la fecha de los ficheros, todos los workers dan lo MISMO y solo cambia cuando el CSS o el JS
+    cambian de verdad, que es justo lo que hace falta para romper la caché en un despliegue."""
+    ultimo = 0.0
+    try:
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+        for carpeta in ("css", "js"):
+            ruta = os.path.join(base, carpeta)
+            if not os.path.isdir(ruta):
+                continue
+            for nombre in os.listdir(ruta):
+                if nombre.endswith((".css", ".js")):
+                    ultimo = max(ultimo, os.path.getmtime(os.path.join(ruta, nombre)))
+    except Exception:
+        pass
+    return str(int(ultimo)) if ultimo else str(int(time.time()))
+
+
+_ASSET_VERSION = _asset_version()        # la fecha del CSS/JS más reciente (igual en todos los workers)
 
 
 @app.context_processor
@@ -1366,6 +1391,18 @@ def inject_globals():
         logo = (logo_url if logo_url is not None else getattr(company, "logo_url", "")) or ""
         return str(nombre).strip(), str(logo).strip().rstrip("?")
 
+    def one_stop_badge(cls=""):
+        """La etiqueta **ONE-STOP**, igual en TODA la app.
+
+        ⚠️ Punto único a propósito: estaba escrita a mano en tres plantillas y en una llevaba `fa`
+        en vez de `fa-solid`, así que **salía sin icono** (bug real). Con un global no se pueden
+        desparejar."""
+        return Markup(
+            '<span class="badge badge-onestop %s" title="One-stop: el máster es 100%% nuestro, no '
+            'hay intérpretes de fuera y la autoría es toda de Plataforma Musical. Se puede licenciar '
+            'para una sincronización sin pedir permiso a nadie.">'
+            '<i class="fa-solid fa-clapperboard"></i>One-stop</span>') % (cls or "")
+
     def company_logo(company=None, name=None, logo_url=None, size=40, cls="co-logo"):
         """El LOGO de una empresa del grupo y, si todavía no tiene, un ICONO de empresa.
 
@@ -1396,6 +1433,7 @@ def inject_globals():
         BRAND_PRIMARY=settings.BRAND_PRIMARY,
         BRAND_ACCENT=settings.BRAND_ACCENT,
         company_logo=company_logo,
+        one_stop_badge=one_stop_badge,
         company_chip=company_chip,
         IS_ADMIN=bool(session.get("user_id")),
         has_endpoint=has_endpoint,
@@ -21678,6 +21716,41 @@ def _is_registros_sello(profile) -> bool:
     if profile is None:
         return False
     return _profile_in_department(profile, "Registros") and _profile_in_department(profile, "Sello")
+
+
+def _home_sync_to_send() -> dict | None:
+    """TAREA PENDIENTE: los singles **ONE-STOP ya publicados** que todavía no se han mandado a
+    Supervisors, para quien es **Registros y Sello a la vez**.
+
+    ⚠️ Salta **al día siguiente del lanzamiento** (`release_date < hoy`): el día del lanzamiento
+    todavía se está publicando; a partir del siguiente ya se puede presentar.
+    ⚠️ La tarea **desaparece sola** en cuanto el tema se manda, **da igual desde dónde** (mira
+    `SyncSubmission`, que es lo que apunta cualquier envío de la app)."""
+    state = _current_user_state() or {}
+    perfil = state.get("profile")
+    if not (_is_registros_sello(perfil) or int(state.get("role") or 0) == 10):
+        return None
+    session_db = db()
+    try:
+        canciones, mapa = _sync_repertoire_songs(session_db)
+        ayer = today_local() - timedelta(days=1)
+        # Solo lo ONE-STOP y ya publicado (el día siguiente en adelante).
+        pendientes = [c for c in canciones
+                      if (mapa.get(str(c.id)) or {}).get("ok")
+                      and getattr(c, "release_date", None) and c.release_date <= ayer]
+        if not pendientes:
+            return None
+        enviados = _sync_sent_state(session_db, [c.id for c in pendientes])
+        sin_enviar = [c for c in pendientes if not enviados.get(str(c.id))]
+        if not sin_enviar:
+            return None
+        filas = _sync_song_rows(session_db, sin_enviar, one_stop_map=mapa)
+        return {"total": len(filas), "rows": filas[:8]}
+    except Exception:
+        app.logger.exception("[syncro] no se pudo montar la tarea de envío a supervisors")
+        return None
+    finally:
+        session_db.close()
 
 
 def _home_songs_without_genre() -> dict | None:
@@ -67048,6 +67121,9 @@ def inject_personnel_globals():
         # de quien tiene las DOS funciones, no del apartado de Syncros.
         "HOME_SONGS_NO_GENRE": (_home_songs_without_genre()
                                 if _home and "_home_songs_without_genre" in globals() else None),
+        # REGISTROS + SELLO: los singles One-stop ya publicados que faltan por mandar a Supervisors.
+        "HOME_SYNC_TO_SEND": (_home_sync_to_send()
+                              if _home and "_home_sync_to_send" in globals() else None),
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if _dept and "_home_pending_peticiones" in globals() else [],
         # MIS PETICIONES: las que ha hecho esta persona, para ver cómo van. Es de cada uno, así que
         # no depende de ningún permiso de sección.
@@ -120093,6 +120169,19 @@ def _sync_repertoire_songs(session_db):
     mapa = _song_one_stop_map(session_db, canciones)
     elegidas = [c for c in canciones
                 if bool(getattr(c, "sync_enabled", False)) or (mapa.get(str(c.id)) or {}).get("ok")]
+    # ⚠️ SIN MÁSTER no entra en el repertorio: a un supervisor se le presenta un tema que se pueda
+    # ESCUCHAR. (Una consulta para todas, no una por canción.)
+    if elegidas:
+        try:
+            con_master = {str(r[0]) for r in
+                          session_db.query(SongMaterial.song_id)
+                          .filter(SongMaterial.song_id.in_([c.id for c in elegidas]),
+                                  func.upper(func.coalesce(SongMaterial.category, "")) == "MASTER",
+                                  func.length(func.coalesce(SongMaterial.file_url, "")) > 0)
+                          .distinct().all()}
+            elegidas = [c for c in elegidas if str(c.id) in con_master]
+        except Exception:
+            app.logger.exception("[syncro] no se pudo comprobar el máster del repertorio")
     return elegidas, mapa
 
 
@@ -120591,7 +120680,8 @@ def public_sync_song():
             one_stop=bool(fila.get("one_stop")))
         return render_template(
             "public_sync_song.html", ctx=ctx, body_html=cuerpo,
-            og_title=_sync_og_title(ctx), og_description=_sync_og_description(ctx),
+            og_title=_sync_og_title(ctx),
+            og_description=_sync_og_description(ctx, one_stop=bool(fila.get("one_stop"))),
             og_image_url=_external_url_for("public_sync_song_og_image", token=token))
     finally:
         session_db.close()
@@ -120678,9 +120768,14 @@ def _sync_og_title(ctx: dict) -> str:
     return "%s · %s%s" % (ctx["t"]["subject"], nombre, (" (%s)" % artista) if artista and artista != "—" else "")
 
 
-def _sync_og_description(ctx: dict) -> str:
-    """«One-Stop · <géneros>» (el subtítulo de la previsualización)."""
-    partes = [ctx["t"]["one_stop"].title()]
+def _sync_og_description(ctx: dict, *, one_stop: bool = True) -> str:
+    """El subtítulo de la previsualización: «One-Stop · \<géneros\>».
+
+    ⚠️ «One-Stop» solo si el tema LO ES: un tema habilitado a mano no lo es, y decirlo sería mentir
+    justo en lo que le importa a un supervisor."""
+    partes = []
+    if one_stop:
+        partes.append(ctx["t"]["one_stop"].title())
     generos = [g for g in (ctx.get("genres") or []) if g]
     if generos:
         partes.append(", ".join(generos))

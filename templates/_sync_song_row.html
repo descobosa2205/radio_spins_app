@@ -1,16 +1,17 @@
 {# ============================================================================
    UNA LÍNEA DE TEMA PARA SYNCRO. Reutiliza la macro `pl_row` (la MISMA de las demos y las
    playlists), así que se escucha exactamente igual; lo propio de Syncro —la etiqueta One-stop, los
-   géneros y el estado de envío— se le pasa como `badges`.
+   géneros, el estado de envío y sus BOTONES— se le pasa como `badges` y `menu`, que `pl_row` pinta
+   DENTRO de la fila (antes los botones iban en un `<li>` aparte y quedaban colgando debajo).
    ⚠️ Quien la use tiene que cargar `playlist.js`: sin él las líneas se ven pero NO suenan.
    ============================================================================ #}
 {% import '_playlist_row.html' as plr with context %}
 
-{# `link` dice a dónde va el TÍTULO: dentro de la app, a la FICHA de la canción; en la landing
-   pública, a su página de syncro (allí no hay ficha a la que ir). #}
-{% macro sync_row(row, link=true, sent=false, to_detail=false) %}
+{# `link` = el título es un enlace; `to_detail` = a la ficha de la canción (dentro de la app) en vez
+   de a su página pública. `menu` es el HTML de los botones de la derecha. #}
+{% macro sync_row(row, link=true, sent=false, to_detail=false, menu='') %}
   {% set badges %}
-    {% if row.one_stop %}<span class="badge badge-onestop ms-1" title="One-stop: máster y edición al 100% nuestros"><i class="fa-solid fa-clapperboard me-1"></i>One-stop</span>{% endif %}
+    {% if row.one_stop %}{{ one_stop_badge('ms-1') }}{% endif %}
     {% for g in row.genres %}<span class="badge rounded-pill sync-genre ms-1">{{ g }}</span>{% endfor %}
     {% if sent and row.sent %}<span class="badge text-bg-success ms-1" title="{{ row.sent_tooltip }}"><i class="fa-solid fa-paper-plane me-1"></i>{{ row.sent_count }}</span>{% endif %}
   {% endset %}
@@ -18,6 +19,7 @@
         stream_url=row.audio_url,
         download_mp3_only=row.download_url,
         lyrics_right=true,
+        lyrics_modal=true,
         detail_url=((row.detail_url if to_detail else row.share_url) if link else ''),
-        subtitle=row.release_label), badges=badges) }}
+        subtitle=row.release_label), badges=badges, menu=menu) }}
 {% endmacro %}

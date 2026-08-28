@@ -1771,7 +1771,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   duplicados, los cuatro filtros, el alta a mano, la pestaña del tercero y los permisos (sin permiso
   403 · solo ver sin botones y con el POST rebotado · ver+editar).
 
-- ⚠️⚠️ **UN LOGO DE EMPRESA DEL GRUPO NO LLEVA FONDO BLANCO** (ago 2026). Muchos se suben en PNG
+- ⚠️⚠️ **LA VERSIÓN DE LOS ESTÁTICOS ES LA FECHA DEL FICHERO, NO LA HORA DE ARRANQUE** (bug real
+  con captura, ago 2026). `ASSET_V` era `int(time.time())` al arrancar, y **cada worker de gunicorn
+  arranca en un instante distinto**: la misma página servía `styles.css?v=…` con un número u otro
+  según a qué worker cayera, así que el navegador **no podía cachear el CSS y lo bajaba entero en
+  cada carga**. De ahí el parpadeo de ver la página **SIN ESTILOS** un segundo (y que todo tardara
+  más). Ahora `_asset_version()` es la **fecha del CSS/JS más reciente**: igual en todos los workers
+  y solo cambia cuando el fichero cambia de verdad, que es justo lo que rompe la caché al desplegar.
+
+- ⚠️⚠️ **UN `<style>` SIN CERRAR DEJA LA PÁGINA EN BLANCO** (bug real, ago 2026): el navegador se
+  traga el resto del documento como CSS y el `<body>` queda **vacío** (el HTML llega entero y con su
+  `<title>`, así que parece un problema del servidor y no lo es). Pasó al sustituir un bloque de la
+  plantilla que incluía el `</style>`. Comprobación rápida: `grep -c "<style>"` y `grep -c
+  "</style>"` sobre el HTML SERVIDO tienen que dar lo mismo.
+
+- - ⚠️⚠️ **UN LOGO DE EMPRESA DEL GRUPO NO LLEVA FONDO BLANCO** (ago 2026). Muchos se suben en PNG
   con el blanco horneado y en la app se veían como un **rectángulo blanco** sobre el fondo gris —y
   encima el helper `company_logo()` le ponía `background:#fff`, así que ni un PNG transparente se
   libraba—. Ahora: sin ese `background`, y el logo se sirve por **`logo_clean_png`**
@@ -1835,7 +1849,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   persona, no un enlace que haya que destacar.
   · En **todas** las filas (dentro y en el repertorio abierto) van la **letra** y la **descarga**
   como iconos **juntos a la derecha** (`lyrics_right` de `pl_row`): pegado al título, el de la letra
-  no se veía.
+  no se veía. La letra se abre en un **pop-up único** (`_lyrics_modal.html`, `lyrics_modal`), no
+  desplegándose en la propia fila.
+  ⚠️ Los **BOTONES de una fila van DENTRO de ella** (el parámetro `menu` de `pl_row`): en un `<li>`
+  aparte quedaban colgando debajo y descolocados.
+  · **Tres puntitos** por fila: abrir la ficha de la canción y **quitar del repertorio** (se vuelve a
+  activar desde su ficha). En «Compartir», **«Abrir la ficha que reciben»** es la página PÚBLICA; a
+  la ficha de la canción se llega pinchando el **título**.
+  · **«Por correo» abre el MISMO pop-up del envío**, con un **buscador de la base** (terceros,
+  personal y artistas, vía `buyers_campaign_contacts`) además del campo de correos a mano: mandar un
+  tema es lo mismo se llame como se llame.
+  ⚠️ **SIN MÁSTER no entra en el repertorio**: a un supervisor se le presenta un tema que se pueda
+  escuchar (una consulta para todas, no una por canción).
+  · **La etiqueta ONE-STOP es un GLOBAL** (`one_stop_badge()`): estaba escrita a mano en tres
+  plantillas y en una llevaba `fa` en vez de `fa-solid`, así que **salía sin icono** (bug real).
+  · **TAREA PENDIENTE** para quien es **Registros y Sello a la vez** (`_home_sync_to_send` →
+  `HOME_SYNC_TO_SEND`): los temas **One-stop ya publicados** que todavía no se han mandado a
+  Supervisors, con su botón de enviar ahí mismo. Salta **al día siguiente** del lanzamiento (el día
+  del lanzamiento todavía se está publicando) y **desaparece sola en cuanto se manda, desde donde
+  sea** (mira `SyncSubmission`, que es lo que apunta cualquier envío de la app).
+  ⚠️ En la previsualización, **«One-Stop» solo se dice si el tema LO ES**: un tema habilitado a mano
+  no lo es, y decirlo sería mentir justo en lo que le importa a un supervisor. El **género** va
+  siempre al lado.
   ⚠️⚠️ **LOS DESTINATARIOS DEL ENVÍO SE CARGAN AL ABRIR EL POP-UP** (`sync_send_targets` →
   `_sync_send_targets.html`), no dentro del HTML de la pantalla: con cientos de supervisores —cada
   uno con su foto— la ficha de la canción y Syncros pesaban muchísimo, tardaban y se llegaba a ver

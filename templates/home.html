@@ -636,6 +636,38 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# REGISTROS + SELLO: los singles One-stop ya publicados que faltan por mandar a Supervisors.
+   Salta al día siguiente del lanzamiento y desaparece sola en cuanto se manda (desde donde sea). #}
+{% if HOME_SYNC_TO_SEND %}
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <h2 class="h6 mb-0"><i class="fa-solid fa-clapperboard me-2 text-danger"></i>Enviar a Supervisors</h2>
+      <span class="badge text-bg-warning text-dark">{{ HOME_SYNC_TO_SEND.total }}</span>
+      <span class="small text-muted ms-1">Temas One-stop ya publicados que todavía no se han presentado.</span>
+    </div>
+    {% import '_sync_song_row.html' as syncrow with context %}
+    <ul class="pl-list list-unstyled mb-0" data-playlist-player>
+      {% for row in HOME_SYNC_TO_SEND.rows %}
+        {% set menu %}
+          <button type="button" class="btn btn-sm btn-primary ms-2"
+                  data-sync-send="{{ row.id }}" data-sync-title="{{ row.title }}">
+            <i class="fa-solid fa-share-from-square me-1"></i>Enviar</button>
+        {% endset %}
+        {{ syncrow.sync_row(row, to_detail=true, menu=menu) }}
+      {% endfor %}
+    </ul>
+    {% if HOME_SYNC_TO_SEND.total > HOME_SYNC_TO_SEND.rows|length %}
+      <div class="small text-muted mt-2">y {{ HOME_SYNC_TO_SEND.total - HOME_SYNC_TO_SEND.rows|length }} más
+        <a href="{{ url_for('syncros_view', section='repertorio') }}">en Syncros</a>.</div>
+    {% endif %}
+  </div>
+</div>
+{% include '_sync_send_modal.html' %}
+{% include '_lyrics_modal.html' %}
+<script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
+{% endif %}
+
 {# REGISTROS + SELLO: los temas SIN GÉNERO. Sin género no se pueden presentar bien (ni a radio, ni
    a una playlist, ni a un supervisor). La tarea desaparece sola cuando no queda ninguno. #}
 {% if HOME_SONGS_NO_GENRE %}

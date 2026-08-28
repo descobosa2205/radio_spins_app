@@ -74,7 +74,7 @@
           <li><hr class="dropdown-divider"></li>
         {% endif %}
         {% if CAN_EDIT_SYNCROS %}
-          <li><button class="dropdown-item" type="button" data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
+          <li><button class="dropdown-item" type="button" data-sync-mode="email" data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
         {% else %}
           <li><button class="dropdown-item" type="button" onclick="shareByMail('Syncro · {{ song.title|e }}', '{{ sync_share_url }}')"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
         {% endif %}
@@ -2652,50 +2652,36 @@
                     </div>
                   </div>
 
-                  {# REPARTO de la parte de un autor NUESTRO: arriba su parte autoral en la obra y
-                     debajo cómo se reparte esa parte entre él y Plataforma Musical, con el porcentaje
-                     final sobre el conjunto de la obra. #}
+                  {# REPARTO EDITORIAL de un autor NUESTRO: el autor se ve como cualquier otro (con
+                     su % de la obra) y DEBAJO dos etiquetas grises claritas dicen cuánto le queda a
+                     él y cuánto a Plataforma. ⚠️ Antes eran dos filas del mismo tamaño y Plataforma
+                     PARECÍA otro autor, que es justo lo que confundía. #}
                   {% if sh.is_platform %}
-                    <div class="ed-split mt-2">
-                      <div class="ed-split__head">
-                        <span class="ed-split__part">Parte autoral en la obra: <strong>{{ '%.2f'|format(sh.pct) }}%</strong></span>
-                        {% if sh.split and sh.split.source == 'special' %}
-                          <span class="badge text-bg-warning text-dark">Reparto especial</span>
-                        {% elif sh.split and sh.split.source == 'frozen' %}
-                          <span class="badge text-bg-light border" title="Congelado el día del registro">Según contrato al registrar</span>
-                        {% elif sh.split and sh.split.source == 'contract' %}
-                          <span class="badge text-bg-light border">Según contrato</span>
-                        {% endif %}
-                        {% if CAN_EDIT_DISCOGRAFICA %}
-                          <button type="button" class="btn btn-sm btn-outline-secondary ms-auto"
-                                  data-split-edit
-                                  data-split-url="{{ url_for('discografica_song_editorial_share_split', song_id=song.id, share_id=sh.id) }}"
-                                  data-split-name="{{ sh.full_name }}"
-                                  data-split-pct="{{ sh.pct }}"
-                                  data-split-special="{{ '1' if sh.special_split else '' }}"
-                                  data-split-author="{{ sh.special_pct_author if sh.special_pct_author is not none else (sh.split.pct_author if sh.split and sh.split.pct_author is defined else '') }}"
-                                  data-split-platform="{{ sh.special_pct_platform if sh.special_pct_platform is not none else (sh.split.pct_platform if sh.split and sh.split.pct_platform is defined else '') }}">
-                            <i class="fa fa-percent"></i> Reparto
-                          </button>
-                        {% endif %}
-                      </div>
+                    <div class="ed-share mt-1">
                       {% if sh.split and sh.split.source != 'none' %}
-                        <div class="ed-split__rows">
-                          <div class="ed-split__row">
-                            <span class="text-truncate">{{ sh.full_name }}</span>
-                            <span class="text-muted small">{{ '%.2f'|format(sh.split.pct_author) }}% de su parte</span>
-                            <span class="badge text-bg-dark">{{ '%.2f'|format(sh.split.final_author) }}% de la obra</span>
-                          </div>
-                          <div class="ed-split__row">
-                            <span class="text-truncate">Plataforma Musical</span>
-                            <span class="text-muted small">{{ '%.2f'|format(sh.split.pct_platform) }}% de su parte</span>
-                            <span class="badge text-bg-dark">{{ '%.2f'|format(sh.split.final_platform) }}% de la obra</span>
-                          </div>
-                        </div>
+                        <span class="ed-share__tag" title="Le queda el {{ '%.2f'|format(sh.split.pct_author) }}% de su parte autoral ({{ '%.2f'|format(sh.pct) }}%)">
+                          Autor <strong>{{ '%.2f'|format(sh.split.final_author) }}%</strong></span>
+                        <span class="ed-share__tag" title="Plataforma Musical se lleva el {{ '%.2f'|format(sh.split.pct_platform) }}% de su parte autoral">
+                          Plataforma <strong>{{ '%.2f'|format(sh.split.final_platform) }}%</strong></span>
+                        {% if sh.split.source == 'special' %}
+                          <span class="ed-share__tag ed-share__tag--warn" title="Reparto fijado a mano">Reparto especial</span>
+                        {% elif sh.split.source == 'frozen' %}
+                          <span class="ed-share__tag" title="Congelado con el contrato vigente el día del registro">Al registrar</span>
+                        {% endif %}
                       {% else %}
-                        <div class="small text-muted">
-                          No hay contrato editorial del artista con el que repartir esta parte. Puedes fijar un reparto especial.
-                        </div>
+                        <span class="ed-share__tag" title="Sin contrato editorial del artista con el que repartir esta parte">
+                          Sin reparto editorial</span>
+                      {% endif %}
+                      {% if CAN_EDIT_DISCOGRAFICA %}
+                        <button type="button" class="ed-share__edit"
+                                data-split-edit
+                                data-split-url="{{ url_for('discografica_song_editorial_share_split', song_id=song.id, share_id=sh.id) }}"
+                                data-split-name="{{ sh.full_name }}"
+                                data-split-pct="{{ sh.pct }}"
+                                data-split-special="{{ '1' if sh.special_split else '' }}"
+                                data-split-author="{{ sh.special_pct_author if sh.special_pct_author is not none else (sh.split.pct_author if sh.split and sh.split.pct_author is defined else '') }}"
+                                data-split-platform="{{ sh.special_pct_platform if sh.special_pct_platform is not none else (sh.split.pct_platform if sh.split and sh.split.pct_platform is defined else '') }}"
+                                title="Cambiar el reparto editorial"><i class="fa-solid fa-percent"></i></button>
                       {% endif %}
                     </div>
                   {% endif %}
@@ -3287,8 +3273,9 @@
 </div>
 {% endif %}
 
-{% endblock %}
-
-{# El pop-up de ENVIAR A SUPERVISORS: el MISMO que el del listado de Syncros (un solo sitio que
-   mantener). Va fuera de las pestañas, así que el botón vale desde cualquiera. #}
+{# El pop-up de ENVIAR A SUPERVISORS y el de la LETRA: los MISMOS que el listado de Syncros (un
+   solo sitio que mantener). Van fuera de las pestañas, así que valen desde cualquiera.
+   ⚠️⚠️ TIENEN que ir DENTRO de `{% block content %}`: fuera, Jinja los emite antes del `<!doctype>`
+   y el navegador pinta esa parte SIN ESTILOS hasta que llega el CSS (bug real). #}
 {% if sync_in_repertoire and CAN_EDIT_SYNCROS %}{% include '_sync_send_modal.html' %}{% endif %}
+{% endblock %}

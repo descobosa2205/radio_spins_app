@@ -119679,8 +119679,12 @@ def _fa_codepoints() -> dict:
         ruta = os.path.join(app.static_folder, "vendor", "fontawesome", "css", "all.min.css")
         with open(ruta, "r", encoding="utf-8", errors="ignore") as fh:
             css = fh.read()
-        for nombre, code in re.findall(r'\.fa-([a-z0-9-]+):before\{content:"\\([0-9a-f]{4,5})"', css):
-            salida.setdefault(nombre, chr(int(code, 16)))
+        # ⚠️ Font Awesome AGRUPA los alias en un solo selector
+        # (`.fa-bolt:before,.fa-zap:before{content:"\\f0e7"}`): hay que leer el GRUPO entero, o esos
+        # iconos se quedan sin codepoint y su PNG sale VACÍO en los correos.
+        for selectores, code in re.findall(r'((?:\.fa-[a-z0-9-]+:before,?)+)\{content:"\\([0-9a-f]{4,5})"', css):
+            for nombre in re.findall(r'\.fa-([a-z0-9-]+):before', selectores):
+                salida.setdefault(nombre, chr(int(code, 16)))
     except Exception:
         app.logger.exception("[iconos] no se pudo leer el CSS de Font Awesome")
     _FA_CODEPOINTS = salida

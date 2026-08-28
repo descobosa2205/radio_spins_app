@@ -12,7 +12,7 @@
     <div class="modal-content">
       <form method="post" id="syncSendForm" action="">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="fa fa-share-from-square me-2"></i>Enviar a Supervisors ·
+          <h5 class="modal-title"><i class="fa-solid fa-share-from-square me-2"></i><span id="syncSendWho">Enviar a Supervisors</span> ·
             <span id="syncSendTitle" class="fw-normal"></span></h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
@@ -20,9 +20,10 @@
           <div class="row g-3">
             {# ---- A QUIÉN ---- #}
             <div class="col-12 col-lg-5">
-              <div class="fw-semibold mb-2"><i class="fa fa-users me-1 text-danger"></i>¿A quién se le manda?</div>
+              <div class="fw-semibold mb-2"><i class="fa-solid fa-users me-1 text-danger"></i>¿A quién se le manda?</div>
 
-              <div id="syncSendTargets"><div class="text-muted small py-3"><i class="fa-solid fa-spinner fa-spin me-1"></i>Cargando…</div></div>
+              {# Los SUPERVISORES (con sus filtros) solo en el modo «supervisors». #}
+              <div id="syncSendTargets"></div>
 
               {# Mandárselo a alguien que NO es supervisor: se busca en la base (terceros, personal
                  y artistas) o se escribe el correo a mano — igual que al notificar. #}
@@ -84,7 +85,7 @@
   var URL_TARGETS = {{ url_for('sync_send_targets')|tojson }};
   var targetsCargados = false;
   var URL_SEND = {{ url_for('sync_song_send', song_id='__ID__')|tojson }};
-  var songId = '', lang = 'ES';
+  var songId = '', lang = 'ES', modo = 'supervisors';
   var contactos = [];                      // los correos añadidos a mano o de la base
   // Los filtros ACTIVOS: todos empiezan encendidos y se apagan al pinchar.
   var off = { type: {}, region: {}, country: {}, lang: {} };
@@ -141,9 +142,24 @@
     var abre = ev.target.closest('[data-sync-send]');
     if (abre) {
       songId = abre.getAttribute('data-sync-send');
+      // ⚠️ «Compartir por correo» NO es un envío a supervisores: ahí no se cargan ni sus filtros ni
+      // su lista, solo se eligen terceros o se escriben direcciones.
+      modo = (abre.getAttribute('data-sync-mode') || 'supervisors');
+      var zonaS = document.getElementById('syncSendTargets');
+      document.getElementById('syncSendWho').textContent =
+        (modo === 'email' ? 'Enviar por correo' : 'Enviar a Supervisors');
       document.getElementById('syncSendTitle').textContent = abre.getAttribute('data-sync-title') || '';
       document.getElementById('syncSendForm').setAttribute('action', URL_SEND.replace('__ID__', songId));
-      cargaDestinatarios();
+      contactos = [];
+      var manual = document.getElementById('syncExtraManual');
+      if (manual) manual.value = '';
+      pintaContactos();
+      if (modo === 'email') {
+        if (zonaS) zonaS.innerHTML = '';
+        targetsCargados = false;
+      } else {
+        cargaDestinatarios();
+      }
       pinta();
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
@@ -159,6 +175,7 @@
     if (targetsCargados) { aplica(); return; }
     var zona = document.getElementById('syncSendTargets');
     if (!zona) return;
+    zona.innerHTML = '<div class="text-muted small py-3"><i class="fa-solid fa-spinner fa-spin me-1"></i>Cargando…</div>';
     fetch(URL_TARGETS, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
       .then(function (j) {

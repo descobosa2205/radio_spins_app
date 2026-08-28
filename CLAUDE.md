@@ -1771,7 +1771,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   duplicados, los cuatro filtros, el alta a mano, la pestaña del tercero y los permisos (sin permiso
   403 · solo ver sin botones y con el POST rebotado · ver+editar).
 
-- ⚠️⚠️ **LA VERSIÓN DE LOS ESTÁTICOS ES LA FECHA DEL FICHERO, NO LA HORA DE ARRANQUE** (bug real
+- ⚠️⚠️ **UN `{% include %}` FUERA DEL `{% block content %}` SE PINTA ANTES DEL `<!doctype>`** (bug
+  real con captura, ago 2026). El pop-up de envío de Syncros estaba al final de `song_detail.html`,
+  **después del `{% endblock %}`**: Jinja lo emitía en la **línea 2 del documento**, antes de la
+  cabecera, y el navegador entraba en **quirks mode** pintando ese trozo SIN ESTILOS hasta que
+  llegaba el CSS. Por eso pasaba **solo en las fichas one-stop** (las únicas que lo incluían).
+  ⚠️ Comprobación: `curl … | grep -n "<!doctype"` tiene que dar **1**, y en el navegador
+  `document.compatMode` tiene que ser `CSS1Compat`.
+
+- ⚠️ **EL LECTOR DE CODEPOINTS TIENE QUE ENTENDER LOS ALIAS AGRUPADOS**: Font Awesome escribe
+  `.fa-bolt:before,.fa-zap:before{content:"\f0e7"}`, y leyendo solo selectores sueltos se perdían
+  **592 iconos** (2426 en vez de 1834) — su PNG salía VACÍO en los correos.
+
+- - ⚠️⚠️ **LA VERSIÓN DE LOS ESTÁTICOS ES LA FECHA DEL FICHERO, NO LA HORA DE ARRANQUE** (bug real
   con captura, ago 2026). `ASSET_V` era `int(time.time())` al arrancar, y **cada worker de gunicorn
   arranca en un instante distinto**: la misma página servía `styles.css?v=…` con un número u otro
   según a qué worker cayera, así que el navegador **no podía cachear el CSS y lo bajaba entero en
@@ -1863,6 +1875,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   escuchar (una consulta para todas, no una por canción).
   · **La etiqueta ONE-STOP es un GLOBAL** (`one_stop_badge()`): estaba escrita a mano en tres
   plantillas y en una llevaba `fa` en vez de `fa-solid`, así que **salía sin icono** (bug real).
+  · **«Compartir por correo» NO carga supervisores**: el pop-up tiene DOS modos
+  (`data-sync-mode`) — `supervisors` (con sus filtros y su lista) y **`email`**, que solo deja elegir
+  terceros/personal/artistas de la base o escribir direcciones. En modo correo no se pide la lista.
+
+- **REPARTO EDITORIAL en la ficha de la canción** (ago 2026): el autor se ve **como cualquier otro**
+  (con su % de la obra) y **DEBAJO dos etiquetas grises claritas** (`.ed-share__tag`) dicen cuánto le
+  queda a él (**«Autor X%»**) y cuánto a **«Plataforma Y%»**, con el detalle al pasar el ratón.
+  ⚠️ Antes eran dos filas del mismo tamaño dentro de un recuadro y **Plataforma parecía otro autor**,
+  que es justo lo que confundía.
   · **TAREA PENDIENTE** para quien es **Registros y Sello a la vez** (`_home_sync_to_send` →
   `HOME_SYNC_TO_SEND`): los temas **One-stop ya publicados** que todavía no se han mandado a
   Supervisors, con su botón de enviar ahí mismo. Salta **al día siguiente** del lanzamiento (el día

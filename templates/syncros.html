@@ -84,7 +84,7 @@
                 <div class="dropdown d-inline-block ms-1">
                   <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" title="Compartir"><i class="fa-solid fa-share-nodes"></i></button>
                   <ul class="dropdown-menu dropdown-menu-end">
-                    <li><button type="button" class="dropdown-item" data-sync-send="{{ row.id }}" data-sync-title="{{ row.title }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
+                    <li><button type="button" class="dropdown-item" data-sync-mode="email" data-sync-send="{{ row.id }}" data-sync-title="{{ row.title }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
                     <li><a class="dropdown-item" href="https://wa.me/?text={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
                     <li><a class="dropdown-item" href="sms:?&body={{ (('Syncro ' ~ row.title ~ ' ') ~ row.share_url)|urlencode }}"><i class="fa-solid fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
                     <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ row.share_url }}"><i class="fa-solid fa-link fa-fw me-1"></i>Copiar enlace</button></li>

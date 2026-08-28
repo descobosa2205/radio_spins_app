@@ -5164,3 +5164,19 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 /* Los iconos y botones de una fila de Syncro, ALINEADOS con el resto (antes se iban arriba). */
 .pl-row .pl-row__dl-plain,
 .pl-row .dropdown{ align-self:center; }
+
+/* ── REPARTO EDITORIAL de un autor nuestro ───────────────────────────────────────────────────
+   Dos etiquetas GRISES CLARITAS debajo de su porcentaje: cuánto le queda a él y cuánto a
+   Plataforma. ⚠️ Antes eran dos filas del mismo tamaño y Plataforma parecía OTRO autor. */
+.ed-share{ display:flex; align-items:center; gap:.3rem; flex-wrap:wrap; }
+.ed-share__tag{
+  display:inline-flex; align-items:center; gap:.28em;
+  background:#f4f6f8; color:#6b7280; border:1px solid #e9ecef; border-radius:999px;
+  padding:.12rem .5rem; font-size:.72rem; line-height:1.5; white-space:nowrap;
+}
+.ed-share__tag strong{ color:#495057; font-weight:700; }
+.ed-share__tag--warn{ background:#fff8e6; border-color:#f3e2b3; color:#8a6d1f; }
+.ed-share__edit{
+  border:0; background:transparent; color:#adb5bd; padding:.1rem .3rem; line-height:1; font-size:.75rem;
+}
+.ed-share__edit:hover{ color:var(--brand-accent,#007CA2); }

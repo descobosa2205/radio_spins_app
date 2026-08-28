@@ -1404,27 +1404,38 @@ function initUsageOrderedOverflowNav(){
     overflow.classList.add('d-none');
   }
 
+  // ⚠️ UNA SECCIÓN CON SUBSECCIONES SE VE COMO UNA SOLA LÍNEA y se abre al pincharla (ago 2026).
+  // Antes se volcaban todas sus opciones desplegadas (con una cabecera y una raya), así que el
+  // menú de «más secciones» se llenaba de las pestañas de Bases de datos, Radio o Ventas y no se
+  // veían las secciones que faltaban. Ahora es un plegable: se pincha y salen las suyas.
   function addCloneForItem(li){
     const topLink = li.querySelector(':scope > a.nav-link');
     const label = topLink ? (topLink.textContent || '').trim() : '';
     const childLinks = Array.from(li.querySelectorAll(':scope > .dropdown-menu .dropdown-item'));
     if (childLinks.length) {
-      const headerLi = document.createElement('li');
-      const header = document.createElement('h6');
-      header.className = 'dropdown-header';
-      header.textContent = label;
-      headerLi.appendChild(header);
-      menu.appendChild(headerLi);
+      const wrap = document.createElement('li');
+      wrap.className = 'nav-ovf-group';
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dropdown-item nav-ovf-toggle';
+      btn.setAttribute('aria-expanded', 'false');
+      // El icono y el nombre son los de la propia sección (se copia su contenido tal cual).
+      btn.innerHTML = (topLink ? topLink.innerHTML : label) +
+                      '<i class="fa fa-chevron-down nav-ovf-caret"></i>';
+      wrap.appendChild(btn);
+
+      const sub = document.createElement('ul');
+      sub.className = 'nav-ovf-sub list-unstyled';
       childLinks.forEach((child) => {
-        const wrap = document.createElement('li');
+        const subLi = document.createElement('li');
         const clone = child.cloneNode(true);
         clone.classList.add('dropdown-item');
-        wrap.appendChild(clone);
-        menu.appendChild(wrap);
+        subLi.appendChild(clone);
+        sub.appendChild(subLi);
       });
-      const divider = document.createElement('li');
-      divider.innerHTML = '<hr class="dropdown-divider">';
-      menu.appendChild(divider);
+      wrap.appendChild(sub);
+      menu.appendChild(wrap);
     } else if (topLink) {
       const wrap = document.createElement('li');
       const clone = topLink.cloneNode(true);
@@ -1434,6 +1445,39 @@ function initUsageOrderedOverflowNav(){
       menu.appendChild(wrap);
     }
   }
+
+  // Abrir/cerrar una sección del menú de desbordamiento. Va por DELEGACIÓN (sus líneas se crean y
+  // se tiran en cada recálculo) y sobre el propio `menu`, que el gestor global de desplegables
+  // teleporta al <body> al abrirlo.
+  // ⚠️ `stopPropagation`: sin él, el clic llega al data-api de Bootstrap y CIERRA el desplegable
+  // entero (todos se crean con `autoClose: true`), así que el submenú no llegaría a verse.
+  menu.addEventListener('click', (ev) => {
+    const btn = ev.target && ev.target.closest ? ev.target.closest('.nav-ovf-toggle') : null;
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const grupo = btn.parentElement;
+    const abierto = grupo.classList.contains('is-open');
+    menu.querySelectorAll('.nav-ovf-group.is-open').forEach((g) => {
+      g.classList.remove('is-open');
+      const t = g.querySelector(':scope > .nav-ovf-toggle');
+      if (t) t.setAttribute('aria-expanded', 'false');
+    });
+    if (!abierto) {
+      grupo.classList.add('is-open');
+      btn.setAttribute('aria-expanded', 'true');
+    }
+  });
+
+  // Al cerrar el menú se pliega todo, para que la próxima vez se abra limpio.
+  document.addEventListener('hidden.bs.dropdown', (ev) => {
+    if (!ev.target || !overflow.contains(ev.target)) return;
+    menu.querySelectorAll('.nav-ovf-group.is-open').forEach((g) => {
+      g.classList.remove('is-open');
+      const t = g.querySelector(':scope > .nav-ovf-toggle');
+      if (t) t.setAttribute('aria-expanded', 'false');
+    });
+  }, true);
 
   function availableWidth(){
     const parent = nav.parentElement;

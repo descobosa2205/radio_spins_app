@@ -774,6 +774,14 @@ img.img-error-pending{ visibility: hidden; }
 .navbar-nav-primary > .nav-item{ white-space: nowrap; }
 .nav-overflow-dropdown.d-none{ display:none !important; }
 .nav-overflow-dropdown .dropdown-menu{ max-height: calc(100vh - 90px); overflow:auto; }
+/* MENÚ «más secciones»: una sección con subsecciones se ve como UNA línea y se abre al pincharla
+   (antes se volcaban todas sus opciones desplegadas y no se veían las secciones que faltaban). */
+.nav-ovf-toggle{ display:flex; align-items:center; width:100%; text-align:left; }
+.nav-ovf-caret{ margin-left:auto; font-size:.72em; opacity:.6; transition:transform .15s ease; }
+.nav-ovf-group.is-open > .nav-ovf-toggle .nav-ovf-caret{ transform:rotate(180deg); }
+.nav-ovf-sub{ display:none; margin:0; padding:0; }
+.nav-ovf-group.is-open > .nav-ovf-sub{ display:block; }
+.nav-ovf-sub .dropdown-item{ padding-left:2.6rem; font-size:.92rem; }
 @media (min-width: 992px){
   #navMain{ min-width:0; }
   #navMain .navbar-nav-primary{ overflow: visible; }

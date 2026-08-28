@@ -5562,6 +5562,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   sueltos de un `d-flex justify-content-between` de TRES hijos, así que el de «Subir LC» se quedaba
   flotando **en mitad de la barra**. Van juntos en su propia caja.
 
+- **MENÚ «más secciones» (⋯) · una SECCIÓN CON SUBSECCIONES se abre al pincharla** (ago 2026): lo
+  que no cabe en el menú superior se vuelca en el desplegable de las barras, y ahí una sección con
+  hijos —Bases de datos, Contratación, Ventas, Radio, Invitaciones— se volcaba **desplegada** (una
+  cabecera y todas sus opciones), así que el menú se llenaba de pestañas y no se veían las
+  secciones que faltaban. Ahora cada sección es **UNA línea** con su icono y un chevron, y sus
+  opciones salen al pincharla (`addCloneForItem` en `initUsageOrderedOverflowNav`, clases
+  `.nav-ovf-group` / `.nav-ovf-toggle` / `.nav-ovf-sub`).
+  ⚠️ El clic del plegable necesita **`stopPropagation`**: sin él llega al data-api de Bootstrap y
+  **cierra el desplegable entero** (todos se crean con `autoClose: true`), así que el submenú no
+  llegaría a verse. Va por DELEGACIÓN sobre el propio `menu` (sus líneas se crean y se tiran en
+  cada recálculo, y el gestor global lo teleporta al `<body>` al abrirlo).
+  ⚠️ Al cerrarse el desplegable se pliega todo, para que la próxima vez se abra limpio.
+  ⚠️ De paso: **«Playlisting» salía DOS veces** en el menú (un `<li>` fijo en `layout.html` además
+  del que ya trae `NAV_MENU` con su propio permiso). El fijo se retiró.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

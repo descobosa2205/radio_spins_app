@@ -111614,8 +111614,11 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         _mios = _agenda_my_items(session_db, concerts, start_date, end_date)
         if _mios:
             raw.extend(_mios)
-        if _mios or any(MY_CALENDAR_ID in (ids or []) for ids, _it in raw):
-            seen_artist_ids.add(MY_CALENDAR_ID)
+        # ⚠️⚠️ MI CALENDARIO SE VE SIEMPRE, tenga o no algo esa semana: es el calendario de cada uno
+        # y un módulo básico de Inicio, no una etiqueta que aparece y desaparece según lo que haya.
+        # Antes solo se añadía si traía ítems, así que a quien esa quincena no acompañaba a nadie ni
+        # tenía vacaciones le desaparecía —y sin chip no hay forma de volver a encenderlo—.
+        seen_artist_ids.add(MY_CALENDAR_ID)
 
     # ---- Mapa de artistas (nombre + foto) para colorear/etiquetar ----
     artist_map = {}

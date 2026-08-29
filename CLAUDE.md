@@ -391,6 +391,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo personal (mis días, MI CALENDARIO y el de OFICINA) se añade **ANTES del mapa de artistas**: es
   ahí donde estos dos calendarios cogen nombre, foto y color, y el mapa se construye con los ids ya
   vistos.
+  ⚠️⚠️ **MI CALENDARIO SE VE SIEMPRE** (corregido ago 2026): su id se añade a `seen_artist_ids` con
+  `include_personal`, **tenga o no algo esa quincena**. Antes solo entraba si traía ítems, así que a
+  quien no acompañaba a nadie ni tenía vacaciones le **desaparecía el chip de Inicio** —y sin chip no
+  hay forma de volver a encenderlo—. Es el calendario de cada uno: un módulo básico, no una etiqueta
+  que aparece y desaparece según lo que haya. (El de OFICINA sigue apareciendo solo si tiene algo.)
 
 - **Los TIPOS que se ofrecen son los que HAY a la vista** (ago 2026, `kindsVisibles()` en
   `agenda_calendar.js`): la lista de tipos —el lateral «Tipos» en Inicio y los chips de arriba en la

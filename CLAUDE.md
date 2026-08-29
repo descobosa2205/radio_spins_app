@@ -5608,6 +5608,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pequeño que enseña el pitch **tal cual lo escribió un tercero** en una entrega de masters
   (`.pitch-text--sm`) sí lo conserva.
 
+- ⚠️ **CONTRATACIÓN · CONCIERTOS: el número de cada artista es el de lo que va a VER** (corregido
+  ago 2026). La rejilla de artistas contaba **todos** sus conciertos, incluidos los ya celebrados,
+  mientras que el listado enseña por defecto **solo los futuros** (`f_when = {"FUTURE"}`): la
+  tarjeta decía «12 conciertos» y dentro había tres. Ahora el contador lleva el **mismo filtro de
+  fechas** que el listado, así que también sigue al chip «Pasados» / «Futuros».
+  ⚠️ Un artista que solo tenga conciertos pasados **no sale** en la rejilla mientras el filtro sea
+  «Futuros» (antes salía y al entrar no había nada); con «Pasados» marcado vuelve a aparecer.
+  ⚠️ Las demás pestañas (Otras actividades, Giras, Festivales/Ciclos) **no filtran por fecha** ni en
+  el listado ni en el contador, así que ahí no había desajuste. El número de la BARRA de pestañas es
+  otra cosa: son las TAREAS pendientes, que ya solo miran actividades vivas.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

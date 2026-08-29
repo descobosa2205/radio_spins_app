@@ -47599,15 +47599,23 @@ def concerts_page():
         show_all = request.args.get("all") == "1"
         type_counts = {}
         if active_tab == "vista":
-            count_rows = (
+            count_q = (
                 s.query(Concert.artist_id, func.count(Concert.id))
                 .filter(
                     ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
                     # Mismo criterio que el listado: las de FESTIVAL son conciertos (ver arriba).
                     ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
                     Concert.event_id.is_(None),      # los eventos tienen su pestaña
-                ).group_by(Concert.artist_id).all()
+                )
             )
+            # ⚠️ EL NÚMERO DE CADA ARTISTA ES EL DE LO QUE VA A VER AL ENTRAR: se le aplica el MISMO
+            # filtro de fechas que al listado (que por defecto enseña solo lo que está por venir).
+            # Contando también lo pasado, la tarjeta decía «12 conciertos» y dentro había tres.
+            if want_past and not want_future:
+                count_q = count_q.filter(Concert.date < today)
+            elif want_future and not want_past:
+                count_q = count_q.filter(Concert.date >= today)
+            count_rows = count_q.group_by(Concert.artist_id).all()
             count_map = {aid: int(n) for aid, n in count_rows}
             for a in artists:
                 n = count_map.get(a.id, 0)

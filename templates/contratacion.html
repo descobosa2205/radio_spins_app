@@ -36,6 +36,19 @@
     {% endfor %}
   </div>
 {% elif section == 'otras-actividades' %}
+  {# CUÁNDO: por defecto solo lo que está POR VENIR (mismo criterio que Conciertos y Eventos), así
+     el número de cada artista o evento de la rejilla es el de lo que se va a ver al entrar. #}
+  <div class="d-flex gap-2 flex-wrap mb-3">
+    <a href="{{ url_for('contracting_view', section='otras-actividades', tipo=(request.args.getlist('tipo') or None), artist=(request.args.get('artist') or None), event=(request.args.get('event') or None)) }}"
+       class="badge {{ 'text-bg-dark' if not show_past else 'text-bg-light border' }} text-decoration-none py-2 px-3">
+      <i class="fa fa-forward me-1"></i>Activas
+    </a>
+    <a href="{{ url_for('contracting_view', section='otras-actividades', tipo=(request.args.getlist('tipo') or None), artist=(request.args.get('artist') or None), event=(request.args.get('event') or None), pasadas=1) }}"
+       class="badge {{ 'text-bg-dark' if show_past else 'text-bg-light border' }} text-decoration-none py-2 px-3">
+      <i class="fa fa-clock-rotate-left me-1"></i>Todas (con las pasadas)
+    </a>
+  </div>
+
   {# FILTROS POR TIPO DE ACTIVIDAD, en etiquetas con su icono. Se filtra por lo que ES cada actividad
      (evento promocional, TV, marca, otros), nunca por cómo se vende un concierto. #}
   {% if type_chips %}
@@ -47,7 +60,7 @@
         </a>
       {% endfor %}
       {% if type_chips|selectattr('active')|list %}
-        <a class="filter-chip" href="{{ url_for('contracting_view', section='otras-actividades') }}"><i class="fa fa-xmark"></i>Quitar filtros</a>
+        <a class="filter-chip" href="{{ url_for('contracting_view', section='otras-actividades', pasadas=(1 if show_past else None), artist=(request.args.get('artist') or None), event=(request.args.get('event') or None)) }}"><i class="fa fa-xmark"></i>Quitar filtros</a>
       {% endif %}
     </div>
   {% endif %}
@@ -72,11 +85,13 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="alert alert-light border">{{ empty_message }}</div>
+    <div class="alert alert-light border">
+      {{ empty_message }}{% if not show_past %} Marca «Todas (con las pasadas)» para ver también las ya celebradas.{% endif %}
+    </div>
     {% endif %}
   {% else %}
     <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('contracting_view', section='otras-actividades') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('contracting_view', section='otras-actividades', pasadas=(1 if show_past else None)) }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
       <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
         <img src="{{ drill_subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
         {{ drill_subject.name }}

@@ -5615,9 +5615,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   fechas** que el listado, así que también sigue al chip «Pasados» / «Futuros».
   ⚠️ Un artista que solo tenga conciertos pasados **no sale** en la rejilla mientras el filtro sea
   «Futuros» (antes salía y al entrar no había nada); con «Pasados» marcado vuelve a aparecer.
-  ⚠️ Las demás pestañas (Otras actividades, Giras, Festivales/Ciclos) **no filtran por fecha** ni en
-  el listado ni en el contador, así que ahí no había desajuste. El número de la BARRA de pestañas es
-  otra cosa: son las TAREAS pendientes, que ya solo miran actividades vivas.
+  ⚠️ **OTRAS ACTIVIDADES va igual** (ago 2026): su rejilla agrupa por **artista o evento** y
+  enseñaba —y contaba— también lo ya celebrado. Ahora, como Conciertos y como la pestaña de
+  Eventos, nace en **«Activas»** (solo lo que está por venir, `Concert.date >= hoy` o sin fecha) con
+  el botón **«Todas (con las pasadas)»** (`?pasadas=1`); los chips de TIPO y el número de cada
+  sujeto se calculan sobre lo que se está viendo, así que no pueden desparejarse. El filtro viaja en
+  los enlaces de la rejilla, de los chips y del «Volver».
+  ⚠️ **Giras compradas** y **Festivales/Ciclos** no se han tocado: agrupan por gira o por ciclo (no
+  por artista) y ahí el listado y el contador ya dicen lo mismo. **Producción → Activas** y la
+  sección **Actividades** ya filtraban por su cuenta.
+  ⚠️ El número de la BARRA de pestañas es otra cosa: son las TAREAS pendientes, que ya solo miran
+  actividades vivas.
 
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).

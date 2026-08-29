@@ -40333,6 +40333,7 @@ def contracting_view():
         return _render_event_activities()
     session_db = db()
     try:
+        show_past_activities = _truthy(request.args.get("pasadas"))
         query = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
         if section == "giras-compradas":
             query = query.filter(or_(func.upper(func.coalesce(Concert.sale_type, "")) == "GIRAS_COMPRADAS", func.upper(func.coalesce(Concert.activity_type, "")) == "GIRA"))
@@ -40346,6 +40347,11 @@ def contracting_view():
             empty = "No hay festivales o ciclos registrados todavía."
         elif section == "otras-actividades":
             query = query.filter(func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]))
+            # ⚠️ Por defecto, SOLO lo que está por venir (mismo criterio que Conciertos y que la
+            # pestaña de Eventos): así el número de cada artista o evento de la rejilla es el de lo
+            # que se va a ver al entrar. Con `?pasadas=1` se ven también las ya celebradas.
+            if not show_past_activities:
+                query = query.filter(or_(Concert.date.is_(None), Concert.date >= today_local()))
             title = "Otras actividades"
             subtitle = "Eventos promocionales, televisión, acciones con marca y otras actividades."
             empty = "No hay otras actividades registradas todavía."
@@ -40399,6 +40405,7 @@ def contracting_view():
                     "count": cuenta_tipos.get(k, 0),
                     "active": k in tipos_sel,
                     "url": url_for("contracting_view", section="otras-actividades", tipo=otros,
+                                   pasadas=(1 if show_past_activities else None),
                                    **({"artist": request.args.get("artist")} if request.args.get("artist") else {}),
                                    **({"event": request.args.get("event")} if request.args.get("event") else {})),
                 })
@@ -40429,6 +40436,7 @@ def contracting_view():
             for g in grupos.values():
                 g["url"] = url_for("contracting_view", section="otras-actividades",
                                    tipo=sorted(tipos_sel),
+                                   pasadas=(1 if show_past_activities else None),
                                    **({"event": g["id"]} if g["kind"] == "event" else {"artist": g["id"]}))
             subject_groups = sorted(grupos.values(), key=lambda x: (x["name"] or "").lower())
             # Compatibilidad: la rejilla antigua solo tenía artistas.
@@ -40487,6 +40495,7 @@ def contracting_view():
         return render_template(
             "contratacion.html",
             section=section,
+            show_past=show_past_activities,
             title=title,
             subtitle=subtitle,
             empty_message=empty,

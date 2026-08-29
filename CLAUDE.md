@@ -391,6 +391,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Lo personal (mis días, MI CALENDARIO y el de OFICINA) se añade **ANTES del mapa de artistas**: es
   ahí donde estos dos calendarios cogen nombre, foto y color, y el mapa se construye con los ids ya
   vistos.
+  ⚠️⚠️ **EL CALENDARIO DE INICIO NO PUEDE DESAPARECER** (bug real, ago 2026). `_home_agenda` tenía
+  un `except Exception: return None` **mudo** y el módulo cuelga de `{% if HOME_AGENDA is not none %}`:
+  cualquier fallo borraba el calendario de la pantalla **sin decir nada en ningún sitio**. La causa
+  encontrada: **un id que no es un UUID en `assigned_artist_ids`** (una cadena vacía, un id a medias)
+  hacía reventar `to_uuid` y con él la agenda ENTERA de esa persona. Tres capas:
+  · **la causa**: `_home_agenda_target_ids` se queda solo con los ids que son UUID de verdad y el
+    punto único **`_agenda_uuids`** sustituye a los `to_uuid(x)` sueltos de `_agenda_build`;
+  · **cada pieza de lo personal en su propio `try`** (mis días, el calendario de oficina, Mi
+    calendario, los festivos con `_agenda_holidays_safe`): si una falla, se pierde esa capa y no el
+    calendario;
+  · **red de seguridad**: si aun así falla, se reintenta **sin lo personal ni los festivos** y, en el
+    peor caso, se pinta el calendario VACÍO (`_agenda_empty`) con Mi calendario. Y todo queda en el
+    log (`app.logger.exception`), que era lo que faltaba para poder diagnosticarlo.
   ⚠️⚠️ **MI CALENDARIO SE VE SIEMPRE** (corregido ago 2026): su id se añade a `seen_artist_ids` con
   `include_personal`, **tenga o no algo esa quincena**. Antes solo entraba si traía ítems, así que a
   quien no acompañaba a nadie ni tenía vacaciones le **desaparecía el chip de Inicio** —y sin chip no

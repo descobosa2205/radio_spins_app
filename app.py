@@ -111271,6 +111271,19 @@ def _agenda_my_items(session_db, concerts, start_date, end_date) -> list:
     return salida
 
 
+def _agenda_uuids(valores) -> list:
+    """Los ids que son un UUID de verdad. Lo que no se pueda leer se ignora.
+
+    ⚠️ Un `to_uuid("")` (o de un id a medias) lanza `ValueError` y, dentro del calendario, eso
+    tumbaba la agenda ENTERA de esa persona: en Inicio no aparecía ningún calendario."""
+    fuera = []
+    for x in (valores or []):
+        u = _safe_uuid(str(x or ""))
+        if u is not None:
+            fuera.append(u)
+    return fuera
+
+
 def _agenda_build(session_db, target_ids, start_date, end_date, today_value, full_details=False,
                   include_personal=False, include_holidays=False) -> dict:
     """Construye los datos del calendario de agenda.
@@ -111515,7 +111528,7 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         .filter(ArtistAgendaItem.start_date <= end_date, ArtistAgendaItem.end_date >= start_date)
     )
     if target is not None:
-        agenda_q = agenda_q.filter(ArtistAgendaItem.artist_id.in_([to_uuid(x) for x in target if x]))
+        agenda_q = agenda_q.filter(ArtistAgendaItem.artist_id.in_(_agenda_uuids(target)))
     for it in agenda_q.all():
         aid = str(it.artist_id)
         kind = "bloqueo" if (it.kind or "").upper() == "BLOCK" else "otro"
@@ -111559,7 +111572,7 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
 
     bday_q = session_db.query(Artist).options(joinedload(Artist.people))
     if target is not None:
-        bday_q = bday_q.filter(Artist.id.in_([to_uuid(x) for x in target if x]))
+        bday_q = bday_q.filter(Artist.id.in_(_agenda_uuids(target)))
     for art in bday_q.all():
         aid = str(art.id)
         url_art = url_for("artist_detail_view", artist_id=art.id, tab="agenda")
@@ -111602,16 +111615,31 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
     # su color, y el mapa se construye con los ids ya vistos.
     # Solo en la agenda de dentro (`include_personal`), nunca en calendarios públicos / iCal / CalDAV.
     if include_personal:
-        # Mis días (vacaciones y días libres, que ya vienen con el id de MI CALENDARIO) + los festivos
-        # y no laborables que me afectan (esos van sin calendario, como siempre).
-        raw.extend(_agenda_personal_days(session_db, start_date, end_date))
-        _oficina = _agenda_office_items(session_db, start_date, end_date)
+        # ⚠️ CADA PIEZA DE LO PERSONAL VA EN SU PROPIO `try`: si una revienta (un dato raro en unas
+        # vacaciones, un cumpleaños imposible), antes se llevaba por delante el CALENDARIO ENTERO
+        # —`_home_agenda` se comía la excepción y devolvía None, así que en Inicio no salía nada—.
+        # Mejor un calendario al que le falta una capa que ningún calendario.
+        try:
+            # Mis días (vacaciones y días libres, que ya vienen con el id de MI CALENDARIO) + los
+            # festivos y no laborables que me afectan (esos van sin calendario, como siempre).
+            raw.extend(_agenda_personal_days(session_db, start_date, end_date))
+        except Exception:
+            app.logger.exception("[agenda] no se pudieron leer mis vacaciones y días libres")
+        try:
+            _oficina = _agenda_office_items(session_db, start_date, end_date)
+        except Exception:
+            app.logger.exception("[agenda] no se pudo montar el calendario general de oficina")
+            _oficina = []
         if _oficina:
             raw.extend(_oficina)
             seen_artist_ids.add(OFFICE_CALENDAR_ID)
         # ---- MI CALENDARIO: lo que acompaño y mis días (las vacaciones las trae
         # `_agenda_personal_days`, que ya viene con este mismo id) ----
-        _mios = _agenda_my_items(session_db, concerts, start_date, end_date)
+        try:
+            _mios = _agenda_my_items(session_db, concerts, start_date, end_date)
+        except Exception:
+            app.logger.exception("[agenda] no se pudo montar Mi calendario")
+            _mios = []
         if _mios:
             raw.extend(_mios)
         # ⚠️⚠️ MI CALENDARIO SE VE SIEMPRE, tenga o no algo esa semana: es el calendario de cada uno
@@ -111625,7 +111653,7 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
     # ⚠️ Los ids de MI CALENDARIO y del de OFICINA son CENTINELAS, no UUIDs: no se les pregunta a la BD.
     _reales = [x for x in seen_artist_ids if x and x not in (OFFICE_CALENDAR_ID, MY_CALENDAR_ID)]
     if _reales:
-        for a in session_db.query(Artist).filter(Artist.id.in_([to_uuid(x) for x in _reales])).all():
+        for a in session_db.query(Artist).filter(Artist.id.in_(_agenda_uuids(_reales))).all():
             artist_map[str(a.id)] = {"id": str(a.id), "name": a.name or "—", "photo_url": a.photo_url or ""}
     if OFFICE_CALENDAR_ID in seen_artist_ids:
         _logos = _office_calendar_logos()
@@ -111704,13 +111732,22 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         "kinds": kinds_out,
         # FESTIVOS de la ventana: el calendario marca el día en rojo con el nombre de la festividad.
         # Los NO LABORABLES de la oficina solo van en la agenda de dentro (`include_personal`).
-        "holidays": (_agenda_holidays(session_db, start_date, end_date,
-                                      include_office=include_personal)
+        "holidays": (_agenda_holidays_safe(session_db, start_date, end_date,
+                                           include_office=include_personal)
                      if include_holidays else []),
         "today": today_value.isoformat(),
         "start": start_date.isoformat(),
         "end": end_date.isoformat(),
     }
+
+
+def _agenda_holidays_safe(session_db, start_date, end_date, *, include_office=False) -> list:
+    """Los festivos de la ventana, sin poder tumbar el calendario si algo va mal."""
+    try:
+        return _agenda_holidays(session_db, start_date, end_date, include_office=include_office)
+    except Exception:
+        app.logger.exception("[agenda] no se pudieron leer los festivos")
+        return []
 
 
 def _agenda_window(days_ahead: int = 20):
@@ -111727,23 +111764,62 @@ def _home_agenda_target_ids() -> list[str] | None:
     ninguno o es dirección."""
     state = _current_user_state()
     role = _safe_int(state.get("role"))
-    assigned = [str(x) for x in (state.get("assigned_artist_ids") or []) if x]
+    # ⚠️ Solo los que son un UUID DE VERDAD: en `assigned_artist_ids` se ha colado alguna vez una
+    # cadena vacía o un id a medias, y con eso el calendario entero reventaba (`to_uuid`) y en
+    # Inicio no salía NADA. Lo que no se pueda leer se ignora, no tumba la pantalla.
+    assigned = [str(x) for x in (state.get("assigned_artist_ids") or []) if _safe_uuid(str(x or ""))]
     return None if (role == 10 or not assigned) else assigned
 
 
 def _home_agenda() -> dict | None:
     """Datos del calendario de Inicio para el usuario actual: actividades de SUS artistas asignados
-    (o de todos si no tiene ninguno asignado o es dirección). Color por artista."""
+    (o de todos si no tiene ninguno asignado o es dirección). Color por artista.
+
+    ⚠️⚠️ EL CALENDARIO DE INICIO NO PUEDE DESAPARECER: es un módulo básico y lo ve todo el mundo. Si
+    algo falla no se devuelve None (eso lo borraba de la pantalla **sin decir nada**): se registra en
+    el log, se reintenta **sin lo personal ni los festivos** —que es lo que más datos raros toca— y,
+    en el peor caso, se pinta el calendario VACÍO con MI CALENDARIO. Mejor un calendario al que le
+    falte una capa que ningún calendario."""
     session_db = db()
     try:
         today, start, end = _agenda_window()
-        return _agenda_build(session_db, _home_agenda_target_ids(), start, end, today,
-                             full_details=_user_sees_unconfirmed_activities(),
-                             include_personal=True, include_holidays=True)
+        try:
+            return _agenda_build(session_db, _home_agenda_target_ids(), start, end, today,
+                                 full_details=_user_sees_unconfirmed_activities(),
+                                 include_personal=True, include_holidays=True)
+        except Exception:
+            app.logger.exception("[agenda] no se pudo montar el calendario de Inicio")
+        try:
+            session_db.rollback()
+            return _agenda_build(session_db, _home_agenda_target_ids(), start, end, today,
+                                 full_details=False, include_personal=False, include_holidays=False)
+        except Exception:
+            app.logger.exception("[agenda] tampoco se pudo montar el calendario básico de Inicio")
+            session_db.rollback()
+        return _agenda_empty(start, end, today)
     except Exception:
+        app.logger.exception("[agenda] no se pudo preparar la ventana del calendario de Inicio")
         return None
     finally:
         session_db.close()
+
+
+def _agenda_empty(start_date, end_date, today_value) -> dict:
+    """Un calendario VACÍO pero completo: la rejilla de días con MI CALENDARIO y nada más.
+
+    Es la red de seguridad de Inicio: si los datos no se pueden montar, se ve el calendario en vez de
+    un hueco donde antes había un módulo."""
+    return {
+        "activities": [],
+        "artists": [{"id": MY_CALENDAR_ID, "name": MY_CALENDAR_NAME,
+                     "photo_url": _my_calendar_photo(), "mine": True,
+                     "color": AGENDA_MINE_COLOR, "special": True}],
+        "kinds": [],
+        "holidays": [],
+        "today": today_value.isoformat(),
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
+    }
 
 
 @app.get("/agenda/inicio.json", endpoint="home_agenda_data")

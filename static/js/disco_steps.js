@@ -38,7 +38,14 @@
       var q = caja.querySelector('input[type="text"]');
       var hid = caja.querySelector('input[type="hidden"]');
       var qc = caja.querySelector('select');
-      if (q && hid && window.initTypeahead) initTypeahead(q.id, hid.id, '/api/search/promoters');
+      // El correo y el teléfono del elegido, si la zona los pide (los aprobadores los necesitan
+      // para el aviso): viajan como campos EXTRA del resultado a sus propios ocultos.
+      var mail = caja.querySelector('input[type="hidden"][name$="_email"]');
+      var tel = caja.querySelector('input[type="hidden"][name$="_phone"]');
+      var opts = (mail || tel) ? { extra: {} } : undefined;
+      if (mail) opts.extra.contact_email = mail.id;
+      if (tel) opts.extra.contact_phone = tel.id;
+      if (q && hid && window.initTypeahead) initTypeahead(q.id, hid.id, '/api/search/promoters', opts);
       if (qc) qc.addEventListener('change', function () { pinta(caja); });
       // Si se BORRA lo escrito, se suelta el tercero elegido (si no, quedaría uno invisible puesto).
       if (q && hid) {

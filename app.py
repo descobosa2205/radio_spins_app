@@ -23851,7 +23851,8 @@ def _disco_project_has_audio(project) -> bool:
 # LAS CUATRO FASES en las que se agrupan las tareas de un proyecto. Solo son para LEERLAS: la lista
 # es larga (25 tareas en un single) y sin agrupar no se entiende por dónde va el trabajo.
 DISCO_TASK_PHASES = (
-    ("obra", "La obra", "fa-compact-disc"),
+    # ⚠️ La primera fase se llama «Single» (antes «La obra»): es como se le llama en la casa.
+    ("obra", "Single", "fa-compact-disc"),
     ("imagen", "La imagen", "fa-image"),
     ("lanzamiento", "El lanzamiento", "fa-rocket"),
     ("cierre", "Para cerrar", "fa-flag-checkered"),
@@ -24324,10 +24325,14 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                               modal="#dpArtworkRequestModal",
                               hint="Con su fecha máxima de entrega")
                     elif not art["delivered"]:
+                        # PEDIDA = **Solicitado** (está en manos de diseño), con los DÍAS que faltan
+                        # para la entrega a la vista.
                         tarea("port_pedir", "Solicitar la portada", "", "fa-hourglass-half",
-                              grupo="single", sub=True, state="wait",
-                              hint="Pedida%s · falta que la suban (JPG y PSD)"
-                                   % ((" para el %s" % art["due_label"]) if art["due_label"] else ""),
+                              grupo="single", sub=True, state="sent",
+                              hint=" · ".join([x for x in [
+                                  "Pedida%s" % ((" para el %s" % art["due_label"]) if art["due_label"] else ""),
+                                  _disco_days_left_label(art.get("due_date")),
+                                  "falta que la suban (JPG y PSD)"] if x]),
                               menu=[{"label": "Volver a solicitarla", "icon": "fa-rotate",
                                      "modal": "#dpArtworkRequestModal"}])
                     else:
@@ -24386,9 +24391,12 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
             tarea("creatividades", "Otras creatividades", "", "fa-shapes", state="done",
                   value="%d pieza(s) entregadas" % cre["delivered"],
                   menu=[{"label": "Pedir más", "icon": "fa-plus", "modal": "#dpCreativesModal"}])
+            _disco_creatives_subtasks(tarea, cre)
         elif cre["requested"]:
+            # ⚠️ PEDIDAS ≠ pendientes: su etiqueta es **«Solicitado»** (la misma que la portada), y al
+            # pinchar se despliegan las piezas con el estado de cada una.
             tarea("creatividades", "Otras creatividades", "", "fa-hourglass-half", grupo="single",
-                  state="wait",
+                  state="sent", fold_always=True,
                   hint="Pedidas %d · entregadas %d%s" % (cre["requested"], cre["delivered"],
                                                          (" · entrega antes del %s" % cre["due_label"])
                                                          if cre["due_label"] else ""),
@@ -24396,6 +24404,7 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                          "modal": "#dpCreativesModal"},
                         {"label": "Volver a solicitarlas", "icon": "fa-rotate",
                          "modal": "#dpCreativesRequestModal"}])
+            _disco_creatives_subtasks(tarea, cre)
         elif cre["count"]:
             tarea("creatividades", "Otras creatividades", "", "fa-shapes", grupo="single",
                   hint="%d pieza(s) elegidas · falta mandarlas a diseño" % cre["count"],
@@ -24738,6 +24747,43 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     return _disco_tasks_fold(tareas)
 
 
+def _disco_days_left_label(fecha) -> str:
+    """«quedan 3 días» · «es HOY» · «lleva 2 días de retraso». Punto único de lo que le queda a una
+    entrega de diseño, para que la etiqueta diga lo mismo en todas las tareas."""
+    if not fecha:
+        return ""
+    try:
+        dias = (fecha - today_local()).days
+    except Exception:
+        return ""
+    if dias > 1:
+        return "quedan %d días" % dias
+    if dias == 1:
+        return "queda 1 día"
+    if dias == 0:
+        return "es HOY"
+    return "%d día%s de retraso" % (abs(dias), "" if abs(dias) == 1 else "s")
+
+
+def _disco_creatives_subtasks(tarea, cre) -> None:
+    """UNA SUBTAREA POR PIEZA de creatividad, con el estado de cada una.
+
+    Es lo que se despliega al pinchar «Otras creatividades»: qué se ha pedido, si está solicitada o
+    ya subida, y el enlace para VERLA cuando la han subido."""
+    for fila in (cre.get("rows") or []):
+        estado = (fila.get("status") or "PENDIENTE").upper()
+        detalle = " · ".join([x for x in [fila.get("formats_label"),
+                                          {"VIDEO": "Vídeo", "AUDIO": "Audio"}.get(fila.get("media"), "Imagen"),
+                                          fila.get("size_text")] if x])
+        tarea("creatividad_%s" % fila["id"], fila["label"], (fila.get("file_url") or ""),
+              fila.get("icon") or "fa-shapes", grupo="single", sub=True,
+              state=("done" if estado == "ENTREGADA" else
+                     ("sent" if estado == "SOLICITADA" else "todo")),
+              hint=detalle,
+              value=(fila.get("file_name") or "") if estado == "ENTREGADA" else "",
+              action_label=("Ver lo subido" if (estado == "ENTREGADA" and fila.get("file_url")) else ""))
+
+
 def _disco_tasks_fold(tareas: list[dict]) -> list[dict]:
     """Marca cada tarea con SU BLOQUE (una tarea principal y las subtareas que van debajo).
 
@@ -24758,8 +24804,10 @@ def _disco_tasks_fold(tareas: list[dict]) -> list[dict]:
         subs = [t for t in tareas if t.get("block") == b and not t.get("is_head")]
         cabeza["has_subs"] = bool(subs)
         # Se pliega cuando el bloque ENTERO está hecho: si queda algo pendiente dentro, se ve.
-        plegado = bool(subs) and cabeza.get("state") == "done" and all(
-            (t.get("state") == "done") for t in subs)
+        # ⚠️ `fold_always` lo pliega igualmente (las piezas de creatividades: son el DETALLE de lo
+        # pedido, se despliegan al pincharlo).
+        plegado = bool(subs) and (cabeza.get("fold_always") or (
+            cabeza.get("state") == "done" and all((t.get("state") == "done") for t in subs)))
         cabeza["folded"] = plegado
         for t in subs:
             t["folded"] = plegado
@@ -28044,6 +28092,13 @@ def disco_project_creatives_save(project_id):
                                             status="PENDIENTE")
                 session_db.add(fila)
             fila.formats = formatos
+            # ⚠️ Las que llevan FORMATOS («Ya disponible», los dos anuncios) piden además decir si lo
+            # que se quiere es IMAGEN, AUDIO o VÍDEO. Las demás lo tienen fijo por catálogo (el
+            # Canvas siempre es vídeo), así que ahí no se pregunta ni se toca.
+            if tiene_formatos:
+                elegido = (f.get("media_%s" % clave) or "").strip().upper()
+                fila.media = (elegido if elegido in dict((k, 1) for k, _l, _i in DISCO_CREATIVE_MEDIA)
+                              else medio)
             fila.note = (f.get("note_%s" % clave) or "").strip() or None
             fila.position = pos
             pos += 1

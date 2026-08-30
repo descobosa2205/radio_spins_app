@@ -178,6 +178,10 @@
           </span>
           {% if st == 'done' %}
             <span class="badge text-bg-success">Hecho</span>
+          {% elif st == 'sent' %}
+            {# SOLICITADO: ya se ha pedido y está en manos de otro. Su propia etiqueta, distinta de
+               «Pendiente» (que es lo que TE toca a ti) y de «Esperando». #}
+            <span class="badge text-bg-primary"><i class="fa fa-paper-plane me-1"></i>Solicitado</span>
           {% elif st == 'wait' %}
             <span class="badge text-bg-info text-dark"><i class="fa fa-hourglass-half me-1"></i>Esperando</span>
           {% elif st == 'blocked' %}

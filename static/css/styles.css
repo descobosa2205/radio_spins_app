@@ -5041,8 +5041,10 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
 .dc-day{ min-height:4.6rem; border:1px solid #eef0f4; border-radius:8px; padding:.2rem;
   display:flex; flex-direction:column; gap:2px; background:#fff; }
 .dc-day.is-empty{ border:0; background:none; }
-.dc-day.is-off{ background:repeating-linear-gradient(45deg, #f4f4f6 0 6px, #fafafb 6px 12px);
-  color:#c3c7ce; }
+/* Los días a los que YA NO SE LLEGA por el plazo: el MISMO rayado, pero en un gris más OSCURO —
+   con el gris claro de antes apenas se distinguía del resto y no se veía dónde no se puede soltar. */
+.dc-day.is-off{ background:repeating-linear-gradient(45deg, #d7dae0 0 6px, #e9ebef 6px 12px);
+  border-color:#cdd2d9; color:#8d939c; }
 .dc-day.is-over{ border-color:var(--brand-primary,#E33D48); box-shadow:inset 0 0 0 2px rgba(227,61,72,.18); }
 .dc-day.is-release{ border-color:rgba(227,61,72,.5); background:rgba(227,61,72,.05); }
 .dc-day__n{ font-size:.72rem; color:#6b7280; }

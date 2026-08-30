@@ -46,20 +46,35 @@
     </div>
   {% endif %}
 
+  {# AÑADIR A ALGUIEN MÁS: se BUSCA en la base (con su foto o su logo), como el productor. Nada de
+     rellenar nombre, correo y teléfono a mano: sus datos ya están en su ficha.
+     ⚠️ El correo y el teléfono viajan en ocultos que rellena el buscador (`extra` de
+     `initTypeahead`), porque es lo que necesita el aviso. #}
   <div class="mt-3">
     <label class="form-label">Añadir a alguien más</label>
     <div class="d-grid gap-2" data-dp-extra-rows>
-      <div class="row g-2">
-        <div class="col-12 col-md-5"><input class="form-control" name="extra_name" placeholder="Nombre"></div>
-        <div class="col-12 col-md-4"><input class="form-control" name="extra_email" placeholder="Correo"></div>
-        <div class="col-12 col-md-3"><input class="form-control" name="extra_phone" placeholder="Teléfono"></div>
+      <div class="row g-2" data-dp-tercero>
+        <div class="col-12">
+          <div class="input-group">
+            <span class="input-group-text p-1" style="width:2.6rem;">
+              <img data-dp-tercero-foto src="{{ DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                   style="width:1.9rem;height:1.9rem;object-fit:cover;border-radius:50%;">
+            </span>
+            <input type="text" class="form-control" name="extra_name" id="dpApprExtra{{ appr_id }}_q"
+                   autocomplete="off" placeholder="Busca a la persona…">
+            <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                    data-target="dpApprExtra{{ appr_id }}_qc" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+          </div>
+          <input type="hidden" id="dpApprExtra{{ appr_id }}" value="">
+          <input type="hidden" name="extra_email" id="dpApprExtra{{ appr_id }}Mail" value="">
+          <input type="hidden" name="extra_phone" id="dpApprExtra{{ appr_id }}Tel" value="">
+          <select id="dpApprExtra{{ appr_id }}_qc" class="d-none" tabindex="-1" aria-hidden="true"></select>
+        </div>
       </div>
     </div>
-    <button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-dp-extra-add>
-      <i class="fa fa-plus me-1"></i>Añadir otra persona</button>
     <div class="form-check mt-2">
-      <input class="form-check-input" type="checkbox" name="save_artist" value="1" id="dpApprSave" checked>
-      <label class="form-check-label small" for="dpApprSave">
+      <input class="form-check-input" type="checkbox" name="save_artist" value="1" id="dpApprSave{{ appr_id }}" checked>
+      <label class="form-check-label small" for="dpApprSave{{ appr_id }}">
         Guardarlos como <strong>preferencia del artista</strong> para las próximas aprobaciones
         (si no, valen solo para este proyecto)
       </label>

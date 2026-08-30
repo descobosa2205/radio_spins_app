@@ -82,8 +82,11 @@
             + '<i class="fa ' + (x.querySelector('.fa') ? x.querySelector('.fa').className.replace('fa ', '') : 'fa-circle') + '"></i>'
             + x.getAttribute('data-dc-label') + '</span>';
         }).join('');
-        html += '<span class="dc-day' + (esLanz ? ' is-release' : '') + '" data-dc-day="' + v + '">'
-          + '<span class="dc-day__n">' + dia + (esLanz ? ' 🎉' : '') + '</span>' + dentro + '</span>';
+        // ⚠️ El día del LANZAMIENTO se marca como el resto de elementos (su borde y su fondo, igual
+        // que en el calendario de Inicio): nada de emojis.
+        html += '<span class="dc-day' + (esLanz ? ' is-release' : '') + '" data-dc-day="' + v + '"'
+          + (esLanz ? ' title="Día de lanzamiento"' : '') + '>'
+          + '<span class="dc-day__n">' + dia + '</span>' + dentro + '</span>';
       }
       html += '</div>';
       grid.innerHTML = html;

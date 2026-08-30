@@ -603,14 +603,12 @@
       </div>
       <div class="modal-body">
         <div class="row g-3">
+          {# ⚠️ Aquí NO se piden «otros correos»: la portada se le pide a quien la hace (diseño o el
+             tercero elegido), que ya se sabe quién es. #}
           <div class="col-12 col-md-4">
             <label class="form-label">Fecha máxima de entrega</label>
             <input type="date" class="form-control" name="due_date" required
                    value="{{ (aw.due_date.isoformat() if aw and aw.due_date else '') }}">
-          </div>
-          <div class="col-12 col-md-8">
-            <label class="form-label">Otros correos <span class="text-muted">(opcional)</span></label>
-            <input class="form-control" name="extra_emails" placeholder="uno@correo.com, otro@correo.com">
           </div>
           <div class="col-12">
             <label class="form-label">Nota</label>
@@ -750,6 +748,24 @@
                         <i class="fa {{ fi }}"></i>{{ fl }}
                       </label>
                     {% endfor %}
+                  </div>
+                  {# ⚠️ En «Ya disponible», «Anuncio con fecha» y «Anuncio Próximamente» hay que decir
+                     si lo que se pide es AUDIO o VÍDEO. (El Canvas siempre es vídeo, y por eso no
+                     lleva formatos ni esta pregunta.) #}
+                  <div class="d-flex flex-wrap gap-2 mt-2 ps-4 align-items-center">
+                    <span class="small text-muted">¿Qué se pide?</span>
+                    {% for mk, ml, mi in creative_media if mk != 'IMAGE' %}
+                      <label class="badge text-bg-light border d-inline-flex align-items-center gap-1" style="cursor:pointer;">
+                        <input class="form-check-input m-0" type="radio" name="media_{{ key }}" value="{{ mk }}"
+                               {% if (ya.media if ya else '') == mk %}checked{% endif %}>
+                        <i class="fa {{ mi }}"></i>{{ ml }}
+                      </label>
+                    {% endfor %}
+                    <label class="badge text-bg-light border d-inline-flex align-items-center gap-1" style="cursor:pointer;">
+                      <input class="form-check-input m-0" type="radio" name="media_{{ key }}" value="IMAGE"
+                             {% if not ya or (ya.media or 'IMAGE') == 'IMAGE' %}checked{% endif %}>
+                      <i class="fa fa-image"></i>Imagen
+                    </label>
                   </div>
                 {% endif %}
                 <input class="form-control form-control-sm mt-2" name="note_{{ key }}"
@@ -1383,7 +1399,7 @@
         <textarea class="form-control" name="note" rows="2"
                   placeholder="Lo que quieras que sepan al verlos…"></textarea>
         <hr class="my-3">
-        {% include '_disco_approvers_picker.html' %}
+        {% with appr_id = 'Mat' %}{% include '_disco_approvers_picker.html' %}{% endwith %}
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -1429,12 +1445,19 @@
           </div>
         {% endif %}
         <label class="form-label">…o sube otras</label>
-        <input class="form-control" type="file" name="photo_files" accept="image/*" multiple>
+        {# Se pueden ARRASTRAR o elegir (el mecanismo global `file_drop.js`). #}
+        <label class="pi-drop d-block" for="dpPhotoPickFiles" role="button" tabindex="0"
+               data-file-drop-for="#dpPhotoPickFiles">
+          <i class="fa fa-images fa-lg mb-1 d-block text-muted"></i>
+          <span class="small">Arrastra aquí las fotos o <span class="text-danger fw-semibold">elígelas</span></span>
+        </label>
+        <input class="form-control d-none" type="file" name="photo_files" id="dpPhotoPickFiles"
+               accept="image/*" multiple>
         <label class="form-label mt-3">Nota para el artista (opcional)</label>
         <textarea class="form-control" name="note" rows="2"
                   placeholder="Lo que quieras contarle sobre las opciones…"></textarea>
         <hr class="my-3">
-        {% include '_disco_approvers_picker.html' %}
+        {% with appr_id = 'Foto' %}{% include '_disco_approvers_picker.html' %}{% endwith %}
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -1617,7 +1640,7 @@
                   placeholder="Lo que quieras que sepan al escucharla…">{{ (mx.approval or {}).note or '' }}</textarea>
         {# QUIÉN APRUEBA: el selector único de las aprobaciones (tres niveles). #}
         <hr class="my-3">
-        {% include '_disco_approvers_picker.html' %}
+        {% with appr_id = 'Mix' %}{% include '_disco_approvers_picker.html' %}{% endwith %}
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>

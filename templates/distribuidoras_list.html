@@ -44,6 +44,12 @@
             {% endif %}
           </div>
           {% if d.notes %}<div class="small text-muted">{{ d.notes }}</div>{% endif %}
+          <div class="mt-1 d-flex gap-1">
+            {# LOGOTIPOS (todas sus versiones): se abren debajo con `?logos=<id>`. #}
+            <a class="btn btn-sm {{ 'btn-danger' if logos_row and logos_row.id == d.id else 'btn-outline-secondary' }}"
+               href="{{ url_for('distributors_view', q=query_text, logos=d.id) }}#logos"
+               title="Logotipos de {{ d.name }}"><i class="fa fa-shapes"></i></a>
+          </div>
           {% if CAN_EDIT %}
             <div class="mt-1 d-flex gap-1">
               <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editDistributor-{{ d.id }}" title="Editar"><i class="fa fa-pen"></i></button>
@@ -56,6 +62,17 @@
       </div>
     {% endfor %}
   </div>
+  {# ---------- LOGOTIPOS de la distribuidora elegida (todas sus versiones) ---------- #}
+  {% if logos_row %}
+    <div class="mt-4" id="logos">
+      <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+        <h5 class="m-0"><i class="fa fa-shapes me-2 text-danger"></i>Logotipos de {{ logos_row.name }}</h5>
+        <a class="btn btn-sm btn-outline-secondary ms-auto" href="{{ url_for('distributors_view', q=query_text) }}">
+          <i class="fa fa-xmark me-1"></i>Cerrar</a>
+      </div>
+      {% include '_brand_logos_panel.html' %}
+    </div>
+  {% endif %}
 {% else %}
   <div class="card"><div class="card-body text-center text-muted py-5">
     <div class="mb-2"><i class="fa fa-truck-fast fa-2x text-muted"></i></div>

@@ -1,0 +1,99 @@
+{# ═══════════════════════════════════════════════════════════════════════════════════════════════
+   LOGOTIPOS de una marca, con TODAS sus versiones
+
+   Un logo no es UN archivo: son muchos (principal, horizontal, negativo, isotipo, el vectorial de
+   imprenta, el manual de marca…) y **cada versión lleva su NOMBRE**, que es lo que se dice al
+   pedirlos. El mismo panel vale para una EMPRESA DEL GRUPO, una DISTRIBUIDORA y un ARTISTA.
+
+   Uso:  {% set logos = ... %}{% with logos=logos %}{% include '_brand_logos_panel.html' %}{% endwith %}
+   con el contexto de `_brand_logo_context(session_db, tipo, id, can_edit=…)`.
+   ⚠️ El vectorial (.ai/.eps) y los paquetes (.zip) NO se pintan: se ven con su icono y se descargan.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% if logos %}
+<div class="blogos" data-brand-logos>
+  <div class="blogos__head">
+    <span class="blogos__ttl"><i class="fa fa-shapes"></i>Logotipos</span>
+    <span class="blogos__note">Todas sus versiones, cada una con su nombre.</span>
+    {% if logos.can_edit %}
+      <button class="btn btn-sm btn-outline-danger ms-auto" type="button"
+              data-bs-toggle="modal" data-bs-target="#brandLogoModal"
+              data-bl-owner="{{ logos.owner_type }}" data-bl-id="{{ logos.owner_id }}">
+        <i class="fa fa-plus me-1"></i>Añadir versión</button>
+    {% endif %}
+  </div>
+  {% if logos.rows %}
+    <div class="blogos__grid">
+      {% for l in logos.rows %}
+        <div class="blogo">
+          <a class="blogo__box" href="{{ l.url }}" target="_blank" rel="noopener"
+             title="Descargar «{{ l.name }}»" download>
+            {% if l.kind == 'IMAGE' %}
+              <img src="{{ l.url }}" alt="{{ l.name }}">
+            {% else %}
+              <i class="fa {{ 'fa-file-pdf' if l.kind == 'PDF' else 'fa-file-zipper' }}"></i>
+            {% endif %}
+          </a>
+          <div class="blogo__foot">
+            <span class="blogo__name text-truncate" title="{{ l.name }}{% if l.notes %} · {{ l.notes }}{% endif %}">{{ l.name }}</span>
+            <a class="blogo__dl" href="{{ l.url }}" target="_blank" rel="noopener" download
+               title="Descargar"><i class="fa fa-download"></i></a>
+            {% if logos.can_edit %}
+              <form method="post" action="{{ url_for('brand_logo_delete', logo_id=l.id) }}"
+                    data-confirm="¿Eliminar la versión «{{ l.name }}»?" class="d-inline">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="blogo__del" title="Eliminar"><i class="fa fa-trash"></i></button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="blogos__empty">
+      <i class="fa fa-circle-info me-1"></i>Todavía no hay ninguna versión del logotipo.
+      {% if logos.can_edit %}Súbelas para poder mandárselas a quien las necesite.{% endif %}
+    </div>
+  {% endif %}
+</div>
+
+{% if logos.can_edit %}
+<div class="modal fade" id="brandLogoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('brand_logo_save', owner_type=logos.owner_type, owner_id=logos.owner_id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-shapes me-2 text-danger"></i>Añadir versión del logotipo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Nombre de la versión</label>
+          <input class="form-control" name="name" list="brandLogoNames"
+                 placeholder="Principal, Negativo, Isotipo…">
+          <datalist id="brandLogoNames">
+            {% for n in logos.names %}<option value="{{ n }}"></option>{% endfor %}
+          </datalist>
+          <div class="form-text">Es el nombre con el que se pide («mándame el negativo en vectorial»).
+            Subiendo varios archivos a la vez, cada uno se queda con el nombre de su archivo.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Archivo(s)</label>
+          <input class="form-control" type="file" name="file" multiple
+                 accept="image/*,application/pdf,.ai,.eps,.zip,.psd,.indd">
+          <div class="form-text">Imagen, PDF o el vectorial de imprenta (.ai, .eps) y paquetes (.zip).</div>
+        </div>
+        <div>
+          <label class="form-label">Nota <span class="text-muted small">(opcional)</span></label>
+          <input class="form-control" name="notes" placeholder="Sobre fondo oscuro, mínimo 40 mm…">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-upload me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endif %}

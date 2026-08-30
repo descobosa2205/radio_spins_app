@@ -5415,6 +5415,29 @@ class AppEvent(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class BrandLogo(Base):
+    """UNA VERSIÓN del logotipo de una marca: de una EMPRESA DEL GRUPO, de una DISTRIBUIDORA o de un
+    ARTISTA (polimórfico por `owner_type`/`owner_id`, como las fotos).
+
+    Un logo no es un archivo: son muchos (principal, horizontal, negativo, isotipo, el vectorial de
+    imprenta, el manual de marca…), y cada versión lleva su **NOMBRE**, que es lo que se dice al
+    pedirlos («mándanos el negativo en vectorial»). De aquí salen los logos obligatorios que se le
+    comunican al productor de un videoclip, con su enlace de descarga."""
+    __tablename__ = "brand_logos"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(Text, nullable=False)          # COMPANY | DISTRIBUTOR | ARTIST
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    name = Column(Text, nullable=False)                # «Principal», «Negativo», «Isotipo»…
+    file_url = Column(Text, nullable=False)
+    kind = Column(Text, nullable=False, server_default=text("'IMAGE'"))   # IMAGE|PDF|FILE
+    mime = Column(Text)
+    notes = Column(Text)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Distributor(Base):
     """Distribuidora digital (Bases de datos → Distribuidoras). Nombre + logo. A cada canción
     o álbum que NO sea colaboración externa se le asigna su distribuidora, y los ADELANTOS de
@@ -12023,6 +12046,27 @@ def ensure_disco_projects_schema():
         # PROVISIONAL: lo que ha creado un proyecto y todavía se está preparando.
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",
+
+        # LOGOTIPOS de una marca (empresa del grupo, distribuidora o artista), cada versión con su
+        # NOMBRE: es lo que se le manda al productor de un videoclip para que los ponga en los
+        # créditos.
+        """
+        CREATE TABLE IF NOT EXISTS brand_logos (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            name text NOT NULL,
+            file_url text NOT NULL,
+            kind text NOT NULL DEFAULT 'IMAGE',
+            mime text,
+            notes text,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_brand_logos_owner ON brand_logos(owner_type, owner_id);",
     ], label="ensure_disco_projects_schema")
 
 

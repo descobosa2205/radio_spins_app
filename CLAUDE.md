@@ -4102,6 +4102,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la actividad calcula la lista **SIEMPRE** (antes solo cuando faltaba responsable, así que al cambiarlo
   desde la rueda no salía nadie) y el modal `#prodOwnerModal` se pinta con solo poder editar.
 
+- **LOGOTIPOS de una marca, con TODAS sus versiones** (ago 2026). Un logo no es UN archivo: son
+  muchos (principal, horizontal, negativo, isotipo, el vectorial de imprenta, el manual de marca…) y
+  **cada versión lleva su NOMBRE**, que es lo que se dice al pedirlos («mándame el negativo en
+  vectorial»). De aquí salen los **logos obligatorios** que se le comunican al productor de un
+  videoclip, con su enlace de descarga.
+  · Modelo **`BrandLogo`** (polimórfico como las fotos: `owner_type` **COMPANY | DISTRIBUTOR |
+  ARTIST** + `owner_id`, `name`, `file_url`, `kind`, `sort_order`), catálogo de nombres sugeridos
+  `BRAND_LOGO_NAMES` (**libre**: va en un `datalist`, no se impone) y puntos únicos
+  `_brand_logo_rows` / `_brand_logo_context` / `_brand_logo_owner(_name)`.
+  · Panel único **`templates/_brand_logos_panel.html`** (clases `.blogos*` / `.blogo*`), incluido en
+  la **ficha de la empresa del grupo** (Datos → Logos), en la **ficha del artista** (Datos) y en
+  **Distribuidoras**. Endpoints `brand_logo_save` / `brand_logo_delete`.
+  ⚠️ El vectorial (.ai/.eps) y los paquetes (.zip) **no se pintan**: van por `upload_file`
+  (`_upload_brand_logo_file`, hermano de `_upload_artwork_file`), se ven con su icono y se descargan.
+  ⚠️ El hueco lleva un **tablero de ajedrez** de fondo: así se ve de un vistazo si el PNG tiene el
+  fondo transparente o lo trae horneado en blanco (que es el bug que ya documenta `logo_clean_png`).
+  ⚠️ **Subiendo VARIOS archivos a la vez**, cada uno se queda con el nombre de SU archivo: con un
+  solo nombre para todos, las versiones no se distinguirían.
+  ⚠️ En **Distribuidoras** (que es un listado, no una ficha) el panel se abre con **`?logos=<id>`** y
+  se pinta debajo de la rejilla — **no uno por tarjeta**: el panel trae su propio modal con un id
+  fijo y con veinte distribuidoras habría veinte ids repetidos en el DOM.
+
 - ⚠️⚠️ **UN PROYECTO CON VIDEOCLIP LLEVA DOS BOLSAS: audio y vídeo** (ago 2026). Producir el disco y
   rodar el videoclip son dos gastos distintos, así que son **dos bolsas separadas y vinculadas** que
   se gestionan a la vez (en la misma pestaña) pero **se LIQUIDAN por separado**.

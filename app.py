@@ -272,6 +272,7 @@ from models import (
     VenueTicketExtra,
     VenueSeatMap,
     AppEvent,
+    BrandLogo,
     Distributor,
     DistributorAdvance,
     DistributorAdvanceRule,
@@ -1993,6 +1994,10 @@ def artist_detail_view(artist_id):
             artist=artist,
             tab=tab,
             wizard_available=bool(_wizctx),
+            # LOGOTIPOS del artista (todas sus versiones), solo en la pestaña donde se ven.
+            logos=(_brand_logo_context(session_db, "ARTIST", artist.id,
+                                       can_edit=can_edit_artists_stations())
+                   if tab == "datos" else None),
             # Balance de inversión: solo se calcula en su pestaña (una consulta de más si no).
             artist_investment=(_artist_investment_rows(session_db, artist.id)
                                if tab == "contratos" and "_artist_investment_rows" in globals() else None),
@@ -3574,6 +3579,156 @@ def _upload_artwork_file(file_storage):
         return (upload_file(file_storage, 'concert_artwork',
                             allowed_extensions=ARTWORK_FILE_EXTS), mime, 'FILE')
     return upload_image(file_storage, 'concert_artwork'), mime, 'IMAGE'
+
+
+# ═══════════════════════════ LOGOTIPOS de una marca (todas sus versiones) ════════════════════════
+# Un logo no es UN archivo: son muchos (principal, horizontal, negativo, isotipo, el vectorial de
+# imprenta…), y cada versión lleva su NOMBRE, que es lo que se dice al pedirlos. El mismo módulo
+# vale para una EMPRESA DEL GRUPO, una DISTRIBUIDORA y un ARTISTA.
+BRAND_LOGO_OWNERS = {
+    "COMPANY": ("Empresa del grupo", GroupCompany),
+    "DISTRIBUTOR": ("Distribuidora", Distributor),
+    "ARTIST": ("Artista", Artist),
+}
+# Sugerencias (el nombre es LIBRE: se ofrece en un datalist, no se impone).
+BRAND_LOGO_NAMES = [
+    "Principal", "Horizontal", "Vertical", "Isotipo",
+    "Negativo (blanco)", "Positivo (negro)", "Sin fondo (PNG)",
+    "Vectorial (AI/EPS)", "Manual de marca",
+]
+
+
+def _brand_logo_rows(session_db, owner_type: str, owner_id) -> list[dict]:
+    """Las versiones del logo de una marca, en orden."""
+    tipo = (owner_type or "").strip().upper()
+    if tipo not in BRAND_LOGO_OWNERS or not owner_id:
+        return []
+    try:
+        filas = (session_db.query(BrandLogo)
+                 .filter(BrandLogo.owner_type == tipo, BrandLogo.owner_id == to_uuid(str(owner_id)))
+                 .order_by(BrandLogo.sort_order.asc(), BrandLogo.created_at.asc()).all())
+    except Exception:
+        app.logger.exception("[logos] no se pudieron leer los logotipos")
+        return []
+    return [{"id": str(f.id), "name": (f.name or "").strip() or "Logotipo",
+             "url": (f.file_url or ""), "kind": (f.kind or "IMAGE").upper(),
+             "notes": (f.notes or ""), "by": (f.created_by_nick or "")} for f in filas]
+
+
+def _brand_logo_context(session_db, owner_type: str, owner_id, *, can_edit: bool = False) -> dict:
+    """Lo que necesita `_brand_logos_panel.html`."""
+    tipo = (owner_type or "").strip().upper()
+    return {
+        "owner_type": tipo,
+        "owner_id": (str(owner_id) if owner_id else ""),
+        "rows": _brand_logo_rows(session_db, tipo, owner_id),
+        "names": BRAND_LOGO_NAMES,
+        "can_edit": bool(can_edit),
+    }
+
+
+def _brand_logo_owner(session_db, owner_type: str, owner_id):
+    """La fila dueña del logo (empresa, distribuidora o artista), o None."""
+    tipo = (owner_type or "").strip().upper()
+    if tipo not in BRAND_LOGO_OWNERS or not owner_id:
+        return None
+    try:
+        return session_db.get(BRAND_LOGO_OWNERS[tipo][1], to_uuid(str(owner_id)))
+    except Exception:
+        return None
+
+
+def _brand_logo_owner_name(session_db, owner_type: str, owner_id) -> str:
+    fila = _brand_logo_owner(session_db, owner_type, owner_id)
+    return (getattr(fila, "name", "") or getattr(fila, "nick", "") or "").strip()
+
+
+@app.post("/logotipos/<owner_type>/<owner_id>/guardar", endpoint="brand_logo_save")
+@admin_required
+def brand_logo_save(owner_type, owner_id):
+    """Sube una VERSIÓN del logotipo (o varias de una vez) con su nombre."""
+    session_db = db()
+    destino = safe_next_or(url_for("home"))
+    try:
+        if _brand_logo_owner(session_db, owner_type, owner_id) is None:
+            flash("No se encontró la marca.", "warning")
+            return redirect(destino)
+        nombre = (request.form.get("name") or "").strip()
+        archivos = [f for f in request.files.getlist("file") if f and getattr(f, "filename", "")]
+        if not archivos:
+            flash("Elige el archivo del logotipo.", "warning")
+            return redirect(destino)
+        base = (session_db.query(func.coalesce(func.max(BrandLogo.sort_order), 0))
+                .filter(BrandLogo.owner_type == owner_type.upper(),
+                        BrandLogo.owner_id == to_uuid(str(owner_id))).scalar() or 0)
+        nick = ((_current_user_state() or {}).get("nick") or None)
+        creados, fallidos = 0, []
+        for i, archivo in enumerate(archivos):
+            try:
+                url, mime, kind = _upload_brand_logo_file(archivo)
+                if not url:
+                    fallidos.append(archivo.filename)
+                    continue
+                session_db.add(BrandLogo(
+                    owner_type=owner_type.upper(), owner_id=to_uuid(str(owner_id)),
+                    # Con varios archivos a la vez, el nombre de cada uno es su nombre de archivo
+                    # (si no, todas las versiones se llamarían igual y no se distinguirían).
+                    name=(nombre if (nombre and len(archivos) == 1)
+                          else (nombre or os.path.splitext(archivo.filename or "")[0] or "Logotipo")),
+                    file_url=url, kind=kind, mime=mime,
+                    notes=((request.form.get("notes") or "").strip() or None),
+                    sort_order=int(base) + i + 1, created_by_nick=nick))
+                creados += 1
+            except Exception:
+                app.logger.exception("[logos] no se pudo subir un logotipo")
+                fallidos.append(getattr(archivo, "filename", "") or "archivo")
+        session_db.commit()
+        if creados:
+            flash("Logotipo%s guardado%s." % ("s" if creados > 1 else "", "s" if creados > 1 else ""), "success")
+        if fallidos:
+            flash("No se pudieron subir: %s" % ", ".join(fallidos), "warning")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
+
+
+@app.post("/logotipos/<logo_id>/eliminar", endpoint="brand_logo_delete")
+@admin_required
+def brand_logo_delete(logo_id):
+    session_db = db()
+    destino = safe_next_or(url_for("home"))
+    try:
+        fila = session_db.get(BrandLogo, to_uuid(logo_id))
+        if fila is not None:
+            session_db.delete(fila)
+            session_db.commit()
+            flash("Logotipo eliminado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo eliminar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
+
+
+def _upload_brand_logo_file(file_storage):
+    """Sube UNA versión del logo y devuelve (url, mime, kind).
+
+    ⚠️ El vectorial de imprenta (.ai/.eps) o un paquete (.zip) NO pueden pasar por `upload_image`:
+    van por `upload_file` y se ven con su icono (se descargan, no se pintan)."""
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return None, None, "IMAGE"
+    mime = (getattr(file_storage, "mimetype", "") or "").strip() or None
+    kind = _artwork_asset_kind(file_storage.filename or "", mime or "")
+    if kind == "PDF":
+        return upload_pdf(file_storage, "brand_logos"), "application/pdf", "PDF"
+    if kind in ("FILE", "VIDEO"):
+        return (upload_file(file_storage, "brand_logos",
+                            allowed_extensions=ARTWORK_FILE_EXTS | ARTWORK_VIDEO_EXTS), mime, "FILE")
+    return upload_image(file_storage, "brand_logos"), mime, "IMAGE"
 
 
 def _artwork_kind_of(asset) -> str:
@@ -45165,8 +45320,17 @@ def distributors_view():
             for k, v in s.query(DistributorAdvance.distributor_id, func.count(DistributorAdvance.id))
             .group_by(DistributorAdvance.distributor_id).all()
         }
+        # LOGOTIPOS de UNA distribuidora: se abren con `?logos=<id>` y se pintan bajo la rejilla.
+        # ⚠️ No se pinta un panel por tarjeta: el panel trae su propio modal con un id fijo y con
+        # veinte distribuidoras habría veinte ids repetidos en el DOM.
+        logos_id = (request.args.get("logos") or "").strip()
+        logos_row = next((d for d in rows if str(d.id) == logos_id), None)
         return render_template("distribuidoras_list.html", distributors=rows, query_text=q,
                                song_counts=song_counts, adv_counts=adv_counts,
+                               logos_row=logos_row,
+                               logos=(_brand_logo_context(s, "DISTRIBUTOR", logos_row.id,
+                                                          can_edit=can_edit_catalogs())
+                                      if logos_row is not None else None),
                                CAN_EDIT=can_edit_catalogs())
     finally:
         s.close()
@@ -51904,6 +52068,9 @@ def company_detail(cid):
             can_edit_docs=is_master(),
             can_edit_company=is_master(),
             logo_url=_absolute_media_url(co.logo_url or ""),
+            # LOGOTIPOS: todas las versiones del logo, cada una con su nombre (es lo que se le manda
+            # a quien las necesita, p. ej. al productor de un videoclip para los créditos).
+            logos=_brand_logo_context(session_db, "COMPANY", co.id, can_edit=is_master()),
             # Cuentas bancarias: desde una de ellas se paga cada remesa de esta empresa.
             bank_accounts=_company_bank_accounts(session_db, co.id),
             banks=_bank_rows(session_db),

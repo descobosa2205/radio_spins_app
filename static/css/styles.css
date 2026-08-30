@@ -5511,3 +5511,34 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .dp-bags__amt{ font-variant-numeric:tabular-nums; opacity:.85; }
 .dp-bags__st{ font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; opacity:.8; }
 .dp-bags__note{ font-size:.85rem; color:#6b7280; margin-left:auto; }
+
+/* ═════════════ LOGOTIPOS de una marca (empresa del grupo, distribuidora, artista) ═════════════
+   Todas las versiones del logo, cada una con su NOMBRE: es lo que se le manda a quien lo necesita
+   (por ejemplo, al productor de un videoclip para los créditos). */
+.blogos{ border:1px solid #eef0f4; border-radius:.75rem; padding:.85rem; background:#fff; }
+.blogos__head{ display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; margin-bottom:.65rem; }
+.blogos__ttl{ display:inline-flex; align-items:center; gap:.4rem; font-weight:700;
+  font-size:.85rem; text-transform:uppercase; letter-spacing:.04em; color:#374151; }
+.blogos__ttl i{ color:var(--brand-primary,#E33D48); }
+.blogos__note{ font-size:.85rem; color:#6b7280; }
+.blogos__empty{ font-size:.9rem; color:#6b7280; background:#f8f9fb; border:1px dashed #e5e7eb;
+  border-radius:.6rem; padding:.7rem .85rem; }
+.blogos__grid{ display:grid; gap:.75rem;
+  grid-template-columns:repeat(auto-fill, minmax(9.5rem, 1fr)); }
+.blogo{ border:1px solid #eef0f4; border-radius:.65rem; overflow:hidden; background:#fff; }
+.blogo__box{ display:flex; align-items:center; justify-content:center; height:6.5rem;
+  /* Tablero de ajedrez suave: así se ve si el PNG tiene fondo transparente o no. */
+  background:
+    linear-gradient(45deg,#f1f3f7 25%,transparent 25%,transparent 75%,#f1f3f7 75%) 0 0/16px 16px,
+    linear-gradient(45deg,#f1f3f7 25%,transparent 25%,transparent 75%,#f1f3f7 75%) 8px 8px/16px 16px,
+    #fff;
+  text-decoration:none; }
+.blogo__box img{ max-width:86%; max-height:82%; object-fit:contain; }
+.blogo__box i{ font-size:2rem; color:#9ca3af; }
+.blogo__foot{ display:flex; align-items:center; gap:.35rem; padding:.4rem .5rem;
+  border-top:1px solid #eef0f4; }
+.blogo__name{ font-size:.82rem; font-weight:600; color:#374151; flex:1 1 auto; min-width:0; }
+.blogo__dl, .blogo__del{ border:0; background:transparent; color:#6b7280; padding:.1rem .25rem;
+  font-size:.85rem; line-height:1; text-decoration:none; }
+.blogo__dl:hover{ color:var(--brand-accent,#007CA2); }
+.blogo__del:hover{ color:var(--brand-primary,#E33D48); }

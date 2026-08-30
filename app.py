@@ -16692,6 +16692,14 @@ def discografica_song_create():
 
     session_db = db()
     try:
+        # ⚠️ ¿YA EXISTE una canción con ese nombre de ese artista? Se avisa y se deja decidir: o se
+        # trabaja sobre la que ya está, o se crea otra a sabiendas (`duplicate_ok`). El navegador ya
+        # lo pregunta en el propio modal; esto es la red de seguridad del servidor.
+        if not _truthy(request.form.get("duplicate_ok")):
+            dups = _song_duplicate_rows(session_db, title, [artist_id])
+            if dups:
+                _song_duplicate_flash(dups, "canción")
+                return redirect(url_for("discografica_view", section="canciones"))
         release_date = parse_date(release_date_raw)
         s = Song(
             title=title,
@@ -21297,7 +21305,17 @@ def _disco_project_wizard_context(session_db) -> dict:
             "max_tracks": DISCO_PROJECT_MAX_TRACKS}
 
 
-def _disco_project_create_release(session_db, project, tracks_data) -> None:
+def _song_belongs_to_artist(session_db, song_id, artist_id) -> bool:
+    """¿Esa canción es de ese artista? (`SongArtist` es N:M: una canción no tiene `artist_id`)."""
+    try:
+        return session_db.query(SongArtist.song_id).filter(
+            SongArtist.song_id == _safe_uuid(song_id),
+            SongArtist.artist_id == _safe_uuid(artist_id)).first() is not None
+    except Exception:
+        return False
+
+
+def _disco_project_create_release(session_db, project, tracks_data, existing_song=None) -> None:
     """Da de alta en REPERTORIO lo que corresponda al proyecto, marcado como **PROVISIONAL**.
 
     Los materiales se suben donde siempre —en la ficha de la canción o del álbum—, así que el
@@ -21338,6 +21356,12 @@ def _disco_project_create_release(session_db, project, tracks_data) -> None:
             session_db.add(AlbumTrack(album_id=album.id, song_id=song_id, track_number=i))
             fila["created_song_id"] = song_id
     elif kind in DISCO_SINGLE_KINDS or (kind == "VIDEOCLIP" and (project.video_source or "") == "STANDALONE"):
+        # ⚠️ Si la canción YA EXISTE en el repertorio (se dio de alta antes que el proyecto), el
+        # proyecto se monta SOBRE ELLA en vez de crear otra igual. Lo que ya estaba publicado NO se
+        # marca provisional: eso es de lo que crea el proyecto.
+        if existing_song is not None:
+            project.release_song_id = existing_song.id
+            return
         cancion = Song(title=(project.title or "Sin título"), release_date=fecha, is_provisional=True)
         session_db.add(cancion)
         session_db.flush()
@@ -25181,12 +25205,31 @@ def disco_project_create():
                 flash("Ponle nombre al videoclip.", "warning")
                 return redirect(url_for("discografica_view", section="proyectos"))
 
+        # ⚠️ ¿YA HAY una canción con ese nombre de ese artista? En un SINGLE (o un videoclip suelto)
+        # el proyecto crearía otra igual. Se puede montar el proyecto SOBRE la que ya está
+        # (`existing_song_id`, que es lo normal si la canción se dio de alta antes que el proyecto) o
+        # crear una nueva a sabiendas (`duplicate_ok`). El asistente ya lo pregunta; esto es la red
+        # de seguridad del servidor.
+        existente = None
+        if kind in DISCO_SINGLE_KINDS or (kind == "VIDEOCLIP" and (project.video_source or "") == "STANDALONE"):
+            pedida = _safe_uuid(request.form.get("existing_song_id"))
+            if pedida:
+                cand = session_db.get(Song, pedida)
+                # Tiene que ser una canción DE ESE ARTISTA: el id viaja por el formulario.
+                if cand is not None and _song_belongs_to_artist(session_db, cand.id, artist.id):
+                    existente = cand
+            if existente is None and not _truthy(request.form.get("duplicate_ok")):
+                dups = _song_duplicate_rows(session_db, project.title, [artist.id])
+                if dups:
+                    _song_duplicate_flash(dups, "canción")
+                    return redirect(url_for("discografica_view", section="proyectos"))
+
         session_db.add(project)
         session_db.flush()
         # LO QUE SE LANZA se da de alta en REPERTORIO desde el principio, en PROVISIONAL: los
         # materiales se suben donde siempre (en su ficha), no en el proyecto.
         temas = _disco_project_tracks_from_form(session_db, request.form) if kind in DISCO_TRACKLIST_KINDS else []
-        _disco_project_create_release(session_db, project, temas)
+        _disco_project_create_release(session_db, project, temas, existing_song=existente)
         for fila in temas:
             session_db.add(DiscoProjectTrack(
                 project_id=project.id, position=fila["position"], title=fila["title"],
@@ -69268,9 +69311,12 @@ SUPPORT_ACTION_ENDPOINTS = {
     "foto_note_add", "fotos_bulk_update", "foto_set_approval_state", "fotos_bulk_approval_state",
     "photo_album_create", "photo_album_add", "photo_album_update", "photo_album_delete",
     "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email", "fotos_share_email_preview",
-    # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
-    "agenda_block_create", "agenda_note_create", "agenda_item_delete",
-    "agenda_item_update", "agenda_item_notify",
+    # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista).
+    # ⚠️ Las notas (`agenda_note_create`) y su edición/borrado NO están aquí sino en
+    # `REQUEST_ANY_ENDPOINTS`: en MI CALENDARIO son datos propios y quien no edita ninguna sección
+    # tiene que poder apuntárselos. Cada uno comprueba dentro a qué calendario van
+    # (`_agenda_actor_ok`), y para un artista o el general sigue exigiéndose ser «actor».
+    "agenda_block_create", "agenda_item_notify",
     # Activar la producción (decir quién se encarga): se usa desde la ficha —por quien creó la
     # actividad—, desde su módulo de Inicio y desde los «pendientes de asignar» de Producción. El
     # propio endpoint comprueba que sea contratación, producción o el creador.
@@ -69293,6 +69339,9 @@ SUPPORT_ACTION_ENDPOINTS = {
 SUPPORT_READ_ENDPOINTS = {
     # Consultar si cambiar la editorial de un autor es un cambio: es una LECTURA.
     "api_publisher_change",
+    # ¿Ya existe una canción con ese nombre de ese artista? Es una BÚSQUEDA, y la hacen el alta de
+    # una canción y el asistente de proyecto discográfico.
+    "api_song_duplicates",
     # Escáner de documentos: es una BÚSQUEDA (no cambia nada) y la usan terceros, personal,
     # invitaciones… cualquiera con sesión.
     "doc_scan_lookup",
@@ -69419,6 +69468,12 @@ REQUEST_ANY_ENDPOINTS = {
     "disco_plan_promo_upload",
     # Y el REPASO del plan lo devuelve quien es dirección y sello (el endpoint lo comprueba).
     "disco_plan_review",
+    # ⚠️ APUNTARSE ALGO EN **MI CALENDARIO** es un dato PROPIO, así que lo puede hacer cualquiera con
+    # sesión: en `SUPPORT_ACTION_ENDPOINTS` exigía ser «actor» (poder editar alguna sección) y quien
+    # no edita nada no podía apuntarse ni una nota en su propio calendario —ni editarla, ni
+    # borrarla—. Los tres comprueban dentro a qué calendario van (`_agenda_actor_ok`): para un
+    # ARTISTA o el GENERAL se sigue exigiendo ser actor.
+    "agenda_note_create", "agenda_item_update", "agenda_item_delete",
 }
 
 
@@ -111268,6 +111323,37 @@ def _agenda_my_items(session_db, concerts, start_date, end_date) -> list:
             }))
     except Exception:
         app.logger.exception("[agenda] no se pudieron cargar las promociones que acompaño")
+
+    # ---- Mis NOTAS (lo que cada uno se apunta en su calendario) ----
+    # Mismo trato que las del calendario general: no son de ningún artista, así que van marcadas con
+    # su dueño (`owner_user_id`) y solo las ve quien las escribió.
+    try:
+        for it in (session_db.query(ArtistAgendaItem)
+                   .filter(ArtistAgendaItem.owner_user_id == _safe_uuid(uid))
+                   .filter(ArtistAgendaItem.start_date <= end_date,
+                           ArtistAgendaItem.end_date >= start_date).all()):
+            _end = it.end_date or it.start_date
+            d0 = it.start_date if it.start_date > start_date else start_date
+            d1 = _end if _end < end_date else end_date
+            if d1 < d0:
+                d1 = d0
+            hora = _agenda_time_label(getattr(it, "start_time", None), getattr(it, "end_time", None))
+            salida.append(([MY_CALENDAR_ID], {
+                "kind": "otro", "date": d0.isoformat(), "end_date": d1.isoformat(),
+                "title": it.title or "Nota",
+                "subtitle": " · ".join([x for x in [hora, (it.note or "")] if x]),
+                "artist_id": MY_CALENDAR_ID,
+                "status_label": "", "status_class": "",
+                "start_time": _agenda_clean_time(getattr(it, "start_time", None)),
+                "end_time": _agenda_clean_time(getattr(it, "end_time", None)),
+                "cover_url": "", "item_id": str(it.id), "url": "",
+                # Las fechas DE VERDAD (las de arriba van recortadas a la ventana que se mira).
+                "note": (it.note or ""),
+                "item_start": (it.start_date.isoformat() if it.start_date else ""),
+                "item_end": ((it.end_date or it.start_date).isoformat() if it.start_date else ""),
+            }))
+    except Exception:
+        app.logger.exception("[agenda] no se pudieron cargar las notas de mi calendario")
     return salida
 
 
@@ -111523,8 +111609,13 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         }))
 
     # ---- Bloqueos y notas libres (ArtistAgendaItem), expandidos por día dentro de la ventana ----
+    # ⚠️⚠️ SOLO las que son DE UN ARTISTA: las que no lo son (el CALENDARIO GENERAL DE OFICINA y las
+    # notas de MI CALENDARIO) las traen sus propios motores, y sin este filtro se colaban aquí cuando
+    # no hay artistas a los que ceñirse (dirección, o quien no tiene ninguno asignado): las de oficina
+    # salían DUPLICADAS bajo un calendario fantasma «None» y las personales las vería otra persona.
     agenda_q = (
         session_db.query(ArtistAgendaItem)
+        .filter(ArtistAgendaItem.artist_id.isnot(None))
         .filter(ArtistAgendaItem.start_date <= end_date, ArtistAgendaItem.end_date >= start_date)
     )
     if target is not None:
@@ -111892,13 +111983,20 @@ def _agenda_artist_options() -> list[dict]:
         if not (role == 10 or not assigned):
             q = q.filter(Artist.id.in_([to_uuid(x) for x in assigned]))
         active_ids = _agenda_active_artist_ids(session_db)
-        # PRIMERO el CALENDARIO GENERAL DE OFICINA (las cosas de la casa), con los dos logos del
-        # grupo. No es un artista: a él solo se le pueden añadir notas («otros»).
-        # Su imagen propia si está subida; si no, los dos logos del grupo.
+        # EL ORDEN: primero MI CALENDARIO (lo de cada uno), después el CALENDARIO GENERAL DE OFICINA
+        # (las cosas de la casa) y detrás los artistas y eventos. Ninguno de los dos es un artista, así
+        # que a los dos solo se les pueden añadir NOTAS («otros»): ni actividades ni bloqueos.
+        # La imagen del general: la suya si está subida y, si no, los dos logos del grupo.
         _img_of = _office_calendar_image()
-        out = [{"id": OFFICE_CALENDAR_ID, "name": "Calendario general de oficina",
+        out = [{"id": MY_CALENDAR_ID, "name": MY_CALENDAR_NAME,
+                "photo_url": _my_calendar_photo(), "active": True, "is_event": False, "event_id": "",
+                "mine": True, "only_note": True},
+               # ⚠️ El nombre es el MISMO que el de su chip (`OFFICE_CALENDAR_NAME`): «Calendario
+               # general de oficina» no cabe en la tarjeta y salía cortado con puntos suspensivos.
+               {"id": OFFICE_CALENDAR_ID, "name": OFFICE_CALENDAR_NAME,
                 "photo_url": _img_of, "active": True, "is_event": False, "event_id": "",
-                "office": True, "logos": ([_img_of] if _img_of else _office_calendar_logos())}]
+                "office": True, "only_note": True,
+                "logos": ([_img_of] if _img_of else _office_calendar_logos())}]
         for a in q.all():
             activo = str(a.id) in active_ids
             # Los EVENTOS salen en la agenda igual que un artista (su espejo lleva el nombre y el logo
@@ -111930,9 +112028,14 @@ def agenda_block_create():
     """Crea un bloqueo (BLOCK) multi-día para un artista: motivo + rango de fechas."""
     session_db = db()
     try:
-        if (request.form.get("artist_id") or "").strip() == OFFICE_CALENDAR_ID:
-            # El calendario general de oficina no es de nadie: no tiene días que bloquear.
+        # Ni el calendario general ni el de cada uno son de un artista: no tienen días que bloquear
+        # (un bloqueo dice que el ARTISTA no está disponible), así que ahí solo caben notas.
+        _quien = (request.form.get("artist_id") or "").strip()
+        if _quien == OFFICE_CALENDAR_ID:
             flash("En el calendario general de oficina solo se pueden añadir notas, no bloqueos.", "warning")
+            return _agenda_redirect_back()
+        if _quien == MY_CALENDAR_ID:
+            flash("En tu calendario solo se pueden añadir notas, no bloqueos.", "warning")
             return _agenda_redirect_back()
         artist = session_db.get(Artist, _safe_uuid(request.form.get("artist_id")))
         if not artist:
@@ -111972,11 +112075,20 @@ def agenda_note_create():
     """Crea una entrada libre 'otro' (NOTE) multi-día: nombre + nota opcional + rango."""
     session_db = db()
     try:
-        # El CALENDARIO GENERAL DE OFICINA no es de ningún artista: su entrada va sin artista y
-        # marcada con `is_office`.
-        es_oficina = (request.form.get("artist_id") or "").strip() == OFFICE_CALENDAR_ID
-        artist = None if es_oficina else session_db.get(Artist, _safe_uuid(request.form.get("artist_id")))
-        if not artist and not es_oficina:
+        # Ni el CALENDARIO GENERAL DE OFICINA ni MI CALENDARIO son de un artista: sus entradas van sin
+        # artista, el general marcado con `is_office` y el mío con su dueño (`owner_user_id`).
+        _quien = (request.form.get("artist_id") or "").strip()
+        es_oficina = _quien == OFFICE_CALENDAR_ID
+        es_mio = _quien == MY_CALENDAR_ID
+        mi_id = _safe_uuid(session.get("user_id")) if es_mio else None
+        if es_mio and not mi_id:
+            flash("No se ha podido saber de quién es el calendario.", "warning")
+            return _agenda_redirect_back()
+        if not _agenda_actor_ok(es_mio):
+            flash("Necesitas permiso de edición en alguna sección para añadir esto.", "warning")
+            return _agenda_redirect_back()
+        artist = None if (es_oficina or es_mio) else session_db.get(Artist, _safe_uuid(_quien))
+        if not artist and not es_oficina and not es_mio:
             flash("Selecciona un artista.", "warning")
             return _agenda_redirect_back()
         name = (request.form.get("title") or request.form.get("nombre") or "").strip()
@@ -112000,7 +112112,8 @@ def agenda_note_create():
             hora_ini, hora_fin = hora_fin, hora_ini
         state = _current_user_state()
         session_db.add(ArtistAgendaItem(
-            artist_id=(artist.id if artist else None), is_office=bool(es_oficina), kind="NOTE", title=name,
+            artist_id=(artist.id if artist else None), is_office=bool(es_oficina),
+            owner_user_id=mi_id, kind="NOTE", title=name,
             note=(request.form.get("note") or request.form.get("nota") or "").strip() or None,
             start_date=start, end_date=end,
             start_time=(hora_ini or None), end_time=(hora_fin or None),
@@ -112030,8 +112143,29 @@ def _agenda_item_payload(it) -> dict:
         "end_date": ((it.end_date or it.start_date).isoformat() if it.start_date else ""),
         "start_time": (_agenda_clean_time(getattr(it, "start_time", None)) or ""),
         "end_time": (_agenda_clean_time(getattr(it, "end_time", None)) or ""),
-        "artist_id": (str(it.artist_id) if it.artist_id else OFFICE_CALENDAR_ID),
+        "artist_id": (str(it.artist_id) if it.artist_id
+                      else (MY_CALENDAR_ID if getattr(it, "owner_user_id", None) else OFFICE_CALENDAR_ID)),
     }
+
+
+def _agenda_actor_ok(es_mio: bool) -> bool:
+    """¿Puede tocar esto? En MI CALENDARIO sí (son datos propios, como «mis gastos»); en el de un
+    ARTISTA o en el GENERAL hay que poder editar alguna sección (`_user_is_actor`).
+
+    ⚠️ Los tres endpoints de notas están en `REQUEST_ANY_ENDPOINTS` para que quien no edita nada
+    pueda apuntarse cosas en su calendario, así que la puerta de lo que NO es suyo se cierra aquí."""
+    return True if es_mio else _user_is_actor()
+
+
+def _agenda_item_is_mine_only(it) -> bool:
+    """Una nota de MI CALENDARIO: es de UNA persona, así que solo la toca ella (o dirección)."""
+    dueno = getattr(it, "owner_user_id", None)
+    if not dueno:
+        return False
+    state = _current_user_state() or {}
+    if _safe_int(state.get("role")) == 10:
+        return False
+    return str(dueno) != str(_safe_uuid(state.get("user_id")) or "")
 
 
 def _agenda_item_involved(session_db, it) -> list:
@@ -112134,6 +112268,16 @@ def agenda_item_update(item_id):
                 return jsonify({"ok": False, "error": "Eso ya no está en la agenda."}), 404
             flash("Eso ya no está en la agenda.", "warning")
             return _agenda_redirect_back()
+        if _agenda_item_is_mine_only(it):
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "Eso es del calendario de otra persona."}), 403
+            flash("Eso es del calendario de otra persona.", "warning")
+            return _agenda_redirect_back()
+        if not _agenda_actor_ok(bool(getattr(it, "owner_user_id", None))):
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "No tienes permiso para editar esto."}), 403
+            flash("No tienes permiso para editar esto.", "warning")
+            return _agenda_redirect_back()
         antes = _agenda_item_payload(it)
         f = request.form if request.form else (request.get_json(silent=True) or {})
 
@@ -112232,6 +112376,12 @@ def agenda_item_delete(item_id):
     session_db = db()
     try:
         it = session_db.get(ArtistAgendaItem, to_uuid(item_id))
+        if it and _agenda_item_is_mine_only(it):
+            flash("Eso es del calendario de otra persona.", "warning")
+            return _agenda_redirect_back()
+        if it and not _agenda_actor_ok(bool(getattr(it, "owner_user_id", None))):
+            flash("No tienes permiso para eliminar esto.", "warning")
+            return _agenda_redirect_back()
         if it:
             session_db.delete(it)
             session_db.commit()
@@ -118935,6 +119085,15 @@ if not CALDAV_ONLY:  # el host «solo CalDAV» no siembra permisos/personal (no 
 # aplican los campos elegidos y se elimina el perdedor: nada de lo que colgaba de un
 # duplicado se pierde. Las rutas van bajo el prefijo de su sección para heredar sus
 # permisos (leer = ver la sección; fusionar = POST, exige edición de la sección).
+# Campos que NO se comparan al fusionar canciones: sellos de cuándo/quién y datos técnicos que no
+# describen la canción (el token del enlace público, lo que apunta a Chartmetric). Comparar eso solo
+# haría la tabla ilegible.
+SONG_MERGE_SKIP_FIELDS = {
+    "sync_share_token", "cm_track", "cm_link_status", "cm_refreshed_at", "cm_isrc_checked_at",
+    "focus_single_at", "focus_single_by", "sync_enabled_at", "sync_enabled_by_nick",
+    "lyrics_updated_at", "pitch_updated_at", "work_declaration_uploaded_at",
+}
+
 MERGE_KINDS = {
     "promoter":  {"model": Promoter, "label": "Tercero", "path": "promotores", "photo": "logo_url", "display": "nick", "link_types": ["promoter"], "tpl_owner": None},
     "venue":     {"model": Venue, "label": "Recinto", "path": "recintos", "photo": "photo_url", "display": "name", "link_types": ["venue"], "tpl_owner": "VENUE"},
@@ -118943,6 +119102,11 @@ MERGE_KINDS = {
     "company":   {"model": GroupCompany, "label": "Empresa del grupo", "path": "empresas", "photo": "logo_url", "display": "name", "link_types": [], "tpl_owner": None},
     "media":     {"model": MediaOutlet, "label": "Medio", "path": "medios", "photo": "logo_url", "display": "name", "link_types": ["media"], "tpl_owner": None},
     "event":     {"model": AppEvent, "label": "Evento", "path": "eventos", "photo": "logo_url", "display": "name", "link_types": [], "tpl_owner": "EVENT"},
+    # ⚠️ CANCIONES: la misma canción dada de alta dos veces (una a mano y otra por un proyecto
+    # discográfico, por ejemplo). Todo lo que cuelga de la que se descarta —ISRC, materiales,
+    # autoría, royalties, el PROYECTO discográfico— pasa a la que se conserva.
+    "song":      {"model": Song, "label": "Canción", "path": "discografica/canciones", "photo": "cover_url", "display": "title", "link_types": [], "tpl_owner": None,
+                  "skip": SONG_MERGE_SKIP_FIELDS},
 }
 
 _MERGE_FIELD_LABELS = {
@@ -118954,14 +119118,39 @@ _MERGE_FIELD_LABELS = {
     "tax_info": "Datos fiscales", "media_type": "Tipo de medio", "country_code": "Código de país",
     "country_name": "País", "notes": "Notas", "kind": "Tipo", "birth_date": "Fecha de nacimiento",
     "capacity": "Aforo", "website": "Web", "city": "Ciudad", "iban": "IBAN",
+    # Canción
+    "title": "Título", "is_provisional": "Provisional", "collaborator": "Colaboración",
+    "is_catalog": "De catálogo", "is_distribution": "De distribución",
+    "master_ownership_pct": "% del máster", "is_external_collab": "Colaboración externa",
+    "our_pct": "% que nos corresponde", "our_pct_base": "Base del %", "isrc": "ISRC",
+    "version": "Versión", "duration_seconds": "Duración (s)",
+    "tiktok_start_seconds": "Comienzo en TikTok (s)", "recording_date": "Fecha de grabación",
+    "bpm": "BPM", "genre": "Géneros", "copyright_text": "Copyright",
+    "recording_engineer": "Técnico de grabación", "mixing_engineer": "Mezcla",
+    "mastering_engineer": "Máster", "studio": "Estudio", "release_date": "Fecha de publicación",
+    "cover_url": "Portada", "lyrics_text": "Letra", "pitch_title": "Titular del pitch",
+    "pitch_text": "Pitch", "focus_single": "Focus single", "is_explicit": "Contenido explícito",
+    "no_videoclip": "Sin videoclip", "sync_enabled": "Habilitada para Syncro",
+    "videoclip_recorded_on": "Videoclip · grabación",
+    "videoclip_release_date": "Videoclip · publicación",
+    "videoclip_same_release": "Videoclip · misma fecha que el single",
+    "work_declaration_url": "Declaración de obra",
+    "work_declaration_signed": "Declaración de obra firmada",
+    "spotify_url": "Spotify", "apple_music_url": "Apple Music",
+    "amazon_music_url": "Amazon Music", "tiktok_url": "TikTok", "youtube_url": "YouTube",
 }
 
 
-def _merge_fields(model):
-    """Columnas simples comparables del modelo (sin ids, FKs, JSON ni timestamps)."""
+def _merge_fields(model, cfg=None):
+    """Columnas simples comparables del modelo (sin ids, FKs, JSON ni timestamps).
+
+    `cfg['skip']` deja fuera además lo que no describe al elemento (sellos de cuándo/quién, tokens)."""
+    fuera = set((cfg or {}).get("skip") or ())
     out = []
     for col in model.__table__.columns:
         if col.name in ("id", "created_at", "updated_at") or col.foreign_keys:
+            continue
+        if col.name in fuera:
             continue
         if "JSON" in col.type.__class__.__name__.upper():
             continue
@@ -119090,6 +119279,144 @@ def _merge_search_view(kind):
         s.close()
 
 
+def _song_projects_map(session_db, song_ids) -> dict:
+    """Canción → PROYECTO discográfico que la tiene como lanzamiento (o como tema del videoclip).
+
+    Punto único: lo usan el aviso de duplicados y la fusión, que tienen que decir lo mismo. Se
+    resuelve en UNA consulta para todas las canciones."""
+    ids = [x for x in {_safe_uuid(i) for i in (song_ids or [])} if x]
+    if not ids:
+        return {}
+    out = {}
+    try:
+        filas = (session_db.query(DiscoProject)
+                 .filter(or_(DiscoProject.release_song_id.in_(ids), DiscoProject.song_id.in_(ids)))
+                 .all())
+        for p in filas:
+            for sid in (getattr(p, "release_song_id", None), getattr(p, "song_id", None)):
+                if not sid or sid not in ids or str(sid) in out:
+                    continue
+                out[str(sid)] = {
+                    "id": str(p.id),
+                    "title": (p.title or "").strip() or "Proyecto",
+                    "kind": (p.kind or ""),
+                    "kind_label": DISCO_PROJECT_LABELS.get((p.kind or "").upper(), p.kind or ""),
+                    "closed": bool(getattr(p, "closed_at", None)),
+                    "url": _safe_url_for("disco_project_detail", project_id=str(p.id)),
+                }
+    except Exception:
+        app.logger.exception("[canciones] no se pudieron leer los proyectos de las canciones")
+    return out
+
+
+def _song_duplicate_rows(session_db, title, artist_ids, exclude_song_id=None) -> list[dict]:
+    """Canciones que YA existen con ESE título y de ALGUNO de esos artistas.
+
+    Punto único del aviso de duplicados: lo usan el alta de una canción, el asistente de proyecto
+    discográfico y sus dos comprobaciones en el servidor, así que los tres dicen lo mismo.
+    ⚠️ Solo cuenta el MISMO ARTISTA: dos artistas distintos pueden tener una canción que se llame
+    igual y eso no es un duplicado. El título se compara **sin acentos ni mayúsculas**
+    (`_norm_text_key`), que es como lo escribe cada uno."""
+    clave = _norm_text_key(title or "")
+    ids = [x for x in {_safe_uuid(a) for a in (artist_ids or [])} if x]
+    if not clave or not ids:
+        return []
+    fuera = _safe_uuid(exclude_song_id)
+    try:
+        filas = (session_db.query(Song, Artist)
+                 .join(SongArtist, SongArtist.song_id == Song.id)
+                 .join(Artist, Artist.id == SongArtist.artist_id)
+                 .filter(SongArtist.artist_id.in_(ids))
+                 .all())
+    except Exception:
+        app.logger.exception("[canciones] no se pudo buscar el duplicado de «%s»", title)
+        return []
+    vistas, out = set(), []
+    for sg, art in filas:
+        if fuera and sg.id == fuera:
+            continue
+        if _norm_text_key(sg.title or "") != clave or str(sg.id) in vistas:
+            continue
+        vistas.add(str(sg.id))
+        out.append({
+            "id": str(sg.id),
+            "title": sg.title or "",
+            "artist_id": str(art.id),
+            "artist_name": (art.name or "").strip(),
+            "artist_photo": (getattr(art, "photo_url", None) or ""),
+            "cover_url": (sg.cover_url or ""),
+            "is_provisional": bool(getattr(sg, "is_provisional", False)),
+            "release_label": (sg.release_date.strftime("%d/%m/%Y") if sg.release_date else ""),
+            "url": _safe_url_for("discografica_song_detail", song_id=str(sg.id)),
+        })
+    proyectos = _song_projects_map(session_db, [r["id"] for r in out])
+    for r in out:
+        r["project"] = proyectos.get(r["id"]) or None
+    out.sort(key=lambda r: (r["release_label"] or ""), reverse=True)
+    return out
+
+
+def _song_duplicate_flash(dups, que: str = "canción") -> None:
+    """El aviso de duplicado cuando salta en el SERVIDOR: se dice cuál es y dónde está, para poder
+    trabajar sobre ella en vez de crear otra a ciegas."""
+    if not dups:
+        return
+    partes = []
+    for d in dups[:3]:
+        txt = "«%s» (%s%s)" % (d["title"], d["artist_name"],
+                               (" · " + d["release_label"]) if d["release_label"] else "")
+        if d.get("url"):
+            txt = '<a href="%s" class="alert-link">%s</a>' % (html.escape(d["url"]), html.escape(txt))
+        else:
+            txt = html.escape(txt)
+        if d.get("project"):
+            txt += " — la está preparando el proyecto «%s»" % html.escape(d["project"]["title"])
+        partes.append(txt)
+    flash(Markup(
+        "Ya existe una %s con ese nombre de ese artista: %s. Ábrela para trabajar sobre ella, o "
+        "vuelve a darle a crear marcando «crear otra de todas formas»." % (que, " · ".join(partes))
+    ), "warning")
+
+
+@app.get("/api/canciones/duplicadas", endpoint="api_song_duplicates")
+@admin_required
+def api_song_duplicates():
+    """¿Ya hay una canción con ese nombre de ese artista? (aviso al crear una o un proyecto)."""
+    session_db = db()
+    try:
+        artistas = request.args.getlist("artist_id") or ([request.args.get("artist_id")] if request.args.get("artist_id") else [])
+        filas = _song_duplicate_rows(session_db, request.args.get("title") or "", artistas,
+                                     exclude_song_id=request.args.get("exclude"))
+        return jsonify({"rows": filas})
+    except Exception:
+        app.logger.exception("[canciones] fallo buscando duplicados")
+        return jsonify({"rows": []})
+    finally:
+        session_db.close()
+
+
+def _safe_url_for(endpoint, **kw) -> str:
+    """`url_for` que no revienta fuera de una petición (crons e hilos) ni con un endpoint que no
+    existe: devuelve cadena vacía. Mismo apaño que ya usan `_disco_pitch_url` y compañía."""
+    try:
+        return url_for(endpoint, **kw)
+    except Exception:
+        return ""
+
+
+def _merge_notes(kind, session_db, a, b) -> list:
+    """Avisos propios de esa categoría, para decirlos ANTES de fusionar."""
+    if kind != "song":
+        return []
+    notas = []
+    proyectos = _song_projects_map(session_db, [a.id, b.id])
+    if proyectos:
+        cuales = ", ".join(sorted({("«%s»" % p["title"]) for p in proyectos.values()}))
+        notas.append("El PROYECTO discográfico %s se mantiene: pasa a la canción que se conserve y "
+                     "sigue su curso hasta que se cierre." % cuales)
+    return notas
+
+
 def _merge_compare_view(kind):
     """Datos de los dos elementos, campo a campo, para elegir con cuál quedarse."""
     cfg = _merge_cfg_or_404(kind)
@@ -119101,14 +119428,15 @@ def _merge_compare_view(kind):
         if not a or not b or a.id == b.id:
             abort(404)
         fields = []
-        for f in _merge_fields(model):
+        for f in _merge_fields(model, cfg):
             va = _merge_fmt(getattr(a, f, None))
             vb = _merge_fmt(getattr(b, f, None))
             if va == "" and vb == "":
                 continue
             fields.append({"key": f, "label": _MERGE_FIELD_LABELS.get(f, f.replace("_", " ").capitalize()), "a": va, "b": vb})
         payload = lambda r: {"id": str(r.id), "name": _merge_display(cfg, r), "photo": getattr(r, cfg["photo"], None) or ""}
-        return jsonify({"a": payload(a), "b": payload(b), "fields": fields})
+        return jsonify({"a": payload(a), "b": payload(b), "fields": fields,
+                        "notes": _merge_notes(kind, s, a, b)})
     finally:
         s.close()
 
@@ -119131,7 +119459,7 @@ def _merge_execute_view(kind):
             choices = json.loads(request.form.get("choices_json") or "{}")
         except Exception:
             choices = {}
-        valid = set(_merge_fields(model))
+        valid = set(_merge_fields(model, cfg))
         # Valores del PERDEDOR elegidos por el usuario: se capturan antes de borrarlo y se
         # aplican al ganador DESPUÉS (evita choques de unicidad, p. ej. name único).
         chosen_vals = {f: getattr(drop, f) for f, side in (choices or {}).items() if side == "drop" and f in valid}

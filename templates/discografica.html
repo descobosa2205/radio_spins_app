@@ -276,6 +276,7 @@
                       <th>Colaboradores</th>
                       <th class="text-nowrap" style="width:170px; min-width:170px;">ISRC</th>
                       <th class="text-nowrap" style="width:120px;">Publicación</th>
+                      {% if CAN_EDIT_DISCOGRAFICA %}<th style="width:44px;"></th>{% endif %}
                     </tr>
                   </thead>
                   <tbody>
@@ -355,6 +356,27 @@
                             <span class="text-muted">—</span>
                           {% endif %}
                         </td>
+                        {% if CAN_EDIT_DISCOGRAFICA %}
+                        {# Tres puntitos de la canción. ⚠️ `position-relative` + z-index: la FILA
+                           entera navega a la ficha, así que sin esto el menú quedaría debajo y no se
+                           podría pinchar (mismo caso que las bandejas de peticiones). #}
+                        <td class="text-end position-relative" style="z-index:3;">
+                          <div class="dropdown">
+                            <button class="btn btn-sm btn-link text-muted" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Más">
+                              <i class="fa fa-ellipsis-vertical"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                              <li><a class="dropdown-item" href="{{ url_for('discografica_song_detail', song_id=s.id) }}"><i class="fa fa-up-right-from-square fa-fw me-1"></i>Abrir la ficha</a></li>
+                              <li><button type="button" class="dropdown-item" data-merge-open
+                                          data-merge-label="Canción" data-merge-id="{{ s.id }}"
+                                          data-merge-name="{{ s.title|e }}" data-merge-photo="{{ s.cover_url or '' }}"
+                                          data-merge-search="{{ url_for('merge_search_song') }}"
+                                          data-merge-compare="{{ url_for('merge_compare_song') }}"
+                                          data-merge-execute="{{ url_for('merge_execute_song') }}"><i class="fa fa-code-merge fa-fw me-1"></i>Fusionar con otra…</button></li>
+                            </ul>
+                          </div>
+                        </td>
+                        {% endif %}
                       </tr>
                     {% endfor %}
                   </tbody>
@@ -512,11 +534,11 @@
               <div class="row g-2">
                 <div class="col-12 col-md-6">
                   <label class="form-label">Nombre de la canción</label>
-                  <input name="title" class="form-control">
+                  <input name="title" id="addSongTitle" class="form-control">
                 </div>
                 <div class="col-12 col-md-6">
                   <label class="form-label">Artista</label>
-                  <select name="artist_id" class="form-select select-artists">
+                  <select name="artist_id" id="addSongArtist" class="form-select select-artists">
                     <option value="">Selecciona…</option>
                     {% for a in contract_artists %}
                       <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
@@ -526,6 +548,12 @@
                     <div class="text-warning small mt-1">No hay artistas con contrato discográfico / catálogo / distribución. Añade el contrato en la ficha del artista para poder crear canciones.</div>
                   {% endif %}
                 </div>
+                {# ¿YA EXISTE una canción con ese nombre de ese artista? El aviso lo pinta
+                   `song_duplicates.js`, que además no deja crear hasta decidir. #}
+                <div class="col-12 d-none" data-song-dup
+                     data-dup-title="#addSongTitle" data-dup-artist="#addSongArtist"
+                     data-dup-ok="#addSongDuplicateOk"></div>
+                <input type="hidden" name="duplicate_ok" id="addSongDuplicateOk" value="">
                 <div class="col-12">
                   <div class="d-flex justify-content-between align-items-center mb-1">
                     <label class="form-label m-0">Intérpretes</label>
@@ -899,6 +927,9 @@
     {% endif %}
 
   {% endif %}
+
+  {# Fusión de canciones duplicadas: la abren los tres puntitos de cada canción del repertorio. #}
+  {% if CAN_EDIT_DISCOGRAFICA %}{% include '_merge_modal.html' %}{% endif %}
 
 {% elif section == 'royalties' %}
 

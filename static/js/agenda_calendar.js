@@ -443,6 +443,10 @@
     function renderCal() {
       calWrap.innerHTML = '';
       calWrap.appendChild(buildNav());
+      // ¿Se puede AÑADIR desde aquí? Solo donde la página trae el asistente del botón «+» (Inicio y
+      // ficha de artista). En un calendario que no lo tiene (el de un proyecto, el cronograma del
+      // plan, el público) el doble clic en un día no ofrece nada.
+      var puedeAnadir = !!document.getElementById('agendaAddModal');
       if (fetching) { calWrap.appendChild(el('div', 'text-muted small text-center py-4', 'Cargando agenda…')); return; }
       var win = curWin(), gStart = win[0], gEnd = win[1];
       var head = el('div', 'agenda-cal__head');
@@ -507,6 +511,7 @@
             cell.classList.add(fest.office ? 'is-nonworking' : 'is-holiday');
             cell.title = fest.name + (fest.scope_label ? ' · ' + fest.scope_label : '');
           }
+          if (puedeAnadir) cell.title = (cell.title ? cell.title + ' · ' : '') + 'Doble clic para añadir algo este día';
           cell.appendChild(el('div', 'agenda-cal__num', cur.getDate() + ' ' + MONTHS[cur.getMonth()]));
           // El NOMBRE de la festividad, dentro del día: es lo que dice de qué festivo se trata.
           if (fest) cell.appendChild(el('div', 'agenda-cal__fest', fest.name));
@@ -536,6 +541,18 @@
             }
             mueveItem(arrastrando, dia);
           });
+          // DOBLE CLIC EN EL HUECO DE UN DÍA = añadir algo ESE día: lo mismo que el botón «+», pero
+          // con la fecha ya puesta. Encima de un ítem manda su propio doble clic (editarlo), así que
+          // ahí no se hace nada. El calendario no sabe del asistente: lanza el evento y quien lo
+          // escuche decide (el mismo patrón que `agenda:external-drop`).
+          if (puedeAnadir) {
+            cell.addEventListener('dblclick', function (ev) {
+              if (ev.target && ev.target.closest && ev.target.closest('.agenda-event')) return;
+              document.dispatchEvent(new CustomEvent('agenda:day-add', {
+                detail: { date: this.getAttribute('data-day') }
+              }));
+            });
+          }
           daysRow.appendChild(cell);
           cur.setDate(cur.getDate() + 1);
         }

@@ -12,6 +12,10 @@
           id="discoProjectForm" data-step-wizard data-sw-mode="ALBUM" data-disco-project>
       <input type="hidden" name="artist_id" id="dpArtistId">
       <input type="hidden" name="kind" id="dpKind" value="">
+      {# Canción del repertorio sobre la que se monta el proyecto (en vez de crear una nueva), y el
+         «crear otra de todas formas» cuando ya existe una igual. #}
+      <input type="hidden" name="existing_song_id" id="dpExistingSongId" value="">
+      <input type="hidden" name="duplicate_ok" id="dpDuplicateOk" value="">
       <div class="modal-header">
         <h5 class="modal-title"><i class="fa fa-diagram-project text-danger me-2"></i>Nuevo proyecto discográfico</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -160,12 +164,18 @@
           <div class="row g-2">
             <div class="col-12 col-md-7">
               <label class="form-label">Nombre</label>
-              <input class="form-control" name="single_title" data-dp-title required>
+              <input class="form-control" name="single_title" id="dpSingleTitle" data-dp-title required>
             </div>
             <div class="col-12 col-md-5">
               <label class="form-label">Fecha prevista de lanzamiento</label>
               <input type="date" class="form-control" name="single_release_date">
             </div>
+            {# ⚠️ ¿YA EXISTE esa canción de ese artista? Se puede TRABAJAR SOBRE ELLA («Usar esta»:
+               el proyecto se monta sobre la que ya está en el repertorio, sin crear otra) o crear
+               una nueva a sabiendas. Lo pinta `song_duplicates.js`. #}
+            <div class="col-12 d-none" data-song-dup
+                 data-dup-title="#dpSingleTitle" data-dup-artist="#dpArtistId"
+                 data-dup-use="#dpExistingSongId" data-dup-ok="#dpDuplicateOk"></div>
             <div class="col-12 col-md-6">
               <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
                 <input class="form-check-input m-0" type="checkbox" name="is_collab" value="1">

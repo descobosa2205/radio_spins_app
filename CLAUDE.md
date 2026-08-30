@@ -301,9 +301,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   derecha (Inicio y ficha) → asistente `templates/_agenda_add_modal.html`: elegir artista (en Inicio,
   vía `AGENDA_ARTIST_OPTIONS`), tipo (Actividad/Bloqueo/Otro) y rango de días. «Actividad» reabre el
   asistente de concierto (`/conciertos?open_wizard=1&wizard_artist=<id>`, auto-apertura en
-  `_concert_wizard_modal.html`). Endpoints `agenda_block_create`/`agenda_note_create`/`agenda_item_delete`
-  (en `SUPPORT_ACTION_ENDPOINTS`). Al crear artista se pregunta «¿es un grupo?»; la pestaña Datos edita
+  `_concert_wizard_modal.html`). Endpoints `agenda_block_create` (en `SUPPORT_ACTION_ENDPOINTS`) y
+  `agenda_note_create`/`agenda_item_update`/`agenda_item_delete` (en `REQUEST_ANY_ENDPOINTS`, ver más
+  abajo). Al crear artista se pregunta «¿es un grupo?»; la pestaña Datos edita
   `is_group`, fecha del artista y fecha por miembro.
+  · **EL ORDEN DEL SELECTOR** (`_agenda_artist_options`, ago 2026): **1º MI CALENDARIO** (con la foto
+  de quien mira), **2º el CALENDARIO GENERAL** y detrás los artistas y eventos **activos**; el resto,
+  tras «Ver más artistas». Los dos primeros no son artistas, así que solo admiten **notas**: lo marca
+  **`data-only-note`** en su tarjeta (`soloOtros()`), no `data-office`, que es solo su estilo.
+  ⚠️ El nombre del general en la tarjeta es `OFFICE_CALENDAR_NAME` («Calendario general»), el MISMO
+  que el de su chip: «Calendario general de oficina» no cabía y salía cortado.
+- ⚠️ **DOBLE CLIC EN UN DÍA = AÑADIR ALGO ESE DÍA** (ago 2026): en el **hueco** de cualquier casilla
+  del calendario, el doble clic abre el asistente del «+» **con la fecha ya puesta** (las dos, «desde»
+  y «hasta»). Encima de un ítem manda su propio doble clic (editarlo), así que ahí no se hace nada:
+  lo decide `ev.target.closest('.agenda-event')`.
+  ⚠️ El calendario **no sabe nada del asistente**: lanza el evento **`agenda:day-add`** con el día y
+  quien lo escuche decide (el mismo patrón que `agenda:external-drop`). Por eso en un calendario que
+  no trae el asistente (un proyecto, el cronograma del plan, el público) el doble clic no hace nada —
+  y por eso el hueco solo se marca como «añadible» (`title` de aviso) si existe `#agendaAddModal`.
+  ⚠️ El día viaja también al **asistente de actividad** si se elige «Actividad»: `#wizard_date` (tras
+  `shown.bs.modal`, como el resto del precumplimentado) y, en el camino que navega,
+  **`&wizard_date=`** en la URL de `/conciertos?open_wizard=1`.
 - **AGENDA · un «otro» puede tener HORA** (ago 2026): al añadir una nota (**«Otro»**) se pueden poner
   **hora de inicio y hora de fin, las dos opcionales** (`ArtistAgendaItem.start_time`/`end_time`; sin
   ellas es de todo el día, como antes). Punto único **`_agenda_clean_time`** (valida «HH:MM» y descarta
@@ -374,6 +392,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · las **promociones** en las que es el acompañante (`Promotion.escort_user_id`), con sus entrevistas,
   · y **sus vacaciones y días libres** (una franja por petición), que las trae `_agenda_personal_days`
     ya con este id.
+  · y las **NOTAS que cada uno se apunta** (ago 2026): `ArtistAgendaItem.owner_user_id` (columna
+    nueva; ni de un artista ni de la casa), que lee `_agenda_my_items`. **Solo las ve su dueño.**
+    Como en el general, ahí solo caben **notas**: ni actividades ni bloqueos (un bloqueo dice que el
+    ARTISTA no está disponible), y `agenda_block_create` lo rechaza diciendo por qué.
+  ⚠️⚠️ **APUNTARSE ALGO EN SU CALENDARIO LO PUEDE HACER CUALQUIERA**: `agenda_note_create`,
+  `agenda_item_update` y `agenda_item_delete` pasaron de `SUPPORT_ACTION_ENDPOINTS` a
+  **`REQUEST_ANY_ENDPOINTS`**, porque el primero exige ser «actor» (poder editar alguna sección) y
+  quien no edita nada **no podía apuntarse ni una nota en su propio calendario**. La puerta de lo que
+  NO es suyo se cierra DENTRO, con el punto único **`_agenda_actor_ok(es_mio)`**: en un ARTISTA o en
+  el GENERAL se sigue exigiendo ser actor. Y **`_agenda_item_is_mine_only`** impide que nadie toque la
+  nota de otra persona (403).
+  ⚠️⚠️ La consulta de bloqueos y notas de `_agenda_build` exige **`artist_id IS NOT NULL`**: sin ese
+  filtro, cuando no hay artistas a los que ceñirse (dirección, o quien no tiene ninguno asignado) se
+  colaban las que no son de un artista —las de oficina salían DUPLICADAS bajo un calendario fantasma
+  **«None»** y las personales las habría visto otra persona—.
   · **Los CUMPLEAÑOS van en el ROJO DE LA CASA** (ago 2026), el mismo del Calendario general: es su
   color de TIPO (`AGENDA_KIND_META['cumple']`), así que se ven igual en Inicio y en la ficha del
   artista. Y de la paleta de artistas se ha quitado el rojo oscuro que había (`#c1121f`): con el rojo
@@ -1679,6 +1712,41 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   otra para las fotos de sus artistas): con decenas de temas, una consulta por cada uno sería
   inaceptable. Y ⚠️ **`Song` NO tiene `artist_id`**: su artista va por **`SongArtist`** (N:M).
   ⚠️ Se emite también **`og:image:type`**: sin él, WhatsApp y algunos móviles descartan la foto.
+
+- ⚠️⚠️ **LA MISMA CANCIÓN DADA DE ALTA DOS VECES: se avisa y se FUSIONA** (ago 2026). Pasa cuando la
+  canción se crea a mano y luego el PROYECTO discográfico crea la suya (o al revés).
+  · **Antes de crear se avisa**: punto único **`_song_duplicate_rows(session_db, título,
+  artist_ids)`** — canciones con el MISMO título del **MISMO artista** (dos artistas distintos pueden
+  tener una canción que se llame igual: eso NO es un duplicado), comparando **sin acentos ni
+  mayúsculas** (`_norm_text_key`). Lo sirve **`api_song_duplicates`** (`/api/canciones/duplicadas`,
+  en `SUPPORT_READ_ENDPOINTS`) y lo pinta **`static/js/song_duplicates.js`** (GLOBAL, no-op sin
+  `[data-song-dup]`): cada coincidencia con su portada, su artista, su fecha y sus etiquetas
+  (Provisional · el PROYECTO que la está preparando), y **el formulario no se envía** hasta decidir.
+  · **Dónde está**: el alta de una canción (Discográfica → Repertorio) y el asistente de **PROYECTO
+  discográfico** (paso del single). En el asistente, además de «crear otra de todas formas», está
+  **«Usar esta»**: el proyecto se monta **SOBRE la canción que ya existe**
+  (`existing_song_id` → `_disco_project_create_release(..., existing_song=…)`) en vez de crear otra.
+  ⚠️ Lo que ya estaba publicado **no se marca provisional**: eso es solo de lo que crea el proyecto.
+  ⚠️ Se comprueba **también en el SERVIDOR** (`discografica_song_create` y `disco_project_create`,
+  con `duplicate_ok`): esconder el botón no basta. El aviso del servidor
+  (`_song_duplicate_flash`) lleva el ENLACE a la que ya existe, para poder trabajar sobre ella.
+  ⚠️ `existing_song_id` se valida contra el ARTISTA (`_song_belongs_to_artist`): el id viaja por el
+  formulario y no puede colar una canción de otro.
+  · **FUSIONAR dos canciones**: en los **tres puntitos** de cada canción del repertorio, con el
+  MISMO motor que los terceros (`MERGE_KINDS["song"]`, rutas `/discografica/canciones/fusion*`, que
+  heredan el permiso por la ruta). Se ven las dos campo a campo y se elige qué se conserva; todo lo
+  que colgaba de la descartada (ISRC, materiales, autoría, royalties) pasa a la que queda.
+  ⚠️⚠️ **EL PROYECTO DISCOGRÁFICO SE MANTIENE**: `disco_projects.song_id`/`release_song_id` son FK a
+  `songs` (ON DELETE SET NULL) y `_merge_repoint_references` las **re-apunta a la que se conserva**
+  antes de borrar, así que el proyecto sigue vivo hasta que se cierre. La comparación lo **dice**
+  antes de fusionar: `_merge_notes` (avisos por categoría, que pinta `[data-merge-notes]` del modal)
+  + `_song_projects_map` (punto único de «qué proyecto lleva esta canción», en UNA consulta).
+  ⚠️ `_merge_fields` acepta ahora `cfg['skip']`: en una canción se dejan fuera los campos técnicos
+  (`SONG_MERGE_SKIP_FIELDS`: el token del enlace público, lo de Chartmetric, los sellos de
+  cuándo/quién), que solo harían la tabla ilegible.
+  ⚠️ Un `<button>` SIN `type` dentro de un `<form>` **es de envío** y `[type="submit"]` NO lo casa
+  (no tiene el atributo): para deshabilitarlo hay que mirar la PROPIEDAD `b.type` (bug real: el
+  «Guardar» del alta de canción no se bloqueaba).
 
 - **GÉNEROS de una canción · ETIQUETAS** (ago 2026): `MusicGenre` (catálogo, `norm_key` UNIQUE) +
   `SongGenre` (N:M con posición), `ensure_song_genres_schema`. El catálogo se **siembra** con los

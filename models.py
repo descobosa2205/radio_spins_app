@@ -144,6 +144,9 @@ class ArtistAgendaItem(Base):
     # ningún artista. Todo lo demás lleva su artista.
     artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"))
     is_office = Column(Boolean, nullable=False, server_default=text("false"))
+    # MI CALENDARIO: una nota que es de UNA PERSONA (ni de un artista ni de la casa). Se rellena solo
+    # en ese caso; el resto de entradas lo llevan a NULL.
+    owner_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     kind = Column(Text, nullable=False, server_default=text("'NOTE'"))  # BLOCK | NOTE
     title = Column(Text, nullable=False, server_default=text("''"))
     note = Column(Text)
@@ -7140,6 +7143,9 @@ def ensure_artist_feature_schema():
         # Hora de comienzo y de fin de una nota («otro»): las dos opcionales.
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS start_time text;",
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS end_time text;",
+        # MI CALENDARIO: notas que son de UNA PERSONA (ni de un artista ni de la casa).
+        "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS owner_user_id uuid REFERENCES users(id) ON DELETE CASCADE;",
+        "CREATE INDEX IF NOT EXISTS idx_artist_agenda_items_owner_dates ON artist_agenda_items(owner_user_id, start_date, end_date);",
         """
         CREATE TABLE IF NOT EXISTS artist_emails (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

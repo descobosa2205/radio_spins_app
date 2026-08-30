@@ -127,6 +127,16 @@
   }
   function renderCompare() {
     var c = state.cmp;
+    // Avisos propios de esa categoría (p. ej.: en una canción, que su PROYECTO discográfico se
+    // mantiene). Los manda el servidor en `notes`, así que aquí no se sabe de qué van.
+    var caja = $q('[data-merge-notes]');
+    if (caja) {
+      var notas = c.notes || [];
+      caja.innerHTML = notas.map(function (n) {
+        return '<div class="alert alert-info small py-2 mb-2"><i class="fa fa-circle-info me-1"></i>' + esc(n) + '</div>';
+      }).join('');
+      caja.classList.toggle('d-none', !notas.length);
+    }
     $q('[data-merge-survivors]').innerHTML = survivorCard('a', c.a) + survivorCard('b', c.b);
     $q('[data-merge-col-a]').textContent = c.a.name;
     $q('[data-merge-col-b]').textContent = c.b.name;

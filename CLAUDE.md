@@ -1641,8 +1641,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   actividades de una vez), no una por fila.
   ⚠️ El icono se pinta **SIEMPRE debajo** de la imagen y el `<img>` lleva `onerror="this.remove()"`:
   una portada caída deja el icono, no un cuadro vacío.
-  · **EL ARTISTA va en la SEGUNDA fila**, con su **foto delante** (`artist_chip`) y **antes de la
-  fecha**. ⚠️ Si el título YA es el nombre del artista (una actividad sin festival) no se repite.
+  · **EL ARTISTA va SIEMPRE en la SEGUNDA fila**, con su **foto delante** (`artist_chip`) y **antes
+  de la fecha**: es de quién es lo que está pendiente.
+  ⚠️⚠️ **LA ETIQUETA de una actividad la decide `_my_task_activity_kind`**: un CONCIERTO es
+  **«Concierto»** aunque se toque en un festival — **«Festival» y «Ciclo» son solo lo NUESTRO**, lo
+  creado desde Festivales o Ciclos (`Concert.cycle_festival_id` → el `kind` de su `CycleFestival`).
+  Una actuación en el festival de otro (`activity_type='FESTIVAL'`) es un concierto y así se etiqueta.
+  · **EL TÍTULO es su nombre propio** (el del festival o el del ciclo) y, **si no tiene, el LUGAR**:
+  «Municipio, Provincia» (`_place_label`, el formato único de la casa), que es como se identifica un
+  concierto.
+  ⚠️ `añade()` cae en la etiqueta de la subtarea cuando no le llega título («Activar la
+  producción»), así que se guarda **`title_given`** para saber si venía uno DE VERDAD: sin eso, el
+  nombre de la fila acababa siendo el de la tarea (bug real).
   · **Ordenadas de la más próxima a la más lejana** (`_my_task_date`); lo que **no tiene fecha** va al
   final, no se descarta.
   · **«Nueva» hasta que se abre**: se apunta en `UserProfile.tasks_seen` (JSONB) por la clave de la

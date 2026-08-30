@@ -70900,6 +70900,10 @@ def _home_notices(limit: int = 8) -> list[dict]:
 # corporativo» de la casa: no hay ningún verde).
 MY_TASK_KINDS = {
     "CONCIERTO":   ("Concierto", "fa-guitar"),
+    # ⚠️ «Festival» y «Ciclo» SOLO en lo NUESTRO (lo creado desde Festivales o Ciclos): una
+    # actuación en el festival de otro es un CONCIERTO, y así se etiqueta.
+    "FESTIVAL":    ("Festival", "fa-star"),
+    "CICLO":       ("Ciclo", "fa-calendar-week"),
     "ACTIVIDAD":   ("Actividad", "fa-calendar-day"),
     "PETICION":    ("Petición", "fa-inbox"),
     "PROYECTO":    ("Proyecto discográfico", "fa-compact-disc"),
@@ -70949,7 +70953,8 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
             meta = MY_TASK_KINDS.get(kind) or ("", "fa-circle-exclamation")
             fila = grupos[clave] = {
                 "key": clave, "kind": kind, "kind_label": meta[0], "kind_icon": meta[1],
-                "title": (titulo or label), "url": (ficha_url or ""),
+                "title": (titulo or label), "title_given": bool((titulo or "").strip()),
+                "url": (ficha_url or ""),
                 "artist_name": (artist or ""), "artist_photo": (photo or ""),
                 "date": (fecha or ""), "date_label": _iso_date_label(fecha) if fecha else "",
                 "note": (note or ""), "order": order, "tasks": [],
@@ -71066,20 +71071,43 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
     return filas
 
 
+def _my_task_activity_kind(concert, grupo=None) -> str:
+    """LA ETIQUETA de una actividad en «Mis tareas pendientes».
+
+    ⚠️⚠️ Un CONCIERTO es un **Concierto** aunque se toque en un festival: «Festival» y «Ciclo» son
+    **solo lo NUESTRO**, lo creado desde Festivales o Ciclos (`Concert.cycle_festival_id` →
+    `CycleFestival`). Una actuación en el festival de otro (`activity_type='FESTIVAL'`) se etiqueta
+    como CONCIERTO, que es lo que es."""
+    if grupo is not None:
+        kind_grupo = (getattr(grupo, "kind", "") or "").strip().upper()
+        if kind_grupo == "FESTIVAL":
+            return "FESTIVAL"
+        if kind_grupo == "CICLO":
+            return "CICLO"
+    tipo = (getattr(concert, "activity_type", "") or "").strip().upper()
+    if tipo in CONCERT_LIKE_ACTIVITY_TYPES:
+        return "CONCIERTO"
+    return "ACTIVIDAD"
+
+
 def _my_task_images(filas: list) -> None:
-    """LA IMAGEN de cada tarea pendiente: la PORTADA del lanzamiento o el CARTEL de la actividad.
+    """LA IMAGEN y la IDENTIDAD de cada tarea pendiente.
 
     · un **PROYECTO** discográfico → la **portada cuadrada** de su lanzamiento (y, si todavía no hay,
       la imagen de «sin portada», la misma del repertorio);
     · un **CONCIERTO / FESTIVAL / CICLO** → su **CARTEL**; si no hay, el **icono del tipo** de
       actividad que sea;
     · lo demás → su icono.
+    Y de paso, en una actividad: su **ETIQUETA** de verdad (`_my_task_activity_kind`), el **ARTISTA
+    con su foto** y, **cuando no tiene un nombre específico, el LUGAR** («Municipio, Provincia»,
+    con `_place_label`) como título — que es como se identifica un concierto.
     ⚠️ Va en **DOS consultas** (los proyectos de una vez y las actividades de una vez), no una por
     fila: este módulo se pinta en cada carga de Inicio."""
     if not filas:
         return
     proyectos = [f for f in filas if f["kind"] == "PROYECTO" and f.get("ref_id")]
-    actividades = [f for f in filas if f["kind"] in ("CONCIERTO", "ACTIVIDAD", "CARTELERIA")
+    actividades = [f for f in filas if f["kind"] in ("CONCIERTO", "FESTIVAL", "CICLO",
+                                                     "ACTIVIDAD", "CARTELERIA")
                    and f.get("ref_id")]
     sin_portada = _safe_url_for("static", filename="img/cover_placeholder.png")
     session_db = db()
@@ -71101,19 +71129,59 @@ def _my_task_images(filas: list) -> None:
             ids = {_safe_uuid(f["ref_id"]) for f in actividades}
             ids.discard(None)
             mapa = {}
+            datos = {}
             if ids:
                 filas_c = (session_db.query(Concert)
                            .options(joinedload(Concert.artwork_request)
-                                    .selectinload(ConcertArtworkRequest.assets))
+                                    .selectinload(ConcertArtworkRequest.assets),
+                                    joinedload(Concert.artist),
+                                    joinedload(Concert.venue),
+                                    joinedload(Concert.cycle_festival))
                            .filter(Concert.id.in_(ids)).all())
                 for cc in filas_c:
                     try:
                         mapa[str(cc.id)] = _concert_poster_url(cc) or ""
                     except Exception:
                         mapa[str(cc.id)] = ""
+                    artista = getattr(cc, "artist", None)
+                    datos[str(cc.id)] = {
+                        "kind": _my_task_activity_kind(cc, getattr(cc, "cycle_festival", None)),
+                        # El nombre PROPIO de la actividad: el del festival/ciclo si lo tiene.
+                        "name": ((getattr(cc, "festival_name", "") or "").strip()
+                                 or (getattr(getattr(cc, "cycle_festival", None), "name", "") or "").strip()),
+                        # Y si no, EL LUGAR: «Municipio, Provincia», que es como se identifica.
+                        "place": _place_label(_concert_city(cc), _concert_province_value(cc)),
+                        "artist": (getattr(artista, "name", "") or ""),
+                        "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                        "type_icon": QUAD_ACTIVITY_ICONS.get(
+                            _activity_kind_key(getattr(cc, "activity_type", None)) or "CONCIERTO", ""),
+                    }
             for f in actividades:
                 f["image"] = mapa.get(f["ref_id"]) or ""
                 f["image_kind"] = "poster" if f["image"] else ""
+                d = datos.get(f["ref_id"])
+                if not d:
+                    continue
+                # La ETIQUETA de verdad (una actuación en un festival ajeno es un CONCIERTO).
+                if f["kind"] in ("CONCIERTO", "FESTIVAL", "CICLO", "ACTIVIDAD"):
+                    f["kind"] = d["kind"]
+                    meta = MY_TASK_KINDS.get(d["kind"]) or (f["kind_label"], f["kind_icon"])
+                    f["kind_label"], f["kind_icon"] = meta[0], meta[1]
+                # EL TÍTULO: su nombre propio y, si no tiene, el LUGAR.
+                # ⚠️ `title_given` dice si venía un título DE VERDAD: sin él, `añade` cae en la
+                # etiqueta de la subtarea («Activar la producción»), que no es el nombre de nada.
+                titulo = (f.get("title") or "").strip()
+                generico = (not f.get("title_given") or not titulo
+                            or titulo == d["artist"] or titulo == f["kind_label"])
+                if d["name"]:
+                    f["title"] = d["name"]
+                elif generico:
+                    f["title"] = d["place"] or titulo or f["kind_label"]
+                # EL ARTISTA, con su foto: sale SIEMPRE en la segunda fila.
+                f["artist_name"] = f.get("artist_name") or d["artist"]
+                f["artist_photo"] = f.get("artist_photo") or d["artist_photo"]
+                if d["type_icon"]:
+                    f["type_icon"] = d["type_icon"]
     except Exception:
         app.logger.exception("[inicio] no se pudieron resolver las imágenes de mis tareas")
     finally:

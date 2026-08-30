@@ -3750,6 +3750,9 @@ class UserProfile(Base):
     menu_order = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Última vez que esta persona entró en Producción → Activas (para marcar «Nueva actividad»).
     production_seen_at = Column(DateTime(timezone=True))
+    # TAREAS que esta persona YA ha abierto en «Mis tareas pendientes» ({clave: fecha}): con eso
+    # se sabe cuáles son NUEVAS. Se conservan las últimas; no es un histórico.
+    tasks_seen = Column(JSONB)
     # VACACIONES: días al año de esta persona (NULL = los de la casa, VACATION_DAYS_PER_YEAR).
     # Se configura desde el panel de administración de vacaciones, no desde su propia ficha.
     vacation_days_per_year = Column(Integer)
@@ -8333,6 +8336,7 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS accounting_company_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS menu_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS production_seen_at timestamptz;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS tasks_seen jsonb;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS prl_type text;",
         # Documentación de alta y PRL (personas y empresas del grupo) + peticiones de subida.

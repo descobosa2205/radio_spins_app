@@ -41153,6 +41153,7 @@ def contracting_view():
                     "municipality": _concert_city(c),
                     "province": _concert_province_value(c),
                     "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+            "date": (c.date.isoformat() if c.date else ""),
                     "venue": (_concert_venue_name(c) or "Sin recinto"),
                     "cache_label": _activity_cache_label(c.sale_type, c.activity_type),
                     "status_label": st_label,
@@ -42970,6 +42971,9 @@ def _home_activity_phase_tasks(limit: int = 12) -> list[dict]:
                     "title": ((c.festival_name or "").strip() or (c.artist.name if c.artist else "")
                               or _activity_kind_label(kind)),
                     "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+            "date": (c.date.isoformat() if c.date else ""),
+                    # La fecha EN CRUDO: con ella se ordenan «Mis tareas pendientes» y se aplica su corte.
+                    "date": (c.date.isoformat() if c.date else ""),
                     "place_label": _place_label(_concert_city(c) or "", _concert_province_value(c) or "",
                                                 venue=(_concert_venue_name(c) or "")),
                     "status_label": _concert_status_meta(c.status)[0],
@@ -42989,6 +42993,7 @@ def _home_activity_phase_tasks(limit: int = 12) -> list[dict]:
                     "title": ((r.artist.name if r.artist else "") or (r.subject or "")
                               or _activity_kind_label(kind)),
                     "date_label": fecha,
+                    "date": (r.requested_date.isoformat() if r.requested_date else ""),
                     "place_label": _place_label(r.municipality or "", r.province or "",
                                                 (pay.get("country") or "")),
                     "status_label": "Petición aprobada",
@@ -66419,7 +66424,7 @@ def _normalize_departments(values) -> list[str]:
     seen = set()
     for raw in _departments_iter(values):
         key = (raw or "").strip().casefold()
-        val = aliases.get(key) or allowed.get(key)
+        val = aliases.get(key) or allowed.get(key) or _department_guess(raw, aliases)
         if not val:
             continue
         if val in seen:
@@ -66427,6 +66432,36 @@ def _normalize_departments(values) -> list[str]:
         seen.add(val)
         out.append(val)
     return out
+
+
+def _department_guess(raw, aliases=None):
+    """El departamento del catálogo que hay DENTRO de lo escrito, con tolerancia.
+
+    ⚠️⚠️ El departamento lo escribe una persona, así que en la base hay «Producción musical»,
+    «Producción ejecutiva», «Prod.»… y la comparación EXACTA los descartaba: esa persona **dejaba de
+    contar como de Producción** —y no salía la primera en los selectores de producción y logística—
+    **sin dar ningún error** (bug real: «Irene no me aparece»). Se busca el nombre del catálogo como
+    PALABRA dentro del texto, sin acentos ni mayúsculas.
+    ⚠️ Los nombres del catálogo no comparten palabra entre sí, así que no se pisan; y se prueba
+    primero el más largo, para que «redes sociales» gane a cualquier trozo suelto."""
+    texto = _norm_text_key(raw or "")
+    if not texto:
+        return ""
+    palabras = set(texto.split())
+    candidatos = list(PERSONNEL_DEPARTMENTS) + list((aliases or {}).keys())
+    for nombre in sorted(candidatos, key=lambda x: -len(x)):
+        clave = _norm_text_key(nombre)
+        if not clave:
+            continue
+        # Palabra suelta, o la expresión entera dentro del texto («redes sociales»).
+        if clave in palabras or (" " in clave and clave in texto):
+            # ⚠️ Se pasa por los MISMOS alias que la comparación exacta (p. ej. «promoción» va a
+            # «Marketing»): si no, «Promoción» y «Promoción de artistas» acabarían en sitios
+            # distintos y una persona contaría en un departamento y la otra no.
+            al = aliases or {}
+            destino = al.get(str(nombre).casefold()) or al.get(nombre) or nombre
+            return destino if destino in PERSONNEL_DEPARTMENTS else ""
+    return ""
 
 
 def _departments_iter(values) -> list[str]:
@@ -67782,6 +67817,8 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         accounting_company_ids=[str(x) for x in (getattr(profile, "accounting_company_ids", None) or [])],
         menu_order=[str(x) for x in (getattr(profile, "menu_order", None) or [])],
         production_seen_at=getattr(profile, "production_seen_at", None),
+        # ⚠️ Lo que no esté aquí es INVISIBLE desde `_current_user_state()` y las plantillas.
+        tasks_seen=getattr(profile, "tasks_seen", None),
         # Usuario ESPEJO de un tercero con acceso externo a UNA producción.
         is_external=bool(getattr(profile, "is_external", False)),
         vacation_days_per_year=getattr(profile, "vacation_days_per_year", None),
@@ -68985,32 +69022,85 @@ def _home_notices(limit: int = 8) -> list[dict]:
         session_db.close()
 
 
+# DE QUÉ es cada tarea: su etiqueta y su icono. Se pinta en el AZUL de la marca (que es «el verde
+# corporativo» de la casa: no hay ningún verde).
+MY_TASK_KINDS = {
+    "CONCIERTO":   ("Concierto", "fa-guitar"),
+    "ACTIVIDAD":   ("Actividad", "fa-calendar-day"),
+    "PETICION":    ("Petición", "fa-inbox"),
+    "PROYECTO":    ("Proyecto discográfico", "fa-compact-disc"),
+    "PROMOCION":   ("Promoción", "fa-bullhorn"),
+    "REMESA":      ("Remesa de pagos", "fa-file-invoice-dollar"),
+    "VACACIONES":  ("Vacaciones", "fa-umbrella-beach"),
+    "INVITACIONES": ("Invitaciones", "fa-envelope-open-text"),
+    "CARTELERIA":  ("Cartelería", "fa-palette"),
+}
+# ⚠️⚠️ CORTE de «Mis tareas pendientes»: lo que sea ANTERIOR a este lunes no se reclama — hasta
+# entonces la gente no usaba la app para todo, así que ese trabajo no está en ella y pedirlo solo
+# haría ruido. **Lo que NO tiene fecha (registros de AGEDI, SGAE…) NO caduca: sigue pendiente.**
+# Mismo criterio que `PITCH_TASK_FROM` o `SALE_NOTICE_TASK_FROM`.
+MY_TASKS_FROM = date(2026, 8, 31)
+
+
+def _my_task_date(valor):
+    """La fecha de una tarea (ISO o `date`), o None si no tiene."""
+    if isinstance(valor, date):
+        return valor
+    try:
+        return date.fromisoformat((valor or "").strip()[:10])
+    except Exception:
+        return None
+
+
 def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None,
                    artwork=None, peticiones=None, invitations=None, plans=None) -> list[dict]:
-    """MIS TAREAS PENDIENTES: lo que le toca a ESTA persona, de una pieza y ordenado por urgencia.
+    """MIS TAREAS PENDIENTES: lo que le toca a ESTA persona, agrupado POR AQUELLO A LO QUE PERTENECE.
 
-    No calcula nada nuevo: junta lo que los módulos de Inicio ya han resuelto, para poder enseñarlo
-    en una sola lista (el módulo de dirección) en vez de en siete tarjetas — lo que le afecta a ella
-    y lo que es de dirección, en el mismo sitio.
+    No calcula nada nuevo: junta lo que los módulos de Inicio ya han resuelto. Lo que es de una MISMA
+    cosa (la misma actividad, el mismo proyecto, la misma promoción…) sale como **UNA sola tarea con
+    sus subtareas**, con la foto del artista, la etiqueta de qué es y el estado de cada subtarea.
+    Se ordena **de la fecha más próxima a la más lejana** (lo que no tiene fecha, al final).
     ⚠️ Es LO SUYO: el trabajo de los demás no entra aquí, se ve en el CUADRO DE MANDO."""
-    filas = []
+    grupos: dict = {}
 
-    def añade(label, url, icon, *, note="", tone="", order=5):
+    def añade(kind, sid, titulo, ficha_url, *, label, action_url="", action_label="",
+              state="todo", artist="", photo="", fecha="", note="", order=5):
+        """Una subtarea. Las de un MISMO sujeto (kind+id) se juntan en una sola fila."""
         if not label:
             return
-        filas.append({"label": label, "url": (url or ""), "icon": icon, "note": (note or ""),
-                      "tone": tone, "order": order})
+        clave = "%s:%s" % (kind, sid or titulo or label)
+        fila = grupos.get(clave)
+        if fila is None:
+            meta = MY_TASK_KINDS.get(kind) or ("", "fa-circle-exclamation")
+            fila = grupos[clave] = {
+                "key": clave, "kind": kind, "kind_label": meta[0], "kind_icon": meta[1],
+                "title": (titulo or label), "url": (ficha_url or ""),
+                "artist_name": (artist or ""), "artist_photo": (photo or ""),
+                "date": (fecha or ""), "date_label": _iso_date_label(fecha) if fecha else "",
+                "note": (note or ""), "order": order, "tasks": [],
+            }
+        fila["tasks"].append({"label": label, "url": (action_url or ficha_url or ""),
+                              "action_label": (action_label or "Hacerlo"), "state": state})
+        fila["order"] = min(fila["order"], order)
 
     for row in (batches or []):
-        añade("Aprobar la remesa %s" % (row.get("reference") or ""), row.get("url"),
-              "fa-file-invoice-dollar", note=(row.get("company_name") or ""), tone="danger", order=1)
+        añade("REMESA", row.get("id"), "Remesa %s" % (row.get("reference") or ""), row.get("url"),
+              label="Aprobar la remesa", action_label="Repasar y aprobar",
+              note=(row.get("company_name") or ""), fecha=(row.get("date") or ""), order=1)
     for row in (vacations or []):
-        añade("Vacaciones de %s por aprobar" % (row.get("nick") or row.get("user_nick") or "alguien"),
-              url_for("vacaciones_view", tab="peticiones"), "fa-umbrella-beach",
-              note=(row.get("range_label") or row.get("days_label") or ""), tone="warning", order=2)
+        quien = row.get("nick") or row.get("user_nick") or "alguien"
+        añade("VACACIONES", row.get("id"), "Vacaciones de %s" % quien,
+              url_for("vacaciones_view", tab="peticiones"),
+              label="Aprobar las vacaciones", action_label="Ver la petición",
+              photo=(row.get("photo_url") or ""),
+              note=(row.get("range_label") or row.get("days_label") or ""),
+              # `first_day` es un `date`: `_my_task_date` lo acepta tal cual.
+              fecha=(row.get("first_day") or ""), order=2)
     for row in (plans or []):
-        añade("Dar el OK al plan de lanzamiento", row.get("url"), "fa-clipboard-check",
-              note=(row.get("title") or ""), tone="warning", order=2)
+        añade("PROYECTO", row.get("id"), (row.get("title") or "Plan de lanzamiento"), row.get("url"),
+              label="Dar el OK al plan de lanzamiento", action_label="Repasar el plan",
+              artist=(row.get("artist_name") or ""), photo=(row.get("artist_photo") or ""),
+              fecha=(row.get("date") or row.get("release_date") or ""), order=2)
     yo = str((_current_user_state() or {}).get("user_id") or "")
     for row in (phases or []):
         # `_peticion_accept_tasks` solo devuelve las fases PENDIENTES; de esas, las que son mías y
@@ -69023,30 +69113,102 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                   and str(t.get("owner_user_id") or "") in ("", yo)]
         if not tareas:
             continue
-        añade(tareas[0].get("label") or "Actividad por cerrar",
-              (tareas[0].get("url") or row.get("url")), "fa-diagram-project",
-              note=" · ".join([x for x in [(row.get("artist") or ""), (row.get("title") or "")] if x]),
-              order=3)
+        kind = "CONCIERTO" if (row.get("kind") or "").upper() == "CONCIERTO" else "ACTIVIDAD"
+        if not row.get("concert_id") and row.get("is_request"):
+            kind = "PETICION"
+        for t in tareas:
+            añade(kind, row.get("id"), (row.get("title") or ""), row.get("url"),
+                  label=(t.get("label") or "Actividad por cerrar"),
+                  action_url=(t.get("url") or row.get("url")),
+                  action_label=(t.get("action_label") or "Hacerlo"),
+                  state=(t.get("state") or "todo"),
+                  artist=(row.get("artist") or ""), photo=(row.get("artist_photo") or ""),
+                  fecha=(row.get("date") or ""), note=(row.get("place_label") or ""), order=3)
     for row in (activation or []):
-        añade(row.get("action_label") or "Activar la producción", row.get("url"), "fa-user-gear",
-              note=(row.get("title") or row.get("subject_name") or ""), order=3)
+        añade("ACTIVIDAD", row.get("id"), (row.get("title") or row.get("subject_name") or ""),
+              row.get("url"),
+              label=(row.get("action_label") or "Activar la producción"),
+              action_label=(row.get("action_label") or "Activar"),
+              artist=(row.get("artist") or row.get("subject_name") or ""),
+              photo=(row.get("artist_photo") or row.get("subject_photo") or ""),
+              fecha=(row.get("date") or ""), note=(row.get("place_label") or ""), order=3)
     for row in (artwork or []):
-        añade((row.get("label") or "Cartel rechazado por diseño"), row.get("url"), "fa-palette",
-              note=(row.get("note") or ""), tone="danger", order=2)
+        añade("CARTELERIA", row.get("concert_id") or row.get("id"),
+              (row.get("concert_title") or row.get("label") or "Cartelería"), row.get("url"),
+              label=(row.get("label") or "Cartel rechazado por diseño"),
+              action_label="Volver a subirlo", state="rejected",
+              artist=(row.get("artist") or ""), photo=(row.get("artist_photo") or ""),
+              note=(row.get("note") or ""), fecha=(row.get("date") or ""), order=2)
     for row in (peticiones or []):
         if row.get("rejection_pending"):
-            añade("Comunicar el rechazo de una petición",
-                  (row.get("detail_url") or row.get("url")), "fa-comment-dots",
-                  note=" · ".join([x for x in [(row.get("artist") or ""),
-                                               (row.get("subject") or "")] if x]),
-                  tone="warning", order=2)
+            añade("PETICION", row.get("id"),
+                  " · ".join([x for x in [(row.get("artist") or ""), (row.get("subject") or "")] if x])
+                  or "Petición",
+                  (row.get("detail_url") or row.get("url")),
+                  label="Comunicar el rechazo de una petición", action_label="Comunicarlo",
+                  artist=(row.get("artist") or ""), photo=(row.get("artist_photo") or ""),
+                  fecha=(row.get("date") or ""), order=2)
     for row in (invitations or []):
         if (row.get("requester_status_label") or "").strip().lower().startswith("pendiente"):
-            añade("Invitaciones pendientes", url_for("invitations_view", tab="mis"),
-                  "fa-envelope-open-text", note=((row.get("event") or {}).get("artist_names") or ""),
-                  order=6)
-    filas.sort(key=lambda f: f["order"])
+            ev = row.get("event") or {}
+            añade("INVITACIONES", ev.get("id") or row.get("id"),
+                  (ev.get("artist_names") or "Invitaciones"),
+                  url_for("invitations_view", tab="mis"),
+                  label="Invitaciones pendientes", action_label="Ver mis invitaciones",
+                  state="sent", artist=(ev.get("artist_names") or ""),
+                  photo=(ev.get("artist_photo") or ""), fecha=(ev.get("date") or ""), order=6)
+
+    filas = list(grupos.values())
+    # ⚠️ EL CORTE: lo anterior al lunes de arranque no se reclama; lo que NO tiene fecha (AGEDI,
+    # SGAE… ) NO caduca y sigue saliendo.
+    filas = [f for f in filas
+             if not _my_task_date(f["date"]) or _my_task_date(f["date"]) >= MY_TASKS_FROM]
+    # De la fecha MÁS PRÓXIMA a la más lejana; lo que no tiene fecha, al final.
+    filas.sort(key=lambda f: (_my_task_date(f["date"]) is None,
+                              _my_task_date(f["date"]) or date.max, f["order"]))
+    # ¿Es NUEVA? Hasta que se pincha por primera vez se marca como tal.
+    vistas = _my_tasks_seen()
+    for f in filas:
+        f["is_new"] = f["key"] not in vistas
+        f["seen_url"] = _safe_url_for("home_task_seen")
     return filas
+
+
+def _my_tasks_seen() -> dict:
+    """Las tareas que esta persona YA ha abierto (para saber cuáles son nuevas)."""
+    prof = (_current_user_state() or {}).get("profile")
+    datos = getattr(prof, "tasks_seen", None)
+    return dict(datos) if isinstance(datos, dict) else {}
+
+
+@app.post("/mis-tareas/vista", endpoint="home_task_seen")
+@admin_required
+def home_task_seen():
+    """Apunta que esta persona ya ha abierto esa tarea (deja de salir como NUEVA). Son datos propios."""
+    clave = (request.form.get("key") or "").strip()[:200]
+    if not clave:
+        return jsonify({"ok": False}), 400
+    session_db = db()
+    try:
+        uid = _safe_uuid(session.get("user_id"))
+        prof = (session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+                if uid else None)
+        if prof is None:
+            return jsonify({"ok": False}), 404
+        datos = dict(prof.tasks_seen if isinstance(prof.tasks_seen, dict) else {})
+        datos[clave] = _now_madrid().isoformat()
+        # No se guarda un histórico infinito: se conservan las 200 últimas.
+        if len(datos) > 200:
+            datos = dict(sorted(datos.items(), key=lambda kv: kv[1], reverse=True)[:200])
+        prof.tasks_seen = datos
+        session_db.commit()
+        return jsonify({"ok": True})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[tareas] no se pudo apuntar la tarea vista")
+        return jsonify({"ok": False}), 500
+    finally:
+        session_db.close()
 
 
 def _home_plans_awaiting_direccion(limit: int = 10) -> list[dict]:
@@ -69057,10 +69219,17 @@ def _home_plans_awaiting_direccion(limit: int = 10) -> list[dict]:
     try:
         filas = (session_db.query(DiscoReleasePlan, DiscoProject)
                  .join(DiscoProject, DiscoProject.id == DiscoReleasePlan.project_id)
+                 .options(joinedload(DiscoProject.artist))
                  .filter(DiscoReleasePlan.ok_direccion_at.is_(None))
                  .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
                  .order_by(DiscoProject.release_date.asc().nullslast()).limit(limit).all())
-        return [{"title": _disco_project_title(p),
+        # ⚠️ Con `id`, el ARTISTA y la FECHA: es lo que necesita «Mis tareas pendientes» para
+        # agruparlas por proyecto, ponerles cara y ordenarlas.
+        return [{"id": str(p.id),
+                 "title": _disco_project_title(p),
+                 "artist_name": (getattr(getattr(p, "artist", None), "name", "") or ""),
+                 "artist_photo": (getattr(getattr(p, "artist", None), "photo_url", "") or ""),
+                 "date": (p.release_date.isoformat() if getattr(p, "release_date", None) else ""),
                  "url": url_for("disco_project_detail", project_id=p.id, tab="lanzamiento")}
                 for _plan, p in filas]
     except Exception:
@@ -70061,6 +70230,8 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "my_expense_upload_invoice", "my_expense_no_invoice", "my_expense_send_direct",
                       # El ORDEN DEL MENÚ es cosa de cada uno: son sus preferencias, no una sección.
                       "nav_menu_order_save",
+                      # Apuntar que ya ha abierto una de SUS tareas (para que deje de salir «Nueva»).
+                      "home_task_seen",
                       # Los AVISOS son de cada persona (solo ve los suyos: se filtra por su user_id).
                       "notifications_list", "notifications_mark_read",
                       "notifications_dismiss_strip",
@@ -76391,6 +76562,7 @@ def _home_payment_batch_approvals() -> list:
                 "approved": int(aprobados),
                 "total": _money_or_zero(batch.total_amount),
                 "date_label": (batch.execution_date.strftime("%d/%m/%Y") if batch.execution_date else ""),
+                "date": (batch.execution_date.isoformat() if batch.execution_date else ""),
                 "url": url_for("payment_batch_approve_view", batch_id=batch.id),
             })
         return filas
@@ -86281,6 +86453,7 @@ def _home_production_activation_pending(session_db, user_id, *, limit: int = 40)
             "title": ((c.festival_name or "").strip()
                       or (c.artist.name if c.artist else "") or _activity_kind_label(kind)),
             "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+            "date": (c.date.isoformat() if c.date else ""),
             "venue": (_concert_venue_name(c) or ""),
             "municipality": _concert_city(c),
             # Con bolsa ya se estaba produciendo: lo que falta es DECIR QUIÉN.
@@ -86756,6 +86929,7 @@ def _production_active_rows(session_db) -> list[dict]:
             "title": ((c.festival_name or "").strip() or _activity_kind_label(kind)),
             "date": c.date,
             "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+            "date": (c.date.isoformat() if c.date else ""),
             "venue": (_concert_venue_name(c) or "Sin recinto"),
             "municipality": _concert_city(c), "province": _concert_province_value(c),
             "status_label": etiqueta, "status_badge": clase,
@@ -89602,6 +89776,7 @@ def _home_ticketing_sales_tasks(session_db, *, limit: int = 40) -> list[dict]:
                       or (c.artist.name if c.artist else "") or _activity_kind_label(kind)),
             "date": c.date,
             "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+            "date": (c.date.isoformat() if c.date else ""),
             "artist_photo": (getattr(c.artist, "photo_url", None) or "") if c.artist else "",
             "venue": (_concert_venue_name(c) or ""),
             "municipality": _concert_city(c),

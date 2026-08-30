@@ -1,12 +1,18 @@
 {# ═══════════════════════════════════════════════════════════════════════════════════════════════
-   INICIO DE DIRECCIÓN · MIS TAREAS PENDIENTES
+   MIS TAREAS PENDIENTES
 
-   Lo que le toca a ESTA persona de dirección: lo que le afecta a ella y lo que es de dirección, en
-   un mismo sitio (aprobar remesas, aprobar vacaciones, el OK a un plan de lanzamiento, las fases de
-   sus actividades, activar la producción de lo que ha creado, sus carteles rechazados…).
+   Lo que le toca a ESTA persona: lo que le afecta a ella y lo que es de dirección, en un mismo sitio
+   (aprobar remesas, aprobar vacaciones, el OK a un plan, las fases de sus actividades, activar la
+   producción de lo que ha creado, sus carteles rechazados…).
    No calcula nada nuevo: `_home_my_tasks` (app.py) junta lo que los módulos ya han resuelto.
-   ⚠️ Aquí NO entra el trabajo de los demás: eso es el CUADRO DE MANDO (`_home_direccion_board.html`),
-   que va justo debajo.
+
+   Cómo se lee cada fila:
+     · la FOTO del artista · la ETIQUETA de qué es (icono en el azul de la marca) · el título;
+     · debajo, UNA SUBTAREA POR COSA de ese mismo sujeto, con su estado (pendiente / solicitado…);
+     · a la derecha, el BOTÓN SIN RELLENAR que lleva a hacerlo;
+     · pinchando en CUALQUIER OTRO SITIO se abre la ficha de lo que está pendiente;
+     · mientras no se haya abierto ni una vez, sale como NUEVA.
+   ⚠️ Aquí NO entra el trabajo de los demás: eso es el CUADRO DE MANDO (`_home_direccion_board.html`).
    ═══════════════════════════════════════════════════════════════════════════════════════════════ #}
 {% if HOME_MY_TASKS %}
 <div class="card mb-4">
@@ -17,16 +23,90 @@
   </div>
   <div class="list-group list-group-flush">
     {% for t in HOME_MY_TASKS %}
-      <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
-         href="{{ t.url or '#' }}">
-        <i class="fa {{ t.icon }} {{ 'text-danger' if t.tone == 'danger' else ('text-warning' if t.tone == 'warning' else 'text-muted') }}"></i>
-        <span class="flex-grow-1 min-w-0">
-          <span class="d-block text-truncate">{{ t.label }}</span>
-          {% if t.note %}<span class="d-block small text-muted text-truncate">{{ t.note }}</span>{% endif %}
-        </span>
-        <i class="fa fa-chevron-right text-muted small"></i>
-      </a>
+      {# La fila ENTERA lleva a la ficha (menos los botones, que hacen lo suyo). #}
+      <div class="mytask{% if t.is_new %} is-new{% endif %}" data-mytask="{{ t.key }}"
+           data-mytask-url="{{ t.url }}" data-mytask-seen="{{ t.seen_url }}" role="button" tabindex="0">
+        <div class="mytask__head">
+          {{ artist_avatar(t.artist_photo, t.artist_name or t.title) }}
+          <span class="mytask__body">
+            <span class="mytask__top">
+              <span class="mytask__kind"><i class="fa {{ t.kind_icon }}"></i>{{ t.kind_label }}</span>
+              {% if t.is_new %}<span class="mytask__new">Nueva</span>{% endif %}
+              <span class="mytask__title text-truncate">{{ t.title }}</span>
+            </span>
+            <span class="mytask__facts">
+              {% if t.artist_name and t.artist_name != t.title %}
+                <span><i class="fa fa-user-music"></i>{{ t.artist_name }}</span>{% endif %}
+              {% if t.date_label %}<span><i class="fa fa-calendar-day"></i>{{ t.date_label }}</span>{% endif %}
+              {% if t.note %}<span><i class="fa fa-location-dot"></i>{{ t.note }}</span>{% endif %}
+            </span>
+          </span>
+        </div>
+        <div class="mytask__list">
+          {% for s in t.tasks %}
+            <div class="mytask__row">
+              <span class="mytask__state mytask__state--{{ s.state }}">
+                {% if s.state == 'done' %}<i class="fa fa-circle-check"></i>Hecho
+                {% elif s.state == 'sent' %}<i class="fa fa-paper-plane"></i>Solicitado
+                {% elif s.state == 'wait' %}<i class="fa fa-hourglass-half"></i>Esperando
+                {% elif s.state == 'rejected' %}<i class="fa fa-thumbs-down"></i>Rechazado
+                {% else %}<i class="fa fa-circle-exclamation"></i>Pendiente{% endif %}
+              </span>
+              <span class="mytask__what">{{ s.label }}</span>
+              {# BOTÓN SIN RELLENAR, a la derecha: lleva directo a hacer lo que se requiere. #}
+              <a class="btn btn-sm btn-outline-danger ms-auto flex-shrink-0" href="{{ s.url or t.url }}">
+                {{ s.action_label }}<i class="fa fa-arrow-right ms-1"></i></a>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
     {% endfor %}
   </div>
 </div>
+<script>
+(function () {
+  // Pinchar la fila (fuera de los botones) abre la FICHA; y en cuanto se abre por primera vez, la
+  // tarea deja de ser «Nueva» (se apunta en el servidor, para que valga en cualquier sesión).
+  var CONTROLES = 'a,button,input,select,textarea,label,form,[role="button"] .btn';
+  function abrir(fila, ev) {
+    var url = fila.getAttribute('data-mytask-url') || '';
+    var seen = fila.getAttribute('data-mytask-seen') || '';
+    var key = fila.getAttribute('data-mytask') || '';
+    if (seen && key && fila.classList.contains('is-new')) {
+      try {
+        var fd = new FormData(); fd.append('key', key);
+        fetch(seen, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      } catch (e) {}
+      fila.classList.remove('is-new');
+    }
+    if (!url) return;
+    if (ev && (ev.metaKey || ev.ctrlKey)) { window.open(url, '_blank'); return; }
+    window.location.href = url;
+  }
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest && ev.target.closest('a,button');
+    var fila = ev.target.closest && ev.target.closest('[data-mytask]');
+    if (!fila) return;
+    if (btn) {   // un botón hace lo SUYO; solo se apunta que ya se ha visto
+      var key = fila.getAttribute('data-mytask') || '';
+      var seen = fila.getAttribute('data-mytask-seen') || '';
+      if (seen && key && fila.classList.contains('is-new')) {
+        try {
+          var fd = new FormData(); fd.append('key', key);
+          fetch(seen, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        } catch (e) {}
+      }
+      return;
+    }
+    abrir(fila, ev);
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var fila = ev.target.closest && ev.target.closest('[data-mytask]');
+    if (!fila || (ev.target.closest && ev.target.closest('a,button'))) return;
+    ev.preventDefault();
+    abrir(fila, ev);
+  });
+})();
+</script>
 {% endif %}

@@ -1876,6 +1876,68 @@ div.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spaci
 }
 .ctask + .ctask { margin-top: .45rem; }
 
+/* -------------------------------------------------------------------------
+   MIS TAREAS PENDIENTES (Inicio). Una fila por AQUELLO A LO QUE PERTENECEN (la misma actividad, el
+   mismo proyecto…) con sus subtareas dentro: foto del artista, etiqueta de qué es (en el AZUL de la
+   marca), el estado de cada subtarea y, a la derecha, el botón sin rellenar que lleva a hacerlo.
+   La fila entera abre la ficha; los botones hacen lo suyo.
+   ------------------------------------------------------------------------- */
+.mytask {
+  display: block; padding: .7rem .85rem; margin: .35rem .5rem; border-radius: 12px;
+  border: 1px solid var(--line-2); background: #fff; cursor: pointer;
+}
+.mytask:nth-of-type(even) { background: #fafbfd; }
+.mytask:hover {
+  border-color: var(--brand-accent); background: rgba(0,124,162,.05);
+  box-shadow: 0 1px 6px rgba(16,24,40,.06);
+}
+/* NUEVA: hasta que se abre por primera vez. */
+.mytask.is-new { border-color: var(--brand-primary, #E33D48); box-shadow: 0 0 0 2px rgba(227,61,72,.10); }
+.mytask__head { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.mytask__body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.mytask__top { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; min-width: 0; }
+.mytask__title { font-weight: 700; color: var(--ink); min-width: 0; }
+/* La etiqueta de QUÉ ES, con su icono, en el azul de la marca. */
+.mytask__kind {
+  display: inline-flex; align-items: center; gap: .32em; flex-shrink: 0;
+  background: rgba(0,124,162,.10); color: var(--brand-accent, #007CA2);
+  border: 1px solid rgba(0,124,162,.22); border-radius: 999px;
+  padding: .15em .6em; font-size: .7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; line-height: 1.2;
+}
+.mytask__kind i { color: inherit; }
+.mytask__new {
+  display: inline-flex; align-items: center; flex-shrink: 0;
+  background: var(--brand-primary, #E33D48); color: #fff; border-radius: 999px;
+  padding: .15em .6em; font-size: .66rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .05em; line-height: 1.2;
+}
+.mytask__facts {
+  display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; min-width: 0;
+  color: var(--muted-2); font-size: .84rem; margin-top: .15rem;
+}
+.mytask__facts > span { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
+.mytask__facts i { color: var(--brand-accent); opacity: .85; width: 1em; text-align: center; }
+.mytask__list { display: flex; flex-direction: column; gap: .3rem; margin-top: .5rem; }
+.mytask__row {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; min-width: 0;
+  padding: .3rem .45rem; border-radius: 8px; background: rgba(16,24,40,.03);
+}
+.mytask__what { min-width: 0; font-size: .9rem; }
+.mytask__state {
+  display: inline-flex; align-items: center; gap: .3em; flex-shrink: 0;
+  border-radius: 999px; padding: .12em .55em; font-size: .68rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; line-height: 1.2;
+  background: #fff3cd; color: #7a5b00; border: 1px solid #f2dda1;
+}
+.mytask__state--sent { background: #e7f0fb; color: #0b5ed7; border-color: #c3d9f5; }
+.mytask__state--wait { background: #e7f6f8; color: #0b6c7d; border-color: #bfe4ea; }
+.mytask__state--done { background: #e7f6ec; color: #1a7f43; border-color: #b8e3c6; }
+.mytask__state--rejected { background: #fdeaec; color: #a01f29; border-color: #f3c2c7; }
+@media (max-width: 575.98px) {
+  .mytask__row .btn { margin-left: 0 !important; width: 100%; }
+}
+
 .ctask__head { display: flex; align-items: center; gap: .55rem; min-width: 0; }
 .ctask__subject { font-weight: 700; color: var(--ink); flex-shrink: 0; max-width: 34%; }
 .ctask__facts {

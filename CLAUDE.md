@@ -1622,6 +1622,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   comunicar) en una sola lista ordenada por urgencia. Los módulos de los que sale **no se pintan**
   para dirección (llegan vacíos), así que nada se dice dos veces.
 
+- ⚠️⚠️ **MIS TAREAS PENDIENTES · LO DE UN MISMO TODO ES UNA SOLA TAREA** (ago 2026, rediseño de
+  `_home_my_tasks` + `templates/_home_direccion.html`, clases `.mytask*`). Antes era una lista plana
+  y una misma actividad aparecía tres veces (confirmar con el artista, confirmar al promotor, activar
+  producción): parecían tres trabajos y era uno.
+  · **Una FILA por SUJETO** (la misma actividad · el mismo concierto · el mismo proyecto · la misma
+  promoción · la misma remesa): **la FOTO del artista** (`artist_avatar`), la **ETIQUETA de qué es**
+  con su icono en el **azul de la marca** (`MY_TASK_KINDS`: Concierto · Actividad · Proyecto
+  discográfico · Promoción · Remesa de pagos · Vacaciones · Cartelería · Petición), el título y, debajo,
+  **UNA SUBTAREA POR COSA** con su **estado** (Pendiente · Solicitado · Esperando · Hecho · Rechazado).
+  · A la derecha de cada subtarea, el **botón SIN RELLENAR** que lleva a hacerla; **pinchando en
+  cualquier otro sitio** de la fila se abre la **ficha** de lo que está pendiente.
+  · **Ordenadas de la más próxima a la más lejana** (`_my_task_date`); lo que **no tiene fecha** va al
+  final, no se descarta.
+  · **«Nueva» hasta que se abre**: se apunta en `UserProfile.tasks_seen` (JSONB) por la clave de la
+  fila (`home_task_seen`, `POST /mis-tareas/vista`, en `PERSONAL_ENDPOINTS` — son tareas propias), así
+  que vale desde cualquier sesión y no solo en ese navegador.
+  ⚠️ **CORTE `MY_TASKS_FROM` (31-ago-2026, LUNES)**: lo anterior a esa fecha **no reclama nada** (antes
+  de eso la app no se usaba para todo y el módulo salía con cientos de cosas viejas). Mismo criterio que
+  `PITCH_TASK_FROM` / `SALE_NOTICE_TASK_FROM`.
+  ⚠️⚠️ **Lo que NO tiene fecha NO caduca con el corte** (registros de AGEDI, SGAE, un pitch sin
+  escribir…): se queda pendiente. Filtrar por fecha lo que no la tiene habría borrado justo el trabajo
+  que lleva más tiempo esperando.
+  ⚠️ Una subtarea **BLOQUEADA no se pinta** (no se puede hacer todavía) y lo que es **de otra persona**
+  tampoco: eso está en el CUADRO DE MANDO.
+
 - **DISCOGRÁFICA · DEMOS** (ago 2026): las maquetas que se están valorando, en su propia sección
   (`/discografica?section=demos`). Modelo **`SongDemo`** (`ensure_song_demos_schema`).
   · Una demo viene **de un artista NUESTRO** (`origin='ARTIST'` + `artist_id`) o **DE FUERA**
@@ -4076,6 +4101,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   tiene perfil desaparecía incluso de la lista de respaldo) y ahora es **externo**. Además, la ficha de
   la actividad calcula la lista **SIEMPRE** (antes solo cuando faltaba responsable, así que al cambiarlo
   desde la rueda no salía nadie) y el modal `#prodOwnerModal` se pinta con solo poder editar.
+
+- ⚠️⚠️ **EL DEPARTAMENTO LO ESCRIBE UNA PERSONA: se compara con TOLERANCIA** (bug real, ago 2026).
+  `_normalize_departments` descartaba **en silencio** cualquier valor que no fuera EXACTAMENTE un
+  nombre del catálogo o uno de sus alias, así que quien tuviera «Producción musical», «Producción
+  ejecutiva» o «Producción y logística» **dejaba de contar como de Producción**: no salía la primera
+  en los selectores de producción y logística —se quedaba detrás de «Ver todo el personal»— y parecía
+  que la app «no la ofrecía» (el caso de Irene). Y lo mismo con «Diseño gráfico», «Dirección general»…
+  · Punto único **`_department_guess(raw, aliases)`**: si el valor no casa exacto, busca el nombre del
+  catálogo **como PALABRA** dentro del texto (sin acentos ni mayúsculas, `_norm_text_key`), probando
+  primero el más largo para que «redes sociales» gane a cualquier trozo suelto.
+  ⚠️ Es por PALABRA, no por subcadena: «**Re**producción de audio» **no** es Producción (comprobado).
+  ⚠️ Lo que encuentra pasa por los **MISMOS alias** que la comparación exacta (p. ej. «promoción» va a
+  «Marketing»): si no, «Promoción» y «Promoción de artistas» acabarían en departamentos distintos y
+  una persona contaría y la otra no.
+  ⚠️ Con esto valen ya las tres formas en las que se tuerce un departamento: **mal escrito** (esto),
+  guardado como **TEXTO** en vez de lista (`_departments_iter`) y **sin ficha de perfil** (el JOIN
+  externo de `_production_people`). Como el arreglo está en el punto único, lo heredan TODOS los sitios
+  que preguntan por un departamento (`_profile_in_department`, `_registros_user_ids`,
+  `_disco_radio_deciders`, el módulo de tareas de diseño…), no solo producción.
 
 - **PRODUCCIÓN EXTERNA · la lleva un TERCERO, con su propio acceso** (ago 2026). El responsable de
   producción de una actividad puede ser alguien **de fuera**. El selector «¿Quién lleva la

@@ -1296,6 +1296,11 @@ document.addEventListener('DOMContentLoaded', function () {
           <p class="text-muted small mb-3">
             El aviso sigue saliendo siempre en la campanita; esto solo añade el SMS, y solo a quien
             tenga un móvil puesto en su ficha. Empieza por lo que corre prisa.
+            {# ⚠️ Es el MISMO dato que la columna «Por SMS» de Configurar notificaciones
+               (`SmsAccount.notice_kinds`): una sola verdad, se toque donde se toque. #}
+            Es lo mismo que la columna «Por SMS» de
+            <a href="{{ url_for('notification_settings_view') }}">Configurar notificaciones</a>,
+            donde además se elige qué sale por la app y por correo.
           </p>
           <form method="post" action="{{ url_for('sms_kinds_save') }}" data-inline data-inline-target="#smsZone">
             <div class="row g-2">

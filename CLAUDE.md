@@ -697,6 +697,72 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   porque un enlace navegaría. Si se añade otro sitio donde se listen avisos, se marca igual
   (`[data-notif-item]` + sus `data-`) y `notificaciones.js` lo coge por delegación.
 
+- ⚠️⚠️ **CÓMO SE AVISA DE CADA COSA: app · correo · SMS, y lo configura DIRECCIÓN** (ago 2026).
+  Un aviso puede salir por tres sitios y **no todos valen para todo**: la campanita es gratis, el
+  correo llega a quien no ha abierto la app y el SMS cuesta dinero.
+  · **REGLA DE LA CASA: por CORREO solo se avisa cuando te ASIGNAN algo o te ENTRA por primera
+  vez.** Lo que cambie después (que sigue pendiente, que alguien ha contestado) se ve en la app.
+  Lo garantiza **`AppNotification.email_sent_at`** (columna nueva) + `_notice_email_already_sent`:
+  si ya salió un correo para esa persona y esa REFERENCIA (`ref_type`+`ref_id`), no se manda otro.
+  ⚠️ Por eso un aviso que quiera correo tiene que llevar **su `ref_type`/`ref_id`**: sin ellos la
+  comparación cae al título y dos trabajos distintos con el mismo título se pisarían.
+  · **La configuración es de DIRECCIÓN**, en su menú personal → **«Configurar notificaciones»**
+  (`notification_settings_view` / `_save`, `templates/notificaciones_config.html`): **todos** los
+  tipos de aviso de la app (`_notice_kind_catalog`, sacado de `NOTIFICATION_KIND_META` + el texto
+  de `NOTIFICATION_KIND_HELP`) con sus TRES interruptores. Así lo que hoy está encendido se apaga
+  y al revés, sin tocar código. Los dos endpoints van en **`_access_exempt_endpoints`** (son de
+  dirección por naturaleza, como el modo trabajo).
+  · **De fábrica**: por la app TODO; por correo solo **PRODUCCION · DISENO · VACACIONES ·
+  ADMIN_BOLSA** (`NOTICE_EMAIL_DEFAULT_KINDS`, que es la regla de arriba); por SMS nada.
+  ⚠️⚠️ **El SMS no tiene dos verdades**: su columna escribe en **`SmsAccount.notice_kinds`**, que
+  es lo que ya lee `_sms_notice_enabled` y lo que enseña Integraciones → SMS. La app y el correo
+  viven en un `AppSetting` (`notification_channels_v1`). Punto único `_notice_channels_map`
+  (cacheado en `g`).
+  · **Todo pasa por `_notify_user`**, que gana el parámetro **`email=`**: un diccionario con el
+  CONTENIDO del correo, **`None`** para que se componga uno genérico con el título y el enlace del
+  propio aviso (así encender un interruptor sirve de algo en cualquier tipo), o **`False`** para
+  que ESE aviso no salga por correo aunque el canal esté encendido.
+  ⚠️ Si el canal «en la app» está apagado, el aviso **no se ve** (nace con `read_at` y
+  `strip_dismissed_at` puestos) pero **la fila se guarda igual**: es donde se apunta si ya salió su
+  correo.
+  · **EL CORREO ES UNO SOLO**: `_notice_email_html` — logo de la empresa del grupo arriba a la
+  **DERECHA**, el título centrado, la **cabecera de lo que sea** (su foto o su portada, qué es, su
+  nombre y sus datos con iconos) y, **dentro de la cabecera y abajo a la derecha, el BOTÓN**;
+  debajo, las secciones que hagan falta. Constructores por familia:
+  **`_notice_email_activity`** (usa `_contract_sheet_hero_rows`, la misma cabecera de la ficha) ·
+  **`_notice_email_project`** · **`_notice_email_promotion`** · **`_notice_email_bag`** ·
+  **`_notice_email_vacation_request`** · **`_notice_email_design_artwork`** /
+  **`_notice_email_design_creatives`**.
+  ⚠️ En un correo NO se puede usar la fuente de iconos: van como PNG por `brand_icon_png`
+  (`_sync_icon(..., email=True)`), y **`_notice_icon_img` lo protege**: `url_for` revienta fuera de
+  una petición (un cron, un hilo) y sin eso se perdería el correo entero por un icono.
+  ⚠️ Los iconos de **MARCA** (`fa-youtube`…) no existen en la familia SOLID, que es la que se
+  dibuja para el correo: saldrían VACÍOS. `_notice_design_icon` los cambia por el sólido de su tipo.
+  · **QUÉ SE AVISA POR CORREO HOY**:
+    · **PRODUCCIÓN ASIGNADA** — título **«Encargo de producción»**, asunto **«Nuevo \<tipo\> de
+      \<artista\> asignado para producción»** (`_production_notice_subject`, que **concuerda en
+      género**) y botón **«Comenzar producción»**. Cableado en la ficha de la actividad
+      (`concert_production_owner_save`), el alta con logística del asistente, la **logística de un
+      proyecto** discográfico, la del **rodaje del videoclip**, la del **colaborador** y la
+      **promoción** (`_promo_production_request_sync`, que además **no avisaba de nada**: ahora
+      avisa, y solo cuando CAMBIA de persona).
+    · **VACACIONES** — a quien las gestiona. ⚠️ **Un DÍA LIBRE no manda correo** (se ve en la app),
+      y el correo va **solo a quien las gestiona** (`_vacation_email_manager_ids`: la
+      responsabilidad `VACACIONES` o, si no la tiene nadie, Administración): **dirección lo ve en
+      su campanita pero no recibe correo** — por eso el aviso se manda persona a persona con
+      `email=False` para los demás.
+    · **BOLSAS** — «Bolsa pendiente de liquidar» a quien liquida (responsabilidad `LIQUIDACIONES` /
+      `LIQUIDACIONES_PROMO`) y «Falta que cierres la bolsa» en el doble cierre.
+    · **DISEÑO** — debajo de la cabecera, **«Contenido solicitado»** centrado y el listado con el
+      **icono** de cada pieza, su **tamaño o proporción** y su **fecha máxima**, con el botón
+      **«Gestionar entregas»**. En la cartelería de una actividad y en las creatividades de un
+      proyecto.
+  ⚠️ La responsabilidad de administración **ya se asignaba** en la ficha de personal
+  (`ADMIN_RESPONSIBILITIES`, con centinela `responsibilities_present`): esto solo la usa.
+  ⚠️ Se manda **un correo por persona** (`_send_optional_email` por destinatario), no uno con todos
+  en el «Para». Con un departamento de 3-5 personas es asumible; si un día se avisa a decenas, hay
+  que agrupar.
+
 - **AVISOS · franjas bajo el menú y campana al principio** (ago 2026, rediseño): la FRANJA
   (`.notif-strip`, en `#notifBar` justo debajo del menú) **no se va sola**: o se pincha —lleva a su
   gestión y el aviso queda leído— o se cierra con la ✕ (y sigue pendiente en la campana).

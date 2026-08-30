@@ -6126,6 +6126,10 @@ class AppNotification(Base):
     # entonces queda leída— o se cierra con la ✕, que es lo que apunta esto: el aviso sigue
     # pendiente en la campana, pero su franja ya no vuelve a salir.
     strip_dismissed_at = Column(DateTime(timezone=True))
+    # ⚠️ CUÁNDO se mandó el CORREO de este aviso. Es lo que hace que por correo solo se avise la
+    # PRIMERA vez que un trabajo le llega a alguien: si ya hay un aviso de la misma referencia con
+    # esto puesto, lo que cambie después se ve en la app y no se vuelve a escribir.
+    email_sent_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -6153,12 +6157,14 @@ def ensure_notifications_schema():
             shown_at timestamptz,
             read_at timestamptz,
             strip_dismissed_at timestamptz,
+            email_sent_at timestamptz,
             created_at timestamptz DEFAULT now()
         );
         """,
         "ALTER TABLE app_notifications ADD COLUMN IF NOT EXISTS strip_dismissed_at timestamptz;",
         "ALTER TABLE app_notifications ADD COLUMN IF NOT EXISTS actor_photo_url text;",
         "ALTER TABLE app_notifications ADD COLUMN IF NOT EXISTS actor_name text;",
+        "ALTER TABLE app_notifications ADD COLUMN IF NOT EXISTS email_sent_at timestamptz;",
         "CREATE INDEX IF NOT EXISTS idx_app_notifications_user ON app_notifications(user_id);",
         "CREATE INDEX IF NOT EXISTS idx_app_notifications_user_created ON app_notifications(user_id, created_at);",
         "CREATE INDEX IF NOT EXISTS idx_app_notifications_unread ON app_notifications(user_id) WHERE read_at IS NULL;",

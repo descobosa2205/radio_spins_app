@@ -1,0 +1,76 @@
+{% extends "layout.html" %}
+{% block title %}Configurar notificaciones{% endblock %}
+{% block content %}
+<div class="mb-2"><a href="{{ url_for('home') }}" class="btn-volver" title="Volver al inicio"><i class="fa fa-arrow-left"></i></a></div>
+
+<h1 class="h4 mb-1">Configurar notificaciones</h1>
+<p class="text-muted mb-3">
+  Cómo se avisa de cada cosa. <strong>En la app</strong> es la campanita y su franja;
+  <strong>por correo</strong> solo se avisa la primera vez que un trabajo le llega a alguien
+  (lo que cambie después se ve en la app); <strong>por SMS</strong> cada mensaje cuesta dinero.
+</p>
+
+{% if not sms_ready %}
+  <div class="alert alert-warning py-2 px-3 small">
+    <i class="fa fa-triangle-exclamation me-1"></i>
+    La pasarela de SMS no está configurada, así que de momento los avisos por SMS no salen.
+    Se configura en <a href="{{ url_for('integrations_view') }}?tab=sms" class="alert-link">Integraciones → SMS</a>.
+  </div>
+{% endif %}
+
+<form method="post" action="{{ url_for('notification_settings_save') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0 notif-cfg">
+        <thead>
+          <tr>
+            <th style="min-width:16rem;">Tipo de aviso</th>
+            {% for key, label, icon in channels %}
+              <th class="text-center" style="width:8rem;">
+                <i class="fa-solid {{ icon }} me-1"></i>{{ label }}
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for k in kinds %}
+            {% set v = values.get(k.key, {}) %}
+            <tr>
+              <td>
+                <div class="fw-semibold"><i class="fa-solid {{ k.icon }} me-2 text-secondary"></i>{{ k.label }}</div>
+                {% if k.help %}<div class="small text-muted">{{ k.help }}</div>{% endif %}
+              </td>
+              <td class="text-center">
+                <label class="sw view mb-0">
+                  <input type="checkbox" name="app_{{ k.key }}" value="1" {{ 'checked' if v.get('app') }}>
+                  <span class="tr"></span>
+                </label>
+              </td>
+              <td class="text-center">
+                <label class="sw econ mb-0">
+                  <input type="checkbox" name="email_{{ k.key }}" value="1" {{ 'checked' if v.get('email') }}>
+                  <span class="tr"></span>
+                </label>
+              </td>
+              <td class="text-center">
+                {% if k.sms_ok %}
+                  <label class="sw edit mb-0">
+                    <input type="checkbox" name="sms_{{ k.key }}" value="1" {{ 'checked' if v.get('sms') }}>
+                    <span class="tr"></span>
+                  </label>
+                {% else %}
+                  <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="d-flex justify-content-end mt-3">
+    <button type="submit" class="btn btn-primary"><i class="fa fa-floppy-disk me-2"></i>Guardar</button>
+  </div>
+</form>
+{% endblock %}

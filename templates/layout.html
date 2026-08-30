@@ -181,6 +181,8 @@
                 <li><a class="dropdown-item" href="{{ url_for('personnel_view') }}"><i class="fa fa-users-cog me-2"></i> Personal de la Oficina</a></li>
               {% endif %}
               {% if session.get('role') == 10 %}
+                {# CONFIGURAR NOTIFICACIONES: qué se avisa por la app, por correo y por SMS. Solo dirección. #}
+                <li><a class="dropdown-item" href="{{ url_for('notification_settings_view') }}"><i class="fa fa-bell-concierge me-2"></i> Configurar notificaciones</a></li>
                 <li><a class="dropdown-item" href="{{ url_for('integrations_view') }}"><i class="fa fa-plug me-2"></i> Integraciones</a></li>
               {% endif %}
               <li><a class="dropdown-item" href="{{ url_for('admin_logout') }}"><i class="fa fa-right-from-bracket me-2"></i> Salir</a></li>

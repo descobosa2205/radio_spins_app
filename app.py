@@ -1634,6 +1634,51 @@ def direccion_toggle_maintenance():
         flash("Modo trabajo desactivado. La app vuelve a estar disponible para todos.", "success")
     return redirect(request.referrer or url_for("home"))
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CONFIGURAR NOTIFICACIONES (solo DIRECCIÓN, desde su menú personal)
+#
+# Todos los tipos de aviso internos de la app, cada uno con sus TRES interruptores: en la app, por
+# correo y por SMS. Así lo que hoy está encendido se puede apagar, y al revés, sin tocar el código.
+# ⚠️ El SMS escribe en `SmsAccount.notice_kinds`, que es lo mismo que enseña Integraciones → SMS:
+#    una sola verdad (ver `_notice_channels_map`).
+# ═════════════════════════════════════════════════════════════════════════════
+
+@app.get("/configuracion/notificaciones", endpoint="notification_settings_view")
+@admin_required
+def notification_settings_view():
+    if not is_master():
+        return forbid("Configurar las notificaciones es de dirección.")
+    session_db = db()
+    try:
+        canales = _notice_channels_map(session_db)
+        sms_listo = _sms_configured(session_db)
+        return render_template("notificaciones_config.html",
+                               kinds=_notice_kind_catalog(), channels=NOTICE_CHANNELS,
+                               values=canales, sms_ready=sms_listo)
+    finally:
+        session_db.close()
+
+
+@app.post("/configuracion/notificaciones", endpoint="notification_settings_save")
+@admin_required
+def notification_settings_save():
+    if not is_master():
+        return forbid("Configurar las notificaciones es de dirección.")
+    session_db = db()
+    try:
+        _notice_channels_save(session_db, request.form)
+        session_db.commit()
+        flash("Notificaciones actualizadas.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[avisos] no se pudo guardar la configuración")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("notification_settings_view"))
+
+
 # ------ Home Page --------
 
 @app.get("/home", endpoint="home")
@@ -3866,7 +3911,8 @@ def _send_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, is
                            or (getattr(getattr(concert, "artist", None), "name", "") or "Actividad")),
                           (" · " + concert.date.strftime("%d/%m/%Y")) if getattr(concert, "date", None) else ""),
                 url_for("diseno_view"), ref_type="ARTWORK", ref_id=str(getattr(row, "id", "") or ""),
-                commit=True)
+                commit=True,
+                email=_notice_email_design_artwork(concert, row, upload_url, is_update=is_update))
         finally:
             aviso_db.close()
     except Exception:
@@ -22415,7 +22461,15 @@ def _disco_logistics_request(session_db, project, user_id, texto) -> None:
                  url_for("disco_project_detail", project_id=project.id, tab="calendario"),
                  ref_type="DISCO_LOGISTICS", ref_id=str(project.id),
                  actor_name=nombre_art or None,
-                 actor_photo=(getattr(artista, "photo_url", None) or None))
+                 actor_photo=(getattr(artista, "photo_url", None) or None),
+                 email=_notice_email_project(
+                     session_db, project, title=PRODUCTION_NOTICE_TITLE,
+                     subject=_production_notice_subject(kind_label="Proyecto discográfico",
+                                                        name=nombre_art),
+                     intro=(texto or "Se te ha asignado la logística de este lanzamiento."),
+                     button_label="Comenzar producción",
+                     button_url=_external_url_for("disco_project_detail", project_id=project.id,
+                                                  tab="calendario")))
     # Su trabajo se hace en la bolsa (gastos) y en la hoja de ruta: que existan las dos.
     _ensure_project_bag(session_db, project)
     session_db.flush()
@@ -28307,13 +28361,22 @@ def disco_project_collab_vocals(project_id):
         # Al de producción elegido le sale como tarea (y si se quita, el aviso se cierra).
         if uid and (uid != (antes.get("logistics_user_id") or "")
                     or not antes.get("logistics")):
+            _texto_colab = ((fila["vocals"]["logistics_note"] or
+                             "Hay que montar la logística de la grabación del colaborador.")
+                            + ((" · Graban el %s" % fecha.strftime("%d/%m/%Y")) if fecha else ""))[:600]
             _notify_user(session_db, uid, "PRODUCCION",
                          "Logística del colaborador: %s" % _disco_project_title(project),
-                         ((fila["vocals"]["logistics_note"] or
-                           "Hay que montar la logística de la grabación del colaborador.")
-                          + ((" · Graban el %s" % fecha.strftime("%d/%m/%Y")) if fecha else ""))[:600],
+                         _texto_colab,
                          url_for("disco_project_detail", project_id=project.id, tab="calendario"),
-                         ref_type="DISCO_COLLAB_LOGISTICS", ref_id=str(project.id))
+                         ref_type="DISCO_COLLAB_LOGISTICS", ref_id=str(project.id),
+                         email=_notice_email_project(
+                             session_db, project, title=PRODUCTION_NOTICE_TITLE,
+                             subject=_production_notice_subject(kind_label="Proyecto discográfico",
+                                                                name=_disco_project_title(project)),
+                             intro=_texto_colab,
+                             button_label="Comenzar producción",
+                             button_url=_external_url_for("disco_project_detail",
+                                                          project_id=project.id, tab="calendario")))
             _ensure_project_bag(session_db, project)
         elif not uid:
             _notify_resolve(session_db, "DISCO_COLLAB_LOGISTICS", str(project.id))
@@ -29147,7 +29210,8 @@ def disco_project_creatives_request(project_id):
                       "Creatividades por hacer: %s" % _disco_project_title(project),
                       "%d pieza(s) · entrega antes del %s" % (len(filas), vence.strftime("%d/%m/%Y")),
                       url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
-                      ref_type="DISCO_CREATIVES", ref_id=str(project.id))
+                      ref_type="DISCO_CREATIVES", ref_id=str(project.id),
+                      email=_notice_email_design_creatives(session_db, project, peticion, filas, enlace))
         cuerpo = _disco_creatives_email_html(session_db, project, peticion, filas, enlace)
         asunto = "Creatividades · %s" % _disco_project_title(project)
         for correo in [x.strip() for x in (request.form.get("extra_emails") or "").replace(";", ",").split(",")
@@ -33001,7 +33065,15 @@ def _disco_video_logistics_request(session_db, project, user_id) -> None:
                       url_for("disco_project_detail", project_id=project.id, tab="calendario"),
                       ref_type="DISCO_VIDEO_LOGISTICS", ref_id=str(project.id),
                       actor_name=(getattr(artista, "name", "") or ""),
-                      actor_photo=(getattr(artista, "photo_url", "") or ""))
+                      actor_photo=(getattr(artista, "photo_url", "") or ""),
+                      email=_notice_email_project(
+                          session_db, project, title=PRODUCTION_NOTICE_TITLE,
+                          subject=_production_notice_subject(
+                              kind_label="Videoclip", name=(getattr(artista, "name", "") or "")),
+                          intro="Se te ha asignado la logística del rodaje del videoclip.",
+                          button_label="Comenzar producción",
+                          button_url=_external_url_for("disco_project_detail",
+                                                       project_id=project.id, tab="calendario")))
     except Exception:
         app.logger.exception("[videoclip] no se pudo avisar de la logística del rodaje")
 
@@ -51282,13 +51354,20 @@ def concert_production_owner_save(cid):
             _que = ((getattr(c, "festival_name", None) or "").strip()
                     or (getattr(getattr(c, "artist", None), "name", "") or "")
                     or _activity_kind_label(_kind))
+            _destino_prod = url_for("concert_detail_view", cid=c.id, tab="produccion")
             _notify_user(session_db, uid, "PRODUCCION",
                          "Nueva producción asignada",
                          "%s · %s%s" % (_que,
                                         (c.date.strftime("%d/%m/%Y") if getattr(c, "date", None) else "sin fecha"),
                                         (" · " + _concert_venue_name(c)) if _concert_venue_name(c) else ""),
-                         url_for("concert_detail_view", cid=c.id, tab="produccion"),
-                         ref_type="CONCERT", ref_id=str(c.id))
+                         _destino_prod,
+                         ref_type="CONCERT", ref_id=str(c.id),
+                         email=_notice_email_activity(
+                             c, title=PRODUCTION_NOTICE_TITLE,
+                             subject=_production_notice_subject(c),
+                             intro="Se te ha asignado la producción de esta actividad.",
+                             button_label="Comenzar producción",
+                             button_url=_external_url_for("concert_detail_view", cid=c.id, tab="produccion")))
         session_db.commit()
         nombre = _concert_production_owner_name(session_db, c)
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
@@ -60113,7 +60192,14 @@ def concert_wizard_create():
                                  "%s · %s" % ((festival_name or _activity_kind_label(activity_type)),
                                               (event_date.strftime("%d/%m/%Y") if event_date else "sin fecha")),
                                  url_for("concert_detail_view", cid=concert.id, tab="produccion"),
-                                 ref_type="CONCERT", ref_id=str(concert.id))
+                                 ref_type="CONCERT", ref_id=str(concert.id),
+                                 email=_notice_email_activity(
+                                     concert, title=PRODUCTION_NOTICE_TITLE,
+                                     subject=_production_notice_subject(concert),
+                                     intro="Se te ha asignado la producción de esta actividad.",
+                                     button_label="Comenzar producción",
+                                     button_url=_external_url_for("concert_detail_view",
+                                                                  cid=concert.id, tab="produccion")))
                 except Exception:
                     app.logger.exception("[avisos] no se pudo avisar de la producción asignada")
 
@@ -68835,7 +68921,10 @@ def _access_exempt_endpoints() -> set:
     return (SUPPORT_ACTION_ENDPOINTS | SUPPORT_READ_ENDPOINTS | set(SUPPORT_ECON_READ_ENDPOINTS)
             | set(PERSONAL_ENDPOINTS) | set(REQUEST_ANY_ENDPOINTS)
             | {"direccion_toggle_maintenance", "impersonate_start", "impersonate_stop",
-               "personnel_bulk_access"})
+               "personnel_bulk_access",
+               # CONFIGURAR NOTIFICACIONES: es de dirección por naturaleza (lo comprueban los
+               # propios endpoints con `is_master()`), no una sección que se conceda.
+               "notification_settings_view", "notification_settings_save"})
 
 
 def _build_access_resources_from_app() -> list[dict]:
@@ -74823,6 +74912,7 @@ def _promo_production_request_sync(session_db, promotion):
     row.linked_type = "PROMOTION"
     row.linked_id = promotion.id
     row.bag_id = getattr(promotion, "bag_id", None)
+    dueno_antes = str(getattr(row, "owner_user_id", "") or "")
     row.owner_user_id = getattr(promotion, "production_owner_user_id", None)
     row.notes = "Promoción de prensa que necesita logística o producción."
     if (getattr(row, "status", "") or "").upper() not in {"REQUESTED", "APPROVED"}:
@@ -74830,6 +74920,27 @@ def _promo_production_request_sync(session_db, promotion):
     row.updated_at = _now_madrid()
     session_db.flush()
     promotion.production_request_id = row.id
+    # AVISO a quien se le asigna la producción de la promoción: le acaba de entrar trabajo. Solo
+    # cuando CAMBIA de persona (si no, cada guardado de la ficha volvería a avisar de lo mismo).
+    dueno = str(getattr(promotion, "production_owner_user_id", "") or "")
+    if dueno and dueno != dueno_antes:
+        try:
+            _notify_user(session_db, dueno, "PRODUCCION", "Nueva producción asignada",
+                         "Promoción · %s" % _promo_title(promotion),
+                         url_for("promo_detail_view", promotion_id=promotion.id),
+                         ref_type="PROMOTION", ref_id=str(promotion.id),
+                         email=_notice_email_promotion(
+                             session_db, promotion, title=PRODUCTION_NOTICE_TITLE,
+                             subject=_production_notice_subject(kind_label="Promoción",
+                                                                name=_promo_title(promotion)),
+                             intro="Se te ha asignado la producción de esta promoción.",
+                             button_label="Comenzar producción",
+                             button_url=_external_url_for("promo_detail_view",
+                                                          promotion_id=promotion.id)))
+        except Exception:
+            app.logger.exception("[avisos] no se pudo avisar de la producción de la promoción")
+    elif not dueno and dueno_antes:
+        _notify_resolve(session_db, "PROMOTION", str(promotion.id))
     return row
 
 
@@ -75834,12 +75945,19 @@ def _bag_close_notify_missing(session_db, bag, estado) -> None:
         if not destinos:
             continue
         try:
+            _texto_cierre = ("%s ya ha cerrado su parte; la bolsa no pasa a liquidación hasta que "
+                             "cierres la tuya." % hechas)
             _notify_users(session_db, destinos, "ADMIN_BOLSA",
                           "Falta que cierres la bolsa: %s" % (bag.title or "Bolsa"),
-                          "%s ya ha cerrado su parte; la bolsa no pasa a liquidación hasta que "
-                          "cierres la tuya." % hechas,
+                          _texto_cierre,
                           url_for("bag_detail_view", bag_id=bag.id),
-                          ref_type="BAG", ref_id=str(bag.id))
+                          ref_type="BAG_CLOSE", ref_id=str(bag.id),
+                          email=_notice_email_bag(
+                              session_db, bag, title="Bolsa pendiente de cerrar",
+                              subject="Falta que cierres la bolsa · %s" % (bag.title or "Bolsa"),
+                              intro=_texto_cierre,
+                              button_label="Abrir la bolsa",
+                              button_url=_external_url_for("bag_detail_view", bag_id=bag.id)))
         except Exception:
             app.logger.exception("[bolsas] no se pudo avisar del cierre pendiente")
 
@@ -86324,12 +86442,19 @@ def bag_close(bag_id):
             destinos = sorted(_admin_responsible_user_ids(session_db, responsabilidad))
             if not destinos:
                 destinos = _department_user_ids(session_db, "Administración")
+            _quien_cierra = ((_current_user_state() or {}).get("nick") or "alguien")
             _notify_users(session_db, destinos, "ADMIN_BOLSA",
                           "Nueva bolsa para liquidar",
-                          "%s · cerrada por %s" % ((bag.title or "Bolsa"),
-                                                   ((_current_user_state() or {}).get("nick") or "alguien")),
+                          "%s · cerrada por %s" % ((bag.title or "Bolsa"), _quien_cierra),
                           url_for("bag_detail_view", bag_id=bag.id),
-                          ref_type="BAG", ref_id=str(bag.id))
+                          ref_type="BAG", ref_id=str(bag.id),
+                          email=_notice_email_bag(
+                              session_db, bag, title="Bolsa pendiente de liquidar",
+                              subject="Nueva bolsa pendiente de liquidar · %s" % (bag.title or "Bolsa"),
+                              intro=("%s ha cerrado esta bolsa: ya está en administración "
+                                     "pendiente de liquidar." % _quien_cierra),
+                              button_label="Liquidar la bolsa",
+                              button_url=_external_url_for("bag_detail_view", bag_id=bag.id)))
         except Exception:
             app.logger.exception("[avisos] no se pudo avisar de la bolsa cerrada")
         session_db.commit()
@@ -101333,6 +101458,613 @@ SMS_NOTICE_LABELS = dict(SMS_NOTICE_KINDS)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# CÓMO SE AVISA DE CADA COSA · en la app · por correo · por SMS
+#
+# Un aviso de la casa puede salir por tres sitios y **no todos valen para todo**: la campanita es
+# gratis y no molesta, el correo se lee fuera de la app (y es el único que llega a quien no la ha
+# abierto en dos días) y el SMS cuesta dinero.
+#
+# ⚠️⚠️ REGLA DE LA CASA: **por CORREO solo se avisa cuando te ASIGNAN algo o te ENTRA por primera
+#    vez**. Lo demás (que algo ha cambiado, que sigue pendiente, que alguien ha contestado) se ve en
+#    la app. Por eso `_notify_user` no manda dos correos del mismo trabajo: mira si ya salió uno para
+#    esa persona y esa referencia (`AppNotification.email_sent_at`).
+#
+# Qué sale por dónde lo decide **DIRECCIÓN** en «Configurar notificaciones» (su menú personal), no el
+# código: cada tipo de aviso tiene sus tres interruptores. Los valores de fábrica están abajo.
+#
+# ⚠️ El SMS **no tiene dos verdades**: sus interruptores escriben en `SmsAccount.notice_kinds`, que
+#    es lo que ya lee `_sms_notice_enabled` y lo que enseña Integraciones → SMS. Los de la app y el
+#    correo viven en un `AppSetting`.
+# ═════════════════════════════════════════════════════════════════════════════
+
+NOTICE_CHANNELS = [
+    ("app", "En la app", "fa-bell"),
+    ("email", "Por correo", "fa-envelope"),
+    ("sms", "Por SMS", "fa-comment-sms"),
+]
+NOTICE_CHANNELS_SETTING = "notification_channels_v1"
+
+# Cuándo salta cada aviso (se explica en la pantalla de configuración: un interruptor sin saber qué
+# apaga no se toca nunca).
+NOTIFICATION_KIND_HELP = {
+    "PRODUCCION": "Cuando a alguien se le asigna la producción de un concierto, una actividad, "
+                  "una promoción o un proyecto discográfico.",
+    "DISENO": "Cuando se le encarga algo al departamento de Diseño (cartelería, portadas, "
+              "creatividades).",
+    "ADMIN_BOLSA": "Cuando una bolsa se cierra y le entra a administración para liquidar.",
+    "ADMIN_PETICION": "Cuando alguien pide un pago o algo que tiene que resolver administración.",
+    "VACACIONES": "Cuando alguien pide vacaciones (los días libres no mandan correo) y cuando se "
+                  "aprueban o se deniegan.",
+    "REMESA": "Cuando una remesa de pagos queda pendiente del visto bueno de dirección.",
+    "TAREA": "Tareas pendientes que no son de ninguna de las demás categorías.",
+    "VENTA": "Cuando hay que sacar una actividad a la venta o comunicarlo.",
+    "CONTABILIDAD": "Cuando entra algo nuevo que contabilizar.",
+    "REGISTROS": "Cuando hay un lanzamiento que cumplimentar o registrar.",
+    "MATERIALES": "Cuando un tercero entrega masters o materiales por su enlace.",
+    "FECHA_LANZAMIENTO": "Cuando se pide (o se confirma) la fecha de un lanzamiento.",
+    "PITCH": "Cuando falta el pitch de un lanzamiento.",
+    "DEMO": "Cuando alguien nos manda maquetas.",
+    "AGENDA": "Cuando cambia la fecha de un bloqueo o de una nota de la agenda.",
+    "DISCOGRAFICA": "Novedades de un proyecto discográfico que llegan por sus enlaces públicos.",
+}
+
+# VALORES DE FÁBRICA. Por la app, todo. Por correo, solo lo que es «te acaban de asignar algo»
+# (que es la regla de arriba). Por SMS, nada: cada mensaje cuesta dinero y se enciende a mano.
+NOTICE_EMAIL_DEFAULT_KINDS = {"PRODUCCION", "DISENO", "VACACIONES", "ADMIN_BOLSA"}
+
+
+def _notice_kind_catalog() -> list[dict]:
+    """Todos los tipos de aviso internos de la app, en el orden en que se configuran."""
+    orden = ["PRODUCCION", "DISENO", "ADMIN_BOLSA", "ADMIN_PETICION", "REMESA", "VACACIONES",
+             "VENTA", "CONTABILIDAD", "REGISTROS", "MATERIALES", "FECHA_LANZAMIENTO", "PITCH",
+             "DEMO", "DISCOGRAFICA", "AGENDA", "TAREA"]
+    claves = orden + [k for k in NOTIFICATION_KIND_META if k not in orden]
+    salida = []
+    for k in claves:
+        etiqueta, icono = NOTIFICATION_KIND_META.get(k, (k.title(), "fa-bell"))
+        salida.append({"key": k, "label": etiqueta, "icon": icono,
+                       "help": NOTIFICATION_KIND_HELP.get(k, ""),
+                       "sms_ok": k in SMS_NOTICE_LABELS})
+    return salida
+
+
+def _notice_channels_map(session_db=None) -> dict:
+    """Cómo se avisa de cada cosa: `{KIND: {"app": bool, "email": bool, "sms": bool}}`.
+
+    Se cachea en `g` (se pregunta una vez por aviso y hay avisos que se mandan a diez personas)."""
+    try:
+        cache = getattr(g, "_notice_channels_cache", None)
+        if cache is not None:
+            return cache
+    except Exception:
+        cache = None
+    guardado = {}
+    try:
+        crudo = _get_app_setting(NOTICE_CHANNELS_SETTING, None)
+        if crudo:
+            guardado = json.loads(crudo) or {}
+    except Exception:
+        app.logger.exception("[avisos] no se pudo leer la configuración de canales")
+        guardado = {}
+    # El SMS vive donde siempre (la cuenta de SMS): una sola verdad con Integraciones → SMS.
+    sms_on = set()
+    propia = session_db is None
+    s = session_db or db()
+    try:
+        acc = _sms_account(s)
+        sms_on = {str(x).strip().upper() for x in (getattr(acc, "notice_kinds", None) or [])}
+    except Exception:
+        sms_on = set()
+    finally:
+        if propia:
+            try:
+                s.close()
+            except Exception:
+                pass
+    salida = {}
+    for fila in _notice_kind_catalog():
+        k = fila["key"]
+        cfg = guardado.get(k) if isinstance(guardado.get(k), dict) else {}
+        salida[k] = {
+            "app": bool(cfg.get("app", True)),
+            "email": bool(cfg.get("email", k in NOTICE_EMAIL_DEFAULT_KINDS)),
+            "sms": (k in sms_on),
+        }
+    try:
+        g._notice_channels_cache = salida
+    except Exception:
+        pass
+    return salida
+
+
+def _notice_channel_on(kind: str, channel: str, session_db=None) -> bool:
+    """¿Este tipo de aviso sale por ese canal?"""
+    fila = _notice_channels_map(session_db).get((kind or "").strip().upper())
+    if not fila:
+        return channel == "app"          # un tipo nuevo sin configurar: por la app, como siempre
+    return bool(fila.get(channel))
+
+
+def _notice_channels_save(session_db, form) -> None:
+    """Guarda los interruptores de la pantalla de dirección.
+
+    El SMS va a `SmsAccount.notice_kinds` (una sola verdad con Integraciones → SMS) y el resto a un
+    `AppSetting`."""
+    datos, sms = {}, []
+    for fila in _notice_kind_catalog():
+        k = fila["key"]
+        datos[k] = {"app": _truthy(form.get("app_%s" % k)),
+                    "email": _truthy(form.get("email_%s" % k))}
+        if fila["sms_ok"] and _truthy(form.get("sms_%s" % k)):
+            sms.append(k)
+    _set_app_setting(NOTICE_CHANNELS_SETTING, json.dumps(datos, ensure_ascii=False))
+    acc = _sms_account(session_db, create=True)
+    if acc is not None:
+        acc.notice_kinds = sms
+    try:
+        del g._notice_channels_cache
+    except Exception:
+        pass
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# EL CORREO DE UN AVISO · el mismo formato para todos, con el contenido de cada cosa
+#
+# Logo de la empresa del grupo arriba a la DERECHA · el título centrado debajo · la CABECERA de lo
+# que sea (su foto o su portada, qué es, su nombre y sus datos con iconos) y, DENTRO de la cabecera
+# y abajo a la derecha, el BOTÓN que lleva a hacer el trabajo. Debajo, lo que haga falta contar
+# (p. ej., en un encargo de diseño, el listado de lo que se pide con su formato y su plazo).
+#
+# ⚠️ En un correo NO se puede usar la fuente de iconos: van como PNG (`_sync_icon(..., email=True)`),
+#    que es el punto único de la casa. Nada de emojis.
+# ⚠️ Se maqueta con TABLAS y estilos en línea: es un correo, no una página.
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _notice_icon_img(nombre: str, size: int = 16) -> str:
+    """El icono de un correo de aviso, como PNG. Vacío si no se puede montar.
+
+    ⚠️ `_sync_icon(..., email=True)` construye la URL con `url_for`, que **revienta fuera de una
+    petición** (un cron en segundo plano, un hilo): sin esta protección se perdería el correo entero
+    por un icono. Es la misma trampa de `_royalty_holded_fields` y `_disco_pitch_url`."""
+    try:
+        return _sync_icon(str(nombre or "circle").replace("fa-", ""), email=True, size=size)
+    except Exception:
+        return ""
+
+
+def _notice_email_html(*, title: str, intro: str = "", logo_url: str = "", image_url: str = "",
+                       image_round: bool = True, eyebrow: str = "", heading: str = "",
+                       facts=(), button=None, sections=(), note: str = "") -> str:
+    """El HTML de un aviso. Punto ÚNICO: si se toca el diseño, se tocan todos los avisos a la vez."""
+    esc = lambda v: escape("" if v is None else str(v))
+    logo = _absolute_media_url(logo_url or "")
+    logo_html = ("" if not logo else
+                 '<div style="text-align:right;margin-bottom:6px;">'
+                 '<img src="%s" alt="" style="max-height:52px;max-width:190px;"></div>' % esc(logo))
+    img = _absolute_media_url(image_url or "")
+    radio = "50%" if image_round else "12px"
+    img_html = ("" if not img else
+                '<td width="76" valign="top" style="padding-right:12px;">'
+                '<img src="%s" alt="" style="display:block;width:64px;height:64px;object-fit:cover;'
+                'border-radius:%s;border:1px solid #e6e8eb;"></td>' % (esc(img), radio))
+    datos = ""
+    for icono, etiqueta, valor in (facts or ()):
+        if not str(valor or "").strip():
+            continue
+        datos += ('<tr><td style="padding:2px 8px 2px 0;white-space:nowrap;">%s</td>'
+                  '<td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">%s</td>'
+                  '<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">%s</td></tr>'
+                  % (_notice_icon_img(icono, 14), esc(etiqueta), esc(valor)))
+    boton = button or {}
+    boton_html = ("" if not (boton.get("url") and boton.get("label")) else
+                  '<div style="margin-top:14px;text-align:right;">'
+                  '<a href="%s" style="display:inline-block;padding:11px 18px;background:#E33D48;'
+                  'color:#fff;text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">'
+                  '%s</a></div>' % (esc(boton.get("url")), esc(boton.get("label"))))
+    bloques = ""
+    for sec in (sections or ()):
+        filas = ""
+        for it in (sec.get("items") or ()):
+            ico = _notice_icon_img(it.get("icon"), 16)
+            derecha = str(it.get("due") or "").strip()
+            filas += ('<tr>'
+                      '<td width="26" valign="top" style="padding:8px 8px 8px 0;">%s</td>'
+                      '<td valign="top" style="padding:8px 0;">'
+                      '<div style="font-size:14px;font-weight:700;color:#212529;">%s</div>'
+                      '%s</td>'
+                      '<td valign="top" align="right" style="padding:8px 0 8px 10px;white-space:nowrap;">%s</td>'
+                      '</tr>'
+                      % (ico, esc(it.get("title") or ""),
+                         ('<div style="font-size:12px;color:#6b7683;">%s</div>' % esc(it.get("meta"))
+                          if str(it.get("meta") or "").strip() else ""),
+                         ('<span style="display:inline-block;padding:4px 9px;border-radius:999px;'
+                          'background:#fdecee;color:#b3242e;font-size:12px;font-weight:700;">%s</span>'
+                          % esc(derecha)) if derecha else ""))
+        cuerpo = ""
+        if filas:
+            cuerpo += ('<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" '
+                       'style="border-collapse:collapse;border:1px solid #e6e8eb;border-radius:12px;'
+                       'padding:6px 14px;">%s</table>' % filas)
+        if str(sec.get("text") or "").strip():
+            cuerpo += ('<p style="margin:10px 0 0;white-space:pre-line;font-size:14px;">%s</p>'
+                       % esc(sec.get("text")))
+        if not cuerpo:
+            continue
+        bloques += ('<div style="margin-top:22px;">'
+                    '<h3 style="text-align:center;font-size:16px;margin:0 0 12px;">%s</h3>%s</div>'
+                    % (esc(sec.get("title") or ""), cuerpo))
+    return """
+<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:640px;">
+  %s
+  <h2 style="text-align:center;font-size:20px;margin:0 0 14px;">%s</h2>
+  %s
+  <div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">
+    <table role="presentation" width="100%%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>
+      %s
+      <td valign="top">
+        %s
+        <div style="font-size:18px;font-weight:800;margin:1px 0 6px;">%s</div>
+        <table role="presentation" style="border-collapse:collapse;">%s</table>
+      </td>
+    </tr></table>
+    %s
+  </div>
+  %s
+  %s
+</div>""" % (
+        logo_html, esc(title),
+        ('<p style="margin:0 0 16px;font-size:14px;">%s</p>' % esc(intro)) if str(intro or "").strip() else "",
+        img_html,
+        ('<div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;'
+         'color:#8b95a1;">%s</div>' % esc(eyebrow)) if str(eyebrow or "").strip() else "",
+        esc(heading), datos, boton_html, bloques,
+        ('<p style="margin:16px 0 0;white-space:pre-line;font-size:14px;color:#4b5563;">%s</p>'
+         % esc(note)) if str(note or "").strip() else "",
+    )
+
+
+def _notice_user_email(session_db, user_id) -> str:
+    """El correo de una persona de la casa. Vacío si no se le puede escribir.
+
+    ⚠️ Los usuarios ESPEJO de producción externa (`UserProfile.is_external`) tienen un correo
+    sintético: a ellos se les escribe por su propio enlace, no por aquí."""
+    uid = _safe_uuid(user_id)
+    if not uid:
+        return ""
+    try:
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+        if prof is not None and bool(getattr(prof, "is_external", False)):
+            return ""
+        user = session_db.get(User, uid)
+        correo = (getattr(user, "email", None) or "").strip()
+        if not correo or "@" not in correo:
+            return ""
+        return correo
+    except Exception:
+        return ""
+
+
+def _notice_email_already_sent(session_db, user_id, kind, ref_type, ref_id, title) -> bool:
+    """¿Ya se le mandó un correo de ESTE mismo trabajo?
+
+    Es lo que hace que solo se avise por correo **la primera vez**: si el aviso se repite (porque
+    algo cambia, porque se le vuelve a asignar lo mismo) se ve en la app y ya está."""
+    try:
+        q = (session_db.query(AppNotification.id)
+             .filter(AppNotification.user_id == _safe_uuid(user_id))
+             .filter(func.upper(AppNotification.kind) == (kind or "").upper())
+             .filter(AppNotification.email_sent_at.isnot(None)))
+        if ref_type and ref_id:
+            q = (q.filter(func.upper(func.coalesce(AppNotification.ref_type, "")) == str(ref_type).upper())
+                 .filter(AppNotification.ref_id == str(ref_id)))
+        else:
+            q = q.filter(AppNotification.title == (title or ""))
+        return q.first() is not None
+    except Exception:
+        return False
+
+
+def _notify_email(session_db, user_id, kind, title, body="", url=None, *, email=None,
+                  ref_type=None, ref_id=None) -> bool:
+    """El CORREO de un aviso, si ese tipo lo tiene encendido y es la primera vez.
+
+    `email` es el contenido a medida (la cabecera de lo que sea, sus datos y su botón); si no
+    llega, se compone uno genérico con el título, el texto y el enlace del propio aviso, para que
+    encender el interruptor de un tipo sirva de algo. Devuelve si el correo salió."""
+    try:
+        if email is False:                    # este aviso no se manda por correo (ver `_notify_user`)
+            return False
+        if not _notice_channel_on(kind, "email", session_db):
+            return False
+        destino = _notice_user_email(session_db, user_id)
+        if not destino:
+            return False
+        if _notice_email_already_sent(session_db, user_id, kind, ref_type, ref_id, title):
+            return False
+        datos = dict(email or {})
+        asunto = (datos.pop("subject", "") or title or "Tienes algo nuevo").strip()
+        if not datos:
+            enlace = ""
+            if url:
+                enlace = url if str(url).startswith("http") else (_public_base_url().rstrip("/") + str(url))
+            datos = {"title": (NOTIFICATION_KIND_META.get((kind or "").upper(), ("Aviso", ""))[0]),
+                     "heading": (title or ""), "intro": (body or ""),
+                     "button": ({"label": "Verlo en la app", "url": enlace} if enlace else None)}
+        cuerpo = _notice_email_html(**datos)
+        ok, _err = _send_optional_email(destino, asunto, cuerpo)
+        return bool(ok)
+    except Exception:
+        app.logger.exception("[avisos] no se pudo mandar el correo del aviso")
+        return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EL CONTENIDO de cada correo de aviso: la cabecera de lo que sea, con sus fotos, sus logos, sus
+# iconos y su botón. Un constructor por familia; todos devuelven el diccionario que espera
+# `_notice_email_html` (más el `subject`, que es el asunto).
+# ─────────────────────────────────────────────────────────────────────────────
+
+PRODUCTION_NOTICE_TITLE = "Encargo de producción"
+
+
+def _production_notice_subject(concert=None, *, kind_label: str = "", name: str = "") -> str:
+    """El ASUNTO de un encargo de producción: «Nuevo Concierto de Los Ñus asignado para producción».
+
+    ⚠️ El género lo manda la palabra («Nueva Promoción … asignada»): un correo que no concuerda se
+    lee como si lo hubiera escrito una máquina."""
+    if concert is not None:
+        kind_label = kind_label or _notice_activity_kind_label(concert)
+        if not name:
+            evento = getattr(concert, "event", None)
+            artista = getattr(concert, "artist", None)
+            name = ((getattr(evento, "name", "") or "").strip()
+                    or (getattr(artista, "name", "") or "").strip()
+                    or (getattr(concert, "festival_name", "") or "").strip())
+    kind_label = (kind_label or "Actividad").strip()
+    femenino = kind_label[-1:].lower() == "a"
+    return "%s %s%s asignad%s para producción" % (
+        "Nueva" if femenino else "Nuevo", kind_label,
+        (" de %s" % name.strip()) if (name or "").strip() else "",
+        "a" if femenino else "o")
+
+
+def _notice_activity_kind_label(concert) -> str:
+    """Qué ES la actividad, dicho como se dice en la app («Concierto», «Evento promocional»…)."""
+    try:
+        return (_activity_kind_label(getattr(concert, "activity_type", None)) or "Actividad")
+    except Exception:
+        return "Actividad"
+
+
+def _notice_email_activity(concert, *, title: str, subject: str, intro: str = "",
+                           button_label: str = "", button_url: str = "", note: str = "",
+                           sections=()) -> dict:
+    """El correo de un aviso sobre una ACTIVIDAD (concierto, evento promocional, TV, ensayo…).
+
+    Cabecera: la foto del artista, qué es la actividad, su nombre y sus datos con iconos — la MISMA
+    (`_contract_sheet_hero_rows`) que se ve en su ficha y en el resto de correos de la casa."""
+    empresa = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+    artista = getattr(concert, "artist", None)
+    evento = getattr(concert, "event", None)
+    nombre = ((getattr(evento, "name", "") or "").strip()
+              or (getattr(artista, "name", "") or "").strip()
+              or (getattr(concert, "festival_name", "") or "").strip()
+              or "Actividad")
+    foto = ((getattr(evento, "logo_url", "") or "").strip()
+            or (getattr(artista, "photo_url", "") or "").strip())
+    return {
+        "subject": subject,
+        "title": title,
+        "intro": intro,
+        "logo_url": (getattr(empresa, "logo_url", "") or ""),
+        "image_url": foto,
+        "image_round": not bool(getattr(evento, "logo_url", None)),
+        "eyebrow": _notice_activity_kind_label(concert),
+        "heading": nombre,
+        "facts": _contract_sheet_hero_rows(concert),
+        "button": ({"label": button_label, "url": button_url} if (button_label and button_url) else None),
+        "sections": sections,
+        "note": note,
+    }
+
+
+def _notice_email_project(session_db, project, *, title: str, subject: str, intro: str = "",
+                          button_label: str = "", button_url: str = "", note: str = "",
+                          sections=()) -> dict:
+    """El correo de un aviso sobre un PROYECTO discográfico: portada del lanzamiento, qué es,
+    su nombre, el artista y la fecha de salida. El logo es el de PIES (lo discográfico es de PIES)."""
+    try:
+        ctx = _disco_project_email_ctx(session_db, project)
+    except Exception:
+        app.logger.exception("[avisos] no se pudo montar la cabecera del proyecto")
+        ctx = {"title": _disco_project_title(project), "artist_name": "", "cover_url": "",
+               "kind_label": "Proyecto", "release_label": "—", "brand": {}}
+    datos = []
+    if (ctx.get("artist_name") or "").strip():
+        datos.append(("fa-user-music", "Artista", ctx["artist_name"]))
+    if (ctx.get("release_label") or "").strip() not in ("", "—"):
+        datos.append(("fa-calendar-day", "Lanzamiento", ctx["release_label"]))
+    return {
+        "subject": subject,
+        "title": title,
+        "intro": intro,
+        "logo_url": ((ctx.get("brand") or {}).get("logo_url") or ""),
+        "image_url": (ctx.get("cover_url") or ""),
+        "image_round": False,
+        "eyebrow": (ctx.get("badge_label") or ctx.get("kind_label") or "Proyecto"),
+        "heading": (ctx.get("title") or "Proyecto"),
+        "facts": datos,
+        "button": ({"label": button_label, "url": button_url} if (button_label and button_url) else None),
+        "sections": sections,
+        "note": note,
+    }
+
+
+def _notice_email_promotion(session_db, promotion, *, title: str, subject: str, intro: str = "",
+                            button_label: str = "", button_url: str = "", note: str = "") -> dict:
+    """El correo de un aviso sobre una PROMOCIÓN de prensa."""
+    empresa = None
+    try:
+        if getattr(promotion, "company_id", None):
+            empresa = session_db.get(GroupCompany, promotion.company_id)
+    except Exception:
+        empresa = None
+    artista, foto = "", ""
+    try:
+        ids = _promotion_normalized_artist_ids(getattr(promotion, "artist_ids", None) or [])
+        if ids:
+            fila = session_db.get(Artist, to_uuid(ids[0]))
+            artista = (getattr(fila, "name", "") or "")
+            foto = (getattr(fila, "photo_url", "") or "")
+    except Exception:
+        pass
+    datos = []
+    if artista:
+        datos.append(("fa-user-music", "Artista", artista))
+    inicio = getattr(promotion, "starts_on", None) or getattr(promotion, "target_date", None)
+    if inicio:
+        datos.append(("fa-calendar-day", "Fecha", inicio.strftime("%d/%m/%Y")))
+    return {
+        "subject": subject,
+        "title": title,
+        "intro": intro,
+        "logo_url": (getattr(empresa, "logo_url", "") or ""),
+        "image_url": foto,
+        "eyebrow": "Promoción",
+        "heading": (_promo_title(promotion) or "Promoción"),
+        "facts": datos,
+        "button": ({"label": button_label, "url": button_url} if (button_label and button_url) else None),
+        "note": note,
+    }
+
+
+def _notice_email_bag(session_db, bag, *, title: str, subject: str, intro: str = "",
+                      button_label: str = "", button_url: str = "", note: str = "") -> dict:
+    """El correo de un aviso sobre una BOLSA (cerrada, para liquidar…)."""
+    empresa, artista, foto = None, "", ""
+    try:
+        if getattr(bag, "company_id", None):
+            empresa = session_db.get(GroupCompany, bag.company_id)
+    except Exception:
+        empresa = None
+    try:
+        if getattr(bag, "artist_id", None):
+            fila = session_db.get(Artist, bag.artist_id)
+            artista = (getattr(fila, "name", "") or "")
+            foto = (getattr(fila, "photo_url", "") or "")
+    except Exception:
+        pass
+    datos = []
+    if artista:
+        datos.append(("fa-user-music", "Artista", artista))
+    tipo = dict(BAG_TYPES).get((getattr(bag, "bag_type", None) or "").upper(), "")
+    if getattr(bag, "starts_on", None):
+        datos.append(("fa-calendar-day", "Fecha", bag.starts_on.strftime("%d/%m/%Y")))
+    try:
+        gastos = (session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id).all())
+        if gastos:
+            datos.append(("fa-receipt", "Gastos", str(len(gastos))))
+            datos.append(("fa-euro-sign", "Total", format_eur(_bag_totals(gastos).get("all") or 0)))
+    except Exception:
+        app.logger.exception("[avisos] no se pudo resumir la bolsa")
+    return {
+        "subject": subject,
+        "title": title,
+        "intro": intro,
+        "logo_url": (getattr(empresa, "logo_url", "") or ""),
+        "image_url": foto,
+        "eyebrow": (tipo or "Bolsa"),
+        "heading": (getattr(bag, "title", None) or "Bolsa"),
+        "facts": datos,
+        "button": ({"label": button_label, "url": button_url} if (button_label and button_url) else None),
+        "note": note,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EL CORREO DE UN ENCARGO A DISEÑO
+#
+# Debajo de la cabecera va **«Contenido solicitado»** centrado y, debajo, **el listado de lo que se
+# pide**: el icono de su formato, su tamaño y **la fecha máxima de entrega de cada pieza**. El botón
+# lleva a gestionar las entregas.
+#
+# ⚠️ Los iconos de MARCA (`fa-youtube`, `fa-instagram`…) NO existen en la familia SOLID, que es la
+#    que se dibuja para el correo (`brand_icon_png` renderiza desde `fa-solid-900.ttf`): saldrían
+#    VACÍOS. Por eso `_notice_design_icon` los cambia por el icono sólido de su tipo.
+# ─────────────────────────────────────────────────────────────────────────────
+
+DESIGN_NOTICE_TITLE = "Encargo de diseño"
+DESIGN_NOTICE_SECTION = "Contenido solicitado"
+_NOTICE_DESIGN_MEDIA_ICON = {"VIDEO": "fa-film", "AUDIO": "fa-music", "IMAGE": "fa-image"}
+
+
+def _notice_design_icon(icon: str, media: str = "") -> str:
+    """El icono con el que se pinta una pieza en el correo (solo iconos SÓLIDOS)."""
+    limpio = (icon or "").strip()
+    if not limpio or limpio in DISCO_CREATIVE_BRAND_ICONS:
+        return _NOTICE_DESIGN_MEDIA_ICON.get((media or "IMAGE").upper(), "fa-image")
+    return limpio
+
+
+def _notice_design_section(items) -> tuple:
+    """La sección «Contenido solicitado» del correo, si hay algo que listar."""
+    filas = [x for x in (items or []) if str(x.get("title") or "").strip()]
+    if not filas:
+        return ()
+    return ({"title": DESIGN_NOTICE_SECTION, "items": filas},)
+
+
+def _notice_email_design_creatives(session_db, project, peticion, filas, enlace: str) -> dict:
+    """El encargo de las CREATIVIDADES de un proyecto discográfico."""
+    plazo = (peticion.due_date.strftime("%d/%m/%Y") if getattr(peticion, "due_date", None) else "")
+    piezas = []
+    for c in (filas or []):
+        catalogo = {k: (i, s) for k, _l, i, _m, s, _f in DISCO_CREATIVE_CATALOG}
+        icono, tamano = catalogo.get((getattr(c, "kind", None) or "").upper(), ("", ""))
+        medida = (getattr(c, "size_text", None) or tamano or "")
+        formatos = [DISCO_CREATIVE_FORMAT_LABELS.get(str(f).upper(), str(f))
+                    for f in (getattr(c, "formats", None) or [])]
+        meta = " · ".join([x for x in [", ".join(formatos), medida] if str(x or "").strip()])
+        piezas.append({"icon": _notice_design_icon(icono, getattr(c, "media", "")),
+                       "title": (getattr(c, "label", None)
+                                 or DISCO_CREATIVE_LABELS.get((getattr(c, "kind", None) or "").upper(), "Creatividad")),
+                       "meta": meta, "due": plazo})
+    return _notice_email_project(
+        session_db, project, title=DESIGN_NOTICE_TITLE,
+        subject="Nuevo encargo de diseño · %s" % _disco_project_title(project),
+        intro="Se os ha encargado el diseño de las siguientes piezas.",
+        button_label="Gestionar entregas", button_url=enlace,
+        sections=_notice_design_section(piezas),
+        note=((getattr(peticion, "note", None) or "").strip()))
+
+
+def _notice_email_design_artwork(concert, row, enlace: str, *, is_update: bool = False) -> dict:
+    """El encargo de la CARTELERÍA de una actividad."""
+    plazo = (row.delivery_deadline.strftime("%d/%m/%Y")
+             if getattr(row, "delivery_deadline", None) else "")
+    # ⚠️ El tercer campo de `ARTWORK_FORMAT_CHOICES` es la PROPORCIÓN, no un tamaño en píxeles: se
+    # dice como lo que es («Proporción 9 / 16»), o parece una medida.
+    medidas = {l: a for _k, l, a in ARTWORK_FORMAT_CHOICES}
+    piezas = [{"icon": "fa-image", "title": etiqueta,
+               "meta": (("Proporción %s" % medidas[etiqueta]) if etiqueta in medidas else ""),
+               "due": plazo}
+              for etiqueta in _artwork_requested_format_labels(row)]
+    for etiqueta in (_artwork_video_format_labels(row) if getattr(row, "video_requested", False) else []):
+        piezas.append({"icon": "fa-film", "title": "Vídeo promocional · %s" % etiqueta,
+                       "meta": "", "due": plazo})
+    return _notice_email_activity(
+        concert, title=DESIGN_NOTICE_TITLE,
+        subject=("Cambios en un encargo de diseño · %s" if is_update else "Nuevo encargo de diseño · %s")
+                % ((getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+                   or (getattr(concert, "festival_name", "") or "").strip() or "actividad"),
+        intro=("Han cambiado los datos del encargo de cartelería." if is_update
+               else "Se os ha encargado la cartelería de esta actividad."),
+        button_label="Gestionar entregas", button_url=enlace,
+        sections=_notice_design_section(piezas),
+        note=((getattr(row, "logo_notes", None) or "").strip()))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # TELÉFONOS · EL PREFIJO DEL PAÍS SE PONE AL GUARDAR (en TODA la app)
 #
 # Un teléfono escrito «600111222» no vale para mandar nada: a una pasarela de SMS (o a WhatsApp)
@@ -101899,34 +102631,64 @@ def _notify_sms(session_db, user_id, kind, title, body="", url=None) -> None:
 
 def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
                  ref_type=None, ref_id=None, actor_user_id=None, commit=False,
-                 actor_name=None, actor_photo=None) -> bool:
+                 actor_name=None, actor_photo=None, email=None) -> bool:
     """Avisa a UNA persona. Devuelve False si no hay a quién avisar (o es uno mismo).
 
     ⚠️ No se avisa a uno mismo: quien hace la acción ya lo sabe.
     `actor_name`/`actor_photo` son para cuando quien lo provoca NO es de la casa (un tercero que
     entrega unos masters por su enlace público): así el aviso puede enseñar su cara y su nombre, que
-    es lo primero que se mira. Si el actor es de la casa no hacen falta: se resuelven de su perfil."""
+    es lo primero que se mira. Si el actor es de la casa no hacen falta: se resuelven de su perfil.
+
+    `email` es el CONTENIDO del correo cuando ese tipo de aviso sale también por correo (la cabecera
+    de lo que sea, sus datos y su botón; ver `_notice_email_html`). Sin él se compone uno genérico.
+    ⚠️ Con **`email=False`** este aviso NO sale por correo aunque el canal esté encendido: es para
+    los avisos que se mandan a dos grupos distintos y solo a UNO se le escribe (p. ej. una petición
+    de vacaciones, que en la app la ven dirección y administración pero por correo solo le llega a
+    quien las gestiona).
+    ⚠️ El correo se manda **solo la primera vez** que ese trabajo le llega a esa persona
+    (`_notice_email_already_sent`): lo que cambia después se ve en la app."""
     uid = _safe_uuid(user_id)
     if not uid:
         return False
     actor = _safe_uuid(actor_user_id if actor_user_id is not None else (_current_user_state() or {}).get("user_id"))
     if actor and str(actor) == str(uid):
         return False
+    # ¿Hay que mandarle el correo? Se decide ANTES de crear el aviso (la comprobación de «ya se le
+    # mandó» mira los avisos que YA existen: con el nuevo dentro se miraría a sí mismo).
+    manda_correo = _notice_email_already_sent(session_db, uid, kind, ref_type, ref_id, title) is False
+    fila = None
     try:
-        session_db.add(AppNotification(
+        fila = AppNotification(
             user_id=uid, kind=(kind or "TAREA").upper()[:40],
             title=(title or "Tienes algo nuevo")[:200], body=(body or "")[:600] or None,
             url=(url or None), icon=NOTIFICATION_KIND_META.get((kind or "").upper(), ("", ""))[1] or None,
             actor_user_id=actor, ref_type=(ref_type or None), ref_id=(str(ref_id) if ref_id else None),
             actor_name=((actor_name or "").strip() or None),
             actor_photo_url=((actor_photo or "").strip() or None),
-        ))
+        )
+        # ⚠️ Si dirección ha apagado el canal «en la app» para este tipo, el aviso NO se ve (ni en la
+        # campanita ni en la franja) pero la FILA se guarda igual: es donde se apunta si ya salió su
+        # correo, que es lo que evita avisar dos veces del mismo trabajo.
+        if not _notice_channel_on(kind, "app", session_db):
+            fila.read_at = _now_madrid()
+            fila.strip_dismissed_at = fila.read_at
+        session_db.add(fila)
         if commit:
             session_db.commit()
     except Exception:
         if commit:
             session_db.rollback()
         return False
+    # EL CORREO (solo si ese tipo lo tiene encendido y es la primera vez que le entra esto).
+    if manda_correo:
+        try:
+            if _notify_email(session_db, uid, kind, title, body, url, email=email,
+                             ref_type=ref_type, ref_id=ref_id):
+                fila.email_sent_at = _now_madrid()
+                if commit:
+                    session_db.commit()
+        except Exception:
+            app.logger.exception("[avisos] no se pudo apuntar el correo del aviso")
     # Notificación del sistema (en el Mac, la del Mac). Best-effort: sin VAPID no hace nada.
     try:
         _send_web_push(str(uid), title, body or "", url=url)
@@ -123519,6 +124281,18 @@ def _can_view_person_contract() -> bool:
         return False
 
 
+def _vacation_email_manager_ids(session_db) -> list[str]:
+    """A quién se le ESCRIBE una petición de vacaciones: quien tenga la responsabilidad
+    «VACACIONES» y, si no la tiene nadie, todo Administración (nada se queda sin dueño).
+
+    ⚠️ No es lo mismo que `_vacation_manager_user_ids`, que además incluye a dirección: dirección lo
+    ve en la campanita, pero el correo es para quien hace el trabajo."""
+    responsables = _admin_responsible_user_ids(session_db, VACATION_RESPONSIBILITY)
+    ids = set(responsables) if responsables else set(_department_user_ids(session_db, "Administración"))
+    fuera = {str(x) for x in _inactive_user_ids(session_db)}
+    return [i for i in ids if i not in fuera]
+
+
 def _vacation_manager_user_ids(session_db) -> list[str]:
     """A quién hay que avisar de una petición: dirección + los responsables de «VACACIONES».
     Si no hay nadie con la responsabilidad, a todo Administración (nada se queda sin dueño)."""
@@ -124032,6 +124806,42 @@ def _vacation_check_request(session_db, user_id, days: list, *, exclude_request_
                   "sin_contrato": bool(saldo_previo and not saldo_previo["has_contract"])}
 
 
+def _notice_email_vacation_request(session_db, req, prof, resumen: str) -> dict:
+    """El correo de una PETICIÓN DE VACACIONES para quien las gestiona.
+
+    Cabecera: la foto de quien las pide, su nombre, cuántos días y qué días — y el botón que lleva
+    a la pantalla donde se aprueban o se deniegan."""
+    quien = (getattr(prof, "nick", None) or "Alguien").strip()
+    dias = [d.day for d in (getattr(req, "days", None) or []) if getattr(d, "day", None)]
+    datos = [("fa-calendar-days", "Días", str(int(getattr(req, "days_count", 0) or 0)))]
+    if dias:
+        datos.append(("fa-calendar-day", "Cuándo", _vacation_range_label(dias)))
+    if (getattr(req, "note", None) or "").strip():
+        datos.append(("fa-note-sticky", "Motivo", (req.note or "").strip()))
+    empresa = None
+    try:
+        contrato = (session_db.query(UserContract)
+                    .filter(UserContract.user_id == req.user_id)
+                    .order_by(UserContract.starts_on.desc().nullslast()).first())
+        if contrato is not None and getattr(contrato, "company_id", None):
+            empresa = session_db.get(GroupCompany, contrato.company_id)
+    except Exception:
+        empresa = None
+    return {
+        "subject": "Nueva solicitud de vacaciones de %s" % quien,
+        "title": "Solicitud de vacaciones",
+        "intro": "%s ha pedido vacaciones y están pendientes de que se aprueben o se denieguen." % quien,
+        "logo_url": (getattr(empresa, "logo_url", "") or ""),
+        "image_url": (getattr(prof, "photo_url", "") or ""),
+        "eyebrow": "Vacaciones",
+        "heading": quien,
+        "facts": datos,
+        "button": {"label": "Gestionar la solicitud",
+                   "url": _external_url_for("vacaciones_view", tab="peticiones")},
+        "note": (resumen or ""),
+    }
+
+
 def _vacation_notify_managers(session_db, req) -> None:
     """Aviso a dirección y a quien gestione las vacaciones de que hay una petición nueva."""
     try:
@@ -124043,10 +124853,20 @@ def _vacation_notify_managers(session_db, req) -> None:
         cuerpo = f"{n} {meta['singular'] if n == 1 else meta['plural']} · {_vacation_range_label(dias)}"
         if (req.note or "").strip():
             cuerpo += f" · {(req.note or '').strip()}"
-        _notify_users(session_db, _vacation_manager_user_ids(session_db), "VACACIONES",
-                      f"{quien} pide {meta['label'].lower()}", cuerpo,
-                      url_for("vacaciones_view", tab="peticiones"),
-                      ref_type="vacation_request", ref_id=str(req.id))
+        # ⚠️ Por CORREO solo las VACACIONES: un día libre se ve en la app y ya está (lo pidió así
+        # dirección). El aviso de la campanita se manda igual en los dos casos.
+        correo = False
+        if _vacation_kind(getattr(req, "kind", None)) == "VACACIONES":
+            correo = _notice_email_vacation_request(session_db, req, prof, cuerpo)
+        # ⚠️ En la app lo ven dirección Y quien gestione; por CORREO solo le llega a QUIEN LAS
+        # GESTIONA (es su trabajo). Dirección lo ve en su campanita, como el resto.
+        gestores = set(_vacation_email_manager_ids(session_db))
+        titulo = f"{quien} pide {meta['label'].lower()}"
+        destino = url_for("vacaciones_view", tab="peticiones")
+        for uid in _vacation_manager_user_ids(session_db):
+            _notify_user(session_db, uid, "VACACIONES", titulo, cuerpo, destino,
+                         ref_type="vacation_request", ref_id=str(req.id),
+                         email=(correo if str(uid) in gestores else False))
     except Exception:
         app.logger.exception("[vacaciones] no se pudo avisar de la petición a quien la aprueba")
 

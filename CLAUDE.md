@@ -4102,6 +4102,52 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la actividad calcula la lista **SIEMPRE** (antes solo cuando faltaba responsable, así que al cambiarlo
   desde la rueda no salía nadie) y el modal `#prodOwnerModal` se pinta con solo poder editar.
 
+- **EL VIDEOCLIP · su propio proceso, en paralelo al del audio** (ago 2026). Un proyecto que lleva
+  videoclip trae sus tareas en el **grupo «video»** (así en un single con vídeo se leen en su
+  columna). Todo vive en `production_payload['video']` y lo lee el punto único
+  **`_disco_video_state`**; los pop-ups, en `templates/_disco_video_modals.html`.
+  · **1 QUIÉN LO PRODUCE** (`disco_video_producer_save`): un TERCERO (el buscador de siempre, con
+  foto y alta al vuelo) y sus condiciones — **`DISCO_VIDEO_FEE_MODES`**: fee, presupuesto o sin
+  coste. ⚠️ **NO hay porcentaje**: eso es del máster de audio. Al confirmarlo, a **REGISTROS+SELLO**
+  le llega el **CONTRATO DE PRODUCCIÓN AUDIOVISUAL** (`_disco_video_contract_ask` →
+  `disco_video_contract` para subirlo), que funciona igual que el del productor de audio.
+  ⚠️ Si CAMBIA el productor, el contrato vuelve a estar pendiente: es otro contrato.
+  · **2 EL PLAZO DE ENTREGA** (`disco_video_due_save`) y su aviso al productor. ⚠️ Si la fecha
+  cambia, el aviso anterior deja de valer y hay que volver a comunicárselo.
+  · **3 LOS LOGOS DE LOS CRÉDITOS** (`disco_video_logos_save`): se marcan los de las **empresas del
+  grupo**, la **distribuidora** y el **artista**, y se le manda un correo con **cada marca y sus
+  versiones**, cada una con su nombre y su enlace de descarga (sale del módulo de `BrandLogo`).
+  · **4 LA IDEA** (`disco_video_brief_save`): el briefing, con **ejemplos que pueden ser enlaces de
+  YouTube** (uno por línea) o archivos. Se manda, o se marca **«ya se lo he mandado»**.
+  · **5 LA MINIATURA** (`disco_video_thumb_save`): se le pide a **DISEÑO** con la idea y el material
+  de apoyo (foto o vídeo).
+  · **6 EL RODAJE** (`disco_video_shoot_save`): la fecha, el sitio y —si hace falta— la **logística**,
+  que se le pide a producción igual que la de las voces (aviso + entra en el PERSONAL de la hoja de
+  ruta + se le prepara la **bolsa del VÍDEO**, que es donde van los gastos del rodaje). La marca
+  montada quien la lleva (`disco_video_logistics_done`).
+  · **7 LA FECHA DE LANZAMIENTO DEL VÍDEO** (`disco_video_release_save`): **día Y HORA** (un estreno
+  de YouTube tiene hora). Sin poner ninguna, **las 00:00** del día marcado (`_agenda_clean_time` es
+  el punto único de «HH:MM»).
+  · **8 SUBIR EL VIDEOCLIP** (`disco_video_upload`): ⚠️ se guarda **también como material de la
+  canción** (`SongMaterial` VIDEOCLIP), que es donde se miran los materiales — no se inventa un
+  segundo sitio. Y por eso el estado da el vídeo por subido si ya está ahí.
+  · **9 LA APROBACIÓN DEL ARTISTA** (`disco_video_approval`, kind **VIDEOCLIP** del motor de
+  aprobaciones en cadena). ⚠️ **BLOQUEADA hasta que el vídeo está subido**: no se manda a aprobar lo
+  que no existe (lo comprueba también el endpoint).
+  · **10 DISTRIBUIRLO**: al aprobarlo todos, `_disco_video_approved` avisa a **REGISTROS+SELLO** —que
+  es quien lo sube a las plataformas— y ellos lo marcan (`disco_video_distributed`).
+  ⚠️ **`disco_video_contract`, `disco_video_logistics_done` y `disco_video_distributed` van en
+  `REQUEST_ANY_ENDPOINTS`**, como sus hermanos de audio: los hacen Registros y producción, que no
+  tienen por qué poder editar discográfica; cada uno comprueba dentro que es de quien le toca. Su
+  botón en la lista de tareas se pinta con **`open_to_all`** (si no, el `CAN_EDIT` de la ficha lo
+  escondería justo a quien tiene que pulsarlo).
+  ⚠️⚠️ **GUARDAR DOS VECES EN LA MISMA PETICIÓN: hay que marcar el JSONB a mano** (bug real). El
+  patrón de la casa —leer una copia, tocarla y reasignarla— funciona la PRIMERA vez; en la segunda,
+  el valor guardado y el nuevo son **iguales** (`==`), porque el primero apunta a los mismos
+  diccionarios de dentro que se acaban de tocar, y SQLAlchemy da el atributo por **«unchanged»** y
+  **no escribe nada sin dar ningún error**. Pasó con «fijar el plazo Y comunicarlo»: el correo salía
+  y el «avisado» se perdía. `_disco_video_set` lo fuerza con **`flag_modified`**.
+
 - **LOGOTIPOS de una marca, con TODAS sus versiones** (ago 2026). Un logo no es UN archivo: son
   muchos (principal, horizontal, negativo, isotipo, el vectorial de imprenta, el manual de marca…) y
   **cada versión lleva su NOMBRE**, que es lo que se dice al pedirlos («mándame el negativo en

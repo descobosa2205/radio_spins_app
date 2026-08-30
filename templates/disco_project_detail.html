@@ -205,10 +205,17 @@
           {% if t.photo_url and t.action_label %}
             <button type="button" class="btn btn-sm btn-outline-secondary" data-art-photo="{{ t.photo_url }}">
               <i class="fa fa-image me-1"></i>{{ t.action_label }}</button>
-          {% elif CAN_EDIT and t.action_label %}
+          {# ⚠️ `open_to_all`: la acción es de OTRO departamento (Registros, producción…), que puede no
+             poder editar discográfica. El endpoint comprueba dentro que es de quien le toca. #}
+          {% elif (CAN_EDIT or t.open_to_all) and t.action_label %}
             {% if t.modal %}
               <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="{{ t.modal }}">
                 <i class="fa {{ t.icon }} me-1"></i>{{ t.action_label }}</button>
+            {% elif t.post %}
+              <form method="post" action="{{ t.post }}" class="d-inline">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="btn btn-sm btn-outline-danger"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label }}</button>
+              </form>
             {% elif t.url %}
               <a class="btn btn-sm btn-outline-danger" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label }}</a>
             {% endif %}

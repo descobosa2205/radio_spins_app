@@ -356,7 +356,67 @@
   </div>
 </div>
 
-{# ---------- 7 · LA APROBACIÓN DEL ARTISTA ---------- #}
+{# ---------- 7 · LA FECHA (Y HORA) DE PUBLICACIÓN DEL VIDEOCLIP ---------- #}
+<div class="modal fade" id="dpVideoReleaseModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_video_release_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-calendar-day me-2 text-danger"></i>Lanzamiento del videoclip</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-7">
+            <label class="form-label">Día</label>
+            <input class="form-control" type="date" name="date" value="{{ vd.release.date_value }}">
+          </div>
+          <div class="col-12 col-md-5">
+            <label class="form-label">Hora</label>
+            <input class="form-control" type="time" name="time" value="{{ vd.release.time or '00:00' }}">
+            <div class="form-text">Si no se pone, las 00:00.</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- 8 · SUBIR EL VIDEOCLIP ---------- #}
+<div class="modal fade" id="dpVideoUploadModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_video_upload', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-film me-2 text-danger"></i>Subir el videoclip</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if vd.file.url %}
+          <div class="mb-3"><a href="{{ vd.file.url }}" target="_blank" rel="noopener">
+            <i class="fa fa-film me-1"></i>{{ vd.file.name or 'Videoclip subido' }}</a>
+            {% if vd.file.at_label %}<span class="text-muted small"> · {{ vd.file.at_label }}</span>{% endif %}</div>
+        {% endif %}
+        <label class="form-label">El archivo</label>
+        <input class="form-control" type="file" name="file" accept="video/*">
+        <div class="form-text">Se guarda también en los materiales de la canción, que es donde se
+          miran. Es el que se manda a aprobar y luego se distribuye.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-upload me-1"></i>Subir</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- 9 · LA APROBACIÓN DEL ARTISTA ---------- #}
 <div class="modal fade" id="dpVideoApprovalModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <form class="modal-content" method="post" enctype="multipart/form-data"

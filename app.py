@@ -23983,8 +23983,28 @@ def _disco_approval_all_done(session_db, project, fila) -> None:
             _disco_photo_approved(session_db, project, fila)
         elif kind == "MATERIALS":
             _disco_materials_approved(session_db, project, fila)
+        elif kind == "VIDEOCLIP":
+            _disco_video_approved(session_db, project, fila)
     except Exception:
         app.logger.exception("[aprobaciones] no se pudo cerrar la aprobación")
+
+
+def _disco_video_approved(session_db, project, fila) -> None:
+    """Videoclip APROBADO por todas las partes → a REGISTROS+SELLO, que es quien lo DISTRIBUYE.
+
+    Es el último paso: en cuanto el artista da el visto bueno, el vídeo se puede subir a las
+    plataformas, y eso lo hace quien lleva Registros y Sello."""
+    artista = getattr(project, "artist", None)
+    try:
+        _notify_users(session_db, _registros_sello_user_ids(session_db), "DISCOGRAFICA",
+                      "Distribuir el videoclip · %s" % _disco_project_title(project),
+                      "El artista ya ha aprobado el videoclip: se puede distribuir.",
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_VIDEO_DISTRIBUTE", ref_id=str(project.id),
+                      actor_name=(getattr(artista, "name", "") or ""),
+                      actor_photo=(getattr(artista, "photo_url", "") or ""))
+    except Exception:
+        app.logger.exception("[videoclip] no se pudo avisar de la distribución")
 
 
 def _disco_mix_notify_master(session_db, project) -> bool:
@@ -24680,7 +24700,31 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   "fa-truck-ramp-box", sub=True, grupo="video",
                   action_label="Pedirla", modal="#dpVideoShootModal")
 
-        # 7 · LA APROBACIÓN DEL ARTISTA
+        # 7 · LA FECHA (Y HORA) DE PUBLICACIÓN DEL VIDEOCLIP
+        if vd["release"]["done"]:
+            tarea("vid_publicacion", "Fecha de lanzamiento del videoclip", "", "fa-calendar-day",
+                  state="done", grupo="video", value=vd["release"]["when_label"],
+                  menu=[{"label": "Cambiar la fecha o la hora", "icon": "fa-calendar-plus",
+                         "modal": "#dpVideoReleaseModal"}])
+        else:
+            tarea("vid_publicacion", "Fijar la fecha de lanzamiento del videoclip", "",
+                  "fa-calendar-day", grupo="video", hint="Con su hora (por defecto, las 00:00)",
+                  action_label="Poner fecha y hora", modal="#dpVideoReleaseModal")
+
+        # 8 · SUBIR EL VIDEOCLIP (es lo que se manda a aprobar y luego se distribuye)
+        if vd["file"]["done"]:
+            tarea("vid_subir", "Subir el videoclip", vd["file"]["url"], "fa-film", state="done",
+                  grupo="video",
+                  value=" · ".join([x for x in [(vd["file"]["name"] or "Subido"),
+                                                vd["file"]["at_label"]] if x]),
+                  menu=[{"label": "Subir otra versión", "icon": "fa-rotate",
+                         "modal": "#dpVideoUploadModal"}])
+        else:
+            tarea("vid_subir", "Subir el videoclip", "", "fa-film", grupo="video",
+                  hint="El montaje que se manda a aprobar",
+                  action_label="Subirlo", modal="#dpVideoUploadModal")
+
+        # 9 · LA APROBACIÓN DEL ARTISTA (solo cuando el vídeo está subido)
         _ap = vd["approval"]
         _aprob = ", ".join([v["name"] for v in (_ap.get("approved") or []) if v.get("name")][:4])
         _pend = [v for v in (_ap.get("pending") or []) if v.get("name")]
@@ -24699,10 +24743,37 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   grupo="video", state="wait",
                   value="Pendiente de %s" % (", ".join([v["name"] for v in _pend][:3]) or "que contesten"),
                   people=[{"name": v["name"], "photo_url": v.get("photo_url") or ""} for v in _pend[:4]])
+        elif not vd["file"]["done"]:
+            # ⚠️ No se manda a aprobar lo que no existe: hasta que el vídeo está subido, BLOQUEADA.
+            tarea("vid_aprobacion", "Mandar el videoclip para que lo apruebe el artista", "",
+                  "fa-paper-plane", grupo="video", state="blocked",
+                  hint="Antes hay que subir el videoclip")
         else:
             tarea("vid_aprobacion", "Mandar el videoclip para que lo apruebe el artista", "",
                   "fa-paper-plane", grupo="video",
                   action_label="Mandarlo", modal="#dpVideoApprovalModal")
+
+        # 10 · DISTRIBUIRLO: en cuanto el artista lo aprueba, es cosa de REGISTROS+SELLO
+        if vd["distribution"]["done"]:
+            tarea("vid_distribuir", "Distribuir el videoclip", "", "fa-share-nodes", state="done",
+                  grupo="video",
+                  value="Distribuido%s%s" % ((" por %s" % vd["distribution"]["by"])
+                                             if vd["distribution"]["by"] else "",
+                                             (" el %s" % vd["distribution"]["at_label"])
+                                             if vd["distribution"]["at_label"] else ""),
+                  menu=[{"label": "Volver a dejarlo pendiente", "icon": "fa-rotate-left",
+                         "post": url_for("disco_video_distributed", project_id=project.id) + "?undo=1"}])
+        elif _ap.get("done"):
+            _reg2 = _registros_sello_names(session_db)
+            tarea("vid_distribuir", "Distribuir el videoclip", "", "fa-share-nodes", grupo="video",
+                  state="sent",
+                  value=("Aprobado · pendiente de %s" % _reg2) if _reg2 else "Aprobado · a distribuir",
+                  people=_registros_sello_people(session_db),
+                  action_label="Ya está distribuido", open_to_all=True,
+                  post=url_for("disco_video_distributed", project_id=project.id))
+        else:
+            tarea("vid_distribuir", "Distribuir el videoclip", "", "fa-share-nodes", grupo="video",
+                  state="blocked", hint="Cuando el artista lo apruebe")
 
     fase[0] = "imagen"
     # ================= 6 · La PORTADA, por pasos =================
@@ -25382,6 +25453,14 @@ def _disco_video_state(session_db, project) -> dict:
             log_user = None
     fecha_rodaje = _parse_iso_date_safe(str(rodaje.get("date") or "")[:10])
     fecha_plazo = _parse_iso_date_safe(str(plazo.get("date") or "")[:10])
+    # LA PUBLICACIÓN del videoclip: día Y HORA (por defecto, las 00:00 del día que se marque).
+    salida = dict(video.get("release") or {})
+    fecha_salida = _parse_iso_date_safe(str(salida.get("date") or "")[:10])
+    hora_salida = _agenda_clean_time(salida.get("time")) or ("00:00" if fecha_salida else "")
+    # EL ARCHIVO: el que se suba aquí o el que ya esté en la ficha de la canción.
+    subido = dict(video.get("file") or {})
+    url_video = (subido.get("url") or "") or _disco_video_material_url(session_db, project)
+    distribuido = dict(video.get("distribution") or {})
     correo_prod, tel_prod = (_promoter_email_phone(productor) if productor is not None else ("", ""))
     return {
         "producer": {
@@ -25474,6 +25553,29 @@ def _disco_video_state(session_db, project) -> dict:
             # (y, si hace falta, se ha pedido).
             "done": bool(fecha_rodaje and (log_rodaje.get("needed") or "").upper() == "NO"
                          or (fecha_rodaje and log_rodaje.get("requested_at"))),
+        },
+        "release": {
+            "date": fecha_salida,
+            "date_value": (fecha_salida.isoformat() if fecha_salida else ""),
+            "date_label": (fecha_salida.strftime("%d/%m/%Y") if fecha_salida else ""),
+            "time": hora_salida,
+            "when_label": " · ".join([x for x in [
+                (fecha_salida.strftime("%d/%m/%Y") if fecha_salida else ""), hora_salida] if x]),
+            "done": bool(fecha_salida),
+        },
+        "file": {
+            "url": url_video,
+            "name": (subido.get("name") or ""),
+            "at_label": _iso_date_label(subido.get("at")),
+            "by": (subido.get("by") or ""),
+            # ⚠️ Se da por subido también si el videoclip está en la ficha de la canción, que es
+            # donde se suben los materiales: no se inventa un segundo sitio para lo mismo.
+            "done": bool(url_video),
+        },
+        "distribution": {
+            "done": bool(distribuido.get("at")),
+            "at_label": _iso_date_label(distribuido.get("at")),
+            "by": (distribuido.get("by") or ""),
         },
         "approval": _disco_approval_state(session_db, project, "VIDEOCLIP"),
     }
@@ -32606,6 +32708,137 @@ def disco_video_logistics_done(project_id):
     return redirect(safe_next_or(destino))
 
 
+@app.post("/discografica/proyectos/<project_id>/video/publicacion", endpoint="disco_video_release_save")
+@admin_required
+def disco_video_release_save(project_id):
+    """FIJAR LA FECHA DE LANZAMIENTO DEL VIDEOCLIP, con FECHA **Y HORA**.
+
+    ⚠️ Un videoclip se publica a una hora concreta (los estrenos de YouTube), así que la hora es
+    parte del dato. Sin poner ninguna se guarda **00:00** del día marcado, que es lo normal."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        video = _disco_video(project)
+        fila = dict(video.get("release") or {})
+        fecha = parse_optional_date(f.get("date"))
+        fila["date"] = (fecha.isoformat() if fecha else "")
+        # `_agenda_clean_time` es el punto único de «HH:MM» de la casa (descarta lo que no lo sea).
+        fila["time"] = (_agenda_clean_time(f.get("time")) or "00:00") if fecha else ""
+        video["release"] = fila
+        _disco_video_set(project, video)
+        session_db.commit()
+        flash("Publicación del videoclip: %s." % (" · ".join([x for x in [
+            (fecha.strftime("%d/%m/%Y") if fecha else "sin fecha"), fila["time"]] if x])), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo guardar la publicación")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/video/subir", endpoint="disco_video_upload")
+@admin_required
+def disco_video_upload(project_id):
+    """SUBIR EL VIDEOCLIP (el montaje que se manda a aprobar y luego se distribuye).
+
+    ⚠️ Se guarda además como **material de la canción** (`SongMaterial` VIDEOCLIP), que es donde
+    viven los materiales: aquí no se inventa un segundo sitio para lo mismo."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        archivo = request.files.get("file")
+        url = (request.form.get("file_url") or "").strip()
+        nombre = (request.form.get("file_name") or "").strip()
+        if archivo is not None and getattr(archivo, "filename", ""):
+            try:
+                url = upload_file(archivo, "videoclips", allowed_extensions=ARTWORK_VIDEO_EXTS)
+                nombre = (archivo.filename or "").strip()
+            except Exception as exc:
+                flash("No se pudo subir el vídeo: %s" % exc, "danger")
+                return redirect(safe_next_or(destino))
+        if not url:
+            flash("Elige el archivo del videoclip (o pega su enlace).", "warning")
+            return redirect(safe_next_or(destino))
+        yo = _current_user_state() or {}
+        video = _disco_video(project)
+        video["file"] = {"url": url, "name": nombre, "at": _now_madrid().isoformat(),
+                         "by": (yo.get("nick") or "")}
+        _disco_video_set(project, video)
+        # Y en la ficha de la canción, que es donde se miran los materiales.
+        try:
+            canciones = _disco_project_release_songs(session_db, project)
+            if canciones:
+                session_db.add(SongMaterial(
+                    song_id=canciones[0].id, category="VIDEOCLIP", slot_key="DEFAULT",
+                    file_url=url, file_name=(nombre or "videoclip")))
+        except Exception:
+            app.logger.exception("[videoclip] no se pudo guardar el material de la canción")
+        session_db.commit()
+        flash("Videoclip subido.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo subir el videoclip")
+        flash("No se pudo subir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/video/distribuido", endpoint="disco_video_distributed")
+@admin_required
+def disco_video_distributed(project_id):
+    """REGISTROS+SELLO marca que el videoclip **ya está distribuido**.
+
+    ⚠️ Como el contrato audiovisual: lo hace Registros, que no tiene por qué poder editar
+    discográfica. Se comprueba dentro que es de quien le toca."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        if not (is_master() or can_edit_discografica()
+                or yo in _registros_sello_user_ids(session_db)):
+            return forbid("El videoclip lo distribuye Registros.")
+        video = _disco_video(project)
+        fila = dict(video.get("distribution") or {})
+        if _truthy(_flag_arg("undo")):
+            fila = {}
+        else:
+            fila = {"at": _now_madrid().isoformat(),
+                    "by": ((_current_user_state() or {}).get("nick") or "")}
+            _notify_resolve(session_db, "DISCO_VIDEO_DISTRIBUTE", str(project.id))
+        video["distribution"] = fila
+        _disco_video_set(project, video)
+        session_db.commit()
+        flash("Videoclip marcado como distribuido." if fila else "Vuelve a estar pendiente.",
+              "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo marcar la distribución")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
 @app.post("/discografica/proyectos/<project_id>/video/aprobacion", endpoint="disco_video_approval")
 @admin_required
 def disco_video_approval(project_id):
@@ -32634,7 +32867,8 @@ def disco_video_approval(project_id):
             # Si no se sube nada, se manda el videoclip que ya esté en la ficha de la canción.
             url_video = _disco_video_material_url(session_db, project)
         if not url_video:
-            flash("Antes hace falta el videoclip: súbelo aquí o en la ficha de la canción.", "warning")
+            # ⚠️ No se manda a aprobar lo que no existe: el vídeo tiene que estar SUBIDO.
+            flash("Antes hay que subir el videoclip.", "warning")
             return redirect(safe_next_or(destino))
         # ⚠️ `_disco_approval_pick` devuelve DOS listas: los que entran y los añadidos ahora.
         votantes, _nuevos = _disco_approval_pick(session_db, project, request.form)
@@ -71585,6 +71819,8 @@ REQUEST_ANY_ENDPOINTS = {
     # tiene por qué poder editar discográfica; cada endpoint comprueba dentro que es suyo.
     "disco_video_contract",
     "disco_video_logistics_done",
+    # ⚠️ Y DISTRIBUIR el videoclip, que también es de Registros+Sello.
+    "disco_video_distributed",
     # ⚠️ CONTESTAR si una emisora coge la canción es tarea de PROMOCIÓN (o de dirección con función de
     # sello): el endpoint comprueba dentro que es de quien le toca. Va aquí y no en
     # `SUPPORT_ACTION_ENDPOINTS` por lo mismo que la logística: ese exige ser «actor».

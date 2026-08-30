@@ -23420,6 +23420,40 @@ def _disco_photo_pick(session_db, fila, opcion_id: str) -> bool:
     return True
 
 
+def _disco_photo_like(session_db, fila, ids) -> list:
+    """LAS FOTOS QUE LE GUSTAN (paso 1 de la elección): primero se aprueban las que valen y DESPUÉS,
+    de esas, se elige la definitiva. Devuelve las que han quedado marcadas."""
+    pay = dict(fila.payload if isinstance(fila.payload, dict) else {})
+    validas = {str(o.get("id") or o.get("url")) for o in (pay.get("options") or []) if isinstance(o, dict)}
+    marcadas = [x for x in [(y or "").strip() for y in (ids or [])] if x in validas]
+    pay["liked"] = marcadas
+    fila.payload = pay
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(fila, "payload")
+    session_db.add(fila)
+    return marcadas
+
+
+def _disco_photo_liked(fila) -> list:
+    """Las que ya se han aprobado (si aún no se ha dicho nada, ninguna)."""
+    pay = (fila.payload if isinstance(getattr(fila, "payload", None), dict) else {}) or {}
+    return [str(x) for x in (pay.get("liked") or []) if x]
+
+
+def _disco_photo_notify_picked(session_db, project, url: str) -> None:
+    """Avisa a QUIEN LLEVA EL PROYECTO de que el artista ya ha elegido la foto de la portada."""
+    try:
+        _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                      "Foto de portada elegida: %s" % _disco_project_title(project),
+                      "El artista ya ha elegido la foto de la portada. Ya se le puede pedir la "
+                      "portada a diseño.",
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_PHOTO_PICKED", ref_id=str(project.id),
+                      actor_photo=(url or None))
+    except Exception:
+        app.logger.exception("[foto] no se pudo avisar de la foto elegida")
+
+
 def _disco_photo_approved(session_db, project, fila) -> None:
     """La foto ya está aprobada: pasa a ser la de la portada y se avisa a DISEÑO y al jefe de producto."""
     url = _disco_photo_picked_url(fila)
@@ -23995,7 +24029,26 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                                 for f in entregas["rows"] if f["date"]) or None),
               action_label="Configurar calendario", modal="#dpDeliveryModal")
 
-    # ================= 3 · La PRODUCCIÓN y sus subtareas =================
+    # ================= 3 · La MAQUETA =================
+    if lleva_audio:
+        demo = _disco_project_demo(session_db, project)
+        if demo is not None:
+            tarea("demo", "Subir demo", "", "fa-compact-disc", state="done",
+                  value="«%s»%s" % ((demo.title or "maqueta"),
+                                    (" · se ve en el lanzamiento" if _disco_project_demo_visible(
+                                        session_db, project) else " · en Demos")),
+                  menu=[{"label": "Subir otra maqueta", "icon": "fa-plus", "modal": "#dpDemoModal"},
+                        {"label": "Ver en Demos", "icon": "fa-arrow-right",
+                         "url": url_for("discografica_view", section="demos",
+                                        demo_artist=str(project.artist_id or ""))}])
+        else:
+            tarea("demo", "Subir demo", "", "fa-compact-disc", grupo="single",
+                  action_label="Subir demo", modal="#dpDemoModal",
+                  hint="Queda vinculada al proyecto y se ve en el lanzamiento hasta que haya másters")
+
+    # ⚠️ La PRODUCCIÓN va AQUÍ, DEBAJO DE LA MAQUETA: es el orden del proceso (primero se sube
+    # la demo y con ella se cierra quién produce, quién mezcla y quién masteriza).
+    # ================= 4 · La PRODUCCIÓN y sus subtareas =================
     if lleva_audio:
         p = prod.get("producer") or {}
         if prod.get("all_done"):
@@ -24022,6 +24075,25 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                           grupo="single", sub=True, action_label="Fijar el %",
                           modal="#dpProducerModal",
                           hint="Quedó en «no lo sé todavía»")
+                # EL CONTRATO DEL PRODUCTOR lo manda REGISTROS+SELLO. Aquí, para el sello que lleva
+                # el proyecto, se ve como **Solicitado y pendiente de** esa persona.
+                _ctr = _disco_producer_contract(project)
+                if _ctr["done"]:
+                    tarea("prod_contrato", "Contrato del productor", _ctr["file_url"],
+                          "fa-file-signature", grupo="single", sub=True, state="done",
+                          value="Enviado%s%s" % ((" por %s" % _ctr["done_by"]) if _ctr["done_by"] else "",
+                                                 (" · %s" % _ctr["done_label"]) if _ctr["done_label"] else ""),
+                          menu=[{"label": "Volver a dejarlo pendiente", "icon": "fa-rotate-left",
+                                 "post": url_for("disco_project_producer_contract",
+                                                 project_id=project.id) + "?undo=1"}])
+                else:
+                    _quien = _registros_sello_names(session_db)
+                    tarea("prod_contrato", "Contrato del productor", "", "fa-file-signature",
+                          grupo="single", sub=True, state="sent",
+                          value=("Solicitado · pendiente de %s" % _quien) if _quien else "Solicitado",
+                          people=_registros_sello_people(session_db),
+                          hint="Lo prepara y lo manda Registros",
+                          action_label="Subir el contrato", modal="#dpProducerContractModal")
             for clave, texto in (("mix", "Quién va a realizar la mezcla"),
                                  ("master", "Quién va a realizar el máster")):
                 d = prod.get(clave) or {}
@@ -24046,7 +24118,7 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                 tarea("prod_voces", "Grabación de voces", "", "fa-microphone", grupo="single",
                       sub=True, action_label="Configurar", modal="#dpVocalsModal")
 
-    # ================= 4 · LOGÍSTICA (sale de la grabación: va justo después de producción) =================
+    # ================= 5 · LOGÍSTICA (sale de la grabación: va justo después de producción) =================
     # Se dice si hace falta y, si hace falta, se le SOLICITA a alguien de producción: a partir de ahí
     # es tarea suya (y esa persona entra en la hoja de ruta y apunta los gastos en la bolsa).
     log = _disco_logistics_state(session_db, project)
@@ -24075,23 +24147,6 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
               value="Montada%s%s" % ((" por %s" % log["done_by"]) if log["done_by"] else "",
                                      (" · %s" % log["done_label"]) if log["done_label"] else ""),
               menu=[{"label": "Volver a pedir algo", "icon": "fa-pen", "modal": "#dpLogisticsModal"}])
-
-    # ================= 5 · La MAQUETA =================
-    if lleva_audio:
-        demo = _disco_project_demo(session_db, project)
-        if demo is not None:
-            tarea("demo", "Subir demo", "", "fa-compact-disc", state="done",
-                  value="«%s»%s" % ((demo.title or "maqueta"),
-                                    (" · se ve en el lanzamiento" if _disco_project_demo_visible(
-                                        session_db, project) else " · en Demos")),
-                  menu=[{"label": "Subir otra maqueta", "icon": "fa-plus", "modal": "#dpDemoModal"},
-                        {"label": "Ver en Demos", "icon": "fa-arrow-right",
-                         "url": url_for("discografica_view", section="demos",
-                                        demo_artist=str(project.artist_id or ""))}])
-        else:
-            tarea("demo", "Subir demo", "", "fa-compact-disc", grupo="single",
-                  action_label="Subir demo", modal="#dpDemoModal",
-                  hint="Queda vinculada al proyecto y se ve en el lanzamiento hasta que haya másters")
 
     # ================= 4b · La MEZCLA FINAL (hay que aprobarla ANTES de masterizar) =================
     if lleva_audio and _disco_project_release_song(session_db, project) is not None:
@@ -24304,10 +24359,14 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                               menu=[{"label": "Volver a pedírselo", "icon": "fa-rotate",
                                      "modal": "#dpPhotoPickModal"}])
                     elif fap["done"]:
+                        # HECHO, y se puede PINCHAR para ver la foto elegida (en el visor de siempre).
+                        _foto_url = art.get("photo_url") or ""
                         tarea("port_foto_ok", "Foto elegida por el artista", "", "fa-image",
                               grupo="single", sub=True, state="done",
                               value="Aprobada por %s" % (", ".join(v["name"] for v in fap["approved"][:4])
-                                                         or "el artista"))
+                                                         or "el artista"),
+                              photo_url=_foto_url,
+                              action_label=("Ver la foto" if _foto_url else ""))
                     elif fap["ko"]:
                         tarea("port_foto_ok", "Que el artista elija la foto", "", "fa-thumbs-down",
                               True, grupo="single", sub=True,
@@ -24319,7 +24378,14 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                               hint="Si no está clara, se le mandan varias al artista para que elija",
                               action_label="Que elija el artista", modal="#dpPhotoPickModal")
                     # 4.3 · solicitarla
-                    if not art["requested"]:
+                    # ⚠️ NO se puede pedir la portada mientras el artista esté eligiendo la foto: es
+                    # lo que hay que darle a quien la diseña. La tarea se ve, pero BLOQUEADA.
+                    _foto_en_curso = bool(fap["exists"] and fap["open"])
+                    if _foto_en_curso and not art["requested"]:
+                        tarea("port_pedir", "Solicitar la portada", "", "fa-paper-plane",
+                              grupo="single", sub=True, state="blocked",
+                              hint="Antes tiene que elegir la foto el artista")
+                    elif not art["requested"]:
                         tarea("port_pedir", "Solicitar la portada", "", "fa-paper-plane",
                               grupo="single", sub=True, action_label="Solicitar",
                               modal="#dpArtworkRequestModal",
@@ -24745,6 +24811,86 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
         tarea("cerrar", "Todo listo: cierra el proyecto para pasar a distribución y registro",
               url_info, "fa-flag-checkered")
     return _disco_tasks_fold(tareas)
+
+
+def _registros_sello_user_ids(session_db) -> list[str]:
+    """Quien es **REGISTROS y SELLO a la vez**: es quien manda el CONTRATO DEL PRODUCTOR.
+
+    ⚠️ Si no hay nadie con las dos cosas se cae a Registros (y de ahí a sus respaldos): mejor que lo
+    vea alguien de más que dejar la tarea sin dueño."""
+    fuera = _inactive_user_ids(session_db)
+    try:
+        perfiles = session_db.query(UserProfile).all()
+    except Exception:
+        app.logger.exception("[proyectos] no se pudo resolver quién es registros y sello")
+        return []
+    ids = [str(p.user_id) for p in perfiles
+           if p.user_id not in fuera and _is_registros_sello(p)]
+    return ids or _registros_user_ids(session_db)
+
+
+def _registros_sello_people(session_db) -> list[dict]:
+    """Quién es registros+sello, con su NOMBRE y su FOTO: es de quien está pendiente el contrato."""
+    ids = _registros_sello_user_ids(session_db)
+    if not ids:
+        return []
+    try:
+        perfiles = (session_db.query(UserProfile)
+                    .filter(UserProfile.user_id.in_([to_uuid(x) for x in ids])).all())
+    except Exception:
+        return []
+    return [{"id": str(p.user_id), "nick": (p.nick or ""),
+             "photo_url": (getattr(p, "photo_url", "") or "")} for p in perfiles]
+
+
+def _registros_sello_names(session_db) -> str:
+    return ", ".join([p["nick"] for p in _registros_sello_people(session_db) if p["nick"]][:3])
+
+
+def _disco_producer_contract(project) -> dict:
+    """EL CONTRATO DEL PRODUCTOR: en qué punto está.
+
+    Cuando se configura quién produce, a **Registros y Sello** les toca preparar y mandar su
+    contrato; al SELLO que lleva el proyecto le sale como «Solicitado y pendiente de …». Se cierra
+    para todos cuando se sube el contrato."""
+    fila = dict((_disco_prod(project).get("producer_contract") or {}))
+    return {
+        "asked_at": (fila.get("asked_at") or ""),
+        "asked_label": _iso_date_label(fila.get("asked_at")),
+        "done_at": (fila.get("done_at") or ""),
+        "done_label": _iso_date_label(fila.get("done_at")),
+        "done_by": (fila.get("done_by") or ""),
+        "file_url": (fila.get("file_url") or ""),
+        "file_name": (fila.get("file_name") or ""),
+        "done": bool(fila.get("done_at")),
+        "asked": bool(fila.get("asked_at")),
+    }
+
+
+def _disco_producer_contract_ask(session_db, project) -> bool:
+    """Le pide a REGISTROS+SELLO el contrato del productor (una sola vez por productor).
+
+    Se llama al configurar quién produce: es lo que dispara la tarea."""
+    if not getattr(project, "producer_promoter_id", None):
+        return False
+    estado = _disco_producer_contract(project)
+    if estado["asked"] or estado["done"]:
+        return False
+    prod = _disco_prod(project)
+    prod["producer_contract"] = {"asked_at": _now_madrid().isoformat()}
+    project.production_payload = prod
+    try:
+        artista = getattr(project, "artist", None)
+        _notify_users(session_db, _registros_sello_user_ids(session_db), "REGISTROS",
+                      "Enviar contrato de productor · %s" % _disco_project_title(project),
+                      "Hay que preparar y mandar el contrato del productor de este lanzamiento.",
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_PRODUCER_CONTRACT", ref_id=str(project.id),
+                      actor_name=(getattr(artista, "name", "") or None),
+                      actor_photo=(getattr(artista, "photo_url", None) or None))
+    except Exception:
+        app.logger.exception("[proyectos] no se pudo avisar del contrato del productor")
+    return True
 
 
 def _disco_days_left_label(fecha) -> str:
@@ -30148,6 +30294,7 @@ def disco_project_production_save(project_id):
             return (str(d) if d is not None else "")
 
         if seccion == "producer":
+            _productor_antes = getattr(project, "producer_promoter_id", None)
             project.producer_promoter_id = _pk("producer_promoter_id")
             modo = (f.get("fee_mode") or "").strip().upper()
             prod["fee_mode"] = modo if modo in dict((k, 1) for k, _l, _i in DISCO_PROD_FEE_MODES) else ""
@@ -30195,6 +30342,14 @@ def disco_project_production_save(project_id):
             return redirect(destino)
         project.production_payload = prod
         project.updated_at = _now_madrid()
+        # ⚠️ Con el PRODUCTOR configurado, a REGISTROS+SELLO les toca mandarle su CONTRATO: se les
+        # pide aquí (una sola vez). Si se cambia de productor, el contrato vuelve a estar pendiente.
+        if seccion == "producer":
+            if _productor_antes and str(_productor_antes) != str(project.producer_promoter_id or ""):
+                prod.pop("producer_contract", None)
+                project.production_payload = prod
+            if _disco_producer_contract_ask(session_db, project):
+                prod = _disco_prod(project)
         # LOGÍSTICA de la grabación: le sale como tarea a quien se elija de producción.
         # ⚠️ Es la MISMA logística del proyecto (no hay dos): lo que se pide aquí se vuelca en
         # `production_payload['logistics']`, que es lo que leen la tarea, el módulo de Inicio de esa
@@ -30474,32 +30629,39 @@ def public_disco_approval(token):
         opciones = (_disco_photo_options(fila) if (fila.kind or "").upper() == "COVER_PHOTO" else [])
         elige = bool(opciones) and len(opciones) > 1 and int(voter.stage or 1) == 1 \
             and not (fila.payload or {}).get("picked")
+        # ⚠️ LA ELECCIÓN VA EN DOS PASOS: primero se APRUEBAN las que gusten y, de esas, se elige la
+        # DEFINITIVA (que es la que se comunica para hacer la portada).
+        gustan = _disco_photo_liked(fila)
+        paso = "like" if (elige and not gustan) else "pick"
+        pintar = lambda modo, err="", **kw: render_template(
+            "public_disco_approval.html", mode=modo, ctx=ctx, project=project, voter=voter,
+            options=kw.pop("options", opciones), choose=kw.pop("choose", elige),
+            step=kw.pop("step", paso), liked=kw.pop("liked", gustan),
+            state=_disco_approval_state(session_db, project, fila.kind), error=err, **kw)
         if request.method == "POST" and (voter.status or "").upper() == "PENDIENTE":
+            # Paso 1: las que le gustan (todavía no decide nada).
+            if elige and (request.form.get("step") or "").strip() == "like":
+                marcadas = _disco_photo_like(session_db, fila, request.form.getlist("liked"))
+                if not marcadas:
+                    return pintar("form", "Marca al menos una foto que te valga.", step="like", liked=[])
+                session_db.commit()
+                return pintar("form", step="pick", liked=marcadas)
             aprueba = (request.form.get("decision") or "").strip().upper() == "OK"
             nota = (request.form.get("note") or "").strip()
             if not aprueba and not nota:
-                return render_template("public_disco_approval.html", mode="form", ctx=ctx,
-                                       project=project, voter=voter, options=opciones, choose=elige,
-                                       state=_disco_approval_state(session_db, project, fila.kind),
-                                       error="Dinos qué hay que cambiar.")
+                return pintar("form", "Dinos qué hay que cambiar.")
             if aprueba and elige:
-                if not _disco_photo_pick(session_db, fila, request.form.get("option") or ""):
-                    return render_template("public_disco_approval.html", mode="form", ctx=ctx,
-                                           project=project, voter=voter, options=opciones,
-                                           choose=elige,
-                                           state=_disco_approval_state(session_db, project, fila.kind),
-                                           error="Elige una de las fotos.")
+                pedida = (request.form.get("option") or "").strip()
+                if gustan and pedida not in gustan:
+                    return pintar("form", "Elige una de las que has aprobado.", step="pick")
+                if not _disco_photo_pick(session_db, fila, pedida):
+                    return pintar("form", "Elige una de las fotos.", step="pick")
+                # QUIEN LLEVA EL PROYECTO se entera de que ya hay foto elegida.
+                _disco_photo_notify_picked(session_db, project, _disco_photo_picked_url(fila))
             _disco_approval_decide(session_db, voter, aprueba, nota)
             session_db.commit()
-            return render_template("public_disco_approval.html", mode="done", ctx=ctx,
-                                   project=project, voter=voter,
-                                   options=_disco_photo_options(fila), choose=False,
-                                   state=_disco_approval_state(session_db, project, fila.kind))
-        return render_template("public_disco_approval.html",
-                               mode=("done" if (voter.status or "").upper() != "PENDIENTE" else "form"),
-                               ctx=ctx, project=project, voter=voter,
-                               options=opciones, choose=elige,
-                               state=_disco_approval_state(session_db, project, fila.kind))
+            return pintar("done", options=_disco_photo_options(fila), choose=False, step="pick")
+        return pintar("done" if (voter.status or "").upper() != "PENDIENTE" else "form")
     finally:
         session_db.close()
 
@@ -31218,6 +31380,69 @@ def disco_project_logistics_save(project_id):
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("[proyectos] no se pudo guardar la logística")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/contrato-productor", endpoint="disco_project_producer_contract")
+@admin_required
+def disco_project_producer_contract(project_id):
+    """SUBIR EL CONTRATO DEL PRODUCTOR (lo hace Registros y Sello). Al subirlo, la tarea queda hecha
+    para todos: para quien lo manda y para el sello que lleva el proyecto.
+
+    ⚠️ No se exige `can_edit_discografica()`: lo hace Registros, que no tiene por qué poder editar
+    discográfica. Se comprueba que sea de quien le toca (o dirección)."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        if not (is_master() or can_edit_discografica()
+                or yo in _registros_sello_user_ids(session_db)):
+            return forbid("Este contrato lo manda Registros.")
+        prod = _disco_prod(project)
+        fila = dict(prod.get("producer_contract") or {})
+        if _truthy(request.form.get("undo")):
+            fila.pop("done_at", None); fila.pop("done_by", None)
+            fila.pop("file_url", None); fila.pop("file_name", None)
+            prod["producer_contract"] = fila
+            project.production_payload = prod
+            session_db.commit()
+            flash("El contrato vuelve a estar pendiente.", "success")
+            return redirect(safe_next_or(destino))
+        doc = request.files.get("contract")
+        if doc is not None and getattr(doc, "filename", ""):
+            try:
+                fila["file_url"] = upload_file(doc, "contratos-productor")
+                fila["file_name"] = (doc.filename or "").strip()
+            except Exception as exc:
+                flash("No se pudo subir el contrato: %s" % exc, "danger")
+                return redirect(safe_next_or(destino))
+        estado = _current_user_state() or {}
+        fila["done_at"] = _now_madrid().isoformat()
+        fila["done_by"] = (estado.get("nick") or "")
+        fila.setdefault("asked_at", _now_madrid().isoformat())
+        prod["producer_contract"] = fila
+        project.production_payload = prod
+        _notify_resolve(session_db, "DISCO_PRODUCER_CONTRACT", str(project.id))
+        # Quien lleva el proyecto se entera de que ya está mandado.
+        try:
+            _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                          "Contrato de productor enviado · %s" % _disco_project_title(project),
+                          "Ya está el contrato del productor.",
+                          destino, ref_type="DISCO_PRODUCER_CONTRACT_OK", ref_id=str(project.id))
+        except Exception:
+            app.logger.exception("[proyectos] no se pudo avisar del contrato subido")
+        session_db.commit()
+        flash("Contrato del productor guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[proyectos] no se pudo guardar el contrato del productor")
         flash("No se pudo guardar: %s" % exc, "danger")
     finally:
         session_db.close()
@@ -69490,6 +69715,12 @@ def inject_personnel_globals():
         # NOTAS DE PRENSA pendientes: a promoción (redactarla y enviarla) y a diseño (el gráfico).
         "HOME_PRESS_TASKS": (_home_press_tasks()
                              if _home and "_home_press_tasks" in globals() else []),
+        # LO DE DISEÑO, agrupado por proyecto (la portada y las creatividades de cada lanzamiento).
+        "HOME_DESIGN_TASKS": (_home_design_tasks()
+                              if _home and "_home_design_tasks" in globals() else []),
+        # CONTRATOS DE PRODUCTOR por mandar (quien es Registros y Sello a la vez).
+        "HOME_PRODUCER_CONTRACTS": (_home_producer_contracts()
+                                    if _home and "_home_producer_contracts" in globals() else []),
         # PRESENTAR A RADIO: a promoción (y a dirección con función de sello), una subtarea por
         # emisora. Es de quien le toca contestar, así que va con lo suyo (dirección incluida).
         "HOME_RADIO_PITCHES": (_home_radio_pitches()
@@ -69867,6 +70098,9 @@ REQUEST_ANY_ENDPOINTS = {
     # comía un 403 si no tenía ninguna sección con edición: comprobado). El endpoint comprueba dentro
     # que la logística es suya (o que es del sello o de dirección).
     "disco_project_logistics_done",
+    # ⚠️ EL CONTRATO DEL PRODUCTOR lo manda REGISTROS+SELLO, que no tiene por qué poder editar
+    # discográfica ni ser «actor». El endpoint comprueba dentro que es de quien le toca.
+    "disco_project_producer_contract",
     # ⚠️ CONTESTAR si una emisora coge la canción es tarea de PROMOCIÓN (o de dirección con función de
     # sello): el endpoint comprueba dentro que es de quien le toca. Va aquí y no en
     # `SUPPORT_ACTION_ENDPOINTS` por lo mismo que la logística: ese exige ser «actor».
@@ -113744,6 +113978,126 @@ def _home_radio_pitches(limit: int = 12) -> list[dict]:
         session_db.close()
 
 
+def _home_producer_contracts(limit: int = 12) -> list[dict]:
+    """CONTRATOS DE PRODUCTOR por mandar (módulo de Inicio de quien es **Registros y Sello**).
+
+    Una fila por proyecto, con los datos que hacen falta para redactarlo: la canción, el productor y
+    lo pactado. Se cierra al subir el contrato."""
+    estado = _current_user_state() or {}
+    yo = str(estado.get("user_id") or "")
+    if not yo:
+        return []
+    session_db = db()
+    try:
+        if not (yo in _registros_sello_user_ids(session_db) or int(estado.get("role") or 0) == 10):
+            return []
+        filas = []
+        proyectos = (session_db.query(DiscoProject)
+                     .options(joinedload(DiscoProject.artist))
+                     .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                     .filter(DiscoProject.producer_promoter_id.isnot(None))
+                     .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
+        for p in proyectos:
+            ctr = _disco_producer_contract(p)
+            if ctr["done"] or not ctr["asked"]:
+                continue
+            pr = _disco_production_state(session_db, p)
+            productor = pr.get("producer") or {}
+            artista = getattr(p, "artist", None)
+            filas.append({
+                "id": str(p.id),
+                "title": _disco_project_title(p),
+                "artist_name": (getattr(artista, "name", "") or ""),
+                "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                "release_label": (p.release_date.strftime("%d/%m/%Y") if getattr(p, "release_date", None) else ""),
+                "producer": (productor.get("name") or ""),
+                "producer_logo": (productor.get("logo_url") or ""),
+                "terms": " · ".join([x for x in [
+                    productor.get("fee_label"),
+                    productor.get("fee_amount_label") or productor.get("budget_amount_label"),
+                    ("%s %%" % productor.get("pct")) if productor.get("pct") else ""] if x]),
+                "asked_label": ctr["asked_label"],
+                "url": url_for("disco_project_detail", project_id=p.id, tab="calendario"),
+                "post_url": url_for("disco_project_producer_contract", project_id=p.id),
+            })
+            if len(filas) >= limit:
+                break
+        return filas
+    except Exception:
+        app.logger.exception("[registros] no se pudieron montar los contratos de productor")
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_design_tasks(limit: int = 12) -> list[dict]:
+    """LO QUE DISEÑO TIENE PENDIENTE, agrupado POR PROYECTO discográfico (módulo de Inicio).
+
+    Una fila por proyecto y, dentro, **una subtarea por cosa**: la portada y cada creatividad que se
+    le haya pedido. Cada una con **los días que faltan** para entregarla, que es lo que hay que
+    mirar. Así todo lo de diseño de un lanzamiento se ve junto y no repartido."""
+    estado = _current_user_state() or {}
+    yo = str(estado.get("user_id") or "")
+    if not yo:
+        return []
+    session_db = db()
+    try:
+        de_diseno = yo in [str(x) for x in _department_user_ids(session_db, "Diseño")]
+        if not (de_diseno or int(estado.get("role") or 0) == 10):
+            return []
+        filas = []
+        proyectos = (session_db.query(DiscoProject)
+                     .options(joinedload(DiscoProject.artist))
+                     .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                     .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
+        for p in proyectos:
+            subtareas = []
+            # La PORTADA, si nos toca a nosotros y todavía no está entregada.
+            try:
+                art = _disco_artwork_state(session_db, p)
+                if (art.get("who") or "").upper() == "US" and art.get("requested") and not art.get("delivered"):
+                    subtareas.append({"label": "Portada", "icon": "fa-image",
+                                      "due_label": art.get("due_label") or "",
+                                      "days": _disco_days_left_label(art.get("due_date")),
+                                      "late": bool(art.get("due_date") and art["due_date"] < today_local())})
+            except Exception:
+                app.logger.exception("[diseño] no se pudo leer la portada del proyecto")
+            # Y cada CREATIVIDAD solicitada que aún no se ha subido.
+            try:
+                cre = _disco_creatives_state(session_db, p)
+                vence = cre.get("due_date")
+                for fila in (cre.get("rows") or []):
+                    if (fila.get("status") or "").upper() != "SOLICITADA":
+                        continue
+                    subtareas.append({"label": fila["label"], "icon": fila.get("icon") or "fa-shapes",
+                                      "due_label": cre.get("due_label") or "",
+                                      "days": _disco_days_left_label(vence),
+                                      "late": bool(vence and vence < today_local())})
+            except Exception:
+                app.logger.exception("[diseño] no se pudieron leer las creatividades del proyecto")
+            if not subtareas:
+                continue
+            artista = getattr(p, "artist", None)
+            filas.append({
+                "id": str(p.id),
+                "title": _disco_project_title(p),
+                "artist_name": (getattr(artista, "name", "") or ""),
+                "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                "release_label": (p.release_date.strftime("%d/%m/%Y") if getattr(p, "release_date", None) else ""),
+                "tasks": subtareas,
+                "late": any(t["late"] for t in subtareas),
+                "url": url_for("disco_project_detail", project_id=p.id, tab="calendario"),
+            })
+            if len(filas) >= limit:
+                break
+        return filas
+    except Exception:
+        app.logger.exception("[diseño] no se pudieron montar las tareas de diseño")
+        return []
+    finally:
+        session_db.close()
+
+
 def _home_press_tasks(limit: int = 12) -> list[dict]:
     """NOTAS DE PRENSA pendientes (módulo de Inicio de **promoción** y de **diseño**).
 
@@ -119682,11 +120036,14 @@ def _merge_search_view(kind):
                     conds.append(_sa_contains_text(getattr(model, attr), q))
             if conds:
                 query = query.filter(or_(*conds))
+        # ⚠️ El elemento de partida se excluye EN LA CONSULTA, no después: excluyéndolo al final se
+        # gastaba uno de los 25 resultados y, con muchos homónimos, el duplicado que se busca podía
+        # quedarse fuera del listado.
+        if exclude:
+            query = query.filter(model.id != exclude)
         rows = query.limit(25).all()
         out = []
         for r in rows:
-            if exclude and r.id == exclude:
-                continue
             out.append({
                 "id": str(r.id),
                 "name": _merge_display(cfg, r),

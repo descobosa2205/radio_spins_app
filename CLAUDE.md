@@ -988,6 +988,50 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `agenda_calendar.js`** a mano: el parcial solo deja el JSON, quien dibuja es el JS (que en las
   pantallas de dentro viene de `layout.html`).
 
+- **PROYECTO · LA FOTO DE LA PORTADA se aprueba y LUEGO se elige** (ago 2026). El artista recibe
+  varias opciones y va en **DOS PASOS**: primero marca **todas las que le valen** («Me valen estas»)
+  y, **de esas**, elige **LA DEFINITIVA** («Esta es la portada») — que es la que se comunica para
+  hacer la portada. Lo guardan `_disco_photo_like` (`payload['liked']`) y `_disco_photo_pick`
+  (`payload['picked']`), y el paso lo decide el propio endpoint (`step`).
+  ⚠️ En el segundo paso **solo se ofrecen las aprobadas**, y el servidor lo vuelve a comprobar: no se
+  puede elegir una que no se haya aprobado.
+  · Al elegir, **aviso a quien lleva el proyecto** (`_disco_photo_notify_picked`, kind
+  `DISCO_PHOTO_PICKED`): «ya ha elegido la foto». En las tareas queda **HECHA** y se puede **pinchar
+  para verla** en el visor de fotos de la casa — pop-up global `#artPhotoModal` (`layout.html`), que
+  abre cualquier elemento con **`data-art-photo="<url>"`**, con abrir y descargar.
+  ⚠️ **«Solicitar la portada» está BLOQUEADA mientras el artista esté eligiendo**: es lo que hay que
+  darle a quien la diseña.
+  · Las fotos de ese pop-up se pueden **arrastrar** (`data-file-drop-for`), y **añadir a alguien que
+  apruebe** se hace **buscándolo** (con su foto), como el productor — su correo y su teléfono viajan
+  en ocultos que rellena el buscador. ⚠️ El selector se incluye en VARIOS pop-ups de la misma
+  página, así que sus ids llevan el sufijo del suyo (`appr_id`): con ids repetidos
+  `getElementById` cogería siempre el primero.
+
+- **PROYECTO · LO DE DISEÑO, agrupado por proyecto** (ago 2026): módulo de Inicio
+  **`HOME_DESIGN_TASKS`** (`_home_design_tasks`) para el departamento de Diseño: **una fila por
+  lanzamiento** y, dentro, **una subtarea por cosa** (la portada y cada creatividad pedida), cada una
+  con **los días que faltan** para entregarla (`_disco_days_left_label`, punto único; en rojo si se
+  pasó el plazo). Así todo lo de diseño de un proyecto se ve junto y no repartido.
+
+- **PROYECTO · EL CONTRATO DEL PRODUCTOR** (ago 2026): al configurar **quién produce** se le pide
+  automáticamente a quien es **REGISTROS y SELLO a la vez** (`_registros_sello_user_ids`; si no hay
+  nadie con las dos cosas se cae a Registros) que prepare y mande su contrato
+  (`_disco_producer_contract_ask`, aviso kind `REGISTROS` con la foto del artista).
+  · A ellos les sale en Inicio (**`HOME_PRODUCER_CONTRACTS`** ← `_home_producer_contracts`) con **los
+  datos para redactarlo**: el lanzamiento, el productor y lo pactado (fee/presupuesto y %).
+  · Al **SELLO que lleva el proyecto** le sale la misma tarea como **«Solicitado · pendiente de
+  \<nick\>»**, con la **cara** de esa persona (`people` de la tarea).
+  · Se **sube el contrato** (`disco_project_producer_contract`) y con eso queda **hecha para todos**:
+  el aviso se cierra solo y a quien lleva el proyecto le llega que ya está. Es reversible.
+  ⚠️ El endpoint va en **`REQUEST_ANY_ENDPOINTS`**: lo hace Registros, que no tiene por qué poder
+  editar discográfica ni ser «actor»; comprueba dentro que es de quien le toca.
+  ⚠️ **Cambiar de productor deja el contrato otra vez pendiente**: es otro contrato.
+
+- **PROYECTO · el ORDEN de la fase «Single»** (ago 2026): fecha → plazo de entrega → **maqueta** →
+  **producción** → **logística** → mezcla final… La producción va **debajo de la demo** (primero se
+  sube la maqueta y con ella se cierra quién produce, quién mezcla y quién masteriza), y la logística
+  detrás de ella porque **sale de la grabación de voces**. La fase se llama **«Single»**.
+
 - **PROYECTO · los pasos, rematados** (ago 2026):
   · Los botones de las tareas van **SIN RELLENAR** (`btn-outline-danger`), como en el resto de la
   app: con 25 tareas, una columna de botones macizos no deja ver por dónde va el trabajo.

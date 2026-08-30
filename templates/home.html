@@ -872,6 +872,86 @@ document.addEventListener('click', function (ev) {
 
 {# NOTAS DE PRENSA pendientes: a promoción le toca redactarla y luego enviarla; a diseño, el
    gráfico. Con el plazo (el lunes previo al lanzamiento) y en rojo si ya se pasó. #}
+{# CONTRATOS DE PRODUCTOR por mandar (quien es Registros y Sello): con los datos para redactarlo. #}
+{% if HOME_PRODUCER_CONTRACTS %}
+<div class="card mb-4 border-warning">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-file-signature text-danger me-2"></i>Contratos de productor
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_PRODUCER_CONTRACTS|length }}</span>
+    </span>
+    <span class="text-muted small">Hay que prepararlos y mandarlos.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_PRODUCER_CONTRACTS %}
+      <div class="ctask">
+        <div class="ctask__head">
+          {{ artist_avatar(r.artist_photo, r.artist_name) }}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}"
+             title="Abrir el proyecto">{{ r.artist_name or r.title }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-compact-disc"></i>{{ r.title }}</span>
+            {% if r.producer %}<span class="ctask__fact"><i class="fa fa-user-tie"></i>{{ r.producer }}</span>{% endif %}
+            {% if r.terms %}<span class="ctask__fact"><i class="fa fa-file-contract"></i>{{ r.terms }}</span>{% endif %}
+            {% if r.release_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>sale el {{ r.release_label }}</span>{% endif %}
+          </span>
+          <span class="ms-auto ctask__actions">
+            <a class="btn btn-sm btn-danger" href="{{ r.url }}"><i class="fa fa-arrow-right me-1"></i>Abrir</a>
+          </span>
+        </div>
+        <div class="ctask__tasks">
+          <span class="badge text-bg-warning text-dark"><i class="fa fa-file-signature me-1"></i>Enviar contrato de productor</span>
+          {% if r.asked_label %}<span class="badge text-bg-light border">pedido el {{ r.asked_label }}</span>{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# LO DE DISEÑO, agrupado POR PROYECTO: la portada y las creatividades de cada lanzamiento juntas,
+   cada una con los días que faltan para entregarla. #}
+{% if HOME_DESIGN_TASKS %}
+<div class="card mb-4 border-warning">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-palette text-danger me-2"></i>Diseño · lanzamientos
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_DESIGN_TASKS|length }}</span>
+    </span>
+    <span class="text-muted small">Portadas y creatividades pedidas, por proyecto.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_DESIGN_TASKS %}
+      <div class="ctask{% if r.late %} border-danger{% endif %}">
+        <div class="ctask__head">
+          {% if r.artist_photo or r.artist_name %}
+            {{ artist_avatar(r.artist_photo, r.artist_name) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-palette text-muted"></i></span>
+          {% endif %}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}"
+             title="Abrir el proyecto">{{ r.artist_name or r.title }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-compact-disc"></i>{{ r.title }}</span>
+            {% if r.release_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>sale el {{ r.release_label }}</span>{% endif %}
+          </span>
+          <span class="ms-auto ctask__actions">
+            <a class="btn btn-sm btn-danger" href="{{ r.url }}"><i class="fa fa-arrow-right me-1"></i>Abrir</a>
+          </span>
+        </div>
+        <div class="ctask__tasks">
+          {% for t in r.tasks %}
+            <span class="badge {{ 'text-bg-danger' if t.late else 'text-bg-warning text-dark' }}"
+                  title="{% if t.due_label %}Entrega el {{ t.due_label }}{% endif %}">
+              <i class="fa {{ t.icon }} me-1"></i>{{ t.label }}{% if t.days %} · {{ t.days }}{% endif %}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if HOME_PRESS_TASKS %}
 <div class="card mb-4 border-warning">
   <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">

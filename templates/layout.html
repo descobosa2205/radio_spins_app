@@ -452,6 +452,52 @@
 {% if CURRENT_USER %}<script src="{{ url_for('static', filename='js/notificaciones.js', v=ASSET_V) }}"></script>{% endif %}
 {# Miniatura de vídeo (fotograma intermedio) para cualquier <video class="video-thumb"> (global). #}
 <script src="{{ url_for('static', filename='js/video_thumb.js', v=ASSET_V) }}"></script>
+{# Una FOTO se ve en un pop-up (uno para toda la app), con abrirla a tamaño y descargarla: lo abre
+   cualquier elemento con data-art-photo="<url>". #}
+{% if session.get('user_id') %}
+<div class="modal fade" id="artPhotoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="artPhotoTitle">Foto</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body text-center bg-dark">
+        <img id="artPhotoEl" alt="" style="max-width:100%;max-height:70vh;border-radius:8px;">
+      </div>
+      <div class="modal-footer">
+        <a id="artPhotoOpen" class="btn btn-outline-secondary" href="#" target="_blank" rel="noopener">
+          <i class="fa fa-up-right-from-square fa-fw me-1"></i>Abrir</a>
+        <a id="artPhotoDl" class="btn btn-outline-secondary" href="#" download target="_blank" rel="noopener">
+          <i class="fa fa-download fa-fw me-1"></i>Descargar</a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  // Por DELEGACIÓN: las fotos se pintan en listas que se repintan (tareas, paneles embebidos).
+  document.addEventListener('click', function(ev){
+    var el = ev.target.closest && ev.target.closest('[data-art-photo]');
+    if(!el) return;
+    var url = el.getAttribute('data-art-photo') || '';
+    if(!url) return;
+    ev.preventDefault();
+    var modal = document.getElementById('artPhotoModal');
+    var img = document.getElementById('artPhotoEl');
+    if(!modal || !img || !window.bootstrap) { window.open(url, '_blank'); return; }
+    img.src = url;
+    var t = document.getElementById('artPhotoTitle');
+    if(t) t.textContent = el.getAttribute('data-art-photo-name') || 'Foto';
+    var op = document.getElementById('artPhotoOpen'); if(op) op.href = url;
+    var dl = document.getElementById('artPhotoDl'); if(dl) dl.href = url;
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+  });
+})();
+</script>
+{% endif %}
+
 {# Un cartel en VÍDEO se ve en un pop-up (uno para toda la app, como el de un documento): lo abre
    cualquier elemento con data-art-video="<url>". #}
 {% if session.get('user_id') %}

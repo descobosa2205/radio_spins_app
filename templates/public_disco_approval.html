@@ -50,22 +50,36 @@
 
       {# ELEGIR ENTRE VARIAS FOTOS (la portada, cuando hay dudas): la primera etapa ELIGE una y, si
          hay colaborador, a él le llega ya solo la elegida para que la apruebe. #}
+      {# ⚠️ LA ELECCIÓN VA EN DOS PASOS: primero se APRUEBAN las fotos que valgan («Me valen estas»)
+         y, de esas, se elige LA DEFINITIVA — que es la que se comunica para hacer la portada. #}
       {% if options %}
         <div class="mb-3">
-          {% if choose %}
+          {% if choose and step == 'like' %}
             <div class="small text-muted mb-2">
-              <i class="fa fa-hand-pointer me-1"></i>Elige la foto que quieres para la portada:
+              <i class="fa fa-thumbs-up me-1"></i>Marca <strong>todas las que te valgan</strong>; después
+              eliges cuál quieres para la portada.
+            </div>
+          {% elif choose %}
+            <div class="small text-muted mb-2">
+              <i class="fa fa-hand-pointer me-1"></i>De las que has aprobado, elige la que quieres
+              para la portada:
             </div>
           {% else %}
             <div class="small text-muted mb-2">La foto elegida:</div>
           {% endif %}
           <div class="row g-2">
             {% for o in options %}
-              {% if choose or o.picked or options|length == 1 %}
+              {# En el paso de ELEGIR solo se ven las aprobadas. #}
+              {% set visible = (choose and (step == 'like' or not liked or o.id in liked))
+                               or o.picked or options|length == 1 %}
+              {% if visible %}
                 <div class="col-6 col-md-4">
                   <label class="d-block border rounded-3 p-1 bg-white h-100{{ ' border-danger' if o.picked }}"
                          style="cursor:{{ 'pointer' if choose else 'default' }};">
-                    {% if choose %}
+                    {% if choose and step == 'like' %}
+                      <input class="form-check-input" type="checkbox" name="liked" value="{{ o.id }}"
+                             form="apprForm" {% if o.id in liked %}checked{% endif %}>
+                    {% elif choose %}
                       <input class="form-check-input" type="radio" name="option" value="{{ o.id }}"
                              form="apprForm" {% if loop.first %}checked{% endif %}>
                     {% endif %}
@@ -136,15 +150,24 @@
           que cambiar algo.</p>
         <form method="post" data-approval-form id="apprForm">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
-          <label class="form-label">Si hay que cambiar algo, cuéntanoslo</label>
-          <textarea class="form-control" name="note" rows="3"
-                    placeholder="Solo hace falta si lo rechazas"></textarea>
-          <div class="d-flex flex-wrap gap-2 justify-content-end mt-3">
-            <button class="btn btn-outline-danger btn-lg" name="decision" value="KO">
-              <i class="fa fa-thumbs-down me-1"></i>Hay que cambiarlo</button>
-            <button class="btn btn-success btn-lg" name="decision" value="OK">
-              <i class="fa fa-thumbs-up me-1"></i>Me parece bien</button>
-          </div>
+          {% if choose and step == 'like' %}
+            {# PASO 1 de la foto: solo se aprueban las que valen; la definitiva se elige después. #}
+            <input type="hidden" name="step" value="like">
+            <div class="d-flex flex-wrap gap-2 justify-content-end mt-3">
+              <button class="btn btn-success btn-lg">
+                <i class="fa fa-arrow-right me-1"></i>Me valen estas</button>
+            </div>
+          {% else %}
+            <label class="form-label">Si hay que cambiar algo, cuéntanoslo</label>
+            <textarea class="form-control" name="note" rows="3"
+                      placeholder="Solo hace falta si lo rechazas"></textarea>
+            <div class="d-flex flex-wrap gap-2 justify-content-end mt-3">
+              <button class="btn btn-outline-danger btn-lg" name="decision" value="KO">
+                <i class="fa fa-thumbs-down me-1"></i>Hay que cambiarlo</button>
+              <button class="btn btn-success btn-lg" name="decision" value="OK">
+                <i class="fa fa-thumbs-up me-1"></i>{{ 'Esta es la portada' if choose else 'Me parece bien' }}</button>
+            </div>
+          {% endif %}
         </form>
       {% endif %}
     </div>

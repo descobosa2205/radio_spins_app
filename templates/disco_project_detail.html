@@ -175,6 +175,16 @@
             <span class="fw-semibold {{ 'text-muted' if st == 'done' else '' }}">{{ t.label }}</span>
             {% if t.value %}<span class="d-block small fw-semibold">{{ t.value }}</span>{% endif %}
             {% if t.hint %}<span class="d-block small text-muted">{{ t.hint }}</span>{% endif %}
+            {# DE QUIÉN está pendiente (con su cara): una tarea que lleva otra persona se lee mejor
+               viendo quién es. #}
+            {% if t.people %}
+              <span class="d-inline-flex align-items-center gap-1 mt-1">
+                {% for u in t.people %}
+                  <img src="{{ u.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                       title="{{ u.nick }}" style="width:22px;height:22px;border-radius:50%;object-fit:cover;">
+                {% endfor %}
+              </span>
+            {% endif %}
           </span>
           {% if st == 'done' %}
             <span class="badge text-bg-success">Hecho</span>
@@ -191,7 +201,11 @@
           {% endif %}
           {# Los botones de las tareas van SIN RELLENAR, como en el resto de la app: la lista es
              larga y una columna de botones rojos macizos no deja ver por dónde va el trabajo. #}
-          {% if CAN_EDIT and t.action_label %}
+          {# Una foto se abre en el VISOR de siempre (el pop-up global de fotos), no navegando. #}
+          {% if t.photo_url and t.action_label %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-art-photo="{{ t.photo_url }}">
+              <i class="fa fa-image me-1"></i>{{ t.action_label }}</button>
+          {% elif CAN_EDIT and t.action_label %}
             {% if t.modal %}
               <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="{{ t.modal }}">
                 <i class="fa {{ t.icon }} me-1"></i>{{ t.action_label }}</button>

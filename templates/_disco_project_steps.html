@@ -306,6 +306,55 @@
   </div>
 {% endfor %}
 
+{# ---------------------------------------------------------------- 5b · CONTRATO DEL PRODUCTOR
+   Lo prepara y lo manda REGISTROS+SELLO. Aquí se sube y con eso la tarea queda hecha para todos.
+   Debajo van los datos que hacen falta para redactarlo: la canción, el productor y sus condiciones. #}
+{% set pc = production.producer if production else {} %}
+<div class="modal fade" id="dpProducerContractModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_project_producer_contract', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-file-signature me-2 text-danger"></i>Contrato del productor</h5>
+          <div class="text-muted small">Lo prepara y lo manda Registros. Al subirlo, la tarea queda hecha.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {# LOS DATOS para redactarlo, a la vista: el lanzamiento, el productor y lo pactado. #}
+        <div class="border rounded-3 p-3 mb-3 bg-light-subtle">
+          <div class="fw-semibold mb-2"><i class="fa fa-circle-info me-1 text-muted"></i>Datos para el contrato</div>
+          <div class="psum-list psum-list--2col">
+            <div class="psum-list__k">Lanzamiento</div><div class="psum-list__v">{{ row.title }}</div>
+            {% if row.artist_name %}<div class="psum-list__k">Artista</div><div class="psum-list__v">{{ row.artist_name }}</div>{% endif %}
+            {% if row.release_label %}<div class="psum-list__k">Fecha prevista</div><div class="psum-list__v">{{ row.release_label }}</div>{% endif %}
+            {% if pc.name %}<div class="psum-list__k">Productor</div><div class="psum-list__v">{{ pc.name }}</div>{% endif %}
+            {% if pc.fee_label %}
+              <div class="psum-list__k">Cómo se paga</div>
+              <div class="psum-list__v">{{ pc.fee_label }}{% if pc.fee_amount_label %} · {{ pc.fee_amount_label }}{% elif pc.budget_amount_label %} · {{ pc.budget_amount_label }}{% endif %}</div>
+            {% endif %}
+            {% if pc.pct %}<div class="psum-list__k">Porcentaje</div><div class="psum-list__v">{{ pc.pct }} %</div>{% endif %}
+          </div>
+        </div>
+        <label class="form-label">El contrato firmado (o el que se manda)</label>
+        <label class="decl-drop d-block" for="dpProducerContractFile" role="button" tabindex="0"
+               data-file-drop-for="#dpProducerContractFile">
+          <i class="fa fa-file-arrow-up fa-lg mb-1 d-block text-muted"></i>
+          <span class="small">Arrastra aquí el archivo o <span class="text-danger fw-semibold">elígelo</span></span>
+        </label>
+        <input class="form-control d-none" type="file" name="contract" id="dpProducerContractFile"
+               accept=".pdf,.doc,.docx">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-check me-1"></i>Marcar como enviado</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- 6 · GRABACIÓN DE VOCES #}
 {% set v = (production.vocals if production else {}) %}
 <div class="modal fade" id="dpVocalsModal" tabindex="-1" aria-hidden="true">

@@ -4158,6 +4158,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **no escribe nada sin dar ningún error**. Pasó con «fijar el plazo Y comunicarlo»: el correo salía
   y el «avisado» se perdía. `_disco_video_set` lo fuerza con **`flag_modified`**.
 
+- **LOS ENLACES DEL LANZAMIENTO (los que da la DISTRIBUIDORA)** (ago 2026). Cuando el lanzamiento
+  sale, la distribuidora manda los enlaces de cada plataforma. Modelo **`DiscoReleaseLink`**
+  (proyecto + `kind` + nombre + URL) con su catálogo **`DISCO_RELEASE_LINK_KINDS`** y estado en el
+  punto único **`_disco_release_links_state`**.
+  · **Los PIDE quien lleva el proyecto** (`disco_links_request`) y le llegan como tarea a quien es
+  **REGISTROS y SELLO** (aviso + módulo de Inicio **`HOME_RELEASE_LINKS`** ← `_home_release_links`).
+  · **Los SUBE esa persona** (`disco_links_save`). ⚠️ En el proyecto la tarea se ve **condicionada**:
+  hasta que los sube sale «**Solicitado y pendiente de …**» con su cara.
+  · **Y después se le COMPARTEN AL ARTISTA** (`disco_links_share`, por su canal `DISCOGRAFICA`), que
+  es la subtarea siguiente — **bloqueada** mientras no haya enlaces.
+  · **En el PLAN de lanzamiento hay una sección «Enlaces»** (`DISCO_PLAN_SECTIONS`): cada uno con su
+  **icono**, su **nombre**, el **enlace clicable** y el **botón de copiar** al final (el mecanismo
+  global de la casa, `copy-link-btn[data-copy-url]`, no uno nuevo).
+  ⚠️ Los iconos de PLATAFORMA van en **`fa-brands`** (Spotify, YouTube, Apple…): con la familia
+  SOLID salen **vacíos** — la trampa que ya documenta `_disco_creative_icon_class`.
+  ⚠️ **`disco_links_save` va en `REQUEST_ANY_ENDPOINTS`**: los sube Registros, que no tiene por qué
+  poder editar discográfica (comprueba dentro que es de quien le toca), y su botón en la lista de
+  tareas lleva **`open_to_all`**.
+  ⚠️ Un enlace se borra **por id**, así que se comprueba que sea **de ESE proyecto** (regla de la
+  casa; comprobado en la prueba).
+  · **La ESTADO se decide mirando el DATO** (`done` = hay enlaces), no una marca aparte: así no se
+  puede desparejar, y el aviso se cierra solo al subirlos (`_notify_resolve`).
+
 - **LOGOTIPOS de una marca, con TODAS sus versiones** (ago 2026). Un logo no es UN archivo: son
   muchos (principal, horizontal, negativo, isotipo, el vectorial de imprenta, el manual de marca…) y
   **cada versión lleva su NOMBRE**, que es lo que se dice al pedirlos («mándame el negativo en

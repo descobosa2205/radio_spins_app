@@ -5415,6 +5415,24 @@ class AppEvent(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class DiscoReleaseLink(Base):
+    """UN ENLACE DEL LANZAMIENTO: el de Spotify, el de Apple Music, el de YouTube…
+
+    Los da la DISTRIBUIDORA y los sube quien lleva **Registros y Sello**; de ahí salen los que se le
+    comparten al artista y la sección de **Enlaces** del plan de lanzamiento."""
+    __tablename__ = "disco_release_links"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    kind = Column(Text, nullable=False, server_default=text("'OTRO'"))
+    name = Column(Text, nullable=False)
+    url = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class BrandLogo(Base):
     """UNA VERSIÓN del logotipo de una marca: de una EMPRESA DEL GRUPO, de una DISTRIBUIDORA o de un
     ARTISTA (polimórfico por `owner_type`/`owner_id`, como las fotos).
@@ -12067,6 +12085,22 @@ def ensure_disco_projects_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS ix_brand_logos_owner ON brand_logos(owner_type, owner_id);",
+
+        # ENLACES DEL LANZAMIENTO (los que da la distribuidora): Spotify, Apple, YouTube…
+        """
+        CREATE TABLE IF NOT EXISTS disco_release_links (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            project_id uuid NOT NULL REFERENCES disco_projects(id) ON DELETE CASCADE,
+            kind text NOT NULL DEFAULT 'OTRO',
+            name text NOT NULL,
+            url text NOT NULL,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_disco_release_links_project ON disco_release_links(project_id);",
     ], label="ensure_disco_projects_schema")
 
 

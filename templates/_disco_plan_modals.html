@@ -644,3 +644,91 @@
     </form>
   </div>
 </div>
+
+{# ---------- LOS ENLACES DEL LANZAMIENTO (los que da la distribuidora) ----------
+   Los sube quien lleva REGISTROS y SELLO. Cada uno con su plataforma (de ahí sale el icono), su
+   nombre y su URL; se pueden quitar marcando la casilla. #}
+<div class="modal fade" id="dpLinksModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_links_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-link me-2 text-danger"></i>Enlaces del lanzamiento</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if links and links.rows %}
+          <div class="mb-3">
+            <div class="fw-semibold small mb-2">Los que ya están</div>
+            {% for l in links.rows %}
+              <div class="dp-link">
+                <input class="form-check-input mt-0" type="checkbox" name="remove" value="{{ l.id }}"
+                       title="Quitarlo">
+                <i class="{{ l.icon }} dp-link__icon"></i>
+                <span class="dp-link__name">{{ l.name }}</span>
+                <a class="dp-link__url text-truncate" href="{{ l.url }}" target="_blank"
+                   rel="noopener" title="{{ l.url }}">{{ l.url }}</a>
+              </div>
+            {% endfor %}
+            <div class="form-text">Marca los que quieras quitar.</div>
+          </div>
+        {% endif %}
+        <div class="fw-semibold small mb-2">Añadir</div>
+        {% for i in range(3) %}
+          <div class="row g-2 align-items-center mb-2">
+            <div class="col-4 col-md-3">
+              <select class="form-select form-select-sm" name="kind">
+                {% for k, l, ic in (links.kinds if links else []) %}
+                  <option value="{{ k }}">{{ l }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-8 col-md-3">
+              <input class="form-control form-control-sm" name="name" placeholder="Nombre (opcional)">
+            </div>
+            <div class="col-12 col-md-6">
+              <input class="form-control form-control-sm" name="url" placeholder="https://…">
+            </div>
+          </div>
+        {% endfor %}
+        <div class="form-text">Sin URL, la fila se ignora.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- COMPARTIRLE LOS ENLACES AL ARTISTA ---------- #}
+<div class="modal fade" id="dpLinksShareModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_links_share', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Compartir los enlaces con el artista</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small mb-3">Se le mandan por su canal de discográfica, con todos los
+          enlaces del lanzamiento.</div>
+        {% for l in (links.rows if links else []) %}
+          <div class="dp-link"><i class="{{ l.icon }} dp-link__icon"></i>
+            <span class="dp-link__name">{{ l.name }}</span>
+            <span class="dp-link__url text-truncate">{{ l.url }}</span></div>
+        {% endfor %}
+        <div class="mt-3">
+          <label class="form-label">Nota <span class="text-muted small">(opcional)</span></label>
+          <textarea class="form-control" name="note" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Compartir</button>
+      </div>
+    </form>
+  </div>
+</div>

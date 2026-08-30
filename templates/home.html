@@ -872,6 +872,39 @@ document.addEventListener('click', function (ev) {
 
 {# NOTAS DE PRENSA pendientes: a promoción le toca redactarla y luego enviarla; a diseño, el
    gráfico. Con el plazo (el lunes previo al lanzamiento) y en rojo si ya se pasó. #}
+{# ENLACES DE LA DISTRIBUIDORA que hay que pedir y subir (quien es Registros y Sello). #}
+{% if HOME_RELEASE_LINKS %}
+<div class="card mb-4 border-warning">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-link text-danger me-2"></i>Enlaces de la distribuidora
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_RELEASE_LINKS|length }}</span>
+    </span>
+    <span class="text-muted small">Pídeselos a la distribuidora y súbelos al proyecto.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_RELEASE_LINKS %}
+      <div class="ctask">
+        <div class="ctask__head">
+          {{ artist_avatar(r.artist_photo, r.artist_name or r.title) }}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}"
+             title="Abrir el proyecto">{{ r.artist_name or r.title }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-compact-disc"></i>{{ r.title }}</span>
+            {% if r.release_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ r.release_label }}</span>{% endif %}
+            {% if r.asked_by %}<span class="ctask__fact"><i class="fa fa-user"></i>lo pidió {{ r.asked_by }}</span>{% endif %}
+          </span>
+          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+            <a class="btn btn-sm btn-outline-danger" href="{{ r.url }}">
+              <i class="fa fa-link me-1"></i>Subir los enlaces</a>
+          </span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# CONTRATOS DE PRODUCTOR por mandar (quien es Registros y Sello): con los datos para redactarlo. #}
 {% if HOME_PRODUCER_CONTRACTS %}
 <div class="card mb-4 border-warning">

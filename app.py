@@ -273,6 +273,7 @@ from models import (
     VenueSeatMap,
     AppEvent,
     BrandLogo,
+    DiscoReleaseLink,
     Distributor,
     DistributorAdvance,
     DistributorAdvanceRule,
@@ -25232,6 +25233,45 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                       hint=("Faltan en %d tema(s) · se suben o se le piden al artista"
                             % ids["missing"]))
 
+    # ================= LOS ENLACES DE LA DISTRIBUIDORA =================
+    # Los pide quien lleva el proyecto y los sube quien es REGISTROS y SELLO; después se le
+    # comparten al ARTISTA. ⚠️ La tarea se ve en el proyecto pero está CONDICIONADA a que esa
+    # persona los suba: hasta entonces sale «Solicitado y pendiente de …».
+    _lk = _disco_release_links_state(session_db, project)
+    if _lk["done"]:
+        tarea("enlaces", "Enlaces de la distribuidora", "", "fa-link", state="done",
+              value="%d enlace(s)%s" % (_lk["count"], (" · %s" % ", ".join(
+                  [l["name"] for l in _lk["rows"][:3]])) if _lk["rows"] else ""),
+              menu=[{"label": "Añadir o quitar enlaces", "icon": "fa-pen",
+                     "modal": "#dpLinksModal"}])
+        if _lk["shared"]:
+            tarea("enlaces_artista", "Compartir los enlaces con el artista", "", "fa-paper-plane",
+                  sub=True, state="done",
+                  value="Compartidos%s%s" % ((" con %s" % ", ".join(_lk["shared_to"][:3]))
+                                             if _lk["shared_to"] else "",
+                                             (" el %s" % _lk["shared_label"])
+                                             if _lk["shared_label"] else ""),
+                  menu=[{"label": "Volver a mandárselos", "icon": "fa-rotate",
+                         "modal": "#dpLinksShareModal"}])
+        else:
+            tarea("enlaces_artista", "Compartir los enlaces con el artista", "", "fa-paper-plane",
+                  sub=True, action_label="Compartirlos", modal="#dpLinksShareModal")
+    elif _lk["asked"]:
+        _reg3 = _registros_sello_names(session_db)
+        tarea("enlaces", "Solicitar los enlaces a la distribuidora", "", "fa-link", state="sent",
+              value=("Solicitado y pendiente de %s" % _reg3) if _reg3 else "Solicitado",
+              people=_registros_sello_people(session_db),
+              action_label="Subir los enlaces", modal="#dpLinksModal", open_to_all=True)
+        tarea("enlaces_artista", "Compartir los enlaces con el artista", "", "fa-paper-plane",
+              sub=True, state="blocked", hint="Cuando estén los enlaces")
+    else:
+        tarea("enlaces", "Solicitar los enlaces a la distribuidora", "", "fa-link",
+              hint="Los pide y los sube quien lleva Registros y Sello",
+              action_label="Pedirlos",
+              post=url_for("disco_links_request", project_id=project.id))
+        tarea("enlaces_artista", "Compartir los enlaces con el artista", "", "fa-paper-plane",
+              sub=True, state="blocked", hint="Cuando estén los enlaces")
+
     fase[0] = "cierre"
     # ================= 13 · El resto: lo que le falta al LANZAMIENTO para poder cerrarlo =================
     if not getattr(project, "release_date", None) and not lleva_audio:
@@ -26533,7 +26573,7 @@ def disco_project_detail(project_id):
                           "plan_action_kinds", "content_networks", "plan_candidates",
                           "can_review_plan", "plan_companies", "can_add_marketing",
                           "agenda_data", "release", "release_songs",
-                          "project_bags", "bag_scope",
+                          "project_bags", "bag_scope", "links",
                           "video", "video_fee_modes", "video_companies", "video_distributors"):
                 bag_ctx.pop(clave, None)
         return render_template(
@@ -26541,6 +26581,10 @@ def disco_project_detail(project_id):
             project=project, row=fila, tab=tab,
             project_tabs=DISCO_PROJECT_TABS,
             project_bags=project_bags, bag_scope=bag_scope,
+            # LOS ENLACES del lanzamiento (los de la distribuidora): su tarea, su pop-up y la
+            # sección «Enlaces» del plan.
+            links=(_disco_release_links_state(session_db, project)
+                   if tab in ("calendario", "lanzamiento") else None),
             # EL VIDEOCLIP: su proceso en paralelo (productor, contrato audiovisual, plazo, logos,
             # idea, miniatura, rodaje y aprobación). Solo se calcula si el proyecto lo lleva.
             video=(_disco_video_state(session_db, project)
@@ -29547,6 +29591,9 @@ DISCO_PLAN_SECTIONS = (
     ("marketing", "Marketing", "fa-bullhorn"),
     ("promocion", "Promoción", "fa-microphone-lines"),
     ("contenidos", "Contenidos", "fa-photo-film"),
+    # Los ENLACES del lanzamiento (los que da la distribuidora): se ven aquí para tenerlos a mano
+    # al planificar, con su icono, su nombre y el botón de copiar.
+    ("enlaces", "Enlaces", "fa-link"),
     ("cronograma", "Cronograma", "fa-calendar-days"),
 )
 DISCO_PLAN_ACTION_DATE_KINDS = (
@@ -29689,7 +29736,7 @@ def _disco_plan_state(session_db, project) -> dict:
                 "marketing": [], "promos": [], "subject": {}, "total_cost": 0, "ok_direccion": False,
                 "missing": ["el plan está vacío"], "complete": False,
                 "missing_label": "el plan está vacío",
-                "ok_sello": False, "reminders": False, "public_url": ""}
+                "ok_sello": False, "reminders": False, "public_url": "", "links": []}
     acciones = []
     total = Decimal("0")
     for a in (plan.actions or []):
@@ -29752,6 +29799,8 @@ def _disco_plan_state(session_db, project) -> dict:
         "reminder_recipients": list(plan.reminder_recipients or []),
         "public_url": (_external_url_for("public_disco_plan", token=plan.public_token)
                        if plan.public_token else ""),
+        # LOS ENLACES del lanzamiento (los de la distribuidora): se ven en su sección del plan.
+        "links": _disco_release_link_rows(session_db, project),
         # EL PLAN DE PROMOCIÓN que se le pide a promoción (queda incluido en este).
         **_disco_plan_extra_state(session_db, project, plan),
     }
@@ -32147,6 +32196,293 @@ def _disco_video_or_404(session_db, project_id):
     if project is None or not _disco_project_has_videoclip(project):
         return None
     return project
+
+
+# ═══════════════════ LOS ENLACES DEL LANZAMIENTO (los que da la DISTRIBUIDORA) ═══════════════════
+# Cuando el lanzamiento sale, la distribuidora manda los enlaces de cada plataforma. Los pide quien
+# lleva el proyecto, los sube quien lleva **REGISTROS y SELLO**, y desde ahí se le comparten al
+# ARTISTA y se ven en la sección **Enlaces** del plan de lanzamiento.
+# ⚠️ Los iconos de MARCA van en `fa-brands`: con la familia SOLID salen VACÍOS (trampa ya conocida).
+DISCO_RELEASE_LINK_KINDS = (
+    ("SPOTIFY", "Spotify", "fa-brands fa-spotify"),
+    ("APPLE", "Apple Music", "fa-brands fa-apple"),
+    ("YOUTUBE", "YouTube", "fa-brands fa-youtube"),
+    ("AMAZON", "Amazon Music", "fa-brands fa-amazon"),
+    ("DEEZER", "Deezer", "fa-brands fa-deezer"),
+    ("TIDAL", "Tidal", "fa-solid fa-water"),
+    ("PRESAVE", "Pre-save / smartlink", "fa-solid fa-link"),
+    ("OTRO", "Otro", "fa-solid fa-link"),
+)
+DISCO_RELEASE_LINK_META = {k: (l, i) for k, l, i in DISCO_RELEASE_LINK_KINDS}
+
+
+def _disco_release_link_rows(session_db, project) -> list[dict]:
+    """Los enlaces del lanzamiento, en orden, con su icono y su nombre."""
+    try:
+        filas = (session_db.query(DiscoReleaseLink)
+                 .filter(DiscoReleaseLink.project_id == project.id)
+                 .order_by(DiscoReleaseLink.sort_order.asc(),
+                           DiscoReleaseLink.created_at.asc()).all())
+    except Exception:
+        app.logger.exception("[enlaces] no se pudieron leer los enlaces del lanzamiento")
+        return []
+    salida = []
+    for f in filas:
+        etiqueta, icono = DISCO_RELEASE_LINK_META.get((f.kind or "OTRO").upper(),
+                                                      ("Enlace", "fa-solid fa-link"))
+        salida.append({"id": str(f.id), "kind": (f.kind or "OTRO").upper(),
+                       "name": ((f.name or "").strip() or etiqueta),
+                       "url": (f.url or ""), "icon": icono})
+    return salida
+
+
+def _disco_release_links_state(session_db, project) -> dict:
+    """Cómo van los ENLACES del lanzamiento: pedidos, subidos y compartidos con el artista."""
+    fila = dict((_disco_prod(project).get("links") or {}))
+    enlaces = _disco_release_link_rows(session_db, project)
+    return {
+        "rows": enlaces,
+        "count": len(enlaces),
+        "asked": bool(fila.get("asked_at")),
+        "asked_label": _iso_date_label(fila.get("asked_at")),
+        "asked_by": (fila.get("asked_by") or ""),
+        # LOS ENLACES ESTÁN cuando hay alguno: se mira el DATO, no una marca aparte.
+        "done": bool(enlaces),
+        "shared": bool(fila.get("shared_at")),
+        "shared_label": _iso_date_label(fila.get("shared_at")),
+        "shared_by": (fila.get("shared_by") or ""),
+        "shared_to": list(fila.get("shared_to") or []),
+        "kinds": DISCO_RELEASE_LINK_KINDS,
+    }
+
+
+def _disco_links_set(project, fila: dict) -> None:
+    """Guarda el bloque de enlaces del payload (marcando el JSONB, como el del videoclip)."""
+    prod = _disco_prod(project)
+    prod["links"] = fila
+    project.production_payload = prod
+    project.updated_at = _now_madrid()
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(project, "production_payload")
+    except Exception:
+        app.logger.exception("[enlaces] no se pudo marcar el payload como modificado")
+
+
+@app.post("/discografica/proyectos/<project_id>/enlaces/pedir", endpoint="disco_links_request")
+@admin_required
+def disco_links_request(project_id):
+    """PEDIRLE LOS ENLACES A LA DISTRIBUIDORA: es tarea de quien lleva REGISTROS y SELLO."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        yo = _current_user_state() or {}
+        fila = dict((_disco_prod(project).get("links") or {}))
+        fila["asked_at"] = _now_madrid().isoformat()
+        fila["asked_by"] = (yo.get("nick") or "")
+        _disco_links_set(project, fila)
+        artista = getattr(project, "artist", None)
+        try:
+            _notify_users(session_db, _registros_sello_user_ids(session_db), "REGISTROS",
+                          "Solicitar enlaces a la distribuidora · %s" % _disco_project_title(project),
+                          "Hay que pedirle a la distribuidora los enlaces del lanzamiento y subirlos.",
+                          destino, ref_type="DISCO_RELEASE_LINKS", ref_id=str(project.id),
+                          actor_name=(getattr(artista, "name", "") or ""),
+                          actor_photo=(getattr(artista, "photo_url", "") or ""))
+        except Exception:
+            app.logger.exception("[enlaces] no se pudo pedir los enlaces")
+        session_db.commit()
+        flash("Pedido: le sale a Registros y Sello como tarea pendiente.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[enlaces] no se pudo pedir los enlaces")
+        flash("No se pudo pedir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/enlaces/guardar", endpoint="disco_links_save")
+@admin_required
+def disco_links_save(project_id):
+    """SUBIR LOS ENLACES del lanzamiento (lo hace Registros y Sello).
+
+    ⚠️ No se exige `can_edit_discografica()`: los sube Registros, que no tiene por qué poder editar
+    discográfica. Se comprueba dentro que es de quien le toca."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        if not (is_master() or can_edit_discografica()
+                or yo in _registros_sello_user_ids(session_db)):
+            return forbid("Los enlaces los sube Registros.")
+        f = request.form
+        borrar = {x for x in f.getlist("remove") if x}
+        if borrar:
+            for lid in borrar:
+                fila = session_db.get(DiscoReleaseLink, _safe_uuid(lid))
+                # ⚠️ Solo si es de ESTE proyecto: una fila se borra por id, pero tiene que ser suya.
+                if fila is not None and str(fila.project_id) == str(project.id):
+                    session_db.delete(fila)
+        nick = ((_current_user_state() or {}).get("nick") or None)
+        base = (session_db.query(func.coalesce(func.max(DiscoReleaseLink.sort_order), 0))
+                .filter(DiscoReleaseLink.project_id == project.id).scalar() or 0)
+        kinds = f.getlist("kind")
+        urls = f.getlist("url")
+        nombres = f.getlist("name")
+        nuevos = 0
+        for i, url in enumerate(urls):
+            url = (url or "").strip()
+            if not url:
+                continue
+            kind = ((kinds[i] if i < len(kinds) else "") or "OTRO").strip().upper()
+            if kind not in DISCO_RELEASE_LINK_META:
+                kind = "OTRO"
+            nombre = ((nombres[i] if i < len(nombres) else "") or "").strip()
+            session_db.add(DiscoReleaseLink(
+                project_id=project.id, kind=kind,
+                name=(nombre or DISCO_RELEASE_LINK_META[kind][0]),
+                url=url, sort_order=int(base) + i + 1, created_by_nick=nick))
+            nuevos += 1
+        session_db.flush()
+        if nuevos:
+            _notify_resolve(session_db, "DISCO_RELEASE_LINKS", str(project.id))
+            try:
+                _notify_users(session_db, _disco_project_owner_ids(session_db, project),
+                              "DISCOGRAFICA",
+                              "Enlaces del lanzamiento · %s" % _disco_project_title(project),
+                              "Ya están los enlaces de la distribuidora: se le pueden compartir al artista.",
+                              destino, ref_type="DISCO_RELEASE_LINKS_OK", ref_id=str(project.id))
+            except Exception:
+                app.logger.exception("[enlaces] no se pudo avisar de los enlaces subidos")
+        session_db.commit()
+        flash("Enlaces guardados." if nuevos or borrar else "No había ningún enlace que guardar.",
+              "success" if (nuevos or borrar) else "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[enlaces] no se pudieron guardar los enlaces")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/enlaces/compartir", endpoint="disco_links_share")
+@admin_required
+def disco_links_share(project_id):
+    """COMPARTIRLE LOS ENLACES AL ARTISTA (por su canal de discográfica)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        estado = _disco_release_links_state(session_db, project)
+        if not estado["rows"]:
+            flash("Todavía no hay enlaces que compartir.", "warning")
+            return redirect(safe_next_or(destino))
+        filas = "".join(
+            '<tr><td style="padding:6px 10px;border-bottom:1px solid #eef0f4;">%s</td>'
+            '<td style="padding:6px 10px;border-bottom:1px solid #eef0f4;">'
+            '<a href="%s" style="color:#007CA2;">%s</a></td></tr>'
+            % (html.escape(l["name"]), html.escape(l["url"]), html.escape(l["url"]))
+            for l in estado["rows"])
+        cuerpo = ('<p style="margin:0 0 14px;">Ya está publicado. Estos son los <strong>enlaces</strong> '
+                  'del lanzamiento:</p>'
+                  '<table role="presentation" width="100%%" style="border-collapse:collapse;'
+                  'font-size:14px;">%s</table>' % filas)
+        if (request.form.get("note") or "").strip():
+            cuerpo += ('<p style="margin:14px 0 0;">%s</p>'
+                       % html.escape(request.form["note"].strip()).replace("\n", "<br/>"))
+        html_correo = _disco_project_email_shell(
+            session_db, project, title="Enlaces del lanzamiento", body_html=cuerpo)
+        recibieron = []
+        for fila in _notify_apply_prefs(session_db,
+                                        _artist_notification_recipients(
+                                            session_db, project.artist_id, "DISCOGRAFICA") or []):
+            ok, _err = _notify_send_row(
+                session_db, fila,
+                subject="Enlaces del lanzamiento · %s" % _disco_project_title(project),
+                html=html_correo,
+                sms_text="Ya está publicado: %s" % (estado["rows"][0]["url"] if estado["rows"] else ""),
+                kind="DISCOGRAFICA")
+            if ok:
+                recibieron.append(fila.get("name") or fila.get("email"))
+        if recibieron:
+            yo = _current_user_state() or {}
+            guardado = dict((_disco_prod(project).get("links") or {}))
+            guardado["shared_at"] = _now_madrid().isoformat()
+            guardado["shared_by"] = (yo.get("nick") or "")
+            guardado["shared_to"] = [str(x) for x in recibieron]
+            _disco_links_set(project, guardado)
+        session_db.commit()
+        if recibieron:
+            flash("Enlaces compartidos con %s." % ", ".join([str(x) for x in recibieron]), "success")
+        else:
+            flash("No se pudo avisar al artista: revisa sus contactos de comunicaciones.", "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[enlaces] no se pudieron compartir los enlaces")
+        flash("No se pudo compartir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _home_release_links(limit: int = 12) -> list[dict]:
+    """ENLACES DE LA DISTRIBUIDORA que hay que pedir y subir (módulo de Inicio).
+
+    Le sale a quien es **REGISTROS y SELLO** a la vez, que es quien los pide y los sube."""
+    estado = _current_user_state() or {}
+    yo = str(estado.get("user_id") or "")
+    if not yo:
+        return []
+    session_db = db()
+    try:
+        if not (estado.get("role") == 10 or yo in _registros_sello_user_ids(session_db)):
+            return []
+        filas = []
+        proyectos = (session_db.query(DiscoProject)
+                     .options(joinedload(DiscoProject.artist))
+                     .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                     .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
+        for p in proyectos:
+            enlaces = _disco_release_links_state(session_db, p)
+            if not enlaces["asked"] or enlaces["done"]:
+                continue
+            artista = getattr(p, "artist", None)
+            filas.append({
+                "id": str(p.id),
+                "title": _disco_project_title(p),
+                "artist_name": (getattr(artista, "name", "") or ""),
+                "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                "release_label": (p.release_date.strftime("%d/%m/%Y")
+                                  if getattr(p, "release_date", None) else ""),
+                "asked_by": enlaces["asked_by"],
+                "asked_label": enlaces["asked_label"],
+                "url": url_for("disco_project_detail", project_id=p.id, tab="calendario"),
+            })
+            if len(filas) >= limit:
+                break
+        return filas
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron leer los enlaces pendientes")
+        return []
+    finally:
+        session_db.close()
 
 
 @app.post("/discografica/proyectos/<project_id>/video/productor", endpoint="disco_video_producer_save")
@@ -71504,6 +71840,9 @@ def inject_personnel_globals():
         # CONTRATOS DE PRODUCTOR por mandar (quien es Registros y Sello a la vez).
         "HOME_PRODUCER_CONTRACTS": (_home_producer_contracts()
                                     if _home and "_home_producer_contracts" in globals() else []),
+        # ENLACES DE LA DISTRIBUIDORA que hay que pedir y subir (Registros y Sello).
+        "HOME_RELEASE_LINKS": (_home_release_links()
+                               if _home and "_home_release_links" in globals() else []),
         # PRESENTAR A RADIO: a promoción (y a dirección con función de sello), una subtarea por
         # emisora. Es de quien le toca contestar, así que va con lo suyo (dirección incluida).
         "HOME_RADIO_PITCHES": (_home_radio_pitches()
@@ -71891,6 +72230,8 @@ REQUEST_ANY_ENDPOINTS = {
     # tiene por qué poder editar discográfica; cada endpoint comprueba dentro que es suyo.
     "disco_video_contract",
     "disco_video_logistics_done",
+    # ⚠️ Y los ENLACES de la distribuidora, que los sube Registros+Sello.
+    "disco_links_save",
     # ⚠️ Y DISTRIBUIR el videoclip, que también es de Registros+Sello.
     "disco_video_distributed",
     # ⚠️ CONTESTAR si una emisora coge la canción es tarea de PROMOCIÓN (o de dirección con función de

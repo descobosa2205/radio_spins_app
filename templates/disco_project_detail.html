@@ -552,6 +552,35 @@
     </div>
   </div>
 
+  {# ---- ENLACES del lanzamiento (los que da la distribuidora) ----
+     Cada uno con su ICONO y su NOMBRE; el enlace se pincha y lleva, y al final el botón de COPIAR. #}
+  <div class="sim-cat-card mb-3">
+    <div class="sim-cat-card__head">
+      <span><i class="fa fa-link me-1"></i>Enlaces</span>
+      {% if CAN_EDIT %}
+        <button type="button" class="btn btn-sm btn-outline-danger"
+                data-bs-toggle="modal" data-bs-target="#dpLinksModal">
+          <i class="fa fa-pen me-1"></i>Gestionar</button>
+      {% endif %}
+    </div>
+    <div class="sim-cat-card__body">
+      {% for l in (links.rows if links else []) %}
+        <div class="dp-link">
+          <i class="{{ l.icon }} dp-link__icon"></i>
+          <span class="dp-link__name">{{ l.name }}</span>
+          <a class="dp-link__url text-truncate" href="{{ l.url }}" target="_blank" rel="noopener"
+             title="{{ l.url }}">{{ l.url }}</a>
+          {# El botón de COPIAR es el mecanismo global de la casa (`copy-link-btn[data-copy-url]`). #}
+          <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn dp-link__copy"
+                  data-copy-url="{{ l.url }}" title="Copiar el enlace"><i class="fa fa-copy"></i></button>
+        </div>
+      {% else %}
+        <div class="text-muted small">Todavía no hay enlaces. Los pide y los sube quien lleva
+          Registros y Sello.</div>
+      {% endfor %}
+    </div>
+  </div>
+
   {# ---- CRONOGRAMA ---- #}
   <div class="sim-cat-card mb-3">
     <div class="sim-cat-card__head">

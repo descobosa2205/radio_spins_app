@@ -13,6 +13,44 @@
    valor con el nombre que espera.
    ⚠️ Va por DELEGACIÓN en el documento: estos modales se pintan con la página, pero un `change` de
    Select2 o del ayudante de tarjetas puede llegar en cualquier momento. */
+/* BUSCADOR DE TERCEROS de los pasos (`[data-dp-tercero]`): se ESCRIBE y salen las coincidencias con
+   su logo o su foto —no un desplegable con toda la base—. El valor real va en el oculto.
+   ⚠️ El alta rápida (`quick_create.js`) solo sabe dejar lo creado en un <select>, así que cada
+   buscador lleva uno OCULTO como destino y aquí se copia al buscador y al oculto de verdad. */
+(function () {
+  function pinta(caja) {
+    var hid = caja.querySelector('input[type="hidden"]');
+    var foto = caja.querySelector('[data-dp-tercero-foto]');
+    var qc = caja.querySelector('select');
+    if (!hid || !qc) return;
+    var op = qc.options[qc.selectedIndex];
+    if (!op || !op.value) return;
+    // Lo acaban de crear con el «+»: se copia al buscador y al oculto de verdad.
+    hid.value = op.value;
+    var q = caja.querySelector('input[type="text"]');
+    if (q) q.value = (op.textContent || '').trim();
+    if (foto) foto.src = (op.dataset.photo || op.dataset.logo || foto.getAttribute('data-default') || foto.src);
+  }
+  function engancha() {
+    document.querySelectorAll('[data-dp-tercero]').forEach(function (caja) {
+      if (caja.dataset.dpBound) return;
+      caja.dataset.dpBound = '1';
+      var q = caja.querySelector('input[type="text"]');
+      var hid = caja.querySelector('input[type="hidden"]');
+      var qc = caja.querySelector('select');
+      if (q && hid && window.initTypeahead) initTypeahead(q.id, hid.id, '/api/search/promoters');
+      if (qc) qc.addEventListener('change', function () { pinta(caja); });
+      // Si se BORRA lo escrito, se suelta el tercero elegido (si no, quedaría uno invisible puesto).
+      if (q && hid) {
+        q.addEventListener('input', function () { if (!q.value.trim()) hid.value = ''; });
+      }
+    });
+  }
+  if (document.readyState !== 'loading') engancha();
+  else document.addEventListener('DOMContentLoaded', engancha);
+  window.app33DiscoTerceros = engancha;
+})();
+
 (function () {
   function valorDe(nombre, raiz) {
     var el = (raiz || document).querySelector('input[name="' + nombre + '"]:checked');

@@ -21858,11 +21858,27 @@ DISCO_PROD_WHO_MODES = (
     ("THIRD", "Un tercero", "fa-user-plus"),
     ("THIRD_VIA_PRODUCER", "Un tercero, lo gestiona el productor", "fa-user-tie"),
 )
+# EL MÁSTER lo puede hacer también EL MEZCLADOR (quien ha hecho la mezcla), que es lo más habitual.
+DISCO_MASTER_WHO_MODES = (
+    ("PRODUCER", "El productor", "fa-sliders"),
+    ("MIXER", "El mezclador", "fa-headphones"),
+    ("THIRD", "Un tercero", "fa-user-plus"),
+    ("THIRD_VIA_PRODUCER", "Un tercero, lo gestiona el productor", "fa-user-tie"),
+)
+# ⚠️ «Incluido en el presupuesto de producción» se RETIRÓ: decía lo mismo que «incluido en el fee» y
+# había que elegir entre dos cosas iguales. Se sigue LEYENDO (`DISCO_COST_LABELS`) para no perder la
+# etiqueta de lo que ya estuviera guardado así, pero no se ofrece.
 DISCO_PROD_COST_MODES = (
     ("AMOUNT", "Con coste", "fa-euro-sign"),
     ("IN_FEE", "Incluido en el fee del productor", "fa-file-signature"),
-    ("IN_BUDGET", "Incluido en el presupuesto de producción", "fa-file-invoice-dollar"),
     ("NONE", "Sin coste", "fa-ban"),
+)
+# Solo en el MÁSTER, y solo cuando lo hace el mezclador: entonces va en SU fee, no en el del productor.
+DISCO_MASTER_COST_EXTRA = (("IN_MIXER_FEE", "Incluido en el fee del mezclador", "fa-file-signature"),)
+DISCO_COST_LABELS = dict(
+    [(k, l) for k, l, _i in DISCO_PROD_COST_MODES]
+    + [(k, l) for k, l, _i in DISCO_MASTER_COST_EXTRA]
+    + [("IN_BUDGET", "Incluido en el presupuesto de producción")]   # retirado: solo para leer
 )
 DISCO_VOCALS_MODES = (
     ("PRODUCER", "Las graba el productor", "fa-sliders"),
@@ -21945,13 +21961,14 @@ def _disco_production_state(session_db, project) -> dict:
         tercero = _tercero(d.get("promoter_id"))
         filas[clave] = {
             "mode": modo,
-            "mode_label": dict((k, l) for k, l, _i in DISCO_PROD_WHO_MODES).get(modo, ""),
+            # ⚠️ El MÁSTER admite además «El mezclador»: su etiqueta sale del catálogo ampliado.
+            "mode_label": dict((k, l) for k, l, _i in DISCO_MASTER_WHO_MODES).get(modo, ""),
             "promoter": tercero,
             "name": (((tercero.nick or tercero.name) if tercero else "")
                      or (filas["producer"]["name"] if modo == "PRODUCER" else "")),
+            "logo_url": (getattr(tercero, "logo_url", "") or ""),
             "cost_mode": (d.get("cost_mode") or "").upper(),
-            "cost_label": dict((k, l) for k, l, _i in DISCO_PROD_COST_MODES).get(
-                (d.get("cost_mode") or "").upper(), ""),
+            "cost_label": DISCO_COST_LABELS.get((d.get("cost_mode") or "").upper(), ""),
             "amount": (d.get("amount") or ""),
             "amount_label": _disco_prod_money(d.get("amount")),
             "done": bool(modo and (modo == "PRODUCER" or tercero is not None)
@@ -21965,9 +21982,9 @@ def _disco_production_state(session_db, project) -> dict:
         "mode_label": dict((k, l) for k, l, _i in DISCO_VOCALS_MODES).get(modo_v, ""),
         "promoter": tercero_v,
         "name": ((tercero_v.nick or tercero_v.name) if tercero_v else ""),
+        "logo_url": (getattr(tercero_v, "logo_url", "") or ""),
         "cost_mode": (voces.get("cost_mode") or "").upper(),
-        "cost_label": dict((k, l) for k, l, _i in DISCO_PROD_COST_MODES).get(
-            (voces.get("cost_mode") or "").upper(), ""),
+        "cost_label": DISCO_COST_LABELS.get((voces.get("cost_mode") or "").upper(), ""),
         "amount": (voces.get("amount") or ""),
         "amount_label": _disco_prod_money(voces.get("amount")),
         "date": (voces.get("date") or ""),
@@ -22025,6 +22042,102 @@ def _disco_logistics(project) -> dict:
                     "user_id": (voces.get("logistics_user_id") or ""),
                     "requested_at": (voces.get("logistics_requested_at") or "")}
     return fila
+
+
+def _disco_vocals_logistics_text(project, voces) -> str:
+    """Lo que se le pide a producción cuando la logística sale de la GRABACIÓN DE VOCES."""
+    partes = ["Logística para la grabación de voces."]
+    if (voces.get("logistics_note") or "").strip():
+        partes.append((voces["logistics_note"] or "").strip())
+    if (voces.get("date") or "").strip():
+        partes.append("Día: %s" % _iso_date_label(voces.get("date")))
+    sitio = (voces.get("logistics_address") or voces.get("place_address") or "").strip()
+    if sitio:
+        partes.append("Dónde: %s" % sitio)
+    return " · ".join(partes)
+
+
+def _disco_logistics_from_vocals(project, voces) -> dict:
+    """La logística del PROYECTO rellenada con lo que se ha pedido en la grabación de voces.
+
+    ⚠️ Es la MISMA logística, no otra: así la tarea, el módulo de Inicio de quien la lleva, la hoja
+    de ruta y la bolsa son los de siempre. Lo que ya estuviera escrito (transportes, alojamiento,
+    personal) NO se pisa: solo se rellena «Qué se pide» y a quién."""
+    antes = _disco_logistics(project)
+    uid = (voces.get("logistics_user_id") or "").strip()
+    mismo = (str(antes.get("user_id") or "") == uid)
+    fila = dict(antes)
+    fila["needed"] = "YES"
+    fila["user_id"] = uid
+    fila["note"] = _disco_vocals_logistics_text(project, voces)
+    fila["requested_at"] = (antes.get("requested_at") if (mismo and antes.get("requested_at"))
+                            else _now_madrid().isoformat())
+    fila["requested_by"] = (antes.get("requested_by") if (mismo and antes.get("requested_at"))
+                            else ((_current_user_state() or {}).get("nick") or ""))
+    # Si se le pide a OTRA persona, vuelve a estar pendiente: es otra la que tiene que montarla.
+    fila["done_at"] = (antes.get("done_at") if mismo else "")
+    fila["done_by"] = (antes.get("done_by") if mismo else "")
+    return fila
+
+
+def _disco_logistics_request(session_db, project, user_id, texto) -> None:
+    """SOLICITAR la logística a una persona de producción: aviso + hoja de ruta + bolsa.
+
+    Punto único de los dos caminos que la piden (el paso de logística del proyecto y la grabación de
+    voces), para que a esa persona le llegue siempre lo mismo.
+    ⚠️ El aviso dice DE QUÉ PROYECTO y DE QUÉ ARTISTA es, con su foto (`actor_photo`): quien lo
+    recibe puede llevar varios proyectos a la vez."""
+    if not user_id:
+        return
+    artista = getattr(project, "artist", None)
+    nombre_art = (getattr(artista, "name", "") or "").strip()
+    _notify_user(session_db, user_id, "PRODUCCION",
+                 "Solicitud de logística · %s%s" % (_disco_project_title(project),
+                                                    (" · %s" % nombre_art) if nombre_art else ""),
+                 (texto or "Hay que montar la logística de este lanzamiento.")[:600],
+                 url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                 ref_type="DISCO_LOGISTICS", ref_id=str(project.id),
+                 actor_name=nombre_art or None,
+                 actor_photo=(getattr(artista, "photo_url", None) or None))
+    # Su trabajo se hace en la bolsa (gastos) y en la hoja de ruta: que existan las dos.
+    _ensure_project_bag(session_db, project)
+    session_db.flush()
+    _disco_logistics_roadmap_add(session_db, project, user_id)   # ⚠️ hace commit
+
+
+def _disco_logistics_roadmap_ready(project) -> bool:
+    """¿Está ya SUBIDA la logística a la hoja de ruta del proyecto?
+
+    Es lo que la da por montada: un transporte apuntado o un hotel. Se MIRA (no se sincroniza), como
+    el resto de las tareas que se cierran solas: cuando deja de estar pendiente, desaparece."""
+    payload = getattr(project, "roadmap_payload", None) or {}
+    if not isinstance(payload, dict):
+        return False
+    if [h for h in (payload.get("hotels") or []) if h]:
+        return True
+    for it in (payload.get("agenda") or []):
+        if isinstance(it, dict) and (it.get("kind") or "").upper() in ROADMAP_TRANSPORT_KINDS:
+            return True
+    return False
+
+
+def _disco_logistics_autoclose(session_db, project) -> bool:
+    """La logística se da por MONTADA en cuanto está en la hoja de ruta: nadie tiene que acordarse de
+    pinchar «ya está». Devuelve True si se ha cerrado ahora (hay que hacer commit)."""
+    fila = _disco_logistics(project)
+    if (fila.get("needed") or "").upper() != "YES" or fila.get("done_at") or not fila.get("user_id"):
+        return False
+    if not _disco_logistics_roadmap_ready(project):
+        return False
+    prod = _disco_prod(project)
+    nueva = dict(fila)
+    nueva["done_at"] = _now_madrid().isoformat()
+    nueva["done_by"] = "automático (hoja de ruta)"
+    prod["logistics"] = nueva
+    project.production_payload = prod
+    _notify_resolve(session_db, "DISCO_LOGISTICS", str(project.id))
+    _notify_resolve(session_db, "DISCO_VOCALS", str(project.id))
+    return True
 
 
 def _disco_logistics_state(session_db, project) -> dict:
@@ -24533,6 +24646,34 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     if getattr(project, "closed_at", None) is None and not [t for t in tareas if t["state"] != "done"]:
         tarea("cerrar", "Todo listo: cierra el proyecto para pasar a distribución y registro",
               url_info, "fa-flag-checkered")
+    return _disco_tasks_fold(tareas)
+
+
+def _disco_tasks_fold(tareas: list[dict]) -> list[dict]:
+    """Marca cada tarea con SU BLOQUE (una tarea principal y las subtareas que van debajo).
+
+    ⚠️ Un bloque TERMINADO **no desaparece**: se pliegan sus subtareas y se puede desplegar pinchando
+    —la lista de un proyecto es su ESTADO, no una lista de avisos—. Aquí solo se dice qué va con qué
+    (`block`, `has_subs`, `folded`); plegarlo lo hace la plantilla."""
+    bloque, padres = -1, {}
+    for t in tareas:
+        if not t.get("sub"):
+            bloque += 1
+            padres[bloque] = t
+            t["block"] = bloque
+            t["is_head"] = True
+        else:
+            t["block"] = max(bloque, 0)
+            t["is_head"] = False
+    for b, cabeza in padres.items():
+        subs = [t for t in tareas if t.get("block") == b and not t.get("is_head")]
+        cabeza["has_subs"] = bool(subs)
+        # Se pliega cuando el bloque ENTERO está hecho: si queda algo pendiente dentro, se ve.
+        plegado = bool(subs) and cabeza.get("state") == "done" and all(
+            (t.get("state") == "done") for t in subs)
+        cabeza["folded"] = plegado
+        for t in subs:
+            t["folded"] = plegado
     return tareas
 
 
@@ -25281,6 +25422,13 @@ def disco_project_detail(project_id):
         # Red de seguridad: si ya están la portada y los másters, la tarea de Registros se cierra
         # sola al mirar la ficha (nadie tiene que acordarse de pinchar «Datos y materiales completos»).
         _disco_project_registros_autoclose(session_db, project, release=release, commit=True)
+        # Y lo mismo con la LOGÍSTICA: en cuanto está en la hoja de ruta se da por montada.
+        try:
+            if _disco_logistics_autoclose(session_db, project):
+                session_db.commit()
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[proyectos] no se pudo cerrar sola la logística")
         hitos = _disco_project_milestones(session_db, project) if tab == "calendario" else []
         agenda_data = _disco_project_agenda(session_db, project, hitos) if tab == "calendario" else None
         tareas = (_disco_project_tasks(session_db, project, bag=bag, release=release)
@@ -25447,7 +25595,9 @@ def disco_project_detail(project_id):
             prod_fee_modes=DISCO_PROD_FEE_MODES,
             prod_pct_modes=DISCO_PROD_PCT_MODES,
             prod_who_modes=DISCO_PROD_WHO_MODES,
+            master_who_modes=DISCO_MASTER_WHO_MODES,
             prod_cost_modes=DISCO_PROD_COST_MODES,
+            master_cost_modes=(tuple(DISCO_PROD_COST_MODES) + tuple(DISCO_MASTER_COST_EXTRA)),
             vocals_modes=DISCO_VOCALS_MODES,
             vocals_places=DISCO_VOCALS_PLACES,
             has_audio=_disco_project_has_audio(project),
@@ -29854,11 +30004,15 @@ def disco_project_production_save(project_id):
         elif seccion in ("mix", "master"):
             modo = (f.get("mode") or "").strip().upper()
             coste = (f.get("cost_mode") or "").strip().upper()
+            # El MÁSTER admite además «El mezclador» y, con él, «incluido en su fee».
+            quienes = DISCO_MASTER_WHO_MODES if seccion == "master" else DISCO_PROD_WHO_MODES
+            costes = (tuple(DISCO_PROD_COST_MODES) + tuple(DISCO_MASTER_COST_EXTRA)
+                      if seccion == "master" else DISCO_PROD_COST_MODES)
             prod[seccion] = {
-                "mode": modo if modo in dict((k, 1) for k, _l, _i in DISCO_PROD_WHO_MODES) else "",
+                "mode": modo if modo in dict((k, 1) for k, _l, _i in quienes) else "",
                 "promoter_id": (str(_pk("promoter_id")) if modo in ("THIRD", "THIRD_VIA_PRODUCER")
                                 and _pk("promoter_id") else ""),
-                "cost_mode": coste if coste in dict((k, 1) for k, _l, _i in DISCO_PROD_COST_MODES) else "",
+                "cost_mode": coste if coste in dict((k, 1) for k, _l, _i in costes) else "",
                 "amount": (_importe("amount") if coste == "AMOUNT" else ""),
             }
         elif seccion == "vocals":
@@ -29878,6 +30032,7 @@ def disco_project_production_save(project_id):
                 "place_address": ((f.get("place_address") or "").strip() if lugar == "OTHER" else ""),
                 "logistics": logistica,
                 "logistics_note": ((f.get("logistics_note") or "").strip() if logistica else ""),
+                "logistics_address": ((f.get("logistics_address") or "").strip() if logistica else ""),
                 "logistics_user_id": ((f.get("logistics_user_id") or "").strip() if logistica else ""),
             }
         else:
@@ -29886,15 +30041,16 @@ def disco_project_production_save(project_id):
         project.production_payload = prod
         project.updated_at = _now_madrid()
         # LOGÍSTICA de la grabación: le sale como tarea a quien se elija de producción.
+        # ⚠️ Es la MISMA logística del proyecto (no hay dos): lo que se pide aquí se vuelca en
+        # `production_payload['logistics']`, que es lo que leen la tarea, el módulo de Inicio de esa
+        # persona, la hoja de ruta y la bolsa.
         if seccion == "vocals":
             voces = prod.get("vocals") or {}
             if voces.get("logistics") and voces.get("logistics_user_id"):
-                _notify_user(session_db, voces["logistics_user_id"], "PRODUCCION",
-                             "Logística de grabación: %s" % _disco_project_title(project),
-                             (voces.get("logistics_note") or "")[:200]
-                             or "Hay que montar la logística de la grabación de voces.",
-                             url_for("disco_project_detail", project_id=project.id, tab="calendario"),
-                             ref_type="DISCO_VOCALS", ref_id=str(project.id))
+                prod["logistics"] = _disco_logistics_from_vocals(project, voces)
+                project.production_payload = prod
+                _disco_logistics_request(session_db, project, voces["logistics_user_id"],
+                                         _disco_vocals_logistics_text(project, voces))
             else:
                 _notify_resolve(session_db, "DISCO_VOCALS", str(project.id))
         session_db.commit()
@@ -30888,14 +31044,10 @@ def disco_project_logistics_save(project_id):
             if uid and not fila["done_at"]:
                 avisar = uid
         prod["logistics"] = fila
-        # La logística vive AQUÍ: se limpia el trocito que había dentro de la grabación de voces para
-        # que no queden dos sitios diciendo cosas distintas.
-        voces = dict(prod.get("vocals") or {})
-        if voces:
-            voces.pop("logistics", None)
-            voces.pop("logistics_note", None)
-            voces.pop("logistics_user_id", None)
-            prod["vocals"] = voces
+        # ⚠️ Lo guardado dentro de la grabación de voces NO se borra: ahí solo queda lo PROPIO de esa
+        # grabación (la dirección) y el pop-up de voces lee el estado de ESTA logística, que es la
+        # única. `_disco_logistics` solo cae a lo de voces cuando aquí no hay nada, así que no puede
+        # haber dos verdades.
         project.production_payload = prod
         project.updated_at = _now_madrid()
         if necesita == "NO" or not fila.get("user_id"):
@@ -30904,15 +31056,7 @@ def disco_project_logistics_save(project_id):
         if avisar:
             notas = " · ".join(["%s: %s" % (lbl, (fila.get(k) or "").strip())
                                 for k, lbl, _i, _p in DISCO_LOGISTICS_NOTES if (fila.get(k) or "").strip()])
-            _notify_user(session_db, avisar, "PRODUCCION",
-                         "Logística de %s" % _disco_project_title(project),
-                         (notas or "Hay que montar la logística de este lanzamiento.")[:600],
-                         url_for("disco_project_detail", project_id=project.id, tab="calendario"),
-                         ref_type="DISCO_LOGISTICS", ref_id=str(project.id))
-            # Su trabajo se hace en la bolsa (gastos) y en la hoja de ruta: que existan las dos.
-            _ensure_project_bag(session_db, project)
-            session_db.flush()
-            _disco_logistics_roadmap_add(session_db, project, avisar)   # ⚠️ hace commit
+            _disco_logistics_request(session_db, project, avisar, notas)
         session_db.commit()
         flash("Logística guardada." if necesita == "NO" or not avisar else "Logística solicitada.",
               "success")
@@ -113422,11 +113566,17 @@ def _home_disco_logistics(limit: int = 12) -> list[dict]:
                      .options(joinedload(DiscoProject.artist))
                      .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
                      .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
+        cerradas = False
         for p in proyectos:
             estado = _disco_logistics_state(session_db, p)
             if not (estado["yes"] and estado["requested"]) or estado["done"]:
                 continue
             if estado["user_id"] != yo:
+                continue
+            # Red de seguridad: si ya está SUBIDA a la hoja de ruta, la tarea se cierra sola aquí
+            # (la subió por otro camino y nadie tiene que acordarse de marcarla).
+            if _disco_logistics_autoclose(session_db, p):
+                cerradas = True
                 continue
             artista = getattr(p, "artist", None)
             filas.append({
@@ -113446,6 +113596,8 @@ def _home_disco_logistics(limit: int = 12) -> list[dict]:
             })
             if len(filas) >= limit:
                 break
+        if cerradas:
+            session_db.commit()
         return filas
     except Exception:
         app.logger.exception("[inicio] no se pudo leer la logística pedida")

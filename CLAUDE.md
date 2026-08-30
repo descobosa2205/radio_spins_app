@@ -988,6 +988,33 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `agenda_calendar.js`** a mano: el parcial solo deja el JSON, quien dibuja es el JS (que en las
   pantallas de dentro viene de `layout.html`).
 
+- **PROYECTO · los pasos, rematados** (ago 2026):
+  · Los botones de las tareas van **SIN RELLENAR** (`btn-outline-danger`), como en el resto de la
+  app: con 25 tareas, una columna de botones macizos no deja ver por dónde va el trabajo.
+  · **EL BUSCADOR DE TERCEROS no es un desplegable**: se ESCRIBE y salen las coincidencias **con su
+  logo o su foto** (macro `tercero` de `_disco_project_steps.html` → `initTypeahead` sobre
+  `/api/search/promoters`, que devuelve `logo_url`). El «+» de crear uno nuevo se conserva: va sobre
+  un **`<select>` oculto** (`quick_create.js` solo sabe dejar lo creado en un select) y
+  `disco_steps.js` lo copia al buscador y al oculto de verdad.
+  ⚠️⚠️ **Bug de `typeahead.js` que salió aquí y afecta a TODOS los buscadores con imagen**: al
+  elegir de la lista, el `change`/`blur` posterior llamaba a `resolveSelection`, que busca el texto
+  en el **datalist** —que con imagen se vacía a propósito— no lo encontraba y **BORRABA el oculto**:
+  el nombre quedaba escrito y el id vacío, así que no se guardaba nada. Ahora lo elegido se recuerda
+  (`elegido`/`elegidoLabel`) y manda mientras no se toque el texto.
+  · **«Incluido en el presupuesto de producción» se RETIRÓ** de mezcla, máster y voces: decía lo
+  mismo que «incluido en el fee». Se sigue **leyendo** (`DISCO_COST_LABELS`, que incluye las
+  retiradas) para no perder la etiqueta de lo ya guardado, pero no se ofrece.
+  · **El MÁSTER lo puede hacer EL MEZCLADOR** (`DISCO_MASTER_WHO_MODES`, que es el de siempre + esa
+  opción) y entonces su coste puede ir **«incluido en el fee del mezclador»**
+  (`DISCO_MASTER_COST_EXTRA`), tarjeta que **solo se ofrece con esa elección** (`when` de la macro
+  `elige` → `data-dp-when`, que además DESHABILITA su radio mientras está oculta). La MEZCLA no
+  admite «El mezclador» (no se mezcla a sí misma) y el servidor lo comprueba.
+  · ⚠️ **UN BLOQUE DE TAREAS TERMINADO NO DESAPARECE**: se pliegan sus SUBTAREAS y se despliegan
+  pinchando el chevron de la principal. Lo decide **`_disco_tasks_fold`** (`block` · `is_head` ·
+  `has_subs` · `folded`), que se aplica al final de `_disco_project_tasks`; se pliega solo cuando la
+  cabeza **y todas sus subtareas** están hechas. Cada lista pasa su `lista_id` al macro para que dos
+  listas (single / videoclip) no compartan el mismo `collapse`.
+
 - **PROYECTO · LOGÍSTICA** (ago 2026): un paso más del proyecto. Se dice **si hace falta o no** y,
   si hace falta, **se le SOLICITA a una persona de producción** — y a partir de ahí **es tarea suya**.
   · **Qué se le pide**: cuatro notas (`DISCO_LOGISTICS_NOTES`) — **qué se pide · transportes ·
@@ -1007,9 +1034,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ese exige ser «actor» (poder editar alguna sección) y quien lleva la logística puede no tener
   ninguna — se comía un **403 al resolver su propia tarea** (comprobado). El endpoint verifica dentro
   que la logística es SUYA (o que es del sello o de dirección).
-  ⚠️ **Es UNA sola logística**: la que había dentro del pop-up de la grabación de voces se retiró y
-  lo que estuviera guardado ahí se **lee igual** (compat en `_disco_logistics`), para no perder lo ya
-  pedido. Al guardar la nueva se limpia la vieja, para que no haya dos sitios diciendo cosas distintas.
+  ⚠️ **Es UNA sola logística**, pero se puede PEDIR desde DOS sitios: su propio paso y el pop-up de
+  la **grabación de voces** (ago 2026), donde al decir dónde se graba se pregunta si hace falta y, si
+  sí, se pone lo que se necesita, la **dirección de la grabación** y a quién de producción se le pide
+  («Guardar y pedir logística a producción»). Lo de voces **se vuelca en la logística del proyecto**
+  (`_disco_logistics_from_vocals`), así que la tarea, el módulo de Inicio de esa persona, la hoja de
+  ruta y la bolsa son los de siempre; el pop-up de voces LEE el estado de esa logística, no una copia.
+  · Punto único de la solicitud: **`_disco_logistics_request`** (aviso + hoja de ruta + bolsa), que
+  usan los dos caminos. El aviso dice **de qué proyecto y de qué ARTISTA** es, con su foto
+  (`actor_name`/`actor_photo`).
+  · ⚠️ **La logística se da por MONTADA en cuanto está en la HOJA DE RUTA**
+  (`_disco_logistics_roadmap_ready`: un transporte apuntado o un hotel) — nadie tiene que acordarse
+  de pinchar «ya está». Lo cierra `_disco_logistics_autoclose`, llamado al mirar la ficha y al montar
+  el módulo de Inicio (la misma regla que `_notify_resolve` y que el autocierre de Registros).
   ⚠️ Cambiar de persona **vuelve a pedirla** (la fecha de solicitud y el «montada» se resetean): es
   otra persona la que tiene que hacerlo.
   ⚠️ `_roadmap_save` hace **commit**: se llama al final, cuando lo demás ya está en la sesión.

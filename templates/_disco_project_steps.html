@@ -11,8 +11,11 @@
    y los paneles que dependen de una elección se muestran con `data-dp-when`, que gestiona el JS del
    final de este parcial (por delegación, así da igual cuándo se pinte el modal).
    ============================================================================================ #}
-{% macro elige(name, value, icon, label, checked=false, hint='') %}
-  <div class="col-6 col-md-3">
+{# `when`: la tarjeta solo se ofrece con esa elección (p. ej. «incluido en el fee del mezclador»
+   solo cuando el máster lo hace ÉL). Lo gestiona `data-dp-when`, que además DESHABILITA su radio
+   mientras está oculta, así que no puede llegar al servidor. #}
+{% macro elige(name, value, icon, label, checked=false, hint='', when='') %}
+  <div class="col-6 col-md-3{% if when %} d-none{% endif %}"{% if when %} data-dp-when="{{ when }}"{% endif %}>
     <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if checked %} is-selected{% endif %}">
       <input class="form-check-input visually-hidden" type="radio" name="{{ name }}" value="{{ value }}" {% if checked %}checked{% endif %}>
       <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
@@ -22,24 +25,37 @@
   </div>
 {% endmacro %}
 
-{% macro tercero(select_id, name, selected_id='') %}
-  <div class="input-group">
-    <select id="{{ select_id }}" name="{{ name }}" class="form-select select-providers">
-      <option value="">— Elige el tercero —</option>
-      {% for p in (promoters or []) %}
-        <option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}"
-                {% if selected_id and selected_id|string == p.id|string %}selected{% endif %}>{{ p.nick or p.name }}</option>
-      {% endfor %}
-    </select>
-    <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
-            data-target="{{ select_id }}" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+{# BUSCADOR DE TERCEROS: se ESCRIBE y salen las coincidencias con su logo o su foto (no es un
+   desplegable con toda la base dentro). El valor real viaja en el oculto; el «+» da de alta uno
+   nuevo con el sistema global (`quick_create.js` sobre un <select> oculto) y lo deja elegido.
+   ⚠️ `initTypeahead` pinta la lista con miniatura porque `/api/search/promoters` devuelve
+   `logo_url`; sin imagen se caería al datalist de siempre. #}
+{% macro tercero(select_id, name, selected_id='', selected_label='', selected_photo='') %}
+  <div data-dp-tercero>
+    <div class="input-group">
+      <span class="input-group-text p-1" style="width:2.6rem;">
+        <img data-dp-tercero-foto src="{{ selected_photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+             style="width:1.9rem;height:1.9rem;object-fit:cover;border-radius:50%;">
+      </span>
+      <input type="text" class="form-control" id="{{ select_id }}_q" autocomplete="off"
+             value="{{ selected_label }}" placeholder="Escribe el nombre del tercero…">
+      <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+              data-target="{{ select_id }}_qc" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+    </div>
+    <input type="hidden" name="{{ name }}" id="{{ select_id }}" value="{{ selected_id or '' }}">
+    {# Destino del alta rápida: al crear el tercero, `quick_create.js` lo deja seleccionado aquí y
+       el JS de abajo lo copia al buscador y al oculto de verdad. #}
+    <select id="{{ select_id }}_qc" class="d-none" tabindex="-1" aria-hidden="true"></select>
   </div>
 {% endmacro %}
 
-{% macro coste(prefijo, actual='', importe='') %}
+{# `modos`: por defecto los de siempre. El MÁSTER pasa los suyos, que llevan además «incluido en el
+   fee del mezclador» — y esa tarjeta solo se ve cuando el máster lo hace ÉL (`solo_si`). #}
+{% macro coste(prefijo, actual='', importe='', modos=None, solo_si='') %}
   <div class="row g-2">
-    {% for key, label, icon in prod_cost_modes %}
-      {{ elige(prefijo ~ 'cost_mode', key, icon, label, actual|upper == key) }}
+    {% for key, label, icon in (modos or prod_cost_modes) %}
+      {{ elige(prefijo ~ 'cost_mode', key, icon, label, actual|upper == key, '',
+               (solo_si if key == 'IN_MIXER_FEE' else '')) }}
     {% endfor %}
   </div>
   <div class="row g-2 mt-2" data-dp-when="{{ prefijo }}cost_mode=AMOUNT">
@@ -193,7 +209,9 @@
       </div>
       <div class="modal-body">
         <label class="form-label">Productor</label>
-        {{ tercero('dpProducerPick', 'producer_promoter_id', project.producer_promoter_id) }}
+        {{ tercero('dpProducerPick', 'producer_promoter_id', project.producer_promoter_id,
+                   (production.producer.name if production else ''),
+                   (production.producer.logo_url if production else '')) }}
 
         <label class="form-label mt-3">¿Cómo se paga?</label>
         <div class="row g-2">
@@ -259,8 +277,10 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
         <div class="modal-body">
+          {# El MÁSTER lo puede hacer también EL MEZCLADOR (lo más habitual), y entonces su coste
+             puede ir «incluido en el fee del mezclador». #}
           <div class="row g-2">
-            {% for key, label, icon in prod_who_modes %}
+            {% for key, label, icon in (master_who_modes if seccion == 'master' else prod_who_modes) %}
               {{ elige(seccion ~ '_mode_ui', key, icon, label, (d.mode or '') == key) }}
             {% endfor %}
           </div>
@@ -268,10 +288,14 @@
           <input type="hidden" name="mode" value="{{ d.mode or '' }}" data-dp-mirror="{{ seccion }}_mode_ui">
           <div class="mt-3" data-dp-when="{{ seccion }}_mode_ui=THIRD,THIRD_VIA_PRODUCER">
             <label class="form-label">¿Quién?</label>
-            {{ tercero('dp' ~ seccion ~ 'Pick', 'promoter_id', d.promoter_id) }}
+            {{ tercero('dp' ~ seccion ~ 'Pick', 'promoter_id', d.promoter_id, (d.name if d.promoter else ''), (d.logo_url or '')) }}
           </div>
           <label class="form-label mt-3">¿Cómo se paga?</label>
-          {{ coste('', d.cost_mode or '', d.amount or '') }}
+          {% if seccion == 'master' %}
+            {{ coste('', d.cost_mode or '', d.amount or '', master_cost_modes, 'master_mode_ui=MIXER') }}
+          {% else %}
+            {{ coste('', d.cost_mode or '', d.amount or '') }}
+          {% endif %}
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -306,7 +330,7 @@
         <input type="hidden" name="mode" value="{{ v.mode or '' }}" data-dp-mirror="vocals_mode_ui">
         <div class="mt-3" data-dp-when="vocals_mode_ui=THIRD">
           <label class="form-label">¿Quién las graba?</label>
-          {{ tercero('dpVocalsPick', 'promoter_id', v.promoter_id) }}
+          {{ tercero('dpVocalsPick', 'promoter_id', v.promoter_id, (v.name if v.promoter else ''), (v.logo_url or '')) }}
         </div>
 
         <label class="form-label mt-3">¿Cuánto cuesta?</label>
@@ -339,12 +363,65 @@
           </div>
         </div>
 
-        {# ⚠️ La LOGÍSTICA ya no se pide aquí: es un paso propio del proyecto (#dpLogisticsModal), con
-           sus notas de transportes, alojamiento y personal. Una sola logística, no dos. #}
+        {# ¿HACE FALTA LOGÍSTICA para la grabación? Si sí, se dice qué se necesita y dónde es, y se
+           le PIDE a una persona de producción: a ella le llega el aviso y le sale el proyecto como
+           tarea con esta logística de subtarea.
+           ⚠️ Es la MISMA logística del proyecto (`#dpLogisticsModal`), no otra: lo que se escribe
+           aquí va a su nota de «qué se pide». Una sola logística, no dos. #}
+        {# ⚠️ Es la MISMA logística del proyecto, así que lo que se enseña sale de SU estado
+           (`logistics`) y solo se cae a lo guardado dentro de voces cuando aún no hay nada. #}
+        {% set log_si = v.logistics or (logistics and logistics.yes) %}
+        {% set log_uid = (v.logistics_user_id or (logistics.user_id if logistics else '')) %}
+        {% set log_nota = (v.logistics_note or (logistics.note_values.note if logistics else '')) %}
+        <label class="form-label mt-4">¿Hace falta logística para la grabación?</label>
+        <div class="row g-2">
+          {{ elige('vocals_logistics_ui', '1', 'fa-truck-fast', 'Sí, hay que montarla', log_si) }}
+          {{ elige('vocals_logistics_ui', '0', 'fa-ban', 'No hace falta', not log_si) }}
+        </div>
+        <input type="hidden" name="logistics" value="{{ '1' if log_si else '0' }}" data-dp-mirror="vocals_logistics_ui">
+        <div class="d-none" data-dp-when="vocals_logistics_ui=1">
+          <div class="row g-3 mt-1">
+            <div class="col-12">
+              <label class="form-label">¿Qué se necesita?</label>
+              <textarea class="form-control" name="logistics_note" rows="2"
+                        placeholder="Transportes, alojamiento, personal, material…">{{ log_nota }}</textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Dirección de la grabación</label>
+              <span data-address-autocomplete class="d-block position-relative">
+                <input class="form-control" name="logistics_address" data-addr="full" autocomplete="off"
+                       value="{{ v.logistics_address or v.place_address or '' }}" placeholder="Empieza a escribir la calle…">
+              </span>
+            </div>
+            <div class="col-12">
+              <label class="form-label">¿A quién de producción se le pide?</label>
+              <div class="row g-2">
+                {% for u in (production_people or []) %}
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white{% if log_uid|string == u.id|string %} is-selected{% endif %}">
+                      <input class="form-check-input visually-hidden" type="radio" name="logistics_user_id" value="{{ u.id }}"
+                             {% if log_uid|string == u.id|string %}checked{% endif %}>
+                      <img src="{{ u.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                           style="width:46px;height:46px;object-fit:cover;border-radius:50%;">
+                      <span class="fw-semibold small d-block mt-1">{{ u.nick or u.name }}</span>
+                      {% if not u.in_production %}<span class="small text-muted d-block">· fuera de producción</span>{% endif %}
+                    </label>
+                  </div>
+                {% else %}
+                  <div class="col-12 text-muted small">No hay personal al que pedírselo.</div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+        {# El botón lo dice: con logística, además de guardar SE LA PIDE a producción. #}
+        <button class="btn btn-danger d-none" data-dp-when="vocals_logistics_ui=1">
+          <i class="fa fa-truck-fast me-1"></i>Guardar y pedir logística a producción</button>
+        <button class="btn btn-danger" data-dp-when="vocals_logistics_ui=0">
+          <i class="fa fa-floppy-disk me-1"></i>Guardar</button>
       </div>
     </form>
   </div>

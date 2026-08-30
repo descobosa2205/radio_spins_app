@@ -25,6 +25,9 @@ function initTypeahead(inputId, hiddenId, endpoint, opciones){
 
   // La lista propia (con miniatura), que se crea la primera vez que hace falta.
   let box = null;
+  // Lo último que se ha ELEGIDO en esa lista (con su texto), para que el `change`/`blur` posterior
+  // no lo borre al no encontrarlo en el datalist.
+  let elegido = '', elegidoLabel = '';
   function caja(){
     if (box) return box;
     box = document.createElement('div');
@@ -48,6 +51,12 @@ function initTypeahead(inputId, hiddenId, endpoint, opciones){
         });
       } catch (e) {}
       cerrar();
+      // ⚠️ Lo ELEGIDO EN LA LISTA manda: se apunta antes de avisar del cambio. Si no,
+      // `resolveSelection` (que corre con el `change` y con el `blur`) busca el texto en el
+      // DATALIST —que con imagen se vacía a propósito— no lo encuentra y BORRA el oculto: el
+      // buscador dejaba el nombre puesto y el id vacío, así que no se guardaba nada.
+      elegido = it.getAttribute('data-ta-id') || '';
+      elegidoLabel = it.getAttribute('data-ta-label') || '';
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
     return box;
@@ -101,6 +110,8 @@ function initTypeahead(inputId, hiddenId, endpoint, opciones){
   function resolveSelection(){
     if (box && box.style.display === 'block') return;   // lo resuelve el clic en la lista
     const val = input.value;
+    // Lo elegido en la lista con imagen sigue valiendo mientras no se toque el texto.
+    if (elegido && val === elegidoLabel) { if (hidden) hidden.value = elegido; return; }
     const opts = dl.querySelectorAll('option');
     let foundId = "";
     for(const o of opts){

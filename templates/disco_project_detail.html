@@ -140,9 +140,9 @@
   {# Cada tarea dice EN QUÉ ESTADO está (`state`): pendiente, esperando a otro, bloqueada por el
      paso anterior o HECHA (y entonces se queda a la vista con el dato que se fijó). Las que se
      resuelven en un pop-up llevan su botón; las de tarde en tarde, sus tres puntitos. #}
-  {% macro lista_tareas(items, vacio) %}
+  {% macro lista_tareas(items, vacio, lista_id='dp') %}
     <div class="list-group list-group-flush">
-      {% set ns = namespace(fase='') %}
+      {% set ns = namespace(fase='', plegado=false) %}
       {% for t in items %}
         {% set st = t.state or 'todo' %}
         {# UNA CABECERITA por fase (la obra · la imagen · el lanzamiento · para cerrar): la lista es
@@ -156,6 +156,11 @@
             </div>
           {% endif %}
         {% endif %}
+        {# UN BLOQUE TERMINADO NO DESAPARECE: se pliegan sus SUBTAREAS y se despliegan pinchando la
+           tarea principal (`folded` lo decide `_disco_tasks_fold`). El `collapse` se abre justo
+           DESPUÉS de la cabeza y se cierra al llegar la siguiente (o al acabar la lista). #}
+        {% if t.is_head and ns.plegado %}</div>{% set ns.plegado = false %}{% endif %}
+        {% set bloque_id = lista_id ~ '-b' ~ (t.block if t.block is defined else 0) %}
         {% set clicable = (st in ('todo', 'blocked')) and t.url and not t.action_label and not t.modal %}
         {# ⚠️ BLOQUEADA = rayada (como un lanzamiento provisional): «esto todavía no va». En cuanto se
            puede empezar se le quita el fondo, y al terminarla se queda con su check verde — las
@@ -180,12 +185,14 @@
           {% else %}
             <span class="badge {{ 'text-bg-danger' if t.urgent else 'text-bg-warning text-dark' }}">Pendiente</span>
           {% endif %}
+          {# Los botones de las tareas van SIN RELLENAR, como en el resto de la app: la lista es
+             larga y una columna de botones rojos macizos no deja ver por dónde va el trabajo. #}
           {% if CAN_EDIT and t.action_label %}
             {% if t.modal %}
-              <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="{{ t.modal }}">
+              <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="{{ t.modal }}">
                 <i class="fa {{ t.icon }} me-1"></i>{{ t.action_label }}</button>
             {% elif t.url %}
-              <a class="btn btn-sm btn-danger" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label }}</a>
+              <a class="btn btn-sm btn-outline-danger" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label }}</a>
             {% endif %}
           {% endif %}
           {% if CAN_EDIT and t.menu %}
@@ -214,12 +221,20 @@
               </ul>
             </div>
           {% endif %}
+          {# El chevron que despliega las subtareas de un bloque ya terminado. #}
+          {% if t.is_head and t.folded %}
+            <button type="button" class="btn btn-sm btn-link text-muted p-0 dp-fold" data-bs-toggle="collapse"
+                    data-bs-target="#{{ bloque_id }}" aria-expanded="false" title="Ver los pasos">
+              <i class="fa fa-chevron-down"></i></button>
+          {% endif %}
         </{{ 'a' if clicable else 'div' }}>
+        {% if t.is_head and t.folded %}<div class="collapse" id="{{ bloque_id }}">{% set ns.plegado = true %}{% endif %}
       {% else %}
         <div class="list-group-item text-success py-4 text-center">
           <i class="fa fa-circle-check me-1"></i>{{ vacio }}
         </div>
       {% endfor %}
+      {% if ns.plegado %}</div>{% endif %}
     </div>
   {% endmacro %}
   {% macro cabecera_tareas(titulo, icono_html, items, nota='') %}
@@ -235,13 +250,13 @@
       <div class="col-12 col-lg-6">
         <div class="card h-100">
           {{ cabecera_tareas(task_groups.single_label, disco_kind_icon('SINGLE', 'me-2 text-muted'), task_groups.single) }}
-          {{ lista_tareas(task_groups.single, 'Nada pendiente del ' ~ task_groups.single_label|lower ~ '.') }}
+          {{ lista_tareas(task_groups.single, 'Nada pendiente del ' ~ task_groups.single_label|lower ~ '.', 'dpsingle') }}
         </div>
       </div>
       <div class="col-12 col-lg-6">
         <div class="card h-100">
           {{ cabecera_tareas(task_groups.video_label, disco_kind_icon('VIDEOCLIP', 'me-2 text-muted'), task_groups.video) }}
-          {{ lista_tareas(task_groups.video, 'Nada pendiente del ' ~ task_groups.video_label|lower ~ '.') }}
+          {{ lista_tareas(task_groups.video, 'Nada pendiente del ' ~ task_groups.video_label|lower ~ '.', 'dpvideo') }}
         </div>
       </div>
     </div>
@@ -249,12 +264,12 @@
       {{ cabecera_tareas('Lanzamiento', '<i class="fa fa-rocket me-2 text-muted"></i>'|safe,
                          task_groups.lanzamiento,
                          'del ' ~ task_groups.single_label|lower ~ ' y del ' ~ task_groups.video_label|lower) }}
-      {{ lista_tareas(task_groups.lanzamiento, 'Nada pendiente del lanzamiento.') }}
+      {{ lista_tareas(task_groups.lanzamiento, 'Nada pendiente del lanzamiento.', 'dplanz') }}
     </div>
   {% else %}
     <div class="card mt-3">
       {{ cabecera_tareas('Tareas pendientes', '<i class="fa fa-clipboard-check me-2 text-muted"></i>'|safe, tasks) }}
-      {{ lista_tareas(tasks, 'No queda nada pendiente en este proyecto.') }}
+      {{ lista_tareas(tasks, 'No queda nada pendiente en este proyecto.', 'dptodas') }}
     </div>
   {% endif %}
 

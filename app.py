@@ -21691,13 +21691,53 @@ def _home_project_registros(session_db=None) -> list[dict]:
             session_db.close()
 
 
-def _ensure_project_bag(session_db, project):
-    """La BOLSA de gastos del proyecto (una por proyecto, como en una promoción)."""
-    if getattr(project, "bag_id", None):
-        return session_db.get(WorkflowBag, project.bag_id)
+# ═══════════════ DOBLE BOLSA de un proyecto con VIDEOCLIP (audio + vídeo) ════════════════════════
+# Producir el disco y rodar el videoclip son dos gastos distintos que se liquidan por separado, así
+# que un proyecto con videoclip lleva DOS bolsas vinculadas: la de AUDIO (`DiscoProject.bag_id`) y
+# la de VÍDEO (`video_bag_id`). Se gestionan a la vez en la pestaña «Bolsa» y cada una tiene su
+# propio cierre y su propia liquidación.
+# ⚠️ En un videoclip SUELTO no hay audio que producir: su única bolsa es la de VÍDEO, y para no
+# partir en dos lo ya creado se sigue guardando en `bag_id` (con `bag_scope='VIDEO'`).
+DISCO_BAG_SCOPES = {
+    "AUDIO": ("Audio", "fa-music"),
+    "VIDEO": ("Vídeo", "fa-film"),
+}
+
+
+def _disco_project_bag_scopes(project) -> list[str]:
+    """Qué BOLSAS le tocan a este proyecto, en orden. Punto único.
+
+    ⚠️ Se CALCULA del tipo de proyecto: si a un single se le marca después que llevará videoclip,
+    su bolsa de vídeo entra sola (y no hay dos verdades que puedan desparejarse)."""
+    scopes = []
+    if _disco_project_has_audio(project):
+        scopes.append("AUDIO")
+    if _disco_project_has_videoclip(project):
+        scopes.append("VIDEO")
+    return scopes or ["AUDIO"]
+
+
+def _ensure_project_bag(session_db, project, scope: str = ""):
+    """La BOLSA de gastos del proyecto. Con videoclip son DOS: la de audio y la de vídeo.
+
+    Sin `scope` devuelve la PRINCIPAL (la de audio; en un videoclip suelto, la suya)."""
+    scopes = _disco_project_bag_scopes(project)
+    scope = (scope or "").strip().upper() or scopes[0]
+    if scope not in scopes:
+        return None
+    # La primera del proyecto vive en `bag_id` (sea audio o, en un videoclip suelto, vídeo).
+    campo = "bag_id" if scope == scopes[0] else "video_bag_id"
+    actual = getattr(project, campo, None)
+    if actual:
+        bag = session_db.get(WorkflowBag, actual)
+        if bag is not None:
+            if not (getattr(bag, "bag_scope", None) or "") and len(scopes) > 1:
+                bag.bag_scope = scope        # bolsas de antes de la doble bolsa
+            return bag
     etiqueta, _i = _disco_project_kind_meta(getattr(project, "kind", None))
+    sufijo = (" · %s" % DISCO_BAG_SCOPES[scope][0]) if len(scopes) > 1 else ""
     bag = WorkflowBag(
-        title=("%s · %s" % (etiqueta, _disco_project_title(project)))[:500],
+        title=("%s · %s%s" % (etiqueta, _disco_project_title(project), sufijo))[:500],
         artist_id=project.artist_id,
         artist_ids=[str(project.artist_id)] if project.artist_id else [],
         company_id=getattr(project, "company_id", None) or getattr(_pies_group_company(session_db), "id", None),
@@ -21708,12 +21748,44 @@ def _ensure_project_bag(session_db, project):
         start_date=getattr(project, "release_date", None),
         status="ACTIVA",
         is_archived=False,
+        bag_scope=(scope if len(scopes) > 1 else (scope if scope == "VIDEO" else "AUDIO")),
     )
     session_db.add(bag)
     session_db.flush()
-    project.bag_id = bag.id
+    setattr(project, campo, bag.id)
     project.updated_at = _now_madrid()
     return bag
+
+
+def _disco_project_bags(session_db, project, *, create: bool = False) -> list[dict]:
+    """LAS BOLSAS del proyecto (una, o dos si lleva videoclip), con su etiqueta y su icono.
+
+    Es lo que pinta la pestaña «Bolsa» y lo que recorren las tareas: así, lo que valga para una
+    vale para las dos sin escribirlo dos veces."""
+    filas = []
+    for scope in _disco_project_bag_scopes(project):
+        campo = "bag_id" if scope == _disco_project_bag_scopes(project)[0] else "video_bag_id"
+        bag = None
+        if create:
+            bag = _ensure_project_bag(session_db, project, scope)
+        elif getattr(project, campo, None):
+            bag = session_db.get(WorkflowBag, getattr(project, campo))
+        etiqueta, icono = DISCO_BAG_SCOPES[scope]
+        total = Decimal("0")
+        estado, liq = "", ""
+        if bag is not None:
+            try:
+                total = _money_or_zero(session_db.query(
+                    func.coalesce(func.sum(BagExpense.amount_gross), 0)).filter(
+                    BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").scalar())
+            except Exception:
+                app.logger.exception("[proyectos] no se pudo sumar la bolsa")
+            estado = (getattr(bag, "status", "") or "")
+            liq = (getattr(bag, "liquidation_status", "") or "")
+        filas.append({"scope": scope, "label": etiqueta, "icon": icono, "bag": bag,
+                      "id": (str(bag.id) if bag is not None else ""),
+                      "total": total, "status": estado, "liquidation_status": liq})
+    return filas
 
 
 def _disco_project_milestones(session_db, project) -> list[dict]:
@@ -24803,19 +24875,32 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
             tarea("hoja", "La hoja de ruta está vacía", url_hoja, "fa-route")
     except Exception:
         pass
-    if bag is None:
-        tarea("bolsa", "Sin bolsa de gastos",
-              url_for("disco_project_detail", project_id=project.id, tab="bolsa"), "fa-sack-dollar")
-    else:
-        # ⚠️⚠️ LA BOLSA ES LA ÚLTIMA TAREA, y con DOBLE CIERRE: la cierra el SELLO y, si hubo
-        # logística, también PRODUCCIÓN. Hasta que cierran los dos no se manda a administración, y
-        # el proyecto no se puede dar por terminado.
-        url_bolsa = url_for("disco_project_detail", project_id=project.id, tab="bolsa")
-        cerrada = (getattr(bag, "status", "") or "").upper() in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
-        cierre = _bag_close_state(session_db, bag)
+    # ⚠️⚠️ LA BOLSA ES LA ÚLTIMA TAREA, y con DOBLE CIERRE: la cierra el SELLO y, si hubo logística,
+    # también PRODUCCIÓN. Hasta que cierran los dos no se manda a administración, y el proyecto no se
+    # puede dar por terminado.
+    # ⚠️ Y con VIDEOCLIP hay DOS bolsas (audio y vídeo), que se liquidan por separado: cada una tiene
+    # su propia tarea, así que ninguna se queda sin cerrar por estar la otra hecha.
+    bolsas = _disco_project_bags(session_db, project)
+    if bag is not None and len(bolsas) == 1 and bolsas[0]["bag"] is None:
+        bolsas = [{**bolsas[0], "bag": bag}]
+    varias = len(bolsas) > 1
+    for fila_bolsa in bolsas:
+        suf = ("_" + fila_bolsa["scope"].lower()) if varias else ""
+        nombre = (" · %s" % fila_bolsa["label"]) if varias else ""
+        url_bolsa = url_for("disco_project_detail", project_id=project.id, tab="bolsa",
+                            **({"bolsa": fila_bolsa["scope"]} if varias else {}))
+        b = fila_bolsa["bag"]
+        if b is None:
+            tarea("bolsa" + suf, "Sin bolsa de gastos%s" % nombre, url_bolsa, "fa-sack-dollar",
+                  grupo=("video" if fila_bolsa["scope"] == "VIDEO" else "single"))
+            continue
+        grupo_b = "video" if fila_bolsa["scope"] == "VIDEO" else "lanzamiento"
+        cerrada = (getattr(b, "status", "") or "").upper() in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
+        cierre = _bag_close_state(session_db, b)
+        titulo = "Cerrar la bolsa%s y mandarla a liquidación" % nombre
         if cerrada:
-            tarea("bolsa_cierre", "Cerrar la bolsa y mandarla a liquidación", url_bolsa,
-                  "fa-sack-dollar", state="done",
+            tarea("bolsa_cierre" + suf, titulo, url_bolsa, "fa-sack-dollar", state="done",
+                  grupo=grupo_b,
                   value="Cerrada%s" % ((" · " + " · ".join(
                       ["%s: %s" % (p["label"], p["by"] or "hecho") for p in cierre["parts"]]))
                       if cierre["double"] else ""))
@@ -24823,27 +24908,26 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
             hechas = [p for p in cierre["parts"] if p["done"]]
             extra = {"state": "wait",
                      "value": "Falta que cierre %s" % " y ".join(cierre["missing_labels"])} if hechas else {}
-            tarea("bolsa_cierre", "Cerrar la bolsa y mandarla a liquidación", url_bolsa,
-                  "fa-sack-dollar",
+            tarea("bolsa_cierre" + suf, titulo, url_bolsa, "fa-sack-dollar", grupo=grupo_b,
                   hint="La cierran %s" % " y ".join([p["label"] for p in cierre["parts"]]),
                   action_label="Ir a la bolsa", **extra)
             for parte in cierre["parts"]:
-                clave = "bolsa_cierre_%s" % parte["key"].lower()
+                clave = "bolsa_cierre%s_%s" % (suf, parte["key"].lower())
                 if parte["done"]:
                     tarea(clave, "Cierre de %s" % parte["label"], url_bolsa, parte["icon"],
-                          sub=True, state="done",
+                          sub=True, state="done", grupo=grupo_b,
                           value="Cerrado%s%s" % ((" por %s" % parte["by"]) if parte["by"] else "",
                                                  (" el %s" % parte["at_label"]) if parte["at_label"] else ""))
                 elif parte["can"]:
                     tarea(clave, "Cierra tu parte (%s)" % parte["label"], url_bolsa, parte["icon"],
-                          sub=True, action_label="Ir a la bolsa")
+                          sub=True, action_label="Ir a la bolsa", grupo=grupo_b)
                 else:
                     tarea(clave, "Cierre de %s" % parte["label"], url_bolsa, parte["icon"],
-                          sub=True, state="sent",
+                          sub=True, state="sent", grupo=grupo_b,
                           value="Pendiente de que cierre %s" % parte["label"].lower())
         else:
-            tarea("bolsa_cierre", "Cerrar la bolsa y mandarla a liquidación", url_bolsa,
-                  "fa-sack-dollar", action_label="Ir a la bolsa")
+            tarea("bolsa_cierre" + suf, titulo, url_bolsa, "fa-sack-dollar", grupo=grupo_b,
+                  action_label="Ir a la bolsa")
     # Cerrar el proyecto: solo cuando NO queda nada pendiente de verdad.
     if getattr(project, "closed_at", None) is None and not [t for t in tareas if t["state"] != "done"]:
         tarea("cerrar", "Todo listo: cierra el proyecto para pasar a distribución y registro",
@@ -25745,7 +25829,15 @@ def disco_project_detail(project_id):
             flash("Proyecto no encontrado.", "warning")
             return redirect(url_for("discografica_view", section="proyectos"))
         fila = _disco_project_row(session_db, project)
-        bag = (session_db.get(WorkflowBag, project.bag_id) if project.bag_id else None)
+        # ⚠️ DOBLE BOLSA: con videoclip hay dos (audio y vídeo). Se crean al abrir la pestaña y se
+        # elige cuál se está mirando con `?bolsa=AUDIO|VIDEO`; la de audio es la de por defecto.
+        project_bags = _disco_project_bags(session_db, project, create=(tab == "bolsa"))
+        bag_scope = (request.args.get("bolsa") or "").strip().upper()
+        if bag_scope not in {b["scope"] for b in project_bags}:
+            bag_scope = project_bags[0]["scope"] if project_bags else ""
+        bag = next((b["bag"] for b in project_bags if b["scope"] == bag_scope), None)
+        if bag is None and getattr(project, "bag_id", None):
+            bag = session_db.get(WorkflowBag, project.bag_id)
         # La HOJA DE RUTA usa el mismo motor que las actividades (el tipo «project»).
         roadmap_ctx = _roadmap_context(session_db, "project", project) if tab == "hoja-ruta" else None
         # CALENDARIO: los hitos (fechas a la izquierda) y el calendario de verdad a la derecha; las
@@ -25828,12 +25920,14 @@ def disco_project_detail(project_id):
                           "project_ids", "plan", "plan_sections", "plan_agenda",
                           "plan_action_kinds", "content_networks", "plan_candidates",
                           "can_review_plan", "plan_companies", "can_add_marketing",
-                          "agenda_data", "release", "release_songs"):
+                          "agenda_data", "release", "release_songs",
+                          "project_bags", "bag_scope"):
                 bag_ctx.pop(clave, None)
         return render_template(
             "disco_project_detail.html",
             project=project, row=fila, tab=tab,
             project_tabs=DISCO_PROJECT_TABS,
+            project_bags=project_bags, bag_scope=bag_scope,
             milestones=hitos,
             agenda_data=agenda_data,
             tasks=tareas,
@@ -31536,7 +31630,10 @@ def disco_project_logistics_done(project_id):
 @app.post("/discografica/proyectos/<project_id>/bolsa", endpoint="disco_project_bag")
 @admin_required
 def disco_project_bag(project_id):
-    """Crea (si hace falta) la bolsa del proyecto y lleva a ella."""
+    """Crea (si hacen falta) las bolsas del proyecto y lleva a la que se pida.
+
+    ⚠️ Con VIDEOCLIP son DOS (audio y vídeo): se crean las dos y se vuelve a la pestaña, que es
+    donde se gestionan las dos a la vez."""
     if not can_edit_discografica():
         return forbid("No tienes permisos para editar proyectos discográficos.")
     session_db = db()
@@ -31545,8 +31642,16 @@ def disco_project_bag(project_id):
         if project is None:
             flash("Proyecto no encontrado.", "warning")
             return redirect(url_for("discografica_view", section="proyectos"))
-        bag = _ensure_project_bag(session_db, project)
+        filas = _disco_project_bags(session_db, project, create=True)
         session_db.commit()
+        if len(filas) > 1:
+            flash("Listas las dos bolsas: %s. Se liquidan por separado."
+                  % " y ".join([f["label"].lower() for f in filas]), "success")
+            return redirect(url_for("disco_project_detail", project_id=project.id, tab="bolsa"))
+        bag = filas[0]["bag"] if filas else None
+        if bag is None:
+            flash("No se pudo preparar la bolsa.", "warning")
+            return redirect(url_for("disco_project_detail", project_id=project.id, tab="bolsa"))
         return redirect(url_for("bag_detail_view", bag_id=bag.id))
     except Exception as exc:
         session_db.rollback()
@@ -83166,6 +83271,14 @@ def _bag_visible_expense_categories(session_db, bag, expenses=None) -> list[tupl
             fuera.add("PROD_VIDEO")
         if not (modo in {"DIGITAL_FISICO", "FISICO"} or (getattr(project, "physical_formats", None) or [])):
             fuera.add("PROD_FISICO")
+        # ⚠️ DOBLE BOLSA: en un proyecto con videoclip son dos bolsas separadas, y cada una solo
+        # ofrece LO SUYO — en la de audio no se apunta el rodaje y en la de vídeo no se apunta el
+        # máster (si no, el mismo gasto podría ir a cualquiera de las dos y no cuadraría al liquidar).
+        scope = (getattr(bag, "bag_scope", None) or "").strip().upper()
+        if scope == "AUDIO":
+            fuera.add("PROD_VIDEO")
+        elif scope == "VIDEO":
+            fuera.update({"PROD_AUDIO", "PROD_FISICO"})
     visibles = [(k, l) for k, l in DISCO_BAG_EXPENSE_CATEGORIES if k not in fuera]
     vistas = {k for k, _l in visibles}
     con_gastos = {_bag_expense_display_cat(getattr(e, "category", None)) for e in (expenses or [])

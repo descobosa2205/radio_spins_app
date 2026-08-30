@@ -5495,3 +5495,19 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .bag-close__part.is-done{ color:#0f5132; border-color:#badbcc; background:#eaf6ef; }
 .bag-close__part i:first-child{ font-size:.9em; }
 .bag-close__note{ font-size:.85rem; color:#6b7280; margin-left:auto; }
+
+/* ═════════════ DOBLE BOLSA de un proyecto con videoclip (audio + vídeo) ═════════════
+   Se gestionan las dos desde la misma pestaña, pero son bolsas separadas y se liquidan aparte. */
+.dp-bags{ display:flex; align-items:center; flex-wrap:wrap; gap:.5rem;
+  background:#f8f9fb; border:1px solid #eef0f4; border-radius:.65rem; padding:.55rem .75rem; }
+.dp-bags__ttl{ display:inline-flex; align-items:center; gap:.4rem; font-weight:700;
+  font-size:.82rem; text-transform:uppercase; letter-spacing:.04em; color:#6b7280; }
+.dp-bags__ttl i{ color:var(--brand-primary,#E33D48); }
+.dp-bags__one{ display:inline-flex; align-items:center; gap:.4rem; text-decoration:none;
+  font-size:.9rem; font-weight:600; color:#374151; background:#fff; border:1px solid #e5e7eb;
+  border-radius:999px; padding:.28rem .75rem; }
+.dp-bags__one:hover{ border-color:var(--brand-primary,#E33D48); color:var(--brand-primary,#E33D48); }
+.dp-bags__one.is-on{ background:var(--brand-primary,#E33D48); border-color:var(--brand-primary,#E33D48); color:#fff; }
+.dp-bags__amt{ font-variant-numeric:tabular-nums; opacity:.85; }
+.dp-bags__st{ font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; opacity:.8; }
+.dp-bags__note{ font-size:.85rem; color:#6b7280; margin-left:auto; }

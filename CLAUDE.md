@@ -4102,6 +4102,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la actividad calcula la lista **SIEMPRE** (antes solo cuando faltaba responsable, así que al cambiarlo
   desde la rueda no salía nadie) y el modal `#prodOwnerModal` se pinta con solo poder editar.
 
+- ⚠️⚠️ **UN PROYECTO CON VIDEOCLIP LLEVA DOS BOLSAS: audio y vídeo** (ago 2026). Producir el disco y
+  rodar el videoclip son dos gastos distintos, así que son **dos bolsas separadas y vinculadas** que
+  se gestionan a la vez (en la misma pestaña) pero **se LIQUIDAN por separado**.
+  · `DiscoProject.bag_id` = la de **AUDIO**; **`video_bag_id`** = la de **VÍDEO**. Cada una lleva su
+  **`WorkflowBag.bag_scope`** (`AUDIO`/`VIDEO`), de donde salen su nombre y sus categorías.
+  ⚠️ En un **videoclip SUELTO** no hay audio que producir: su única bolsa es la de vídeo y se sigue
+  guardando en **`bag_id`** (con `bag_scope='VIDEO'`), para no partir en dos lo ya creado.
+  · Puntos únicos: **`_disco_project_bag_scopes`** (qué bolsas le tocan, CALCULADO del tipo: si a un
+  single se le marca después que llevará vídeo, su bolsa entra sola) · **`_ensure_project_bag(...,
+  scope)`** · **`_disco_project_bags(session_db, project, create=)`** (las bolsas con su etiqueta,
+  su icono, su total y su estado), que es lo que recorren la pestaña y las tareas.
+  ⚠️ **Cada bolsa solo ofrece LO SUYO** (`_bag_visible_expense_categories` mira el `bag_scope`): en
+  la de audio no se apunta el rodaje y en la de vídeo no se apuntan el máster ni el físico — si no,
+  el mismo gasto podría ir a cualquiera de las dos y no cuadraría al liquidar.
+  · **Dos tareas de cierre**, una por bolsa (`bolsa_cierre_audio` / `bolsa_cierre_video`, cada una en
+  su bloque de la lista partida), así que ninguna se queda sin cerrar por estar la otra hecha.
+  · UI: los botones `.dp-bags` de la pestaña Bolsa (con el total de cada una y «Se liquidan por
+  separado»); se cambia de bolsa con **`?bolsa=AUDIO|VIDEO`**. Con una sola bolsa no se pinta nada.
+
 - ⚠️⚠️ **DOBLE CIERRE DE UNA BOLSA: la cierran DOS departamentos** (ago 2026). Hay bolsas que trabajan
   dos áreas a la vez y **ninguna la puede dar por terminada por su cuenta**:
   · la de un **PROYECTO DISCOGRÁFICO**: el **SELLO** (quien lo lleva) y, **si se pidió LOGÍSTICA**,

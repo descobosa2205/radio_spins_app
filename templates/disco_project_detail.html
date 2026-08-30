@@ -768,10 +768,27 @@
   {% endif %}
 
 {% elif tab == 'bolsa' %}
-  {# BOLSA de gastos del proyecto (una por proyecto). #}
+  {# BOLSA de gastos del proyecto. ⚠️ Con VIDEOCLIP son DOS, separadas y vinculadas: la de AUDIO y la
+     de VÍDEO. Se gestionan aquí las dos (se cambia con los botones) pero se LIQUIDAN por separado,
+     así que cada una tiene su propio cierre y su propia liquidación. #}
+  {% if project_bags and project_bags|length > 1 %}
+    <div class="dp-bags mb-3">
+      <span class="dp-bags__ttl"><i class="fa fa-sack-dollar"></i>Bolsas del proyecto</span>
+      {% for b in project_bags %}
+        <a class="dp-bags__one{% if b.scope == bag_scope %} is-on{% endif %}"
+           href="{{ url_for('disco_project_detail', project_id=project.id, tab='bolsa', bolsa=b.scope) }}">
+          <i class="fa {{ b.icon }}"></i>{{ b.label }}
+          <span class="dp-bags__amt">{{ b.total|eur }}</span>
+          {% if b.status and b.status|upper != 'ACTIVA' %}
+            <span class="dp-bags__st">{{ b.status|lower }}</span>{% endif %}
+        </a>
+      {% endfor %}
+      <span class="dp-bags__note">Se liquidan por separado.</span>
+    </div>
+  {% endif %}
   {% if bag %}
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <h5 class="m-0"><i class="fa fa-sack-dollar me-2 text-muted"></i>Bolsa del proyecto</h5>
+      <h5 class="m-0"><i class="fa fa-sack-dollar me-2 text-muted"></i>Bolsa del proyecto{% if project_bags and project_bags|length > 1 %} · {{ (project_bags|selectattr('scope','equalto',bag_scope)|list|first).label }}{% endif %}</h5>
       <a class="btn btn-outline-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">
         <i class="fa fa-up-right-from-square me-1"></i>Abrir la bolsa</a>
     </div>

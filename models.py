@@ -827,6 +827,9 @@ class DiscoProject(Base):
     roadmap_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     roadmap_public_token = Column(Text)
     bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    # ⚠️ DOBLE BOLSA: si el proyecto lleva VIDEOCLIP hay dos bolsas separadas y vinculadas —la de
+    # AUDIO (`bag_id`) y la de VÍDEO—, que se gestionan a la vez pero se LIQUIDAN por separado.
+    video_bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -4837,6 +4840,9 @@ class WorkflowBag(Base):
     # ⚠️ DOBLE CIERRE: qué parte ha cerrado ya cada departamento («SELLO», «PRODUCCION»,
     # «PROMOCION»), con quién y cuándo. La bolsa NO se manda a administración hasta que están todas.
     close_parts = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # ⚠️ DOBLE BOLSA de un proyecto discográfico con videoclip: «AUDIO» o «VIDEO» (vacío en el
+    # resto). De aquí salen su etiqueta y las categorías de gasto que se le ofrecen.
+    bag_scope = Column(Text)
     closed_liquidation_pdf_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -11335,6 +11341,7 @@ def ensure_holded_schema():
         # Una bolsa con TODOS sus gastos contabilizados se archiva y desaparece de pendiente.
         "ALTER TABLE IF EXISTS workflow_bags ADD COLUMN IF NOT EXISTS accounting_done_at timestamptz;",
         "ALTER TABLE IF EXISTS workflow_bags ADD COLUMN IF NOT EXISTS close_parts jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS workflow_bags ADD COLUMN IF NOT EXISTS bag_scope text;",
         # --- DIRECCIÓN FISCAL EN PIEZAS ---
         # Holded exige el código postal, el municipio y la provincia por separado para crear el
         # contacto: con la dirección en un solo cuadro de texto no se puede dar de alta al proveedor.
@@ -11797,6 +11804,7 @@ def ensure_disco_projects_schema():
             ADD COLUMN IF NOT EXISTS materials_notified_to jsonb NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS materials_reminder_at timestamptz,
             ADD COLUMN IF NOT EXISTS producer_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS video_bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
             ADD COLUMN IF NOT EXISTS production_payload jsonb NOT NULL DEFAULT '{}'::jsonb;
         """,
         """

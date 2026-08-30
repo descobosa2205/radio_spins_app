@@ -33304,6 +33304,111 @@ def _song_delivery_askable() -> list[dict]:
     return filas
 
 
+def _song_delivery_prefill(session_db, song, conf) -> tuple[dict, dict]:
+    """Lo que YA ESTÁ en la ficha, para que el formulario de entrega salga relleno.
+
+    Devuelve `(form, hecho)`: los valores con los nombres que espera la plantilla y qué está ya
+    cumplimentado (para marcarlo a la vista). ⚠️ **Solo de lo que ESE enlace pide**: lo que no se
+    haya marcado al crearlo ni se muestra ni se rellena, como hasta ahora."""
+    form, hecho = {}, {}
+    pide = lambda k: bool((conf.get(k) or {}).get("ask"))
+
+    def pon(clave, valor):
+        v = ("" if valor is None else str(valor)).strip()
+        # ⚠️ «—» es lo que devuelven los formateadores de la casa cuando NO hay dato
+        # (`_seconds_to_timecode(None)`): eso no es un valor y no puede salir en el formulario.
+        if v in ("—", "-"):
+            v = ""
+        if v:
+            form[clave] = v
+        return bool(v)
+
+    # ---- Producción: lo que ya tiene la canción en su ficha ----
+    if pide("prod.duration"):
+        hecho["prod.duration"] = pon("prod_duration",
+                                     _seconds_to_timecode(getattr(song, "duration_seconds", None)))
+    if pide("prod.bpm"):
+        hecho["prod.bpm"] = pon("prod_bpm", getattr(song, "bpm", None) or "")
+    if pide("prod.recording_date"):
+        rd = getattr(song, "recording_date", None)
+        hecho["prod.recording_date"] = pon("prod_recording_date", rd.isoformat() if rd else "")
+    for clave, campo in (("prod.studio", "studio"),
+                         ("prod.recording_engineer", "recording_engineer"),
+                         ("prod.mixing_engineer", "mixing_engineer"),
+                         ("prod.mastering_engineer", "mastering_engineer")):
+        if pide(clave):
+            hecho[clave] = pon("prod_" + clave[5:], getattr(song, campo, None))
+    for clave, campo in (("prod.producer", "producers"), ("prod.arranger", "arrangers"),
+                         ("prod.musicians", "musicians")):
+        if pide(clave):
+            lista = [x for x in (getattr(song, campo, None) or []) if (x or "").strip()]
+            sep = "\n" if clave == "prod.musicians" else ", "
+            hecho[clave] = pon("prod_" + clave[5:], sep.join(lista))
+    # El PRODUCTOR es un tercero: si su ficha lo tiene apuntado, se deja elegido.
+    if pide("prod.producer"):
+        try:
+            pid = getattr(song, "producer_promoter_id", None)
+            if pid:
+                pr = session_db.get(Promoter, pid)
+                if pr is not None:
+                    form["prod_producer"] = _delivery_promoter_label(pr)
+                    form["prod_producer_promoter_id"] = str(pr.id)
+                    hecho["prod.producer"] = True
+        except Exception:
+            pass
+
+    # ---- Letra y pitch ----
+    if pide("lyrics"):
+        hecho["lyrics"] = pon("lyrics", getattr(song, "lyrics_text", None))
+    if pide("pitch"):
+        # ⚠️ El pitch puede llevar formato (negrita…): en un `<textarea>` va SIN él.
+        hecho["pitch"] = pon("pitch", _pitch_plain_text(getattr(song, "pitch_text", None) or ""))
+
+    # ---- Autoría: los autores que ya están registrados ----
+    autores = []
+    if pide("authoral"):
+        try:
+            for sh in (session_db.query(SongEditorialShare)
+                       .options(joinedload(SongEditorialShare.promoter))
+                       .filter(SongEditorialShare.song_id == song.id)
+                       .order_by(SongEditorialShare.pct.desc()).all()):
+                ed = _share_publisher(sh)
+                autores.append({
+                    "name": _promoter_display_name(getattr(sh, "promoter", None)) or "",
+                    "promoter_id": (str(sh.promoter_id) if getattr(sh, "promoter_id", None) else ""),
+                    "editorial": (getattr(ed, "name", "") or ""),
+                    "publishing_id": (str(getattr(ed, "id", "")) if ed is not None else ""),
+                    "role": (getattr(sh, "role", "") or ""),
+                    "pct": _fmt_pct_es(getattr(sh, "pct", 0)),
+                })
+        except Exception:
+            app.logger.exception("[entrega] no se pudieron leer los autores ya registrados")
+        hecho["authoral"] = bool(autores)
+    form["_authors"] = autores
+
+    # ---- Materiales ya subidos (un `<input file>` no se puede rellenar: se DICE que ya está) ----
+    try:
+        subidos = {}
+        for m in (session_db.query(SongMaterial)
+                  .filter(SongMaterial.song_id == song.id).all()):
+            cat = (getattr(m, "category", "") or "").upper()
+            slot = (getattr(m, "slot_key", "") or "").upper()
+            if not (getattr(m, "file_url", None) or "").strip():
+                continue
+            subidos[(cat, slot)] = (getattr(m, "file_name", None) or "").strip() or "Ya subido"
+        for campo, cat, slot in SONG_DELIVERY_MATERIAL_SPECS:
+            if pide("mat." + campo) and (cat, slot) in subidos:
+                hecho["mat." + campo] = subidos[(cat, slot)]
+        if pide("mat.stems") and any(c == "STEMS" for c, _s in subidos):
+            hecho["mat.stems"] = "Ya subidos"
+        if pide("mat.cover") and ((getattr(song, "cover_url", None) or "").strip()
+                                  or ("COVER", "COVER") in subidos):
+            hecho["mat.cover"] = "Ya subida"
+    except Exception:
+        app.logger.exception("[entrega] no se pudieron leer los materiales ya subidos")
+    return form, hecho
+
+
 def _song_delivery_config(link) -> dict:
     """Qué se pide y qué es obligatorio en ESTE enlace: {clave: {"ask", "required", ...}}.
 
@@ -34519,7 +34624,12 @@ def public_song_master_delivery(token):
             session_db.commit()
             return render_template("public_song_master_delivery.html", state="submitted", **base_ctx)
 
-        return render_template("public_song_master_delivery.html", state="form", form={}, **base_ctx)
+        # LO QUE YA ESTÁ sale RELLENO (y se puede corregir si está mal). Solo de lo que este enlace
+        # pide: lo que no se marcó al crearlo ni se muestra ni se rellena.
+        prefill, hecho = _song_delivery_prefill(session_db, song, conf)
+        return render_template("public_song_master_delivery.html", state="form",
+                               form=prefill, prefilled=hecho,
+                               prefill_authors=prefill.get("_authors") or [], **base_ctx)
     finally:
         session_db.close()
 

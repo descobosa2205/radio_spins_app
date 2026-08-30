@@ -2286,6 +2286,22 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Si al registrar un archivo ya subido no se puede resolver su dirección, **se deshace la entrega
   entera y se avisa**: una entrega a medias no se da por buena.
 
+- **ENTREGA DE MASTERS · EL FORMULARIO SALE YA CUMPLIMENTADO** (ago 2026). Lo que ya está en la
+  ficha (o ya se ha subido) llega **relleno** y se puede corregir si está mal; lo que falta se ve de
+  un golpe. Punto único **`_song_delivery_prefill(session_db, song, conf)`** → `(form, hecho)`: los
+  valores con los nombres que espera la plantilla y qué está ya cumplimentado.
+  · Rellena la **producción** (duración, BPM, fecha, estudio, ingenieros, productor —con su tercero
+  ya elegido—, arreglista y músicos), la **letra**, el **pitch** (sin formato: va en un `<textarea>`)
+  y los **AUTORES** ya registrados, con su editorial, su rol y su %.
+  · Lo ya cumplimentado se marca a la vista: **marco verde + etiqueta «Ya cumplimentado»**
+  (`.dl-done` / `.dl-done__tag`).
+  ⚠️ **Solo de lo que ESE enlace pide**: lo que no se marcó al crearlo ni se muestra ni se rellena,
+  exactamente como antes.
+  ⚠️ Un **`<input file>` no se puede rellenar**: de los materiales ya subidos se **dice cuál está**
+  (con su nombre de archivo), dejan de ser obligatorios y subir otro los REEMPLAZA.
+  ⚠️ Los formateadores de la casa devuelven **«—»** cuando no hay dato (`_seconds_to_timecode(None)`):
+  eso no es un valor y no puede acabar en el formulario (lo filtra `pon`).
+
 - **ENTREGA DE MASTERS · qué se pide y qué es obligatorio, campo a campo** (ago 2026):
   · Catálogo ÚNICO **`_song_delivery_askable()`** (campos de producción + autoral + letra + cada
   material) y **`_song_delivery_config(link)`**, que dice para ESE enlace si cada cosa se pide y si

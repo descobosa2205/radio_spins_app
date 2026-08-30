@@ -293,6 +293,8 @@
 
   {# LOS POP-UPS de los pasos de audio (fecha, plazo de entrega y producción). #}
   {% if CAN_EDIT and has_audio %}{% include '_disco_project_steps.html' %}{% endif %}
+  {# Y los del VIDEOCLIP, que tiene su propio proceso en paralelo. #}
+  {% if CAN_EDIT and video %}{% include '_disco_video_modals.html' %}{% endif %}
   {# ⚠️ Los pop-ups del PLAN también aquí: seis acciones de la lista de tareas los abren
      (`#dpPlanReviewModal`, `#dpPlanPromoModal`, `#dpPlanNoticeModal`…) y, al vivir solo en la
      pestaña del plan, esos botones no hacían NADA. #}

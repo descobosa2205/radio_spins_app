@@ -23057,6 +23057,7 @@ DISCO_APPROVAL_KINDS = (
     ("MATERIALS", "Materiales", "fa-shapes", "files"),
     ("COVER_PHOTO", "Foto para la portada", "fa-images", "images"),
     ("COVER", "Portada", "fa-image", "image"),
+    ("VIDEOCLIP", "Videoclip", "fa-film", "video"),
 )
 DISCO_APPROVAL_META = {k: (lbl, ico, tipo) for k, lbl, ico, tipo in DISCO_APPROVAL_KINDS}
 # Las tres etapas de la cadena (a quién se le pide y en qué orden).
@@ -24534,6 +24535,175 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   hint="Con lo hablado ya puesto: se aprueba y Registros manda el contrato",
                   action_label="Preparar el acuerdo", modal="#dpCollabDealModal")
 
+    # ================= EL VIDEOCLIP: su propio proceso, en paralelo al del audio =================
+    # ⚠️ Solo si el proyecto LLEVA videoclip. Van en el grupo «video», así que en un single con vídeo
+    # se leen en su columna (`_disco_project_task_groups`).
+    if _disco_project_has_videoclip(project):
+        vd = _disco_video_state(session_db, project)
+        # 1 · QUIÉN LO PRODUCE (+ su contrato de producción audiovisual)
+        if vd["producer"]["done"]:
+            tarea("vid_productor", "Quién produce el videoclip", "", "fa-clapperboard",
+                  state="done", grupo="video",
+                  value="%s · %s%s" % (vd["producer"]["name"], vd["producer"]["fee_label"],
+                                       (" %s" % (vd["producer"]["fee_amount_label"]
+                                                 or vd["producer"]["budget_amount_label"]))
+                                       if (vd["producer"]["fee_amount_label"]
+                                           or vd["producer"]["budget_amount_label"]) else ""),
+                  people=([{"name": vd["producer"]["name"], "photo_url": vd["producer"]["logo_url"]}]
+                          if vd["producer"]["name"] else []),
+                  menu=[{"label": "Cambiar el productor", "icon": "fa-pen",
+                         "modal": "#dpVideoProducerModal"}])
+            # El CONTRATO DE PRODUCCIÓN AUDIOVISUAL: lo manda Registros y Sello.
+            if vd["contract"]["done"]:
+                tarea("vid_contrato", "Contrato de producción audiovisual", "", "fa-file-contract",
+                      sub=True, state="done", grupo="video",
+                      value="Enviado%s%s" % ((" por %s" % vd["contract"]["done_by"])
+                                             if vd["contract"]["done_by"] else "",
+                                             (" el %s" % vd["contract"]["done_label"])
+                                             if vd["contract"]["done_label"] else ""),
+                      menu=[{"label": "Volver a dejarlo pendiente", "icon": "fa-rotate-left",
+                             "post": url_for("disco_video_contract", project_id=project.id) + "?undo=1"}])
+            else:
+                _reg = _registros_sello_names(session_db)
+                tarea("vid_contrato", "Contrato de producción audiovisual", "", "fa-file-contract",
+                      sub=True, state="sent", grupo="video",
+                      value=("Solicitado y pendiente de %s" % _reg) if _reg else "Solicitado",
+                      people=_registros_sello_people(session_db),
+                      action_label="Subir el contrato", modal="#dpVideoContractModal")
+        else:
+            tarea("vid_productor", "Quién produce el videoclip", "", "fa-clapperboard", True,
+                  grupo="video", hint="Con quién se rueda y en qué condiciones (sin porcentaje)",
+                  action_label="Configurar", modal="#dpVideoProducerModal")
+
+        # 2 · EL PLAZO MÁXIMO DE ENTREGA, y comunicárselo al productor
+        if vd["due"]["done"]:
+            tarea("vid_plazo", "Fecha máxima de entrega del videoclip", "", "fa-calendar-check",
+                  state="done", grupo="video",
+                  value="%s · avisado%s" % (vd["due"]["date_label"],
+                                            (" el %s" % vd["due"]["notified_label"])
+                                            if vd["due"]["notified_label"] else ""),
+                  menu=[{"label": "Cambiar el plazo", "icon": "fa-calendar-plus",
+                         "modal": "#dpVideoDueModal"}])
+        else:
+            tarea("vid_plazo", "Fijar el plazo de entrega y comunicárselo al productor", "",
+                  "fa-calendar-check", grupo="video",
+                  state=(None if vd["producer"]["done"] else "blocked"),
+                  hint=("Antes hay que decir quién lo produce" if not vd["producer"]["done"]
+                        else ("Fijado el %s, falta comunicárselo" % vd["due"]["date_label"])
+                        if vd["due"]["date_label"] else "Cuándo tiene que estar entregado"),
+                  action_label="Fijar el plazo", modal="#dpVideoDueModal")
+
+        # 3 · LOS LOGOS que van obligatoriamente en los créditos
+        if vd["logos"]["done"]:
+            tarea("vid_logos", "Logotipos obligatorios en los créditos", "", "fa-shapes",
+                  state="done", grupo="video",
+                  value="%s · mandados%s" % (", ".join([m["name"] for m in vd["logos"]["brands"]]),
+                                             (" el %s" % vd["logos"]["sent_label"])
+                                             if vd["logos"]["sent_label"] else ""),
+                  menu=[{"label": "Cambiarlos o volver a mandarlos", "icon": "fa-rotate",
+                         "modal": "#dpVideoLogosModal"}])
+        else:
+            tarea("vid_logos", "Comunicarle al productor los logotipos obligatorios", "", "fa-shapes",
+                  grupo="video", state=(None if vd["producer"]["done"] else "blocked"),
+                  hint=("Antes hay que decir quién lo produce" if not vd["producer"]["done"]
+                        else "Los de las empresas del grupo, la distribuidora y el artista"),
+                  action_label="Elegir los logos", modal="#dpVideoLogosModal")
+
+        # 4 · LA IDEA: el briefing al productor
+        if vd["brief"]["done"]:
+            tarea("vid_idea", "Idea del videoclip (briefing)", "", "fa-lightbulb",
+                  state="done", grupo="video",
+                  value="%s%s" % ("Enviado a mano" if vd["brief"]["manual"] else "Enviado",
+                                  (" el %s" % vd["brief"]["sent_label"]) if vd["brief"]["sent_label"] else ""),
+                  menu=[{"label": "Verlo o volver a mandarlo", "icon": "fa-rotate",
+                         "modal": "#dpVideoBriefModal"}])
+        else:
+            tarea("vid_idea", "Mandarle la idea del videoclip al productor", "", "fa-lightbulb",
+                  grupo="video", hint="Con ejemplos (también enlaces de YouTube)",
+                  action_label="Preparar el briefing", modal="#dpVideoBriefModal")
+
+        # 5 · LA MINIATURA, que la hace diseño
+        if vd["thumb"]["done"]:
+            tarea("vid_miniatura", "Miniatura del videoclip", "", "fa-image", state="done",
+                  grupo="video", value="Lista%s" % ((" el %s" % vd["thumb"]["done_label"])
+                                                    if vd["thumb"]["done_label"] else ""))
+        elif vd["thumb"]["asked"]:
+            tarea("vid_miniatura", "Miniatura del videoclip", "", "fa-image", state="sent",
+                  grupo="video",
+                  value="Solicitada a diseño%s" % ((" el %s" % vd["thumb"]["asked_label"])
+                                                   if vd["thumb"]["asked_label"] else ""),
+                  action_label="Ver la solicitud", modal="#dpVideoThumbModal",
+                  menu=[{"label": "Marcarla como lista", "icon": "fa-check",
+                         "post": url_for("disco_video_thumb_save", project_id=project.id) + "?done=1"}])
+        else:
+            tarea("vid_miniatura", "Solicitar la miniatura a diseño", "", "fa-image", grupo="video",
+                  hint="Con la idea y el material de apoyo (foto o vídeo)",
+                  action_label="Solicitar", modal="#dpVideoThumbModal")
+
+        # 6 · LA PLANIFICACIÓN DEL RODAJE (fecha + logística)
+        if vd["shoot"]["done"]:
+            tarea("vid_rodaje", "Planificación del rodaje", "", "fa-video", state="done",
+                  grupo="video",
+                  value=" · ".join([x for x in [vd["shoot"]["date_label"], vd["shoot"]["place"]] if x]),
+                  menu=[{"label": "Cambiar la planificación", "icon": "fa-pen",
+                         "modal": "#dpVideoShootModal"}])
+        else:
+            tarea("vid_rodaje", "Planificación del rodaje", "", "fa-video", grupo="video",
+                  hint="La fecha y, si hace falta, la logística",
+                  action_label="Planificar", modal="#dpVideoShootModal")
+        # Sus dos subtareas, para que se vea qué falta de las dos cosas.
+        if vd["shoot"]["date_label"]:
+            tarea("vid_rodaje_fecha", "Fecha de rodaje", "", "fa-calendar-day", sub=True,
+                  state="done", grupo="video", value=vd["shoot"]["date_label"])
+        else:
+            tarea("vid_rodaje_fecha", "Fijar la fecha de rodaje", "", "fa-calendar-day", sub=True,
+                  grupo="video", action_label="Poner fecha", modal="#dpVideoShootModal")
+        _log = vd["shoot"]["logistics"]
+        if not _log["decided"]:
+            tarea("vid_rodaje_log", "¿Hace falta logística para el rodaje?", "", "fa-truck-ramp-box",
+                  sub=True, grupo="video", action_label="Decidirlo", modal="#dpVideoShootModal")
+        elif not _log["yes"]:
+            tarea("vid_rodaje_log", "Logística del rodaje", "", "fa-truck-ramp-box", sub=True,
+                  state="done", grupo="video", value="No hace falta")
+        elif _log["done"]:
+            tarea("vid_rodaje_log", "Logística del rodaje", "", "fa-truck-ramp-box", sub=True,
+                  state="done", grupo="video",
+                  value="Montada%s%s" % ((" por %s" % _log["done_by"]) if _log["done_by"] else "",
+                                         (" el %s" % _log["done_label"]) if _log["done_label"] else ""))
+        elif _log["requested"]:
+            tarea("vid_rodaje_log", "Logística del rodaje", "", "fa-truck-ramp-box", sub=True,
+                  state="sent", grupo="video",
+                  value="Solicitada a %s" % (_log["nick"] or "producción"),
+                  people=([{"name": _log["nick"], "photo_url": _log["photo_url"]}] if _log["nick"] else []))
+        else:
+            tarea("vid_rodaje_log", "Pedirle la logística del rodaje a producción", "",
+                  "fa-truck-ramp-box", sub=True, grupo="video",
+                  action_label="Pedirla", modal="#dpVideoShootModal")
+
+        # 7 · LA APROBACIÓN DEL ARTISTA
+        _ap = vd["approval"]
+        _aprob = ", ".join([v["name"] for v in (_ap.get("approved") or []) if v.get("name")][:4])
+        _pend = [v for v in (_ap.get("pending") or []) if v.get("name")]
+        _recha = [v for v in (_ap.get("rejected") or []) if v.get("name")]
+        if _ap.get("done"):
+            tarea("vid_aprobacion", "Aprobación del videoclip", "", "fa-circle-check", state="done",
+                  grupo="video", value="Aprobado%s" % ((" por %s" % _aprob) if _aprob else ""))
+        elif _ap.get("ko"):
+            tarea("vid_aprobacion", "El videoclip se ha rechazado", "", "fa-thumbs-down",
+                  grupo="video", state="rejected",
+                  value=" · ".join([x for x in [(_recha[0]["name"] if _recha else ""),
+                                                (_recha[0].get("note") or "") if _recha else ""] if x]),
+                  action_label="Volver a mandarlo", modal="#dpVideoApprovalModal")
+        elif _ap.get("open"):
+            tarea("vid_aprobacion", "Aprobación del videoclip", "", "fa-hourglass-half",
+                  grupo="video", state="wait",
+                  value="Pendiente de %s" % (", ".join([v["name"] for v in _pend][:3]) or "que contesten"),
+                  people=[{"name": v["name"], "photo_url": v.get("photo_url") or ""} for v in _pend[:4]])
+        else:
+            tarea("vid_aprobacion", "Mandar el videoclip para que lo apruebe el artista", "",
+                  "fa-paper-plane", grupo="video",
+                  action_label="Mandarlo", modal="#dpVideoApprovalModal")
+
     fase[0] = "imagen"
     # ================= 6 · La PORTADA, por pasos =================
     if lleva_audio:
@@ -25122,6 +25292,191 @@ def _registros_sello_people(session_db) -> list[dict]:
 
 def _registros_sello_names(session_db) -> str:
     return ", ".join([p["nick"] for p in _registros_sello_people(session_db) if p["nick"]][:3])
+
+
+# ═══════════════════════════ EL VIDEOCLIP: quién lo produce y todo lo demás ══════════════════════
+# Un proyecto con videoclip tiene su propio proceso, en paralelo al del audio: quién lo produce (y su
+# contrato de PRODUCCIÓN AUDIOVISUAL), el plazo de entrega, los LOGOS que van en los créditos, el
+# briefing con la idea, la miniatura que hace diseño, la planificación del rodaje y la aprobación del
+# artista. Todo vive en `production_payload['video']` y lo lee el punto único `_disco_video_state`.
+# ⚠️ En un videoclip NO hay porcentaje (eso es del máster de audio): sus condiciones son el fee o el
+# presupuesto, y ya.
+DISCO_VIDEO_FEE_MODES = (
+    ("FEE", "Fee de producción", "fa-euro-sign"),
+    ("BUDGET", "Por presupuesto", "fa-file-invoice-dollar"),
+    ("NO_FEE", "Sin coste", "fa-ban"),
+)
+DISCO_VIDEO_FEE_LABELS = {k: l for k, l, _i in DISCO_VIDEO_FEE_MODES}
+
+
+def _disco_video(project) -> dict:
+    """El bloque del videoclip dentro de `production_payload` (siempre un dict)."""
+    return dict((_disco_prod(project).get("video") or {}))
+
+
+def _disco_video_set(project, fila: dict) -> None:
+    """Guarda el bloque del videoclip en `production_payload`.
+
+    ⚠️⚠️ **SEGUNDA ESCRITURA EN LA MISMA PETICIÓN: hay que marcar el campo a mano** (bug real, ago
+    2026). El patrón de la casa es «leer una copia, tocarla y volver a asignarla», y funciona… la
+    PRIMERA vez. En la segunda, el valor ya guardado y el nuevo son **iguales** (`==`) —porque el
+    primero se quedó apuntando a los mismos diccionarios de dentro, que se han tocado en sitio—, y
+    SQLAlchemy da el atributo por **«unchanged»** y **no escribe nada, sin dar ningún error**.
+    Pasó con «fijar el plazo Y comunicarlo»: el correo salía y el «avisado» no se guardaba.
+    Con `flag_modified` se fuerza el UPDATE."""
+    prod = _disco_prod(project)
+    prod["video"] = fila
+    project.production_payload = prod
+    project.updated_at = _now_madrid()
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(project, "production_payload")
+    except Exception:
+        app.logger.exception("[videoclip] no se pudo marcar el payload como modificado")
+
+
+def _disco_video_state(session_db, project) -> dict:
+    """TODO lo del videoclip: en qué punto está cada paso. Punto único.
+
+    Lo usan las tareas del proyecto, sus pop-ups y los correos, así que todos dicen lo mismo."""
+    video = _disco_video(project)
+    prod_fila = dict(video.get("producer") or {})
+    productor = None
+    if prod_fila.get("promoter_id"):
+        try:
+            productor = session_db.get(Promoter, to_uuid(str(prod_fila["promoter_id"])))
+        except Exception:
+            productor = None
+    contrato = dict(video.get("contract") or {})
+    plazo = dict(video.get("due") or {})
+    logos = dict(video.get("logos") or {})
+    brief = dict(video.get("brief") or {})
+    mini = dict(video.get("thumb") or {})
+    rodaje = dict(video.get("shoot") or {})
+    fee_mode = (prod_fila.get("fee_mode") or "").upper()
+    # Los LOGOS elegidos, con sus versiones (lo que se manda y lo que se descarga).
+    marcas = []
+    for cid in (logos.get("company_ids") or []):
+        nombre = _brand_logo_owner_name(session_db, "COMPANY", cid)
+        if nombre:
+            marcas.append({"type": "COMPANY", "id": str(cid), "name": nombre,
+                           "versions": _brand_logo_rows(session_db, "COMPANY", cid)})
+    for did in (logos.get("distributor_ids") or []):
+        nombre = _brand_logo_owner_name(session_db, "DISTRIBUTOR", did)
+        if nombre:
+            marcas.append({"type": "DISTRIBUTOR", "id": str(did), "name": nombre,
+                           "versions": _brand_logo_rows(session_db, "DISTRIBUTOR", did)})
+    if logos.get("artist") and getattr(project, "artist_id", None):
+        nombre = _brand_logo_owner_name(session_db, "ARTIST", project.artist_id)
+        if nombre:
+            marcas.append({"type": "ARTIST", "id": str(project.artist_id), "name": nombre,
+                           "versions": _brand_logo_rows(session_db, "ARTIST", project.artist_id)})
+    # La logística del RODAJE: se le pide a alguien de producción, igual que la de las voces.
+    log_rodaje = dict(rodaje.get("logistics") or {})
+    log_user = None
+    if log_rodaje.get("user_id"):
+        try:
+            log_user = (session_db.query(UserProfile)
+                        .filter(UserProfile.user_id == to_uuid(str(log_rodaje["user_id"]))).first())
+        except Exception:
+            log_user = None
+    fecha_rodaje = _parse_iso_date_safe(str(rodaje.get("date") or "")[:10])
+    fecha_plazo = _parse_iso_date_safe(str(plazo.get("date") or "")[:10])
+    correo_prod, tel_prod = (_promoter_email_phone(productor) if productor is not None else ("", ""))
+    return {
+        "producer": {
+            "promoter": productor,
+            "promoter_id": (str(prod_fila.get("promoter_id") or "")),
+            "name": (_promoter_display_name(productor) if productor is not None else ""),
+            "logo_url": (getattr(productor, "logo_url", "") or ""),
+            "email": correo_prod, "phone": tel_prod,
+            "fee_mode": fee_mode,
+            "fee_label": DISCO_VIDEO_FEE_LABELS.get(fee_mode, ""),
+            "fee_amount": (prod_fila.get("fee_amount") or ""),
+            "fee_amount_label": _disco_prod_money(prod_fila.get("fee_amount")),
+            "budget_amount": (prod_fila.get("budget_amount") or ""),
+            "budget_amount_label": _disco_prod_money(prod_fila.get("budget_amount")),
+            "notes": (prod_fila.get("notes") or ""),
+            "done": bool(productor is not None and fee_mode),
+        },
+        "contract": {
+            "asked": bool(contrato.get("asked_at")),
+            "asked_label": _iso_date_label(contrato.get("asked_at")),
+            "done": bool(contrato.get("done_at")),
+            "done_label": _iso_date_label(contrato.get("done_at")),
+            "done_by": (contrato.get("done_by") or ""),
+            "file_url": (contrato.get("file_url") or ""),
+            "file_name": (contrato.get("file_name") or ""),
+        },
+        "due": {
+            "date": fecha_plazo,
+            "date_value": (fecha_plazo.isoformat() if fecha_plazo else ""),
+            "date_label": (fecha_plazo.strftime("%d/%m/%Y") if fecha_plazo else ""),
+            "days_left": ((fecha_plazo - today_local()).days if fecha_plazo else None),
+            "notified": bool(plazo.get("notified_at")),
+            "notified_label": _iso_date_label(plazo.get("notified_at")),
+            "notified_by": (plazo.get("notified_by") or ""),
+            "notified_to": list(plazo.get("notified_to") or []),
+            "done": bool(fecha_plazo and plazo.get("notified_at")),
+        },
+        "logos": {
+            "company_ids": [str(x) for x in (logos.get("company_ids") or [])],
+            "distributor_ids": [str(x) for x in (logos.get("distributor_ids") or [])],
+            "artist": bool(logos.get("artist")),
+            "brands": marcas,
+            "chosen": bool(marcas),
+            "sent": bool(logos.get("sent_at")),
+            "sent_label": _iso_date_label(logos.get("sent_at")),
+            "sent_by": (logos.get("sent_by") or ""),
+            "sent_to": list(logos.get("sent_to") or []),
+            "done": bool(marcas and logos.get("sent_at")),
+        },
+        "brief": {
+            "text": (brief.get("text") or ""),
+            "examples": list(brief.get("examples") or []),
+            "sent": bool(brief.get("sent_at")),
+            "sent_label": _iso_date_label(brief.get("sent_at")),
+            "sent_by": (brief.get("sent_by") or ""),
+            "manual": bool(brief.get("manual")),
+            "done": bool(brief.get("sent_at")),
+        },
+        "thumb": {
+            "idea": (mini.get("idea") or ""),
+            "files": list(mini.get("files") or []),
+            "asked": bool(mini.get("asked_at")),
+            "asked_label": _iso_date_label(mini.get("asked_at")),
+            "asked_by": (mini.get("asked_by") or ""),
+            "done": bool(mini.get("done_at")),
+            "done_label": _iso_date_label(mini.get("done_at")),
+            "file_url": (mini.get("file_url") or ""),
+        },
+        "shoot": {
+            "date": fecha_rodaje,
+            "date_value": (fecha_rodaje.isoformat() if fecha_rodaje else ""),
+            "date_label": (fecha_rodaje.strftime("%d/%m/%Y") if fecha_rodaje else ""),
+            "place": (rodaje.get("place") or ""),
+            "notes": (rodaje.get("notes") or ""),
+            "logistics": {
+                "needed": (log_rodaje.get("needed") or "").upper(),
+                "decided": (log_rodaje.get("needed") or "").upper() in ("YES", "NO"),
+                "yes": (log_rodaje.get("needed") or "").upper() == "YES",
+                "user_id": (log_rodaje.get("user_id") or ""),
+                "nick": (getattr(log_user, "nick", "") or ""),
+                "photo_url": (getattr(log_user, "photo_url", "") or ""),
+                "note": (log_rodaje.get("note") or ""),
+                "requested": bool(log_rodaje.get("requested_at") and log_rodaje.get("user_id")),
+                "requested_label": _iso_date_label(log_rodaje.get("requested_at")),
+                "done": bool(log_rodaje.get("done_at")),
+                "done_label": _iso_date_label(log_rodaje.get("done_at")),
+                "done_by": (log_rodaje.get("done_by") or ""),
+            },
+            # El rodaje está planificado cuando hay fecha y se ha decidido lo de la logística
+            # (y, si hace falta, se ha pedido).
+            "done": bool(fecha_rodaje and (log_rodaje.get("needed") or "").upper() == "NO"
+                         or (fecha_rodaje and log_rodaje.get("requested_at"))),
+        },
+        "approval": _disco_approval_state(session_db, project, "VIDEOCLIP"),
+    }
 
 
 def _disco_producer_contract(project) -> dict:
@@ -26076,13 +26431,23 @@ def disco_project_detail(project_id):
                           "plan_action_kinds", "content_networks", "plan_candidates",
                           "can_review_plan", "plan_companies", "can_add_marketing",
                           "agenda_data", "release", "release_songs",
-                          "project_bags", "bag_scope"):
+                          "project_bags", "bag_scope",
+                          "video", "video_fee_modes", "video_companies", "video_distributors"):
                 bag_ctx.pop(clave, None)
         return render_template(
             "disco_project_detail.html",
             project=project, row=fila, tab=tab,
             project_tabs=DISCO_PROJECT_TABS,
             project_bags=project_bags, bag_scope=bag_scope,
+            # EL VIDEOCLIP: su proceso en paralelo (productor, contrato audiovisual, plazo, logos,
+            # idea, miniatura, rodaje y aprobación). Solo se calcula si el proyecto lo lleva.
+            video=(_disco_video_state(session_db, project)
+                   if (tab == "calendario" and _disco_project_has_videoclip(project)) else None),
+            video_fee_modes=DISCO_VIDEO_FEE_MODES,
+            video_companies=(session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+                             if (tab == "calendario" and _disco_project_has_videoclip(project)) else []),
+            video_distributors=(session_db.query(Distributor).order_by(Distributor.name.asc()).all()
+                                if (tab == "calendario" and _disco_project_has_videoclip(project)) else []),
             milestones=hitos,
             agenda_data=agenda_data,
             tasks=tareas,
@@ -31671,6 +32036,635 @@ def disco_project_logistics_save(project_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(destino))
+
+
+# ═══════════════════════ EL VIDEOCLIP · sus pasos, uno a uno ═════════════════════════════════════
+def _disco_video_or_404(session_db, project_id):
+    """El proyecto, comprobando que de verdad LLEVA videoclip (si no, estos pasos no existen)."""
+    project = _disco_project_or_404(session_db, project_id)
+    if project is None or not _disco_project_has_videoclip(project):
+        return None
+    return project
+
+
+@app.post("/discografica/proyectos/<project_id>/video/productor", endpoint="disco_video_producer_save")
+@admin_required
+def disco_video_producer_save(project_id):
+    """QUIÉN PRODUCE EL VIDEOCLIP y sus condiciones económicas.
+
+    ⚠️ Aquí NO hay porcentaje (eso es del máster de audio): solo el fee o el presupuesto. Al
+    confirmarlo, a **Registros y Sello** les toca preparar el **contrato de producción audiovisual**."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        video = _disco_video(project)
+        fila = dict(video.get("producer") or {})
+        antes = str(fila.get("promoter_id") or "")
+        pid = (f.get("promoter_id") or "").strip()
+        modo = (f.get("fee_mode") or "").strip().upper()
+        fila["promoter_id"] = pid
+        fila["fee_mode"] = (modo if modo in DISCO_VIDEO_FEE_LABELS else "")
+        fila["fee_amount"] = (f.get("fee_amount") or "").strip() if modo == "FEE" else ""
+        fila["budget_amount"] = (f.get("budget_amount") or "").strip() if modo == "BUDGET" else ""
+        fila["notes"] = (f.get("notes") or "").strip()
+        video["producer"] = fila
+        # ⚠️ Si CAMBIA el productor, el contrato vuelve a estar pendiente: es otro contrato.
+        if pid and pid != antes:
+            video["contract"] = {}
+        _disco_video_set(project, video)
+        session_db.flush()
+        if pid and fila["fee_mode"]:
+            _disco_video_contract_ask(session_db, project)
+        session_db.commit()
+        flash("Productor del videoclip guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo guardar el productor")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_video_contract_ask(session_db, project) -> bool:
+    """Le pide a REGISTROS+SELLO el CONTRATO DE PRODUCCIÓN AUDIOVISUAL (una vez por productor)."""
+    video = _disco_video(project)
+    contrato = dict(video.get("contract") or {})
+    if contrato.get("asked_at") or contrato.get("done_at"):
+        return False
+    contrato["asked_at"] = _now_madrid().isoformat()
+    video["contract"] = contrato
+    _disco_video_set(project, video)
+    artista = getattr(project, "artist", None)
+    try:
+        _notify_users(session_db, _registros_sello_user_ids(session_db), "DISCOGRAFICA",
+                      "Contrato de producción audiovisual · %s" % _disco_project_title(project),
+                      "Hay que preparar y mandar el contrato del productor del videoclip.",
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_VIDEO_CONTRACT", ref_id=str(project.id),
+                      actor_name=(getattr(artista, "name", "") or ""),
+                      actor_photo=(getattr(artista, "photo_url", "") or ""))
+    except Exception:
+        app.logger.exception("[videoclip] no se pudo pedir el contrato audiovisual")
+    return True
+
+
+@app.post("/discografica/proyectos/<project_id>/video/contrato", endpoint="disco_video_contract")
+@admin_required
+def disco_video_contract(project_id):
+    """SUBIR EL CONTRATO DE PRODUCCIÓN AUDIOVISUAL (lo hace Registros y Sello).
+
+    ⚠️ Igual que el del productor de audio: **no** se exige `can_edit_discografica()`, porque lo hace
+    Registros, que no tiene por qué poder editar discográfica."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        if not (is_master() or can_edit_discografica()
+                or yo in _registros_sello_user_ids(session_db)):
+            return forbid("Este contrato lo manda Registros.")
+        video = _disco_video(project)
+        contrato = dict(video.get("contract") or {})
+        if _truthy(_flag_arg("undo")):
+            for k in ("done_at", "done_by", "file_url", "file_name"):
+                contrato.pop(k, None)
+            video["contract"] = contrato
+            _disco_video_set(project, video)
+            session_db.commit()
+            flash("El contrato audiovisual vuelve a estar pendiente.", "success")
+            return redirect(safe_next_or(destino))
+        doc = request.files.get("contract")
+        if doc is not None and getattr(doc, "filename", ""):
+            try:
+                contrato["file_url"] = upload_file(doc, "contratos-audiovisual")
+                contrato["file_name"] = (doc.filename or "").strip()
+            except Exception as exc:
+                flash("No se pudo subir el contrato: %s" % exc, "danger")
+                return redirect(safe_next_or(destino))
+        estado = _current_user_state() or {}
+        contrato["done_at"] = _now_madrid().isoformat()
+        contrato["done_by"] = (estado.get("nick") or "")
+        contrato.setdefault("asked_at", _now_madrid().isoformat())
+        video["contract"] = contrato
+        _disco_video_set(project, video)
+        _notify_resolve(session_db, "DISCO_VIDEO_CONTRACT", str(project.id))
+        try:
+            _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
+                          "Contrato audiovisual enviado · %s" % _disco_project_title(project),
+                          "Ya está el contrato del productor del videoclip.", destino,
+                          ref_type="DISCO_VIDEO_CONTRACT_OK", ref_id=str(project.id))
+        except Exception:
+            app.logger.exception("[videoclip] no se pudo avisar del contrato audiovisual")
+        session_db.commit()
+        flash("Contrato de producción audiovisual guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo guardar el contrato audiovisual")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_video_notify_producer(session_db, project, *, title, body_html, subject,
+                                 sms_text="", button=None) -> tuple[bool, str]:
+    """Le manda un correo AL PRODUCTOR DEL VIDEOCLIP con el esqueleto de siempre.
+
+    ⚠️ El correo de un tercero es **`contact_email`** (`_promoter_email_phone`), nunca `.email`."""
+    estado = _disco_video_state(session_db, project)
+    correo = (estado["producer"]["email"] or "").strip()
+    if not correo:
+        return (False, "El productor del videoclip no tiene correo en su ficha.")
+    cuerpo = body_html
+    if button:
+        cuerpo += ('<div style="margin:18px 0 0;text-align:right;"><a href="%s" '
+                   'style="display:inline-block;background:#E33D48;color:#fff;text-decoration:none;'
+                   'padding:10px 18px;border-radius:8px;font-weight:700;">%s</a></div>'
+                   % (html.escape(button[1]), html.escape(button[0])))
+    return _send_optional_email(
+        correo, subject,
+        _disco_project_email_shell(session_db, project, title=title, body_html=cuerpo))
+
+
+@app.post("/discografica/proyectos/<project_id>/video/plazo", endpoint="disco_video_due_save")
+@admin_required
+def disco_video_due_save(project_id):
+    """FIJAR EL PLAZO MÁXIMO DE ENTREGA del videoclip y, si se pide, comunicárselo al productor."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        video = _disco_video(project)
+        plazo = dict(video.get("due") or {})
+        fecha = parse_optional_date(f.get("date"))
+        antes = str(plazo.get("date") or "")
+        plazo["date"] = (fecha.isoformat() if fecha else "")
+        # ⚠️ Si la fecha CAMBIA, el aviso anterior deja de valer: hay que volver a comunicarlo.
+        if plazo["date"] != antes:
+            plazo.pop("notified_at", None)
+            plazo.pop("notified_by", None)
+            plazo.pop("notified_to", None)
+        video["due"] = plazo
+        _disco_video_set(project, video)
+        session_db.flush()
+        aviso = ""
+        if _truthy(f.get("notify")) and fecha:
+            estado = _disco_video_state(session_db, project)
+            cuerpo = ('<p style="margin:0 0 14px;">La <strong>fecha máxima de entrega</strong> del '
+                      'videoclip es el <strong>%s</strong>.</p>' % html.escape(fecha.strftime("%d/%m/%Y")))
+            if (f.get("note") or "").strip():
+                cuerpo += ('<p style="margin:0 0 14px;">%s</p>'
+                           % html.escape(f["note"].strip()).replace("\n", "<br/>"))
+            ok, err = _disco_video_notify_producer(
+                session_db, project,
+                title="Fecha máxima de entrega del videoclip",
+                subject="Entrega del videoclip · %s" % _disco_project_title(project),
+                body_html=cuerpo)
+            if ok:
+                yo = _current_user_state() or {}
+                plazo["notified_at"] = _now_madrid().isoformat()
+                plazo["notified_by"] = (yo.get("nick") or "")
+                plazo["notified_to"] = [estado["producer"]["name"] or estado["producer"]["email"]]
+                video["due"] = plazo
+                _disco_video_set(project, video)
+                aviso = " Se le ha comunicado al productor."
+            else:
+                aviso = " No se pudo avisar: %s" % (err or "revisa su correo.")
+        session_db.commit()
+        flash("Plazo de entrega guardado.%s" % aviso, "success" if not aviso.startswith(" No") else "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo guardar el plazo")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/video/logos", endpoint="disco_video_logos_save")
+@admin_required
+def disco_video_logos_save(project_id):
+    """LOS LOGOS QUE VAN OBLIGATORIAMENTE EN LOS CRÉDITOS, y su envío al productor.
+
+    Se marcan las empresas del grupo, la distribuidora (opcional) y el logo del artista; al mandarlo,
+    al productor le llega el correo con **cada marca y sus versiones**, con enlace para descargarlas."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        video = _disco_video(project)
+        logos = dict(video.get("logos") or {})
+        logos["company_ids"] = [x for x in f.getlist("company_ids") if x]
+        logos["distributor_ids"] = [x for x in f.getlist("distributor_ids") if x]
+        logos["artist"] = _truthy(f.get("artist"))
+        video["logos"] = logos
+        _disco_video_set(project, video)
+        session_db.flush()
+        aviso = ""
+        if _truthy(f.get("notify")):
+            estado = _disco_video_state(session_db, project)
+            marcas = estado["logos"]["brands"]
+            if not marcas:
+                aviso = " Marca antes qué logos son obligatorios."
+            else:
+                filas = ""
+                for m in marcas:
+                    versiones = "".join(
+                        '<li style="margin:0 0 4px;"><a href="%s" style="color:#007CA2;">%s</a></li>'
+                        % (html.escape(v["url"]), html.escape(v["name"])) for v in m["versions"])
+                    filas += ('<div style="margin:0 0 14px;"><div style="font-weight:700;">%s</div>'
+                              '%s</div>'
+                              % (html.escape(m["name"]),
+                                 ('<ul style="margin:6px 0 0;padding-left:18px;">%s</ul>' % versiones)
+                                 if versiones else '<div style="color:#6b7280;font-size:13px;">'
+                                                   'Sin versiones subidas todavía.</div>'))
+                cuerpo = ('<p style="margin:0 0 14px;">Estos son los <strong>logotipos que tienen que '
+                          'aparecer obligatoriamente</strong> en los créditos del videoclip. Cada uno '
+                          'con sus versiones, para descargar la que necesites.</p>' + filas)
+                if (f.get("note") or "").strip():
+                    cuerpo += ('<p style="margin:0 0 14px;">%s</p>'
+                               % html.escape(f["note"].strip()).replace("\n", "<br/>"))
+                ok, err = _disco_video_notify_producer(
+                    session_db, project, title="Logotipos para los créditos",
+                    subject="Logotipos del videoclip · %s" % _disco_project_title(project),
+                    body_html=cuerpo)
+                if ok:
+                    yo = _current_user_state() or {}
+                    logos["sent_at"] = _now_madrid().isoformat()
+                    logos["sent_by"] = (yo.get("nick") or "")
+                    logos["sent_to"] = [estado["producer"]["name"] or estado["producer"]["email"]]
+                    video["logos"] = logos
+                    _disco_video_set(project, video)
+                    aviso = " Se le han mandado al productor."
+                else:
+                    aviso = " No se pudo mandar: %s" % (err or "revisa su correo.")
+        session_db.commit()
+        flash("Logotipos obligatorios guardados.%s" % aviso,
+              "warning" if aviso.startswith(" No") or aviso.startswith(" Marca") else "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudieron guardar los logos")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/video/idea", endpoint="disco_video_brief_save")
+@admin_required
+def disco_video_brief_save(project_id):
+    """LA IDEA DEL VIDEOCLIP: el briefing que se le manda al productor.
+
+    Se puede **marcar como ya enviado** (si se habló por otro sitio) y lleva EJEMPLOS, que pueden ser
+    enlaces de YouTube o archivos subidos."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        video = _disco_video(project)
+        brief = dict(video.get("brief") or {})
+        brief["text"] = (f.get("text") or "").strip()
+        ejemplos = list(brief.get("examples") or [])
+        # Enlaces (uno por línea): lo normal es pegar vídeos de YouTube.
+        for linea in (f.get("links") or "").splitlines():
+            url = linea.strip()
+            if url and not any((e.get("url") or "") == url for e in ejemplos):
+                ejemplos.append({"kind": "LINK", "url": url, "label": url})
+        # Y archivos, que se acumulan (no se pisa lo que ya estaba).
+        for archivo in request.files.getlist("files"):
+            if not archivo or not getattr(archivo, "filename", ""):
+                continue
+            try:
+                url, _mime, kind = _upload_brand_logo_file(archivo)
+                if url:
+                    ejemplos.append({"kind": kind, "url": url,
+                                     "label": (archivo.filename or "ejemplo")})
+            except Exception:
+                app.logger.exception("[videoclip] no se pudo subir un ejemplo")
+        quitar = set(f.getlist("remove"))
+        if quitar:
+            ejemplos = [e for i, e in enumerate(ejemplos) if str(i) not in quitar]
+        brief["examples"] = ejemplos
+        video["brief"] = brief
+        _disco_video_set(project, video)
+        session_db.flush()
+        aviso = ""
+        modo = (f.get("action") or "").strip().lower()
+        yo = _current_user_state() or {}
+        if modo == "manual":
+            brief["sent_at"] = _now_madrid().isoformat()
+            brief["sent_by"] = (yo.get("nick") or "")
+            brief["manual"] = True
+            video["brief"] = brief
+            _disco_video_set(project, video)
+            aviso = " Queda apuntado como ya enviado."
+        elif modo == "send":
+            cuerpo = '<p style="margin:0 0 14px;">%s</p>' % (
+                html.escape(brief["text"]).replace("\n", "<br/>") or "Te contamos la idea del videoclip.")
+            if ejemplos:
+                enlaces = "".join(
+                    '<li style="margin:0 0 4px;"><a href="%s" style="color:#007CA2;">%s</a></li>'
+                    % (html.escape(e.get("url") or ""), html.escape(e.get("label") or e.get("url") or ""))
+                    for e in ejemplos)
+                cuerpo += ('<div style="margin:0 0 6px;font-weight:700;">Ejemplos</div>'
+                           '<ul style="margin:0 0 14px;padding-left:18px;">%s</ul>' % enlaces)
+            ok, err = _disco_video_notify_producer(
+                session_db, project, title="Idea del videoclip",
+                subject="Idea del videoclip · %s" % _disco_project_title(project),
+                body_html=cuerpo)
+            if ok:
+                brief["sent_at"] = _now_madrid().isoformat()
+                brief["sent_by"] = (yo.get("nick") or "")
+                brief["manual"] = False
+                video["brief"] = brief
+                _disco_video_set(project, video)
+                aviso = " Briefing enviado al productor."
+            else:
+                aviso = " No se pudo enviar: %s" % (err or "revisa su correo.")
+        session_db.commit()
+        flash("Idea del videoclip guardada.%s" % aviso,
+              "warning" if aviso.startswith(" No") else "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo guardar la idea")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/video/miniatura", endpoint="disco_video_thumb_save")
+@admin_required
+def disco_video_thumb_save(project_id):
+    """SOLICITAR LA MINIATURA A DISEÑO: la idea por escrito y el material de apoyo (foto o vídeo)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        video = _disco_video(project)
+        mini = dict(video.get("thumb") or {})
+        if _truthy(_flag_arg("done")):
+            mini["done_at"] = _now_madrid().isoformat()
+            video["thumb"] = mini
+            _disco_video_set(project, video)
+            _notify_resolve(session_db, "DISCO_VIDEO_THUMB", str(project.id))
+            session_db.commit()
+            flash("Miniatura dada por hecha.", "success")
+            return redirect(safe_next_or(destino))
+        mini["idea"] = (f.get("idea") or "").strip()
+        ficheros = list(mini.get("files") or [])
+        for archivo in request.files.getlist("files"):
+            if not archivo or not getattr(archivo, "filename", ""):
+                continue
+            try:
+                url, _mime, kind = _upload_brand_logo_file(archivo)
+                if url:
+                    ficheros.append({"kind": kind, "url": url,
+                                     "label": (archivo.filename or "material")})
+            except Exception:
+                app.logger.exception("[videoclip] no se pudo subir material de la miniatura")
+        mini["files"] = ficheros
+        yo = _current_user_state() or {}
+        if _truthy(f.get("ask")):
+            mini["asked_at"] = _now_madrid().isoformat()
+            mini["asked_by"] = (yo.get("nick") or "")
+            artista = getattr(project, "artist", None)
+            try:
+                _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                              "Miniatura del videoclip · %s" % _disco_project_title(project),
+                              (mini["idea"] or "Hay que hacer la miniatura del videoclip."),
+                              destino, ref_type="DISCO_VIDEO_THUMB", ref_id=str(project.id),
+                              actor_name=(getattr(artista, "name", "") or ""),
+                              actor_photo=(getattr(artista, "photo_url", "") or ""))
+            except Exception:
+                app.logger.exception("[videoclip] no se pudo avisar a diseño")
+        video["thumb"] = mini
+        _disco_video_set(project, video)
+        session_db.commit()
+        flash("Miniatura: %s" % ("solicitada a diseño." if _truthy(f.get("ask")) else "guardada."),
+              "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo guardar la miniatura")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/video/rodaje", endpoint="disco_video_shoot_save")
+@admin_required
+def disco_video_shoot_save(project_id):
+    """PLANIFICACIÓN DEL RODAJE: la fecha y, si hace falta, la logística (que se le pide a producción).
+
+    ⚠️ La logística funciona igual que la del proyecto: a quien se elija le llega el aviso, entra en
+    el PERSONAL de la hoja de ruta y se le crea la bolsa — sus dos sitios de trabajo."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        video = _disco_video(project)
+        rodaje = dict(video.get("shoot") or {})
+        fecha = parse_optional_date(f.get("date"))
+        rodaje["date"] = (fecha.isoformat() if fecha else "")
+        rodaje["place"] = (f.get("place") or "").strip()
+        rodaje["notes"] = (f.get("notes") or "").strip()
+        log = dict(rodaje.get("logistics") or {})
+        necesita = (f.get("logistics") or "").strip().upper()
+        antes_user = str(log.get("user_id") or "")
+        if necesita in ("YES", "NO"):
+            log["needed"] = necesita
+        if necesita == "YES":
+            uid = (f.get("logistics_user_id") or "").strip()
+            log["user_id"] = uid
+            log["note"] = (f.get("logistics_note") or "").strip()
+            # ⚠️ Cambiar de persona VUELVE A PEDIRLA: es otra la que lo tiene que montar.
+            if uid and uid != antes_user:
+                log["requested_at"] = _now_madrid().isoformat()
+                log["requested_by"] = ((_current_user_state() or {}).get("nick") or "")
+                log.pop("done_at", None)
+                log.pop("done_by", None)
+        else:
+            log = {"needed": "NO"}
+        rodaje["logistics"] = log
+        video["shoot"] = rodaje
+        _disco_video_set(project, video)
+        session_db.flush()
+        if necesita == "YES" and log.get("user_id") and log.get("user_id") != antes_user:
+            _disco_video_logistics_request(session_db, project, log["user_id"])
+        session_db.commit()
+        flash("Rodaje guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo guardar el rodaje")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_video_logistics_request(session_db, project, user_id) -> None:
+    """Le pide la LOGÍSTICA DEL RODAJE a alguien de producción: aviso + hoja de ruta + bolsa."""
+    try:
+        _disco_logistics_roadmap_add(session_db, project, user_id)
+    except Exception:
+        app.logger.exception("[videoclip] no se pudo meter a producción en la hoja de ruta")
+    try:
+        # La del VÍDEO: es donde van los gastos del rodaje.
+        _ensure_project_bag(session_db, project, "VIDEO")
+    except Exception:
+        app.logger.exception("[videoclip] no se pudo preparar la bolsa del vídeo")
+    artista = getattr(project, "artist", None)
+    try:
+        _notify_users(session_db, [str(user_id)], "PRODUCCION",
+                      "Logística del rodaje · %s" % _disco_project_title(project),
+                      "Te han pedido la logística del rodaje del videoclip.",
+                      url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_VIDEO_LOGISTICS", ref_id=str(project.id),
+                      actor_name=(getattr(artista, "name", "") or ""),
+                      actor_photo=(getattr(artista, "photo_url", "") or ""))
+    except Exception:
+        app.logger.exception("[videoclip] no se pudo avisar de la logística del rodaje")
+
+
+@app.post("/discografica/proyectos/<project_id>/video/logistica-hecha", endpoint="disco_video_logistics_done")
+@admin_required
+def disco_video_logistics_done(project_id):
+    """«Ya está montada» la logística del rodaje (lo marca quien la lleva)."""
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        video = _disco_video(project)
+        rodaje = dict(video.get("shoot") or {})
+        log = dict(rodaje.get("logistics") or {})
+        yo = str((_current_user_state() or {}).get("user_id") or "")
+        # Es SUYA: la marca quien la lleva (o el sello / dirección).
+        if not (is_master() or can_edit_discografica() or yo == str(log.get("user_id") or "")):
+            return forbid("Esta logística la marca quien la está montando.")
+        if _truthy(_flag_arg("undo")):
+            log.pop("done_at", None); log.pop("done_by", None)
+        else:
+            log["done_at"] = _now_madrid().isoformat()
+            log["done_by"] = ((_current_user_state() or {}).get("nick") or "")
+            _notify_resolve(session_db, "DISCO_VIDEO_LOGISTICS", str(project.id))
+        rodaje["logistics"] = log
+        video["shoot"] = rodaje
+        _disco_video_set(project, video)
+        session_db.commit()
+        flash("Logística del rodaje actualizada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo marcar la logística")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/video/aprobacion", endpoint="disco_video_approval")
+@admin_required
+def disco_video_approval(project_id):
+    """MANDAR EL VIDEOCLIP PARA QUE LO APRUEBE EL ARTISTA (motor de aprobaciones en cadena)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_video_or_404(session_db, project_id)
+        if project is None:
+            flash("Este proyecto no lleva videoclip.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        url_video = (request.form.get("file_url") or "").strip()
+        nombre = (request.form.get("file_name") or "").strip()
+        archivo = request.files.get("file")
+        if archivo is not None and getattr(archivo, "filename", ""):
+            try:
+                url_video = upload_file(archivo, "videoclips",
+                                        allowed_extensions=ARTWORK_VIDEO_EXTS)
+                nombre = (archivo.filename or "").strip()
+            except Exception as exc:
+                flash("No se pudo subir el vídeo: %s" % exc, "danger")
+                return redirect(safe_next_or(destino))
+        if not url_video:
+            # Si no se sube nada, se manda el videoclip que ya esté en la ficha de la canción.
+            url_video = _disco_video_material_url(session_db, project)
+        if not url_video:
+            flash("Antes hace falta el videoclip: súbelo aquí o en la ficha de la canción.", "warning")
+            return redirect(safe_next_or(destino))
+        # ⚠️ `_disco_approval_pick` devuelve DOS listas: los que entran y los añadidos ahora.
+        votantes, _nuevos = _disco_approval_pick(session_db, project, request.form)
+        _disco_approval_open(session_db, project, "VIDEOCLIP",
+                             file_url=url_video, file_name=nombre,
+                             note=(request.form.get("note") or ""), voters=votantes)
+        session_db.commit()
+        flash("Videoclip enviado para su aprobación.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo pedir la aprobación")
+        flash("No se pudo enviar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_video_material_url(session_db, project) -> str:
+    """La URL del VIDEOCLIP que ya esté subido en la ficha de la canción del lanzamiento."""
+    try:
+        for cancion in _disco_project_release_songs(session_db, project):
+            fila = (session_db.query(SongMaterial)
+                    .filter(SongMaterial.song_id == cancion.id,
+                            SongMaterial.category == "VIDEOCLIP")
+                    .order_by(SongMaterial.created_at.desc()).first())
+            if fila is not None and (fila.file_url or ""):
+                return fila.file_url
+    except Exception:
+        app.logger.exception("[videoclip] no se pudo leer el videoclip subido")
+    return ""
 
 
 @app.post("/discografica/proyectos/<project_id>/contrato-productor", endpoint="disco_project_producer_contract")
@@ -70586,6 +71580,11 @@ REQUEST_ANY_ENDPOINTS = {
     # ⚠️ EL CONTRATO DEL PRODUCTOR lo manda REGISTROS+SELLO, que no tiene por qué poder editar
     # discográfica ni ser «actor». El endpoint comprueba dentro que es de quien le toca.
     "disco_project_producer_contract",
+    # ⚠️ Y lo mismo con el VIDEOCLIP: el CONTRATO DE PRODUCCIÓN AUDIOVISUAL lo manda Registros+Sello
+    # y la LOGÍSTICA DEL RODAJE la marca montada quien la lleva (producción). Ninguno de los dos
+    # tiene por qué poder editar discográfica; cada endpoint comprueba dentro que es suyo.
+    "disco_video_contract",
+    "disco_video_logistics_done",
     # ⚠️ CONTESTAR si una emisora coge la canción es tarea de PROMOCIÓN (o de dirección con función de
     # sello): el endpoint comprueba dentro que es de quien le toca. Va aquí y no en
     # `SUPPORT_ACTION_ENDPOINTS` por lo mismo que la logística: ese exige ser «actor».

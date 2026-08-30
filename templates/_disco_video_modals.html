@@ -1,0 +1,388 @@
+{# ═══════════════════════════════════════════════════════════════════════════════════════════════
+   LOS POP-UPS DEL VIDEOCLIP
+
+   Su proceso va en paralelo al del audio: quién lo produce (y su contrato de producción
+   audiovisual), el plazo de entrega, los logotipos de los créditos, la idea, la miniatura, la
+   planificación del rodaje y la aprobación del artista.
+   ⚠️ Los paneles que dependen de una elección van con `data-dp-when` (el motor de `disco_steps.js`),
+   que además DESHABILITA lo que esconde: un campo oculto se envía igual.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% set vd = video %}
+{# El buscador de terceros es EL MISMO que el de los pasos de audio (con foto y alta al vuelo):
+   `disco_steps.js` engancha cualquier `[data-dp-tercero]`, así que no hay un segundo motor. #}
+{% from '_disco_project_steps.html' import tercero, elige with context %}
+
+{# ---------- 1 · QUIÉN PRODUCE EL VIDEOCLIP ---------- #}
+<div class="modal fade" id="dpVideoProducerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_video_producer_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-clapperboard me-2 text-danger"></i>¿Quién produce el videoclip?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Productor del videoclip</label>
+          {{ tercero('dpVideoProducer', 'promoter_id', vd.producer.promoter_id, vd.producer.name, vd.producer.logo_url) }}
+          <div class="form-text">Se busca escribiendo; si no está, se crea con el «+».</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Condiciones económicas</label>
+          <div class="row g-2">
+            {% for k, l, i in video_fee_modes %}{{ elige('fee_mode', k, i, l, vd.producer.fee_mode == k) }}{% endfor %}
+          </div>
+          <div class="form-text">⚠️ En un videoclip no hay porcentaje: eso es del máster de audio.</div>
+        </div>
+        <div class="row g-3">
+          <div class="col-12 col-md-6" data-dp-when="fee_mode=FEE">
+            <label class="form-label">Fee de producción</label>
+            <input class="form-control" name="fee_amount" data-money value="{{ vd.producer.fee_amount }}">
+          </div>
+          <div class="col-12 col-md-6" data-dp-when="fee_mode=BUDGET">
+            <label class="form-label">Presupuesto</label>
+            <input class="form-control" name="budget_amount" data-money value="{{ vd.producer.budget_amount }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notas <span class="text-muted small">(opcional)</span></label>
+            <textarea class="form-control" name="notes" rows="2">{{ vd.producer.notes }}</textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- 1b · EL CONTRATO DE PRODUCCIÓN AUDIOVISUAL (lo sube Registros y Sello) ---------- #}
+<div class="modal fade" id="dpVideoContractModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_video_contract', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-file-contract me-2 text-danger"></i>Contrato de producción audiovisual</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-light border small">
+          <div class="fw-semibold mb-1">Datos para el contrato</div>
+          <div><i class="fa fa-compact-disc me-1 text-muted"></i>{{ row.title }}{% if row.artist_name %} · {{ row.artist_name }}{% endif %}</div>
+          {% if vd.producer.name %}<div><i class="fa fa-clapperboard me-1 text-muted"></i>{{ vd.producer.name }}{% if vd.producer.email %} · {{ vd.producer.email }}{% endif %}</div>{% endif %}
+          {% if vd.producer.fee_label %}<div><i class="fa fa-euro-sign me-1 text-muted"></i>{{ vd.producer.fee_label }}{% if vd.producer.fee_amount_label or vd.producer.budget_amount_label %} · {{ vd.producer.fee_amount_label or vd.producer.budget_amount_label }}{% endif %}</div>{% endif %}
+          {% if vd.producer.notes %}<div><i class="fa fa-note-sticky me-1 text-muted"></i>{{ vd.producer.notes }}</div>{% endif %}
+        </div>
+        {% if vd.contract.file_url %}
+          <div class="mb-3"><a href="{{ vd.contract.file_url }}" target="_blank" rel="noopener">
+            <i class="fa fa-file-pdf me-1"></i>{{ vd.contract.file_name or 'Contrato' }}</a></div>
+        {% endif %}
+        <label class="form-label">Contrato firmado <span class="text-muted small">(opcional)</span></label>
+        <input class="form-control" type="file" name="contract">
+        <div class="form-text">Al guardar, la tarea queda hecha para todos.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-check me-1"></i>Marcar como enviado</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- 2 · EL PLAZO MÁXIMO DE ENTREGA ---------- #}
+<div class="modal fade" id="dpVideoDueModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_video_due_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-calendar-check me-2 text-danger"></i>Fecha máxima de entrega</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">¿Cuándo tiene que estar entregado?</label>
+          <input class="form-control" type="date" name="date" value="{{ vd.due.date_value }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Nota para el productor <span class="text-muted small">(opcional)</span></label>
+          <textarea class="form-control" name="note" rows="2"></textarea>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="dpVideoDueNotify" name="notify" value="1" checked
+                 {% if not vd.producer.email %}disabled{% endif %}>
+          <label class="form-check-label" for="dpVideoDueNotify">
+            Comunicárselo al productor por correo
+            {% if not vd.producer.email %}<span class="text-danger">(no tiene correo en su ficha)</span>{% endif %}
+          </label>
+        </div>
+        {% if vd.due.notified %}
+          <div class="text-muted small mt-2"><i class="fa fa-check me-1"></i>Ya se le comunicó
+            {% if vd.due.notified_label %}el {{ vd.due.notified_label }}{% endif %}.</div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- 3 · LOS LOGOTIPOS OBLIGATORIOS ---------- #}
+<div class="modal fade" id="dpVideoLogosModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_video_logos_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-shapes me-2 text-danger"></i>Logotipos obligatorios en los créditos</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small mb-3">Se le mandan al productor con el enlace para descargar
+          cada versión. Los que no tengan versiones subidas se dicen igual, pero conviene subirlas
+          antes en su ficha.</div>
+        <div class="mb-3">
+          <div class="fw-semibold mb-2"><i class="fa fa-building me-1 text-muted"></i>Empresas del grupo</div>
+          <div class="dp-logopick">
+            {% for co in video_companies %}
+              <label class="dp-logopick__one{% if co.id|string in vd.logos.company_ids %} is-on{% endif %}">
+                <input type="checkbox" name="company_ids" value="{{ co.id }}" class="d-none"
+                       {% if co.id|string in vd.logos.company_ids %}checked{% endif %}>
+                {{ company_logo(co, size=28) }}<span>{{ co.name }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+        {% if video_distributors %}
+          <div class="mb-3">
+            <div class="fw-semibold mb-2"><i class="fa fa-truck-fast me-1 text-muted"></i>Distribuidora</div>
+            <div class="dp-logopick">
+              {% for d in video_distributors %}
+                <label class="dp-logopick__one{% if d.id|string in vd.logos.distributor_ids %} is-on{% endif %}">
+                  <input type="checkbox" name="distributor_ids" value="{{ d.id }}" class="d-none"
+                         {% if d.id|string in vd.logos.distributor_ids %}checked{% endif %}>
+                  {% if d.logo_url %}<img src="{{ d.logo_url }}" alt="{{ d.name }}" style="height:28px;object-fit:contain;">
+                  {% else %}<i class="fa fa-truck-fast"></i>{% endif %}<span>{{ d.name }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+        <div class="mb-3">
+          <label class="dp-logopick__one{% if vd.logos.artist %} is-on{% endif %}">
+            <input type="checkbox" name="artist" value="1" class="d-none"
+                   {% if vd.logos.artist %}checked{% endif %}>
+            {{ artist_avatar(row.artist_photo, row.artist_name) }}<span>Logo del artista</span>
+          </label>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Nota para el productor <span class="text-muted small">(opcional)</span></label>
+          <textarea class="form-control" name="note" rows="2"></textarea>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="dpVideoLogosNotify" name="notify" value="1" checked
+                 {% if not vd.producer.email %}disabled{% endif %}>
+          <label class="form-check-label" for="dpVideoLogosNotify">
+            Mandárselos ahora por correo
+            {% if not vd.producer.email %}<span class="text-danger">(el productor no tiene correo)</span>{% endif %}
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- 4 · LA IDEA (briefing) ---------- #}
+<div class="modal fade" id="dpVideoBriefModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_video_brief_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-lightbulb me-2 text-danger"></i>Idea del videoclip</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">El briefing</label>
+          <textarea class="form-control" name="text" rows="5"
+                    placeholder="Qué queremos contar, el tono, las referencias…">{{ vd.brief.text }}</textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Ejemplos <span class="text-muted small">(enlaces de YouTube, uno por línea)</span></label>
+          <textarea class="form-control" name="links" rows="2"
+                    placeholder="https://www.youtube.com/watch?v=…"></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">O súbelos <span class="text-muted small">(imagen o vídeo)</span></label>
+          <input class="form-control" type="file" name="files" multiple>
+        </div>
+        {% if vd.brief.examples %}
+          <div class="mb-2 fw-semibold small">Ejemplos ya puestos</div>
+          <ul class="list-unstyled mb-0">
+            {% for e in vd.brief.examples %}
+              <li class="d-flex align-items-center gap-2 mb-1">
+                <input class="form-check-input mt-0" type="checkbox" name="remove" value="{{ loop.index0 }}"
+                       title="Quitarlo">
+                <a href="{{ e.url }}" target="_blank" rel="noopener" class="text-truncate">{{ e.label or e.url }}</a>
+              </li>
+            {% endfor %}
+          </ul>
+          <div class="form-text">Marca los que quieras quitar.</div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-outline-secondary" name="action" value="save">Guardar</button>
+        <button class="btn btn-outline-danger" name="action" value="manual">Ya se lo he mandado</button>
+        <button class="btn btn-danger" name="action" value="send"
+                {% if not vd.producer.email %}disabled title="El productor no tiene correo en su ficha"{% endif %}>
+          <i class="fa fa-paper-plane me-1"></i>Mandárselo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- 5 · LA MINIATURA (la hace diseño) ---------- #}
+<div class="modal fade" id="dpVideoThumbModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_video_thumb_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-image me-2 text-danger"></i>Miniatura del videoclip</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">La idea</label>
+          <textarea class="form-control" name="idea" rows="3"
+                    placeholder="Qué se quiere ver en la miniatura…">{{ vd.thumb.idea }}</textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Material de apoyo <span class="text-muted small">(foto o vídeo)</span></label>
+          <input class="form-control" type="file" name="files" multiple>
+        </div>
+        {% if vd.thumb.files %}
+          <ul class="list-unstyled mb-0 small">
+            {% for f in vd.thumb.files %}
+              <li><a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.label or f.url }}</a></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-outline-secondary" name="save" value="1">Guardar</button>
+        <button class="btn btn-danger" name="ask" value="1"><i class="fa fa-paper-plane me-1"></i>Solicitar a diseño</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- 6 · LA PLANIFICACIÓN DEL RODAJE ---------- #}
+<div class="modal fade" id="dpVideoShootModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_video_shoot_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-video me-2 text-danger"></i>Planificación del rodaje</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-12 col-md-5">
+            <label class="form-label">Fecha de rodaje</label>
+            <input class="form-control" type="date" name="date" value="{{ vd.shoot.date_value }}">
+          </div>
+          <div class="col-12 col-md-7">
+            <label class="form-label">Dónde <span class="text-muted small">(opcional)</span></label>
+            <input class="form-control" name="place" value="{{ vd.shoot.place }}"
+                   data-address-autocomplete data-addr="full">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notas <span class="text-muted small">(opcional)</span></label>
+            <textarea class="form-control" name="notes" rows="2">{{ vd.shoot.notes }}</textarea>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">¿Hace falta logística para el rodaje?</label>
+          <div class="row g-2">
+            {{ elige('logistics_ui', 'YES', 'fa-truck-ramp-box', 'Sí, hace falta',
+                     vd.shoot.logistics.needed == 'YES') }}
+            {{ elige('logistics_ui', 'NO', 'fa-ban', 'No hace falta',
+                     vd.shoot.logistics.needed == 'NO') }}
+          </div>
+          {# El oculto ESPEJA el radio de las tarjetas: es lo que le llega al servidor. #}
+          <input type="hidden" name="logistics" value="{{ vd.shoot.logistics.needed }}"
+                 data-dp-mirror="logistics_ui">
+        </div>
+        <div data-dp-when="logistics_ui=YES">
+          <div class="mb-3">
+            <label class="form-label">¿Qué se necesita?</label>
+            <textarea class="form-control" name="logistics_note" rows="2"
+                      placeholder="Transporte del backline, catering, permisos…">{{ vd.shoot.logistics.note }}</textarea>
+          </div>
+          <label class="form-label">¿Quién de producción la monta?</label>
+          {# `_production_people` devuelve {id, name, photo_url, in_production}: todo el personal,
+             con los de producción primero. #}
+          <select class="form-select" name="logistics_user_id">
+            <option value="">— Elige a la persona —</option>
+            {% for u in (production_people or []) %}
+              <option value="{{ u.id }}"
+                      {% if vd.shoot.logistics.user_id and vd.shoot.logistics.user_id|string == u.id|string %}selected{% endif %}>
+                {{ u.name }}{% if not u.in_production %} · fuera de producción{% endif %}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">En cuanto se solicite le sale como tarea pendiente, entra en la hoja
+            de ruta del proyecto y los gastos los apunta en la bolsa del vídeo.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- 7 · LA APROBACIÓN DEL ARTISTA ---------- #}
+<div class="modal fade" id="dpVideoApprovalModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('disco_video_approval', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Mandar el videoclip para su aprobación</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">El videoclip</label>
+          <input class="form-control" type="file" name="file" accept="video/*">
+          <div class="form-text">Si ya está subido en la ficha de la canción, se manda ese.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Nota <span class="text-muted small">(opcional)</span></label>
+          <textarea class="form-control" name="note" rows="2"></textarea>
+        </div>
+        {# Quién aprueba: el selector único de la casa (artista, integrantes, colaboradores…). #}
+        {% include '_disco_approvers_picker.html' %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Mandarlo</button>
+      </div>
+    </form>
+  </div>
+</div>

@@ -1650,6 +1650,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **EL TÍTULO es su nombre propio** (el del festival o el del ciclo) y, **si no tiene, el LUGAR**:
   «Municipio, Provincia» (`_place_label`, el formato único de la casa), que es como se identifica un
   concierto.
+  · **EL ORDEN de la primera línea**: la etiqueta de QUÉ ES · el nombre (o el lugar) · **la BANDERA
+  del país si la actividad es FUERA de España** · y al final **«Nueva»**.
+  ⚠️ Lo de fuera lo decide **`_is_foreign_country`**, que se apoya en **`address_utils.is_spain`** —
+  el mismo criterio que el formato de las direcciones, así que «lo que lleva país» y «lo que lleva
+  bandera» no se pueden desparejar. **Sin país no se supone nada raro**: es España (el valor por
+  defecto de los formularios).
+  ⚠️ Y el país **NO se escribe además** en el lugar (por eso ahí `_place_label` va sin él): la
+  bandera ES cómo se dice, y ponerlo dos veces sobra.
   ⚠️ `añade()` cae en la etiqueta de la subtarea cuando no le llega título («Activar la
   producción»), así que se guarda **`title_given`** para saber si venía uno DE VERDAD: sin eso, el
   nombre de la fila acababa siendo el de la tarea (bug real).

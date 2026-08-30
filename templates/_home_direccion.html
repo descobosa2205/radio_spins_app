@@ -36,10 +36,13 @@
             {% if t.image %}<img src="{{ t.image }}" alt="" onerror="this.remove()">{% endif %}
           </span>
           <span class="mytask__body">
+            {# El ORDEN: la etiqueta de QUÉ ES · el nombre (o el lugar) · la BANDERA si es fuera
+               de España · y al final «Nueva». #}
             <span class="mytask__top">
               <span class="mytask__kind"><i class="fa {{ t.kind_icon }}"></i>{{ t.kind_label }}</span>
-              {% if t.is_new %}<span class="mytask__new">Nueva</span>{% endif %}
               <span class="mytask__title text-truncate">{{ t.title }}</span>
+              {% if t.flag %}<span class="mytask__flag" title="{{ t.flag_title }}">{{ t.flag }}</span>{% endif %}
+              {% if t.is_new %}<span class="mytask__new">Nueva</span>{% endif %}
             </span>
             <span class="mytask__facts">
               {# EL ARTISTA va SIEMPRE en la segunda fila, con su FOTO delante y ANTES de la

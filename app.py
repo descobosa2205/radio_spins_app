@@ -43319,6 +43319,23 @@ def booking_request_delete(rid):
     return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
 
 
+def _concert_country_value(concert) -> str:
+    """El PAÍS de una actividad: el de su recinto y, sin recinto, el del formulario a mano."""
+    if not concert:
+        return ""
+    venue = getattr(concert, "venue", None)
+    if venue is not None and (getattr(venue, "country", None) or "").strip():
+        return (venue.country or "").strip()
+    return (getattr(concert, "manual_country", None) or "").strip()
+
+
+def _is_foreign_country(country) -> bool:
+    """¿Es de FUERA de España? Lo decide `address_utils.is_spain`, el mismo criterio que el formato
+    de las direcciones (así, «lo que lleva país» y «lo que lleva bandera» no se pueden desparejar).
+    ⚠️ Sin país no se supone nada raro: es España (es el valor por defecto de los formularios)."""
+    return bool((country or "").strip()) and not address_utils.is_spain(country)
+
+
 def _place_label(municipality: str = "", province: str = "", country: str = "",
                  *, venue: str = "") -> str:
     """Cómo se escribe un lugar: **«Municipio, Provincia»** —con una coma, que es como se escribe una
@@ -70960,7 +70977,7 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                 "note": (note or ""), "order": order, "tasks": [],
                 # LA IMAGEN de la fila: la PORTADA de un lanzamiento o el CARTEL de una actividad;
                 # si no hay, el icono de lo que es. La resuelve `_my_task_images`.
-                "image": "", "image_kind": "",
+                "image": "", "image_kind": "", "flag": "", "flag_title": "",
                 "ref_id": (str(ref_id or sid or "")),
                 # El icono del TIPO de actividad (concierto, festival, ensayo…), que es el respaldo
                 # cuando no hay cartel.
@@ -71151,6 +71168,11 @@ def _my_task_images(filas: list) -> None:
                                  or (getattr(getattr(cc, "cycle_festival", None), "name", "") or "").strip()),
                         # Y si no, EL LUGAR: «Municipio, Provincia», que es como se identifica.
                         "place": _place_label(_concert_city(cc), _concert_province_value(cc)),
+                        # ⚠️ FUERA DE ESPAÑA se enseña la BANDERA del país: de un vistazo se ve que
+                        # la fecha no es aquí. Dentro no aporta nada y no se pinta.
+                        # ⚠️ El país NO se escribe además en el lugar (por eso `_place_label` va sin
+                        # él): la bandera ES cómo se dice, y ponerlo dos veces sobra.
+                        "country": _concert_country_value(cc),
                         "artist": (getattr(artista, "name", "") or ""),
                         "artist_photo": (getattr(artista, "photo_url", "") or ""),
                         "type_icon": QUAD_ACTIVITY_ICONS.get(
@@ -71182,6 +71204,10 @@ def _my_task_images(filas: list) -> None:
                 f["artist_photo"] = f.get("artist_photo") or d["artist_photo"]
                 if d["type_icon"]:
                     f["type_icon"] = d["type_icon"]
+                # LA BANDERA, solo si la actividad es FUERA de España.
+                if _is_foreign_country(d.get("country")):
+                    f["flag"] = _country_flag(d["country"])
+                    f["flag_title"] = (d.get("country") or "").strip()
     except Exception:
         app.logger.exception("[inicio] no se pudieron resolver las imágenes de mis tareas")
     finally:

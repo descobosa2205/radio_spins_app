@@ -5142,6 +5142,19 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
 }
 /* La etiqueta de GÉNERO: la misma píldora clara de siempre, en el azul de la casa. */
 .sync-genre{ background:#eef6f9; color:#00637f; border:1px solid #cfe6ee; font-weight:600; }
+/* CONTENIDO EXPLÍCITO. ⚠️ De OTRO COLOR que los géneros (va justo detrás de ellos y no puede
+   confundirse con uno más): gris oscuro, que es como lo marcan las plataformas. Solo se pinta
+   cuando la canción ES explícita. */
+.badge-explicit{
+  display:inline-flex; align-items:center; gap:.3em;
+  background:#212529; color:#fff; border:1px solid #212529;
+  border-radius:999px; padding:.3em .7em .3em .6em;
+  font-size:.68rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+  line-height:1; white-space:nowrap; vertical-align:middle;
+}
+.badge-explicit i, .badge-explicit.badge-explicit i{
+  color:inherit; font-size:.95em; opacity:1; width:auto; margin:0 .1em 0 0; text-align:inherit;
+}
 /* Rejilla de ARTISTAS del repertorio (como la de Discográfica: se pincha y se ven los suyos). */
 .sync-agrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:.7rem; }
 .sync-acard{

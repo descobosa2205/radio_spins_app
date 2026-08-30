@@ -17,9 +17,12 @@
     {% if row.one_stop %}{{ one_stop_badge('ms-1') }}{% endif %}
     {% if row.is_new %}<span class="badge sync-new ms-1" title="Publicada hace menos de 15 días">Novedad</span>{% endif %}
     {% if sent and row.sent %}<span class="badge text-bg-success ms-1" title="{{ row.sent_tooltip }}"><i class="fa-solid fa-paper-plane me-1"></i>{{ row.sent_count }}</span>{% endif %}
-    {% if row.genres %}
+    {# Los GÉNEROS y, DETRÁS de ellos, el aviso de contenido EXPLÍCITO (de otro color, para que no
+       parezca un género más). Si no es explícita, no se pinta nada. #}
+    {% if row.genres or row.explicit %}
       <span class="sync-genres">
         {% for g in row.genres %}<span class="badge rounded-pill sync-genre">{{ g }}</span>{% endfor %}
+        {% if row.explicit %}{{ explicit_badge() }}{% endif %}
       </span>
     {% endif %}
   {% endset %}

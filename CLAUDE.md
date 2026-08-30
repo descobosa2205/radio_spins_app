@@ -1813,6 +1813,39 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Las canciones que ya existían **se quedan sin género** hasta que se editen: no se puede inventar
   el género de un catálogo entero.
 
+- **CONTENIDO EXPLÍCITO · hay que decirlo en TODAS las canciones** (ago 2026). `Song.is_explicit`
+  pasa a **TRES estados**: True · False · **NULL = sin decidir**, que **no es «no explícita»**.
+  ⚠️ El `ensure_*` hace el ALTER una sola vez (quita el NOT NULL y el default) y pone a **NULL** las
+  que estaban a `false`: nunca se declararon, así que quedan por decidir; las marcadas explícitas se
+  conservan.
+  · Puntos únicos: **`_song_is_explicit`** (¿lo es?, para lo que se ENSEÑA) ·
+  **`_song_explicit_decided`** (¿ya se ha dicho?) · **`_explicit_from_form`** (lo que llega del
+  formulario → True/False/None; lo que no diga nada **no borra** una decisión tomada) ·
+  `EXPLICIT_CHOICES` (las dos respuestas) y `EXPLICIT_LABEL` (el texto de la etiqueta).
+  · **Es OBLIGATORIO al crear**: el alta de una canción y el asistente de PROYECTO discográfico lo
+  piden, y **el servidor lo vuelve a exigir** (esconder el campo no basta). En el proyecto se aplica
+  a todas las canciones del lanzamiento (el dato es de la canción). En la **ficha** se marca (o se
+  cambia) en Información, con el aviso «Sin decidir» mientras no se diga
+  (`discografica_song_explicit_save`).
+  · **La ETIQUETA solo se pinta cuando ES explícita**, y es un global: **`explicit_badge()`**
+  (`.badge-explicit`), igual en la cabecera de la canción y en el repertorio. En **SYNCROS** va
+  **DETRÁS de las etiquetas de género** y de **otro color** (gris oscuro, para que no parezca un
+  género más): en la fila (`_sync_song_row.html`) y en el contenido único de la ficha —que es el
+  MISMO en la pantalla, el correo y el enlace (`_sync_pitch_html`)—. En el **Label Copy** sale como
+  una fila más («Contenido: Explícito»), y solo si lo es.
+  ⚠️ En la edición EN BLOQUE se compara con **`is not`**, no con `bool(...)`: `bool(None)` es False,
+  así que marcar «No explícita» en bloque no cambiaba nada en las que estaban sin decidir.
+
+- **SYNCROS · la ficha del tema: portada entera y CERTIFICACIONES** (ago 2026):
+  ⚠️ La portada se pinta con **`object-fit: contain`** (antes `cover`): el hueco es CUADRADO y una
+  portada que no lo fuera **se recortaba**. El tamaño no cambia (220×220) y lo que sobra va en gris.
+  · **CERTIFICACIONES**: a la **misma altura que el artista pero a la DERECHA**, solo el **icono** de
+  lo que se ha conseguido y su número («×2» si hay más de uno), como en la pestaña Certificaciones.
+  Punto único **`_sync_certifications`**, que agrupa con el MISMO motor que esa pestaña
+  (`_group_certifications`) y **suma los países**: lo que se enseña es «2 Discos de Oro», no uno por
+  país. Va en el contenido único, así que sale igual en la pantalla, en el correo y en el enlace.
+  ⚠️ Se maqueta con una **tabla de dos celdas**, no con flex: esto se pinta también en un CORREO.
+
 - **ETIQUETA «ONE-STOP» de una canción** (ago 2026, punto único **`_song_one_stop`**): sale en la
   **cabecera de la ficha de la canción** (junto a PROVISIONAL / EXPLÍCITA / FOCUS SINGLE), en el
   **azul de la marca** y con la **claqueta** (`fa-clapperboard`, el mismo icono de la sección

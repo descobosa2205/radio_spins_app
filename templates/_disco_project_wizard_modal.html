@@ -239,6 +239,21 @@
             {% for g in song_genre_catalog or [] %}<option value="{{ g }}"></option>{% endfor %}
           </datalist>
           <div class="form-text" id="dpGenreMsg"></div>
+
+          {# CONTENIDO EXPLÍCITO: hay que decirlo en TODAS las canciones, así que también aquí (el
+             proyecto las crea). Se aplica a las del lanzamiento; el servidor lo vuelve a exigir. #}
+          <div class="sw-step__q mt-4"><i class="fa-solid fa-e me-2 text-danger"></i>¿Contenido explícito?</div>
+          <div class="row g-2">
+            {% for val, label, icon in (explicit_choices or []) %}
+              <div class="col-6 col-md-3">
+                <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                  <input class="form-check-input visually-hidden" type="radio" name="is_explicit" value="{{ val }}" required>
+                  <i class="fa-solid {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                  <span class="fw-semibold small d-block">{{ label }}</span>
+                </label>
+              </div>
+            {% endfor %}
+          </div>
         </section>
       </div>
       <div class="modal-footer">

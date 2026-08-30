@@ -616,7 +616,10 @@ class Song(Base):
     videoclip_director_promoter_id = Column(PGUUID(as_uuid=True),
                                             ForeignKey("promoters.id", ondelete="SET NULL"))
     # Contenido explícito (se marca al subir la letra); muestra etiqueta "Explícita".
-    is_explicit = Column(Boolean, nullable=False, server_default=text("false"))
+    # CONTENIDO EXPLÍCITO: hay que decirlo en TODAS las canciones, así que son TRES estados —
+    # ⚠️ **NULL = sin decidir**, que no es «no explícita»: hay sitios (el alta, un proyecto) donde se
+    # exige elegir. La etiqueta solo se pinta cuando es explícita.
+    is_explicit = Column(Boolean)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -7474,6 +7477,21 @@ def ensure_isrc_and_song_detail_schema():
         """,
         # Contenido explícito de la canción (se marca al subir la letra).
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_explicit boolean NOT NULL DEFAULT false;",
+        # ⚠️ Pasa a TRES estados (NULL = sin decidir): hay que marcar SIEMPRE si es explícita o no.
+        # Las que están a `false` nunca se declararon, así que quedan sin decidir; las marcadas
+        # explícitas se conservan. Solo se hace UNA vez (si ya admite NULL, no se toca nada).
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name = 'songs' AND column_name = 'is_explicit'
+                         AND is_nullable = 'NO') THEN
+                ALTER TABLE songs ALTER COLUMN is_explicit DROP NOT NULL;
+                ALTER TABLE songs ALTER COLUMN is_explicit DROP DEFAULT;
+                UPDATE songs SET is_explicit = NULL WHERE is_explicit IS FALSE;
+            END IF;
+        END $$;
+        """,
         # PITCH DE LANZAMIENTO: el texto con el que se presenta el lanzamiento.
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS pitch_text text, ADD COLUMN IF NOT EXISTS pitch_updated_at timestamptz;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS pitch_title text;",

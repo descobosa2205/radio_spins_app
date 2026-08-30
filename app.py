@@ -1405,6 +1405,16 @@ def inject_globals():
             'para una sincronización sin pedir permiso a nadie.">'
             '<i class="fa-solid fa-clapperboard"></i>One-stop</span>') % (cls or "")
 
+    def explicit_badge(cls=""):
+        """La etiqueta **EXPLÍCITO**, igual en TODA la app (y con el MISMO texto en el correo, el
+        PDF y los enlaces, que la componen con `EXPLICIT_LABEL`).
+
+        ⚠️ Solo se pinta cuando la canción ES explícita: si no lo es —o no se ha decidido— no se
+        enseña nada. En Syncros va DESPUÉS de las etiquetas de género y con su propio color, para no
+        confundirla con ellas."""
+        return Markup('<span class="badge badge-explicit %s" title="Contenido explícito">'
+                      '<i class="fa-solid fa-e"></i>%s</span>') % (cls or "", EXPLICIT_LABEL)
+
     def company_logo(company=None, name=None, logo_url=None, size=40, cls="co-logo"):
         """El LOGO de una empresa del grupo y, si todavía no tiene, un ICONO de empresa.
 
@@ -1436,6 +1446,7 @@ def inject_globals():
         BRAND_ACCENT=settings.BRAND_ACCENT,
         company_logo=company_logo,
         one_stop_badge=one_stop_badge,
+        explicit_badge=explicit_badge,
         company_chip=company_chip,
         IS_ADMIN=bool(session.get("user_id")),
         has_endpoint=has_endpoint,
@@ -5169,6 +5180,38 @@ def _song_artist_name_list(song: Song | None = None, artists=None) -> list[str]:
 # Margen al sumar porcentajes: un reparto 33,33 + 33,33 + 33,34 tiene que contar como 100.
 ONE_STOP_PCT_TOLERANCE = Decimal("0.05")
 
+# CONTENIDO EXPLÍCITO · el texto de la etiqueta, en un solo sitio: lo usan la etiqueta de la web
+# (`explicit_badge`), el correo y la página de Syncros, y el PDF.
+EXPLICIT_LABEL = "Explícito"
+# Las tres respuestas posibles. ⚠️ **Sin decidir NO es «no explícita»**: hay que marcarlo siempre.
+EXPLICIT_CHOICES = (
+    ("1", "Explícita", "fa-e"),
+    ("0", "No explícita", "fa-ban"),
+)
+
+
+def _song_is_explicit(song) -> bool:
+    """¿La canción ES explícita? (sin decidir cuenta como que no, para lo que se ENSEÑA)."""
+    return bool(getattr(song, "is_explicit", None) is True)
+
+
+def _song_explicit_decided(song) -> bool:
+    """¿Se ha marcado ya si es explícita o no? (`is_explicit` a NULL = todavía no)."""
+    return getattr(song, "is_explicit", None) is not None
+
+
+def _explicit_from_form(valor, *, actual=None):
+    """Lo que llega del formulario → True / False / None (sin decidir).
+
+    Punto único: lo usan el alta de canción, la ficha, el asistente de proyecto y la edición en
+    bloque. Un valor que no diga nada deja lo que hubiera (no borra una decisión ya tomada)."""
+    v = (valor or "").strip().lower()
+    if v in ("1", "true", "si", "sí", "explicit", "explicita", "explícita", "on"):
+        return True
+    if v in ("0", "false", "no", "no_explicit", "no_explicita"):
+        return False
+    return actual
+
 
 def _fmt_pct_es(value) -> str:
     """Un porcentaje como se escribe aquí: coma decimal y sin ceros de adorno (100, 33,33, 12,5)."""
@@ -8303,6 +8346,9 @@ def _song_label_copy_public_context(session_db, song: Song) -> dict:
     add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
     add_row('BPM', str(song.bpm or ''))
     add_row('Género', song.genre)
+    # CONTENIDO EXPLÍCITO: se dice justo detrás del género, y SOLO si lo es (si no, no se pinta la
+    # fila: `add_row` se salta lo vacío).
+    add_row('Contenido', EXPLICIT_LABEL if _song_is_explicit(song) else '')
     add_row('Copyright', song.copyright_text)
     add_row('Productor', ', '.join([x for x in (song.producers or []) if (x or '').strip()]))
     add_row('Ingeniero de grabación', song.recording_engineer)
@@ -9357,6 +9403,9 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
     add_row('BPM', str(song.bpm or ''))
     add_row('Género', song.genre)
+    # CONTENIDO EXPLÍCITO: se dice justo detrás del género, y SOLO si lo es (si no, no se pinta la
+    # fila: `add_row` se salta lo vacío).
+    add_row('Contenido', EXPLICIT_LABEL if _song_is_explicit(song) else '')
     add_row('Copyright', song.copyright_text)
     add_row('Productor', ', '.join([x for x in (song.producers or []) if (x or '').strip()]))
     add_row('Ingeniero de grabación', song.recording_engineer)
@@ -15114,6 +15163,7 @@ def discografica_view():
         repertorio_tab=repertorio_tab,
         artists=artists,
         contract_artists=contract_artists,
+        explicit_choices=EXPLICIT_CHOICES,
         artist_blocks=artist_blocks,
         album_blocks=album_blocks,
         song_audio_isrc_map=song_audio_isrc_map,
@@ -15250,6 +15300,33 @@ def discografica_isrc_artist_set(artist_id):
     return redirect(url_for("registros_view", tab="isrc", isrc_tab="configurador"))
 
 
+@app.post("/discografica/canciones/<song_id>/explicito", endpoint="discografica_song_explicit_save")
+@admin_required
+def discografica_song_explicit_save(song_id):
+    """Marca si la canción tiene CONTENIDO EXPLÍCITO (o no). Hay que decirlo en todas."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar canciones.")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        valor = _explicit_from_form(request.form.get("is_explicit"))
+        if valor is None:
+            flash("Dinos si tiene contenido explícito o no.", "warning")
+        else:
+            song.is_explicit = valor
+            session_db.commit()
+            flash("Marcada como %s." % ("explícita" if valor else "no explícita"), "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("discografica_song_detail", song_id=song_id, tab="informacion")))
+
+
 @app.post("/discografica/canciones/bulk-update", endpoint="discografica_songs_bulk_update")
 @admin_required
 def discografica_songs_bulk_update():
@@ -15299,8 +15376,11 @@ def discografica_songs_bulk_update():
                     if bool(sng.is_catalog) != new_cat:
                         sng.is_catalog = new_cat; touched = True
             if explicit_raw in ("0", "1"):
+                # ⚠️ Se compara con `is not`: `is_explicit` tiene TRES estados y `bool(None)` es
+                # False, así que con `bool(...)` no se distinguía «sin decidir» de «no explícita» y
+                # marcarlas «No explícita» en bloque no cambiaba nada.
                 new_exp = explicit_raw == "1"
-                if bool(sng.is_explicit) != new_exp:
+                if sng.is_explicit is not new_exp:
                     sng.is_explicit = new_exp; touched = True
             if touched:
                 changed += 1
@@ -16689,6 +16769,13 @@ def discografica_song_create():
     if not artist_id:
         flash("Debes seleccionar un artista.", "warning")
         return redirect(url_for("discografica_view", section="canciones"))
+    # ⚠️ CONTENIDO EXPLÍCITO: hay que decirlo SIEMPRE. Lo pide el formulario y lo vuelve a exigir el
+    # servidor (esconder el campo no basta). Sin decidir sería NULL, y una canción nueva no puede
+    # nacer así.
+    es_explicita = _explicit_from_form(request.form.get("is_explicit"))
+    if es_explicita is None:
+        flash("Dinos si la canción tiene contenido explícito o no.", "warning")
+        return redirect(url_for("discografica_view", section="canciones"))
 
     session_db = db()
     try:
@@ -16713,6 +16800,7 @@ def discografica_song_create():
             our_pct=our_pct,
             our_pct_base=our_pct_base,
             distributor_id=distributor_id,
+            is_explicit=es_explicita,
         )
         session_db.add(s)
         session_db.flush()  # para obtener s.id
@@ -19298,6 +19386,7 @@ def discografica_song_detail(song_id):
         one_stop=one_stop,
         song_genres=song_genres,
         song_genre_catalog=(_song_genre_catalog(session_db) if tab == "informacion" else []),
+        explicit_choices=EXPLICIT_CHOICES,
         sync_share_url=sync_share_url,
         sync_sent=sync_sent,
         sync_sent_count=sync_sent_count,
@@ -25292,6 +25381,12 @@ def disco_project_create():
         if kind != "VIDEOCLIP" and not [g for g in request.form.getlist("song_genres[]") if (g or "").strip()]:
             flash("Dile al menos un género al proyecto: es obligatorio para poder presentarlo.", "warning")
             return redirect(url_for("discografica_view", section="proyectos"))
+        # ⚠️ Y lo mismo con el CONTENIDO EXPLÍCITO: hay que decirlo en todas las canciones, y el
+        # proyecto las crea. Un videoclip suelto no lleva audio nuevo, así que ahí no se pregunta.
+        explicita = _explicit_from_form(request.form.get("is_explicit"))
+        if kind != "VIDEOCLIP" and explicita is None:
+            flash("Dinos si el contenido es explícito o no.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
 
         estado = _current_user_state() or {}
         project = DiscoProject(
@@ -25383,9 +25478,14 @@ def disco_project_create():
         # GÉNEROS: son obligatorios en un proyecto con AUDIO y se aplican a todas las canciones del
         # lanzamiento (el género es de la canción, así que en un álbum va en cada tema).
         generos = request.form.getlist("song_genres[]")
+        canciones_lanzamiento = (_disco_project_release_songs(session_db, project) or [])
         if generos:
-            for cancion in (_disco_project_release_songs(session_db, project) or []):
+            for cancion in canciones_lanzamiento:
                 _apply_song_genres(session_db, cancion, generos, present=True)
+        # CONTENIDO EXPLÍCITO: a todas las canciones del lanzamiento (es de la canción).
+        if explicita is not None:
+            for cancion in canciones_lanzamiento:
+                cancion.is_explicit = explicita
         # Y su bolsa de gastos (la hoja de ruta y el calendario se montan sobre el propio proyecto).
         _ensure_project_bag(session_db, project)
         session_db.commit()
@@ -34961,6 +35061,8 @@ def discografica_song_lyrics_save(song_id):
 
         song.lyrics_text = lyrics_text
         song.lyrics_updated_at = datetime.now(TZ_MADRID)
+        # ⚠️ Aquí es una CASILLA (marcada = explícita), así que se decide igual: si no llega, es que
+        # se ha desmarcado. Lo que no se puede es dejarlo «sin decidir» desde este formulario.
         song.is_explicit = bool(request.form.get("is_explicit"))
         session_db.add(song)
         _mark_song_sgae_pending_from_editorial_change(session_db, song.id)
@@ -122313,6 +122415,35 @@ def _sync_lang(value) -> str:
     return "EN" if (str(value or "").strip().upper() == "EN") else "ES"
 
 
+def _sync_certifications(session_db, song) -> list[dict]:
+    """Las CERTIFICACIONES de la canción para la ficha de Syncro: su icono y cuántas son.
+
+    Se agrupan con el MISMO motor que la pestaña Certificaciones (`_group_certifications`), así que
+    se cuentan igual en los dos sitios. Aquí solo hace falta la imagen, el número y el texto para el
+    tooltip: ni países ni equivalencias, que en una ficha de syncro no vienen a cuento.
+    ⚠️ La imagen va en ABSOLUTO: esto se pinta también en el correo y en la página pública."""
+    try:
+        filas = (session_db.query(SongCertification)
+                 .filter(SongCertification.song_id == song.id)
+                 .order_by(SongCertification.created_at.asc()).all())
+    except Exception:
+        app.logger.exception("[syncro] no se pudieron leer las certificaciones")
+        return []
+    # Se juntan por TIPO (los países se suman): lo que se enseña es «2 discos de oro», no uno por país.
+    por_tipo = {}
+    for g in _group_certifications(filas, media_kind="SONG"):
+        fila = por_tipo.setdefault(g["certification_type"], {
+            "type": g["certification_type"], "image_url": g["image_url"],
+            "title": g["title"], "plural_title": g["plural_title"],
+            "count": 0, "order": g["sort_order"][0],
+        })
+        fila["count"] += int(g.get("count") or 0)
+    salida = sorted(por_tipo.values(), key=lambda x: x["order"])
+    for f in salida:
+        f["label"] = ("%d %s" % (f["count"], f["plural_title"])) if f["count"] > 1 else f["title"]
+    return salida
+
+
 def _sync_song_context(session_db, song, *, lang: str = "ES") -> dict:
     """Todo lo que necesita el envío de un tema para sincronización (correo, enlace y vista previa).
 
@@ -122347,6 +122478,12 @@ def _sync_song_context(session_db, song, *, lang: str = "ES") -> dict:
         "cover_url": _absolute_media_url(getattr(song, "cover_url", None) or "") or "",
         "release_date": (song.release_date.strftime("%d/%m/%Y") if lang == "ES" else song.release_date.strftime("%Y-%m-%d")) if getattr(song, "release_date", None) else "",
         "genres": _song_genre_names(session_db, song.id),
+        # CONTENIDO EXPLÍCITO: se dice detrás de los géneros (solo si lo es). Igual en el correo, en
+        # el enlace y en la vista previa, porque los tres salen de aquí.
+        "explicit": _song_is_explicit(song),
+        # CERTIFICACIONES obtenidas (2 discos de oro…): SOLO el icono con su número, como en la
+        # pestaña Certificaciones. Van arriba a la DERECHA, a la altura del artista.
+        "certifications": _sync_certifications(session_db, song),
         "label_name": (getattr(sello, "name", "") or "").strip(),
         "label_logo": _absolute_media_url(getattr(sello, "logo_url", None) or "") or "",
         "brand_logos": logos,
@@ -122426,6 +122563,13 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
         '<span style="display:inline-block;background:#eef6f9;color:#00637f;border:1px solid #cfe6ee;'
         'border-radius:999px;padding:2px 10px;font-size:12px;margin:0 6px 4px 0;">%s</span>' % esc(g)
         for g in (ctx.get("genres") or []))
+    # CONTENIDO EXPLÍCITO: DETRÁS de los géneros y de otro color (gris oscuro), para que no parezca
+    # un género más. Solo si lo es; si no, no se dice nada.
+    if ctx.get("explicit"):
+        generos += ('<span style="display:inline-block;background:#212529;color:#fff;'
+                    'border:1px solid #212529;border-radius:999px;padding:2px 10px;font-size:12px;'
+                    'font-weight:700;margin:0 6px 4px 0;">%s&nbsp; %s</span>'
+                    % (_sync_icon("e", email=email, size=11, color="ffffff"), esc(EXPLICIT_LABEL)))
 
     filas_autores = "".join(
         '<tr>'
@@ -122461,9 +122605,12 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
 
     if ctx.get("cover_url"):
         # ⚠️ En la WEB, pinchar la portada también reproduce (`data-sync-cover` lo cablea la página).
+        # ⚠️⚠️ `object-fit: CONTAIN`, no `cover`: la portada se ve ENTERA. Con `cover` se recortaba
+        # la que no fuera cuadrada (el hueco lo es), que es justo lo que no puede pasar con una
+        # portada. El TAMAÑO no cambia: el hueco sigue midiendo 220×220 y lo que sobra va en gris.
         portada = ('<img src="%s" alt="" width="220" class="sync-cover"%s style="width:220px;'
-                   'height:220px;object-fit:cover;border-radius:12px;border:1px solid #e6e9ec;'
-                   'display:block;">'
+                   'height:220px;object-fit:contain;background:#f1f3f5;border-radius:12px;'
+                   'border:1px solid #e6e9ec;display:block;">'
                    % (esc(ctx["cover_url"]), "" if email else ' data-sync-cover="1"'))
     else:
         portada = ('<div class="sync-cover-ph" style="width:220px;height:220px;border-radius:12px;background:#f1f3f5;'
@@ -122482,8 +122629,28 @@ def _sync_pitch_html(ctx: dict, *, with_intro: bool = True, email: bool = False,
                     'border-radius:50%%;object-fit:cover;vertical-align:middle;margin-right:6px;">'
                     % esc(foto))
     artista += '<strong style="vertical-align:middle;">%s</strong>' % esc(ctx.get("artist_name"))
-    bloque_artista = ('<div style="margin-top:10px;font-size:15px;color:#111827;">%s</div>'
-                      % artista if foto else dato(ico("user"), "<strong>%s</strong>" % esc(ctx.get("artist_name"))))
+    # ── Las CERTIFICACIONES, a la MISMA ALTURA que el artista pero a la DERECHA: solo el icono de lo
+    # que se ha conseguido y, si es más de uno, su número (igual que en la pestaña Certificaciones).
+    # Va en una tabla de dos celdas porque esto se pinta también en un CORREO (nada de flex).
+    certis = ""
+    for cert in (ctx.get("certifications") or []):
+        n = int(cert.get("count") or 1)
+        certis += ('<span title="%s" style="display:inline-block;margin-left:8px;white-space:nowrap;'
+                   'vertical-align:middle;">'
+                   '<img src="%s" alt="%s" height="30" style="height:30px;width:auto;'
+                   'vertical-align:middle;">%s</span>'
+                   % (esc(cert.get("label")), esc(cert.get("image_url")), esc(cert.get("label")),
+                      ('<strong style="font-size:13px;color:#374151;vertical-align:middle;'
+                       'margin-left:3px;">×%d</strong>' % n) if n > 1 else ""))
+    linea_artista = ('<div style="margin-top:10px;font-size:15px;color:#111827;">%s</div>' % artista
+                     if foto else dato(ico("user"), "<strong>%s</strong>" % esc(ctx.get("artist_name"))))
+    if certis:
+        bloque_artista = ('<table style="width:100%%;border-collapse:collapse;"><tr>'
+                          '<td style="vertical-align:middle;">%s</td>'
+                          '<td style="vertical-align:middle;text-align:right;white-space:nowrap;">%s</td>'
+                          '</tr></table>' % (linea_artista, certis))
+    else:
+        bloque_artista = linea_artista
 
     sello = ""
     if ctx.get("label_logo"):
@@ -122694,6 +122861,8 @@ def _sync_song_rows(session_db, canciones, *, one_stop_map=None) -> list[dict]:
             "is_new": bool(getattr(c, "release_date", None)
                            and 0 <= (today_local() - c.release_date).days < SYNC_NEW_DAYS),
             "genres": generos.get(sid, []),
+            # CONTENIDO EXPLÍCITO: su etiqueta va detrás de las de género (solo si lo es).
+            "explicit": _song_is_explicit(c),
             "one_stop": bool((mapa.get(sid) or {}).get("ok")),
             "has_lyrics": bool((getattr(c, "lyrics_text", None) or "").strip()),
             "lyrics": (getattr(c, "lyrics_text", None) or "").strip(),

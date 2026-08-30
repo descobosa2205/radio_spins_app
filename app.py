@@ -70602,7 +70602,8 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
     grupos: dict = {}
 
     def añade(kind, sid, titulo, ficha_url, *, label, action_url="", action_label="",
-              state="todo", artist="", photo="", fecha="", note="", order=5):
+              state="todo", artist="", photo="", fecha="", note="", order=5,
+              activity_type="", ref_id=""):
         """Una subtarea. Las de un MISMO sujeto (kind+id) se juntan en una sola fila."""
         if not label:
             return
@@ -70616,6 +70617,15 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                 "artist_name": (artist or ""), "artist_photo": (photo or ""),
                 "date": (fecha or ""), "date_label": _iso_date_label(fecha) if fecha else "",
                 "note": (note or ""), "order": order, "tasks": [],
+                # LA IMAGEN de la fila: la PORTADA de un lanzamiento o el CARTEL de una actividad;
+                # si no hay, el icono de lo que es. La resuelve `_my_task_images`.
+                "image": "", "image_kind": "",
+                "ref_id": (str(ref_id or sid or "")),
+                # El icono del TIPO de actividad (concierto, festival, ensayo…), que es el respaldo
+                # cuando no hay cartel.
+                "type_icon": (QUAD_ACTIVITY_ICONS.get(
+                    QUAD_ACTIVITY_ALIASES.get((activity_type or "").strip().upper(), ""), "")
+                    or meta[1]),
             }
         fila["tasks"].append({"label": label, "url": (action_url or ficha_url or ""),
                               "action_label": (action_label or "Hacerlo"), "state": state})
@@ -70661,7 +70671,9 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                   action_label=(t.get("action_label") or "Hacerlo"),
                   state=(t.get("state") or "todo"),
                   artist=(row.get("artist") or ""), photo=(row.get("artist_photo") or ""),
-                  fecha=(row.get("date") or ""), note=(row.get("place_label") or ""), order=3)
+                  fecha=(row.get("date") or ""), note=(row.get("place_label") or ""), order=3,
+                  activity_type=(row.get("activity_type") or row.get("kind") or ""),
+                  ref_id=(row.get("concert_id") or row.get("id") or ""))
     for row in (activation or []):
         añade("ACTIVIDAD", row.get("id"), (row.get("title") or row.get("subject_name") or ""),
               row.get("url"),
@@ -70669,14 +70681,18 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
               action_label=(row.get("action_label") or "Activar"),
               artist=(row.get("artist") or row.get("subject_name") or ""),
               photo=(row.get("artist_photo") or row.get("subject_photo") or ""),
-              fecha=(row.get("date") or ""), note=(row.get("place_label") or ""), order=3)
+              fecha=(row.get("date") or ""), note=(row.get("place_label") or ""), order=3,
+              activity_type=(row.get("activity_type") or row.get("kind") or ""),
+              ref_id=(row.get("id") or ""))
     for row in (artwork or []):
         añade("CARTELERIA", row.get("concert_id") or row.get("id"),
               (row.get("concert_title") or row.get("label") or "Cartelería"), row.get("url"),
               label=(row.get("label") or "Cartel rechazado por diseño"),
               action_label="Volver a subirlo", state="rejected",
               artist=(row.get("artist") or ""), photo=(row.get("artist_photo") or ""),
-              note=(row.get("note") or ""), fecha=(row.get("date") or ""), order=2)
+              note=(row.get("note") or ""), fecha=(row.get("date") or ""), order=2,
+              activity_type=(row.get("activity_type") or ""),
+              ref_id=(row.get("concert_id") or row.get("id") or ""))
     for row in (peticiones or []):
         if row.get("rejection_pending"):
             añade("PETICION", row.get("id"),
@@ -70704,12 +70720,68 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
     # De la fecha MÁS PRÓXIMA a la más lejana; lo que no tiene fecha, al final.
     filas.sort(key=lambda f: (_my_task_date(f["date"]) is None,
                               _my_task_date(f["date"]) or date.max, f["order"]))
+    # LA IMAGEN de cada fila (la portada del lanzamiento o el cartel de la actividad).
+    _my_task_images(filas)
     # ¿Es NUEVA? Hasta que se pincha por primera vez se marca como tal.
     vistas = _my_tasks_seen()
     for f in filas:
         f["is_new"] = f["key"] not in vistas
         f["seen_url"] = _safe_url_for("home_task_seen")
     return filas
+
+
+def _my_task_images(filas: list) -> None:
+    """LA IMAGEN de cada tarea pendiente: la PORTADA del lanzamiento o el CARTEL de la actividad.
+
+    · un **PROYECTO** discográfico → la **portada cuadrada** de su lanzamiento (y, si todavía no hay,
+      la imagen de «sin portada», la misma del repertorio);
+    · un **CONCIERTO / FESTIVAL / CICLO** → su **CARTEL**; si no hay, el **icono del tipo** de
+      actividad que sea;
+    · lo demás → su icono.
+    ⚠️ Va en **DOS consultas** (los proyectos de una vez y las actividades de una vez), no una por
+    fila: este módulo se pinta en cada carga de Inicio."""
+    if not filas:
+        return
+    proyectos = [f for f in filas if f["kind"] == "PROYECTO" and f.get("ref_id")]
+    actividades = [f for f in filas if f["kind"] in ("CONCIERTO", "ACTIVIDAD", "CARTELERIA")
+                   and f.get("ref_id")]
+    sin_portada = _safe_url_for("static", filename="img/cover_placeholder.png")
+    session_db = db()
+    try:
+        if proyectos:
+            ids = {_safe_uuid(f["ref_id"]) for f in proyectos}
+            ids.discard(None)
+            mapa = {}
+            if ids:
+                for p in session_db.query(DiscoProject).filter(DiscoProject.id.in_(ids)).all():
+                    try:
+                        mapa[str(p.id)] = (_disco_project_release(session_db, p) or {}).get("cover_url") or ""
+                    except Exception:
+                        mapa[str(p.id)] = ""
+            for f in proyectos:
+                f["image"] = mapa.get(f["ref_id"]) or sin_portada
+                f["image_kind"] = "cover"
+        if actividades:
+            ids = {_safe_uuid(f["ref_id"]) for f in actividades}
+            ids.discard(None)
+            mapa = {}
+            if ids:
+                filas_c = (session_db.query(Concert)
+                           .options(joinedload(Concert.artwork_request)
+                                    .selectinload(ConcertArtworkRequest.assets))
+                           .filter(Concert.id.in_(ids)).all())
+                for cc in filas_c:
+                    try:
+                        mapa[str(cc.id)] = _concert_poster_url(cc) or ""
+                    except Exception:
+                        mapa[str(cc.id)] = ""
+            for f in actividades:
+                f["image"] = mapa.get(f["ref_id"]) or ""
+                f["image_kind"] = "poster" if f["image"] else ""
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron resolver las imágenes de mis tareas")
+    finally:
+        session_db.close()
 
 
 def _my_tasks_seen() -> dict:
@@ -88225,6 +88297,11 @@ def _home_production_activation_pending(session_db, user_id, *, limit: int = 40)
             "type_label": _activity_kind_label(kind),
             "title": ((c.festival_name or "").strip()
                       or (c.artist.name if c.artist else "") or _activity_kind_label(kind)),
+            # El ARTISTA (con su foto) y el TIPO de actividad: los usa «Mis tareas pendientes» para
+            # pintar la fila —el artista en la segunda línea y el icono de su tipo—.
+            "artist": (c.artist.name if c.artist else ""),
+            "artist_photo": ((getattr(c.artist, "photo_url", "") or "") if c.artist else ""),
+            "activity_type": (c.activity_type or kind),
             "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
             "date": (c.date.isoformat() if c.date else ""),
             "venue": (_concert_venue_name(c) or ""),

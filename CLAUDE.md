@@ -1627,12 +1627,22 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   y una misma actividad aparecía tres veces (confirmar con el artista, confirmar al promotor, activar
   producción): parecían tres trabajos y era uno.
   · **Una FILA por SUJETO** (la misma actividad · el mismo concierto · el mismo proyecto · la misma
-  promoción · la misma remesa): **la FOTO del artista** (`artist_avatar`), la **ETIQUETA de qué es**
+  promoción · la misma remesa): **la IMAGEN CUADRADA** (ver abajo), la **ETIQUETA de qué es**
   con su icono en el **azul de la marca** (`MY_TASK_KINDS`: Concierto · Actividad · Proyecto
   discográfico · Promoción · Remesa de pagos · Vacaciones · Cartelería · Petición), el título y, debajo,
   **UNA SUBTAREA POR COSA** con su **estado** (Pendiente · Solicitado · Esperando · Hecho · Rechazado).
   · A la derecha de cada subtarea, el **botón SIN RELLENAR** que lleva a hacerla; **pinchando en
   cualquier otro sitio** de la fila se abre la **ficha** de lo que está pendiente.
+  · ⚠️ **LA IMAGEN ES CUADRADA, no un círculo** (el círculo es de las personas):
+  **`_my_task_images`** pone la **PORTADA** del lanzamiento en un proyecto —y la imagen de **«sin
+  portada»** (`img/cover_placeholder.png`, la misma del repertorio) si todavía no hay— y el **CARTEL**
+  en un concierto, festival o ciclo; si no hay ninguna, el **icono del TIPO de actividad**
+  (`QUAD_ACTIVITY_ICONS`, con `type_icon`). Va en **DOS consultas** (los proyectos de una vez y las
+  actividades de una vez), no una por fila.
+  ⚠️ El icono se pinta **SIEMPRE debajo** de la imagen y el `<img>` lleva `onerror="this.remove()"`:
+  una portada caída deja el icono, no un cuadro vacío.
+  · **EL ARTISTA va en la SEGUNDA fila**, con su **foto delante** (`artist_chip`) y **antes de la
+  fecha**. ⚠️ Si el título YA es el nombre del artista (una actividad sin festival) no se repite.
   · **Ordenadas de la más próxima a la más lejana** (`_my_task_date`); lo que **no tiene fecha** va al
   final, no se descarta.
   · **«Nueva» hasta que se abre**: se apunta en `UserProfile.tasks_seen` (JSONB) por la clave de la

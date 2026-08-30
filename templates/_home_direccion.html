@@ -27,7 +27,14 @@
       <div class="mytask{% if t.is_new %} is-new{% endif %}" data-mytask="{{ t.key }}"
            data-mytask-url="{{ t.url }}" data-mytask-seen="{{ t.seen_url }}" role="button" tabindex="0">
         <div class="mytask__head">
-          {{ artist_avatar(t.artist_photo, t.artist_name or t.title) }}
+          {# LA IMAGEN es CUADRADA: la PORTADA del lanzamiento (o la de «sin portada») y, en un
+             concierto, festival o ciclo, su CARTEL. Si no hay ninguna, el icono del tipo. #}
+          {# ⚠️ El icono va SIEMPRE debajo: si la imagen no carga, `this.remove()` la quita y queda
+             el icono — sin dejar un cuadro vacío. #}
+          <span class="mytask__art{% if not t.image %} mytask__art--icon{% endif %}">
+            <i class="fa {{ t.type_icon or t.kind_icon }}"></i>
+            {% if t.image %}<img src="{{ t.image }}" alt="" onerror="this.remove()">{% endif %}
+          </span>
           <span class="mytask__body">
             <span class="mytask__top">
               <span class="mytask__kind"><i class="fa {{ t.kind_icon }}"></i>{{ t.kind_label }}</span>
@@ -35,8 +42,12 @@
               <span class="mytask__title text-truncate">{{ t.title }}</span>
             </span>
             <span class="mytask__facts">
+              {# EL ARTISTA en la segunda fila, con su FOTO delante y ANTES de la fecha.
+                 ⚠️ Si el título YA es el nombre del artista (una actividad sin festival), no se
+                 repite: se diría dos veces lo mismo. #}
               {% if t.artist_name and t.artist_name != t.title %}
-                <span><i class="fa fa-user-music"></i>{{ t.artist_name }}</span>{% endif %}
+                <span class="mytask__artist">{{ artist_chip(t.artist_name, t.artist_photo) }}</span>
+              {% endif %}
               {% if t.date_label %}<span><i class="fa fa-calendar-day"></i>{{ t.date_label }}</span>{% endif %}
               {% if t.note %}<span><i class="fa fa-location-dot"></i>{{ t.note }}</span>{% endif %}
             </span>

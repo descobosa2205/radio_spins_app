@@ -1066,6 +1066,53 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# BOLSAS DE DOBLE CIERRE que SOLO TE ESPERAN A TI: la de un proyecto discográfico (sello y, si hubo
+   logística, producción) y la de una promoción (promoción y producción). Hasta que cierran los dos
+   NO pasa a administración, así que la fila dice quién ha cerrado ya y a quién falta. #}
+{% if HOME_BAG_CLOSE %}
+<div class="card mb-4 border-warning">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-lock text-danger me-2"></i>Bolsas que solo te esperan a ti
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_BAG_CLOSE|length }}</span>
+    </span>
+    <span class="text-muted small">No pasan a administración hasta que cierran las dos partes.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_BAG_CLOSE %}
+      <div class="ctask">
+        <div class="ctask__head">
+          {% if r.artist_photo or r.artist_name %}
+            {{ artist_avatar(r.artist_photo, r.artist_name) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-sack-dollar text-muted"></i></span>
+          {% endif %}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}"
+             title="Abrir la bolsa">{{ r.artist_name or r.title }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-sack-dollar"></i>{{ r.title }}</span>
+            <span class="ctask__fact"><i class="fa fa-layer-group"></i>{{ r.kind_label }}</span>
+            <span class="ctask__fact"><i class="fa fa-user-check"></i>tu parte: {{ r.part_label }}</span>
+          </span>
+          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+            <a class="btn btn-sm btn-outline-danger" href="{{ r.url }}">
+              <i class="fa fa-lock me-1"></i>Cerrar mi parte</a>
+          </span>
+        </div>
+        <div class="ctask__tasks">
+          {% for p in r.parts %}
+            <span class="badge {{ 'text-bg-success' if p.done else 'text-bg-warning text-dark' }}">
+              <i class="fa {% if p.done %}fa-circle-check{% else %}fa-hourglass-half{% endif %} me-1"></i>
+              {{ p.label }}{% if p.done and p.by %} · {{ p.by }}{% endif %}
+            </span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# LA LOGÍSTICA de un lanzamiento que le han pedido a ESTA persona (producción). Con lo que se le
    pide a la vista, y los dos sitios donde trabaja: la bolsa (gastos) y la hoja de ruta. #}
 {% if HOME_DISCO_LOGISTICS %}

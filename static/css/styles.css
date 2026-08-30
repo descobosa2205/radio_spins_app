@@ -5479,3 +5479,19 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .rich-editor__area p{ margin:0 0 .7rem; }
 .rich-editor__area p:last-child{ margin-bottom:0; }
 .rich-editor__area:empty::before{ content:attr(data-placeholder); color:#adb5bd; }
+
+/* ═════════════ DOBLE CIERRE DE UNA BOLSA ═════════════
+   Una bolsa que trabajan DOS departamentos (un proyecto discográfico con logística, una promoción
+   con producción) no pasa a administración hasta que cierran los dos: la barra dice quién ha
+   cerrado ya y a quién se espera. */
+.bag-close{ display:flex; align-items:center; flex-wrap:wrap; gap:.5rem;
+  background:#f8f9fb; border:1px solid #eef0f4; border-radius:.65rem; padding:.55rem .75rem; }
+.bag-close__ttl{ display:inline-flex; align-items:center; gap:.4rem; font-weight:700;
+  font-size:.82rem; text-transform:uppercase; letter-spacing:.04em; color:#6b7280; }
+.bag-close__ttl i{ color:var(--brand-primary,#E33D48); }
+.bag-close__part{ display:inline-flex; align-items:center; gap:.35rem; font-size:.85rem;
+  font-weight:600; color:#6b7280; background:#fff; border:1px solid #e5e7eb;
+  border-radius:999px; padding:.2rem .6rem; }
+.bag-close__part.is-done{ color:#0f5132; border-color:#badbcc; background:#eaf6ef; }
+.bag-close__part i:first-child{ font-size:.9em; }
+.bag-close__note{ font-size:.85rem; color:#6b7280; margin-left:auto; }

@@ -4834,6 +4834,9 @@ class WorkflowBag(Base):
     # Cuando TODOS sus gastos están contabilizados (u omitidos) la bolsa se cierra para contabilidad
     # y desaparece de «pendiente de contabilizar».
     accounting_done_at = Column(DateTime(timezone=True))
+    # ⚠️ DOBLE CIERRE: qué parte ha cerrado ya cada departamento («SELLO», «PRODUCCION»,
+    # «PROMOCION»), con quién y cuándo. La bolsa NO se manda a administración hasta que están todas.
+    close_parts = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     closed_liquidation_pdf_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -11331,6 +11334,7 @@ def ensure_holded_schema():
         "CREATE INDEX IF NOT EXISTS idx_bag_expenses_holded_doc ON bag_expenses(holded_doc_id) WHERE holded_doc_id IS NOT NULL;",
         # Una bolsa con TODOS sus gastos contabilizados se archiva y desaparece de pendiente.
         "ALTER TABLE IF EXISTS workflow_bags ADD COLUMN IF NOT EXISTS accounting_done_at timestamptz;",
+        "ALTER TABLE IF EXISTS workflow_bags ADD COLUMN IF NOT EXISTS close_parts jsonb NOT NULL DEFAULT '{}'::jsonb;",
         # --- DIRECCIÓN FISCAL EN PIEZAS ---
         # Holded exige el código postal, el municipio y la provincia por separado para crear el
         # contacto: con la dirección en un solo cuadro de texto no se puede dar de alta al proveedor.

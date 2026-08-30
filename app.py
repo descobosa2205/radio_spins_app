@@ -24806,6 +24806,44 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     if bag is None:
         tarea("bolsa", "Sin bolsa de gastos",
               url_for("disco_project_detail", project_id=project.id, tab="bolsa"), "fa-sack-dollar")
+    else:
+        # ⚠️⚠️ LA BOLSA ES LA ÚLTIMA TAREA, y con DOBLE CIERRE: la cierra el SELLO y, si hubo
+        # logística, también PRODUCCIÓN. Hasta que cierran los dos no se manda a administración, y
+        # el proyecto no se puede dar por terminado.
+        url_bolsa = url_for("disco_project_detail", project_id=project.id, tab="bolsa")
+        cerrada = (getattr(bag, "status", "") or "").upper() in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
+        cierre = _bag_close_state(session_db, bag)
+        if cerrada:
+            tarea("bolsa_cierre", "Cerrar la bolsa y mandarla a liquidación", url_bolsa,
+                  "fa-sack-dollar", state="done",
+                  value="Cerrada%s" % ((" · " + " · ".join(
+                      ["%s: %s" % (p["label"], p["by"] or "hecho") for p in cierre["parts"]]))
+                      if cierre["double"] else ""))
+        elif cierre["double"]:
+            hechas = [p for p in cierre["parts"] if p["done"]]
+            extra = {"state": "wait",
+                     "value": "Falta que cierre %s" % " y ".join(cierre["missing_labels"])} if hechas else {}
+            tarea("bolsa_cierre", "Cerrar la bolsa y mandarla a liquidación", url_bolsa,
+                  "fa-sack-dollar",
+                  hint="La cierran %s" % " y ".join([p["label"] for p in cierre["parts"]]),
+                  action_label="Ir a la bolsa", **extra)
+            for parte in cierre["parts"]:
+                clave = "bolsa_cierre_%s" % parte["key"].lower()
+                if parte["done"]:
+                    tarea(clave, "Cierre de %s" % parte["label"], url_bolsa, parte["icon"],
+                          sub=True, state="done",
+                          value="Cerrado%s%s" % ((" por %s" % parte["by"]) if parte["by"] else "",
+                                                 (" el %s" % parte["at_label"]) if parte["at_label"] else ""))
+                elif parte["can"]:
+                    tarea(clave, "Cierra tu parte (%s)" % parte["label"], url_bolsa, parte["icon"],
+                          sub=True, action_label="Ir a la bolsa")
+                else:
+                    tarea(clave, "Cierre de %s" % parte["label"], url_bolsa, parte["icon"],
+                          sub=True, state="sent",
+                          value="Pendiente de que cierre %s" % parte["label"].lower())
+        else:
+            tarea("bolsa_cierre", "Cerrar la bolsa y mandarla a liquidación", url_bolsa,
+                  "fa-sack-dollar", action_label="Ir a la bolsa")
     # Cerrar el proyecto: solo cuando NO queda nada pendiente de verdad.
     if getattr(project, "closed_at", None) is None and not [t for t in tareas if t["state"] != "done"]:
         tarea("cerrar", "Todo listo: cierra el proyecto para pasar a distribución y registro",
@@ -69881,6 +69919,10 @@ def inject_personnel_globals():
         # pide por su nombre), así que no depende de ningún permiso de sección.
         "HOME_DISCO_LOGISTICS": (_home_disco_logistics()
                                  if _home and "_home_disco_logistics" in globals() else []),
+        # BOLSAS DE DOBLE CIERRE que solo esperan a esta persona (un proyecto discográfico con
+        # logística, una promoción con producción). Es suyo, así que va con lo SUYO.
+        "HOME_BAG_CLOSE": (_home_bag_close_pending()
+                           if _home and "_home_bag_close_pending" in globals() else []),
         # NOTAS DE PRENSA pendientes: a promoción (redactarla y enviarla) y a diseño (el gráfico).
         "HOME_PRESS_TASKS": (_home_press_tasks()
                              if _home and "_home_press_tasks" in globals() else []),
@@ -70372,6 +70414,32 @@ def _personnel_own_vacations_request() -> bool:
         return False
 
 
+def _bag_close_is_mine_request() -> bool:
+    """¿La bolsa de esta petición es una de DOBLE CIERRE que me toca a MÍ?
+
+    A quien lleva un proyecto discográfico —o a quien se le pidió la logística— se le reclama cerrar
+    su parte por su NOMBRE, y puede no tener el permiso de «Bolsas»: sin esto se comía un 403 al
+    resolver su propia tarea. Solo abre la puerta si la parte está ASIGNADA a esa persona."""
+    uid = str(session.get("user_id") or "")
+    bag_id = (request.view_args or {}).get("bag_id")
+    if not uid or not bag_id:
+        return False
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(str(bag_id)))
+        if bag is None:
+            return False
+        for parte in _bag_close_required_parts(session_db, bag):
+            if uid in (parte.get("user_ids") or set()):
+                return True
+        return False
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo resolver el cierre propio")
+        return False
+    finally:
+        session_db.close()
+
+
 def _support_endpoint_decision(endpoint: str):
     """Resuelve un endpoint de apoyo.
 
@@ -70397,6 +70465,12 @@ def _support_endpoint_decision(endpoint: str):
     # GESTIONAR VACACIONES: su llave es la responsabilidad (o ser de administración), no un permiso
     # de sección que hay que acordarse de conceder. La decisión fina la sigue tomando la vista.
     if (endpoint == "vacaciones_view" or endpoint.startswith("vacation_")) and _can_manage_vacations():
+        return (True, None)
+    # ⚠️ CERRAR MI PARTE de una bolsa de DOBLE CIERRE: a quien lleva un proyecto discográfico (o la
+    # logística que se le pidió) se le pide por su NOMBRE, y puede no tener el permiso de «Bolsas»,
+    # así que se comía un 403 al cerrar su propia parte. La llave es tenerla asignada; el endpoint
+    # vuelve a comprobar dentro qué parte le toca.
+    if endpoint in ("bag_close", "bag_detail_view") and _bag_close_is_mine_request():
         return (True, None)
     if endpoint in SUPPORT_READ_ENDPOINTS:
         return (True, None)  # lookups de solo lectura: cualquier sesión válida
@@ -73598,6 +73672,162 @@ def _bag_has_pending_payments(session_db, bag) -> bool:
         if estado not in {"PAGADO", "NO_APLICA"}:
             return True
     return False
+
+
+# ═════════════════════════════ DOBLE CIERRE DE UNA BOLSA ═════════════════════════════════════════
+# Hay bolsas que las trabajan DOS departamentos a la vez, y ninguno puede darlas por terminadas por
+# su cuenta: la de un PROYECTO DISCOGRÁFICO (el sello y, si hubo logística, producción) y la de una
+# PROMOCIÓN (promoción y producción). Hasta que no cierran los dos, la bolsa **no se manda a
+# administración**: le sigue saliendo como pendiente al que falte.
+BAG_CLOSE_PARTS = {
+    "SELLO": ("Sello", "fa-compact-disc"),
+    "PRODUCCION": ("Producción", "fa-trailer"),
+    "PROMOCION": ("Promoción", "fa-bullhorn"),
+}
+
+
+def _project_for_bag(session_db, bag):
+    """El PROYECTO DISCOGRÁFICO de una bolsa (o None si no es de un proyecto)."""
+    if (getattr(bag, "linked_type", None) or "").strip().upper() != "PROJECT":
+        return None
+    try:
+        return session_db.get(DiscoProject, bag.linked_id) if bag.linked_id else None
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo resolver el proyecto de la bolsa")
+        return None
+
+
+def _bag_close_required_parts(session_db, bag) -> list[dict]:
+    """QUÉ CIERRES hacen falta en esta bolsa, y de quién es cada uno. Punto único.
+
+    ⚠️ Se **CALCULA**, no se guarda: si a un proyecto se le pide la logística después de crear la
+    bolsa, el cierre de producción entra solo (y si se anula, deja de pedirse). Guardarlo sería
+    dejar dos verdades que se pueden desparejar — la misma regla que `_notify_resolve`.
+    Devuelve `[]` en una bolsa normal: esas se cierran de una sola vez, como siempre."""
+    project = _project_for_bag(session_db, bag)
+    if project is not None:
+        partes = [{"key": "SELLO", "user_ids": set(_disco_project_owner_ids(session_db, project)),
+                   "access": "discografica"}]
+        try:
+            log = _disco_logistics_state(session_db, project)
+        except Exception:
+            app.logger.exception("[bolsas] no se pudo leer la logística del proyecto")
+            log = {}
+        if log.get("requested"):
+            partes.append({"key": "PRODUCCION",
+                           "user_ids": {str(log.get("user_id") or "")} - {""},
+                           "access": "produccion"})
+        return partes
+    promotion = _promo_for_bag(session_db, bag)
+    if promotion is not None and bool(getattr(promotion, "production_needed", False)) \
+            and getattr(promotion, "production_owner_user_id", None):
+        # ⚠️ `_promo_bag_closer_ids` devuelve SOLO a producción cuando la promoción la lleva
+        # producción (era la regla del cierre único): la parte de PROMOCIÓN son su acompañante y el
+        # departamento, que es a quien le sale la tarea.
+        gente_promo = set()
+        if (getattr(promotion, "escort_kind", None) or "NONE").strip().upper() == "USER" \
+                and getattr(promotion, "escort_user_id", None):
+            gente_promo.add(str(promotion.escort_user_id))
+        try:
+            gente_promo |= {str(x) for x in _department_user_ids(session_db, "Promoción")}
+        except Exception:
+            app.logger.exception("[bolsas] no se pudo resolver la gente de promoción")
+        return [
+            {"key": "PROMOCION", "user_ids": gente_promo, "access": "promo"},
+            {"key": "PRODUCCION",
+             "user_ids": {str(promotion.production_owner_user_id)},
+             "access": "produccion"},
+        ]
+    return []
+
+
+def _bag_close_state(session_db, bag) -> dict:
+    """Cómo va el cierre de una bolsa: quién ha cerrado su parte, a quién se espera y si ya está.
+
+    Lo usan el panel de la bolsa, el endpoint de cerrar, las tareas del proyecto y los módulos de
+    Inicio, así que todos dicen lo mismo."""
+    partes = _bag_close_required_parts(session_db, bag)
+    firmado = dict(getattr(bag, "close_parts", None) or {})
+    # ⚠️ Esto se lee también desde un CRON o un hilo, donde no hay sesión ni `has_access_key`:
+    # sin sesión no es de nadie (solo se enseña el estado), pero no puede reventar.
+    try:
+        uid = str(session.get("user_id") or "")
+    except Exception:
+        uid = ""
+    filas, mias, otras, faltan = [], [], [], []
+    for parte in partes:
+        clave = parte["key"]
+        etiqueta, icono = BAG_CLOSE_PARTS.get(clave, (clave.title(), "fa-circle"))
+        firma = firmado.get(clave) or {}
+        hecha = bool(firma.get("at"))
+        # ⚠️ «MI parte» es la que tengo ASIGNADA (llevo el proyecto, me pidieron la logística…).
+        # Aparte hay una red de seguridad para que una bolsa no se quede bloqueada porque alguien
+        # esté de vacaciones: quien pueda EDITAR esa sección (o dirección) puede firmarla — pero
+        # solo entra cuando no hay nadie asignado que lo haga, para que el doble cierre siga
+        # significando algo.
+        # ⚠️⚠️ Dirección se decide con el ROL DEL ESTADO, no con `is_master()`: ese lee el rol de la
+        # SESIÓN y sin él cae a 10, así que TODO EL MUNDO podría firmarlo todo (bug real, salió en
+        # la prueba: al sello le tocaban las dos partes).
+        mia = bool(uid and uid in (parte.get("user_ids") or set()))
+        try:
+            puedo = mia or ((_current_user_state() or {}).get("role") == 10) \
+                or has_access_key(parte.get("access") or "", edit=True, include_descendants=True)
+        except Exception:
+            puedo = mia
+        filas.append({
+            "key": clave, "label": etiqueta, "icon": icono, "done": hecha,
+            "at_label": _iso_date_label(firma.get("at")), "by": (firma.get("by_nick") or ""),
+            "can": puedo, "mine": mia, "user_ids": sorted(parte.get("user_ids") or set()),
+        })
+        if not hecha:
+            faltan.append(etiqueta)
+            if mia:
+                mias.append(clave)
+            elif puedo:
+                otras.append(clave)
+    return {
+        "double": bool(partes),
+        "parts": filas,
+        "mine": mias,                 # las que me tocan A MÍ
+        "override": otras,            # las que puedo firmar por permiso (red de seguridad)
+        "can_sign": mias or otras,    # lo que se firmaría al pulsar «Cerrar»
+        "missing_labels": faltan,
+        "ready": bool(partes) and not faltan,
+        "done_count": len([f for f in filas if f["done"]]),
+        "total": len(filas),
+    }
+
+
+def _bag_close_sign(session_db, bag, claves) -> None:
+    """Apunta que estas partes ya han cerrado (quién y cuándo)."""
+    estado = _current_user_state() or {}
+    firmado = dict(getattr(bag, "close_parts", None) or {})
+    for clave in claves:
+        firmado[clave] = {"at": _now_madrid().isoformat(),
+                          "by_user_id": str(estado.get("user_id") or ""),
+                          "by_nick": (estado.get("nick") or "")}
+    bag.close_parts = firmado
+
+
+def _bag_close_notify_missing(session_db, bag, estado) -> None:
+    """Le dice al departamento que FALTA que la bolsa ya solo le espera a él."""
+    pendientes = [p for p in estado.get("parts") or [] if not p["done"]]
+    if not pendientes:
+        return
+    hechas = ", ".join([p["label"] for p in (estado.get("parts") or []) if p["done"]]) or "la otra parte"
+    for parte in pendientes:
+        destinos = [x for x in (parte.get("user_ids") or []) if x]
+        if not destinos:
+            continue
+        try:
+            _notify_users(session_db, destinos, "ADMIN_BOLSA",
+                          "Falta que cierres la bolsa: %s" % (bag.title or "Bolsa"),
+                          "%s ya ha cerrado su parte; la bolsa no pasa a liquidación hasta que "
+                          "cierres la tuya." % hechas,
+                          url_for("bag_detail_view", bag_id=bag.id),
+                          ref_type="BAG", ref_id=str(bag.id))
+        except Exception:
+            app.logger.exception("[bolsas] no se pudo avisar del cierre pendiente")
 
 
 def _bag_liquidation_responsibility(session_db, bag) -> str:
@@ -83342,8 +83572,14 @@ def _bag_panel_context(session_db, bag) -> dict:
     payment_symbols = {str(exp.id): _bag_payment_symbol(exp) for exp in expenses}
     proration_bags = _bag_available_proration_bags(session_db, bag)
     can_close_bag = bool(expenses) and all(_bag_expense_is_consolidated(exp) for exp in expenses) and (bag.status or "").upper() not in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
+    # DOBLE CIERRE: en la bolsa de un proyecto (o de una promoción con producción) cada
+    # departamento cierra LO SUYO, y hasta que están los dos no se manda a administración.
+    bag_close_state = _bag_close_state(session_db, bag)
+    if bag_close_state["double"] and can_close_bag:
+        can_close_bag = bool(bag_close_state["can_sign"]) or bag_close_state["ready"]
     return dict(
         bag=bag,
+        bag_close_state=bag_close_state,
         bag_artists=bag_artists,
         bag_artist_id_strings=[str(a.id) for a in bag_artists],
         invoices=invoices,
@@ -84019,9 +84255,21 @@ def bag_close(bag_id):
         if not bag:
             flash("Bolsa no encontrada.", "warning")
             return redirect(url_for("bags_view"))
+        # ⚠️ DOBLE CIERRE: hay bolsas que trabajan DOS departamentos (un proyecto discográfico con
+        # logística; una promoción con producción) y ninguno la cierra por su cuenta.
+        cierre = _bag_close_state(session_db, bag)
+        if cierre["double"]:
+            if not cierre["can_sign"]:
+                if cierre["ready"]:
+                    pass                    # ya está firmada del todo: sigue y se manda a liquidar
+                else:
+                    flash("Esta bolsa la cierran %s. Falta que cierre %s."
+                          % (" y ".join([p["label"] for p in cierre["parts"]]),
+                             " y ".join(cierre["missing_labels"])), "warning")
+                    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
         # En una bolsa de PROMOCIÓN manda quien la gestiona: producción si la promoción lleva
         # producción y, si no, promoción o la persona que viaja con el artista.
-        if not _promo_bag_can_close(session_db, bag):
+        elif not _promo_bag_can_close(session_db, bag):
             flash("Esta bolsa la cierra quien gestiona la promoción (producción, o promoción y quien acompaña al artista).", "warning")
             return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
         expenses = session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()
@@ -84032,6 +84280,16 @@ def bag_close(bag_id):
         if pending:
             flash("No se puede cerrar: hay gastos sin consolidar.", "warning")
             return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
+        if cierre["double"]:
+            _bag_close_sign(session_db, bag, cierre["can_sign"])
+            cierre = _bag_close_state(session_db, bag)
+            if not cierre["ready"]:
+                # La bolsa NO se cierra todavía: se queda abierta esperando a la otra parte.
+                _bag_close_notify_missing(session_db, bag, cierre)
+                session_db.commit()
+                flash("Tu parte queda cerrada. La bolsa pasará a administración cuando cierre %s."
+                      % " y ".join(cierre["missing_labels"]), "success")
+                return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
         responsabilidad = _bag_liquidation_responsibility(session_db, bag)
         bag.status = "CERRADA"
         bag.closed_at = _now_madrid()
@@ -99688,10 +99946,14 @@ def _notify_users(session_db, user_ids, kind, title, body="", url=None, **kw) ->
 
 
 def _department_user_ids(session_db, *departamentos) -> list[str]:
-    """Quién está en esos DEPARTAMENTOS (sin bloqueados ni eliminados). Para saber a quién avisar."""
+    """Quién está en esos DEPARTAMENTOS (sin bloqueados ni eliminados). Para saber a quién avisar.
+
+    ⚠️⚠️ El departamento se compara con **`_profile_in_department`**, no leyendo `departments` en
+    crudo: la lista puede estar guardada como TEXTO (recorrerla con un `for` devuelve LETRAS) y el
+    nombre lo escribe una persona («Producción musical»), así que la comparación literal dejaba
+    fuera a gente **sin dar ningún error** — esa persona simplemente no recibía el aviso."""
     if not departamentos:
         return []
-    buscados = {str(d).strip().lower() for d in departamentos if str(d or "").strip()}
     fuera = _inactive_user_ids(session_db)
     salida = []
     try:
@@ -99699,10 +99961,10 @@ def _department_user_ids(session_db, *departamentos) -> list[str]:
             uid = str(getattr(prof, "user_id", "") or "")
             if not uid or to_uuid(uid) in fuera:
                 continue
-            deps = {str(d).strip().lower() for d in (getattr(prof, "departments", None) or [])}
-            if deps & buscados:
+            if _profile_in_department(prof, *departamentos):
                 salida.append(uid)
     except Exception:
+        app.logger.exception("[personal] no se pudo resolver el departamento")
         return []
     return salida
 
@@ -114397,6 +114659,63 @@ def _home_disco_logistics(limit: int = 12) -> list[dict]:
         return filas
     except Exception:
         app.logger.exception("[inicio] no se pudo leer la logística pedida")
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_bag_close_pending(limit: int = 12) -> list[dict]:
+    """BOLSAS DE DOBLE CIERRE que están esperando a que cierre ESTA persona (módulo de Inicio).
+
+    Una bolsa de un proyecto discográfico (con logística) o de una promoción (con producción) la
+    cierran DOS departamentos, y hasta que cierran los dos no pasa a administración. Aquí sale lo
+    que solo espera por mí, así que es de la PERSONA y no depende de ningún permiso de sección.
+    ⚠️ Se calcula sobre las bolsas VIVAS (ni cerradas ni archivadas) de proyectos y promociones: son
+    pocas, y el estado lo da el punto único `_bag_close_state`."""
+    yo = str((_current_user_state() or {}).get("user_id") or "")
+    if not yo:
+        return []
+    session_db = db()
+    try:
+        bolsas = (session_db.query(WorkflowBag)
+                  .filter(WorkflowBag.is_archived == False)                       # noqa: E712
+                  .filter(func.upper(func.coalesce(WorkflowBag.status, "ACTIVA")).notin_(
+                      ["CERRADA", "LIQUIDADA", "ARCHIVADA"]))
+                  .filter(func.upper(func.coalesce(WorkflowBag.linked_type, "")).in_(
+                      ["PROJECT", "PROMOTION"]))
+                  .order_by(WorkflowBag.created_at.desc()).limit(200).all())
+        filas = []
+        for bag in bolsas:
+            estado = _bag_close_state(session_db, bag)
+            if not estado["double"] or estado["ready"]:
+                continue
+            mia = [p for p in estado["parts"]
+                   if not p["done"] and yo in (p.get("user_ids") or [])]
+            if not mia:
+                continue
+            artista = None
+            try:
+                artista = session_db.get(Artist, bag.artist_id) if bag.artist_id else None
+            except Exception:
+                artista = None
+            filas.append({
+                "id": str(bag.id),
+                "title": (bag.title or "Bolsa"),
+                "part_label": mia[0]["label"],
+                "artist_name": (getattr(artista, "name", "") or ""),
+                "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                "kind_label": ("Proyecto discográfico"
+                               if (bag.linked_type or "").upper() == "PROJECT" else "Promoción"),
+                "linked_title": (bag.linked_title or ""),
+                "parts": estado["parts"],
+                "waiting": [p["label"] for p in estado["parts"] if not p["done"] and p not in mia],
+                "url": url_for("bag_detail_view", bag_id=bag.id),
+            })
+            if len(filas) >= limit:
+                break
+        return filas
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron leer las bolsas por cerrar")
         return []
     finally:
         session_db.close()

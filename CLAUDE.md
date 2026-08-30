@@ -4102,6 +4102,41 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la actividad calcula la lista **SIEMPRE** (antes solo cuando faltaba responsable, así que al cambiarlo
   desde la rueda no salía nadie) y el modal `#prodOwnerModal` se pinta con solo poder editar.
 
+- ⚠️⚠️ **DOBLE CIERRE DE UNA BOLSA: la cierran DOS departamentos** (ago 2026). Hay bolsas que trabajan
+  dos áreas a la vez y **ninguna la puede dar por terminada por su cuenta**:
+  · la de un **PROYECTO DISCOGRÁFICO**: el **SELLO** (quien lo lleva) y, **si se pidió LOGÍSTICA**,
+    también **PRODUCCIÓN** (la persona a la que se le pidió);
+  · la de una **PROMOCIÓN con producción**: **PROMOCIÓN** (su acompañante y el departamento) y
+    **PRODUCCIÓN** (quien la produce).
+  **Hasta que cierran las dos, la bolsa NO se manda a administración**: se queda abierta y le sigue
+  saliendo como pendiente a quien falte.
+  · Motor: **`WorkflowBag.close_parts`** (JSONB: qué parte cerró quién y cuándo) + `BAG_CLOSE_PARTS`
+  + **`_bag_close_required_parts`** (qué cierres hacen falta y de quién es cada uno) +
+  **`_bag_close_state`** (cómo va: `parts` · `mine` · `override` · `can_sign` · `missing_labels` ·
+  `ready`) + `_bag_close_sign` + `_bag_close_notify_missing`.
+  ⚠️ **Las partes se CALCULAN, no se guardan**: si a un proyecto se le pide la logística después de
+  crear la bolsa, el cierre de producción entra solo (y si se anula, deja de pedirse). Guardarlas
+  sería dejar dos verdades que se pueden desparejar — la regla de `_notify_resolve`.
+  ⚠️ **«Mi parte» es la ASIGNADA** (llevo el proyecto, me pidieron la logística). Aparte hay una red
+  de seguridad (`override`): quien pueda EDITAR esa sección —o dirección— puede firmarla, para que
+  una bolsa no se quede bloqueada porque alguien esté de vacaciones; pero solo entra **cuando no
+  tiene ninguna asignada**, así el doble cierre sigue significando algo.
+  ⚠️⚠️ Dirección se decide con el **ROL DEL ESTADO**, no con `is_master()`: ese lee el rol de la
+  SESIÓN y **sin él cae a 10**, así que en las pruebas TODO EL MUNDO podía firmarlo todo (bug real).
+  ⚠️⚠️ **`bag_close` / `bag_detail_view` se dejan pasar a quien tiene una parte ASIGNADA**
+  (`_bag_close_is_mine_request`, en `_support_endpoint_decision`): a quien lleva el proyecto se le
+  reclama por su NOMBRE y puede no tener el permiso de «Bolsas» — se comía un **403 al cerrar su
+  propia parte** (comprobado). La puerta se abre solo si la parte es suya; el endpoint vuelve a
+  comprobar dentro qué firma.
+  · **Dónde se ve**: la barra `.bag-close` del panel de la bolsa (quién ha cerrado y a quién se
+  espera; el botón pasa a **«Cerrar mi parte»**), la **última tarea del proyecto**
+  (`bolsa_cierre` + una subtarea por parte, en estado `wait` mientras falte alguien — así el
+  proyecto **no se puede cerrar**) y el módulo de Inicio **«Bolsas que solo te esperan a ti»**
+  (`HOME_BAG_CLOSE` ← `_home_bag_close_pending`), que va en el bloque de **lo SUYO** porque se le
+  pide a la persona por su nombre.
+  · Con eso, un proyecto discográfico termina cuando: **se le ha notificado la fecha al artista**
+  (`fecha_aviso`) **+ el sello ha cerrado la bolsa + producción la ha cerrado si hubo logística**.
+
 - ⚠️⚠️ **EL DEPARTAMENTO LO ESCRIBE UNA PERSONA: se compara con TOLERANCIA** (bug real, ago 2026).
   `_normalize_departments` descartaba **en silencio** cualquier valor que no fuera EXACTAMENTE un
   nombre del catálogo o uno de sus alias, así que quien tuviera «Producción musical», «Producción
@@ -4120,6 +4155,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   externo de `_production_people`). Como el arreglo está en el punto único, lo heredan TODOS los sitios
   que preguntan por un departamento (`_profile_in_department`, `_registros_user_ids`,
   `_disco_radio_deciders`, el módulo de tareas de diseño…), no solo producción.
+  ⚠️ **`_department_user_ids` ya NO lee `departments` en crudo**: usa `_profile_in_department`, así
+  que hereda las tres tolerancias. Antes comparaba la cadena literal y quien lo tuviera escrito de
+  otra forma **no recibía el aviso sin dar ningún error** (era el aviso que ya advertía esta guía).
 
 - **PRODUCCIÓN EXTERNA · la lleva un TERCERO, con su propio acceso** (ago 2026). El responsable de
   producción de una actividad puede ser alguien **de fuera**. El selector «¿Quién lleva la

@@ -4,6 +4,26 @@
 {% set bag_next = request.full_path %}
 {% set bag_status_upper = (bag.status or '')|upper %}
 {% set can_edit_bag = bag_status_upper not in ['CERRADA', 'LIQUIDADA', 'ARCHIVADA'] %}
+{# ---------- DOBLE CIERRE: quién ha cerrado su parte y a quién se espera ----------
+   Una bolsa que trabajan dos departamentos (un proyecto discográfico con logística, una promoción
+   con producción) NO pasa a administración hasta que cierran los dos. #}
+{% macro bag_close_bar(st) %}
+  <div class="bag-close mb-3">
+    <span class="bag-close__ttl"><i class="fa fa-lock"></i>Cierre de la bolsa</span>
+    {% for p in st.parts %}
+      <span class="bag-close__part{% if p.done %} is-done{% endif %}"
+            title="{% if p.done %}Cerrado por {{ p.by or '—' }}{% if p.at_label %} · {{ p.at_label }}{% endif %}{% else %}Todavía no ha cerrado{% endif %}">
+        <i class="fa {% if p.done %}fa-circle-check{% else %}fa-hourglass-half{% endif %}"></i>
+        <i class="fa {{ p.icon }}"></i>{{ p.label }}
+      </span>
+    {% endfor %}
+    <span class="bag-close__note">
+      {% if st.ready %}Cerrada por las dos partes: pasa a administración.
+      {% else %}Falta que cierre {{ st.missing_labels|join(' y ') }}.{% endif %}
+    </span>
+  </div>
+{% endmacro %}
+{% macro bag_close_label(st) %}{% if st and st.double and not st.ready %}Cerrar mi parte{% else %}Cerrar bolsa{% endif %}{% endmacro %}
 {# En la ficha el panel se incluye en DOS mitades (bag_hide_expenses / bag_hide_head) para poder
    intercalar los módulos de Ingresos y «Lo que cubre el promotor» entre los datos y los gastos. #}
 {% if not bag_hide_head %}
@@ -25,11 +45,12 @@
   </div>
   {# ---------- Acciones de la bolsa en la ficha ---------- #}
   {% if can_edit_bag %}
+  {% if bag_close_state and bag_close_state.double %}{{ bag_close_bar(bag_close_state) }}{% endif %}
   <div class="d-flex flex-wrap gap-2 mb-3">
     {% if can_close_bag %}
-      <form method="post" action="{{ url_for('bag_close', bag_id=bag.id) }}" onsubmit="return confirm('¿Cerrar esta bolsa? Ya no se podrá editar y pasará a administración para liquidación.');">
+      <form method="post" action="{{ url_for('bag_close', bag_id=bag.id) }}" onsubmit="return confirm({% if bag_close_state and bag_close_state.double and not bag_close_state.ready %}'¿Cerrar tu parte? La bolsa pasará a administración cuando cierre también la otra parte.'{% else %}'¿Cerrar esta bolsa? Ya no se podrá editar y pasará a administración para liquidación.'{% endif %});">
         <input type="hidden" name="next" value="{{ bag_next }}">
-        <button class="btn btn-success btn-sm"><i class="fa fa-lock me-1"></i>Cerrar bolsa</button>
+        <button class="btn btn-success btn-sm"><i class="fa fa-lock me-1"></i>{{ bag_close_label(bag_close_state) }}</button>
       </form>
     {% else %}
       <button class="btn btn-outline-success btn-sm" type="button" disabled title="Para cerrarla no puede haber gastos sin consolidar (todos con factura o justificación)."><i class="fa fa-lock me-1"></i>Cerrar bolsa</button>
@@ -43,12 +64,13 @@
   </div>
   {% endif %}
 {% else %}
+{% if bag_close_state and bag_close_state.double %}{{ bag_close_bar(bag_close_state) }}{% endif %}
 <div class="d-flex justify-content-end align-items-center mb-3 flex-wrap gap-2">
   <div class="d-flex gap-2 flex-wrap">
     {% if can_close_bag %}
-      <form method="post" action="{{ url_for('bag_close', bag_id=bag.id) }}" onsubmit="return confirm('¿Cerrar esta bolsa? Ya no se podrá editar y pasará a administración para liquidación.');">
+      <form method="post" action="{{ url_for('bag_close', bag_id=bag.id) }}" onsubmit="return confirm({% if bag_close_state and bag_close_state.double and not bag_close_state.ready %}'¿Cerrar tu parte? La bolsa pasará a administración cuando cierre también la otra parte.'{% else %}'¿Cerrar esta bolsa? Ya no se podrá editar y pasará a administración para liquidación.'{% endif %});">
         <input type="hidden" name="next" value="{{ bag_next }}">
-        <button class="btn btn-success btn-sm"><i class="fa fa-lock me-1"></i>Cerrar bolsa</button>
+        <button class="btn btn-success btn-sm"><i class="fa fa-lock me-1"></i>{{ bag_close_label(bag_close_state) }}</button>
       </form>
     {% endif %}
     {% if can_edit_bag and bag_providers_pending %}

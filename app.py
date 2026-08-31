@@ -38509,7 +38509,7 @@ def discografica_song_lyrics_pdf(song_id):
         pdf_bytes, filename = _build_song_lyrics_pdf_bytes(session_db, song_id, include_logo=include_logo)
         if not include_logo:
             filename = filename.replace(".pdf", " - Editorial.pdf")
-        return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+        return _pdf_al_vuelo_response(pdf_bytes, filename)
     except LookupError:
         flash("La canción no tiene letra guardada.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
@@ -38555,7 +38555,7 @@ def public_song_lyrics_pdf():
             pdf_bytes, filename = _build_song_lyrics_pdf_bytes(session_db, sid)
         except Exception:
             abort(404)
-    return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    return _pdf_al_vuelo_response(pdf_bytes, filename)
 
 
 # ── PITCH DE LANZAMIENTO ─────────────────────────────────────────────────────
@@ -38600,7 +38600,7 @@ def _pitch_pdf_response(kind, obj_id):
     session_db = db()
     try:
         pdf_bytes, filename = _build_pitch_pdf_bytes(session_db, kind, obj_id)
-        return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+        return _pdf_al_vuelo_response(pdf_bytes, filename)
     except LookupError as e:
         flash(str(e) or "Este lanzamiento todavía no tiene pitch.", "warning")
     except Exception as e:
@@ -38870,7 +38870,7 @@ def public_pitch_pdf(token):
             pdf_bytes, filename = _build_pitch_pdf_bytes(session_db, kind, oid)
         except Exception:
             abort(404)
-    return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    return _pdf_al_vuelo_response(pdf_bytes, filename)
 
 
 # Miniaturas og:image de pitches ya procesadas, por token: {token: (src, bytes)}.
@@ -39215,16 +39215,36 @@ def discografica_album_certification_notify(album_id):
     return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
 
 
+def _pdf_al_vuelo_response(pdf_bytes: bytes, filename: str):
+    """Sirve un PDF recién compuesto (Label Copy, letra, pitch) y PIDE QUE NO SE GUARDE EN CACHÉ.
+
+    ⚠️ La URL de estos documentos es SIEMPRE la misma (el mismo id, el mismo token), así que el
+    navegador —o el visor de PDF del cliente de correo— puede devolver la copia que se bajó la última
+    vez y enseñar un documento con la maqueta ANTIGUA aunque el servidor ya genere la nueva: es justo
+    lo que parece «que algunos botones descargan otra versión». Se componen en el momento, así que no
+    hay nada que cachear."""
+    resp = send_file(BytesIO(pdf_bytes), mimetype="application/pdf",
+                     as_attachment=True, download_name=filename)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @app.get("/discografica/canciones/<song_id>/label-copy/pdf")
 @admin_required
 def discografica_song_label_copy_pdf(song_id):
     # `?editorial=1` = el MISMO LC pero con el detalle del reparto entre el autor y Plataforma
     # Musical (solo se pide desde Editorial).
+    # ⚠️ Ese detalle es interno de editorial: para bajarlo hay que tener esa pestaña (el parámetro
+    # viaja en la URL, así que esconder el botón no basta). Igual que el envío por correo.
     editorial = _truthy(request.args.get("editorial"))
+    if editorial and not has_access_key("discografica.editorial"):
+        return forbid("No tienes acceso al reparto editorial de esta canción.")
     session_db = db()
     try:
         pdf_bytes, filename = _build_song_label_copy_pdf_bytes(session_db, song_id, editorial=editorial)
-        return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+        return _pdf_al_vuelo_response(pdf_bytes, filename)
     except Exception as e:
         flash(f"No se pudo generar el Label Copy: {e}", "danger")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
@@ -39297,7 +39317,7 @@ def public_song_label_copy_pdf():
                 session_db, sid, editorial=bool(payload.get("ed")))
         except Exception:
             abort(404)
-    return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    return _pdf_al_vuelo_response(pdf_bytes, filename)
 
 
 @app.get("/discografica/albumes/<album_id>/label-copy/pdf")
@@ -39306,7 +39326,7 @@ def discografica_album_label_copy_pdf(album_id):
     session_db = db()
     try:
         pdf_bytes, filename = _build_album_label_copy_pdf_bytes(session_db, album_id)
-        return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+        return _pdf_al_vuelo_response(pdf_bytes, filename)
     except Exception as e:
         flash(f"No se pudo generar el Label Copy: {e}", "danger")
         return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
@@ -39375,7 +39395,7 @@ def public_album_label_copy_pdf():
             pdf_bytes, filename = _build_album_label_copy_pdf_bytes(session_db, aid)
         except Exception:
             abort(404)
-    return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    return _pdf_al_vuelo_response(pdf_bytes, filename)
 
 
 @app.post("/discografica/canciones/<song_id>/production-contracts/save")

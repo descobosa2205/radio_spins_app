@@ -2899,8 +2899,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_label_copy_html` que se manda, así que no hay una segunda versión que se pueda desparejar; se
   refresca al escribir la nota y enseña el asunto.
   · **LOS ENLACES DE PLATAFORMA van a la IZQUIERDA**, pegados a la portada y **debajo de los
-  intérpretes**, igual en los cuatro sitios: la ficha (canción y álbum), el PDF, el enlace y el
-  correo. Antes en la ficha estaban arriba a la derecha.
+  intérpretes**, igual en los cinco sitios: la ficha de la CANCIÓN, la ficha del ÁLBUM, el PDF, el
+  enlace y el correo. Antes en las dos fichas estaban arriba a la derecha (`ficha-hero__actions`).
+  · ⚠️⚠️ **UN PDF QUE SE GENERA AL VUELO NO SE CACHEA** (`_pdf_al_vuelo_response`, sep 2026): la URL
+  de un LC es SIEMPRE la misma (el mismo id, el mismo token), así que el navegador —o el visor de PDF
+  del cliente de correo— devolvía **la copia que se bajó la última vez**, con la maqueta ANTIGUA,
+  aunque el servidor ya generara la nueva. Parecía «que algunos botones descargan otra versión».
+  Los seis endpoints de PDF que se componen en el momento (los cuatro del LC, la letra y el pitch)
+  responden con `Cache-Control: no-store`.
+  ⚠️ Comprobado que los cuatro caminos del LC (interno y público, normal y editorial) generan
+  EXACTAMENTE el mismo documento: mismo texto y mismos enlaces; lo único que cambia es el reparto.
+  (El PDF no se puede comparar byte a byte: ReportLab le mete la fecha de creación.)
+  · **El PDF con REPARTO EDITORIAL exige la pestaña Editorial**, igual que el correo: el
+  `?editorial=1` viaja en la URL, así que esconder el botón no basta.
   · **La línea del TOTAL del reparto autoral va en el AZUL corporativo clarito** (fondo `#e8f4f9`,
   texto `#07607e`), no en el naranja de los avisos. ⚠️ En el PDF, el color hay que ponerlo en el
   ESTILO del `Paragraph` (`total_style`): un `TEXTCOLOR` en la celda no gana al color del párrafo.

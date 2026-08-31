@@ -16,14 +16,9 @@
       {% if album.release_date %}<span><i class="fa fa-calendar-day"></i>{{ album.release_date.strftime('%d/%m/%Y') }}</span>{% else %}<span><i class="fa fa-calendar-day"></i>Sin fecha</span>{% endif %}
       <span><i class="fa fa-music"></i>{{ track_rows|length }} canciones</span>
     </div>
-    <div class="mt-2 d-flex flex-wrap gap-1">
-      <span class="badge {{ ownership_badge_class }}">{{ ownership_label }}</span>
-      {% if physical_labels and (physical_labels|length) > 0 %}{% for lbl in physical_labels %}<span class="badge text-bg-light border">{{ lbl }}</span>{% endfor %}{% else %}<span class="badge text-bg-light border">No hay físico</span>{% endif %}
-      {% if days_remaining is not none %}<span class="badge text-bg-warning text-dark">Sale en {{ days_remaining }} día{% if days_remaining != 1 %}s{% endif %}</span>{% endif %}
-    </div>
-  </div>
-  <div class="ficha-hero__actions">
-    <div class="d-flex align-items-center gap-2 flex-wrap">
+    {# ⚠️ LAS PLATAFORMAS VAN AQUÍ: a la izquierda, pegadas a la portada y debajo de los datos —
+       igual que en la ficha de la canción, en el PDF, en el enlace público y en el correo. #}
+    <div class="song-platforms mt-2">
       {% for pkey, purl, plabel in [
         ('spotify', album.spotify_url, 'Spotify'),
         ('apple_music', album.apple_music_url, 'Apple Music'),
@@ -37,6 +32,11 @@
           <a class="song-platform {% if purl %}active{% else %}disabled{% endif %}" data-platform="{{ pkey }}" data-platform-label="{{ plabel }}" title="{{ plabel }}{% if not purl %} · añadir enlace{% endif %}" {% if purl %}href="{{ purl }}" target="_blank" rel="noopener" style="color:#{{ pm.color or '111827' }};"{% else %}href="#"{% endif %}><i class="fa-brands fa-{{ pm.icon or 'music' }}"></i></a>
         {% endif %}
       {% endfor %}
+    </div>
+    <div class="mt-2 d-flex flex-wrap gap-1">
+      <span class="badge {{ ownership_badge_class }}">{{ ownership_label }}</span>
+      {% if physical_labels and (physical_labels|length) > 0 %}{% for lbl in physical_labels %}<span class="badge text-bg-light border">{{ lbl }}</span>{% endfor %}{% else %}<span class="badge text-bg-light border">No hay físico</span>{% endif %}
+      {% if days_remaining is not none %}<span class="badge text-bg-warning text-dark">Sale en {{ days_remaining }} día{% if days_remaining != 1 %}s{% endif %}</span>{% endif %}
     </div>
   </div>
 </div>

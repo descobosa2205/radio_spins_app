@@ -1944,6 +1944,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ El resumen del listado sale de **UNA** consulta para todas las demos (con 400 filas, una por demo
   sería inaceptable) y `public_demo_rating` está en las **tres** listas de endpoints públicos.
 
+- **DEMOS · los artistas, en GALLETAS** (ago 2026): la agrupación por artista de la sección Demos
+  usa **la misma rejilla de tarjetas que «Actividades» y «Conciertos»** (foto redonda de 84 px,
+  nombre y la etiqueta con cuántas maquetas tiene), no la lista de una línea que tenía. Así la
+  agrupación por artista se lee igual en toda la app.
+  ⚠️ **«Sin artista» sigue con su ICONO**, no con una foto ni con el logo de la casa: no es un
+  artista. Y solo sale si de verdad hay maquetas sin artista.
+  ⚠️ La sección **Proyectos** conserva su lista (`.demo-group`), que es de donde salió este estilo:
+  se cambió solo Demos, que es lo que se pidió.
+
 - **DEMOS · cómo se lee una maqueta en el listado** (ago 2026, rediseño): la **PORTADA a la izquierda
   del todo** (`SongDemo.cover_url`; sin portada, la imagen de «sin portada» del repertorio) y a su
   derecha **DOS líneas cuadradas con el alto de la portada** (`.demo-row`, `.demo-row__body` con

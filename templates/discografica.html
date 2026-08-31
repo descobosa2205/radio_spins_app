@@ -1158,18 +1158,31 @@
 
   {% if not d.subject %}
     {# ---------- Los artistas con maquetas («Sin artista» primero) ---------- #}
+    {# ⚠️ En GALLETAS, la misma rejilla que la de artistas de «Actividades» y «Conciertos»: la
+       agrupación por artista se lee igual en toda la app. #}
     {% if d.groups %}
-      <div class="demo-groups">
+      <div class="row g-3">
         {% for g in d.groups %}
-          <a class="demo-group" href="{{ url_for('discografica_view', section='demos', demo_artist=g.id) }}">
-            {% if g.photo %}
-              <img src="{{ g.photo }}" alt="" data-avatar="1">
-            {% else %}
-              <span class="demo-group__ava demo-group__ava--icon"><i class="fa {{ g.icon or 'fa-user' }}"></i></span>
-            {% endif %}
-            <span class="demo-group__name">{{ g.name }}</span>
-            <span class="badge text-bg-light border">{{ g.count }}</span>
-          </a>
+          <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+            <a href="{{ url_for('discografica_view', section='demos', demo_artist=g.id) }}"
+               class="card h-100 text-decoration-none text-reset text-center">
+              <div class="card-body">
+                {% if g.photo %}
+                  <img src="{{ g.photo }}" alt="" data-avatar="1"
+                       style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+                {% else %}
+                  {# «Sin artista» no es un artista: va con ICONO, no con foto (ni con el logo). #}
+                  <span class="demo-group__ava demo-group__ava--icon"
+                        style="width:84px;height:84px;margin:0 auto .5rem;font-size:1.6rem;">
+                    <i class="fa {{ g.icon or 'fa-user' }}"></i></span>
+                {% endif %}
+                <div class="fw-semibold text-truncate">{{ g.name }}</div>
+                <div class="small text-muted">
+                  <span class="badge text-bg-light border"><i class="fa fa-compact-disc me-1"></i>{{ g.count }} maqueta{{ '' if g.count == 1 else 's' }}</span>
+                </div>
+              </div>
+            </a>
+          </div>
         {% endfor %}
       </div>
     {% else %}

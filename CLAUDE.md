@@ -1946,7 +1946,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 
 - **DEMOS · los artistas, en GALLETAS** (ago 2026): la agrupación por artista de la sección Demos
   usa **la misma rejilla de tarjetas que «Actividades» y «Conciertos»** (foto redonda de 84 px,
-  nombre y la etiqueta con cuántas maquetas tiene), no la lista de una línea que tenía. Así la
+  nombre y la etiqueta con cuántas **demos** tiene —así se llaman aquí, no «maquetas»), no la
+  lista de una línea que tenía. Así la
   agrupación por artista se lee igual en toda la app.
   ⚠️ **«Sin artista» sigue con su ICONO**, no con una foto ni con el logo de la casa: no es un
   artista. Y solo sale si de verdad hay maquetas sin artista.

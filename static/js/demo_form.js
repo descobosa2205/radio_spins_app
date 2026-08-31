@@ -29,6 +29,31 @@
       .catch(function () { return {}; });
   }
 
+  /* ⚠️ Las listas de sugerencias van FUERA de su bocadillo: `.demo-card` lleva `overflow:hidden` (por
+     su border-radius) y el cuerpo del modal tiene scroll, así que dentro se veían RECORTADAS. El
+     punto único es `app33FloatList` (typeahead.js); si no estuviera cargado, no se hace nada y la
+     lista se queda donde estaba. */
+  function flota(input, lista) {
+    try {
+      if (!window.app33FloatList) return;
+      // ⚠️ Al sacarla del formulario deja de ser descendiente de su fila, así que la fila (y el campo)
+      // se guardan EN la lista: es de donde los leen los clics, que ya no pueden usar `closest`.
+      lista.__input = input;
+      lista.__fila = input.closest('[data-demo-author]') || null;
+      if (lista.__fila) lista.__fila.__lista = lista;
+      window.app33FloatList.attach(lista);
+      window.app33FloatList.place(input, lista);
+      if (!lista.__sigue) {
+        lista.__sigue = function () {
+          if (lista.classList.contains('d-none')) return;
+          window.app33FloatList.place(lista.__input, lista);
+        };
+        window.addEventListener('scroll', lista.__sigue, true);
+        window.addEventListener('resize', lista.__sigue);
+      }
+    } catch (e) {}
+  }
+
   /* ---------- La HUELLA del archivo (sha256) ---------- */
   function huella(file) {
     if (!window.crypto || !crypto.subtle || !file) return Promise.resolve('');
@@ -174,11 +199,14 @@
               }
               listaQuien.innerHTML = html;
               listaQuien.classList.remove('d-none');
+              flota(campoQuien, listaQuien);
             }).catch(function () { listaQuien.classList.add('d-none'); });
         }, 220);
       });
 
-      zonaQuien.addEventListener('click', function (ev) {
+      // ⚠️ La lista de resultados vive en el `<body>` (ver `flota`), así que el clic NO llega
+      // por la zona: se escucha en las DOS.
+      function clicQuien(ev) {
         var op = ev.target.closest('[data-demo-sender-pick]');
         if (op) {
           campoQuien.value = op.getAttribute('data-name') || '';
@@ -213,7 +241,9 @@
               }
             });
         }
-      });
+      }
+      zonaQuien.addEventListener('click', clicQuien);
+      listaQuien.addEventListener('click', clicQuien);
     }
 
     /* ---------- AUTORES ---------- */
@@ -234,20 +264,31 @@
         var f = nuevaFila();
         if (f) { var i = f.querySelector('[data-demo-author-name]'); if (i) i.focus(); }
       });
-      zonaAut.addEventListener('click', function (ev) {
+      // ⚠️ Igual que arriba: las listas cuelgan del `<body>`, así que su clic se escucha aparte
+      // (`clicAutor` se engancha a cada lista al abrirla) y la fila se lee de la propia lista.
+      function clicAutor(ev) {
         var del = ev.target.closest('[data-demo-author-del]');
-        if (del) { var fila = del.closest('[data-demo-author]'); if (fila) fila.remove(); return; }
+        if (del) {
+          var fila = del.closest('[data-demo-author]');
+          // La lista flotante ya no cuelga de la fila: hay que tirarla a mano o se queda
+          // colgando del `<body>` para siempre.
+          if (fila) { if (fila.__lista) fila.__lista.remove(); fila.remove(); }
+          return;
+        }
         var op = ev.target.closest('[data-demo-author-pick]');
         if (op) {
-          var fila2 = op.closest('[data-demo-author]');
+          var caja = op.closest('[data-demo-author-list]');
+          var fila2 = op.closest('[data-demo-author]') || (caja && caja.__fila);
+          if (!fila2) return;
           fila2.querySelector('[data-demo-author-name]').value = op.getAttribute('data-name') || '';
           fila2.querySelector('[data-demo-author-hidden]').value = op.getAttribute('data-name') || '';
           fila2.querySelector('[data-demo-author-id]').value = op.getAttribute('data-id') || '';
           var pub = fila2.querySelector('input[name="author_publisher_name[]"]');
           if (pub && !pub.value) pub.value = op.getAttribute('data-publisher') || '';
-          fila2.querySelector('[data-demo-author-list]').classList.add('d-none');
+          (caja || fila2.querySelector('[data-demo-author-list]')).classList.add('d-none');
         }
-      });
+      }
+      zonaAut.addEventListener('click', clicAutor);
       var temporizador = null;
       zonaAut.addEventListener('input', function (ev) {
         var campo = ev.target.closest('[data-demo-author-name]');
@@ -256,7 +297,10 @@
         // Lo escrito vale como nombre aunque no sea un tercero de la base.
         fila.querySelector('[data-demo-author-hidden]').value = campo.value;
         fila.querySelector('[data-demo-author-id]').value = '';
-        var lista = fila.querySelector('[data-demo-author-list]');
+        // ⚠️ Si ya se abrió una vez, la lista NO cuelga de la fila (vive en el `<body>`, ver
+        // `flota`): hay que cogerla de la fila, que se la guarda.
+        var lista = fila.querySelector('[data-demo-author-list]') || fila.__lista;
+        if (!lista) return;
         var q = campo.value.trim();
         if (!urlBusca || q.length < 2) { lista.classList.add('d-none'); return; }
         clearTimeout(temporizador);
@@ -278,6 +322,8 @@
                   + '<span>' + esc(nombre) + '</span></button>';
               }).join('');
               lista.classList.remove('d-none');
+              flota(campo, lista);
+              if (!lista.__clic) { lista.__clic = true; lista.addEventListener('click', clicAutor); }
             }).catch(function () { lista.classList.add('d-none'); });
         }, 220);
       });

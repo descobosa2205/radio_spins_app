@@ -4579,6 +4579,98 @@ def _billing_year_by_company(session_db, year: int) -> list[dict]:
     return out
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# INICIO DE CONTRATACIÓN · lo que está por cobrar y lo que se lleva facturado
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+HOME_COLLECT_DAYS = 14          # solo lo que vence en las dos próximas semanas
+
+
+def _home_billing_pending(session_db, *, dias: int = HOME_COLLECT_DAYS, todos: bool = False) -> dict:
+    """FACTURAS PENDIENTES DE COBRAR (solo las del CACHÉ), agrupadas por EMPRESA del grupo.
+
+    ⚠️ Se enseña lo que VENCE PRONTO (dos semanas) para que el módulo sea una lista de trabajo y no
+    un archivo; con «Ver más» se ven todas. El total es SIEMPRE el de lo que se está viendo, y cada
+    pago dice con su icono si la factura ya está subida."""
+    hoy = today_local()
+    tope = hoy + timedelta(days=int(dias or 0))
+    empresas: dict = {}
+    total = 0.0
+    ocultas = 0
+    try:
+        concerts = (session_db.query(Concert)
+                    .options(joinedload(Concert.billing_company), joinedload(Concert.artist))
+                    .filter(Concert.payment_terms_json.isnot(None))
+                    .all())
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron leer los pagos pendientes")
+        return {"companies": [], "total": 0.0, "total_label": format_eur(0), "hidden": 0, "days": dias}
+    for c in concerts:
+        company = getattr(c, "billing_company", None) or getattr(c, "group_company", None)
+        for row in _concert_payment_rows(c, pending_only=True):
+            # Lo que está por COBRAR: falta la factura o falta el cobro.
+            if row["status"] not in ("PENDING_INVOICE", "PENDING_COLLECTION"):
+                continue
+            vence = row.get("due_date")
+            if isinstance(vence, str):
+                try:
+                    vence = date.fromisoformat(vence[:10])
+                except Exception:
+                    vence = None
+            if not todos and vence and vence > tope:
+                ocultas += 1
+                continue
+            clave = str(getattr(company, "id", "") or "sin")
+            slot = empresas.setdefault(clave, {
+                "id": clave,
+                "name": (getattr(company, "name", None) or "Sin empresa"),
+                "logo_url": (getattr(company, "logo_url", None) or ""),
+                "rows": [], "total": 0.0,
+            })
+            slot["rows"].append({
+                "concert_id": str(c.id),
+                "title": (_concert_title_for_notice(c) or "Actividad"),
+                "artist": (getattr(getattr(c, "artist", None), "name", None) or ""),
+                "concept": row["concept"],
+                "amount": row["amount"],
+                "amount_label": format_eur(row["amount"]),
+                "due": vence,
+                "due_label": (vence.strftime("%d/%m/%Y") if vence else "Sin fecha"),
+                "days_left": ((vence - hoy).days if vence else None),
+                "has_invoice": bool(row.get("has_invoice")),
+                "url": url_for("concert_detail_view", cid=c.id, tab="general") + "#plan-facturacion",
+            })
+            slot["total"] += float(row["amount"] or 0)
+            total += float(row["amount"] or 0)
+    filas = sorted(empresas.values(), key=lambda x: -x["total"])
+    for f in filas:
+        f["total_label"] = format_eur(f["total"])
+        f["rows"].sort(key=lambda r: (r["due"] or date.max))
+    return {"companies": filas, "total": total, "total_label": format_eur(total),
+            "hidden": ocultas, "days": dias, "showing_all": bool(todos)}
+
+
+def _home_billing_year(session_db, year: int | None = None) -> dict:
+    """FACTURADO EN EL AÑO por empresa del grupo, de la que más factura a la que menos.
+
+    Es el mismo dato que ya enseña Facturación (`_billing_year_by_company`), aquí en una fila por
+    empresa para poder mirarlo de un vistazo y moverse por años con las flechas."""
+    anio = int(year or today_local().year)
+    try:
+        filas = _billing_year_by_company(session_db, anio)
+    except Exception:
+        app.logger.exception("[inicio] no se pudo leer lo facturado del año")
+        filas = []
+    total = sum(float(f.get("invoiced") or 0) for f in filas)
+    maximo = max([float(f.get("invoiced") or 0) for f in filas] or [0]) or 1
+    for f in filas:
+        f["invoiced_label"] = format_eur(f.get("invoiced") or 0)
+        f["collected_label"] = format_eur(f.get("collected") or 0)
+        # Barra proporcional: se lee de un vistazo quién factura más.
+        f["pct"] = round(float(f.get("invoiced") or 0) * 100.0 / maximo, 1)
+    return {"year": anio, "rows": filas, "total": total, "total_label": format_eur(total),
+            "prev": anio - 1, "next": anio + 1}
+
+
 def _concert_billing_sort_key(concert: Concert | None, today: date | None = None):
     today = today or today_local()
     if not concert or not getattr(concert, 'date', None):
@@ -72737,6 +72829,20 @@ def inject_personnel_globals():
     _mypet = _home_my_peticiones() if _home and "_home_my_peticiones" in globals() else []
     _myinv = _home_invitation_requests_for_current_user() if _home and "_home_invitation_requests_for_current_user" in globals() else []
     _plans = _home_plans_awaiting_direccion() if _dir and "_home_plans_awaiting_direccion" in globals() else []
+    # LO QUE ESTÁ POR COBRAR y LO FACTURADO EN EL AÑO: los ven CONTRATACIÓN y DIRECCIÓN, y solo en
+    # Inicio (recorren los planes de pago de todas las actividades).
+    _home_billing_ok = bool(_home and (_dir or has_access_key("contratacion", include_descendants=True)))
+    _billing_pending = None
+    _billing_year = None
+    if _home_billing_ok:
+        _sb = db()
+        try:
+            _billing_pending = _home_billing_pending(_sb, todos=(request.args.get("cobros") == "todos"))
+            _billing_year = _home_billing_year(_sb, year=_safe_int(request.args.get("factanio")) or None)
+        except Exception:
+            app.logger.exception("[inicio] no se pudieron montar los módulos de facturación")
+        finally:
+            _sb.close()
     return {
         "CURRENT_USER": current_user,
         "NAV_MENU": _build_nav_menu() if session.get("user_id") else [],
@@ -72870,6 +72976,9 @@ def inject_personnel_globals():
         "HOME_CONTRATACION_TASKS": (_home_contracting_tasks()
                                     if _dept and has_access_key("contratacion", include_descendants=True)
                                     else []),
+        # LO QUE ESTÁ POR COBRAR y LO QUE SE LLEVA FACTURADO en el año (contratación y dirección).
+        "HOME_BILLING_PENDING": _billing_pending,
+        "HOME_BILLING_YEAR": _billing_year,
         "HOME_CONTRATACION_ONLY": (_home_contratacion_only()
                                    if request.endpoint == "home" and session.get("user_id")
                                    else False),

@@ -1,0 +1,85 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   INICIO DE CONTRATACIÓN · dos módulos de dinero, visuales y directos.
+   1) FACTURAS PENDIENTES DE COBRAR (solo las del caché), por EMPRESA, con su total. Se enseña lo
+      que vence en las dos próximas semanas —para que sea trabajo y no un archivo— y con «Ver más»
+      se ven todas; el total es SIEMPRE el de lo que se está viendo. El icono dice si la factura ya
+      está subida.
+   2) FACTURADO EN EL AÑO por empresa, de la que más a la que menos, con flechas para cambiar de año.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+
+{% if HOME_BILLING_PENDING and HOME_BILLING_PENDING.companies %}
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
+      <h6 class="m-0"><i class="fa fa-file-invoice-dollar text-danger me-2"></i>Pendiente de cobrar</h6>
+      <div class="d-flex align-items-center gap-2">
+        <span class="hb-total">{{ HOME_BILLING_PENDING.total_label }}</span>
+        {% if HOME_BILLING_PENDING.showing_all %}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('home') }}">Solo lo próximo</a>
+        {% elif HOME_BILLING_PENDING.hidden %}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('home', cobros='todos') }}">
+            Ver más <span class="badge text-bg-light border ms-1">{{ HOME_BILLING_PENDING.hidden }}</span></a>
+        {% endif %}
+      </div>
+    </div>
+    {% if not HOME_BILLING_PENDING.showing_all %}
+      <div class="small text-muted mb-2">Lo que vence en los próximos {{ HOME_BILLING_PENDING.days }} días y lo que ya está vencido.</div>
+    {% endif %}
+
+    {% for co in HOME_BILLING_PENDING.companies %}
+      <div class="hb-co">
+        <div class="hb-co__head">
+          {{ company_logo(name=co.name, logo_url=co.logo_url, size=30, cls='hb-co__logo') }}
+          <span class="hb-co__name">{{ co.name }}</span>
+          <span class="hb-co__total">{{ co.total_label }}</span>
+        </div>
+        {% for r in co.rows %}
+          <a class="hb-row" href="{{ r.url }}">
+            <span class="hb-row__inv" title="{{ 'Factura subida' if r.has_invoice else 'Todavía sin factura' }}">
+              <i class="fa {{ 'fa-file-circle-check' if r.has_invoice else 'fa-file-circle-plus' }}"></i>
+            </span>
+            <span class="hb-row__main">
+              <span class="hb-row__t">{{ r.title }}{% if r.artist %} <span class="text-muted">· {{ r.artist }}</span>{% endif %}</span>
+              <span class="hb-row__s">{{ r.concept }} ·
+                {% if r.days_left is not none and r.days_left < 0 %}<span class="text-danger fw-semibold">venció el {{ r.due_label }}</span>
+                {% else %}vence {{ r.due_label }}{% endif %}</span>
+            </span>
+            <span class="hb-row__amt">{{ r.amount_label }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if HOME_BILLING_YEAR %}
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
+      <h6 class="m-0"><i class="fa fa-chart-simple text-danger me-2"></i>Facturado en {{ HOME_BILLING_YEAR.year }}</h6>
+      <div class="d-flex align-items-center gap-2">
+        <span class="hb-total">{{ HOME_BILLING_YEAR.total_label }}</span>
+        <div class="btn-group btn-group-sm">
+          <a class="btn btn-outline-secondary" href="{{ url_for('home', factanio=HOME_BILLING_YEAR.prev) }}"
+             title="{{ HOME_BILLING_YEAR.prev }}"><i class="fa fa-chevron-left"></i></a>
+          <a class="btn btn-outline-secondary" href="{{ url_for('home', factanio=HOME_BILLING_YEAR.next) }}"
+             title="{{ HOME_BILLING_YEAR.next }}"><i class="fa fa-chevron-right"></i></a>
+        </div>
+      </div>
+    </div>
+    {% if HOME_BILLING_YEAR.rows %}
+      {% for f in HOME_BILLING_YEAR.rows %}
+        <div class="hb-year">
+          {{ company_logo(name=f.name, logo_url=f.logo_url, size=30, cls='hb-co__logo') }}
+          <span class="hb-year__name">{{ f.name }}</span>
+          <span class="hb-year__bar"><span style="width: {{ f.pct }}%;"></span></span>
+          <span class="hb-year__amt">{{ f.invoiced_label }}</span>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-muted small">Ninguna empresa ha facturado en {{ HOME_BILLING_YEAR.year }}.</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

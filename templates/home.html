@@ -107,6 +107,11 @@ document.addEventListener('click', function (ev) {
    acciones rápidas. Solo si hay contexto (wizard_available). #}
 {% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 
+{# EL DINERO DE CONTRATACIÓN: lo que está por cobrar y lo facturado en el año.
+   ⚠️ VA FUERA de las compuertas de departamento: lo ven contratación Y dirección, y los
+   módulos ya se calculan solo para ellos (si no, a dirección no le salían). #}
+{% include '_home_billing.html' %}
+
 {# ⚠️ DIRECCIÓN no trabaja dentro de una sección: MIRA. Su Inicio son sus cosas básicas (avisos,
    calendario, sus gastos, sus vacaciones… cada una en su sitio de siempre) más DOS módulos propios:
    «Mis tareas pendientes» —lo que le afecta a ella y lo que es de dirección, en un mismo sitio— y,

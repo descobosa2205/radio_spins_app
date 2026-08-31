@@ -322,21 +322,6 @@ def _content_type_for_upload(file_storage, suffix: str) -> str:
     return "application/octet-stream"
 
 
-def upload_png(file_storage, folder: str) -> str | None:
-    """Sube un PNG (si viene) y devuelve URL pública."""
-    if not file_storage or not getattr(file_storage, "filename", ""):
-        return None
-
-    fname = (file_storage.filename or "").lower()
-    if not fname.endswith(".png"):
-        raise ValueError("Solo se permiten imágenes PNG.")
-
-    key = f"{folder}/{uuid4().hex}.png"
-    data = file_storage.read()
-    file_storage.stream.seek(0)
-    return _upload_bytes(data, key, "image/png")
-
-
 def upload_image(file_storage, folder: str) -> str | None:
     """Sube una imagen (formatos comunes) y devuelve URL pública.
 
@@ -361,6 +346,9 @@ def upload_image(file_storage, folder: str) -> str | None:
         ".webp": "image/webp",
         ".gif": "image/gif",
         ".svg": "image/svg+xml",
+        # Las fotos del iPhone son HEIC y NINGÚN navegador las pinta: se convierten a JPEG al subir.
+        ".heic": "image/heic",
+        ".heif": "image/heic",
     }
 
     ext = None
@@ -370,7 +358,7 @@ def upload_image(file_storage, folder: str) -> str | None:
             break
 
     if not ext:
-        raise ValueError("Formato de imagen no permitido. Sube PNG/JPG/WEBP/GIF/SVG.")
+        raise ValueError("Formato de imagen no permitido. Sube PNG, JPG, WEBP, GIF o SVG.")
 
     content_type = ext_map[ext]
     # Si werkzeug nos pasa un mimetype de imagen, lo respetamos.
@@ -378,10 +366,40 @@ def upload_image(file_storage, folder: str) -> str | None:
     if mt.startswith("image/"):
         content_type = mt
 
-    key = f"{folder}/{uuid4().hex}{ext}"
     data = file_storage.read()
     file_storage.stream.seek(0)
+
+    if ext in (".heic", ".heif"):
+        # ⚠️ Se convierte AQUÍ, no en cada pantalla: una HEIC subida tal cual se guarda bien y luego
+        # no se ve en ningún sitio (ni en la app, ni en un correo, ni en la previsualización de un
+        # enlace). Si no se pudiera convertir, mejor decirlo que guardar algo que no se va a ver.
+        data, ext, content_type = _heic_to_jpeg(data)
+
+    key = f"{folder}/{uuid4().hex}{ext}"
     return _upload_bytes(data, key, content_type)
+
+
+def _heic_to_jpeg(data: bytes) -> tuple[bytes, str, str]:
+    """Una foto HEIC del iPhone → JPEG. Devuelve `(bytes, extensión, content-type)`."""
+    try:
+        import io
+
+        from PIL import Image
+        try:                                   # el lector de HEIC/HEIF, si está instalado
+            import pillow_heif  # type: ignore
+            pillow_heif.register_heif_opener()
+        except Exception:
+            pass
+        img = Image.open(io.BytesIO(data))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=88, optimize=True)
+        return buf.getvalue(), ".jpg", "image/jpeg"
+    except Exception as exc:
+        raise ValueError(
+            "No se ha podido leer esa foto HEIC del iPhone. Guárdala como JPG y vuelve a subirla."
+        ) from exc
 
 
 def upload_file(file_storage, folder: str, allowed_extensions: set[str] | None = None) -> str | None:

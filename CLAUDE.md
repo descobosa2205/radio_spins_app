@@ -271,6 +271,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Bootstrap). ⚠️ Al emitir el id desde Jinja hace falta **`|safe`**: sin él escapa las comillas
   (`&#39;`) y la llamada deja de ser JS válido (bug real). «+ Actividad» abre el asistente **in situ**
   en la propia home (`_concert_wizard_modal.html` se incluye siempre que haya `wizard_available`).
+- ⚠️⚠️ **UNA FOTO O UN LOGO SE SUBEN CON `upload_image`, NUNCA CON «solo PNG»** (ago 2026).
+  `upload_png` **se ha retirado**: su única gracia era RECHAZAR un JPG, y lo usaban las fotos de
+  ARTISTA y los logos de emisoras, ticketeras, empresas del grupo y medios — o sea, justo donde la
+  gente sube una foto normal. Todos pasan a **`upload_image`**, que admite **PNG · JPG/JPEG · WEBP ·
+  GIF · SVG**.
+  · **Y las HEIC del iPhone** (que es lo que sale de la cámara y **ningún navegador pinta**): se
+  aceptan y se **convierten a JPEG al subir** (`_heic_to_jpeg` en `supabase_utils.py`, con
+  `pillow_heif`, que ya estaba en `requirements.txt`). ⚠️ La conversión va **en el helper**, no en
+  cada pantalla: una HEIC subida tal cual se guarda bien y luego no se ve en ningún sitio (ni en la
+  app, ni en un correo, ni en la previsualización de un enlace). Si no se puede convertir, **se
+  dice** en vez de guardar algo que no se va a ver.
+  ⚠️ El **`accept`** del `<input type="file">` y la ETIQUETA del campo tienen que decir lo mismo que
+  el servidor: se quedaron 10 campos con `accept="image/png"` y rótulos «Foto (PNG)» / «Logotipo
+  PNG» que hacían que el navegador ni dejara elegir el JPG.
+
+- ⚠️ **`artists.name` es UNIQUE: un nombre repetido se dice, no se suelta el error de Postgres**
+  (ago 2026). Crear un artista que ya existía devolvía en pantalla el `UniqueViolation` en crudo
+  («duplicate key value violates unique constraint…»), que no se entiende. Ahora el alta comprueba
+  antes con el punto único **`_artist_by_name`** —que compara **sin acentos ni mayúsculas**
+  (`_norm_text_key`), porque «India Martinez» e «India Martínez» chocan igual contra el índice— y
+  avisa con **el enlace a su ficha**.
+  ⚠️ El aviso explica además por qué no se veía en la lista: **`/artistas` solo enseña por defecto
+  los que tienen ACTIVIDAD** (`_active_artist_ids`), así que un artista antiguo está pero no sale
+  hasta pulsar «Ver todos» — que es justo lo que lleva a intentar crearlo otra vez. El redirect va
+  ya con `show_inactive=1`.
+  ⚠️ Se conserva un `except IntegrityError` como red de seguridad (dos personas creándolo a la vez),
+  y el alta ya no acepta un nombre vacío.
+
 - **Select2 con logos**: `initSelect2()` (scripts.js) pinta la imagen de cada opción desde
   `data-photo`/`data-logo`. El `<select>` debe llevar una clase: `select-providers` (terceros),
   `select-venues` (recintos), `select-with-thumbs` (ticketeras/editoriales, miniatura cuadrada),

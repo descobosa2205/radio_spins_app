@@ -45,6 +45,9 @@ from flask import (
 )
 from sqlalchemy import func, text, or_, and_, case, bindparam, event as sa_event
 from sqlalchemy import inspect as sa_inspect
+# ⚠️ Un UNIQUE que salta (un artista con un nombre que ya existe) tiene que dar un aviso que
+# se entienda, no el error en crudo de Postgres.
+from sqlalchemy.exc import IntegrityError as _IntegrityError
 
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -372,7 +375,7 @@ from sepa_utils import (
     bic_is_valid as sepa_bic_is_valid,
     BANK_PROFILES as SEPA_BANK_PROFILES,
 )
-from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes, StorageObjectTooLargeError, create_signed_upload_url_for, public_url_for_key
+from supabase_utils import upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes, StorageObjectTooLargeError, create_signed_upload_url_for, public_url_for_key
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 app = Flask(__name__)
@@ -1782,6 +1785,30 @@ def _active_artist_ids(session_db) -> set:
     return ids
 
 
+def _artist_by_name(session_db, name: str):
+    """El artista que ya se llama así, o None. `artists.name` es UNIQUE.
+
+    ⚠️ Se compara **sin distinguir mayúsculas ni acentos** (`_norm_text_key`): «India Martinez» e
+    «India Martínez» son el mismo artista, y crear el segundo reventaría igual contra el índice.
+    ⚠️ Los espejos de EVENTO también cuentan: comparten la tabla y el índice único."""
+    limpio = (name or "").strip()
+    if not limpio:
+        return None
+    try:
+        fila = session_db.query(Artist).filter(func.lower(Artist.name) == limpio.lower()).first()
+        if fila is not None:
+            return fila
+        clave = _norm_text_key(limpio)
+        if not clave:
+            return None
+        for a in session_db.query(Artist).all():
+            if _norm_text_key(a.name or "") == clave:
+                return a
+    except Exception:
+        app.logger.exception("[artistas] no se pudo comprobar el nombre")
+    return None
+
+
 @app.route("/artistas", methods=["GET", "POST"])
 @admin_required
 def artists_view():
@@ -1804,7 +1831,23 @@ def artists_view():
         name = request.form.get("name", "").strip()
         photo = request.files.get("photo")
         try:
-            photo_url = upload_png(photo, "artists") if photo else None
+            if not name:
+                flash("Ponle nombre al artista.", "warning")
+                return redirect(url_for("artists_view"))
+            # ⚠️ `artists.name` es UNIQUE: si ya existe, se dice CUÁL es y se lleva a su ficha, en vez
+            # de soltar el error en crudo de la base de datos (que además no se entiende).
+            ya = _artist_by_name(session_db, name)
+            if ya is not None:
+                flash(Markup(
+                    'Ya existe un artista que se llama «%s». '
+                    '<a class="alert-link" href="%s">Abrir su ficha</a>. '
+                    'Si no lo veías en la lista es porque por defecto solo se muestran los que '
+                    'tienen actividad: con «Ver todos» aparecen también los demás.'
+                    % (escape(ya.name or name),
+                       escape(url_for("artist_detail_view", artist_id=ya.id)))), "warning")
+                return redirect(url_for("artists_view", show_inactive=1))
+            # La foto admite PNG, JPG, WEBP, GIF y SVG (y las HEIC del iPhone, que se convierten).
+            photo_url = upload_image(photo, "artists") if photo else None
             artist = Artist(
                 name=name, photo_url=photo_url,  # id lo genera la BD
                 is_group=_truthy(request.form.get("is_group")),
@@ -1813,9 +1856,18 @@ def artists_view():
             session_db.add(artist)
             session_db.commit()
             flash("Artista creado.", "success")
+        except _IntegrityError:
+            # Red de seguridad por si dos personas lo crean a la vez (la comprobación de arriba no
+            # puede evitar una carrera).
+            session_db.rollback()
+            flash("Ya existe un artista con ese nombre.", "warning")
+        except ValueError as e:
+            session_db.rollback()
+            flash(str(e), "warning")
         except Exception as e:
             session_db.rollback()
-            flash(f"Error creando artista: {e}", "danger")
+            app.logger.exception("[artistas] no se pudo crear")
+            flash(f"No se pudo crear el artista: {e}", "danger")
         finally:
             session_db.close()
         return redirect(url_for("artists_view"))
@@ -2146,7 +2198,7 @@ def artist_update(artist_id):
     photo = request.files.get("photo")
     try:
         if photo and photo.filename:
-            a.photo_url = upload_png(photo, "artists")
+            a.photo_url = upload_image(photo, "artists")
         # Propaga el nuevo email a sus invitaciones aún no enviadas (envío al último dato).
         _invitation_sync_contact_for_entity(session_db, artist_id=a.id, email=a.email)
         session_db.commit()
@@ -5108,7 +5160,7 @@ def stations_view():
         name = request.form.get("name", "").strip()
         logo = request.files.get("logo")
         try:
-            logo_url = upload_png(logo, "stations") if logo else None
+            logo_url = upload_image(logo, "stations") if logo else None
             country_code, country_name = _country_payload_from_form(request.form)
             st = RadioStation(name=name, logo_url=logo_url, country_code=country_code, country_name=country_name)
             session_db.add(st)
@@ -5138,7 +5190,7 @@ def station_update(station_id):
     logo = request.files.get("logo")
     try:
         if logo and logo.filename:
-            st.logo_url = upload_png(logo, "stations")
+            st.logo_url = upload_image(logo, "stations")
         session_db.commit()
         flash("Emisora actualizada.", "success")
     except Exception as e:
@@ -42153,7 +42205,7 @@ def ticketers_view():
             if not name:
                 raise ValueError("El nombre de la ticketera es obligatorio.")
 
-            logo_url = upload_png(logo, "ticketers") if logo and getattr(logo, "filename", "") else None
+            logo_url = upload_image(logo, "ticketers") if logo and getattr(logo, "filename", "") else None
             t = Ticketer(name=name, logo_url=logo_url, link_url=link_url)
             session_db.add(t)
             session_db.commit()
@@ -42185,7 +42237,7 @@ def ticketer_update(tid):
     logo = request.files.get("logo")
     try:
         if logo and getattr(logo, "filename", ""):
-            t.logo_url = upload_png(logo, "ticketers")
+            t.logo_url = upload_image(logo, "ticketers")
         session_db.commit()
         flash("Ticketera actualizada.", "success")
     except Exception as e:
@@ -42277,7 +42329,7 @@ def api_create_ticketer():
             return jsonify({"error": "El nombre de la ticketera es obligatorio."}), 400
 
         logo = request.files.get("logo")
-        logo_url = upload_png(logo, "ticketers") if logo and getattr(logo, "filename", "") else None
+        logo_url = upload_image(logo, "ticketers") if logo and getattr(logo, "filename", "") else None
 
         t = Ticketer(name=name, logo_url=logo_url, link_url=link_url)
         session_db.add(t)
@@ -53168,7 +53220,7 @@ def api_create_artist():
             return jsonify({"error": "Ya existe un artista similar.", "similar": similar}), 409
 
         photo = request.files.get("photo")
-        photo_url = upload_png(photo, "artists") if photo and getattr(photo, "filename", "") else None
+        photo_url = upload_image(photo, "artists") if photo and getattr(photo, "filename", "") else None
 
         a = Artist(
             name=name, photo_url=photo_url,
@@ -53517,7 +53569,7 @@ def companies_view():
         tax_info = request.form.get("tax_info","").strip()
         logo = request.files.get("logo")
         try:
-            logo_url = upload_png(logo, "companies") if logo else None
+            logo_url = upload_image(logo, "companies") if logo else None
             co = GroupCompany(name=name, tax_info=tax_info, logo_url=logo_url)
             session.add(co)
             session.commit()
@@ -53571,7 +53623,7 @@ def company_update(cid):
     logo = request.files.get("logo")
     try:
         if logo and logo.filename:
-            co.logo_url = upload_png(logo, "companies")
+            co.logo_url = upload_image(logo, "companies")
         session.commit()
         flash("Empresa actualizada.", "success")
     except Exception as e:
@@ -74161,7 +74213,7 @@ def promotion_activity_create(promotion_id):
                 new_media_type = 'Digital'
             media_country_code, media_country_name = _country_payload_from_form(request.form)
             media_logo = request.files.get('new_media_logo')
-            media_logo_url = upload_png(media_logo, 'media') if (media_logo and getattr(media_logo, 'filename', '')) else None
+            media_logo_url = upload_image(media_logo, 'media') if (media_logo and getattr(media_logo, 'filename', '')) else None
             new_media = MediaOutlet(
                 media_type=new_media_type,
                 name=(request.form.get('new_media_name') or '').strip(),
@@ -74431,7 +74483,7 @@ def marketing_action_update(promotion_id, activity_id):
                 new_media_type = 'Digital'
             media_country_code, media_country_name = _country_payload_from_form(request.form)
             media_logo = request.files.get('new_media_logo')
-            media_logo_url = upload_png(media_logo, 'media') if (media_logo and getattr(media_logo, 'filename', '')) else None
+            media_logo_url = upload_image(media_logo, 'media') if (media_logo and getattr(media_logo, 'filename', '')) else None
             new_media = MediaOutlet(
                 media_type=new_media_type,
                 name=(request.form.get('new_media_name') or '').strip(),
@@ -84857,7 +84909,7 @@ def media_outlets_view():
                 flash("Debes indicar el tipo y el nombre del medio.", "danger")
                 return redirect(url_for("media_outlets_view"))
             logo = request.files.get("logo")
-            logo_url = upload_png(logo, "media") if (logo and getattr(logo, "filename", "")) else None
+            logo_url = upload_image(logo, "media") if (logo and getattr(logo, "filename", "")) else None
             outlet = MediaOutlet(
                 media_type=media_type,
                 name=name,
@@ -84940,7 +84992,7 @@ def media_outlet_detail_view(media_id):
                 outlet.country_code, outlet.country_name = _country_payload_from_form(request.form)
                 logo = request.files.get("logo")
                 if logo and getattr(logo, "filename", ""):
-                    outlet.logo_url = upload_png(logo, "media")
+                    outlet.logo_url = upload_image(logo, "media")
                 session_db.commit()
                 flash("Medio actualizado.", "success")
                 return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab=tab))

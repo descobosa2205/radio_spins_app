@@ -82,7 +82,7 @@
                 </div>
               {% endfor %}
               <div class="col-md-6"><label class="form-label">Nombre del medio</label><input type="text" name="name" class="form-control" required></div>
-              <div class="col-md-6"><label class="form-label">Logotipo PNG</label><input type="file" name="logo" class="form-control" accept="image/png"></div>
+              <div class="col-md-6"><label class="form-label">Logotipo</label><input type="file" name="logo" class="form-control" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.heic,.heif"></div>
               <div class="col-md-6"><label class="form-label">País</label><select name="country_code" class="form-select select-country">{% for country in country_options %}<option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == 'ES' %}selected{% endif %}>{{ country.name }}</option>{% endfor %}</select></div>
               <div class="col-12"><label class="form-label">Dirección</label><span data-address-autocomplete class="d-block position-relative"><input type="text" name="address" class="form-control" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…"></span></div>
             </div>

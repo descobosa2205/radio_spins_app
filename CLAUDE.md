@@ -2004,6 +2004,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   inaceptable. Y ⚠️ **`Song` NO tiene `artist_id`**: su artista va por **`SongArtist`** (N:M).
   ⚠️ Se emite también **`og:image:type`**: sin él, WhatsApp y algunos móviles descartan la foto.
 
+- ⚠️⚠️ **UN BOTÓN QUE DECIDE TIENE QUE VERSE QUE SE HA PULSADO** (bug real, ago 2026). En el aviso
+  de canción duplicada, **«Usar esta» no hacía NADA a la vista**: guardaba la elección en su oculto
+  y rehabilitaba el envío, pero el botón ya era `btn-primary` y se quedaba `btn-primary`, el
+  asistente no avanzaba y no aparecía ninguna confirmación. Para quien lo pulsa, eso es «se ha
+  quedado enganchado». Ahora (`static/js/song_duplicates.js`):
+  · el botón nace **sin rellenar** (`btn-outline-primary`) y al elegirlo pasa a **verde «Usando
+    esta»**, con su fila marcada, y sale la etiqueta **«Se trabajará sobre esta canción · No se
+    creará otra»** (o «Se creará una canción nueva» si se marca lo otro);
+  · **el asistente AVANZA solo** al elegir —es una decisión que no pide más datos, el mismo criterio
+    que `data-sw-advance`—, pulsando su propio botón «Siguiente» (así se valida el paso y se saltan
+    los pasos que no tocan; saltar a un índice a mano se salta las dos cosas).
+  ⚠️⚠️ Y el botón de enviar **ya NO se deshabilita**: en un asistente por pasos el aviso está en OTRO
+  paso, así que un botón muerto no se puede explicar — y, peor, **un botón deshabilitado no dispara
+  `submit`**, así que el guardián que lleva al paso del aviso no llegaba a ejecutarse nunca. El freno
+  es ese guardián, que además ahora **dice por qué** («Antes decide qué hacer con la canción que ya
+  existe») y hace destellar el aviso (`.dup-flash`).
+  ⚠️ Quitar el `disabled` no abre ningún agujero: **el freno de verdad está en el SERVIDOR**
+  (`disco_project_create` y `discografica_song_create` con `duplicate_ok`/`existing_song_id`).
+  Comprobado con la app real: sin decidir no crea nada y avisa · «Usar esta» monta el proyecto sobre
+  la canción que ya estaba (0 canciones nuevas) · «crear una nueva» crea la segunda.
+
 - ⚠️⚠️ **LA MISMA CANCIÓN DADA DE ALTA DOS VECES: se avisa y se FUSIONA** (ago 2026). Pasa cuando la
   canción se crea a mano y luego el PROYECTO discográfico crea la suya (o al revés).
   · **Antes de crear se avisa**: punto único **`_song_duplicate_rows(session_db, título,

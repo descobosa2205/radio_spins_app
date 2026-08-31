@@ -5574,3 +5574,9 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .dp-link__name{ font-weight:600; color:#374151; flex:0 0 auto; }
 .dp-link__url{ color:#6b7280; font-size:.85rem; min-width:0; flex:1 1 auto; }
 .dp-link__copy{ flex:0 0 auto; }
+
+/* AVISO DE CANCIÓN DUPLICADA · destello al intentar seguir sin decidir (song_duplicates.js).
+   Devolver a alguien a un paso anterior sin señalar dónde está el problema no se entiende. */
+@keyframes dupFlash { 0%,100% { box-shadow: 0 0 0 0 rgba(227,61,72,0); }
+                      30%     { box-shadow: 0 0 0 6px rgba(227,61,72,.28); } }
+.dup-flash { border-radius: .5rem; animation: dupFlash .6s ease 2; }

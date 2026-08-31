@@ -61,8 +61,8 @@
         html += '</div>';
         html += '<div class="d-flex gap-1 flex-shrink-0">';
         if (usaHidden) {
-          html += '<button type="button" class="btn btn-sm btn-primary" data-dup-pick="' + esc(f.id) + '">' +
-                  '<i class="fa fa-check me-1"></i>Usar esta</button>';
+          html += '<button type="button" class="btn btn-sm btn-outline-primary" data-dup-pick="' + esc(f.id) + '">' +
+                  '<i class="fa fa-check me-1"></i><span data-dup-pick-label>Usar esta</span></button>';
         }
         if (f.url) {
           html += '<a class="btn btn-sm btn-outline-secondary" href="' + esc(f.url) + '" target="_blank" rel="noopener">' +
@@ -71,6 +71,7 @@
         html += '</div></div>';
       });
       html += '</div>';
+      html += '<div class="mt-2 d-none" data-dup-done></div>';
       html += '<div class="mt-2"><label class="small"><input type="checkbox" class="form-check-input me-1" data-dup-anyway>' +
               'No es la misma: crear una canción nueva de todas formas</label></div>';
       html += '</div>';
@@ -92,13 +93,39 @@
     if (hOk) hOk.value = (hayDup && anyway && anyway.checked && !elegida) ? '1' : '';
     var hUse = val(zona, 'data-dup-use');
     if (hUse) hUse.value = elegida;
+    // QUE SE VEA lo que se ha elegido: pulsar «Usar esta» tiene que cambiar algo en la pantalla.
+    zona.querySelectorAll('[data-dup-pick]').forEach(function (b) {
+      var on = (b.getAttribute('data-dup-pick') || '') === elegida && !!elegida;
+      b.classList.toggle('btn-success', on);
+      b.classList.toggle('btn-outline-primary', !on);
+      var lab = b.querySelector('[data-dup-pick-label]');
+      if (lab) lab.textContent = on ? 'Usando esta' : 'Usar esta';
+      var fila = b.closest('.border');
+      if (fila) {
+        fila.classList.toggle('border-success', on);
+        fila.classList.toggle('border-2', on);
+      }
+    });
+    var aviso = zona.querySelector('[data-dup-done]');
+    if (aviso) {
+      var texto = '';
+      if (elegida) {
+        texto = '<span class="badge text-bg-success"><i class="fa fa-check me-1"></i>Se trabajará ' +
+                'sobre esta canción</span> <span class="small">No se creará otra.</span>';
+      } else if (anyway && anyway.checked) {
+        texto = '<span class="badge text-bg-secondary"><i class="fa fa-plus me-1"></i>Se creará una ' +
+                'canción nueva</span>';
+      }
+      aviso.innerHTML = texto;
+      aviso.classList.toggle('d-none', !texto);
+    }
+    // ⚠️⚠️ El botón de enviar NO se deshabilita: en un asistente por pasos el aviso está en OTRO
+    // paso, así que un botón muerto no se puede explicar (y el guardián del `submit` —que lleva al
+    // paso del aviso— nunca llegaría a dispararse, porque un botón deshabilitado no envía). Lo que
+    // hace de freno es ese guardián, que sí puede decir POR QUÉ.
     var form = zona.closest('form');
     if (form) {
-      // ⚠️ Un `<button>` SIN `type` dentro de un form ES de envío, y `[type="submit"]` no lo casa
-      // (no tiene el atributo). Se mira la PROPIEDAD del DOM, que ahí sí dice «submit».
-      form.querySelectorAll('button, input[type="submit"], [data-dup-guard]').forEach(function (b) {
-        if (b.type === 'submit' || b.hasAttribute('data-dup-guard')) b.disabled = !okOk;
-      });
+      form.querySelectorAll('[data-dup-guard]').forEach(function (b) { b.disabled = !okOk; });
     }
   }
 
@@ -136,6 +163,30 @@
       if (i >= 0) root.swGo(i);
     }
     zona.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // ⚠️ Y se DICE por qué no se ha enviado: devolver a alguien a un paso anterior sin explicarle
+    // nada es lo mismo que un botón que no hace nada.
+    var aviso = zona.querySelector('[data-dup-done]');
+    if (aviso) {
+      aviso.innerHTML = '<span class="badge text-bg-danger"><i class="fa fa-hand me-1"></i>' +
+                        'Antes decide qué hacer con la canción que ya existe</span>';
+      aviso.classList.remove('d-none');
+    }
+    zona.classList.add('dup-flash');
+    setTimeout(function () { zona.classList.remove('dup-flash'); }, 1200);
+  }
+
+  /* Elegir una canción es una decisión que no pide más datos: el asistente pasa al paso siguiente
+     (el mismo criterio que `data-sw-advance`). Fuera de un asistente no hace nada. */
+  function avanza(zona) {
+    var root = zona.closest('[data-step-wizard]');
+    var paso = zona.closest('.sw-step');
+    if (!root || !paso) return;
+    // ⚠️ Se avanza con el propio botón «Siguiente» del asistente, no saltando a un índice: así se
+    // valida el paso y se saltan los pasos que no tocan (`data-sw-when`), que es su trabajo. Si el
+    // botón no se ve, es que este era el último paso y no hay a dónde ir.
+    var next = root.querySelector('[data-sw-next]');
+    if (!next || next.style.display === 'none') return;
+    setTimeout(function () { next.click(); }, 350);   // se ve el «Usando esta» antes de pasar
   }
 
   function engancha(zona) {
@@ -167,6 +218,7 @@
         var anyway = zona.querySelector('[data-dup-anyway]');
         if (anyway) anyway.checked = false;
         sincroniza(zona);
+        avanza(zona);
       }
     });
     zona.addEventListener('change', function (ev) {

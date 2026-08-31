@@ -9197,11 +9197,16 @@ def _lc_cert_imgs_html(ctx: dict, *, alto: int = 40) -> str:
         )
     if not celdas:
         return ''
+    # ⚠️ Título y discos van en la MISMA tabla (`display:inline-table`): así el rótulo se centra
+    # sobre los discos y el bloque entero se pega a la derecha (ordenador) o a la izquierda (móvil),
+    # sin que el título se quede descolocado respecto a las imágenes.
     return (
-        '<div style="font-size:10.5px;font-weight:700;color:#6b7280;text-transform:uppercase;'
-        'letter-spacing:.04em;margin-bottom:4px;text-align:center;">Certificaciones</div>'
-        '<table role="presentation" cellspacing="0" cellpadding="0" align="center" '
-        'style="border-collapse:collapse;margin:0 auto;"><tr>' + ''.join(celdas) + '</tr></table>'
+        '<table role="presentation" cellspacing="0" cellpadding="0" '
+        'style="border-collapse:collapse;display:inline-table;">'
+        '<tr><td align="center" style="font-size:10.5px;font-weight:700;color:#6b7280;'
+        'text-transform:uppercase;letter-spacing:.04em;padding-bottom:4px;">Certificaciones</td></tr>'
+        '<tr><td><table role="presentation" cellspacing="0" cellpadding="0" '
+        'style="border-collapse:collapse;"><tr>' + ''.join(celdas) + '</tr></table></td></tr></table>'
     )
 
 
@@ -9258,21 +9263,31 @@ def _label_copy_html(ctx: dict, *, note: str = '', with_button: bool = True) -> 
         )
 
     certs_html = _lc_cert_imgs_html(ctx)
-    certs_cell = (f'<td class="lc-certs" valign="middle" align="right" '
-                  f'style="padding-left:12px;white-space:nowrap;">{certs_html}</td>'
-                  if certs_html else '')
-
     plat_html = _lc_platform_html(ctx)
-    hero = (
-        '<table class="lc-hero" role="presentation" width="100%" cellspacing="0" cellpadding="0" '
-        'style="border-collapse:collapse;margin:6px 0 16px;"><tr>'
+
+    # La PORTADA con los datos al lado (título, intérpretes y los enlaces de plataforma debajo).
+    ficha = (
+        '<table class="lc-hero" role="presentation" cellspacing="0" cellpadding="0" '
+        'style="border-collapse:collapse;"><tr>'
         + cover_cell +
         '<td valign="middle">'
         f'<div style="font-size:19px;font-weight:800;color:#111827;line-height:1.25;">{esc(titulo)}</div>'
         + (f'<div style="font-size:14px;color:#4b5563;margin-top:3px;">{esc(ctx.get("interpreters_label") or "")}</div>'
            if (ctx.get('interpreters_label') or '') else '')
         + (f'<div style="margin-top:9px;">{plat_html}</div>' if plat_html else '')
-        + '</td>' + certs_cell + '</tr></table>'
+        + '</td></tr></table>'
+    )
+    # ⚠️ La cabecera son DOS bloques (la ficha y las certificaciones) dentro de una tabla exterior:
+    # así en MÓVIL basta con apilar esos dos —las certificaciones bajan— y la ficha CONSERVA su
+    # composición (portada a la izquierda con los datos al lado). Apilando las celdas de una sola
+    # tabla, en el móvil se centraba todo y la portada quedaba suelta encima.
+    hero = (
+        '<table class="lc-top" role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        'style="border-collapse:collapse;margin:6px 0 16px;"><tr>'
+        f'<td class="lc-top__left" valign="middle">{ficha}</td>'
+        + (f'<td class="lc-top__right" valign="middle" align="right" '
+           f'style="padding-left:12px;white-space:nowrap;">{certs_html}</td>' if certs_html else '')
+        + '</tr></table>'
     )
 
     filas_html = ''
@@ -9368,11 +9383,16 @@ def _label_copy_html(ctx: dict, *, note: str = '', with_button: bool = True) -> 
     # del cuerpo porque esto se manda también por correo, donde no hay hoja externa (el cliente que
     # no entienda media queries sigue viendo la maqueta de escritorio).
     estilos = (
-        '<style>@media (max-width:520px){'
-        '.lc-hero,.lc-hero tbody,.lc-hero tr,.lc-hero td{display:block !important;width:100% !important;'
-        'text-align:center !important;padding-left:0 !important;padding-right:0 !important;}'
-        '.lc-cover{margin:0 auto 10px !important;}'
-        '.lc-certs{white-space:normal !important;text-align:center !important;padding-top:8px !important;}'
+        '<style>@media (max-width:560px){'
+        # ⚠️ Solo se apilan las celdas DIRECTAS de la tabla exterior (`> tbody > tr > td`): con
+        # `.lc-top td` a secas se apilaban también las de las tablas de dentro y la portada saltaba
+        # encima del título y las certificaciones caían en columna. La ficha NO se toca: portada a
+        # la izquierda y datos al lado, como en el ordenador.
+        '.lc-top>tbody>tr>td,.lc-top>tr>td{display:block !important;width:100% !important;}'
+        '.lc-top__right{text-align:left !important;padding:12px 0 0 0 !important;'
+        'white-space:normal !important;}'
+        '.lc-cover-cell{width:100px !important;padding-right:10px !important;}'
+        '.lc-cover{width:92px !important;height:92px !important;}'
         '}</style>'
     )
     return (

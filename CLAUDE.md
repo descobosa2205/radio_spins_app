@@ -2901,6 +2901,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **LOS ENLACES DE PLATAFORMA van a la IZQUIERDA**, pegados a la portada y **debajo de los
   intérpretes**, igual en los cinco sitios: la ficha de la CANCIÓN, la ficha del ÁLBUM, el PDF, el
   enlace y el correo. Antes en las dos fichas estaban arriba a la derecha (`ficha-hero__actions`).
+  · ⚠️ **EN MÓVIL SE MANTIENE LA COMPOSICIÓN**: la cabecera son DOS bloques dentro de una tabla
+  exterior (`.lc-top`) —la ficha (portada + título, intérpretes y plataformas) y las
+  certificaciones—, así que en una pantalla estrecha solo se apilan ESOS DOS y la ficha conserva la
+  portada a la izquierda con los datos al lado. Apilando las celdas de una sola tabla se centraba
+  todo y la portada quedaba suelta encima (bug real).
+  ⚠️⚠️ La media query apila **solo las celdas DIRECTAS** (`.lc-top>tbody>tr>td`): con `.lc-top td` a
+  secas se apilaban también las de las tablas de dentro —la portada saltaba encima del título y las
+  certificaciones caían en columna—.
+
   · ⚠️⚠️ **UN PDF QUE SE GENERA AL VUELO NO SE CACHEA** (`_pdf_al_vuelo_response`, sep 2026): la URL
   de un LC es SIEMPRE la misma (el mismo id, el mismo token), así que el navegador —o el visor de PDF
   del cliente de correo— devolvía **la copia que se bajó la última vez**, con la maqueta ANTIGUA,

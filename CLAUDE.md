@@ -554,6 +554,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   hay forma de volver a encenderlo—. Es el calendario de cada uno: un módulo básico, no una etiqueta
   que aparece y desaparece según lo que haya. (El de OFICINA sigue apareciendo solo si tiene algo.)
 
+- **CALENDARIO · «Todos» / «Ninguno»** (ago 2026): delante de los chips de calendario hay dos
+  botoncitos grises (el estilo `.filter-chip` del resto de la app, algo más pequeños) para **encender
+  o apagar todos de golpe**. Con muchos artistas, ir uno a uno para ver solo el que interesa es un
+  trabajo tonto: se apagan todos y se enciende el que sea.
+  ⚠️ **Solo se ofrece el que hace algo**: con todos encendidos no sale «Todos», y con todos apagados
+  no sale «Ninguno» — un botón que no cambia nada solo estorba. Y no salen con un único calendario.
+  · Vale para los chips de CALENDARIO (Inicio) y para los de TIPO (la ficha del artista): los pinta
+  el mismo `renderTop()` de `agenda_calendar.js`.
+
 - **Los TIPOS que se ofrecen son los que HAY a la vista** (ago 2026, `kindsVisibles()` en
   `agenda_calendar.js`): la lista de tipos —el lateral «Tipos» en Inicio y los chips de arriba en la
   ficha del artista— solo enseña los que tienen algo en **la ventana que se está mirando** y en **los

@@ -5622,3 +5622,10 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .d-grid > a,
 .d-grid > .list-group-item,
 .d-grid > .border{ min-width:0; }
+
+
+/* Calendario de agenda · botoncitos de «Todos» / «Ninguno» (encender o apagar los calendarios en
+   bloque). Van con el gris de los filtros del resto de la app y algo más pequeños que los chips de
+   calendario, para que se lean como lo que son: un atajo, no un calendario más. */
+.agenda-chip--all{ padding:.3rem .6rem; font-size:.78rem; }
+.agenda-chip--all i{ font-size:.8rem; }

@@ -135,10 +135,35 @@
     var top = el('div', 'agenda-top');
     container.appendChild(top);
 
+    /* Botoncitos grises para encender o apagar TODOS los calendarios de golpe (el mismo estilo de
+       filtro que en el resto de la app). Con muchos artistas, ir uno a uno para ver solo el que
+       interesa es un trabajo tonto: se apagan todos y se enciende el que sea. */
+    function botonBloque(texto, icono, alTocar) {
+      var b = el('button', 'filter-chip agenda-chip--all');
+      b.type = 'button';
+      b.innerHTML = '<i class="fa ' + icono + '"></i><span>' + texto + '</span>';
+      b.addEventListener('click', function () { alTocar(); renderTop(); render(); });
+      return b;
+    }
+
     function renderTop() {
       top.innerHTML = '';
       if (mode === 'home') {
         if (!artists.length) top.appendChild(el('span', 'text-muted small', 'Sin artistas con actividades próximas.'));
+        if (artists.length > 1) {
+          var todosOn = artists.every(function (a) { return activeArtists[a.id]; });
+          var ningunoOn = artists.every(function (a) { return !activeArtists[a.id]; });
+          if (!todosOn) {
+            top.appendChild(botonBloque('Todos', 'fa-check-double', function () {
+              artists.forEach(function (a) { activeArtists[a.id] = true; });
+            }));
+          }
+          if (!ningunoOn) {
+            top.appendChild(botonBloque('Ninguno', 'fa-xmark', function () {
+              artists.forEach(function (a) { activeArtists[a.id] = false; });
+            }));
+          }
+        }
         var separadorPuesto = false;
         artists.forEach(function (a) {
           // Los calendarios propios («Mi calendario» y «Calendario general») van primero y separados
@@ -163,6 +188,20 @@
       } else {
         var visibles = kindsVisibles();
         if (!visibles.length) top.appendChild(el('span', 'text-muted small', 'Sin actividades en este periodo.'));
+        if (visibles.length > 1) {
+          var kTodos = visibles.every(function (k) { return activeKinds[k.key]; });
+          var kNinguno = visibles.every(function (k) { return !activeKinds[k.key]; });
+          if (!kTodos) {
+            top.appendChild(botonBloque('Todos', 'fa-check-double', function () {
+              visibles.forEach(function (k) { activeKinds[k.key] = true; });
+            }));
+          }
+          if (!kNinguno) {
+            top.appendChild(botonBloque('Ninguno', 'fa-xmark', function () {
+              visibles.forEach(function (k) { activeKinds[k.key] = false; });
+            }));
+          }
+        }
         visibles.forEach(function (k) {
           var chip = el('button', 'agenda-chip agenda-chip--kind' + (activeKinds[k.key] ? ' is-on' : ''));
           chip.type = 'button';

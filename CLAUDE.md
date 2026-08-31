@@ -7673,3 +7673,41 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   explicar («la pestaña se ve pero da 403»). Ahora se sincroniza también al abrir la **ficha de
   personal** y los **accesos en bloque** —una consulta de ~100 filas, y solo escribe lo que falte—,
   que es justo cuando hace falta. Es *best-effort*: si fallara, la pantalla se pinta igual.
+
+- ⚠️⚠️ **«GRATUITO» NO ES UN TIPO DE VENTA: es que la ENTRADA es gratis** (ago 2026). Estaban en el
+  mismo campo (`sale_type`), así que un concierto gratuito salía por toda la app como «Conciertos —
+  Gratuitos» y no se podía decir además CÓMO se vende. Ahora son dos cosas:
+  · **`_concert_is_free`** (punto único) — lo dice el modo de entrada
+    (`ticketing_payload.entry_mode == 'FREE'`, que es lo que se elige al montarla) y, en lo de antes,
+    el `sale_type` guardado como GRATUITO. De ahí sale la **etiqueta verde «Gratuito»**, que se pinta
+    al lado del tipo en la ficha y en los listados (Conciertos, Actividades, Eventos).
+  · **`_concert_type_label(concert)`** — el TIPO tal como se enseña, ya sin el «gratuito». ⚠️ De una
+    actividad gratuita **no se inventa** un tipo de venta que nadie ha dicho: se deja el tipo de
+    ACTIVIDAD («Concierto») y lo de gratis lo dice su etiqueta.
+  ⚠️ El selector de TIPO de la ficha **ya no ofrece «Gratuito»** en un concierto (se marca en
+  «Entradas», con el acceso gratuito); en las que ya lo tenían guardado la opción se conserva para no
+  perder el dato.
+
+- ⚠️⚠️ **LA FICHA DE UNA ACTIVIDAD SIN CONFIRMAR solo la abren quienes la ven** (ago 2026):
+  contratación, dirección y **quien la produce** (con la producción ya activada). Es el MISMO punto
+  único que decide si se pinta en el calendario y en el listado de Producción
+  (`_concert_visible_unconfirmed`), así que no se pueden desparejar: **lo que se ve, se abre**. Al
+  resto se le dice por qué en vez de dejar que llegue a una ficha que no le corresponde.
+
+- **UN TERCERO NUEVO: EMPRESA o PARTICULAR** (ago 2026, alta rápida `data-quick-create="promoter"`).
+  Lo primero es **qué es**, porque los datos no son los mismos: **empresa** (nick · nombre de la
+  empresa · CIF · dirección fiscal · su **representante**) o **particular** (nick · nombre completo ·
+  DNI · dirección fiscal · teléfono · email). Todo opcional menos saber cómo se llama: sin nick se usa
+  el nombre de la empresa o el nombre completo.
+  · **`Promoter.legal_name`** (columna nueva) = el nombre de la empresa / razón social: el `nick` es
+  como la llamamos nosotros y esto es con lo que factura — de ahí lo coge **`_billing_name`**, que es
+  lo que se manda a Holded.
+  · ⚠️⚠️ **EL REPRESENTANTE ES OTRO TERCERO**: `_quick_create_representative` crea los dos en la
+  misma operación y los **vincula** (`ThirdPartyLink`, relación «Representante»), que es
+  bidireccional, así que se ven en las dos fichas. `_promoter_representatives` lo lee en las dos
+  orientaciones.
+  · Todo eso se ve en la **ficha de contratación** de la actividad, bajo el promotor
+  (`_promoter_info_rows`: nombre o razón social, CIF/DNI, dirección fiscal, contacto y representante).
+  Un campo vacío no se pinta.
+  ⚠️ Las dos ramas comparten los nombres de los campos (`nick`, `tax_id`, la dirección fiscal), así
+  que el panel que no toca **se DESHABILITA**: esconderlo no basta, un campo oculto se envía igual.

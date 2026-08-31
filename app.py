@@ -4800,6 +4800,45 @@ def _sale_type_label(value: str | None, activity_type: str | None = None) -> str
     return CONCERT_SALE_TYPE_LABELS.get(key, key or "—")
 
 
+# ⚠️⚠️ «GRATUITO» NO ES UN TIPO DE VENTA: es que la entrada es GRATIS. Son dos cosas distintas y
+# estaban en el mismo campo, así que un concierto gratuito salía por toda la app como «Conciertos —
+# Gratuitos» y no se podía decir además CÓMO se vende (a empresa, participado, vendido…).
+# Ahora se enseña la ETIQUETA «Gratuito» y el TIPO es el que corresponda.
+CONCERT_FREE_SALE_TYPE = "GRATUITO"
+CONCERT_FREE_LABEL = "Gratuito"
+
+
+def _concert_is_free(concert) -> bool:
+    """¿La entrada es GRATIS? Punto único.
+
+    Lo dice el modo de entrada (`ticketing_payload.entry_mode == 'FREE'`, que es lo que se elige al
+    montar la actividad) y, en lo de antes, el tipo de venta guardado como GRATUITO."""
+    if concert is None:
+        return False
+    if (getattr(concert, "sale_type", None) or "").strip().upper() == CONCERT_FREE_SALE_TYPE:
+        return True
+    try:
+        payload = _json_loads_safe(getattr(concert, "ticketing_payload", None), {}) or {}
+        return (payload.get("entry_mode") or "").strip().upper() == "FREE"
+    except Exception:
+        return False
+
+
+def _concert_type_label(concert) -> str:
+    """El TIPO de la actividad tal como se enseña, ya SIN mezclar el «gratuito».
+
+    ⚠️ De una actividad gratuita no se inventa un tipo de venta que nadie ha dicho: se deja el tipo
+    de ACTIVIDAD (Concierto, Festival…) y lo de gratis lo dice su etiqueta."""
+    if concert is None:
+        return ""
+    tipo = (getattr(concert, "sale_type", None) or "").strip().upper()
+    actividad = getattr(concert, "activity_type", None)
+    if tipo == CONCERT_FREE_SALE_TYPE:
+        kind = _activity_kind_key(actividad) or "CONCIERTO"
+        return _activity_kind_label(kind)
+    return _sale_type_label(tipo, actividad)
+
+
 def _activity_cache_label(sale_type: str | None, activity_type: str | None) -> str:
     """En una actividad que NO es un concierto, lo que dice su `sale_type` es si lleva caché. Se
     devuelve con esas palabras (y vacío en conciertos, donde el tipo de venta ya se enseña)."""
@@ -45839,7 +45878,8 @@ def _group_concert_row(c):
         "status": (c.status or "BORRADOR").upper(),
         "status_label": label,
         "status_badge": badge,
-        "sale_type_label": _sale_type_label(c.sale_type, c.activity_type),
+        "sale_type_label": _concert_type_label(c),
+        "is_free": _concert_is_free(c),
         # «Promovido / Vendido / Participado / Gratuito» habla de conciertos: en una actividad que no
         # lo es se dice si lleva caché, que es lo que significa ahí su `sale_type`.
         "promo_label": (_promo_meta[0] if _es_concierto else (_cache_lbl or "—")),
@@ -46190,7 +46230,8 @@ def _render_event_activities():
             drill_event = eventos.get(str(drill_id))
             rows = [c for c in actividades if str(c.event_id) == str(drill_id)]
             for c in rows:
-                setattr(c, "sale_type_label", _sale_type_label(c.sale_type, c.activity_type))
+                setattr(c, "sale_type_label", _concert_type_label(c))
+                setattr(c, "is_free", _concert_is_free(c))
                 setattr(c, "location_summary", _concert_location_summary(c))
                 # Un evento no tiene artista: el título es el del evento (o el nombre de la fecha).
                 setattr(c, "title_label", (getattr(drill_event, "name", "") or "Actividad"))
@@ -46742,8 +46783,9 @@ def activities_view():
                 "kind": "concert", "type_key": _kind, "id": str(c.id),
                 "type_icon": QUAD_ACTIVITY_ICONS.get(_kind, "fa-guitar"),
                 "type_label": _activity_kind_label(_kind),
-                "sale_label": (_sale_type_label(c.sale_type, c.activity_type)
+                "sale_label": (_concert_type_label(c)
                                if _kind in CONCERT_LIKE_ACTIVITY_TYPES else _activity_cache_label(c.sale_type, c.activity_type)),
+                "is_free": _concert_is_free(c),
                 "title": ((c.festival_name or "").strip() or _activity_kind_label(_kind)),
                 "artist_id": (str(c.artist_id) if c.artist_id else ""),
                 "artist_ids": [str(x) for x in (c.artist_ids or [])],
@@ -47014,7 +47056,8 @@ def event_detail_view(eid):
                 "venue": (c.venue.name if c.venue else (c.manual_venue_name or c.manual_municipality or "")),
                 "title": (c.festival_name or "").strip(),
                 "status": (c.status or "BORRADOR").upper(),
-                "sale_type_label": _sale_type_label(c.sale_type, c.activity_type),
+                "sale_type_label": _concert_type_label(c),
+                "is_free": _concert_is_free(c),
                 "cycle_festival_id": (str(c.cycle_festival_id) if c.cycle_festival_id else ""),
             }
             fila["status_label"], fila["status_badge"] = CONCERT_STATUS_META.get(
@@ -50449,7 +50492,8 @@ def concerts_page():
 
         for c in concerts:
             setattr(c, "tags_clean", _concert_tags(c))
-            setattr(c, "sale_type_label", _sale_type_label(c.sale_type, c.activity_type))
+            setattr(c, "sale_type_label", _concert_type_label(c))
+            setattr(c, "is_free", _concert_is_free(c))
             setattr(c, 'announcement_badge', _announcement_badge(c, today))
             setattr(c, 'announcement_state', _announcement_state(c, today))
             setattr(c, 'contract_sheet_badge', _contract_sheet_badge(getattr(c, 'contract_sheet', None)))
@@ -50635,7 +50679,8 @@ def concert_detail_view(cid):
             return redirect(url_for("concerts_view", tab="vista"))
 
         setattr(c, "tags_clean", _concert_tags(c))
-        setattr(c, "sale_type_label", _sale_type_label(c.sale_type, c.activity_type))
+        setattr(c, "sale_type_label", _concert_type_label(c))
+        setattr(c, "is_free", _concert_is_free(c))
 
         today = today_local()
         totals_map, today_map, last_map, gross_map, gross_today_map = sales_maps_unified(session, today, [c.id])
@@ -50850,7 +50895,13 @@ def concert_detail_view(cid):
             edit_promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
             edit_companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
             all_concert_tags = _collect_all_concert_tags(session)
-            edit_type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
+            # ⚠️ «Gratuito» NO se ofrece como TIPO de un concierto: no es una forma de venderlo, es
+            # que la entrada es gratis (eso se marca en «Entradas», con el acceso gratuito, y se ve
+            # con su etiqueta). El valor se conserva en las que ya lo tenían para no perderlo.
+            edit_type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k))
+                                 for k in CONCERTS_SECTION_ORDER
+                                 if k != CONCERT_FREE_SALE_TYPE
+                                 or (c.sale_type or "").strip().upper() == CONCERT_FREE_SALE_TYPE]
             if is_promo_activity:
                 try:
                     activity_songs = _repertoire_songs_for_artists(session, [c.artist_id])
@@ -50888,7 +50939,8 @@ def concert_detail_view(cid):
             remaining_tickets=remaining_tickets,
             last_sales_day=last_map.get(c.id),
             net_breakdown=net_breakdown,
-            sale_type_label=_sale_type_label(c.sale_type, c.activity_type),
+            sale_type_label=_concert_type_label(c),
+            is_free=_concert_is_free(c),
             announcement_badge=_announcement_badge(c, today),
             contract_sheet_badge=_contract_sheet_badge(sheet),
             contract_sheet_status=_contract_sheet_status(sheet),

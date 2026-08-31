@@ -93,6 +93,7 @@
             <div class="small text-muted text-truncate">{{ c.location_summary or (c.venue.name if c.venue else 'Sin recinto') }}</div>
           </div>
           <span class="badge text-bg-light border flex-shrink-0">{{ c.sale_type_label }}</span>
+          {% if c.is_free %}<span class="badge text-bg-success flex-shrink-0"><i class="fa fa-gift me-1"></i>Gratuito</span>{% endif %}
           {% with cs_id=c.id, cs_status=c.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
         </a>
       {% endfor %}

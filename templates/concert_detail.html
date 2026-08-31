@@ -11,10 +11,13 @@
   <div class="ficha-hero__body">
     {# QUÉ ES la actividad manda: un evento promocional no es un concierto de ningún tipo, así que el
        tipo de venta solo se enseña cuando la actividad es un concierto (o un festival). #}
-    <div class="ficha-hero__eyebrow">{{ activity_type_label }}{% if is_concert_like and sale_type_label %} · {{ sale_type_label }}{% elif activity_cache_label %} · {{ activity_cache_label }}{% endif %}</div>
+    <div class="ficha-hero__eyebrow">{{ activity_type_label }}{% if is_concert_like and sale_type_label and sale_type_label != activity_type_label %} · {{ sale_type_label }}{% elif activity_cache_label %} · {{ activity_cache_label }}{% endif %}</div>
     <div class="d-flex flex-wrap align-items-center gap-2">
       <h1 class="ficha-hero__title"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>{{ concert.artist.name if concert.artist else 'Concierto' }}</h1>
       {% with cs_id=concert.id, cs_status=concert.status %}{% include '_concert_status_badge.html' %}{% endwith %}
+      {# ⚠️ «Gratuito» NO es un tipo de venta: es que la entrada es gratis. Por eso va en su propia
+         etiqueta y el tipo dice cómo se vende (a empresa, participado, vendido…). #}
+      {% if is_free %}<span class="badge text-bg-success"><i class="fa fa-gift me-1"></i>Gratuito</span>{% endif %}
       {# ANUNCIO y SALIDA A LA VENTA, al lado del estado y con el mismo comportamiento: se pinchan
          para cambiarlos. La de la venta solo si la actividad vende entradas. #}
       {% include '_concert_announcement_badge.html' %}

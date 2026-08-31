@@ -870,7 +870,6 @@
       </form>
       {% endif %}
     </div>
-    {% endif %}
 
     {# CACHÉS: un evento puede tener artistas con caché o solo socios. Si no hay ninguno configurado
        (ni en la simulación ni en el alta) NO se enseña el módulo: queda solo un botón discreto para
@@ -1076,23 +1075,55 @@
       {% endif %}
     </div>
 
-    {% if concert.sale_type != 'VENDIDO' %}
-    <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tag"></i>Comisionistas</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+    {% endif %}{# /el bloque de colaboradores, cachés y entradas: solo si no es un concierto «vendido» #}
+
+    {# ⚠️ LAS COMISIONES SE VEN SIEMPRE (antes solo si el concierto NO era «vendido», así que en la
+       mayoría no se podían ni añadir). Cada una dice cómo se aplica: si es un GASTO sobre el caché
+       —y entonces va a la bolsa, categoría «Comisiones»— o si REDUCE el caché, que entonces se ve
+       ya descontado y no se le comunica al artista como concepto aparte. #}
+    <div class="ficha-section" id="comisiones">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tag"></i>Comisiones</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
       <div class="ficha-section__body" data-section-view>
-        {% if concert.zone_agents %}
-        {% for z in concert.zone_agents %}<div class="d-flex justify-content-between align-items-center gap-2 py-1{% if not loop.last %} border-bottom{% endif %}"><div class="min-w-0"><span class="fw-semibold">{{ z.promoter.nick if z.promoter else 'Comisionista' }}</span>{% if z.concept %}<span class="text-muted"> · {{ z.concept }}</span>{% endif %}</div><div class="fw-semibold text-nowrap">{% if z.commission_type == 'PERCENT' %}{{ z.commission_pct }}% · {{ 'Bruto' if z.commission_base=='GROSS' else 'Neto' }}{% else %}{{ z.commission_amount|eur }}{% endif %}</div></div>{% endfor %}
-        {% else %}<div class="ficha-empty">Sin comisionistas. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
+        {% if commission_rows %}
+          {% for z in commission_rows %}
+          <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap py-2{% if not loop.last %} border-bottom{% endif %}">
+            <div class="d-flex align-items-center gap-2 min-w-0">
+              {% if z.logo_url %}<img src="{{ z.logo_url }}" alt="" data-avatar="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">{% endif %}
+              <div class="min-w-0">
+                <span class="fw-semibold">{{ z.name }}</span>
+                {% if z.concept %}<span class="text-muted"> · {{ z.concept }}</span>{% endif %}
+                <div class="small"><span class="badge text-bg-light border"><i class="fa {{ z.apply_icon }} me-1"></i>{{ z.apply_label }}</span></div>
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="fw-semibold text-nowrap">{% if z.is_fixed %}{{ z.amount_label }}{% else %}{{ z.pct_label }} · {{ z.base_label }}{% endif %}</span>
+              {% if z.invoice_url %}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ z.invoice_url }}" target="_blank" rel="noopener"
+                   title="{{ z.invoice_name or 'Factura' }}"><i class="fa fa-file-invoice"></i></a>
+              {% elif CAN_EDIT_CONCERTS %}
+                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                        data-bs-target="#commissionInvoiceModal" data-commission-id="{{ z.id }}"
+                        data-commission-name="{{ z.name }}"><i class="fa fa-upload me-1"></i>Subir factura</button>
+                <form method="post" action="{{ url_for('concert_commission_request_invoice', cid=concert.id, agent_id=z.id) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-outline-secondary" {% if z.invoice_requested %}disabled{% endif %}
+                          title="Pedirle la factura a quien corresponda">
+                    <i class="fa fa-paper-plane me-1"></i>{{ 'Solicitada' if z.invoice_requested else 'Solicitar factura' }}</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}<div class="ficha-empty">Sin comisiones. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
       </div>
       {% if CAN_EDIT_CONCERTS %}
       <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='comisionistas') }}" data-inline data-inline-target="#concert-general-zone">
-        <div data-rows="zone">{% for z in concert.zone_agents %}<script type="application/json" data-row-type="zone">{{ {'zone_promoter_id': (z.promoter_id|string if z.promoter_id else ''), 'zone_commission_mode': ('PERCENT' if z.commission_type=='PERCENT' else 'FIXED'), 'zone_commission_pct': (z.commission_pct|string if z.commission_pct is not none else ''), 'zone_commission_base': (z.commission_base or 'GROSS'), 'zone_commission_amount': (z.commission_amount|string if z.commission_amount is not none else ''), 'zone_exempt_amount': (z.exempt_amount|string if z.exempt_amount is not none else ''), 'zone_concept': (z.concept or '')}|tojson }}</script>{% endfor %}</div>
-        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="zone"><i class="fa fa-plus me-1"></i>Añadir comisionista</button>
+        <div data-rows="zone">{% for z in concert.zone_agents %}<script type="application/json" data-row-type="zone">{{ {'zone_promoter_id': (z.promoter_id|string if z.promoter_id else ''), 'zone_commission_mode': ('PERCENT' if z.commission_type=='PERCENT' else 'FIXED'), 'zone_commission_pct': (z.commission_pct|string if z.commission_pct is not none else ''), 'zone_commission_base': (z.commission_base or 'GROSS'), 'zone_commission_amount': (z.commission_amount|string if z.commission_amount is not none else ''), 'zone_exempt_amount': (z.exempt_amount|string if z.exempt_amount is not none else ''), 'zone_concept': (z.concept or ''), 'zone_apply_mode': (z.apply_mode or 'EXPENSE')}|tojson }}</script>{% endfor %}</div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="zone"><i class="fa fa-plus me-1"></i>Añadir comisión</button>
         <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
       </form>
       {% endif %}
     </div>
-    {% endif %}
 
     {% set eq = concert.equipment %}
     {% set eq_option = '' %}
@@ -3280,4 +3311,45 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 </script>
 {% endif %}
+
+{# FACTURA DE UNA COMISIÓN: la sube contratación desde aquí (o se le solicita a quien corresponda). #}
+{% if CAN_EDIT_CONCERTS %}
+<div class="modal fade" id="commissionInvoiceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('concert_commission_invoice', cid=concert.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="agent_id" data-commission-target>
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-file-invoice me-2"></i>Factura de la comisión</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2 small text-muted" data-commission-who></div>
+        <label class="form-label">Documento</label>
+        <input type="file" class="form-control" name="invoice" accept="application/pdf,image/*" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary"><i class="fa fa-upload me-1"></i>Subir</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  // De QUÉ comisión es la factura se fija EN EL CLIC (con `modal_stack.js` por medio,
+  // `shown.bs.modal` no siempre llega).
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-commission-id]');
+    if (!b) return;
+    var m = document.getElementById('commissionInvoiceModal');
+    if (!m) return;
+    var h = m.querySelector('[data-commission-target]');
+    if (h) h.value = b.getAttribute('data-commission-id') || '';
+    var w = m.querySelector('[data-commission-who]');
+    if (w) w.textContent = b.getAttribute('data-commission-name') || '';
+  });
+</script>
+{% endif %}
+
 {% endblock %}

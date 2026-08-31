@@ -1349,10 +1349,15 @@ function initDropdownOverflowFix(){
   };
 }
 
-function initVisualChoiceCards(){
-  document.querySelectorAll('.activity-choice-card, .visual-choice-card').forEach((card) => {
+/* ⚠️ Acepta una RAÍZ (para las tarjetas que se crean sobre la marcha, como las de una comisión del
+   asistente) y es IDEMPOTENTE: sin la marca, volver a llamarla registraba OTRO listener en las que
+   ya estaban y el clic se contaba dos veces. */
+function initVisualChoiceCards(root){
+  (root || document).querySelectorAll('.activity-choice-card, .visual-choice-card').forEach((card) => {
     const input = card.querySelector('input[type="radio"], input[type="checkbox"]');
     if (!input) return;
+    if (card.__vccInit) return;
+    card.__vccInit = true;
     const updateGroup = () => {
       const name = input.name;
       if (input.type === 'radio' && name) {

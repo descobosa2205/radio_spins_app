@@ -2961,6 +2961,23 @@ class ConcertZoneAgent(Base):
     # Concepto / motivo de la comisión
     concept = Column(Text)
 
+    # ⚠️⚠️ CÓMO SE APLICA la comisión, que son DOS cosas muy distintas:
+    #  · EXPENSE = es un GASTO sobre el caché. Entra en la bolsa como un gasto más (categoría
+    #    «Comisiones»), se ve en el aviso al artista y se puede dejar fuera del envío.
+    #  · REDUCE  = REDUCE el caché. No se enseña como concepto aparte: el caché que se ve (y el que
+    #    se le comunica al artista) ya va con la comisión descontada; en la liquidación aparece en
+    #    la parte del CACHÉ, para que administración lo pague, no en la de gastos.
+    apply_mode = Column(Text, nullable=False, server_default=text("'EXPENSE'"))
+    # La FACTURA de la comisión (la sube contratación desde la ficha, o se le solicita a quien
+    # corresponda y la sube por su enlace).
+    invoice_url = Column(Text)
+    invoice_name = Column(Text)
+    invoice_requested_at = Column(DateTime(timezone=True))
+    invoice_uploaded_at = Column(DateTime(timezone=True))
+    # El GASTO que esta comisión tiene en la bolsa (cuando se aplica como gasto): es el mismo dinero
+    # visto desde dos sitios, así que se guarda el vínculo y no se apunta dos veces.
+    bag_expense_id = Column(PGUUID(as_uuid=True))
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     promoter = relationship("Promoter")
@@ -8779,6 +8796,16 @@ def ensure_third_party_and_contract_sheet_schema():
         """
         ALTER TABLE IF EXISTS concert_zone_agents
             ADD COLUMN IF NOT EXISTS promoter_company_id uuid;
+        """,
+        # CÓMO SE APLICA la comisión (gasto sobre el caché o reducción del caché) y su factura.
+        """
+        ALTER TABLE IF EXISTS concert_zone_agents
+            ADD COLUMN IF NOT EXISTS apply_mode text NOT NULL DEFAULT 'EXPENSE',
+            ADD COLUMN IF NOT EXISTS invoice_url text,
+            ADD COLUMN IF NOT EXISTS invoice_name text,
+            ADD COLUMN IF NOT EXISTS invoice_requested_at timestamptz,
+            ADD COLUMN IF NOT EXISTS invoice_uploaded_at timestamptz,
+            ADD COLUMN IF NOT EXISTS bag_expense_id uuid;
         """,
         """
         DO $$

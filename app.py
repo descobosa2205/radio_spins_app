@@ -3353,7 +3353,84 @@ def _ensure_internal_contract_sheet(session_db, concert: Concert | None) -> Conc
     return sheet
 
 
+def _concert_commission_rows(session_db, concert) -> list[dict]:
+    """LAS COMISIONES de una actividad, listas para enseñar. Punto único.
+
+    Cada una dice a quién se le paga, cuánto (importe fijo o % sobre el bruto/neto), por qué y
+    —lo importante— CÓMO SE APLICA: si es un GASTO sobre el caché o si lo REDUCE."""
+    if concert is None:
+        return []
+    filas = []
+    try:
+        agentes = list(getattr(concert, "zone_agents", None) or [])
+    except Exception:
+        app.logger.exception("[comisiones] no se pudieron leer")
+        return []
+    for a in agentes:
+        promoter = getattr(a, "promoter", None)
+        company = getattr(a, "promoter_company", None)
+        importe = _money_or_zero(getattr(a, "commission_amount", None))
+        pct = getattr(a, "commission_pct", None)
+        base = (getattr(a, "commission_base", None) or "GROSS").upper()
+        modo = _commission_apply_mode(getattr(a, "apply_mode", None))
+        filas.append({
+            "id": str(a.id),
+            "promoter_id": (str(a.promoter_id) if a.promoter_id else ""),
+            "name": (getattr(company, "legal_name", None) or getattr(company, "name", None)
+                     or getattr(promoter, "nick", None) or "—"),
+            "logo_url": (getattr(promoter, "logo_url", None) or ""),
+            "is_fixed": bool(importe),
+            "amount": importe,
+            "amount_label": (format_eur(importe) if importe else ""),
+            "pct": pct,
+            "pct_label": (("%s%%" % _fmt_pct_es(pct)) if pct not in (None, "") else ""),
+            "base": base,
+            "base_label": ("Bruto" if base == "GROSS" else ("Neto" if base == "NET" else "Beneficio")),
+            "concept": (getattr(a, "concept", None) or ""),
+            "apply_mode": modo,
+            "apply_label": COMMISSION_APPLY_LABELS.get(modo, modo),
+            "apply_icon": COMMISSION_APPLY_ICONS.get(modo, "fa-receipt"),
+            "invoice_url": (getattr(a, "invoice_url", None) or ""),
+            "invoice_name": (getattr(a, "invoice_name", None) or ""),
+            "invoice_requested": bool(getattr(a, "invoice_requested_at", None)),
+        })
+    return filas
+
+
+def _concert_commission_reduction(session_db, concert) -> Decimal:
+    """Lo que las comisiones que REDUCEN el caché descuentan de él.
+
+    ⚠️ Solo cuenta lo que se puede descontar de verdad: un importe FIJO, o un porcentaje sobre el
+    caché pactado. Una comisión sobre la recaudación no se puede descontar aquí (no se sabe hasta
+    liquidar) y se deja fuera."""
+    total = Decimal("0")
+    if concert is None:
+        return total
+    base_cache = Decimal("0")
+    for c in (getattr(concert, "caches", None) or []):
+        base_cache += _money_or_zero(getattr(c, "amount", None))
+    for a in (getattr(concert, "zone_agents", None) or []):
+        if _commission_apply_mode(getattr(a, "apply_mode", None)) != "REDUCE":
+            continue
+        importe = _money_or_zero(getattr(a, "commission_amount", None))
+        if importe:
+            total += importe
+            continue
+        pct = getattr(a, "commission_pct", None)
+        if pct not in (None, "") and base_cache:
+            try:
+                total += (base_cache * Decimal(str(pct)) / Decimal("100"))
+            except Exception:
+                pass
+    return total
+
+
 def _concert_cache_summary(concert: Concert | None) -> str | None:
+    """El caché en texto corto.
+
+    ⚠️ Si hay comisiones que REDUCEN el caché, lo que se enseña va YA DESCONTADO (y se dice), que es
+    lo que se le comunica al artista: esa comisión no es un concepto aparte, se la queda quien la
+    cobra antes de que el caché llegue."""
     if not concert:
         return None
     rows = []
@@ -3372,7 +3449,16 @@ def _concert_cache_summary(concert: Concert | None) -> str | None:
         if pct not in (None, ''):
             bits.append(f"{pct}% {getattr(row, 'pct_base', None) or 'GROSS'}")
         rows.append(' · '.join([x for x in bits if x]))
-    return ' | '.join(rows) if rows else None
+    if not rows:
+        return None
+    texto = ' | '.join(rows)
+    try:
+        descuento = _concert_commission_reduction(None, concert)
+    except Exception:
+        descuento = Decimal("0")
+    if descuento:
+        texto += ' · menos comisiones: %s' % format_eur(descuento)
+    return texto
 
 
 def _concert_contract_sheet_seed(concert: Concert | None) -> dict:
@@ -42580,7 +42666,29 @@ def _replace_concert_company_shares(session, concert_id, rows):
         )
 
 
-def _parse_zone_rows(ids, mode_list, pct_list, base_list, amount_list, exempt_list, concept_list):
+# ⚠️⚠️ CÓMO SE APLICA UNA COMISIÓN: son dos cosas muy distintas y hay que decirlo al crearla.
+#  · EXPENSE = GASTO sobre el caché: entra en la bolsa como un gasto más («Comisiones»), se ve en
+#    el aviso al artista y se puede dejar fuera del envío.
+#  · REDUCE  = REDUCE el caché: no se enseña como concepto aparte; el caché que se ve —y el que se
+#    le comunica al artista— ya va con la comisión descontada, y en la liquidación aparece en la
+#    parte del CACHÉ (para que administración lo pague), no en la de gastos.
+COMMISSION_APPLY_MODES = [
+    ("EXPENSE", "Gasto sobre el caché", "fa-receipt"),
+    ("REDUCE", "Reduce el caché", "fa-arrow-down-short-wide"),
+]
+COMMISSION_APPLY_LABELS = {k: l for k, l, _ in COMMISSION_APPLY_MODES}
+COMMISSION_APPLY_ICONS = {k: i for k, _, i in COMMISSION_APPLY_MODES}
+COMMISSION_EXPENSE_CATEGORY = "COMISIONES"
+
+
+def _commission_apply_mode(value) -> str:
+    """Normaliza cómo se aplica una comisión (por defecto, GASTO sobre el caché)."""
+    v = (value or "").strip().upper()
+    return v if v in COMMISSION_APPLY_LABELS else "EXPENSE"
+
+
+def _parse_zone_rows(ids, mode_list, pct_list, base_list, amount_list, exempt_list, concept_list,
+                     apply_list=None):
     """Parsea comisionistas (promotores de zona).
 
     - mode: FIXED | PERCENT
@@ -42629,6 +42737,9 @@ def _parse_zone_rows(ids, mode_list, pct_list, base_list, amount_list, exempt_li
             "commission_amount": commission_amount,
             "exempt_amount": exm,
             "concept": concept,
+            # Cómo se aplica: gasto sobre el caché (por defecto) o reducción del caché.
+            "apply_mode": _commission_apply_mode(
+                (apply_list[i] if (apply_list and i < len(apply_list)) else None)),
         })
 
     # dedupe (último gana)
@@ -42654,6 +42765,7 @@ def _replace_concert_zone_agents(session, concert_id, rows):
                 commission_amount_base=None,
                 exempt_amount=r.get("exempt_amount"),
                 concept=r.get("concept"),
+                apply_mode=_commission_apply_mode(r.get("apply_mode")),
             )
         )
 
@@ -44251,6 +44363,144 @@ def _concert_bag_id(session_db, concert):
         return str(fila[0]) if fila else ""
     except Exception:
         return ""
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# COMISIONES · la factura y el gasto en la bolsa
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+def _commission_expense_concept(agent) -> str:
+    """El concepto con el que la comisión entra en la bolsa."""
+    quien = (getattr(getattr(agent, "promoter", None), "nick", None) or "Comisionista").strip()
+    motivo = (getattr(agent, "concept", None) or "").strip()
+    return ("Comisión · %s%s" % (quien, (" · " + motivo) if motivo else ""))[:300]
+
+
+def _commission_sync_bag_expense(session_db, concert, agent) -> None:
+    """UNA COMISIÓN QUE ES UN GASTO SE VE EN LA BOLSA (regla de la casa: el mismo dinero visto desde
+    dos sitios, nadie lo apunta dos veces).
+
+    Solo las de importe FIJO se pueden apuntar: un porcentaje sobre la recaudación no se sabe hasta
+    liquidar, así que ese se queda en la ficha y llega a la liquidación por su camino.
+    Si deja de ser un gasto (pasa a reducir el caché), su gasto se retira."""
+    if concert is None or agent is None:
+        return
+    bag_id = _concert_bag_id(session_db, concert)
+    if not bag_id:
+        return          # todavía no hay bolsa: se creará al activar la producción
+    modo = _commission_apply_mode(getattr(agent, "apply_mode", None))
+    importe = _money_or_zero(getattr(agent, "commission_amount", None))
+    existente = None
+    try:
+        if getattr(agent, "bag_expense_id", None):
+            existente = session_db.get(BagExpense, agent.bag_expense_id)
+    except Exception:
+        app.logger.exception("[comisiones] no se pudo buscar el gasto de la comisión")
+        return
+    if modo != "EXPENSE" or not importe:
+        # Si deja de ser un gasto, el gasto se RETIRA (no se queda un importe fantasma en la bolsa).
+        if existente is not None:
+            session_db.delete(existente)
+        agent.bag_expense_id = None
+        return
+    if existente is None:
+        existente = BagExpense(bag_id=_safe_uuid(bag_id))
+        session_db.add(existente)
+        session_db.flush()
+        agent.bag_expense_id = existente.id
+    existente.category = COMMISSION_EXPENSE_CATEGORY
+    existente.concept = _commission_expense_concept(agent)
+    existente.amount_gross = importe
+    existente.provider_id = getattr(agent, "promoter_id", None)
+    existente.provider_company_id = getattr(agent, "promoter_company_id", None)
+
+
+def _concert_commissions_sync_bag(session_db, concert) -> None:
+    """Pasa por la bolsa TODAS las comisiones de la actividad (las que son un gasto)."""
+    for agent in (getattr(concert, "zone_agents", None) or []):
+        try:
+            _commission_sync_bag_expense(session_db, concert, agent)
+        except Exception:
+            app.logger.exception("[comisiones] no se pudo llevar la comisión a la bolsa")
+
+
+@app.post("/conciertos/<cid>/comisiones/factura", endpoint="concert_commission_invoice")
+@admin_required
+def concert_commission_invoice(cid):
+    """CONTRATACIÓN sube la factura de una comisión desde la ficha de la actividad."""
+    if not can_edit_concerts():
+        return forbid("No tienes permisos para editar actividades.")
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        agent = session_db.get(ConcertZoneAgent, _safe_uuid(request.form.get("agent_id") or ""))
+        if concert is None or agent is None or str(agent.concert_id) != str(concert.id):
+            flash("No se encontró la comisión.", "warning")
+            return redirect(url_for("concert_detail_view", cid=cid) + "#comisiones")
+        archivo = request.files.get("invoice")
+        if not archivo or not getattr(archivo, "filename", ""):
+            flash("Elige el documento de la factura.", "warning")
+            return redirect(url_for("concert_detail_view", cid=cid) + "#comisiones")
+        agent.invoice_url = upload_file(archivo, "commissions")
+        agent.invoice_name = (archivo.filename or "")[:255]
+        agent.invoice_uploaded_at = _now_madrid()
+        # Si la comisión es un gasto, su factura viaja con él a la bolsa.
+        try:
+            _commission_sync_bag_expense(session_db, concert, agent)
+            gasto = (session_db.get(BagExpense, agent.bag_expense_id)
+                     if getattr(agent, "bag_expense_id", None) else None)
+            if gasto is not None:
+                gasto.attachment_url = agent.invoice_url
+                gasto.attachment_name = agent.invoice_name
+                gasto.document_type = "FACTURA"
+        except Exception:
+            app.logger.exception("[comisiones] no se pudo enganchar la factura al gasto")
+        session_db.commit()
+        flash("Factura de la comisión guardada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[comisiones] no se pudo subir la factura")
+        flash("No se pudo subir la factura: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("concert_detail_view", cid=cid) + "#comisiones")
+
+
+@app.post("/conciertos/<cid>/comisiones/<agent_id>/solicitar-factura",
+          endpoint="concert_commission_request_invoice")
+@admin_required
+def concert_commission_request_invoice(cid, agent_id):
+    """Le PIDE la factura de la comisión a quien la cobra (con el enlace de subida de siempre)."""
+    if not can_edit_concerts():
+        return forbid("No tienes permisos para editar actividades.")
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        agent = session_db.get(ConcertZoneAgent, _safe_uuid(agent_id))
+        if concert is None or agent is None or str(agent.concert_id) != str(concert.id):
+            flash("No se encontró la comisión.", "warning")
+            return redirect(url_for("concert_detail_view", cid=cid) + "#comisiones")
+        promoter = getattr(agent, "promoter", None)
+        correo, _tel = _promoter_email_phone(promoter)
+        agent.invoice_requested_at = _now_madrid()
+        session_db.commit()
+        if correo:
+            ok, err = _send_optional_email(
+                correo,
+                "Factura de comisión · %s" % (_concert_title_for_notice(concert) or "actividad"),
+                "<p>Hola,</p><p>Cuando puedas, mándanos la factura de tu comisión de <strong>%s</strong>.</p>"
+                % escape(_concert_title_for_notice(concert) or "la actividad"))
+            flash("Factura solicitada a %s." % correo if ok else
+                  "Se ha apuntado la solicitud, pero el correo no salió: %s" % (err or ""),
+                  "success" if ok else "warning")
+        else:
+            flash("Apuntado. Ese tercero no tiene correo en su ficha: pídesela tú y súbela aquí.", "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[comisiones] no se pudo solicitar la factura")
+        flash("No se pudo solicitar la factura: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("concert_detail_view", cid=cid) + "#comisiones")
 
 
 def _concert_task_board(session_db, concert) -> dict:
@@ -50391,6 +50641,8 @@ def concerts_page():
                         request.form.getlist("zone_concept[]"),
                     )
                     _replace_concert_zone_agents(s, c.id, z_rows)
+                    s.flush()
+                    _concert_commissions_sync_bag(s, c)
                 else:
                     _replace_concert_promoter_shares(s, c.id, [])
                     _replace_concert_company_shares(s, c.id, [])
@@ -51064,6 +51316,9 @@ def concert_detail_view(cid):
             all_concert_tags=all_concert_tags,
             is_promo_activity=is_promo_activity,
             activity_type_label=_activity_kind_label(c.activity_type),
+            # LAS COMISIONES de la actividad, con cómo se aplica cada una y su factura.
+            commission_rows=_concert_commission_rows(session, c),
+            commission_apply_modes=COMMISSION_APPLY_MODES,
             # En una actividad que no es un concierto, el tipo de venta solo dice si lleva caché.
             activity_cache_label=_activity_cache_label(c.sale_type, c.activity_type),
             is_concert_like=(_activity_kind_key(c.activity_type) in CONCERT_LIKE_ACTIVITY_TYPES
@@ -52934,8 +53189,8 @@ def concert_section_update_handler(cid, section):
             session.commit()
             flash("Colaboradores actualizados.", "success")
         elif section == "comisionistas":
-            if (c.sale_type or "").strip().upper() == "VENDIDO":
-                raise ValueError("Un concierto vendido no admite comisionistas.")
+            # ⚠️ Las comisiones valen para CUALQUIER actividad: antes un concierto «vendido» las
+            # rechazaba, así que en la mayoría no se podían ni añadir.
             z_rows = _parse_zone_rows(
                 request.form.getlist("zone_promoter_id[]"),
                 request.form.getlist("zone_commission_mode[]"),
@@ -52944,10 +53199,14 @@ def concert_section_update_handler(cid, section):
                 request.form.getlist("zone_commission_amount[]"),
                 request.form.getlist("zone_exempt_amount[]"),
                 request.form.getlist("zone_concept[]"),
+                request.form.getlist("zone_apply_mode[]"),
             )
             _replace_concert_zone_agents(session, c.id, z_rows)
+            session.flush()
+            # Una comisión que es un GASTO se ve en la bolsa (el mismo dinero desde dos sitios).
+            _concert_commissions_sync_bag(session, c)
             session.commit()
-            flash("Comisionistas actualizados.", "success")
+            flash("Comisiones actualizadas.", "success")
         elif section == "caches":
             cache_rows = _parse_cache_rows(
                 request.form.getlist("cache_kind[]"),
@@ -60152,6 +60411,7 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
     pcts = form.getlist('wizard_zone_pct[]')
     bases = form.getlist('wizard_zone_base[]')
     concepts = form.getlist('wizard_zone_concept[]')
+    applies = form.getlist('wizard_zone_apply[]')
     for i, raw_id in enumerate(ids or []):
         raw_id = (raw_id or '').strip()
         if not raw_id:
@@ -60175,6 +60435,7 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
                 'commission_amount': amount,
                 'concept': (concepts[i] if i < len(concepts) else '').strip() or None,
                 'exempt_amount': None,
+                'apply_mode': _commission_apply_mode(applies[i] if i < len(applies) else None),
             })
         else:
             pct = _parse_optional_decimal(pcts[i] if i < len(pcts) else None)
@@ -60190,6 +60451,7 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
                 'commission_amount': None,
                 'concept': (concepts[i] if i < len(concepts) else '').strip() or None,
                 'exempt_amount': None,
+                'apply_mode': _commission_apply_mode(applies[i] if i < len(applies) else None),
             })
     return rows
 
@@ -60662,6 +60924,9 @@ def concert_wizard_create():
 
         _replace_concert_promoter_shares(session, concert.id, _resolve_wizard_entity_rows(session, _parse_wizard_promoter_share_rows(request.form)))
         _replace_concert_zone_agents(session, concert.id, _resolve_wizard_entity_rows(session, _parse_wizard_zone_rows(request.form)))
+        session.flush()
+        # ⚠️ Una comisión que es un GASTO se ve en la bolsa: el mismo dinero desde dos sitios.
+        _concert_commissions_sync_bag(session, concert)
         _replace_concert_company_shares(session, concert.id, [])
 
         cache_rows = _parse_cache_rows(
@@ -68478,6 +68743,8 @@ BAG_EXPENSE_CATEGORIES = [
     ("ALOJAMIENTO", "Alojamiento"),
     ("MARKETING", "Marketing y promoción"),
     ("PERMISOS", "Permisos y licencias"),
+    # Las COMISIONES que son un GASTO sobre el caché (ver `COMMISSION_APPLY_MODES`) entran aquí.
+    ("COMISIONES", "Comisiones"),
     ("OTROS", "Otros gastos"),
     ("PRORRATEOS", "Prorrateos"),
 ]
@@ -68502,6 +68769,7 @@ BAG_EXPENSE_CATEGORY_ICONS = {
     "RECINTO": "fa-building", "RIDER": "fa-list-check", "SONIDO_LUCES": "fa-sliders",
     "PERSONAL": "fa-users-gear", "MUSICOS": "fa-guitar", "LOGISTICA": "fa-truck",
     "ALOJAMIENTO": "fa-bed", "MARKETING": "fa-bullhorn", "PERMISOS": "fa-stamp",
+    "COMISIONES": "fa-user-tag",
     "OTROS": "fa-shapes", "PRORRATEOS": "fa-code-branch",
     "PROD_AUDIO": "fa-microphone-lines", "PROD_VIDEO": "fa-video", "PROD_FISICO": "fa-compact-disc",
 }
@@ -88889,6 +89157,11 @@ def _concert_contracting_general_rows(session_db, concert):
             add(_etiqueta, _valor)
     if getattr(concert, "promoter_company", None):
         add("Sociedad promotor", getattr(concert.promoter_company, "legal_name", None) or getattr(concert.promoter_company, "name", None))
+    # LAS COMISIONES, con cómo se aplica cada una (y por tanto si se le comunican al artista).
+    for _c in _concert_commission_rows(session_db, concert):
+        _importe = _c["amount_label"] if _c["is_fixed"] else ("%s · %s" % (_c["pct_label"], _c["base_label"]))
+        add("Comisión · %s" % _c["name"],
+            " · ".join([x for x in (_importe, _c["concept"], _c["apply_label"]) if x]))
     if getattr(concert, "show_time_tbc", False):
         add("Hora de actuación", "TBC")
     else:
@@ -90582,6 +90855,7 @@ ACTIVITY_NOTICE_MODULES = [
     ("hoja_ruta", "Hoja de ruta"),
     ("descripcion", "Descripción"),
     ("cache", "Caché"),
+    ("comisiones", "Comisiones"),
     ("promotor", "Lo que cubre el promotor"),
     ("formato", "Formato"),
     ("equipamiento", "Equipamiento"),
@@ -91328,13 +91602,37 @@ def _activity_notice_conditions(session_db, concert) -> list[dict]:
     modulos = []
 
     caches = _concert_cache_readable_rows(session_db, concert)
+    filas_cache = [{"label": r["label"], "value": r["value"], "note": r["note"]} for r in caches]
+    # ⚠️⚠️ Una comisión que REDUCE el caché NO se le comunica al artista como concepto aparte: el
+    # caché que se le dice ya va con ella descontada (se la queda quien la cobra antes de llegar).
+    try:
+        _descuento = _concert_commission_reduction(session_db, concert)
+    except Exception:
+        _descuento = Decimal("0")
+    if _descuento and filas_cache:
+        filas_cache.append({"label": "Menos comisiones", "value": "− %s" % format_eur(_descuento), "note": ""})
     modulos.append({
         "key": "cache",
         "label": "Caché",
         "icon": "fa-money-bill-wave",
-        "rows": [{"label": r["label"], "value": r["value"], "note": r["note"]} for r in caches],
+        "rows": filas_cache,
         "empty_text": "Sin Caché",
     })
+
+    # ⚠️ Las comisiones que son un GASTO sobre el caché SÍ se enseñan, en su propio módulo: así se
+    # pueden dejar fuera del envío con su ojo, como cualquier otra condición.
+    filas_comision = []
+    for _c in _concert_commission_rows(session_db, concert):
+        if _c["apply_mode"] != "EXPENSE":
+            continue
+        filas_comision.append({
+            "label": _c["name"],
+            "value": (_c["amount_label"] if _c["is_fixed"] else "%s · %s" % (_c["pct_label"], _c["base_label"])),
+            "note": _c["concept"],
+        })
+    if filas_comision:
+        modulos.append({"key": "comisiones", "label": "Comisiones", "icon": "fa-user-tag",
+                        "rows": filas_comision, "empty_text": ""})
 
     filas_promotor = []
     for pc in _promoter_costs_rows(getattr(concert, "promoter_costs_payload", None)):

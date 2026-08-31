@@ -152,6 +152,13 @@
         + '<div class="col-md-2 zone-amount"><label class="form-label small">Importe (€)</label><input type="number" step="0.01" name="zone_commission_amount[]" class="form-control" placeholder="€"></div>'
         + '<div class="col-md-3"><label class="form-label small">Importe exento <span class="text-muted">(opc.)</span></label><input type="number" step="0.01" name="zone_exempt_amount[]" class="form-control" placeholder="€"></div>'
         + '<div class="col-md-7"><label class="form-label small">Motivo / concepto</label><textarea name="zone_concept[]" class="form-control" rows="1" placeholder="Motivo de la comisión..."></textarea></div>'
+        /* ⚠️ CÓMO SE APLICA: gasto sobre el caché (va a la bolsa, categoría «Comisiones») o
+           reducción del caché (el caché se ve y se comunica ya descontado). */
+        + '<div class="col-md-5"><label class="form-label small">¿Cómo se aplica?</label>'
+        +   '<select name="zone_apply_mode[]" class="form-select">'
+        +     '<option value="EXPENSE" selected>Gasto sobre el caché</option>'
+        +     '<option value="REDUCE">Reduce el caché</option>'
+        +   '</select></div>'
         + '<div class="col-md-2 d-grid"><label class="form-label small">&nbsp;</label><button type="button" class="btn btn-outline-danger" data-remove-row><i class="fa fa-trash"></i></button></div>'
         + '</div></div>');
     }

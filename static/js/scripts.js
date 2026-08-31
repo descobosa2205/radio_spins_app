@@ -302,8 +302,21 @@ function initConcertTagManager(opts){
   (opts.initialTags || []).forEach(addTag);
   sync();
 
+  /* Quitar una etiqueta desde fuera (las sugerencias del asistente se pinchan para poner y para
+     quitar, como cualquier filtro de la casa). */
+  function removeTag(raw){
+    const tag = normalizeTag(raw);
+    if (!tag) return false;
+    const i = values.findIndex((v) => v.localeCompare(tag, 'es', { sensitivity: 'accent' }) === 0);
+    if (i < 0) return false;
+    values.splice(i, 1);
+    sync();
+    return true;
+  }
+
   return {
     addTag,
+    removeTag,
     addFromInput,
     getTags: () => values.slice(),
   };

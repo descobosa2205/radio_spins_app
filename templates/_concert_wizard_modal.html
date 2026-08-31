@@ -2458,16 +2458,23 @@
         renderTagSuggestions();
       });
     }
+    /* LAS ETIQUETAS QUE YA TIENE ESE ARTISTA O EVENTO, como los FILTROS del resto de la app: se
+       pinchan para ponerlas y se vuelven a pinchar para quitarlas (la marcada se ve en rojo). Así
+       se repite en un clic la que ya se usó otras veces, en vez de volver a escribirla. */
     function renderTagSuggestions(){
       const wrap = document.getElementById('wizardTagSuggest');
       if(!wrap) return;
       const tags = window.__wizardArtistTags || [];
-      const chosen = tagManager ? tagManager.getTags().map(t => t.toLowerCase()) : [];
-      const items = tags.filter(t => chosen.indexOf(String(t).toLowerCase()) < 0).slice(0, 12);
-      wrap.classList.toggle('d-none', !items.length);
-      wrap.innerHTML = items.map(t => `<button type="button" class="btn btn-sm btn-outline-secondary rounded-pill wz-tag-suggest" data-tag="${t}"><i class="fa fa-hashtag me-1"></i>${t}</button>`).join('');
+      const puestas = tagManager ? tagManager.getTags().map(t => String(t).toLowerCase()) : [];
+      wrap.classList.toggle('d-none', !tags.length);
+      wrap.innerHTML = tags.slice(0, 24).map(t => {
+        const on = puestas.indexOf(String(t).toLowerCase()) >= 0;
+        return `<button type="button" class="filter-chip wz-tag-suggest${on ? ' is-on' : ''}" data-tag="${t}"><i class="fa fa-hashtag"></i>${t}</button>`;
+      }).join('');
       wrap.querySelectorAll('.wz-tag-suggest').forEach(btn => btn.addEventListener('click', () => {
-        tagManager?.addTag(btn.dataset.tag);
+        const t = btn.dataset.tag;
+        const puesta = (tagManager ? tagManager.getTags() : []).some(x => String(x).toLowerCase() === String(t).toLowerCase());
+        if(puesta) tagManager?.removeTag(t); else tagManager?.addTag(t);
         renderTagSuggestions();
       }));
     }

@@ -1361,7 +1361,7 @@
         <div class="card border-0 shadow-sm h-100">
           <div class="card-body">
             <div class="d-flex align-items-center gap-2 mb-2">
-              {% if r.company.logo_url %}<img src="{{ r.company.logo_url }}" alt="" style="width:42px;height:42px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid #e5e9f0;">{% else %}<span class="d-inline-flex align-items-center justify-content-center" style="width:42px;height:42px;border-radius:8px;background:#f1f3f7;"><i class="fa fa-building text-muted"></i></span>{% endif %}
+              {% if r.company.logo_url %}<img src="{{ r.company.logo_url }}" alt="" style="width:42px;height:42px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid #e5e9f0;">{% else %}<span class="co-logo--empty" style="width:42px;height:42px;font-size:18px;"><i class="fa fa-image"></i></span>{% endif %}
               <div class="flex-grow-1">
                 <div class="fw-semibold">{{ r.company.name }}</div>
                 {% if r.current %}

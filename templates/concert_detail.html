@@ -17,7 +17,7 @@
       {% with cs_id=concert.id, cs_status=concert.status %}{% include '_concert_status_badge.html' %}{% endwith %}
       {# ⚠️ «Gratuito» NO es un tipo de venta: es que la entrada es gratis. Por eso va en su propia
          etiqueta y el tipo dice cómo se vende (a empresa, participado, vendido…). #}
-      {% if is_free %}<span class="badge text-bg-success"><i class="fa fa-gift me-1"></i>Gratuito</span>{% endif %}
+      {% if is_free %}<span class="badge-gratuito"><i class="fa fa-gift"></i>Gratuito</span>{% endif %}
       {# ANUNCIO y SALIDA A LA VENTA, al lado del estado y con el mismo comportamiento: se pinchan
          para cambiarlos. La de la venta solo si la actividad vende entradas. #}
       {% include '_concert_announcement_badge.html' %}
@@ -55,7 +55,7 @@
         {% if _hero_co.logo_url %}
           <img src="{{ _hero_co.logo_url }}" alt="{{ _hero_co.name }}">
         {% else %}
-          <span class="hero-company__ph"><i class="fa fa-building"></i></span>
+          <span class="hero-company__ph"><i class="fa fa-image"></i></span>
         {% endif %}
         <span class="hero-company__t">
           <span class="hero-company__lab">{{ 'Factura' if concert.billing_company else 'Empresa' }}</span>

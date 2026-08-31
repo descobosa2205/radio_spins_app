@@ -1468,9 +1468,11 @@ def inject_globals():
             return Markup('<img class="%s" src="%s" alt="%s" title="%s" loading="lazy" '
                           'style="width:%dpx;height:%dpx;object-fit:contain;">') % (
                 cls, _logo_clean_url(logo), nombre, nombre, px, px)
+        # ⚠️ El icono es el de una IMAGEN, no el de un edificio: lo que falta es el LOGO (es el
+        # mismo criterio que el muñequito gris de una persona sin foto).
         return Markup('<span class="%s co-logo--empty" title="%s" '
                       'style="width:%dpx;height:%dpx;font-size:%dpx;">'
-                      '<i class="fa fa-building"></i></span>') % (cls, nombre, px, px, max(12, px // 2))
+                      '<i class="fa fa-image"></i></span>') % (cls, nombre, px, px, max(12, px // 2))
 
     def company_chip(company=None, name=None, logo_url=None, size=28):
         """Logo (o icono) + NOMBRE de la empresa del grupo, en una cápsula."""
@@ -45597,10 +45599,12 @@ def _home_pending_peticiones(limit=12):
 # Agrupan conciertos reales por FK (Concert.purchased_tour_id / cycle_festival_id). Ficha estilo
 # simulación: Resumen + Producción general (adelanto prorrateado + gastos generales) + Fechas (o
 # Artistas en festival). Economía detallada por fecha vive en la ficha de cada concierto.
+# ⚠️ EL COLOR DICE EN QUÉ PUNTO ESTÁ: lo que todavía se está hablando va en AZUL, lo que está
+# apalabrado pero puede caerse en AMARILLO, lo cerrado en VERDE y lo que se cae en ROJO.
 CONCERT_STATUS_META = {
-    "BORRADOR": ("Borrador", "text-bg-light border text-dark"),
-    "HABLADO": ("Hablado", "text-bg-secondary"),
-    "RESERVADO": ("Reservado", "text-bg-info text-dark"),
+    "BORRADOR": ("Borrador", "text-bg-primary"),
+    "HABLADO": ("Hablado", "text-bg-primary"),
+    "RESERVADO": ("Reservado", "text-bg-warning text-dark"),
     "CONFIRMADO": ("Confirmado", "text-bg-success"),
     # ⚠️ Una actividad que se cae o se mueve NO se borra: cambia de estado y arrastra su proceso
     # (motivo, caché, gastos y las tareas de producción). Ver `CANCEL_KINDS`.
@@ -74975,9 +74979,11 @@ PROMO_FORMATION_ICONS = {key: icon for key, _label, icon in PROMO_FORMATIONS}
 # Estados con los MISMOS códigos que un concierto (así valen tal cual el calendario,
 # `_agenda_status_meta` y las pastillas), con la etiqueta en femenino: «la promoción».
 PROMO_STATUS_META = {
-    "BORRADOR": ("Borrador", "text-bg-light border text-dark"),
-    "HABLADO": ("Hablada", "text-bg-secondary"),
-    "RESERVADO": ("Reservada", "text-bg-info text-dark"),
+    # Los MISMOS colores que una actividad (ver `CONCERT_STATUS_META`): azul lo que se habla,
+    # amarillo lo apalabrado, verde lo cerrado y rojo lo que se cae.
+    "BORRADOR": ("Borrador", "text-bg-primary"),
+    "HABLADO": ("Hablada", "text-bg-primary"),
+    "RESERVADO": ("Reservada", "text-bg-warning text-dark"),
     "CONFIRMADO": ("Confirmada", "text-bg-success"),
     "CANCELADO": ("Cancelada", "text-bg-danger"),
 }
@@ -116335,6 +116341,8 @@ def _agenda_status_meta(code: str | None) -> tuple[str, str]:
         "RESERVA": ("Reserva", "reservado"),
         "HABLADO": ("Hablado", "hablado"),
         "BORRADOR": ("Borrador", "hablado"),
+        "CANCELADO": ("Cancelada", "cancelado"),
+        "APLAZADO": ("Aplazada", "aplazado"),
         "CERRADA": ("Cerrada", "confirmado"),
     }
     return table.get(code, ("", ""))

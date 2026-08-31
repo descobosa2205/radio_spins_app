@@ -122,7 +122,7 @@
                 <span class="fw-semibold" style="min-width:96px;">{{ a.date_label }}</span>
                 <span class="flex-grow-1 text-truncate">{{ a.title or a.venue or 'Actividad' }}{% if a.title and a.venue %} <span class="text-muted">· {{ a.venue }}</span>{% endif %}</span>
                 <span class="badge text-bg-light border">{{ a.sale_type_label }}</span>
-                {% if a.is_free %}<span class="badge text-bg-success"><i class="fa fa-gift me-1"></i>Gratuito</span>{% endif %}
+                {% if a.is_free %}<span class="badge-gratuito"><i class="fa fa-gift"></i>Gratuito</span>{% endif %}
                 <span class="badge {{ a.status_badge }}">{{ a.status_label }}</span>
                 <i class="fa fa-chevron-right text-muted"></i>
               </a>

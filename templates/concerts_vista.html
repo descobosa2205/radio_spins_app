@@ -215,7 +215,7 @@
       {% endif %}
       <span class="badge text-bg-light border flex-shrink-0">{{ c.sale_type_label }}</span>
       {# ⚠️ «Gratuito» NO es un tipo de venta: es que la entrada es gratis. Va en su etiqueta. #}
-      {% if c.is_free %}<span class="badge text-bg-success flex-shrink-0"><i class="fa fa-gift me-1"></i>Gratuito</span>{% endif %}
+      {% if c.is_free %}<span class="badge-gratuito flex-shrink-0"><i class="fa fa-gift"></i>Gratuito</span>{% endif %}
       {% with cs_id=c.id, cs_status=c.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
     </a>
     {% endfor %}

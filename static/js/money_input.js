@@ -24,12 +24,47 @@
     if (el.closest && el.closest('[data-no-money-format]')) return false;
     if (el.hasAttribute('data-money')) return true;
     var g = el.closest ? el.closest('.input-group') : null;
-    if (!g) return false;
-    var spans = g.querySelectorAll('.input-group-text');
-    for (var i = 0; i < spans.length; i++) {
-      if ((spans[i].textContent || '').indexOf('€') !== -1) return true;
+    if (g) {
+      var spans = g.querySelectorAll('.input-group-text');
+      for (var i = 0; i < spans.length; i++) {
+        if ((spans[i].textContent || '').indexOf('€') !== -1) return true;
+      }
     }
-    return false;
+    return pareceImporte(el);
+  }
+
+  /* ⚠️ UN IMPORTE SE FORMATEA AUNQUE NADIE LO HAYA MARCADO. Marcar campo a campo con `data-money`
+     no escala —hay cientos de formularios— y se quedaban cachés y presupuestos escribiéndose «a
+     pelo». Aquí se reconoce por el NOMBRE del campo, que en esta app es muy regular.
+     Se excluye lo que NO es dinero aunque lo parezca: porcentajes, cantidades, años, códigos… */
+  var IMPORTE_RE = /(amount|importe|cache|caché|fee|precio|price|total|coste|cost|budget|presupuesto|cuota|neto|bruto|gross|_net$|_eur|euros|salario|deposito|dep[oó]sito|adelanto|anticipo|revenue|ingreso|recaudac)/i;
+  /* ⚠️ Lo que NO es dinero aunque su nombre lo parezca. Ojo con los campos de TEXTO que llevan la
+     palabra dentro (`cache_concept[]` es el concepto del caché, no un importe): formatearlos
+     destrozaría lo que se escribe. */
+  var NO_IMPORTE_RE = new RegExp([
+    'pct', 'percent', 'porcentaje', '_%',
+    'qty', 'quantity', 'cantidad', 'count', 'num', 'numero',
+    // ⚠️ `n_` SOLO como segmento (`n_personas`): suelto se comía «cache_mi(n_r)evenue».
+    '(^|_)n_',
+    'year', 'anio', 'año', '_id$', 'id$', 'code', 'codigo',
+    'iban', 'bic', 'nif', 'cif', 'dni', 'tel', 'phone', 'zip', 'postal',
+    'capacity', 'aforo', 'ticket',
+    // campos de TEXTO o de elección que llevan una palabra de dinero dentro
+    'concept', 'concepto', 'type', 'tipo', 'kind', 'label', 'name', 'nombre',
+    'note', 'nota', 'desc', 'text', 'texto', 'basis', 'base', 'mode', 'modo',
+    'option', 'opcion', 'url', 'email', 'date', 'fecha',
+  ].join('|'), 'i');
+
+  function pareceImporte(el) {
+    var nombre = (el.getAttribute('name') || el.id || '');
+    if (!nombre) return false;
+    if (NO_IMPORTE_RE.test(nombre)) return false;
+    if (!IMPORTE_RE.test(nombre)) return false;
+    // Un `type="number"` con `step` de enteros no es un importe (son unidades).
+    var t = (el.getAttribute('type') || 'text').toLowerCase();
+    var step = (el.getAttribute('step') || '').trim();
+    if (t === 'number' && step && step.indexOf('.') < 0 && step !== 'any') return false;
+    return true;
   }
 
   // «1.234,56» / «1.234» / «1234.56» / «1234» → «1234.56» (canónico para el servidor).

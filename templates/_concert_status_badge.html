@@ -5,14 +5,17 @@
      {% with cs_id=concert.id, cs_status=concert.status, cs_extra_class='...' %}
        {% include '_concert_status_badge.html' %}
      {% endwith %} #}
-{% set _cs_map = {'CONFIRMADO': 'bg-success', 'RESERVADO': 'bg-primary text-white', 'BORRADOR': 'text-bg-light border text-dark', 'HABLADO': 'bg-warning text-dark', 'CANCELADO': 'bg-danger', 'APLAZADO': 'bg-warning text-dark'} %}
+{# ⚠️ El COLOR dice en qué punto está: lo que se está hablando en AZUL, lo apalabrado que puede
+   caerse en AMARILLO, lo cerrado en VERDE y lo que se cae en ROJO. El mismo criterio que
+   `CONCERT_STATUS_META` (app.py): si se toca uno, se toca el otro. #}
+{% set _cs_map = {'BORRADOR': 'bg-primary text-white', 'HABLADO': 'bg-primary text-white', 'RESERVADO': 'bg-warning text-dark', 'CONFIRMADO': 'bg-success', 'CANCELADO': 'bg-danger', 'APLAZADO': 'bg-warning text-dark'} %}
 {% set _cs = (cs_status or 'BORRADOR')|upper %}
 {% set _cls = _cs_map.get(_cs, 'bg-warning text-dark') %}
 {% if CAN_EDIT_CONCERTS %}
 <span class="dropdown {{ cs_extra_class or '' }}" data-status-menu data-status-url="{{ url_for('concert_quick_status', cid=cs_id) }}" onclick="event.preventDefault(); event.stopPropagation();">
   <button type="button" class="badge border-0 dropdown-toggle {{ _cls }}" data-bs-toggle="dropdown" data-no-loader title="Cambiar el estado">{{ _cs }}</button>
   <ul class="dropdown-menu">
-    {% for k, c in [('BORRADOR', 'text-bg-light border text-dark'), ('HABLADO', 'bg-warning text-dark'), ('RESERVADO', 'bg-primary text-white'), ('CONFIRMADO', 'bg-success')] %}
+    {% for k, c in [('BORRADOR', 'bg-primary text-white'), ('HABLADO', 'bg-primary text-white'), ('RESERVADO', 'bg-warning text-dark'), ('CONFIRMADO', 'bg-success')] %}
       <li><button type="button" class="dropdown-item d-flex align-items-center gap-2 {% if k == _cs %}active{% endif %}" data-status-option="{{ k }}"><span class="badge {{ c }}">{{ k|capitalize }}</span></button></li>
     {% endfor %}
     {# ⚠️ CANCELAR y APLAZAR no son un cambio de etiqueta: son un PROCESO (el motivo, qué pasa con el

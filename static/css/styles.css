@@ -2177,14 +2177,22 @@ div.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spaci
 .agenda-tip__sub{ opacity:.85; }
 .agenda-tip__meta{ margin-top:.25rem; opacity:.92; }
 
-/* Pills de estado (globales; antes solo inline en la ficha de artista) */
+/* Pills de estado (globales; antes solo inline en la ficha de artista).
+   ⚠️ EL COLOR DICE EN QUÉ PUNTO ESTÁ: lo que todavía se habla en AZUL (borrador y hablado), lo
+   apalabrado que puede caerse en AMARILLO (reservado y aplazado), lo cerrado en VERDE y lo que se
+   cae en ROJO. El mismo criterio que `CONCERT_STATUS_META` y `_concert_status_badge.html`. */
 .agenda-status{ display:inline-block; padding:.04rem .4rem; border-radius:999px; font-size:.7rem; font-weight:600; }
-.status-hablado{ background:#ffe8a1; color:#7a5b00; }
-.status-reservado{ background:#cfe2ff; color:#084298; }
+.status-hablado{ background:#dbeafe; color:#1d4ed8; }
+.status-reservado{ background:#ffe8a1; color:#7a5b00; }
 .status-confirmado{ background:#d1e7dd; color:#0f5132; }
-.agenda-event__dot.status-hablado{ background:#ffc107; }
-.agenda-event__dot.status-reservado{ background:#0d6efd; }
+.status-cancelado{ background:#f8d7da; color:#842029; }
+.status-aplazado{ background:#ffe8a1; color:#7a5b00; }
+.agenda-event__dot.status-borrador{ background:#0d6efd; }
+.agenda-event__dot.status-hablado{ background:#0d6efd; }
+.agenda-event__dot.status-reservado{ background:#ffc107; }
 .agenda-event__dot.status-confirmado{ background:#198754; }
+.agenda-event__dot.status-cancelado{ background:#dc3545; }
+.agenda-event__dot.status-aplazado{ background:#ffc107; }
 
 @media (max-width:768px){
   .agenda-body{ flex-direction:column; }
@@ -5634,3 +5642,15 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
    calendario, para que se lean como lo que son: un atajo, no un calendario más. */
 .agenda-chip--all{ padding:.3rem .6rem; font-size:.78rem; }
 .agenda-chip--all i{ font-size:.8rem; }
+
+/* ── ETIQUETA «GRATUITO» ────────────────────────────────────────────────────────────────────────
+   ⚠️ NO puede ir en verde, rojo ni azul: esos son los colores de los ESTADOS de una actividad
+   (borrador/hablado azul · reservado/aplazado amarillo · confirmado verde · cancelado rojo) y se
+   confundían. Va en blanco con su reborde, el ICONO en el color corporativo y la letra en gris
+   oscuro: se ve que es otra cosa. */
+.badge-gratuito{
+  display:inline-flex; align-items:center; gap:.32rem;
+  background:#fff; border:1px solid var(--line-2,#e3e6eb); color:#42505f;
+  font-weight:600; border-radius:999px; padding:.28rem .6rem; font-size:.74rem; line-height:1;
+}
+.badge-gratuito i{ color:var(--brand-accent,#007CA2); }

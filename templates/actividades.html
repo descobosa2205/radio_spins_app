@@ -98,7 +98,7 @@
           <span class="oa-row__sub">{{ it.date_label }} · {{ it.venue }}</span>
         </span>
         {% if it.sale_label %}<span class="badge text-bg-light border">{{ it.sale_label }}</span>{% endif %}
-        {% if it.is_free %}<span class="badge text-bg-success"><i class="fa fa-gift me-1"></i>Gratuito</span>{% endif %}
+        {% if it.is_free %}<span class="badge-gratuito"><i class="fa fa-gift"></i>Gratuito</span>{% endif %}
         {% if it.kind == 'concert' %}
           {% with cs_id=it.id, cs_status=it.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
         {% elif it.status_label %}

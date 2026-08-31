@@ -28,26 +28,19 @@
     <div class="song-platforms">
       {# ⚠️ LOS LOGOS SE PINTAN CON EL ICONO DE MARCA (fa-brands) y todos del MISMO tamaño: los PNG
          sueltos traían cada uno su margen y se veían de tamaños distintos.
-         ⚠️ Los que NO están configurados solo se enseñan a quien puede editarlos (en gris, para
-         añadir el enlace); quien solo mira ve únicamente los que están puestos. #}
-      {# Spotify / Apple / Amazon: el MISMO logo enlaza a la plataforma y muestra las reproducciones. #}
+         ⚠️ Las REPRODUCCIONES van debajo del icono en Spotify, YouTube y TikTok, que son de las que
+         Chartmetric da el dato; Apple y Amazon no están en su endpoint de estadísticas, así que ahí
+         solo va el logo (antes tenían un «—» que no se podía llenar nunca).
+         ⚠️ Lo que NO está configurado solo se enseña a quien puede editarlo (en gris, para añadir el
+         enlace); quien solo mira ve únicamente lo que está puesto. #}
       {% for m in cm_song_header %}
-        {# Se enseña si tiene enlace, si trae reproducciones (el dato viene de Chartmetric y puede
-           existir sin enlace guardado) o si quien mira puede añadirlo. #}
         {% if m.url or m.value_fmt or CAN_EDIT_DISCOGRAFICA %}
           {% set pm = PLATFORM_META.get(m.platform) or {} %}
           <div class="song-plat">
             <a class="song-platform {% if m.url %}active{% else %}disabled{% endif %}" data-platform="{{ m.platform }}" data-platform-label="{{ m.label }}" title="{{ m.label }}{% if not m.url %} · añadir enlace{% endif %}" {% if m.url %}href="{{ m.url }}" target="_blank" rel="noopener" style="color:#{{ pm.color or '111827' }};"{% else %}href="#"{% endif %}><i class="fa-brands fa-{{ pm.icon or 'music' }}"></i></a>
-            <div class="song-plat-num" title="Reproducciones · {{ m.label }}">{% if m.value_fmt %}{{ m.value_fmt }}{% if m.arrow == 'up' %}<i class="fa fa-arrow-up cm-up" title="Sube vs semana anterior"></i>{% elif m.arrow == 'down' %}<i class="fa fa-arrow-down cm-down" title="Baja vs semana anterior"></i>{% elif m.arrow == 'flat' %}<i class="fa fa-arrow-right cm-flat" title="Estable"></i>{% endif %}{% else %}<span class="cm-empty">—</span>{% endif %}</div>
-          </div>
-        {% endif %}
-      {% endfor %}
-      {# TikTok / YouTube: solo logo enlazado, mismo tamaño, después. #}
-      {% for pkey, purl, plabel in [('tiktok', song.tiktok_url, 'TikTok'), ('youtube', song.youtube_url, 'YouTube')] %}
-        {% if purl or CAN_EDIT_DISCOGRAFICA %}
-          {% set pm = PLATFORM_META.get(pkey) or {} %}
-          <div class="song-plat">
-            <a class="song-platform {% if purl %}active{% else %}disabled{% endif %}" data-platform="{{ pkey }}" data-platform-label="{{ plabel }}" title="{{ plabel }}{% if not purl %} · añadir enlace{% endif %}" {% if purl %}href="{{ purl }}" target="_blank" rel="noopener" style="color:#{{ pm.color or '111827' }};"{% else %}href="#"{% endif %}><i class="fa-brands fa-{{ pm.icon or 'music' }}"></i></a>
+            {% if m.has_num %}
+              <div class="song-plat-num" title="Reproducciones · {{ m.label }}">{% if m.value_fmt %}{{ m.value_fmt }}{% if m.arrow == 'up' %}<i class="fa fa-arrow-up cm-up" title="Sube vs semana anterior"></i>{% elif m.arrow == 'down' %}<i class="fa fa-arrow-down cm-down" title="Baja vs semana anterior"></i>{% elif m.arrow == 'flat' %}<i class="fa fa-arrow-right cm-flat" title="Estable"></i>{% endif %}{% else %}<span class="cm-empty">—</span>{% endif %}</div>
+            {% endif %}
           </div>
         {% endif %}
       {% endfor %}

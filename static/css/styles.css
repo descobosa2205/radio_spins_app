@@ -128,8 +128,10 @@ html, body { overflow-x: clip; }
 
 /* Cabecera de canción: un solo logo por plataforma (enlace) y, en Spotify/Apple/Amazon, las
    reproducciones + flecha de tendencia semanal debajo. TikTok/YouTube: solo logo, mismo tamaño. */
-.song-platforms{ display: flex; align-items: flex-start; gap: .9rem; flex-wrap: wrap; }
-.song-plat{ display: flex; flex-direction: column; align-items: center; gap: .1rem; }
+.song-platforms{ display: flex; align-items: flex-start; gap: 1.15rem; flex-wrap: wrap; }
+/* Cada plataforma es una columna (logo y, debajo, sus reproducciones). El ancho mínimo evita que
+   los números de dos plataformas seguidas se junten. */
+.song-plat{ display: flex; flex-direction: column; align-items: center; gap: .1rem; min-width: 2.2rem; }
 .song-plat-num{ font-size: .78rem; line-height: 1; color: #495057; white-space: nowrap; display: inline-flex; align-items: center; gap: .2rem; }
 .song-plat-num .cm-empty{ color: #adb5bd; }
 .cm-up{ color: #1a9e46; }

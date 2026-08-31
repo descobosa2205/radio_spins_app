@@ -122440,8 +122440,22 @@ def _cm_upsert_track_points(session_db, song_id, source, field, series, keep_day
             ))
 
 
+# LAS PLATAFORMAS DE LAS QUE SE GUARDAN REPRODUCCIONES, y con qué se piden.
+# ⚠️ En SPOTIFY hay que pedir `type=streams` a mano: su valor por defecto es `popularity`, que no
+# son reproducciones. En YOUTUBE **no se manda `type`**: su OpenAPI no declara valores para esa
+# plataforma y se deja su defecto (mandar uno inventado es pedir un 400). En TIKTOK se pide
+# `views` (las visualizaciones de los vídeos que usan el sonido), que sí está en su enum.
+# ⚠️ Apple Music y Amazon NO están en el enum de plataformas de ese endpoint: de ellas no hay
+# reproducciones por esta vía, por mucho que `get-ids` devuelva sus identificadores.
+CM_TRACK_STREAM_SOURCES = (
+    ("spotify", "streams", "spotify", {"type": "streams"}),
+    ("youtube", "views", "youtube", None),
+    ("tiktok", "views", "tiktok", {"type": "views"}),
+)
+
+
 def _cm_refresh_song_streams(session_db, song, raise_on_error: bool = False) -> dict:
-    """Reproducciones de una canción por su cm_track (Spotify streams; YouTube views).
+    """Reproducciones de una canción por su cm_track (Spotify, YouTube y TikTok).
 
     Devuelve {'points': n, 'error': str|None} para poder DECIR lo que ha pasado: antes se tragaba
     cualquier fallo y la canción quedaba vinculada y sin datos, sin ninguna pista de por qué."""
@@ -122449,13 +122463,7 @@ def _cm_refresh_song_streams(session_db, song, raise_on_error: bool = False) -> 
     resumen = {"points": 0, "error": None}
     if not (getattr(song, "cm_track", None) or "").strip():
         return resumen
-    # ⚠️ En SPOTIFY hay que pedir `type=streams` a mano: su valor por defecto es `popularity`, que no
-    # son reproducciones. En YOUTUBE **no se manda `type`**: su OpenAPI no declara valores para esa
-    # plataforma y se deja su defecto (mandar uno inventado es pedir un 400).
-    for source, field, platform, params in (
-        ("spotify", "streams", "spotify", {"type": "streams"}),
-        ("youtube", "views", "youtube", None),
-    ):
+    for source, field, platform, params in CM_TRACK_STREAM_SOURCES:
         try:
             data = cm.get_track_stat(song.cm_track, platform, params, raise_on_error=raise_on_error)
         except Exception as e:
@@ -122469,9 +122477,24 @@ def _cm_refresh_song_streams(session_db, song, raise_on_error: bool = False) -> 
     return resumen
 
 
+# CADA CUÁNTO SE ACTUALIZAN LAS REPRODUCCIONES, según lo que hace que salió el lanzamiento:
+# el primer MES todos los días · hasta los 3 MESES una vez por semana · después, una vez al mes.
+CM_REFRESH_STEPS = ((31, 1), (93, 7))   # (días de antigüedad, cada cuántos días se refresca)
+CM_REFRESH_DEFAULT_DAYS = 30
+
+
+def _cm_refresh_interval_days(age_days: int) -> int:
+    """Cada cuántos días toca refrescar una canción de esa antigüedad (punto único)."""
+    for tope, cada in CM_REFRESH_STEPS:
+        if age_days < tope:
+            return cada
+    return CM_REFRESH_DEFAULT_DAYS
+
+
 def _cm_songs_due(session_db, limit=200):
-    """Canciones con cm_track que toca refrescar hoy según antigüedad del release:
-    <1 mes diaria, 1–6 meses semanal, >6 meses mensual. Prioriza las más recientes."""
+    """Canciones con cm_track que toca refrescar hoy según la antigüedad del lanzamiento
+    (`CM_REFRESH_STEPS`: diaria el primer mes, semanal hasta los 3 meses y mensual después).
+    Prioriza las más recientes."""
     today = _now_madrid().date()
     rows = (
         session_db.query(Song)
@@ -122482,12 +122505,46 @@ def _cm_songs_due(session_db, limit=200):
     due = []
     for s in rows:
         age = (today - s.release_date).days if getattr(s, "release_date", None) else 9999
-        interval = 1 if age < 31 else (7 if age < 186 else 30)
+        interval = _cm_refresh_interval_days(age)
         last = s.cm_refreshed_at.date() if getattr(s, "cm_refreshed_at", None) else None
         if last is None or (today - last).days >= interval:
             due.append((age, s))
     due.sort(key=lambda x: x[0])
     return [s for _a, s in due[:limit]]
+
+
+# Cuántas canciones se completan de enlaces en cada pasada (cada una es una llamada más).
+CM_FILL_LINKS_PER_RUN = 40
+
+
+def _cm_song_links_missing(song) -> bool:
+    """¿A esta canción le falta algún enlace de plataforma que Chartmetric podría dar?
+
+    ⚠️ TIKTOK no cuenta: Chartmetric no da el enlace de TikTok de una canción (lo dice su propio
+    cliente), así que exigirlo dejaría a todas las canciones «incompletas» para siempre."""
+    for platform, field in _CM_TRACK_SONG_FIELDS.items():
+        if platform == "tiktok":
+            continue
+        if not (getattr(song, field, None) or "").strip():
+            return True
+    return False
+
+
+def _cm_fill_missing_links(session_db, song) -> bool:
+    """Pide los ids de plataforma de una canción YA VINCULADA y rellena los enlaces que le falten.
+
+    ⚠️ Antes esto solo pasaba al VINCULARLA (o al refrescar su artista, con tope de 25): una canción
+    ya vinculada a la que le faltaba un enlace no lo recibía nunca. Respeta lo bloqueado a mano."""
+    import chartmetric_utils as cm
+    try:
+        payload = cm.get_platform_ids("track", song.cm_track)
+    except Exception:
+        app.logger.exception("[chartmetric] no se pudieron pedir los ids de %s", song.id)
+        return False
+    urls = _cm_urls_from_get_ids(payload, "track") if payload else {}
+    if not urls:
+        return False
+    return _cm_apply_song_links(song, song.cm_track, urls)
 
 
 def _cm_refresh_songs_due_bg(force_all=False):
@@ -122501,9 +122558,14 @@ def _cm_refresh_songs_due_bg(force_all=False):
             songs = s.query(Song).filter(Song.cm_track.isnot(None)).filter(Song.cm_track != "").all()
         else:
             songs = _cm_songs_due(s, limit=200)
+        pendientes_enlaces = CM_FILL_LINKS_PER_RUN
         for song in songs:
             try:
                 _cm_refresh_song_streams(s, song)
+                # Y de paso, los ENLACES que le falten (con tope: cada uno es una llamada más).
+                if pendientes_enlaces > 0 and _cm_song_links_missing(song):
+                    pendientes_enlaces -= 1
+                    _cm_fill_missing_links(s, song)
                 s.commit()
             except Exception:
                 try:
@@ -122523,37 +122585,49 @@ def _cm_value_on_or_before(rows, target):
 
 
 def _cm_song_header(session_db, song):
-    """Reproducciones de cabecera de la ficha de canción: Spotify/Apple/Amazon (los 3 huecos siempre),
-    total acumulado + flecha semanal (delta últimos 7 días vs 7 previos). arrow: up|down|flat|none."""
+    """Las plataformas de la cabecera de la ficha, con sus REPRODUCCIONES debajo del icono.
+
+    ⚠️ El número solo se pinta donde Chartmetric lo da: **Spotify, YouTube y TikTok**. Apple Music y
+    Amazon **no están en el enum de plataformas** de su endpoint de estadísticas, así que ahí no hay
+    reproducciones que enseñar (antes se pintaban sus dos huecos con un «—» permanente): salen con
+    su logo y su enlace, y nada más.
+    El número es el total acumulado del último punto y la flecha compara el delta de los últimos 7
+    días con el de los 7 previos. arrow: up|down|flat|none."""
+    # (source, etiqueta, clave de plataforma, columna del enlace, campo guardado o None si no hay dato)
     plan = [
-        ("spotify", "Spotify", "spotify", "spotify_url"),
-        ("apple_music", "Apple Music", "apple_music", "apple_music_url"),
-        ("amazon_music", "Amazon Music", "amazon_music", "amazon_music_url"),
+        ("spotify", "Spotify", "spotify", "spotify_url", "streams"),
+        ("apple_music", "Apple Music", "apple_music", "apple_music_url", None),
+        ("amazon_music", "Amazon Music", "amazon_music", "amazon_music_url", None),
+        ("tiktok", "TikTok", "tiktok", "tiktok_url", "views"),
+        ("youtube", "YouTube", "youtube", "youtube_url", "views"),
     ]
     out = []
-    for source, label, key, url_field in plan:
-        entry = {"platform": key, "label": label, "url": (getattr(song, url_field, None) or ""), "value_fmt": None, "arrow": "none"}
-        try:
-            rows = (
-                session_db.query(ChartmetricTrackMetricPoint)
-                .filter_by(song_id=song.id, source=source, field="streams")
-                .order_by(ChartmetricTrackMetricPoint.date.desc())
-                .limit(30)
-                .all()
-            )
-            rows = [r for r in rows if r.value is not None]
-            if rows:
-                cur = float(rows[0].value)
-                entry["value_fmt"] = f"{int(cur):,}".replace(",", ".")
-                v7 = _cm_value_on_or_before(rows, rows[0].date - timedelta(days=7))
-                v14 = _cm_value_on_or_before(rows, rows[0].date - timedelta(days=14))
-                if v7 is not None and v14 is not None:
-                    last_week, prev_week = cur - v7, v7 - v14
-                    base = abs(prev_week) or 1.0
-                    ratio = (last_week - prev_week) / base
-                    entry["arrow"] = "up" if ratio > 0.03 else ("down" if ratio < -0.03 else "flat")
-        except Exception:
-            pass
+    for source, label, key, url_field, field in plan:
+        entry = {"platform": key, "label": label, "url": (getattr(song, url_field, None) or ""),
+                 "value_fmt": None, "arrow": "none", "has_num": bool(field)}
+        if field:
+            try:
+                rows = (
+                    session_db.query(ChartmetricTrackMetricPoint)
+                    .filter_by(song_id=song.id, source=source, field=field)
+                    .order_by(ChartmetricTrackMetricPoint.date.desc())
+                    .limit(30)
+                    .all()
+                )
+                rows = [r for r in rows if r.value is not None]
+                if rows:
+                    cur = float(rows[0].value)
+                    entry["value_fmt"] = f"{int(cur):,}".replace(",", ".")
+                    v7 = _cm_value_on_or_before(rows, rows[0].date - timedelta(days=7))
+                    v14 = _cm_value_on_or_before(rows, rows[0].date - timedelta(days=14))
+                    if v7 is not None and v14 is not None:
+                        last_week, prev_week = cur - v7, v7 - v14
+                        base = abs(prev_week) or 1.0
+                        ratio = (last_week - prev_week) / base
+                        entry["arrow"] = "up" if ratio > 0.03 else ("down" if ratio < -0.03 else "flat")
+            except Exception:
+                # ⚠️ No se calla: sin esto, un fallo de la consulta se ve igual que «no hay datos».
+                app.logger.exception("[chartmetric] no se pudieron leer las reproducciones de %s", song.id)
         out.append(entry)
     return out
 
@@ -123008,6 +123082,29 @@ def cm_song_diagnose(song_id):
             flash("Esta canción todavía no está vinculada con Chartmetric: no hay nada que comprobar.",
                   "warning")
         else:
+            # LO QUE HAY GUARDADO: cuándo se refrescó por última vez y cuántos puntos hay de cada
+            # plataforma. Sin esto, «está vinculada pero no salen las reproducciones» no se puede
+            # distinguir de «todavía no le ha tocado refrescarse».
+            try:
+                guardado = []
+                for source, field, _plat, _params in CM_TRACK_STREAM_SOURCES:
+                    n = (session_db.query(func.count(ChartmetricTrackMetricPoint.id))
+                         .filter_by(song_id=song.id, source=source, field=field).scalar() or 0)
+                    ultimo = (session_db.query(func.max(ChartmetricTrackMetricPoint.date))
+                              .filter_by(song_id=song.id, source=source, field=field).scalar())
+                    guardado.append("%s: %d punto%s%s" % (source, n, "" if n == 1 else "s",
+                                                          (" (hasta %s)" % ultimo.strftime("%d/%m/%Y")) if ultimo else ""))
+                edad = ((_now_madrid().date() - song.release_date).days
+                        if getattr(song, "release_date", None) else None)
+                cadencia = ("cada %d día(s) por su antigüedad (%d días desde el lanzamiento)"
+                            % (_cm_refresh_interval_days(edad), edad)) if edad is not None else \
+                           "una vez al mes (no tiene fecha de lanzamiento)"
+                flash("📊 Guardado · %s · última actualización: %s · se actualiza %s" % (
+                    " · ".join(guardado),
+                    song.cm_refreshed_at.strftime("%d/%m/%Y %H:%M") if song.cm_refreshed_at else "nunca",
+                    cadencia), "info")
+            except Exception:
+                app.logger.exception("[chartmetric] no se pudo resumir lo guardado")
             filas = cm.diagnose_track(cm_track)
             if not filas:
                 flash("No se ha podido preguntar a Chartmetric.", "warning")

@@ -330,12 +330,13 @@ def search_albums(query: str, limit: int = 10) -> list:
 # `highest-playcounts` coge el que más se ha escuchado —que es el que representa a la canción— y
 # `most-history` el de serie más larga. Se prueba en ese orden y se RECUERDA el que responde (mismo
 # patrón que la URL base de Cabify y la ruta de adjuntar de Holded).
+# ⚠️ La forma SIN modo (`/api/track/{id}/{source}/stats`) ya NO se prueba: está confirmado en el
+# OpenAPI oficial (`/api/track/{id}/{platform}/stats/{mode}` es la ÚNICA ruta de stats de track) que
+# no existe, así que solo podía devolver un 404 — y cada intento gasta un crédito y salía en el
+# diagnóstico como si la app pidiera la ruta mal.
 TRACK_STAT_MODES = ("highest-playcounts", "most-history")
 TRACK_STAT_PATHS = tuple(
     "/api/track/{id}/{source}/stats/" + modo for modo in TRACK_STAT_MODES
-) + (
-    # Respaldo por si algún día vuelve la forma sin modo. NO se pone delante: hoy da 404.
-    "/api/track/{id}/{source}/stats",
 )
 _TRACK_STAT_PATH_OK: str | None = None
 
@@ -440,9 +441,16 @@ def diagnose_track(cm_track: int | str) -> list[dict]:
         return []
     intentos = [("metadatos del track", "/api/track/%s" % cm_track, None),
                 ("ids de plataforma", GET_IDS_PATHS["track"].format(tipo="chartmetric", id=cm_track), None)]
-    for plantilla in TRACK_STAT_PATHS:
-        intentos.append(("reproducciones (spotify)",
+    # ⚠️ Cada fila dice QUÉ modo se está probando: antes las tres se llamaban igual
+    # («reproducciones (spotify)») y la que fallaba parecía decir que la app pedía la ruta mal.
+    for modo, plantilla in zip(TRACK_STAT_MODES, TRACK_STAT_PATHS):
+        intentos.append(("reproducciones · spotify (%s)" % modo,
                          plantilla.format(id=cm_track, source="spotify"), {"type": "streams"}))
+    # Y las otras dos plataformas de las que se guardan reproducciones.
+    for plat, tipo in (("youtube", None), ("tiktok", "views")):
+        intentos.append(("reproducciones · %s" % plat,
+                         TRACK_STAT_PATHS[0].format(id=cm_track, source=plat),
+                         ({"type": tipo} if tipo else None)))
     salida = []
     for para, ruta, params in intentos:
         fila = {"para": para, "ruta": ruta, "ok": False, "detalle": ""}

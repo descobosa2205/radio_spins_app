@@ -7630,6 +7630,45 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ninguna llamada, a los 9 días se reintenta, con la API caída no se marca nada, el tope funciona y el
   refresco general lo llama en su orden.
 
+- **CHARTMETRIC · REPRODUCCIONES de Spotify, YouTube y TikTok, y cada cuánto se actualizan**
+  (sep 2026):
+  · **De qué plataformas hay dato**: punto único **`CM_TRACK_STREAM_SOURCES`** — **Spotify**
+  (`type=streams`; su defecto es `popularity`, que NO son reproducciones), **YouTube** (SIN `type`:
+  su OpenAPI no declara valores para esa plataforma y mandar uno inventado es pedir un 400) y
+  **TikTok** (`type=views`, las visualizaciones de los vídeos que usan el sonido).
+  ⚠️ **De APPLE MUSIC y AMAZON no hay reproducciones**: no están en el enum de plataformas del
+  endpoint de estadísticas (sí en `get-ids`, que es lo que da su ENLACE). Antes la cabecera pintaba
+  sus dos huecos con un **«—» que no se podía llenar nunca**; ahora esas dos salen solo con su logo.
+  · **El número va DEBAJO DEL ICONO** en las tres que sí lo tienen (`_cm_song_header` lleva ya el
+  `field` de cada una: `streams` en Spotify, `views` en YouTube y TikTok — antes estaba escrito a
+  mano y por eso el dato de YouTube, que YA se guardaba, no se pintaba en ningún sitio).
+  · **CADA CUÁNTO SE ACTUALIZA** (`CM_REFRESH_STEPS` + `_cm_refresh_interval_days`, punto único):
+  el primer **MES todos los días**, hasta los **3 MESES una vez por semana** y después **una vez al
+  mes**. Lo aplica `_cm_songs_due` (tope de 200 canciones por pasada, las más recientes primero) y
+  lo dispara `_chartmetric_refresh_all_bg`: la **primera visita a Inicio del día** (reclamo atómico
+  en `chartmetric_meta`) y el cron `/cron/chartmetric/refresh`.
+  ⚠️ Una canción **sin fecha de lanzamiento** cae en el tramo mensual y va la última.
+  · ⚠️ **LOS ENLACES QUE FALTAN se rellenan solos** (`_cm_song_links_missing` +
+  `_cm_fill_missing_links`, tope `CM_FILL_LINKS_PER_RUN` = 40 por pasada): antes una canción **ya
+  vinculada** a la que le faltaba un enlace no lo recibía nunca —el auto-enlace por ISRC solo mira
+  las que NO tienen `cm_track`, y el refresco del artista solo pide `get-ids` para las que no tienen
+  NINGUNO—. TikTok no cuenta como «falta»: Chartmetric no da el enlace de TikTok de una canción.
+  ⚠️ **Cada llamada cuesta un crédito** y se descuenta aunque no devuelva ninguna fila: una canción
+  al día son 3 llamadas (una por plataforma) más, si le faltan enlaces, la de `get-ids`.
+
+- ⚠️⚠️ **CHARTMETRIC · EL 404 DE «COMPROBAR RUTAS» NO ERA UN FALLO** (sep 2026). En el diagnóstico
+  salía «reproducciones (spotify) → /api/track/…/spotify/stats · 404 Cannot GET», y parecía que la
+  app pedía la ruta mal. Era la TERCERA candidata: el **respaldo sin modo**, que se conservaba «por
+  si volvía» y que el diagnóstico probaba con **la misma etiqueta** que las dos buenas.
+  · Está confirmado en el OpenAPI oficial que `/api/track/{id}/{platform}/stats/{mode}` es la ÚNICA
+  ruta de estadísticas de un track, así que ese respaldo **se ha retirado**: solo podía dar 404 y
+  cada intento gastaba un crédito.
+  · Ahora cada fila del diagnóstico **dice qué modo prueba** (`highest-playcounts` / `most-history`)
+  y se comprueban también **YouTube y TikTok**.
+  · Y antes de las rutas, el diagnóstico dice **lo que hay guardado**: cuántos puntos hay de cada
+  plataforma, hasta qué fecha, cuándo se refrescó por última vez y **cada cuánto le toca**. Sin eso,
+  «está vinculada pero no salen las reproducciones» no se distingue de «todavía no le ha tocado».
+
 - ⚠️⚠️ **CHARTMETRIC · las DOS rutas que estaban mal** (ago 2026, bug real: una canción vinculada por
   el buscador se quedaba **sin enlaces y sin reproducciones**, con «Cannot GET
   /api/track/170983676/spotify/stats»). Las rutas de verdad, confirmadas en su referencia

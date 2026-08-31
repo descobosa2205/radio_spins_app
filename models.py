@@ -10502,11 +10502,13 @@ class ChartmetricTrackMetricPoint(Base):
     """Serie temporal por CANCIÓN: (canción, plataforma, métrica, fecha) -> valor.
 
     Se usa para las reproducciones de la cabecera de la ficha de canción (total acumulado + tendencia
-    semanal). `field`: streams (Spotify) / views (YouTube). Apple/Amazon casi nunca traen dato."""
+    semanal). `field`: streams (Spotify) / views (YouTube y TikTok).
+    ⚠️ De APPLE MUSIC y AMAZON no hay serie: no están en el enum de plataformas del endpoint de
+    estadísticas de Chartmetric, así que esas filas no se escriben nunca."""
     __tablename__ = "chartmetric_track_metric_point"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
-    source = Column(Text, nullable=False)   # spotify, apple_music, amazon_music, youtube
+    source = Column(Text, nullable=False)   # spotify, youtube, tiktok
     field = Column(Text, nullable=False)    # streams, views
     date = Column(Date, nullable=False)
     value = Column(Numeric)

@@ -7777,3 +7777,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   botón para resolverlo ahí mismo: la calificación de contenido se marca sin salir, el género y el
   pitch llevan a su sitio. Es el patrón que ya tenía «¿contenido explícito?», ahora para todos los
   campos obligatorios — al entrar se ve lo que falta en vez de tener que buscarlo.
+
+- **AVISOS · rediseño (ago 2026)**: más simples y más modernos. La FRANJA es ya una tarjeta blanca
+  con esquinas redondeadas y sombra suave (fuera el bloque amarillo con la barra roja), con el icono
+  en una pastilla del color de marca y el «Ver» como botón redondeado. En la CAMPANITA y en «Mis
+  avisos», lo NO LEÍDO se marca con un **punto** de marca a la izquierda, no con fondo amarillo, y
+  el cuerpo se recorta a dos líneas para que la lista se lea de un vistazo.
+
+- **INICIO DE CONTRATACIÓN · el dinero** (ago 2026, `_home_billing_pending` / `_home_billing_year` +
+  `templates/_home_billing.html`): **«Pendiente de cobrar»** (las facturas del caché, por EMPRESA
+  del grupo, con su total y el de arriba siempre el de lo que se está viendo; lo que vence en
+  `HOME_COLLECT_DAYS`=14 días y lo ya vencido en rojo, con «Ver más» para verlas todas; el icono
+  dice si la factura ya está subida) y **«Facturado en el año»** (por empresa, de la que más a la
+  que menos, con su barra y flechas para cambiar de año).
+  ⚠️ Van **FUERA de las compuertas de departamento** de `home.html`: los ven contratación **y**
+  dirección, y los módulos ya se calculan solo para ellos — dentro de la compuerta
+  (`HOME_DIRECCION_BOARD is none`) a dirección no le salían.

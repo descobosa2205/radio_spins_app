@@ -931,6 +931,30 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   páginas públicas): **cero casos**. Si se toca el layout, ese detector es la forma de comprobarlo:
   busca elementos de menos de 60 px con 3+ líneas y ≤4 caracteres por línea.
 
+- **MÓVIL · lo que se salía de la pantalla en INICIO** (ago 2026, sobre la red de seguridad de
+  arriba). Tres cosas, y las tres tenían la misma raíz: **algo que no puede encogerse**.
+  ⚠️⚠️ **UN HIJO DE `d-grid` (o de un flex) NO SE ENCOGE POR DEBAJO DE SU CONTENIDO**: por defecto
+  tiene `min-width:auto`, así que una fila con un texto largo (el concepto de un gasto de Cabify)
+  **estira la tarjeta y se sale de la pantalla** — y de paso el `text-truncate` de dentro deja de
+  recortar, porque necesita que su contenedor pueda encogerse. Regla nueva: `.d-grid > a`,
+  `> .list-group-item` y `> .border` con `min-width:0`.
+  ⚠️ Se acotó a esos hijos a propósito: puesta a **todos** los hijos de cualquier `d-flex` dentro de
+  una tarjeta, los botones de accesos rápidos se estrujaban y partían las palabras
+  («Cuadrante/s»). Una regla de encogido de más rompe tanto como una de menos.
+  ⚠️ **`.ctask__head` no envolvía**: el `ms-auto` empujaba el botón **ENCIMA del texto** («Cerrar mi
+  parte» sobre «Proyecto discográfico»). En móvil envuelve y el botón baja a su línea, a todo el
+  ancho (como ya hacía `.mytask__row .btn`). Vale para todos los módulos que usan `.ctask`.
+  ⚠️ Los **rótulos de los accesos rápidos** no se parten a la mitad: el `overflow-wrap:anywhere` de
+  la red de seguridad sirve para que una URL no desborde, pero en un botón de una palabra es
+  ilegible. En móvil, `break-word` y más ancho para el texto (icono y hueco más pequeños).
+  ⚠️⚠️ **Con `table-layout: fixed` el `min-width` de una CELDA NO SE RESPETA** (las columnas se
+  reparten el ancho de la tabla): en el repertorio el título salía en una columna de **14 px**, una
+  letra por línea, pese al `min-width: 4.5rem` de la red de seguridad. En móvil, las tablas que ya
+  llevan su scroll pasan a `table-layout: auto`; en escritorio siguen con `fixed`, que es donde sus
+  columnas tienen que cuadrar entre bloques.
+  · Comprobado a 375 px en diez pantallas: **cero desbordes** (`body.scrollWidth` = 375) y cero
+  textos partidos letra a letra; y a 1280 px, que las tablas conservan su `fixed`.
+
 - **DISCOGRÁFICA · PROYECTOS** (ago 2026): donde se PREPARA el material discográfico —álbumes, EPs,
   singles y videoclips—, en su propia pestaña (`/discografica?section=proyectos`). **`DiscoProject`** + **`DiscoProjectTrack`** +
   **`DiscoProjectDateRequest`** (`ensure_disco_projects_schema`). ⚠️ **No existe ningún

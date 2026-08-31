@@ -1969,6 +1969,12 @@ div.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spaci
 @media (max-width: 767.98px) {
   .ctask__subject { max-width: 100%; }
   .ctask__tasks { padding-left: 0; }
+  /* ⚠️ En el móvil la fila NO cabe en una línea: el `ms-auto` empujaba el botón ENCIMA del texto
+     («Cerrar mi parte» sobre «Proyecto discográfico»). Que envuelva y que el botón baje a su propia
+     línea, como ya hace `.mytask__row .btn`. */
+  .ctask__head { flex-wrap: wrap; }
+  .ctask__actions { margin-left: 0 !important; width: 100%; }
+  .ctask__actions .btn { width: 100%; }
 }
 /* Los botones de la fila van POR ENCIMA del enlace que cubre toda la fila (`stretched-link`) */
 .ctask__actions { position: relative; z-index: 2; }
@@ -2893,7 +2899,16 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 }
 .dash-quick__label{ font-weight:700; line-height:1.15; }
 .dash-quick__plus{ font-size:.72em; margin-right:.3rem; color:var(--brand-primary, #E33D48); }
-@media (max-width:520px){ .dash-quick{ grid-template-columns:1fr 1fr; } }
+@media (max-width:520px){
+  .dash-quick{ grid-template-columns:1fr 1fr; gap:.5rem; }
+  /* ⚠️ En el móvil, el rótulo de un acceso rápido NO se parte a la mitad («Cuadrante/s»,
+     «Comprado/res»): el `overflow-wrap:anywhere` de la red de seguridad de móvil sirve para que una
+     URL larga no desborde, pero en un botón de una sola palabra queda ilegible. Aquí se parte solo
+     si de verdad no cabe (`break-word`) y se le deja más ancho: icono y hueco más pequeños. */
+  .dash-quick__btn{ padding:.6rem .7rem; gap:.5rem; }
+  .dash-quick__icon{ width:34px; height:34px; flex:0 0 34px; font-size:.95rem; }
+  .dash-quick__label{ overflow-wrap:break-word; font-size:.86rem; }
+}
 
 /* Variante VERDE corporativa de las tarjetas «bocadillo» (ingresos de la actividad y lo que
    cubre el promotor en la bolsa de la ficha: mismo diseño que los gastos, pero en verde). */
@@ -4643,6 +4658,13 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
   table th, table td { word-break: normal; overflow-wrap: anywhere; hyphens: none; }
   /* Una columna nunca por debajo de lo legible (las de solo iconos se marcan con .col-icon). */
   table th:not(.col-icon), table td:not(.col-icon) { min-width: 4.5rem; }
+  /* ⚠️⚠️ Con `table-layout: fixed` el `min-width` de una CELDA NO SE RESPETA: las columnas se
+     reparten el ancho de la tabla y da igual lo que pida cada una — por eso en el repertorio el
+     título salía en una columna de 14 px, una letra por línea. En el móvil, las tablas que ya
+     llevan su scroll pasan a `auto`: la columna toma el ancho que necesita y lo que no cabe SE
+     DESPLAZA, que es la regla de la casa. (En escritorio siguen con `fixed` y sus columnas cuadran
+     entre bloques, que es para lo que está.) */
+  .table-responsive table, [data-table-scroll] table { table-layout: auto; }
   /* Las PESTAÑAS de sección (Pendiente · Pagos · Cobros…) se desplazan en horizontal: apretadas
      partían el nombre letra a letra. Vale para nav-tabs, nav-pills y las barras propias. */
   .nav:not(.flex-column):not(.navbar-nav) { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
@@ -5589,3 +5611,14 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 @keyframes dupFlash { 0%,100% { box-shadow: 0 0 0 0 rgba(227,61,72,0); }
                       30%     { box-shadow: 0 0 0 6px rgba(227,61,72,.28); } }
 .dup-flash { border-radius: .5rem; animation: dupFlash .6s ease 2; }
+
+
+/* ⚠️⚠️ UN HIJO DE `d-grid` (o de un flex) NO SE ENCOGE POR DEBAJO DE SU CONTENIDO si no se le dice.
+   Por defecto un item de grid/flex tiene `min-width:auto`, así que una fila con un texto largo
+   (el concepto de un gasto de Cabify, el nombre de un proyecto) ESTIRA la tarjeta y se sale de la
+   pantalla — y de paso el `text-truncate` de dentro deja de recortar, porque necesita que su
+   contenedor pueda encogerse. Se ve sobre todo en el móvil, donde no hay ancho de sobra.
+   Es la misma regla que ya llevan a mano unos cuantos sitios con `.min-w-0`: aquí vale para todos. */
+.d-grid > a,
+.d-grid > .list-group-item,
+.d-grid > .border{ min-width:0; }

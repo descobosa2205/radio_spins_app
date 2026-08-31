@@ -1,0 +1,150 @@
+{# ══════════════════════════════════════════════════════════════════════════════
+   VOLCAR UN CALENDARIO DE FUERA (iCloud) A LA AGENDA DEL ARTISTA
+
+   ⚠️ Es un VOLCADO, no una sincronización viva: lo que entra se queda guardado aquí, así que si
+      mañana se borra el calendario de iCloud el histórico no se pierde.
+   ⚠️ La FECHA TOPE es lo que evita duplicar: del calendario viejo solo se trae lo anterior a ella
+      (lo de ahora en adelante ya se trabaja en la app).
+   ══════════════════════════════════════════════════════════════════════════════ #}
+<div class="modal fade" id="calendarImportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-cloud-arrow-down me-2"></i>Volcar un calendario de iCloud</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('artist_calendar_import_run', artist_id=artist.id) }}"
+            data-cal-import>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <p class="text-muted small">
+            Trae a la agenda de <strong>{{ artist.name }}</strong> todo lo que haya en su calendario de
+            iCloud y <strong>se queda guardado aquí</strong>: si algún día se borra allí, el histórico
+            no se pierde.
+          </p>
+
+          <div class="mb-3">
+            <label class="form-label">Enlace del calendario</label>
+            {# Sale ya puesto el del último volcado de este artista: lo normal es repetirlo. #}
+            <input type="text" class="form-control" name="url" data-cal-url
+                   value="{{ calendar_imports[0].url if calendar_imports else '' }}"
+                   placeholder="webcal://p123-calendars.icloud.com/published/2/..." required>
+            <div class="form-text">
+              En el Mac: Calendario → botón derecho sobre el calendario → <em>Compartir calendario…</em>
+              → marca <em>Calendario público</em> y copia el enlace. Vale también cualquier
+              dirección que acabe en <code>.ics</code>.
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Vuelca hasta el día</label>
+            <input type="date" class="form-control" name="until_date" data-cal-until
+                   value="{{ agenda_import_default_until }}">
+            <div class="form-text">
+              Lo posterior a esa fecha <strong>no se trae</strong>, para que no se dupliquen las
+              actividades que ya se llevan en la app. Vacío = todo el calendario.
+            </div>
+          </div>
+
+          <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-cal-check>
+              <i class="fa fa-magnifying-glass me-1"></i>Ver qué trae
+            </button>
+            <span class="small text-muted" data-cal-state></span>
+          </div>
+
+          <div class="mt-3 d-none" data-cal-result></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary"><i class="fa fa-cloud-arrow-down me-1"></i>Volcar el calendario</button>
+        </div>
+      </form>
+
+      {% if calendar_imports %}
+        <div class="px-3 pb-3">
+          <hr>
+          <h6 class="mb-2">Calendarios ya volcados</h6>
+          <ul class="list-group list-group-flush">
+            {% for imp in calendar_imports %}
+              <li class="list-group-item px-0 d-flex align-items-start gap-2">
+                <div class="flex-grow-1">
+                  <div class="fw-semibold">{{ imp.name }}</div>
+                  <div class="small text-muted">
+                    {{ imp.alive }} en la agenda · hasta el {{ imp.until_label }} ·
+                    {{ imp.when }}{% if imp.by %} · {{ imp.by }}{% endif %}
+                  </div>
+                  {% if imp.notes %}<div class="small text-warning-emphasis">{{ imp.notes }}</div>{% endif %}
+                </div>
+                <form method="post" class="m-0"
+                      action="{{ url_for('artist_calendar_import_undo', artist_id=artist.id, import_id=imp.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-outline-danger" type="submit"
+                          onclick="return confirm({{ ('¿Deshacer este volcado? Se quitarán de la agenda las ' ~ imp.alive ~ ' entradas que trajo. Lo que se haya escrito a mano no se toca.')|tojson|forceescape }});">
+                    <i class="fa fa-arrow-rotate-left"></i>
+                  </button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+// «Ver qué trae»: pregunta al servidor ANTES de volcar, para no importar a ciegas.
+(function () {
+  var modal = document.getElementById('calendarImportModal');
+  if (!modal) return;
+  var boton = modal.querySelector('[data-cal-check]');
+  var estado = modal.querySelector('[data-cal-state]');
+  var zona = modal.querySelector('[data-cal-result]');
+  if (!boton) return;
+  boton.addEventListener('click', function () {
+    var url = (modal.querySelector('[data-cal-url]') || {}).value || '';
+    var hasta = (modal.querySelector('[data-cal-until]') || {}).value || '';
+    if (!url.trim()) { estado.textContent = 'Pega antes el enlace del calendario.'; return; }
+    estado.textContent = 'Mirando el calendario…';
+    zona.classList.add('d-none');
+    var datos = new FormData();
+    datos.append('url', url);
+    datos.append('until_date', hasta);
+    fetch({{ url_for('artist_calendar_import_preview', artist_id=artist.id)|tojson }},
+          { method: 'POST', body: datos })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        estado.textContent = '';
+        if (!d.ok) { zona.className = 'mt-3 alert alert-warning py-2 px-3 small'; zona.textContent = d.error || 'No se pudo leer.'; return; }
+        var filas = (d.sample || []).map(function (e) {
+          // La fecha y la hora ocupan lo justo; el ancho que sobra es para el título.
+          return '<tr><td class="text-nowrap small" style="width:1%">' + e.date + (e.end ? ' – ' + e.end : '') + '</td>' +
+                 '<td class="text-nowrap small text-muted" style="width:1%">' + (e.time || '') + '</td>' +
+                 '<td class="small">' + (e.title || '') + '</td></tr>';
+        }).join('');
+        var avisos = (d.warnings || []).map(function (w) {
+          return '<div class="small text-warning-emphasis">' + w + '</div>';
+        }).join('');
+        zona.className = 'mt-3 border rounded p-3';
+        zona.innerHTML =
+          '<div class="fw-semibold mb-1">' + (d.name || 'Calendario') + '</div>' +
+          '<div class="small text-muted mb-2">' +
+            '<strong>' + d.total + '</strong> evento(s) a volcar' +
+            (d.first ? ' · del ' + d.first + ' al ' + d.last : '') +
+            (d.already ? ' · ' + d.already + ' ya estaban (se actualizan)' : '') +
+            (d.skipped_after ? ' · ' + d.skipped_after + ' fuera del tope' : '') +
+          '</div>' + avisos +
+          (filas ? '<div class="table-responsive"><table class="table table-sm mb-0">' + filas + '</table></div>' : '') +
+          (d.total > (d.sample || []).length ? '<div class="small text-muted">…y ' + (d.total - d.sample.length) + ' más.</div>' : '');
+        zona.classList.remove('d-none');
+      })
+      .catch(function () {
+        estado.textContent = '';
+        zona.className = 'mt-3 alert alert-danger py-2 px-3 small';
+        zona.textContent = 'No se pudo consultar el calendario.';
+        zona.classList.remove('d-none');
+      });
+  });
+})();
+</script>

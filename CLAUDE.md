@@ -287,6 +287,57 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   abre en pestaña nueva; CSS `[data-artist-link]{cursor:pointer}`). Los helpers `artist_chip`/`artist_avatar`
   aceptan `artist_id=` y lo emiten solos. **No** marcar elementos que ya enlazan a otra cosa (filtros/toggles
   como los chips de artista del calendario o los `data-*-artist-filter`, filas-enlace a otro destino).
+- **AGENDA DEL ARTISTA · VOLCAR SU CALENDARIO DE iCLOUD** (ago 2026). Cada artista tenía su
+  calendario de iCloud y ahí está su histórico. Desde la pestaña **Agenda** de su ficha (botón de la
+  **nube**, `_artist_calendar_import_modal.html`) se pega el enlace del calendario y **se vuelca a la
+  app**, que **se lo queda**: lo importado pasa a ser un dato nuestro (`ArtistAgendaItem`, kind
+  **NOTE**, así que se ve, se arrastra y se edita como cualquier otra nota, y sale en su iCal y en
+  CalDAV), de modo que el día que se borre el calendario de iCloud el histórico sigue aquí.
+  ⚠️⚠️ **NO es una sincronización viva: es un VOLCADO.** Se puede repetir cuando se quiera —lo que
+  ya entró se reconoce y se ACTUALIZA en vez de duplicarse—, pero la app no le pregunta a iCloud por
+  su cuenta.
+  · **LA FECHA TOPE es lo que evita duplicar** (`ArtistCalendarImport.until_date`): del calendario
+  viejo solo se trae lo ANTERIOR a ella, porque lo de ahora en adelante ya se lleva en la app. Sale
+  por defecto en **hoy** (o la del último volcado) y se dice cuántos se han dejado fuera.
+  · **«Ver qué trae»** (`artist_calendar_import_preview`, JSON) lo enseña ANTES de volcar: el nombre
+  del calendario, cuántos eventos, de cuándo a cuándo, cuántos ya estaban y una muestra.
+  · **NO SE DUPLICA NADA**: cada entrada guarda el **UID del evento de origen** en
+  `ArtistAgendaItem.caldav_uid` —la MISMA columna con la que ya se casan los eventos que llegan del
+  iPhone por CalDAV— y se busca **en bloque** (con cientos de eventos, una consulta por evento sería
+  inaceptable). Reimportar el mismo calendario no crea nada nuevo.
+  · **Se puede DESHACER** (`artist_calendar_import_undo`): borra solo lo que trajo ESE volcado
+  (`ArtistAgendaItem.import_id`), así que **lo que se haya escrito a mano en la agenda no se toca**.
+  Y **volcar otra vez el mismo calendario NO crea otra importación**: actualiza la que ya había (si
+  no, la lista de «calendarios ya volcados» se llenaría de copias del mismo y deshacer una no sabría
+  cuál es la buena).
+  · **El motor de lectura es PURO**: **`ics_import.py`** (ni Flask ni BD), con su prueba de
+  regresión **`tools/check_ics_import.py`** — si se toca, tiene que seguir en verde.
+  ⚠️⚠️ **En iCal, el `DTEND` de un evento de DÍA COMPLETO es EXCLUSIVO**: el último día real es el
+  anterior. Es el error clásico al leer un .ics y hace que TODO dure un día de más.
+  ⚠️ Las líneas largas vienen **partidas a los 75 caracteres** y continúan con un espacio: sin
+  deshacer eso (`unfold`), un título largo llega cortado.
+  ⚠️ Dentro de un VEVENT puede haber un **VALARM** con su propia `DESCRIPTION`: si no se salta, la
+  del recordatorio se cuela como la del evento.
+  ⚠️ La **hora se respeta tal cual**: con `TZID` se deja la hora escrita (que es la que se leía en el
+  calendario) y **solo lo que viene en UTC (`Z`) se pasa a la hora de España**. Un histórico se
+  importa para volver a verlo igual, no para recalcularlo.
+  ⚠️ Los **repetidos (`RRULE`) se expanden** —un calendario de verdad tiene ensayos semanales—, con
+  su `EXDATE` y con las ocurrencias **editadas a mano** (`RECURRENCE-ID`), que mandan sobre la serie.
+  La expansión está **acotada** (`MAX_OCCURRENCES` y la fecha tope): un «todos los lunes, para
+  siempre» no termina nunca, y cuando se corta **se dice**.
+  ⚠️ La identidad de una ocurrencia editada es la de **su hueco en la serie** (`RECURRENCE-ID`), no
+  el día al que se haya movido: si no, al reimportar se duplicaría. Y **la lista de editadas excluye
+  las que pinta la REGLA, nunca al propio evento editado** — con eso se excluía a sí mismo y esa
+  fecha se perdía (bug real que sacó la prueba).
+  ⚠️ `STATUS:CANCELLED` no se importa.
+  · **Lo descarga el SERVIDOR**, así que la URL se comprueba (`_ical_url_is_safe`): nada de
+  `localhost` ni de IP privadas —sin eso sería una forma de que alguien con sesión le hiciera pedir
+  cosas a la red interna—, solo http/https, con **timeout** y **tope de tamaño**.
+  ⚠️ iCloud da los calendarios publicados como **`webcal://`**, que no se puede descargar: es un
+  `https://` disfrazado (`_ical_normalize_url` lo convierte).
+  ⚠️ Los endpoints (`artist_calendar_import_*`) se mapean a **`artists.agenda`** en los DOS mapeos, y
+  exigen `can_edit_artists_stations()`.
+
 - **Calendario de agenda (Inicio + pestaña «Agenda» del artista)**: componente reutilizable
   `_agenda_build` (`app.py`, reúne conciertos/acciones/medios/lanzamientos en un formato común; conciertos
   en BORRADOR fuera) + `templates/_agenda_calendar.html` + `static/js/agenda_calendar.js` + estilos

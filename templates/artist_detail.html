@@ -861,6 +861,11 @@
         <i class="fa fa-calendar-day text-danger"></i>
         <h5 class="mb-0">Agenda</h5>
         <div class="ms-auto d-flex gap-2">
+          {# VOLCAR el calendario de iCloud que se venía usando con este artista: su histórico se
+             queda guardado aquí, así que si mañana se borra allí no se pierde. #}
+          {% if CAN_EDIT_ARTISTS_STATIONS %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#calendarImportModal" title="Volcar un calendario de iCloud"><i class="fa fa-cloud-arrow-down"></i></button>
+          {% endif %}
           <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#calendarShareModal" title="Enlace de suscripción al calendario"><i class="fa fa-link"></i></button>
           <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#agendaAddModal" title="Añadir a la agenda"><i class="fa fa-plus"></i></button>
         </div>
@@ -870,6 +875,7 @@
   </div>
   {% set agenda_add_artist = {'id': artist.id, 'name': artist.name} %}
   {% include '_agenda_add_modal.html' %}
+  {% if CAN_EDIT_ARTISTS_STATIONS %}{% include '_artist_calendar_import_modal.html' %}{% endif %}
   {# Asistente de concierto embebido: crear una «Actividad» del «+» IN SITU (sin ir a /conciertos). #}
   {% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 

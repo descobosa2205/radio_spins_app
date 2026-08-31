@@ -163,12 +163,48 @@ class ArtistAgendaItem(Base):
     # sincronizar. Nulos en los ítems creados desde la app/web.
     caldav_uid = Column(Text)
     caldav_href = Column(Text)
+    # ⚠️ De qué VOLCADO de un calendario de fuera (iCloud) viene esta entrada. Nulo en todo lo que
+    # se ha creado en la app. Sirve para saber de dónde salió y para poder DESHACER una importación
+    # entera sin tocar lo que se escribió a mano.
+    import_id = Column(PGUUID(as_uuid=True), ForeignKey("artist_calendar_imports.id",
+                                                        ondelete="SET NULL"))
 
     artist = relationship("Artist")
 
     __table_args__ = (
         Index("idx_artist_agenda_items_artist_dates", "artist_id", "start_date", "end_date"),
     )
+
+
+class ArtistCalendarImport(Base):
+    """UN VOLCADO de un calendario de fuera (iCloud) a la agenda de un artista.
+
+    ⚠️ NO es una sincronización viva: se **vuelca y se queda guardado**. Los calendarios de iCloud
+    que se venían usando con cada artista son el histórico de la casa, y el día que se borren allí
+    no se puede perder aquí. Por eso lo importado pasa a ser un dato nuestro (`ArtistAgendaItem`) y
+    esta fila solo deja constancia de de dónde salió, hasta cuándo se volcó y cuántos entraron.
+
+    ⚠️ La **fecha tope** (`until_date`) es lo que evita duplicar: en la app ya está lo de ahora en
+    adelante, así que del calendario viejo solo se trae lo anterior a esa fecha.
+    """
+
+    __tablename__ = "artist_calendar_imports"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    source_url = Column(Text, nullable=False)
+    calendar_name = Column(Text)                 # el X-WR-CALNAME del .ics, si lo trae
+    until_date = Column(Date)                    # hasta cuándo se vuelca (incluida)
+    imported = Column(Integer, nullable=False, server_default=text("0"))
+    updated = Column(Integer, nullable=False, server_default=text("0"))
+    skipped = Column(Integer, nullable=False, server_default=text("0"))
+    notes = Column(Text)                         # avisos del volcado (series cortadas, etc.)
+    created_by_user_id = Column(PGUUID(as_uuid=True))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
 
 
 class ArtistCalendarLink(Base):
@@ -204,6 +240,30 @@ def ensure_artist_calendar_schema():
     _exec_ddl_statements([
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_uid text;",
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_href text;",
+        # VOLCADO de un calendario de fuera (iCloud) a la agenda del artista.
+        """
+        CREATE TABLE IF NOT EXISTS artist_calendar_imports (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            source_url text NOT NULL,
+            calendar_name text,
+            until_date date,
+            imported integer NOT NULL DEFAULT 0,
+            updated integer NOT NULL DEFAULT 0,
+            skipped integer NOT NULL DEFAULT 0,
+            notes text,
+            created_by_user_id uuid,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_artist_calendar_imports_artist ON artist_calendar_imports(artist_id);",
+        "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS import_id uuid "
+        "REFERENCES artist_calendar_imports(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS ix_artist_agenda_items_import ON artist_agenda_items(import_id);",
+        # ⚠️ El UID del evento de origen es lo que evita duplicar al REIMPORTAR el mismo calendario:
+        # se busca por (artista, uid), así que tiene que estar indexado.
+        "CREATE INDEX IF NOT EXISTS ix_artist_agenda_items_uid ON artist_agenda_items(artist_id, caldav_uid);",
         "ALTER TABLE IF EXISTS artist_calendar_links ADD COLUMN IF NOT EXISTS kinds jsonb DEFAULT '[]'::jsonb;",
         "UPDATE artist_calendar_links SET kinds = '[]'::jsonb WHERE kinds IS NULL;",
         "ALTER TABLE IF EXISTS artist_calendar_links ALTER COLUMN kinds SET DEFAULT '[]'::jsonb;",

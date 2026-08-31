@@ -50,7 +50,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
 from markupsafe import Markup, escape
 import calendar as _cal
-from urllib.parse import quote, quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote
+from urllib.parse import quote, quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote, urlparse
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from decimal import Decimal, InvalidOperation
@@ -152,6 +152,7 @@ from models import (
     Artist,
     ArtistPerson,
     ArtistAgendaItem,
+    ArtistCalendarImport,
     ArtistCalendarLink,
     ArtistEmail,
     ArtistNotificationContact,
@@ -352,6 +353,7 @@ import promoter_import  # motor puro de IMPORTACIÓN de terceros (columnas de un
 import address_utils  # cómo se escribe una dirección (motor puro, único formato)
 import buyer_import  # importar compradores desde un fichero (motor puro)
 import sms_utils  # pasarela de SMS (avisos por mensaje de texto); sin credenciales no manda nada
+import ics_import  # lector de calendarios iCal (volcar el histórico de iCloud a la agenda)
 from mrz_utils import (
     extract_fields as mrz_extract_fields,
     parse_mrz as mrz_parse,
@@ -2005,6 +2007,7 @@ def artist_detail_view(artist_id):
         # navegar por meses (vista de 4 semanas), incluido el pasado, sin recargar; el JS pagina.
         agenda_data = None
         calendar_links = []
+        calendar_imports = []
         caldav_server = ""
         if tab == "agenda":
             _ag_today = today_local()
@@ -2025,6 +2028,8 @@ def artist_detail_view(artist_id):
                 for l in _artist_calendar_links(session_db, artist.id, only_active=True)
             ]
             caldav_server = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip("/").split("//")[-1]
+            # Los VOLCADOS de calendarios de fuera (iCloud) que ya se han hecho a esta agenda.
+            calendar_imports = _artist_calendar_import_rows(session_db, artist.id)
 
         artist_fotos_groups = _build_artist_fotos_groups(session_db, artist.id) if tab == "fotos" else None
 
@@ -2055,6 +2060,11 @@ def artist_detail_view(artist_id):
             **_artist_templates_context(session_db, artist.id),
             agenda_data=agenda_data,
             calendar_links=calendar_links,
+            calendar_imports=calendar_imports,
+            # Por defecto se vuelca lo ANTERIOR A HOY: lo de aquí en adelante ya se lleva en la app,
+            # y es justo lo que se duplicaría.
+            agenda_import_default_until=((calendar_imports[0]["until_iso"] if calendar_imports
+                                          else "") or today_local().isoformat()),
             caldav_server=caldav_server,
             artist_fotos_groups=artist_fotos_groups,
             disc_tab=disc_tab,
@@ -68800,6 +68810,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     # terceros que forman parte de él): viven en su ficha.
     if endpoint.startswith("artist_template") or endpoint.startswith("artist_person"):
         return "artists"
+    # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
+    if endpoint.startswith("artist_calendar_import"):
+        return "artists.agenda"
     # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
     if endpoint.startswith("group_artwork"):
         return "contratacion.conciertos"
@@ -69501,6 +69514,9 @@ def _resolve_request_resource_key() -> str | None:
     # terceros que forman parte de él): viven en su ficha.
     if endpoint.startswith("artist_template") or endpoint.startswith("artist_person"):
         return "artists"
+    # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
+    if endpoint.startswith("artist_calendar_import"):
+        return "artists.agenda"
     # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
     if endpoint.startswith("group_artwork"):
         return "contratacion.conciertos"
@@ -116514,6 +116530,367 @@ def artist_calendar_link_cancel(artist_id, link_id):
     finally:
         session_db.close()
     return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda"))
+
+
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# VOLCAR UN CALENDARIO DE FUERA (iCloud) A LA AGENDA DEL ARTISTA
+#
+# Cada artista tenía su calendario de iCloud, y ahí está su histórico. Esto lo trae a la app **y se
+# lo queda**: lo importado pasa a ser un dato nuestro (`ArtistAgendaItem`), así que el día que se
+# borre el calendario de iCloud el histórico sigue aquí.
+#
+# ⚠️⚠️ **NO es una sincronización viva**: es un VOLCADO. Se puede repetir cuando se quiera —lo que ya
+#    entró se reconoce por el UID del evento y se ACTUALIZA en vez de duplicarse—, pero la app no
+#    va a preguntarle a iCloud por su cuenta.
+# ⚠️ La **fecha tope** es lo que evita duplicar con lo que ya se trabaja en la app: del calendario
+#    viejo solo se trae lo anterior a ella.
+# ⚠️ Lo importado entra como **nota** («Otro»), que es lo que ya sabe pintar el calendario de la
+#    casa: se ve, se arrastra, se edita y sale en el iCal y en CalDAV como cualquier otra.
+# ═════════════════════════════════════════════════════════════════════════════
+
+ICAL_IMPORT_MAX_BYTES = 12 * 1024 * 1024        # un .ics de años pesa unos cientos de KB
+ICAL_IMPORT_TIMEOUT = 25
+
+
+def _ical_normalize_url(url: str) -> str:
+    """La URL de la que se baja el calendario.
+
+    ⚠️ iCloud da los calendarios publicados como **`webcal://`**, que no es un esquema que se pueda
+    descargar: es un `https://` disfrazado para que el sistema lo abra en la app de Calendario."""
+    u = (url or "").strip()
+    if not u:
+        return ""
+    if u.lower().startswith("webcal://"):
+        u = "https://" + u[len("webcal://"):]
+    if not u.lower().startswith(("http://", "https://")):
+        u = "https://" + u.lstrip("/")
+    return u
+
+
+def _ical_url_is_safe(url: str) -> bool:
+    """Que la URL sea de fuera de verdad.
+
+    ⚠️ Esto lo descarga el SERVIDOR, así que sin comprobarlo sería una forma de que alguien con
+    sesión le hiciera pedir cosas a la red interna (`localhost`, `10.x`, el metadata del proveedor).
+    Se cierra la puerta a lo que no es una dirección pública."""
+    try:
+        host = (urlparse(url).hostname or "").strip().lower()
+    except Exception:
+        return False
+    if not host or host in ("localhost", "localhost.localdomain", "metadata.google.internal"):
+        return False
+    if host.endswith(".local") or host.endswith(".internal"):
+        return False
+    try:
+        import ipaddress
+        ip = ipaddress.ip_address(host)
+        return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved)
+    except ValueError:
+        return True                              # es un nombre de dominio, no una IP
+    except Exception:
+        return False
+
+
+def _ical_fetch(url: str) -> tuple[str, str]:
+    """Baja el .ics. Devuelve `(texto, error)`; con error, el texto va vacío."""
+    limpia = _ical_normalize_url(url)
+    if not limpia:
+        return "", "Pega el enlace del calendario."
+    if not _ical_url_is_safe(limpia):
+        return "", "Ese enlace no vale: tiene que ser una dirección pública (https://…)."
+    try:
+        r = requests.get(limpia, timeout=ICAL_IMPORT_TIMEOUT, stream=True,
+                         headers={"User-Agent": "33Producciones/1.0 (+calendario)"})
+    except requests.RequestException as exc:
+        return "", "No se pudo abrir el calendario: %s" % exc
+    if r.status_code != 200:
+        return "", ("El calendario respondió %d. Comprueba que el enlace es el de un calendario "
+                    "PUBLICADO (en iCloud: el calendario → «Calendario público»)." % r.status_code)
+    trozos, total = [], 0
+    try:
+        for chunk in r.iter_content(chunk_size=65536):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > ICAL_IMPORT_MAX_BYTES:
+                return "", "El calendario pesa demasiado (más de %d MB)." % (ICAL_IMPORT_MAX_BYTES // (1024 * 1024))
+            trozos.append(chunk)
+    except requests.RequestException as exc:
+        return "", "Se cortó la descarga: %s" % exc
+    finally:
+        try:
+            r.close()
+        except Exception:
+            pass
+    crudo = b"".join(trozos)
+    for codec in ("utf-8", "utf-8-sig", "latin-1"):
+        try:
+            texto = crudo.decode(codec)
+            break
+        except UnicodeDecodeError:
+            texto = ""
+    if not texto:
+        return "", "No se ha podido leer el archivo del calendario."
+    if "BEGIN:VCALENDAR" not in texto.upper():
+        return "", ("Ese enlace no devuelve un calendario. En iCloud, comparte el calendario como "
+                    "PÚBLICO y copia el enlace que empieza por «webcal://».")
+    return texto, ""
+
+
+def _ical_event_title(ev: dict) -> str:
+    """El nombre con el que se guarda un evento importado (nunca vacío)."""
+    return (ev.get("summary") or "").strip() or "Sin título"
+
+
+def _ical_event_note(ev: dict) -> str:
+    """La nota: el sitio y la descripción del evento de origen."""
+    partes = []
+    if (ev.get("location") or "").strip():
+        partes.append(ev["location"].strip())
+    if (ev.get("description") or "").strip():
+        partes.append(ev["description"].strip())
+    return "\n".join(partes)[:2000]
+
+
+def _artist_calendar_imports(session_db, artist_id) -> list:
+    """Los volcados que ya se han hecho a la agenda de este artista, del más nuevo al más viejo."""
+    try:
+        return (session_db.query(ArtistCalendarImport)
+                .filter(ArtistCalendarImport.artist_id == _safe_uuid(artist_id))
+                .order_by(ArtistCalendarImport.created_at.desc()).limit(20).all())
+    except Exception:
+        app.logger.exception("[calendario] no se pudieron leer las importaciones")
+        return []
+
+
+def _artist_calendar_import_rows(session_db, artist_id) -> list[dict]:
+    """Lo mismo, ya masticado para la pantalla."""
+    filas = []
+    for imp in _artist_calendar_imports(session_db, artist_id):
+        vivos = 0
+        try:
+            vivos = (session_db.query(func.count(ArtistAgendaItem.id))
+                     .filter(ArtistAgendaItem.import_id == imp.id).scalar() or 0)
+        except Exception:
+            vivos = 0
+        filas.append({
+            "id": str(imp.id),
+            "name": (imp.calendar_name or "Calendario"),
+            "url": (imp.source_url or ""),
+            "until_label": (imp.until_date.strftime("%d/%m/%Y") if imp.until_date else "sin tope"),
+            "until_iso": (imp.until_date.isoformat() if imp.until_date else ""),
+            "imported": int(imp.imported or 0),
+            "updated": int(imp.updated or 0),
+            "skipped": int(imp.skipped or 0),
+            "alive": int(vivos),
+            "notes": (imp.notes or ""),
+            "when": _format_madrid_datetime_label(imp.created_at),
+            "by": (imp.created_by_nick or ""),
+        })
+    return filas
+
+
+def _ical_import_apply(session_db, artist, eventos, *, imp) -> tuple[int, int]:
+    """Mete los eventos en la agenda del artista. Devuelve `(nuevos, actualizados)`.
+
+    ⚠️ Lo que ya está NO se duplica: se reconoce por el UID del evento de origen
+    (`ArtistAgendaItem.caldav_uid`, la misma columna con la que ya se casan los eventos del iPhone),
+    así que **reimportar el mismo calendario no crea nada nuevo**: actualiza lo que haya cambiado."""
+    claves = [e["key"] for e in eventos if e.get("key")]
+    ya = {}
+    if claves:
+        # En bloque: con cientos de eventos, una consulta por evento sería inaceptable.
+        for trozo in range(0, len(claves), 500):
+            for it in (session_db.query(ArtistAgendaItem)
+                       .filter(ArtistAgendaItem.artist_id == artist.id)
+                       .filter(ArtistAgendaItem.caldav_uid.in_(claves[trozo:trozo + 500])).all()):
+                ya[it.caldav_uid] = it
+    estado = _current_user_state() or {}
+    nuevos, tocados = 0, 0
+    for ev in eventos:
+        clave = (ev.get("key") or "").strip()
+        titulo = _ical_event_title(ev)
+        nota = _ical_event_note(ev)
+        fila = ya.get(clave) if clave else None
+        if fila is None:
+            fila = ArtistAgendaItem(
+                artist_id=artist.id, kind="NOTE",
+                caldav_uid=(clave or None), import_id=imp.id,
+                created_by_user_id=_safe_uuid(estado.get("user_id")),
+                created_by_nick=(estado.get("nick") or ""),
+                start_date=ev["start"], end_date=ev["end"],
+            )
+            session_db.add(fila)
+            nuevos += 1
+        else:
+            tocados += 1
+            fila.import_id = imp.id
+        fila.title = titulo[:300]
+        fila.note = nota or None
+        fila.start_date = ev["start"]
+        fila.end_date = ev["end"]
+        fila.start_time = (ev.get("start_time") or None)
+        fila.end_time = (ev.get("end_time") or None)
+    return nuevos, tocados
+
+
+@app.post("/artistas/<artist_id>/calendario/importar/previsualizar",
+          endpoint="artist_calendar_import_preview")
+@admin_required
+def artist_calendar_import_preview(artist_id):
+    """Mira qué trae el calendario ANTES de volcarlo: cuántos eventos, de cuándo a cuándo y una
+    muestra. Así se ve si el enlace y la fecha tope son los buenos."""
+    if not can_edit_artists_stations():
+        return jsonify({"ok": False, "error": "No tienes permisos para editar el artista."}), 403
+    url = (request.form.get("url") or "").strip()
+    tope = parse_optional_date(request.form.get("until_date"))
+    texto, error = _ical_fetch(url)
+    if error:
+        return jsonify({"ok": False, "error": error})
+    try:
+        datos = ics_import.parse_calendar(texto, until_date=tope)
+    except Exception as exc:
+        app.logger.exception("[calendario] no se pudo leer el .ics")
+        return jsonify({"ok": False, "error": "No se ha podido leer el calendario: %s" % exc})
+    eventos = datos["events"]
+    muestra = [{"date": e["start"].strftime("%d/%m/%Y"),
+                "end": (e["end"].strftime("%d/%m/%Y") if e["end"] != e["start"] else ""),
+                "time": _agenda_time_label(e.get("start_time"), e.get("end_time")),
+                "title": _ical_event_title(e)}
+               for e in eventos[:12]]
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, _safe_uuid(artist_id))
+        if not artist:
+            return jsonify({"ok": False, "error": "Artista no encontrado."}), 404
+        claves = [e["key"] for e in eventos if e.get("key")]
+        repetidos = 0
+        if claves:
+            for trozo in range(0, len(claves), 500):
+                repetidos += (session_db.query(func.count(ArtistAgendaItem.id))
+                              .filter(ArtistAgendaItem.artist_id == artist.id)
+                              .filter(ArtistAgendaItem.caldav_uid.in_(claves[trozo:trozo + 500]))
+                              .scalar() or 0)
+    finally:
+        session_db.close()
+    return jsonify({
+        "ok": True,
+        "name": datos["name"],
+        "total": len(eventos),
+        "already": int(repetidos),
+        "new": max(0, len(eventos) - int(repetidos)),
+        "skipped_after": datos["skipped_after"],
+        "first": (eventos[0]["start"].strftime("%d/%m/%Y") if eventos else ""),
+        "last": (eventos[-1]["start"].strftime("%d/%m/%Y") if eventos else ""),
+        "sample": muestra,
+        "warnings": datos["warnings"],
+    })
+
+
+@app.post("/artistas/<artist_id>/calendario/importar", endpoint="artist_calendar_import_run")
+@admin_required
+def artist_calendar_import_run(artist_id):
+    """VUELCA el calendario a la agenda del artista y se lo queda."""
+    if not can_edit_artists_stations():
+        return forbid("No tienes permisos para editar el artista.")
+    destino = url_for("artist_detail_view", artist_id=artist_id, tab="agenda")
+    url = (request.form.get("url") or "").strip()
+    tope = parse_optional_date(request.form.get("until_date"))
+    texto, error = _ical_fetch(url)
+    if error:
+        flash(error, "warning")
+        return redirect(destino)
+    try:
+        datos = ics_import.parse_calendar(texto, until_date=tope)
+    except Exception as exc:
+        app.logger.exception("[calendario] no se pudo leer el .ics")
+        flash("No se ha podido leer el calendario: %s" % exc, "danger")
+        return redirect(destino)
+    if not datos["events"]:
+        flash("Ese calendario no trae ningún evento%s."
+              % (" anterior al %s" % tope.strftime("%d/%m/%Y") if tope else ""), "info")
+        return redirect(destino)
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, _safe_uuid(artist_id))
+        if not artist:
+            flash("Artista no encontrado.", "warning")
+            return redirect(url_for("artists_view"))
+        estado = _current_user_state() or {}
+        limpia = _ical_normalize_url(url)[:2000]
+        # ⚠️ Volcar OTRA VEZ el mismo calendario **no crea otra importación**: se actualiza la que
+        # ya había. Si no, la lista de «calendarios ya volcados» se llenaría de copias del mismo y
+        # deshacer una no sabría cuál es la buena.
+        imp = (session_db.query(ArtistCalendarImport)
+               .filter(ArtistCalendarImport.artist_id == artist.id,
+                       ArtistCalendarImport.source_url == limpia).first())
+        if imp is None:
+            imp = ArtistCalendarImport(artist_id=artist.id, source_url=limpia,
+                                       created_by_user_id=_safe_uuid(estado.get("user_id")),
+                                       created_by_nick=(estado.get("nick") or ""))
+            session_db.add(imp)
+        imp.calendar_name = (datos["name"] or imp.calendar_name)
+        imp.until_date = tope
+        imp.notes = ("\n".join(datos["warnings"]) or None)
+        imp.created_at = _now_madrid()
+        session_db.flush()
+        nuevos, tocados = _ical_import_apply(session_db, artist, datos["events"], imp=imp)
+        imp.imported = int(imp.imported or 0) + nuevos
+        imp.updated, imp.skipped = tocados, int(datos["skipped_after"] or 0)
+        session_db.commit()
+        aviso = "Calendario volcado: %d evento%s nuevo%s" % (nuevos, "" if nuevos == 1 else "s",
+                                                             "" if nuevos == 1 else "s")
+        if tocados:
+            aviso += " y %d que ya estaba%s (actualizado%s)" % (tocados, "" if tocados == 1 else "n",
+                                                                "" if tocados == 1 else "s")
+        if datos["skipped_after"]:
+            aviso += ". Se han dejado fuera %d posteriores al %s" % (
+                datos["skipped_after"], tope.strftime("%d/%m/%Y") if tope else "tope")
+        flash(aviso + ".", "success")
+        for w in datos["warnings"]:
+            flash(w, "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[calendario] no se pudo volcar")
+        flash("No se pudo volcar el calendario: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
+
+
+@app.post("/artistas/<artist_id>/calendario/importar/<import_id>/deshacer",
+          endpoint="artist_calendar_import_undo")
+@admin_required
+def artist_calendar_import_undo(artist_id, import_id):
+    """Deshace un volcado: borra lo que trajo ESA importación y nada más.
+
+    ⚠️ Solo se lleva lo que vino de ahí (`import_id`): lo que se haya escrito a mano en la agenda no
+    se toca. Un evento que se importó y luego se movió a mano SÍ se borra: sigue siendo suyo."""
+    if not can_edit_artists_stations():
+        return forbid("No tienes permisos para editar el artista.")
+    destino = url_for("artist_detail_view", artist_id=artist_id, tab="agenda")
+    session_db = db()
+    try:
+        imp = session_db.get(ArtistCalendarImport, _safe_uuid(import_id))
+        if not imp or str(imp.artist_id) != str(_safe_uuid(artist_id)):
+            flash("Esa importación no es de este artista.", "warning")
+            return redirect(destino)
+        borrados = (session_db.query(ArtistAgendaItem)
+                    .filter(ArtistAgendaItem.import_id == imp.id)
+                    .delete(synchronize_session=False))
+        session_db.delete(imp)
+        session_db.commit()
+        flash("Importación deshecha: se han quitado %d entrada%s de la agenda."
+              % (borrados, "" if borrados == 1 else "s"), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[calendario] no se pudo deshacer la importación")
+        flash("No se pudo deshacer: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
 
 
 # ============================ CalDAV (cuenta de calendario para usuarios) ============================

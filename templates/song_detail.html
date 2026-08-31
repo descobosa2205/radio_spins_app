@@ -23,19 +23,8 @@
       {% set song_collaborators = song.display_collaborator or song.collaborator %}
       {% if song_collaborators %}<span><i class="fa fa-users"></i>{{ song_collaborators }}</span>{% endif %}
     </div>
-    {% if linked_albums and (linked_albums|length) > 0 %}
-      <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
-        <span class="small text-muted">Forma parte de:</span>
-        {% for album_link in linked_albums %}
-          <a href="{{ album_link.detail_url }}" class="text-decoration-none text-reset d-inline-flex align-items-center gap-1" title="{{ album_link.title }}">
-            <img src="{{ album_link.cover_url or DEFAULT_COVER_URL }}" alt="{{ album_link.title }}" style="width:30px;height:30px;object-fit:cover;border-radius:6px;border:1px solid #eee;">
-            <span class="small fw-semibold">{{ album_link.title }}</span>
-          </a>
-        {% endfor %}
-      </div>
-    {% endif %}
-  </div>
-  <div class="ficha-hero__actions">
+    {# ⚠️ LAS PLATAFORMAS VAN AQUÍ: a la izquierda, pegadas a la portada y debajo de los
+       intérpretes — igual que en el PDF, en el enlace público y en el correo. #}
     <div class="song-platforms">
       {# ⚠️ LOS LOGOS SE PINTAN CON EL ICONO DE MARCA (fa-brands) y todos del MISMO tamaño: los PNG
          sueltos traían cada uno su margen y se veían de tamaños distintos.
@@ -63,6 +52,17 @@
         {% endif %}
       {% endfor %}
     </div>
+    {% if linked_albums and (linked_albums|length) > 0 %}
+      <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+        <span class="small text-muted">Forma parte de:</span>
+        {% for album_link in linked_albums %}
+          <a href="{{ album_link.detail_url }}" class="text-decoration-none text-reset d-inline-flex align-items-center gap-1" title="{{ album_link.title }}">
+            <img src="{{ album_link.cover_url or DEFAULT_COVER_URL }}" alt="{{ album_link.title }}" style="width:30px;height:30px;object-fit:cover;border-radius:6px;border:1px solid #eee;">
+            <span class="small fw-semibold">{{ album_link.title }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
   </div>
 </div>
 
@@ -177,29 +177,46 @@
    ═════════════════════════════════════════════════════════════════════════════════════════════ #}
 {% if CAN_EDIT_DISCOGRAFICA %}
   <div class="modal fade" id="lcEmailModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
       <form class="modal-content" method="post"
             action="{{ url_for('discografica_song_label_copy_email', song_id=song.id) }}">
         <div class="modal-header">
-          <h5 class="modal-title">Enviar el Label Copy por correo</h5>
+          <div>
+            <h5 class="modal-title"><i class="fa fa-envelope me-2"></i>Enviar el Label Copy por correo</h5>
+            <div class="small text-muted" id="lcEmailWhat"></div>
+          </div>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
         <div class="modal-body">
           <input type="hidden" name="editorial" id="lcEmailEditorial" value="">
-          <div class="small text-muted mb-2" id="lcEmailWhat"></div>
-          <label class="form-label">¿A quién?</label>
-          <input class="form-control" name="emails" required placeholder="correo@ejemplo.com, otro@ejemplo.com">
-          <div class="form-text">Varios, separados por comas.</div>
-          <label class="form-label mt-3">Nota (opcional)</label>
-          <textarea class="form-control" name="note" rows="3" placeholder="Unas líneas antes del Label Copy."></textarea>
-          <div class="text-muted small mt-3">
-            <i class="fa fa-paperclip me-1"></i>El correo lleva el mismo contenido que el PDF, el botón
-            para descargarlo y el PDF adjunto.
+          <div class="row g-3">
+            <div class="col-12 col-lg-5">
+              <label class="form-label">¿A quién?</label>
+              <input class="form-control" name="emails" required placeholder="correo@ejemplo.com, otro@ejemplo.com">
+              <div class="form-text">Varios, separados por comas.</div>
+              <label class="form-label mt-3">Nota <span class="text-muted">(sale en el correo)</span></label>
+              <textarea class="form-control" name="note" rows="3" id="lcEmailNote"
+                        placeholder="Unas líneas antes del Label Copy."></textarea>
+              <div class="text-muted small mt-3">
+                <i class="fa fa-paperclip me-1"></i>El correo lleva el mismo contenido que el PDF, el botón
+                para descargarlo y el PDF adjunto.
+              </div>
+              <div class="d-grid gap-2 mt-3">
+                <button class="btn btn-primary"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              </div>
+            </div>
+            <div class="col-12 col-lg-7">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="m-0"><i class="fa fa-envelope-open-text me-1 text-muted"></i>Vista previa</h6>
+                <span class="text-muted small" id="lcEmailSubject"></span>
+              </div>
+              {# Es EL MISMO HTML que se manda (`_label_copy_html`): no hay una segunda versión. #}
+              <div class="an-preview" id="lcEmailPreview">
+                <div class="text-muted small">Cargando…</div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button class="btn btn-primary"><i class="fa fa-paper-plane"></i> Enviar</button>
         </div>
       </form>
     </div>
@@ -231,6 +248,37 @@
     modal.querySelector('#lcEmailWhat').textContent =
       esEd ? 'Se manda el Label Copy CON el reparto editorial.' : 'Se manda el Label Copy.';
     new bootstrap.Modal(modal).show();
+    pintaPrevia(esEd);
+  });
+
+  /* LA VISTA PREVIA es el MISMO correo que se manda: lo compone el servidor
+     (`discografica_song_label_copy_preview`) y aquí solo se pinta. Se refresca al escribir la nota. */
+  var URL_PREVIA = {{ url_for('discografica_song_label_copy_preview', song_id=song.id)|tojson }};
+  var espera = null;
+  function pintaPrevia(esEd) {
+    var caja = document.getElementById('lcEmailPreview');
+    if (!caja) return;
+    var nota = (document.getElementById('lcEmailNote') || {}).value || '';
+    var url = URL_PREVIA + '?editorial=' + (esEd ? '1' : '') + '&note=' + encodeURIComponent(nota);
+    caja.innerHTML = '<div class="text-muted small">Cargando…</div>';
+    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) throw new Error((d && d.error) || 'error');
+        caja.innerHTML = d.html || '';
+        var asu = document.getElementById('lcEmailSubject');
+        if (asu) asu.textContent = d.subject || '';
+      })
+      .catch(function () {
+        caja.innerHTML = '<div class="text-danger small">No se ha podido componer la vista previa.</div>';
+      });
+  }
+  document.addEventListener('input', function (ev) {
+    if (!ev.target || ev.target.id !== 'lcEmailNote') return;
+    clearTimeout(espera);
+    espera = setTimeout(function () {
+      pintaPrevia(!!(document.getElementById('lcEmailEditorial') || {}).value);
+    }, 400);
   });
 })();
 </script>

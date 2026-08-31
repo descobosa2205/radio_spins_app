@@ -6377,28 +6377,37 @@ def _certification_catalog(media_kind: str = "SONG") -> dict[str, dict]:
             "URANIUM": 50000000,
         },
     }
+    # `short` y `color` son para la ETIQUETA de los documentos («1 x Oro» en el color del disco).
     base = {
         "GOLD": {
             "title": "Disco de Oro",
             "plural_title": "Discos de Oro",
+            "short": "Oro",
+            "color": "#C9A227",
             "image": "img/certifications/disco_oro_recortado.png",
             "order": 1,
         },
         "PLATINUM": {
             "title": "Disco de Platino",
             "plural_title": "Discos de Platino",
+            "short": "Platino",
+            "color": "#8E9BA6",
             "image": "img/certifications/disco_platino_recortado.png",
             "order": 2,
         },
         "DIAMOND": {
             "title": "Disco de Diamante",
             "plural_title": "Discos de Diamante",
+            "short": "Diamante",
+            "color": "#4FA8D8",
             "image": "img/certifications/disco_diamante_recortado.png",
             "order": 3,
         },
         "URANIUM": {
             "title": "Disco de Uranio",
             "plural_title": "Discos de Uranio",
+            "short": "Uranio",
+            "color": "#6FBF3B",
             "image": "img/certifications/disco_uranio_recortado.png",
             "order": 4,
         },
@@ -6513,6 +6522,99 @@ def _certifications_by_type(session_db, item, media_kind: str = "SONG") -> list[
     return salida
 
 
+def _lc_certifications(session_db, item, media_kind: str = "SONG") -> list[dict]:
+    """Las certificaciones tal como van en el Label Copy: **por TIPO Y PAÍS**.
+
+    Cada grupo lleva su imagen (APILADA cuando son varias, igual que en la pestaña Certificaciones),
+    la etiqueta «N x Oro» en el color del disco y la BANDERA del país.
+    ⚠️ No es `_certifications_by_type` (el de Syncro), que suma los países: aquí hay que decir de
+    qué país es cada una."""
+    media_kind = (media_kind or "SONG").strip().upper()
+    try:
+        if media_kind == "ALBUM":
+            filas = (session_db.query(AlbumCertification)
+                     .filter(AlbumCertification.album_id == item.id)
+                     .order_by(AlbumCertification.created_at.asc()).all())
+        else:
+            filas = (session_db.query(SongCertification)
+                     .filter(SongCertification.song_id == item.id)
+                     .order_by(SongCertification.created_at.asc()).all())
+    except Exception:
+        app.logger.exception("[certificaciones] no se pudieron leer")
+        return []
+    catalogo = _certification_catalog(media_kind)
+    salida = []
+    for g in _group_certifications(filas, media_kind=media_kind):
+        meta = catalogo.get(g["certification_type"]) or {}
+        count = max(1, int(g.get("count") or 1))
+        salida.append({
+            "type": g["certification_type"],
+            "image": meta.get("image") or "",
+            "count": count,
+            "stack": min(count, CERT_STACK_MAX),
+            "short": meta.get("short") or g.get("title") or "",
+            "color": meta.get("color") or "#6b7280",
+            "label": "%d x %s" % (count, meta.get("short") or ""),
+            "title": g.get("display_title") or g.get("title") or "",
+            "country_code": (g.get("country_code") or "").upper(),
+            "country_name": g.get("country_name") or "",
+            "flag": g.get("flag") or _country_flag_emoji(g.get("country_code")),
+        })
+    return salida
+
+
+def _certification_stack_png(image_rel: str, count: int = 1, size: int = 120) -> bytes:
+    """La imagen de una certificación, APILADA `count` veces (una sola imagen, cacheada).
+
+    ⚠️ Se compone aquí y no con CSS porque el mismo dibujo va a la web, al CORREO —donde un
+    `position:absolute` o un margen negativo no se pueden dar por buenos— y al PDF."""
+    count = max(1, min(int(count or 1), CERT_STACK_MAX))
+    size = max(32, min(int(size or 120), 256))
+    size = int(round(size / 32.0) * 32)
+    clave = (image_rel, count, size)
+    cache = globals().setdefault("_CERT_STACK_CACHE", {})
+    if clave in cache:
+        return cache[clave]
+    datos = b""
+    try:
+        from PIL import Image
+        base = Image.open(os.path.join(app.static_folder, *str(image_rel or "").split("/"))).convert("RGBA")
+        base.thumbnail((size, size), Image.LANCZOS)
+        dx, dy = int(size * 0.24), int(size * 0.13)
+        lienzo = Image.new("RGBA", (base.width + dx * (count - 1), base.height + dy * (count - 1)), (0, 0, 0, 0))
+        for i in range(count):
+            lienzo.alpha_composite(base, (dx * i, dy * i))
+        buf = BytesIO()
+        lienzo.save(buf, "PNG")
+        datos = buf.getvalue()
+    except Exception:
+        app.logger.exception("[certificaciones] no se pudo apilar %s", image_rel)
+    if datos:
+        cache[clave] = datos
+    return datos
+
+
+def _certification_stack_path(image_rel: str, count: int = 1, size: int = 120) -> tuple[str, float]:
+    """La imagen apilada EN DISCO (para ReportLab) y su proporción ancho/alto."""
+    try:
+        datos = _certification_stack_png(image_rel, count, size)
+        if not datos:
+            return "", 1.0
+        carpeta = Path(tempfile.gettempdir()) / "app33_cert_icons"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        ruta = carpeta / ("stack_%s_%d_%d.png" % (
+            re.sub(r"[^a-z0-9_]", "", str(image_rel).rsplit("/", 1)[-1].lower()), count, size))
+        if not ruta.exists() or ruta.stat().st_size != len(datos):
+            ruta.write_bytes(datos)
+        from PIL import Image
+        with Image.open(BytesIO(datos)) as im:
+            prop = (im.width / im.height) if im.height else 1.0
+        return str(ruta), prop
+    except Exception:
+        app.logger.exception("[certificaciones] no se pudo preparar la imagen apilada")
+        return "", 1.0
+
+
 def _certification_small_png(image_rel: str, size: int = 96) -> bytes:
     """La imagen de una certificación REDUCIDA (cacheada en memoria).
 
@@ -6572,7 +6674,12 @@ def certification_icon_png(clave):
         tam = max(24, min(int(request.args.get("s") or 96), 256))
     except (TypeError, ValueError):
         tam = 96
-    datos = _certification_small_png(meta.get("image") or "", tam)
+    try:
+        veces = max(1, min(int(request.args.get("n") or 1), CERT_STACK_MAX))
+    except (TypeError, ValueError):
+        veces = 1
+    datos = (_certification_stack_png(meta.get("image") or "", veces, tam) if veces > 1
+             else _certification_small_png(meta.get("image") or "", tam))
     if not datos:
         abort(404)
     resp = make_response(datos)
@@ -9025,7 +9132,7 @@ def _label_copy_context(session_db, song: Song, *, editorial: bool = False) -> d
     """TODO lo que necesitan el PDF, el enlace público y el correo del Label Copy de una canción."""
     ctx = _song_label_copy_public_context(session_db, song, editorial=editorial)
     ctx['editorial'] = bool(editorial)
-    ctx['certifications'] = _certifications_by_type(session_db, song, "SONG")
+    ctx['certifications'] = _lc_certifications(session_db, song, "SONG")
     ctx['title'] = song.title
     ctx['share_subject'] = _label_copy_subject(song.title, ctx.get('interpreters_label') or '')
     try:
@@ -9046,7 +9153,7 @@ def _album_label_copy_context(session_db, album: Album) -> dict:
     ctx['author_rows'] = []
     ctx['author_total'] = 0
     ctx['editorial'] = False
-    ctx['certifications'] = _certifications_by_type(session_db, album, "ALBUM")
+    ctx['certifications'] = _lc_certifications(session_db, album, "ALBUM")
     ctx['share_subject'] = _label_copy_subject(album.title, ctx.get('artist_name') or '')
     try:
         ctx['public_url'] = _label_copy_public_url('ALBUM', album.id)
@@ -9057,31 +9164,45 @@ def _album_label_copy_context(session_db, album: Album) -> dict:
     return ctx
 
 
-# Cuántas imágenes de certificación caben en la cabecera sin estrujar el resto.
-CERT_HTML_MAX = 8
+def _lc_cert_imgs_html(ctx: dict, *, alto: int = 40) -> str:
+    """Las CERTIFICACIONES de un documento: el título, la imagen (apilada si son varias), la
+    etiqueta «N x Oro» en el color del disco y, debajo, la bandera del país.
 
-
-def _lc_cert_imgs_html(ctx: dict, *, alto: int = 34) -> str:
-    """Las certificaciones como IMÁGENES ACUMULADAS y SIN TEXTO (una por cada disco conseguido)."""
-    trozos = []
+    ⚠️ Va en una TABLA (una celda por certificación): esto se pinta también en un correo, donde ni
+    flex ni `position` se pueden dar por buenos."""
+    esc = lambda v: html.escape('' if v is None else str(v))
+    celdas = []
     for cert in (ctx.get('certifications') or []):
-        if len(trozos) >= CERT_HTML_MAX:
-            break
+        veces = max(1, int(cert.get('stack') or 1))
         try:
-            src = _external_url_for('certification_icon_png', clave=cert.get('type') or '', s=alto * 3)
+            src = _external_url_for('certification_icon_png', clave=cert.get('type') or '',
+                                    s=alto * 3, n=veces)
         except Exception:
             src = _absolute_media_url(cert.get('image_url') or '')
         if not src:
             continue
-        for _ in range(int(cert.get('stack') or 1)):
-            if len(trozos) >= CERT_HTML_MAX:
-                break
-            trozos.append(
-                f'<img src="{html.escape(src)}" alt="{html.escape(cert.get("label") or "")}" '
-                f'title="{html.escape(cert.get("label") or "")}" '
-                f'style="display:inline-block;height:{alto}px;width:auto;margin:0 2px;vertical-align:middle;">'
-            )
-    return ''.join(trozos)
+        # La imagen apilada es más ancha que alta: se deja el alto y el ancho va solo.
+        celdas.append(
+            '<td align="center" valign="bottom" style="padding:0 6px;">'
+            f'<img src="{esc(src)}" alt="{esc(cert.get("title") or "")}" '
+            f'title="{esc(cert.get("title") or "")}" '
+            f'style="display:block;margin:0 auto 4px;height:{alto}px;width:auto;">'
+            '<div><span style="display:inline-block;background:' + esc(cert.get('color') or '#6b7280') +
+            ';color:#ffffff;border-radius:999px;padding:1px 8px;font-size:10.5px;font-weight:700;'
+            f'white-space:nowrap;">{esc(cert.get("label") or "")}</span></div>'
+            + (f'<div style="font-size:14px;line-height:1.2;margin-top:2px;" '
+               f'title="{esc(cert.get("country_name") or "")}">{esc(cert.get("flag") or "")}</div>'
+               if (cert.get('flag') or '') else '')
+            + '</td>'
+        )
+    if not celdas:
+        return ''
+    return (
+        '<div style="font-size:10.5px;font-weight:700;color:#6b7280;text-transform:uppercase;'
+        'letter-spacing:.04em;margin-bottom:4px;text-align:center;">Certificaciones</div>'
+        '<table role="presentation" cellspacing="0" cellpadding="0" align="center" '
+        'style="border-collapse:collapse;margin:0 auto;"><tr>' + ''.join(celdas) + '</tr></table>'
+    )
 
 
 def _lc_platform_html(ctx: dict, *, tam: int = 26) -> str:
@@ -9204,10 +9325,10 @@ def _label_copy_html(ctx: dict, *, note: str = '', with_button: bool = True) -> 
         total = ctx.get('author_total') or 0
         cuerpo += (
             '<tr>'
-            '<td colspan="3" style="border:1px solid #d1d5db;padding:6px 8px;background:#fff7ed;'
-            'font-size:12.5px;font-weight:700;color:#7c2d12;">Porcentaje total</td>'
-            '<td style="border:1px solid #d1d5db;padding:6px 8px;background:#fff7ed;'
-            f'font-size:12.5px;font-weight:700;color:#7c2d12;">{total:.2f}%</td>'
+            '<td colspan="3" style="border:1px solid #d1d5db;padding:6px 8px;background:#e8f4f9;'
+            'font-size:12.5px;font-weight:700;color:#07607e;">Porcentaje total</td>'
+            '<td style="border:1px solid #d1d5db;padding:6px 8px;background:#e8f4f9;'
+            f'font-size:12.5px;font-weight:700;color:#07607e;">{total:.2f}%</td>'
             '</tr>'
         )
         autores_html = (
@@ -10313,39 +10434,73 @@ def _lc_pdf_platform_row(links: list[dict], *, tam_cm: float = 0.62):
 
 
 def _lc_pdf_certifications(certs: list[dict], *, alto_cm: float = 0.95, ancho_cm: float = 4.7):
-    """Las certificaciones del PDF: SOLO las imágenes, acumuladas y sin texto.
+    """Las CERTIFICACIONES del PDF: el título «Certificaciones», la imagen (APILADA cuando son
+    varias), la etiqueta «N x Oro» en el color del disco y debajo el país.
 
-    ⚠️ El tamaño se calcula con LAS QUE HAY: con cinco o más discos, a tamaño fijo la fila se salía
-    de su columna y pisaba lo de al lado."""
+    ⚠️ El tamaño se calcula con las que hay: a tamaño fijo, con cuatro o cinco la fila se salía de
+    su columna y pisaba lo de al lado.
+    ⚠️ La BANDERA va como CÓDIGO DEL PAÍS (ES, PT): las fuentes del PDF no dibujan emojis, así que
+    una bandera saldría como un cuadrado vacío. En la web y en el correo sí es la bandera."""
     if not REPORTLAB_AVAILABLE or not certs:
         return None
-    total = sum(max(1, int(c.get('stack') or 1)) for c in certs) or 1
-    # ⚠️ Con muchas, además de encoger hay un TOPE de cuántas caben: por debajo de 0,34 cm no se
-    # distingue nada y la fila volvía a salirse de su columna.
-    alto_cm = min(alto_cm, max(0.34, (ancho_cm / total) - 0.06))
-    max_imgs = max(1, int((ancho_cm + 1e-6) // (alto_cm + 0.06)))
-    celdas = []
+    from reportlab.lib.units import cm
+    styles = getSampleStyleSheet()
+    tit_style = ParagraphStyle('LCCertTit', parent=styles['BodyText'], fontName='Helvetica-Bold',
+                               fontSize=5.6, leading=7, alignment=TA_CENTER,
+                               textColor=colors.HexColor('#6b7280'))
+    lbl_style = ParagraphStyle('LCCertLbl', parent=styles['BodyText'], fontName='Helvetica-Bold',
+                               fontSize=5.4, leading=7, alignment=TA_CENTER,
+                               textColor=colors.white)
+    pais_style = ParagraphStyle('LCCertPais', parent=styles['BodyText'], fontSize=5.2, leading=6.5,
+                                alignment=TA_CENTER, textColor=colors.HexColor('#6b7280'))
+    n = max(1, len(certs))
+    col_cm = max(0.9, min(1.6, (ancho_cm / n) - 0.08))
+    fila_img, fila_lbl, fila_pais = [], [], []
     for cert in certs:
-        ruta = _certification_icon_path(cert.get('image') or '', 160)
+        veces = max(1, int(cert.get('stack') or 1))
+        ruta, prop = _certification_stack_path(cert.get('image') or '', veces, 160)
         if not ruta or not os.path.exists(ruta):
             continue
-        for _ in range(int(cert.get('stack') or 1)):
-            if len(celdas) >= max_imgs:
-                break
-            try:
-                # Los PNG de las certificaciones son cuadrados: ancho = alto y no se deforman.
-                celdas.append(RLImage(ruta, width=alto_cm * cm_unit(), height=alto_cm * cm_unit()))
-            except Exception:
-                continue
-    if not celdas:
+        # La imagen apilada es más ancha que alta: manda el ANCHO de la columna.
+        ancho_img = min(col_cm, alto_cm * prop)
+        alto_img = ancho_img / (prop or 1.0)
+        try:
+            fila_img.append(RLImage(ruta, width=ancho_img * cm, height=alto_img * cm))
+        except Exception:
+            continue
+        fila_lbl.append(Table(
+            [[Paragraph(html.escape(cert.get('label') or ''), lbl_style)]],
+            colWidths=[col_cm * cm],
+            style=TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(cert.get('color') or '#6b7280')),
+                ('LEFTPADDING', (0, 0), (-1, -1), 1), ('RIGHTPADDING', (0, 0), (-1, -1), 1),
+                ('TOPPADDING', (0, 0), (-1, -1), 1), ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+                ('ROUNDEDCORNERS', [3, 3, 3, 3]),
+            ])))
+        fila_pais.append(Paragraph(html.escape(cert.get('country_code') or ''), pais_style))
+    if not fila_img:
         return None
-    t = Table([celdas], colWidths=[(alto_cm + 0.06) * cm_unit()] * len(celdas))
-    t.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                           ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
-                           ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                           ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                           ('TOPPADDING', (0, 0), (-1, -1), 0),
-                           ('BOTTOMPADDING', (0, 0), (-1, -1), 0)]))
+    cols = [col_cm * cm] * len(fila_img)
+    discos = Table([fila_img, fila_lbl, fila_pais], colWidths=cols)
+    discos.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, 0), 'BOTTOM'),
+        ('VALIGN', (0, 1), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 1),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 1),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+    ]))
+    # ⚠️ El TÍTULO va en su propia tabla, con TODO el ancho de la columna: metido en la de los
+    # discos, con una sola certificación se partía en dos líneas («CERTIFICACIO / NES»).
+    t = Table([[Paragraph('CERTIFICACIONES', tit_style)], [discos]], colWidths=[ancho_cm * cm])
+    t.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
     return t
 
 
@@ -10389,6 +10544,8 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     small_style = ParagraphStyle('LCSmall', parent=styles['BodyText'], fontSize=9.2, leading=12, textColor=colors.HexColor('#374151'))
     label_style = ParagraphStyle('LCLabel', parent=styles['BodyText'], fontName='Helvetica-Bold', fontSize=9.3, leading=12, textColor=colors.HexColor('#111827'))
     split_style = ParagraphStyle('LCSplit', parent=styles['BodyText'], fontSize=6.6, leading=8.4, textColor=colors.HexColor('#4b5563'))
+    # La línea del TOTAL va en el azul corporativo, clarito (antes era el naranja de los avisos).
+    total_style = ParagraphStyle('LCTotal', parent=styles['BodyText'], fontName='Helvetica-Bold', fontSize=9.3, leading=12, textColor=colors.HexColor('#07607e'))
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.5*cm, rightMargin=1.5*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
     story = []
@@ -10407,7 +10564,7 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     if platform_links_table:
         right_col.extend([Spacer(1, 0.16*cm), platform_links_table])
     # LAS CERTIFICACIONES van a la DERECHA, a la altura de la portada, y son solo las imágenes.
-    certs_table = _lc_pdf_certifications(_certifications_by_type(session_db, song, 'SONG'))
+    certs_table = _lc_pdf_certifications(_lc_certifications(session_db, song, 'SONG'))
     if certs_table is not None:
         header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col, certs_table]],
                              colWidths=[3.7*cm, 9.6*cm, 4.7*cm])
@@ -10505,11 +10662,12 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
             ])
         author_table = Table([
             [Paragraph('Autor', label_style), Paragraph('Rol', label_style), Paragraph('Editorial', label_style), Paragraph('%', label_style)]
-        ] + cuerpo + [[Paragraph('Porcentaje total', label_style), Paragraph('', small_style), Paragraph('', small_style), Paragraph(f'{author_total:.2f}%', label_style)]], colWidths=[5.0*cm, 3.4*cm, 6.4*cm, 3.2*cm])
+        ] + cuerpo + [[Paragraph('Porcentaje total', total_style), Paragraph('', small_style), Paragraph('', small_style), Paragraph(f'{author_total:.2f}%', total_style)]], colWidths=[5.0*cm, 3.4*cm, 6.4*cm, 3.2*cm])
         author_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f3f4f6')),
-            ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#fff7ed')),
+            ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#e8f4f9')),
+            ('TEXTCOLOR', (0,-1), (-1,-1), colors.HexColor('#07607e')),
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ('LEFTPADDING', (0,0), (-1,-1), 5),
             ('RIGHTPADDING', (0,0), (-1,-1), 5),
@@ -10570,7 +10728,7 @@ def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]
     if platform_links_table:
         right_col.extend([Spacer(1, 0.14*cm), platform_links_table])
     # LAS CERTIFICACIONES van a la DERECHA, a la altura de la portada, y son solo las imágenes.
-    certs_table = _lc_pdf_certifications(_certifications_by_type(session_db, album, 'ALBUM'), ancho_cm=3.9)
+    certs_table = _lc_pdf_certifications(_lc_certifications(session_db, album, 'ALBUM'), ancho_cm=3.9)
     if certs_table is not None:
         header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col, certs_table]],
                              colWidths=[3.2*cm, 10.1*cm, 3.9*cm])
@@ -14921,16 +15079,33 @@ FICHA_NAV_KINDS = {"repertorio", "repertorio_albumes", "lanzamientos", "syncros"
 
 
 def _ficha_nav_args(args=None) -> dict:
-    """Los parámetros de navegación que hay que ARRASTRAR (a las pestañas y a la ficha siguiente)."""
+    """Los parámetros de navegación que hay que ARRASTRAR (a las pestañas y a la ficha siguiente).
+
+    ⚠️ EL LISTADO SE RECUERDA EN LA SESIÓN: al guardar un dato de la ficha, el endpoint redirige a
+    ella SIN el `?nav=…` y las flechas de anterior/siguiente desaparecían (bug real). Con esto, si
+    la URL no lo trae se usa el último listado por el que se entró; y si lo trae, se guarda.
+    Las flechas solo se pintan si la ficha está EN ese listado (`_ficha_nav`), así que un listado
+    viejo no inventa nada."""
     src = args if args is not None else request.args
     fuera = {}
     for k in FICHA_NAV_PARAMS:
         v = (src.get(k) or "").strip()
         if v:
             fuera[k] = v
-    if fuera.get("nav") not in FICHA_NAV_KINDS:
-        return {}
-    return fuera
+    if fuera.get("nav") in FICHA_NAV_KINDS:
+        try:
+            session["ficha_nav"] = fuera
+        except Exception:
+            pass
+        return fuera
+    if args is None:
+        try:
+            guardado = session.get("ficha_nav") or {}
+        except Exception:
+            guardado = {}
+        if isinstance(guardado, dict) and guardado.get("nav") in FICHA_NAV_KINDS:
+            return {k: v for k, v in guardado.items() if k in FICHA_NAV_PARAMS and v}
+    return {}
 
 
 def _ficha_nav_back_url(args: dict) -> str:
@@ -38520,6 +38695,53 @@ def discografica_album_label_copy_email(album_id):
     except Exception as e:
         flash(f"No se pudo enviar el Label Copy: {e}", "danger")
         return redirect(destino)
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/canciones/<song_id>/label-copy/preview", endpoint="discografica_song_label_copy_preview")
+@admin_required
+def discografica_song_label_copy_preview(song_id):
+    """CÓMO VA A QUEDAR el correo del Label Copy (para el pop-up de enviarlo).
+
+    Es el MISMO HTML que se manda: aquí no hay una segunda versión que se pueda desparejar."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    editorial = _truthy(request.args.get("editorial"))
+    if editorial and not has_access_key("discografica.editorial"):
+        return jsonify({"ok": False, "error": "Sin acceso al reparto editorial."}), 403
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            return jsonify({"ok": False, "error": "Canción no encontrada."}), 404
+        ctx = _label_copy_context(session_db, song, editorial=editorial)
+        return jsonify({"ok": True, "subject": ctx["share_subject"],
+                        "html": _label_copy_html(ctx, note=(request.args.get("note") or ""))})
+    except Exception as e:
+        app.logger.exception("[label copy] no se pudo componer la vista previa")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/albumes/<album_id>/label-copy/preview", endpoint="discografica_album_label_copy_preview")
+@admin_required
+def discografica_album_label_copy_preview(album_id):
+    """La vista previa del correo del Label Copy de un ÁLBUM."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            return jsonify({"ok": False, "error": "Álbum no encontrado."}), 404
+        ctx = _album_label_copy_context(session_db, album)
+        return jsonify({"ok": True, "subject": ctx["share_subject"],
+                        "html": _label_copy_html(ctx, note=(request.args.get("note") or ""))})
+    except Exception as e:
+        app.logger.exception("[label copy] no se pudo componer la vista previa del álbum")
+        return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         session_db.close()
 

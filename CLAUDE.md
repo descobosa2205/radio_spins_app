@@ -2865,6 +2865,12 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   registrar. Las obras **sin registrar no se tocan** a propósito (su reparto se decide el día del
   registro; hasta entonces la ficha ya lo enseña calculado) y si el relleno se cae a medias **no se
   marca** como hecho, para que el siguiente arranque lo reintente.
+- ⚠️ **LAS FLECHAS DE ANTERIOR / SIGUIENTE NO SE PIERDEN AL GUARDAR** (ago 2026): al guardar un
+  dato de la ficha, el endpoint redirige a ella **sin el `?nav=…`**, así que `_ficha_nav_args`
+  se quedaba sin listado y las flechas desaparecían. Ahora el listado **se recuerda en la sesión**
+  (`session['ficha_nav']`): si la URL no lo trae, se usa el último por el que se entró. No inventa
+  nada, porque `_ficha_nav` solo pinta flechas si la ficha está EN ese listado.
+
 - ⚠️⚠️ **EL LABEL COPY ES UN SOLO CONTENIDO: PDF, ENLACE Y CORREO DICEN LO MISMO** (ago 2026,
   rediseño). `_label_copy_context` reúne los datos y **`_label_copy_html`** los pinta con estilos en
   línea; de ahí beben **el enlace público** (`public_song_label_copy_view` → `lc_html`) y el
@@ -2887,6 +2893,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   punto único **`_editorial_shares_sorted`**, aplicado en TODOS los sitios (la pestaña Editorial, el
   LC, el aviso de SGAE, la letra, Syncros y el precumplimentado de la entrega de masters). Se ordena
   en Python porque el nombre lo compone `_promoter_display_name`, no es una columna.
+  · **EL CORREO SE VE ANTES DE MANDARLO**: el pop-up es de dos columnas —a quién y la nota a la
+  izquierda, la **VISTA PREVIA** a la derecha— como el de la valoración de una demo. La compone el
+  servidor (`discografica_song_label_copy_preview` / `..._album_...`) con el MISMO
+  `_label_copy_html` que se manda, así que no hay una segunda versión que se pueda desparejar; se
+  refresca al escribir la nota y enseña el asunto.
+  · **LOS ENLACES DE PLATAFORMA van a la IZQUIERDA**, pegados a la portada y **debajo de los
+  intérpretes**, igual en los cuatro sitios: la ficha (canción y álbum), el PDF, el enlace y el
+  correo. Antes en la ficha estaban arriba a la derecha.
+  · **La línea del TOTAL del reparto autoral va en el AZUL corporativo clarito** (fondo `#e8f4f9`,
+  texto `#07607e`), no en el naranja de los avisos. ⚠️ En el PDF, el color hay que ponerlo en el
+  ESTILO del `Paragraph` (`total_style`): un `TEXTCOLOR` en la celda no gana al color del párrafo.
   · **COMPARTIR es un solo menú** (`templates/_label_copy_share.html`, macro `lc_share`), usado en la
   barra de la ficha, en los DOS botones del final de la pestaña Editorial y en la ficha del ÁLBUM:
   Descargar en PDF · WhatsApp · Correo · SMS · Copiar enlace.
@@ -2922,11 +2939,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Con `relative=0` los cinco enlaces se apilaban en la **esquina inferior izquierda** y no se podía
   pinchar ningún icono (bug real, comprobado leyendo las anotaciones del PDF).
 
-- **CERTIFICACIONES EN UN DOCUMENTO: solo las imágenes, acumuladas y sin texto** (ago 2026): punto
-  único **`_certifications_by_type`** (agrupa por TIPO sumando países, el mismo criterio que la ficha
-  de Syncro, que ahora lo usa) + `_lc_cert_imgs_html` (web y correo) y `_lc_pdf_certifications` (PDF).
-  Van a la **derecha, a la altura de la portada**, una imagen por cada disco conseguido (tope
-  `CERT_STACK_MAX` = 6).
+- **CERTIFICACIONES EN UN DOCUMENTO** (ago 2026): a la **derecha, a la altura de la portada**, con
+  el título **«Certificaciones»** encima, la imagen del disco (**APILADA** cuando son varias, igual
+  que en la pestaña Certificaciones), debajo una **etiqueta con el color del disco** («3 x Oro») y,
+  centrada bajo ella, la **bandera del país**.
+  · Punto único **`_lc_certifications`** (agrupa por **TIPO Y PAÍS**: hay que decir de dónde es cada
+  una) + `_lc_cert_imgs_html` (web y correo) y `_lc_pdf_certifications` (PDF). El nombre corto
+  («Oro») y el color de cada tipo viven en `_certification_catalog`.
+  ⚠️ **La imagen apilada se compone en el SERVIDOR** (`_certification_stack_png`, cacheada; el
+  endpoint acepta `?n=`): con CSS haría falta `position:absolute` o un margen negativo, y en un
+  correo eso no se puede dar por bueno. Tope `CERT_STACK_MAX` = 6.
+  ⚠️ En el **PDF la bandera va como CÓDIGO DEL PAÍS** (ES, PT): las fuentes del PDF no dibujan
+  emojis y una bandera saldría como un cuadrado vacío. En la web y en el correo sí es la bandera.
+  ⚠️ El **título va en su propia tabla, con el ancho de la columna**: metido en la de los discos, con
+  una sola certificación se partía en dos líneas («CERTIFICACIO / NES»).
+  · `_certifications_by_type` (agrupar por TIPO sumando países) se conserva para la ficha de Syncro.
   ⚠️ Los PNG de las certificaciones pesan **~290 KB** cada uno: en un correo o en un PDF se sirven
   **reducidos** (`_certification_small_png`, cacheado; endpoint público `certification_icon_png` para
   el correo y `_certification_icon_path` para ReportLab).

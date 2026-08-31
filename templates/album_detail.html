@@ -89,29 +89,44 @@
    el servidor con el contenido del PDF). Los clics se enganchan por delegación. #}
 {% if CAN_EDIT_DISCOGRAFICA %}
   <div class="modal fade" id="lcEmailModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
       <form class="modal-content" method="post"
             action="{{ url_for('discografica_album_label_copy_email', album_id=album.id) }}">
         <div class="modal-header">
-          <h5 class="modal-title">Enviar el Label Copy por correo</h5>
+          <div>
+            <h5 class="modal-title"><i class="fa fa-envelope me-2"></i>Enviar el Label Copy por correo</h5>
+            <div class="small text-muted" id="lcEmailWhat"></div>
+          </div>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
         <div class="modal-body">
-          <input type="hidden" name="editorial" id="lcEmailEditorial" value="">
-          <div class="small text-muted mb-2" id="lcEmailWhat"></div>
-          <label class="form-label">¿A quién?</label>
-          <input class="form-control" name="emails" required placeholder="correo@ejemplo.com, otro@ejemplo.com">
-          <div class="form-text">Varios, separados por comas.</div>
-          <label class="form-label mt-3">Nota (opcional)</label>
-          <textarea class="form-control" name="note" rows="3" placeholder="Unas líneas antes del Label Copy."></textarea>
-          <div class="text-muted small mt-3">
-            <i class="fa fa-paperclip me-1"></i>El correo lleva el mismo contenido que el PDF, el botón
-            para descargarlo y el PDF adjunto.
+          <div class="row g-3">
+            <div class="col-12 col-lg-5">
+              <label class="form-label">¿A quién?</label>
+              <input class="form-control" name="emails" required placeholder="correo@ejemplo.com, otro@ejemplo.com">
+              <div class="form-text">Varios, separados por comas.</div>
+              <label class="form-label mt-3">Nota <span class="text-muted">(sale en el correo)</span></label>
+              <textarea class="form-control" name="note" rows="3" id="lcEmailNote"
+                        placeholder="Unas líneas antes del Label Copy."></textarea>
+              <div class="text-muted small mt-3">
+                <i class="fa fa-paperclip me-1"></i>El correo lleva el mismo contenido que el PDF, el botón
+                para descargarlo y el PDF adjunto.
+              </div>
+              <div class="d-grid gap-2 mt-3">
+                <button class="btn btn-primary"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              </div>
+            </div>
+            <div class="col-12 col-lg-7">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="m-0"><i class="fa fa-envelope-open-text me-1 text-muted"></i>Vista previa</h6>
+                <span class="text-muted small" id="lcEmailSubject"></span>
+              </div>
+              <div class="an-preview" id="lcEmailPreview">
+                <div class="text-muted small">Cargando…</div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button class="btn btn-primary"><i class="fa fa-paper-plane"></i> Enviar</button>
         </div>
       </form>
     </div>
@@ -140,6 +155,33 @@
     if (!modal || !window.bootstrap) return;
     modal.querySelector('#lcEmailWhat').textContent = 'Se manda el Label Copy.';
     new bootstrap.Modal(modal).show();
+    pintaPrevia();
+  });
+
+  /* La VISTA PREVIA es el MISMO correo que se manda: lo compone el servidor. */
+  var URL_PREVIA = {{ url_for('discografica_album_label_copy_preview', album_id=album.id)|tojson }};
+  var espera = null;
+  function pintaPrevia() {
+    var caja = document.getElementById('lcEmailPreview');
+    if (!caja) return;
+    var nota = (document.getElementById('lcEmailNote') || {}).value || '';
+    caja.innerHTML = '<div class="text-muted small">Cargando…</div>';
+    fetch(URL_PREVIA + '?note=' + encodeURIComponent(nota), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) throw new Error((d && d.error) || 'error');
+        caja.innerHTML = d.html || '';
+        var asu = document.getElementById('lcEmailSubject');
+        if (asu) asu.textContent = d.subject || '';
+      })
+      .catch(function () {
+        caja.innerHTML = '<div class="text-danger small">No se ha podido componer la vista previa.</div>';
+      });
+  }
+  document.addEventListener('input', function (ev) {
+    if (!ev.target || ev.target.id !== 'lcEmailNote') return;
+    clearTimeout(espera);
+    espera = setTimeout(pintaPrevia, 400);
   });
 })();
 </script>

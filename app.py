@@ -9225,8 +9225,10 @@ def _label_copy_html(ctx: dict, *, note: str = '', with_button: bool = True) -> 
 
     nota_html = ''
     if (note or '').strip():
+        # ⚠️ Los saltos de línea de la nota se respetan (en un correo, un `\n` no pinta nada).
         nota_html = ('<div style="margin:14px 0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;'
-                     f'border-radius:10px;font-size:13.5px;color:#374151;">{esc(note.strip())}</div>')
+                     'border-radius:10px;font-size:13.5px;color:#374151;">'
+                     + esc(note.strip()).replace('\n', '<br>') + '</div>')
 
     boton_html = ''
     if with_button and (ctx.get('public_pdf_url') or ''):

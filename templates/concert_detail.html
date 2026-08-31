@@ -347,6 +347,57 @@
                 </form>
               {% endif %}
             {% endif %}
+
+            {# ── SUBTAREAS: lo de una CANCELACIÓN o un APLAZAMIENTO es UN trabajo con varias
+               partes (avisar a los proveedores, informar al personal, cerrar la bolsa), no cuatro
+               tareas sueltas. Van dentro de su tarea, con su propio botón. ── #}
+            {% if t.subs %}
+              <div class="w-100 mt-2 ps-4 border-start">
+                {% for sb in t.subs %}
+                  <div class="d-flex align-items-center gap-2 flex-wrap py-1">
+                    <i class="fa {{ 'fa-circle-check text-success' if sb.done else sb.icon }}"></i>
+                    <span class="small {{ 'text-decoration-line-through text-muted' if sb.done }}">{{ sb.label }}</span>
+                    {% if sb.done %}
+                      <span class="small text-muted">· {{ sb.at_label }}{% if sb.by %} · {{ sb.by }}{% endif %}</span>
+                    {% else %}
+                      {% if sb.due_label %}
+                        <span class="badge {{ 'text-bg-danger' if (sb.days_left is not none and sb.days_left < 0) else 'text-bg-warning text-dark' }}">
+                          {% if sb.days_left is not none and sb.days_left < 0 %}Se pasó el plazo ({{ sb.due_label }})
+                          {% else %}Antes del {{ sb.due_label }}{% endif %}</span>
+                      {% endif %}
+                      {% if sb.key == 'personal' %}
+                        <button class="btn btn-sm btn-outline-warning" type="button"
+                                data-bs-toggle="modal" data-bs-target="#cancelStaffModal">
+                          <i class="fa fa-users me-1"></i>Informar</button>
+                      {% elif sb.url %}
+                        <a class="btn btn-sm btn-outline-warning" href="{{ sb.url }}">
+                          <i class="fa {{ sb.icon }} me-1"></i>Ir</a>
+                      {% endif %}
+                      {% if CAN_EDIT_CONCERTS and sb.key != 'personal' %}
+                        <form method="post" action="{{ sb.done_url }}" class="d-inline">
+                          <input type="hidden" name="next" value="{{ request.full_path }}">
+                          <button class="btn btn-sm btn-outline-secondary"><i class="fa fa-check me-1"></i>Hecho</button>
+                        </form>
+                      {% endif %}
+                    {% endif %}
+                  </div>
+                {% endfor %}
+                {% if t.cancel %}
+                  <div class="small text-muted mt-1">
+                    {% if t.cancel.at_label %}{{ t.cancel.at_label }}{% if t.cancel.by %} · {{ t.cancel.by }}{% endif %} · {% endif %}
+                    {{ cancel_summary_text(t.cancel) }}
+                  </div>
+                  {% if CAN_EDIT_CONCERTS %}
+                    <form method="post" action="{{ url_for('concert_cancel_undo', cid=concert.id) }}" class="mt-1">
+                      <input type="hidden" name="next" value="{{ request.full_path }}">
+                      <button class="btn btn-sm btn-link text-decoration-none px-0"
+                              data-confirm="La actividad volverá a estar RESERVADA. ¿Seguir?">
+                        <i class="fa fa-arrow-rotate-left me-1"></i>Deshacer</button>
+                    </form>
+                  {% endif %}
+                {% endif %}
+              </div>
+            {% endif %}
           </div>
         {% else %}
           <div class="list-group-item text-muted py-4 text-center">
@@ -354,6 +405,38 @@
             proceso de peticiones. Lo que falte se ve en su ficha y en los botones de arriba.
           </div>
         {% endfor %}
+      </div>
+    </div>
+
+    {# Informar al PERSONAL de que la actividad se cae o se mueve. ⚠️ Al ARTISTA no: a él se le
+       avisa por su canal, y no es personal de la casa. #}
+    <div class="modal fade" id="cancelStaffModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <form method="post" action="{{ url_for('concert_cancel_staff_notice', cid=concert.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fa fa-users me-2"></i>Informar al personal</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p class="text-muted small">Les llega el aviso con el motivo. Al artista no: a él ya se
+                le ha comunicado por su canal.</p>
+              <label class="border rounded p-2 w-100 d-flex align-items-center gap-2 mb-0">
+                <input class="form-check-input m-0" type="checkbox" name="everyone" value="1">
+                <span><i class="fa fa-building-user text-danger me-1"></i>Avisar a <strong>todo el
+                  personal</strong> de la oficina</span>
+              </label>
+              <div class="form-text">Sin marcarlo, solo a quien está en la hoja de ruta de esta
+                actividad (a quien de verdad le cambia el día).</div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-danger" type="submit"><i class="fa fa-paper-plane me-1"></i>Avisar</button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
 

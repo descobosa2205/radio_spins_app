@@ -1496,6 +1496,8 @@ def inject_globals():
         CAN_EDIT_CATALOGS=can_edit_catalogs(),
         CAN_EDIT_SONGS_PROMOTERS=(can_edit_catalogs() or can_edit_discografica()),
         CAN_EDIT_DISCOGRAFICA=can_edit_discografica(),
+        # Lo que se cuenta de una cancelación además del motivo (caché, gastos, nueva fecha).
+        cancel_summary_text=_cancel_summary_text,
         CAN_EDIT_SYNCROS=can_edit_syncros(),
         CAN_EDIT_ARTISTS_STATIONS=can_edit_artists_stations(),
         IS_MASTER=is_master()
@@ -42412,7 +42414,7 @@ def _norm_base(val: str | None) -> str | None:
 
 def _norm_status(val: str | None) -> str:
     v = (val or "").strip().upper()
-    if v in ("BORRADOR", "CONFIRMADO", "RESERVADO", "HABLADO"):
+    if v in ("BORRADOR", "CONFIRMADO", "RESERVADO", "HABLADO", "CANCELADO", "APLAZADO"):
         return v
     return "BORRADOR"
 
@@ -44138,6 +44140,21 @@ def _concert_peticion_phases(session_db, concert) -> dict | None:
     }
 
 
+class _CancelledActivity(Exception):
+    """Corta el cálculo de las tareas propias de una actividad CANCELADA (no reclama nada más)."""
+
+
+def _concert_bag_id(session_db, concert):
+    """La bolsa de la actividad, si la tiene (para llevar a ella desde sus tareas)."""
+    try:
+        fila = (session_db.query(WorkflowBag.id)
+                .filter(WorkflowBag.linked_type.in_(("CONCERT", "concert")),
+                        WorkflowBag.linked_id == concert.id).first())
+        return str(fila[0]) if fila else ""
+    except Exception:
+        return ""
+
+
 def _concert_task_board(session_db, concert) -> dict:
     """LAS TAREAS de una actividad, **paso a paso**, para su pestaña «Inicio» (el mismo patrón que
     las tareas pendientes de un proyecto discográfico).
@@ -44208,7 +44225,12 @@ def _concert_task_board(session_db, concert) -> dict:
                       "owner_user_id": "", "nudge_url": "", "url": url, "generic": True})
 
     try:
-        confirmada = (getattr(concert, "status", None) or "BORRADOR").upper() == "CONFIRMADO"
+        _estado_actual = (getattr(concert, "status", None) or "BORRADOR").upper()
+        confirmada = _estado_actual == "CONFIRMADO"
+        # ⚠️ Una actividad CANCELADA no reclama nada más: no hay que contratarla, ni anunciarla, ni
+        # sacarla a la venta. Lo único que queda son las tareas de la propia cancelación.
+        if _estado_actual == "CANCELADO":
+            raise _CancelledActivity
         if not confirmada:
             suelta("confirmar", 5, "Pendiente de confirmar", "fa-circle-question")
         else:
@@ -44227,9 +44249,43 @@ def _concert_task_board(session_db, concert) -> dict:
             if _peticion_artist_notice_pending(session_db, concert):
                 suelta("informar", 4, "Informar al artista", "fa-bell",
                        url=url_for("concert_artist_notice_view", cid=concert.id))
+    except _CancelledActivity:
+        pass                              # cancelada: sin tareas propias (ver arriba)
     except Exception:
         app.logger.exception("[tareas] no se pudieron calcular las tareas propias de la actividad")
     filas += extra
+    # ── LA ACTIVIDAD SE HA CAÍDO (o se ha movido): una sola tarea con SUS SUBTAREAS ───────────
+    # ⚠️ Todo lo de una cancelación es UN trabajo con varias partes (avisar a proveedores, informar
+    # al personal, cerrar la bolsa): en una lista plana parecerían cuatro cosas sin relación.
+    try:
+        _canc = _cancel_state(session_db, concert)
+        if _canc["active"]:
+            _subs = []
+            for t in _canc["tasks"]:
+                _u = ""
+                if not t["done"]:
+                    if t["key"] == "personal":
+                        _u = ""                                     # tiene su propio pop-up
+                    elif t["key"] == "bolsa":
+                        _u = url_for("bag_detail_view", bag_id=_concert_bag_id(session_db, concert)) \
+                             if _concert_bag_id(session_db, concert) else ""
+                _subs.append({**t, "url": _u,
+                              "done_url": url_for("concert_cancel_task", cid=concert.id, key=t["key"]),
+                              "due_label": (_canc["bag_due_label"] if t["key"] == "bolsa" else ""),
+                              "days_left": (_canc["bag_days_left"] if t["key"] == "bolsa" else None)})
+            filas.insert(0, {
+                "key": "cancelacion", "phase": 0,
+                "label": ("Actividad cancelada" if _canc["kind"] == "CANCELADO"
+                          else "Actividad aplazada"),
+                "icon": _canc["icon"],
+                "state": ("done" if _canc["all_done"] else "todo"),
+                "mine": False, "blocked": False, "blocked_reason": "", "owner_nick": "",
+                "owner_user_id": "", "nudge_url": "", "url": "", "generic": True,
+                "note": (_canc["reason"] or ""), "subs": _subs,
+                "cancel": _canc,
+            })
+    except Exception:
+        app.logger.exception("[tareas] no se pudieron calcular las tareas de la cancelación")
     filas.sort(key=lambda f: f["phase"])
     pend = sum(1 for f in filas if f["state"] != "done")
     return {"rows": filas, "pending": pend, "total": len(filas),
@@ -45452,7 +45508,14 @@ CONCERT_STATUS_META = {
     "HABLADO": ("Hablado", "text-bg-secondary"),
     "RESERVADO": ("Reservado", "text-bg-info text-dark"),
     "CONFIRMADO": ("Confirmado", "text-bg-success"),
+    # ⚠️ Una actividad que se cae o se mueve NO se borra: cambia de estado y arrastra su proceso
+    # (motivo, caché, gastos y las tareas de producción). Ver `CANCEL_KINDS`.
+    "CANCELADO": ("Cancelada", "text-bg-danger"),
+    "APLAZADO": ("Aplazada", "text-bg-warning text-dark"),
 }
+# Los estados a los que se llega por el PROCESO de cancelación/aplazamiento, no pinchando la
+# etiqueta: hay que decir el motivo, qué pasa con el caché y avisar al artista.
+CONCERT_PROCESS_STATUSES = {"CANCELADO", "APLAZADO"}
 GROUP_STATUS_META = {
     "ACTIVA": ("Activa", "text-bg-success"), "ACTIVO": ("Activo", "text-bg-success"),
     "ARCHIVADA": ("Archivada", "text-bg-secondary"), "ARCHIVADO": ("Archivado", "text-bg-secondary"),
@@ -53279,6 +53342,18 @@ def concert_quick_status(cid):
         if not new_status and request.is_json:
             payload = request.get_json(silent=True) or {}
             new_status = payload.get("status")
+
+        # ⚠️ CANCELAR y APLAZAR no se hacen por aquí: son un PROCESO (motivo, caché, gastos y el
+        # aviso obligatorio al artista). Se rebota con el enlace a su pantalla.
+        if _norm_status(new_status) in CONCERT_PROCESS_STATUSES:
+            _k = _norm_status(new_status)
+            return jsonify({"ok": False,
+                            "error": ("Cancelar una actividad no es solo cambiar el estado: hay que "
+                                      "decir el motivo y qué pasa con el caché y los gastos."
+                                      if _k == "CANCELADO" else
+                                      "Aplazar una actividad no es solo cambiar el estado: hay que "
+                                      "decir el motivo y la nueva fecha."),
+                            "redirect": url_for("concert_cancel_view", cid=cid, kind=_k)}), 409
 
         # COMPUERTA: no se confirma una actividad sin habérsela comunicado al artista.
         puerta = _concert_notice_gate(session, c, _norm_status(new_status))
@@ -68311,6 +68386,10 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "discografica.proyectos", "label": "Proyectos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 138, "description": "Pestaña «Proyectos»: donde se prepara el material discográfico (álbumes, EPs, singles y videoclips), con el calendario de cada proyecto, su información, sus materiales, su bolsa de gastos y su hoja de ruta (importes de la bolsa)."},
     {"key": "discografica.demos", "label": "Demos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 139, "description": "Pestaña «Demos» del sello: las maquetas que se están valorando (subirlas, escucharlas, pedir valoración al sello y pasarlas al repertorio). Incluye el enlace público para que nos manden demos."},
     {"key": "discografica.playlists", "label": "Playlists", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 140, "description": "Pestaña «Playlists»: listas de temas (canciones del repertorio y maquetas) para mandarlas fuera, con su enlace público y sus interruptores (descarga, letra, autores…)."},
+    # ⚠️ La pestaña GASTOS de la ficha de una canción es su BOLSA (la del single, o la de su
+    # proyecto discográfico si lo tiene): son IMPORTES, así que tiene su propio permiso en vez de
+    # colgar de otro que no venía a cuento.
+    {"key": "discografica.gastos", "label": "Gastos de un lanzamiento", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 142, "description": "Pestaña «Gastos» de la ficha de una canción o un álbum: su bolsa de gastos (la del single, o la del proyecto discográfico que lo prepara). Con «Ver datos económicos» se ven los importes."},
     {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 143, "description": "Códigos ISRC: el repertorio de códigos y su configurador. ⚠️ La pantalla vive en REGISTROS → pestaña «ISRC» (el permiso se sigue llamando así a propósito: renombrarlo se llevaría por delante los permisos ya concedidos)."},
 
     {"key": "vacaciones", "label": "Vacaciones y días libres", "section_key": "vacaciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 148, "description": "Vacaciones del personal de la oficina: calendario de toda la oficina, saldo de cada persona, peticiones por aprobar y calendario de festivos. Se concede solo a quien tenga la responsabilidad «Gestionar vacaciones» del reparto de administración."},
@@ -68882,6 +68961,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
     if endpoint.startswith("artist_calendar_import"):
         return "artists.agenda"
+    # La BOLSA de gastos de un single: su pestaña «Gastos» de la ficha de la canción.
+    if endpoint == "song_bag_open":
+        return "discografica.gastos"
     # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
     if endpoint.startswith("group_artwork"):
         return "contratacion.conciertos"
@@ -69586,6 +69668,9 @@ def _resolve_request_resource_key() -> str | None:
     # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
     if endpoint.startswith("artist_calendar_import"):
         return "artists.agenda"
+    # La BOLSA de gastos de un single: su pestaña «Gastos» de la ficha de la canción.
+    if endpoint == "song_bag_open":
+        return "discografica.gastos"
     # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
     if endpoint.startswith("group_artwork"):
         return "contratacion.conciertos"
@@ -70888,9 +70973,12 @@ def _contracting_tasks_data() -> dict:
             return any(str(x) in mios for x in (getattr(obj, "artist_ids", None) or []))
 
         # ---- Actividades vivas: confirmar · contrato · anuncio · producción ----
+        # ⚠️ Una actividad CANCELADA no es trabajo de contratación: lo que queda de ella (avisar a
+        # los proveedores, cerrar la bolsa) es de producción y sale en su propia ficha.
         vivas = (session_db.query(Concert)
                  .options(joinedload(Concert.artist), joinedload(Concert.venue))
                  .filter(or_(Concert.date.is_(None), Concert.date >= hoy))
+                 .filter(func.upper(func.coalesce(Concert.status, "")) != "CANCELADO")
                  .order_by(Concert.date.asc().nullslast())
                  .all())
         vivas = [c for c in vivas if _visible(c)]
@@ -89994,6 +90082,7 @@ ACTIVITY_NOTICE_KINDS = {
     "CONFIRMACION": "Confirmación nueva actividad",
     "CAMBIOS": "Cambios en la actividad",
     "CANCELACION": "Actividad cancelada",
+    "APLAZAMIENTO": "Actividad aplazada",
 }
 ACTIVITY_NOTICE_CHANNELS = [
     ("EMAIL", "Correo", "fa-envelope"),
@@ -90095,6 +90184,386 @@ def _concert_notice_can_ack(concert) -> bool:
         return ultimo < _now_madrid().date()
     except Exception:
         return False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CANCELAR o APLAZAR una actividad
+#
+# ⚠️⚠️ **No es cambiar una etiqueta: es un PROCESO.** Cuando una actividad se cae (o se mueve de
+# fecha) hay que decírselo al artista, cerrar lo que estuviera contratado y dejar claro qué se cobra
+# y qué se paga. Por eso:
+#   · se pide el **MOTIVO** (va en el aviso: quien lo recibe tiene que saber por qué);
+#   · si hay **CACHÉ**, se pregunta si se cobra —total o parcial, con su importe o su %— enseñando
+#     el que está pactado, para no tener que ir a mirarlo a otra pestaña;
+#   · se pregunta si el promotor **CUBRE LOS GASTOS** (todos o una parte, diciendo cuál);
+#   · en un APLAZAMIENTO, si ya se sabe la **NUEVA FECHA** o queda por concretar (TBC);
+#   · **avisar al artista es OBLIGATORIO**: el estado NO cambia hasta que se le ha comunicado;
+#   · y a **PRODUCCIÓN** le entran sus tareas: avisar a los proveedores, informar al personal,
+#     cerrar la bolsa (con **15 días** de plazo) y —si el promotor cubre gastos— mandárselos.
+#
+# Todo el proceso vive en `Concert.cancellation_payload`; el estado sigue siendo `Concert.status`.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# El plazo de PRODUCCIÓN para cerrar la bolsa de una actividad que se cae.
+CANCEL_BAG_DAYS = 15
+
+CANCEL_KINDS = {
+    "CANCELADO": {
+        "label": "Cancelada", "verb": "cancelar", "icon": "fa-ban",
+        "notice": "CANCELACION", "title": "Cancelar la actividad",
+    },
+    "APLAZADO": {
+        "label": "Aplazada", "verb": "aplazar", "icon": "fa-calendar-xmark",
+        "notice": "APLAZAMIENTO", "title": "Aplazar la actividad",
+    },
+}
+
+# LAS TAREAS que le entran a PRODUCCIÓN cuando una actividad se cae o se mueve. Son SUBTAREAS de la
+# tarea de la actividad: clave · etiqueta · icono · en qué casos aplica.
+#   ('BOTH' = cancelación y aplazamiento · 'CANCELADO'/'APLAZADO' = solo ese · 'COSTS' = solo si el
+#    promotor cubre gastos)
+CANCEL_TASKS = [
+    ("proveedores", "Avisar a los proveedores", "fa-truck-field", "BOTH"),
+    ("reservas", "Cancelar las reservas", "fa-calendar-xmark", "APLAZADO"),
+    ("personal", "Informar al personal", "fa-users", "BOTH"),
+    ("gastos_promotor", "Enviar los gastos al promotor", "fa-file-invoice-dollar", "COSTS"),
+    ("bolsa", "Cerrar la bolsa", "fa-sack-dollar", "CANCELADO"),
+]
+CANCEL_TASK_LABELS = {k: l for k, l, _i, _w in CANCEL_TASKS}
+
+# Cómo se cobra el caché de algo que se cae, y qué gastos cubre el promotor.
+CANCEL_CACHE_MODES = [("TOTAL", "El caché completo", "fa-circle-check"),
+                      ("PARCIAL", "Una parte", "fa-percent")]
+CANCEL_COST_MODES = [("TODOS", "Todos los gastos", "fa-circle-check"),
+                     ("PARCIAL", "Solo una parte", "fa-list-check")]
+
+
+def _cancel_payload(concert) -> dict:
+    """El proceso de cancelación/aplazamiento de una actividad (siempre un dict)."""
+    valor = getattr(concert, "cancellation_payload", None)
+    return dict(valor) if isinstance(valor, dict) else {}
+
+
+def _cancel_set(session_db, concert, datos: dict) -> None:
+    """Guarda el proceso. ⚠️ Se marca el JSONB a mano: leer una copia, tocarla y reasignarla NO
+    escribe la segunda vez en la misma petición (el valor guardado y el nuevo apuntan a los mismos
+    diccionarios de dentro, SQLAlchemy los ve iguales y no hace nada, sin dar ningún error)."""
+    concert.cancellation_payload = dict(datos or {})
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(concert, "cancellation_payload")
+    except Exception:
+        pass
+    concert.updated_at = _now_madrid()
+
+
+def _cancel_is_active(concert) -> bool:
+    """¿Esta actividad está cancelada o aplazada (o lo estuvo y aún quedan tareas)?"""
+    fila = _cancel_payload(concert)
+    return bool(fila.get("kind")) and not fila.get("undone_at")
+
+
+def _concert_cache_summary(session_db, concert) -> dict:
+    """El CACHÉ pactado, para enseñarlo como referencia al decidir si se cobra.
+
+    ⚠️ Se enseña lo que hay puesto en la ficha (`ConcertCache`), no un cálculo: es una referencia
+    para decidir, no una liquidación."""
+    filas, total = [], Decimal("0")
+    try:
+        for c in (session_db.query(ConcertCache)
+                  .filter(ConcertCache.concert_id == concert.id).all()):
+            importe = _money_or_zero(getattr(c, "amount", None))
+            etiqueta = (getattr(c, "concept", None) or "").strip()
+            if importe:
+                total += importe
+            filas.append({"concept": etiqueta or "Caché",
+                          "amount": (format_eur(importe) if importe else ""),
+                          "pct": (("%s%%" % _fmt_pct_es(c.pct)) if getattr(c, "pct", None) else "")})
+    except Exception:
+        app.logger.exception("[cancelación] no se pudo leer el caché")
+    return {"rows": filas, "total": total, "total_label": format_eur(total),
+            "has": bool(filas), "has_amount": bool(total)}
+
+
+def _cancel_state(session_db, concert) -> dict:
+    """En qué punto está la cancelación/aplazamiento de una actividad.
+
+    Devuelve SIEMPRE las mismas claves (aunque no haya proceso abierto): leer algo que aún no se ha
+    pedido no puede reventar con un KeyError."""
+    fila = _cancel_payload(concert)
+    kind = (fila.get("kind") or "").strip().upper()
+    meta = CANCEL_KINDS.get(kind) or {}
+    tareas_hechas = dict(fila.get("tasks") or {})
+    cubre = bool((fila.get("costs") or {}).get("covered"))
+    pendientes, tareas = [], []
+    if kind:
+        for key, label, icon, cuando in CANCEL_TASKS:
+            if cuando == "CANCELADO" and kind != "CANCELADO":
+                continue
+            if cuando == "APLAZADO" and kind != "APLAZADO":
+                continue
+            if cuando == "COSTS" and not cubre:
+                continue
+            hecha = tareas_hechas.get(key) or {}
+            tareas.append({"key": key, "label": label, "icon": icon,
+                           "done": bool(hecha.get("at")),
+                           "by": (hecha.get("by") or ""),
+                           "at_label": _cancel_when_label(hecha.get("at"))})
+            if not hecha.get("at"):
+                pendientes.append(key)
+    vence = fila.get("bag_due") or ""
+    dias = None
+    if vence and "bolsa" in pendientes:
+        try:
+            dias = (date.fromisoformat(vence) - today_local()).days
+        except Exception:
+            dias = None
+    return {
+        "active": bool(kind),
+        "kind": kind,
+        "label": (meta.get("label") or ""),
+        "icon": (meta.get("icon") or "fa-ban"),
+        "reason": (fila.get("reason") or ""),
+        "at_label": _cancel_when_label(fila.get("at")),
+        "by": (fila.get("by") or ""),
+        "cache": dict(fila.get("cache") or {}),
+        "costs": dict(fila.get("costs") or {}),
+        "new_date": (fila.get("new_date") or ""),
+        "date_tbc": bool(fila.get("date_tbc")),
+        "tasks": tareas,
+        "pending": pendientes,
+        "all_done": bool(kind) and not pendientes,
+        "bag_due": vence,
+        "bag_due_label": (date.fromisoformat(vence).strftime("%d/%m/%Y")
+                          if vence and _cancel_is_iso_date(vence) else ""),
+        "bag_days_left": dias,
+        "owner_user_id": (fila.get("owner_user_id") or ""),
+    }
+
+
+def _cancel_is_iso_date(v) -> bool:
+    try:
+        date.fromisoformat(str(v))
+        return True
+    except Exception:
+        return False
+
+
+def _cancel_when_label(iso) -> str:
+    if not iso:
+        return ""
+    try:
+        return datetime.fromisoformat(str(iso)).astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return ""
+
+
+def _cancel_summary_text(estado: dict) -> str:
+    """Lo que se cuenta en el aviso además del motivo: qué pasa con el caché y con los gastos."""
+    partes = []
+    cache = estado.get("cache") or {}
+    if cache.get("charged"):
+        if (cache.get("mode") or "").upper() == "PARCIAL":
+            cuanto = (cache.get("amount_label") or cache.get("pct_label") or "una parte")
+            partes.append("Se cobra parte del caché (%s)." % cuanto)
+        else:
+            partes.append("Se cobra el caché completo.")
+    elif cache.get("asked"):
+        partes.append("No se cobra caché.")
+    costes = estado.get("costs") or {}
+    if costes.get("covered"):
+        if (costes.get("mode") or "").upper() == "PARCIAL":
+            partes.append("El promotor cubre parte de los gastos%s."
+                          % ((": " + costes["note"]) if (costes.get("note") or "").strip() else ""))
+        else:
+            partes.append("El promotor cubre todos los gastos.")
+    elif costes.get("asked"):
+        partes.append("El promotor no cubre gastos.")
+    if (estado.get("kind") or "") == "APLAZADO":
+        if estado.get("new_date"):
+            try:
+                partes.append("Nueva fecha: %s."
+                              % date.fromisoformat(estado["new_date"]).strftime("%d/%m/%Y"))
+            except Exception:
+                pass
+        else:
+            partes.append("La nueva fecha está por concretar.")
+    return " ".join(partes)
+
+
+def _cancel_parse_form(session_db, concert, form, kind: str) -> tuple[dict, str]:
+    """Lo que se ha contestado en la pantalla → el proceso. Devuelve `(datos, error)`."""
+    kind = (kind or "").strip().upper()
+    if kind not in CANCEL_KINDS:
+        return {}, "No sé si es una cancelación o un aplazamiento."
+    motivo = (form.get("reason") or "").strip()
+    if not motivo:
+        return {}, "Pon el motivo: es lo que se le cuenta al artista y a producción."
+    datos = dict(_cancel_payload(concert))
+    datos["kind"] = kind
+    datos["reason"] = motivo[:1000]
+
+    # ── EL CACHÉ (solo si la actividad tiene alguno pactado) ──────────────────────────────────
+    resumen = _concert_cache_summary(session_db, concert)
+    cache = {"asked": bool(resumen["has"])}
+    if resumen["has"] and _truthy(form.get("cache_charged")):
+        modo = (form.get("cache_mode") or "TOTAL").strip().upper()
+        if modo not in {k for k, _l, _i in CANCEL_CACHE_MODES}:
+            modo = "TOTAL"
+        cache.update({"charged": True, "mode": modo})
+        if modo == "PARCIAL":
+            importe = _parse_money_decimal(form.get("cache_amount"))
+            pct = _parse_money_decimal(form.get("cache_pct"))
+            if not importe and not pct:
+                return {}, "Si se cobra una parte del caché, di cuánto: el importe o el porcentaje."
+            if importe:
+                cache["amount"] = str(importe)
+                cache["amount_label"] = format_eur(importe)
+            if pct:
+                cache["pct"] = str(pct)
+                cache["pct_label"] = "%s%%" % _fmt_pct_es(pct)
+    else:
+        cache["charged"] = False
+    datos["cache"] = cache
+
+    # ── LOS GASTOS que cubre el promotor ─────────────────────────────────────────────────────
+    costes = {"asked": True}
+    if _truthy(form.get("costs_covered")):
+        modo = (form.get("costs_mode") or "TODOS").strip().upper()
+        if modo not in {k for k, _l, _i in CANCEL_COST_MODES}:
+            modo = "TODOS"
+        costes.update({"covered": True, "mode": modo})
+        if modo == "PARCIAL":
+            nota = (form.get("costs_note") or "").strip()
+            if not nota:
+                return {}, "Si el promotor cubre solo una parte de los gastos, di cuál."
+            costes["note"] = nota[:1000]
+    else:
+        costes["covered"] = False
+    datos["costs"] = costes
+
+    # ── LA NUEVA FECHA (solo al aplazar) ─────────────────────────────────────────────────────
+    if kind == "APLAZADO":
+        if _truthy(form.get("date_known")):
+            nueva = parse_optional_date(form.get("new_date"))
+            if not nueva:
+                return {}, "Pon la nueva fecha (o marca que todavía no se sabe)."
+            datos["new_date"] = nueva.isoformat()
+            datos["date_tbc"] = False
+        else:
+            datos["new_date"] = ""
+            datos["date_tbc"] = True
+    return datos, ""
+
+
+def _cancel_production_user_ids(session_db, concert) -> list[str]:
+    """A quién de PRODUCCIÓN le entran las tareas de una actividad que se cae.
+
+    Quien la produce; si no hay nadie asignado, todo el departamento (nada se queda sin dueño)."""
+    dueno = str(getattr(concert, "production_owner_user_id", "") or "")
+    if dueno:
+        return [dueno]
+    try:
+        return _department_user_ids(session_db, "Producción")
+    except Exception:
+        return []
+
+
+def _cancel_apply(session_db, concert, notice_kind: str) -> dict:
+    """Aplica la cancelación/aplazamiento UNA VEZ avisado el artista (que es el paso obligatorio).
+
+    Cambia el estado, pone en marcha las tareas de producción y le avisa. Devuelve el estado."""
+    fila = _cancel_payload(concert)
+    kind = (fila.get("kind") or "").strip().upper()
+    if not kind:
+        # Se ha mandado un aviso de cancelación sin haber pasado por la pantalla del proceso: se
+        # apunta lo mínimo para que las tareas existan igual (mejor eso que perderlas).
+        kind = "CANCELADO" if (notice_kind or "").upper() == "CANCELACION" else "APLAZADO"
+        fila["kind"] = kind
+    estado_usuario = _current_user_state() or {}
+    fila.setdefault("at", _now_madrid().isoformat())
+    fila.setdefault("by", (estado_usuario.get("nick") or ""))
+    fila.setdefault("by_user_id", str(estado_usuario.get("user_id") or ""))
+    # El aviso al artista es la primera subtarea, y ya está hecha: es lo que ha traído hasta aquí.
+    tareas = dict(fila.get("tasks") or {})
+    tareas["artista"] = {"at": _now_madrid().isoformat(), "by": (estado_usuario.get("nick") or "")}
+    fila["tasks"] = tareas
+    # ⚠️ La bolsa tiene PLAZO: 15 días para que producción la cierre.
+    if kind == "CANCELADO" and not fila.get("bag_due"):
+        fila["bag_due"] = (today_local() + timedelta(days=CANCEL_BAG_DAYS)).isoformat()
+
+    # ── EL ESTADO ────────────────────────────────────────────────────────────────────────────
+    if kind == "CANCELADO":
+        concert.status = "CANCELADO"
+    else:
+        nueva = fila.get("new_date") or ""
+        if nueva and _cancel_is_iso_date(nueva):
+            # ⚠️ Con fecha nueva la actividad **se mueve y vuelve a ser una RESERVA**: hay que
+            # confirmarla otra vez por el camino de siempre (con su aviso al artista).
+            try:
+                anterior = getattr(concert, "date", None)
+                concert.date = date.fromisoformat(nueva)
+                if getattr(concert, "end_date", None) and anterior:
+                    concert.end_date = concert.date + (concert.end_date - anterior)
+                fila["old_date"] = anterior.isoformat() if anterior else ""
+            except Exception:
+                app.logger.exception("[aplazamiento] no se pudo mover la fecha")
+            concert.status = "RESERVADO"
+            # Y el aviso de la actividad deja de valer: la fecha es otra.
+            concert.artist_notified_signature = None
+        else:
+            concert.status = "APLAZADO"
+    _cancel_set(session_db, concert, fila)
+
+    # ── AVISO A PRODUCCIÓN, con sus tareas ───────────────────────────────────────────────────
+    try:
+        estado = _cancel_state(session_db, concert)
+        destinos = _cancel_production_user_ids(session_db, concert)
+        titulo = ("Actividad cancelada" if kind == "CANCELADO" else "Actividad aplazada")
+        cuerpo = " · ".join([x for x in [_concert_title_for_notice(concert),
+                                         (estado.get("reason") or "")] if x])[:600]
+        _notify_users(session_db, destinos, "PRODUCCION", titulo, cuerpo,
+                      url_for("concert_detail_view", cid=concert.id, tab="inicio"),
+                      ref_type="CONCERT_CANCEL", ref_id=str(concert.id),
+                      email=_notice_email_activity(
+                          concert, title=titulo,
+                          subject="%s · %s" % (titulo, _concert_title_for_notice(concert)),
+                          intro=(estado.get("reason") or ""),
+                          button_label="Ver lo que hay que hacer",
+                          button_url=_external_url_for("concert_detail_view", cid=concert.id,
+                                                       tab="inicio"),
+                          sections=({"title": "Lo que queda por hacer",
+                                     "items": [{"icon": t["icon"], "title": t["label"],
+                                                "meta": "", "due": (estado["bag_due_label"]
+                                                                    if t["key"] == "bolsa" else "")}
+                                               for t in estado["tasks"] if not t["done"]]},),
+                          note=_cancel_summary_text(estado)))
+    except Exception:
+        app.logger.exception("[cancelación] no se pudo avisar a producción")
+    return _cancel_state(session_db, concert)
+
+
+def _concert_title_for_notice(concert) -> str:
+    """Cómo se nombra una actividad en un aviso: su festival o su sitio, con la fecha."""
+    partes = []
+    nombre = (getattr(concert, "festival_name", None) or "").strip()
+    if not nombre:
+        try:
+            nombre = _place_label(
+                (getattr(getattr(concert, "venue", None), "municipality", None)
+                 or getattr(concert, "manual_municipality", None) or ""),
+                (getattr(getattr(concert, "venue", None), "province", None)
+                 or getattr(concert, "manual_province", None) or ""))
+        except Exception:
+            nombre = ""
+    artista = (getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+    if artista:
+        partes.append(artista)
+    if nombre:
+        partes.append(nombre)
+    if getattr(concert, "date", None):
+        partes.append(concert.date.strftime("%d/%m/%Y"))
+    return " · ".join(partes) or "Actividad"
 
 
 def _concert_notice_gate(session_db, concert, new_status: str) -> dict | None:
@@ -90386,6 +90855,22 @@ def _activity_notice_conditions(session_db, concert) -> list[dict]:
     return modulos
 
 
+def _cancel_notice_note(session_db, concert, notice_kind: str) -> str:
+    """La nota con la que sale el aviso de una cancelación o un aplazamiento: el motivo y lo que se
+    decidió (caché, gastos, nueva fecha). Vacía en cualquier otro aviso."""
+    if (notice_kind or "").strip().upper() not in ("CANCELACION", "APLAZAMIENTO"):
+        return ""
+    try:
+        estado = _cancel_state(session_db, concert)
+        if not estado["active"]:
+            return ""
+        return " ".join([x for x in [(estado.get("reason") or "").strip(),
+                                     _cancel_summary_text(estado)] if x]).strip()
+    except Exception:
+        app.logger.exception("[cancelación] no se pudo componer la nota del aviso")
+        return ""
+
+
 def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION") -> dict:
     """Todo lo que necesitan el correo, la página pública y la vista previa del aviso."""
     kind = (kind or "CONFIRMACION").strip().upper()
@@ -90673,6 +91158,10 @@ def concert_artist_notice_view(cid):
             channel_label=ARTIST_NOTIFICATION_CHANNEL_LABELS.get(ctx["channel_key"], ctx["channel_key"]),
             preview_html=_activity_notice_html(ctx, preview=True),
             history=historial,
+            # ⚠️ En una CANCELACIÓN o un APLAZAMIENTO la nota sale ya escrita con el MOTIVO y con lo
+            # que se decidió del caché y de los gastos: es justo lo que hay que contarle al artista,
+            # y quien avisa no tiene que volver a escribirlo (se puede retocar).
+            default_note=_cancel_notice_note(session_db, concert, kind),
             confirm_after=bool((request.args.get("confirmar") or "").strip()),
             # La actividad YA HA PASADO: se puede dar por informado sin mandar nada (botón propio).
             can_ack=_concert_notice_can_ack(concert),
@@ -90892,7 +91381,13 @@ def concert_artist_notice_send(cid):
         concert.updated_at = ahora
 
         confirmada = False
-        if confirmar and kind != "CANCELACION" and (concert.status or "").upper() != "CONFIRMADO":
+        proceso = ""
+        if kind in ("CANCELACION", "APLAZAMIENTO"):
+            # ⚠️ AVISAR AL ARTISTA ES EL PASO OBLIGATORIO: hasta aquí la actividad NO había cambiado
+            # de estado. Ahora sí, y a producción le entran sus tareas.
+            _est = _cancel_apply(session_db, concert, kind)
+            proceso = _est.get("kind") or ""
+        elif confirmar and (concert.status or "").upper() != "CONFIRMADO":
             concert.status = "CONFIRMADO"
             confirmada = True
             try:
@@ -90908,6 +91403,10 @@ def concert_artist_notice_send(cid):
         flash("Aviso registrado." if canal != "EMAIL" else "Aviso enviado al artista.", "success")
         if confirmada:
             flash("La actividad ha pasado a CONFIRMADA.", "success")
+        if proceso:
+            flash(("La actividad queda CANCELADA. Producción ya tiene sus tareas."
+                   if proceso == "CANCELADO"
+                   else "La actividad queda APLAZADA. Producción ya tiene sus tareas."), "success")
         return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
     except Exception as e:
         session_db.rollback()
@@ -90917,6 +91416,220 @@ def concert_artist_notice_send(cid):
         return redirect(url_for("concert_artist_notice_view", cid=cid))
     finally:
         session_db.close()
+
+
+@app.get("/conciertos/<cid>/cancelar", endpoint="concert_cancel_view")
+@admin_required
+def concert_cancel_view(cid):
+    """La pantalla del proceso: el motivo, el caché, los gastos y (al aplazar) la nueva fecha.
+
+    ⚠️ Aquí NO se cambia el estado: solo se decide. El estado cambia cuando se le comunica al
+    artista, que es el paso obligatorio."""
+    kind = (request.args.get("kind") or "CANCELADO").strip().upper()
+    if kind not in CANCEL_KINDS:
+        kind = "CANCELADO"
+    session_db = db()
+    try:
+        c = (session_db.query(Concert)
+             .options(joinedload(Concert.artist), joinedload(Concert.venue))
+             .filter(Concert.id == to_uuid(cid)).first())
+        if c is None:
+            abort(404)
+        if not can_edit_concerts():
+            return forbid("No tienes permisos para cambiar el estado de una actividad.")
+        return render_template("concert_cancel.html",
+                               concert=c, kind=kind, meta=CANCEL_KINDS[kind],
+                               cache=_concert_cache_summary(session_db, c),
+                               state=_cancel_state(session_db, c),
+                               cache_modes=CANCEL_CACHE_MODES,
+                               cost_modes=CANCEL_COST_MODES,
+                               hero_rows=_contract_sheet_hero_rows(c),
+                               bag_days=CANCEL_BAG_DAYS)
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/cancelar", endpoint="concert_cancel_save")
+@admin_required
+def concert_cancel_save(cid):
+    """Guarda lo decidido y lleva al aviso al artista, que es lo que lo hace efectivo."""
+    kind = (request.form.get("kind") or "CANCELADO").strip().upper()
+    session_db = db()
+    try:
+        c = session_db.get(Concert, to_uuid(cid))
+        if c is None:
+            abort(404)
+        if not can_edit_concerts():
+            return forbid("No tienes permisos para cambiar el estado de una actividad.")
+        datos, error = _cancel_parse_form(session_db, c, request.form, kind)
+        if error:
+            flash(error, "warning")
+            return redirect(url_for("concert_cancel_view", cid=cid, kind=kind))
+        estado_usuario = _current_user_state() or {}
+        datos["at"] = _now_madrid().isoformat()
+        datos["by"] = (estado_usuario.get("nick") or "")
+        datos["by_user_id"] = str(estado_usuario.get("user_id") or "")
+        datos.pop("undone_at", None)
+        _cancel_set(session_db, c, datos)
+        session_db.commit()
+        flash("Ahora comunícaselo al artista: hasta que no se le avise, la actividad no cambia de "
+              "estado.", "info")
+        return redirect(url_for("concert_artist_notice_view", cid=cid,
+                                kind=CANCEL_KINDS[kind]["notice"]))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[cancelación] no se pudo guardar")
+        flash("No se pudo guardar: %s" % exc, "danger")
+        return redirect(url_for("concert_cancel_view", cid=cid, kind=kind))
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/cancelar/tarea/<key>", endpoint="concert_cancel_task")
+@admin_required
+def concert_cancel_task(cid, key):
+    """Marca (o desmarca) una de las tareas de la cancelación/aplazamiento."""
+    key = (key or "").strip().lower()
+    session_db = db()
+    destino = safe_next_or(url_for("concert_detail_view", cid=cid, tab="inicio"))
+    try:
+        c = session_db.get(Concert, to_uuid(cid))
+        if c is None:
+            abort(404)
+        if key not in CANCEL_TASK_LABELS:
+            flash("Esa tarea no existe.", "warning")
+            return redirect(destino)
+        fila = _cancel_payload(c)
+        if not fila.get("kind"):
+            flash("Esta actividad no está cancelada ni aplazada.", "warning")
+            return redirect(destino)
+        tareas = dict(fila.get("tasks") or {})
+        estado_usuario = _current_user_state() or {}
+        if _flag_arg("undo"):
+            tareas.pop(key, None)
+        else:
+            tareas[key] = {"at": _now_madrid().isoformat(), "by": (estado_usuario.get("nick") or "")}
+        fila["tasks"] = tareas
+        _cancel_set(session_db, c, fila)
+        # Cuando ya no queda nada pendiente, el aviso de producción se cierra solo (la regla de
+        # `_notify_resolve`: un aviso es «esto te está esperando»).
+        if not _cancel_state(session_db, c)["pending"]:
+            _notify_resolve(session_db, "CONCERT_CANCEL", str(c.id))
+        session_db.commit()
+        flash("Tarea pendiente otra vez." if _flag_arg("undo")
+              else "%s: hecho." % CANCEL_TASK_LABELS[key], "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[cancelación] no se pudo marcar la tarea")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
+
+
+@app.post("/conciertos/<cid>/cancelar/personal", endpoint="concert_cancel_staff_notice")
+@admin_required
+def concert_cancel_staff_notice(cid):
+    """Informa al PERSONAL de que la actividad se cae o se mueve.
+
+    ⚠️ Con «a todo el personal» va a TODA la oficina; si no, a quien está en la hoja de ruta de la
+    actividad (que es a quien de verdad le cambia el día). **Al artista no**: a él ya se le ha
+    avisado por su canal, y no es personal de la casa."""
+    session_db = db()
+    destino = safe_next_or(url_for("concert_detail_view", cid=cid, tab="inicio"))
+    try:
+        c = (session_db.query(Concert).options(joinedload(Concert.artist))
+             .filter(Concert.id == to_uuid(cid)).first())
+        if c is None:
+            abort(404)
+        estado = _cancel_state(session_db, c)
+        if not estado["active"]:
+            flash("Esta actividad no está cancelada ni aplazada.", "warning")
+            return redirect(destino)
+        todos = _truthy(request.form.get("everyone"))
+        if todos:
+            ids = [str(u.id) for u in session_db.query(User.id).all()]
+            fuera = {str(x) for x in _inactive_user_ids(session_db)}
+            ids = [i for i in ids if i not in fuera]
+        else:
+            ids = _cancel_roadmap_user_ids(session_db, c)
+        titulo = ("Actividad cancelada" if estado["kind"] == "CANCELADO" else "Actividad aplazada")
+        cuerpo = " · ".join([x for x in [_concert_title_for_notice(c), estado.get("reason") or ""] if x])
+        n = _notify_users(session_db, ids, "TAREA", titulo, cuerpo[:600],
+                          url_for("concert_detail_view", cid=c.id),
+                          ref_type="CONCERT_CANCEL_STAFF", ref_id=str(c.id))
+        fila = _cancel_payload(c)
+        tareas = dict(fila.get("tasks") or {})
+        tareas["personal"] = {"at": _now_madrid().isoformat(),
+                              "by": ((_current_user_state() or {}).get("nick") or ""),
+                              "everyone": bool(todos), "count": n}
+        fila["tasks"] = tareas
+        _cancel_set(session_db, c, fila)
+        if not _cancel_state(session_db, c)["pending"]:
+            _notify_resolve(session_db, "CONCERT_CANCEL", str(c.id))
+        session_db.commit()
+        flash("Avisadas %d persona%s." % (n, "" if n == 1 else "s"), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[cancelación] no se pudo avisar al personal")
+        flash("No se pudo avisar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
+
+
+def _cancel_roadmap_user_ids(session_db, concert) -> list[str]:
+    """Quién de la casa está en la HOJA DE RUTA de la actividad (a quien le cambia el día)."""
+    ids = []
+    try:
+        payload = getattr(concert, "roadmap_payload", None) or {}
+        for p in (payload.get("personnel") or []):
+            if (p or {}).get("kind") == "USER" and (p or {}).get("user_id"):
+                ids.append(str(p["user_id"]))
+    except Exception:
+        app.logger.exception("[cancelación] no se pudo leer el personal de la hoja de ruta")
+    dueno = str(getattr(concert, "production_owner_user_id", "") or "")
+    if dueno and dueno not in ids:
+        ids.append(dueno)
+    return ids
+
+
+@app.post("/conciertos/<cid>/cancelar/deshacer", endpoint="concert_cancel_undo")
+@admin_required
+def concert_cancel_undo(cid):
+    """Deshace la cancelación/aplazamiento: la actividad vuelve a estar RESERVADA.
+
+    ⚠️ No se borra lo que pasó (queda `undone_at` con quién y cuándo): una actividad que se canceló
+    y se recuperó es información, no un error que haya que esconder."""
+    session_db = db()
+    destino = safe_next_or(url_for("concert_detail_view", cid=cid, tab="inicio"))
+    try:
+        c = session_db.get(Concert, to_uuid(cid))
+        if c is None:
+            abort(404)
+        if not can_edit_concerts():
+            return forbid("No tienes permisos para cambiar el estado de una actividad.")
+        fila = _cancel_payload(c)
+        if not fila.get("kind"):
+            flash("Esta actividad no está cancelada ni aplazada.", "info")
+            return redirect(destino)
+        estado_usuario = _current_user_state() or {}
+        historial = list(fila.get("history") or [])
+        historial.append(dict(fila, undone_at=_now_madrid().isoformat(),
+                              undone_by=(estado_usuario.get("nick") or "")))
+        _cancel_set(session_db, c, {"history": historial})
+        c.status = "RESERVADO"
+        _notify_resolve(session_db, "CONCERT_CANCEL", str(c.id))
+        session_db.commit()
+        flash("La actividad vuelve a estar RESERVADA. Para confirmarla, el proceso de siempre.",
+              "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[cancelación] no se pudo deshacer")
+        flash("No se pudo deshacer: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
 
 
 @app.get("/actividad/<token>", endpoint="public_activity_notice_view")

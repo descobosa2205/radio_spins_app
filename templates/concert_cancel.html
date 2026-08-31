@@ -1,0 +1,193 @@
+{% extends "layout.html" %}
+{% block title %}{{ meta.title }}{% endblock %}
+{% block content %}
+<div class="mb-2">
+  <a href="{{ url_for('concert_detail_view', cid=concert.id) }}" class="btn-volver" title="Volver a la actividad">
+    <i class="fa fa-arrow-left"></i></a>
+</div>
+
+<h1 class="h4 mb-1"><i class="fa {{ meta.icon }} me-2 text-danger"></i>{{ meta.title }}</h1>
+<p class="text-muted">
+  {% if kind == 'CANCELADO' %}
+    Se le comunica al artista y a producción le entran sus tareas: avisar a los proveedores,
+    informar al personal y cerrar la bolsa (tendrá {{ bag_days }} días).
+  {% else %}
+    Se le comunica al artista y a producción le entran sus tareas: cancelar las reservas, avisar a
+    los proveedores e informar al personal.
+  {% endif %}
+</p>
+
+{# La actividad de la que se habla, con su cabecera de siempre. #}
+<div class="card mb-3">
+  <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+    {{ artist_avatar(concert.artist.photo_url if concert.artist else '', concert.artist.name if concert.artist else '') }}
+    <div>
+      <div class="fw-bold">{{ concert.artist.name if concert.artist else 'Actividad' }}</div>
+      <div class="small text-muted d-flex gap-3 flex-wrap">
+        {% for icon, label, value in hero_rows %}
+          <span><i class="fa {{ icon }} me-1 text-secondary"></i>{{ value }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('concert_cancel_save', cid=concert.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="kind" value="{{ kind }}">
+
+  {# ── 1 · EL MOTIVO (obligatorio: es lo que se le cuenta al artista y a producción) ── #}
+  <div class="card mb-3">
+    <div class="card-body">
+      <label class="form-label fw-semibold">
+        <i class="fa fa-comment-dots me-1 text-danger"></i>¿Por qué se
+        {{ 'cancela' if kind == 'CANCELADO' else 'aplaza' }}?</label>
+      <textarea class="form-control" name="reason" rows="2" required
+                placeholder="El motivo, tal como se le va a contar al artista">{{ state.reason }}</textarea>
+      <div class="form-text">Sale en el aviso al artista y en el de producción.</div>
+    </div>
+  </div>
+
+  {# ── 2 · LA NUEVA FECHA (solo al aplazar) ── #}
+  {% if kind == 'APLAZADO' %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="fw-semibold mb-2"><i class="fa fa-calendar-day me-1 text-danger"></i>¿Se sabe ya la nueva fecha?</div>
+        <div class="d-flex gap-2 flex-wrap mb-2">
+          <label class="filter-chip">
+            <input type="radio" name="date_known" value="1" data-cc-toggle="#ccNewDate"
+                   {% if state.new_date %}checked{% endif %}>
+            <i class="fa fa-calendar-check"></i>Sí, es el…</label>
+          <label class="filter-chip">
+            <input type="radio" name="date_known" value="0" data-cc-toggle=""
+                   {% if not state.new_date %}checked{% endif %}>
+            <i class="fa fa-hourglass-half"></i>Todavía no (queda TBC)</label>
+        </div>
+        <div id="ccNewDate" class="{{ '' if state.new_date else 'd-none' }}" style="max-width:16rem;">
+          <input type="date" class="form-control" name="new_date" value="{{ state.new_date }}">
+          <div class="form-text">La actividad se mueve a ese día y vuelve a quedar como
+            <strong>reserva</strong> hasta que se confirme.</div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {# ── 3 · EL CACHÉ (solo si la actividad tiene alguno pactado) ── #}
+  {% if cache.has %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="fw-semibold mb-1"><i class="fa fa-euro-sign me-1 text-danger"></i>¿Se cobra el caché?</div>
+        {# El caché pactado, como REFERENCIA: para decidir sin ir a mirarlo a otra pestaña. #}
+        <div class="small text-muted mb-2">
+          Pactado:
+          {% for r in cache.rows %}
+            <span class="badge text-bg-light border ms-1">{{ r.concept }}{% if r.amount %} · {{ r.amount }}{% endif %}{% if r.pct %} · {{ r.pct }}{% endif %}</span>
+          {% endfor %}
+          {% if cache.has_amount %}<span class="ms-1">(total {{ cache.total_label }})</span>{% endif %}
+        </div>
+        <div class="d-flex gap-2 flex-wrap mb-2">
+          <label class="filter-chip">
+            <input type="radio" name="cache_charged" value="1" data-cc-toggle="#ccCache"
+                   {% if state.cache.charged %}checked{% endif %}>
+            <i class="fa fa-circle-check"></i>Sí, se cobra</label>
+          <label class="filter-chip">
+            <input type="radio" name="cache_charged" value="0" data-cc-toggle=""
+                   {% if not state.cache.charged %}checked{% endif %}>
+            <i class="fa fa-circle-xmark"></i>No se cobra</label>
+        </div>
+        <div id="ccCache" class="{{ '' if state.cache.charged else 'd-none' }}">
+          <div class="d-flex gap-2 flex-wrap mb-2">
+            {% for key, label, icon in cache_modes %}
+              <label class="filter-chip">
+                <input type="radio" name="cache_mode" value="{{ key }}"
+                       data-cc-toggle="{{ '#ccCachePart' if key == 'PARCIAL' else '' }}"
+                       {% if (state.cache.mode or 'TOTAL') == key %}checked{% endif %}>
+                <i class="fa {{ icon }}"></i>{{ label }}</label>
+            {% endfor %}
+          </div>
+          <div id="ccCachePart" class="row g-2 {{ '' if state.cache.mode == 'PARCIAL' else 'd-none' }}">
+            <div class="col-6 col-md-3">
+              <label class="form-label small mb-1">Importe</label>
+              <input class="form-control" name="cache_amount" data-money
+                     value="{{ state.cache.amount_label or '' }}" placeholder="0,00 €">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small mb-1">…o porcentaje</label>
+              <input class="form-control" name="cache_pct" value="{{ state.cache.pct or '' }}" placeholder="50">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {# ── 4 · LOS GASTOS que cubre el promotor ── #}
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="fw-semibold mb-2"><i class="fa fa-receipt me-1 text-danger"></i>¿El promotor cubre los gastos?</div>
+      <div class="d-flex gap-2 flex-wrap mb-2">
+        <label class="filter-chip">
+          <input type="radio" name="costs_covered" value="1" data-cc-toggle="#ccCosts"
+                 {% if state.costs.covered %}checked{% endif %}>
+          <i class="fa fa-circle-check"></i>Sí</label>
+        <label class="filter-chip">
+          <input type="radio" name="costs_covered" value="0" data-cc-toggle=""
+                 {% if not state.costs.covered %}checked{% endif %}>
+          <i class="fa fa-circle-xmark"></i>No</label>
+      </div>
+      <div id="ccCosts" class="{{ '' if state.costs.covered else 'd-none' }}">
+        <div class="d-flex gap-2 flex-wrap mb-2">
+          {% for key, label, icon in cost_modes %}
+            <label class="filter-chip">
+              <input type="radio" name="costs_mode" value="{{ key }}"
+                     data-cc-toggle="{{ '#ccCostsPart' if key == 'PARCIAL' else '' }}"
+                     {% if (state.costs.mode or 'TODOS') == key %}checked{% endif %}>
+              <i class="fa {{ icon }}"></i>{{ label }}</label>
+          {% endfor %}
+        </div>
+        <div id="ccCostsPart" class="{{ '' if state.costs.mode == 'PARCIAL' else 'd-none' }}">
+          <label class="form-label small mb-1">¿Qué gastos cubre?</label>
+          <textarea class="form-control" name="costs_note" rows="2"
+                    placeholder="Ej.: los hoteles y el transporte del equipo">{{ state.costs.note or '' }}</textarea>
+        </div>
+        <div class="form-text mt-2">
+          A producción le saldrá la tarea de <strong>enviarle los gastos al promotor</strong>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-end gap-2">
+    <a class="btn btn-secondary" href="{{ url_for('concert_detail_view', cid=concert.id) }}">Cancelar</a>
+    <button class="btn btn-danger" type="submit">
+      <i class="fa {{ meta.icon }} me-1"></i>Continuar y avisar al artista</button>
+  </div>
+  <div class="text-muted small text-end mt-2">
+    ⚠️ La actividad no cambia de estado hasta que se le comunica al artista.
+  </div>
+</form>
+
+<script>
+// Los paneles que dependen de una elección: se ven (y se pueden rellenar) solo cuando toca.
+// ⚠️ Un panel oculto DESHABILITA sus campos: un campo oculto se envía igual, y un `required`
+// invisible impediría enviar el formulario.
+(function () {
+  function pinta() {
+    document.querySelectorAll('[data-cc-toggle]').forEach(function (r) {
+      var sel = r.getAttribute('data-cc-toggle');
+      if (!sel) return;
+      var zona = document.querySelector(sel);
+      if (!zona) return;
+      var on = r.checked;
+      zona.classList.toggle('d-none', !on);
+      zona.querySelectorAll('input, textarea, select').forEach(function (el) { el.disabled = !on; });
+    });
+  }
+  document.addEventListener('change', function (ev) {
+    if (ev.target.matches('[data-cc-toggle], input[type="radio"]')) pinta();
+  });
+  document.addEventListener('DOMContentLoaded', pinta);
+  pinta();
+})();
+</script>
+{% endblock %}

@@ -299,6 +299,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Se conserva un `except IntegrityError` como red de seguridad (dos personas creándolo a la vez),
   y el alta ya no acepta un nombre vacío.
 
+- ⚠️ **La pestaña «Gastos» de una CANCIÓN tiene su propio permiso** (`discografica.gastos`,
+  ago 2026): antes exigía `contabilidad`, que no tiene nada que ver, así que **no había forma de
+  concedérsela a nadie** desde Accesos. Es económico-capaz (lo que enseña son importes).
+  ⚠️ Se hizo **hermano** de `discografica.canciones`, no hijo: convertir a `discografica.canciones`
+  en contenedor haría que su grant se derivara de las hijas (`_coherent_grant_values`) y se
+  perderían los permisos ya concedidos del repertorio — el bug que ya pasó con `ventas.reportes`.
+
 - **Select2 con logos**: `initSelect2()` (scripts.js) pinta la imagen de cada opción desde
   `data-photo`/`data-logo`. El `<select>` debe llevar una clase: `select-providers` (terceros),
   `select-venues` (recintos), `select-with-thumbs` (ticketeras/editoriales, miniatura cuadrada),
@@ -3868,6 +3875,38 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`payment_batch_delete`) se **retiró**: anular ya suelta los pagos y además deja constancia.
   · La **fecha de pago** solo se toca en cada pago de la lista: en «¿Desde qué cuenta se paga?» no se
   repite (era el mismo dato en dos sitios).
+
+- ⚠️⚠️ **CANCELAR o APLAZAR una actividad es un PROCESO, no cambiar una etiqueta** (ago 2026).
+  Estados nuevos **CANCELADO** y **APLAZADO** (`CONCERT_PROCESS_STATUSES`), a los que **no se llega
+  desde el desplegable de estado**: `concert_quick_status` los rebota con un 409 y el enlace a su
+  pantalla (`concert_cancel_view`, `templates/concert_cancel.html`), donde se pregunta:
+  · **EL MOTIVO** (obligatorio: es lo que se le cuenta al artista y a producción);
+  · si hay **CACHÉ**, **¿se cobra?** — total o parcial, con su importe o su %, **enseñando el que
+    está pactado** (`_concert_cache_summary`) para no ir a mirarlo a otra pestaña;
+  · **¿el promotor cubre los gastos?** — todos o una parte, diciendo cuál;
+  · al APLAZAR, **si se sabe la nueva fecha** o queda TBC.
+  ⚠️⚠️ **AVISAR AL ARTISTA ES OBLIGATORIO Y ES LO QUE LO HACE EFECTIVO**: la pantalla NO cambia el
+  estado, solo guarda lo decidido y lleva al aviso de siempre (con la nota **ya escrita** con el
+  motivo y el resumen, `_cancel_notice_note`). El estado cambia en `_cancel_apply`, al enviarlo.
+  · **APLAZADO con fecha nueva**: la actividad **se mueve a ese día y vuelve a ser una RESERVA**
+    (hay que confirmarla otra vez por el camino de siempre, y su firma de aviso se invalida). Sin
+    fecha se queda en APLAZADO (TBC).
+  · **LAS TAREAS DE PRODUCCIÓN** (`CANCEL_TASKS`) son **SUBTAREAS de la tarea de la actividad** en la
+    pestaña «Inicio» de su ficha —lo de una cancelación es UN trabajo con varias partes, no cuatro
+    tareas sueltas—: avisar a los proveedores · **cancelar las reservas** (solo al aplazar) ·
+    informar al personal · **enviar los gastos al promotor** (solo si los cubre) · **cerrar la
+    bolsa** (solo al cancelar), con **15 DÍAS de plazo** (`CANCEL_BAG_DAYS`, en rojo si se pasa).
+  · **Informar al personal** tiene su pop-up con la opción de avisar a **TODA la oficina**; sin
+    marcarla, solo a quien está en la HOJA DE RUTA (a quien de verdad le cambia el día).
+    ⚠️ **Al artista no**: a él se le avisa por su canal y no es personal de la casa.
+  · A producción le llega su aviso (kind `PRODUCCION`, ref `CONCERT_CANCEL`) **con el listado de lo
+    que hay que hacer** y el plazo de la bolsa; se cierra solo cuando no queda nada (`_notify_resolve`).
+  ⚠️ **Una actividad CANCELADA deja de reclamar trabajo**: no sale en las tareas de Contratación ni
+  pide contrato, anuncio o venta en su ficha. Lo único que queda son las tareas de la cancelación.
+  ⚠️ **Se puede DESHACER** (vuelve a RESERVADO) y **no se borra lo que pasó**: queda en `history`
+  con quién y cuándo — una actividad que se canceló y se recuperó es información, no un error.
+  · Todo vive en **`Concert.cancellation_payload`** (JSONB). ⚠️ Se marca con `flag_modified`: el
+  patrón de leer-copiar-reasignar **no escribe la segunda vez en la misma petición** (bug conocido).
 
 - **AVISO AL ARTISTA DE UNA ACTIVIDAD** (ago 2026). Antes de CONFIRMAR una actividad hay que
   habérsela comunicado al artista.

@@ -5,7 +5,7 @@
      {% with cs_id=concert.id, cs_status=concert.status, cs_extra_class='...' %}
        {% include '_concert_status_badge.html' %}
      {% endwith %} #}
-{% set _cs_map = {'CONFIRMADO': 'bg-success', 'RESERVADO': 'bg-primary text-white', 'BORRADOR': 'text-bg-light border text-dark', 'HABLADO': 'bg-warning text-dark'} %}
+{% set _cs_map = {'CONFIRMADO': 'bg-success', 'RESERVADO': 'bg-primary text-white', 'BORRADOR': 'text-bg-light border text-dark', 'HABLADO': 'bg-warning text-dark', 'CANCELADO': 'bg-danger', 'APLAZADO': 'bg-warning text-dark'} %}
 {% set _cs = (cs_status or 'BORRADOR')|upper %}
 {% set _cls = _cs_map.get(_cs, 'bg-warning text-dark') %}
 {% if CAN_EDIT_CONCERTS %}
@@ -15,6 +15,18 @@
     {% for k, c in [('BORRADOR', 'text-bg-light border text-dark'), ('HABLADO', 'bg-warning text-dark'), ('RESERVADO', 'bg-primary text-white'), ('CONFIRMADO', 'bg-success')] %}
       <li><button type="button" class="dropdown-item d-flex align-items-center gap-2 {% if k == _cs %}active{% endif %}" data-status-option="{{ k }}"><span class="badge {{ c }}">{{ k|capitalize }}</span></button></li>
     {% endfor %}
+    {# ⚠️ CANCELAR y APLAZAR no son un cambio de etiqueta: son un PROCESO (el motivo, qué pasa con el
+       caché y con los gastos, y el aviso OBLIGATORIO al artista). Por eso llevan a su pantalla en
+       vez de guardarse al momento como los demás estados. #}
+    <li><hr class="dropdown-divider"></li>
+    <li><a class="dropdown-item d-flex align-items-center gap-2 {% if _cs == 'APLAZADO' %}active{% endif %}"
+           href="{{ url_for('concert_cancel_view', cid=cs_id, kind='APLAZADO') }}">
+        <span class="badge bg-warning text-dark">Aplazar</span>
+        <span class="small text-muted">nueva fecha, gastos…</span></a></li>
+    <li><a class="dropdown-item d-flex align-items-center gap-2 {% if _cs == 'CANCELADO' %}active{% endif %}"
+           href="{{ url_for('concert_cancel_view', cid=cs_id, kind='CANCELADO') }}">
+        <span class="badge bg-danger">Cancelar</span>
+        <span class="small text-muted">motivo, caché, gastos…</span></a></li>
   </ul>
 </span>
 {% else %}

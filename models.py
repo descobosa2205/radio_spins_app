@@ -455,7 +455,10 @@ def ensure_artist_notifications_schema():
             -- Enlace PÚBLICO de la cartelería (para que el artista y el promotor la vean y la
             -- descarguen sin entrar en la app). Es un token OPACO y distinto del de la solicitud a
             -- diseño: con ese se SUBEN carteles, con este solo se descargan.
-            ADD COLUMN IF NOT EXISTS artwork_share_token text;
+            ADD COLUMN IF NOT EXISTS artwork_share_token text,
+            -- CANCELACIÓN / APLAZAMIENTO: el motivo, el caché, los gastos, la nueva fecha y sus
+            -- tareas (ver `Concert.cancellation_payload`).
+            ADD COLUMN IF NOT EXISTS cancellation_payload jsonb NOT NULL DEFAULT '{}'::jsonb;
         """,
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_artwork_share_token "
         "ON concerts(artwork_share_token) WHERE artwork_share_token IS NOT NULL;",
@@ -2558,6 +2561,11 @@ class Concert(Base):
     # Enlace PÚBLICO de la cartelería (token opaco; ⚠️ NO es el de la solicitud a diseño, que sirve
     # para SUBIR carteles: aquí solo se ven y se descargan).
     artwork_share_token = Column(Text)
+    # ⚠️ CANCELAR o APLAZAR una actividad no es solo cambiar el estado: es un PROCESO (el motivo, si
+    # se cobra el caché, si el promotor cubre los gastos, la nueva fecha si la hay) y un puñado de
+    # tareas para producción (avisar a proveedores y al personal, cerrar la bolsa). Todo eso vive
+    # aquí; el estado del concierto sigue siendo `status`.
+    cancellation_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())

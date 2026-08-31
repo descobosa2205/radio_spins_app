@@ -1,0 +1,72 @@
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   UNA LISTA DE SUGERENCIAS NO PUEDE QUEDAR RECORTADA NI SALIR A MEDIAS
+   ⚠️⚠️ Colgada de su campo (`position:absolute`), la recorta cualquier ancestro con `overflow`: un
+   bocadillo con `overflow:hidden` (por su border-radius), el cuerpo de un modal con scroll, una
+   tabla… y los resultados se ven a medias o no se ven (bug real en el formulario de demos).
+   La solución es SACARLA al `<body>` y colocarla a mano en `position:fixed`.
+   Este fichero es el punto ÚNICO: lo usan el buscador de la casa (`typeahead.js`) y las listas
+   propias del formulario de demos (`demo_form.js`).
+   ⚠️ Va en su propio fichero, y no dentro de `typeahead.js`, porque hay páginas PÚBLICAS
+   (standalone) que traen el formulario de demos pero no cargan el buscador de la casa: allí el
+   helper no existiría y la lista volvería a salir recortada.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+  if (window.app33FloatList) return;      // alguna pantalla lo carga dos veces (parcial + layout)
+  var MIN_HUECO = 180;   // por debajo de esto no merece la pena abrirla: se acerca el campo
+
+  window.app33FloatList = {
+    // La saca del contenedor que la recorta (una sola vez) y la deja colgando del body.
+    attach: function (box) {
+      if (!box || box.__floating) return;
+      box.__floating = true;
+      document.body.appendChild(box);
+      box.style.position = 'fixed';
+      if (!box.style.zIndex) box.style.zIndex = '2000';
+    },
+
+    /* La pega al campo, con su ancho, por el lado en el que QUEPA ENTERA. Si no cabe por ninguno,
+       por el que tenga más sitio: así se ve lo máximo posible en vez de quedarse a medias. */
+    place: function (input, box) {
+      if (!input || !box) return;
+      var r = input.getBoundingClientRect();
+      // El alto NATURAL del contenido: `offsetHeight` ya viene recortado por el `max-height` que
+      // le pusimos la vez anterior, así que mirándolo la lista nunca volvería a crecer.
+      var previo = box.style.maxHeight;
+      box.style.maxHeight = 'none';
+      var alto = box.scrollHeight || 0;
+      box.style.maxHeight = previo;
+
+      var abajo = window.innerHeight - r.bottom - 12;
+      var arriba = r.top - 12;
+      var poner = (alto <= abajo) ? 'abajo'
+                : (alto <= arriba) ? 'arriba'
+                : (arriba > abajo) ? 'arriba' : 'abajo';
+
+      box.style.left = Math.max(4, Math.min(r.left, window.innerWidth - r.width - 4)) + 'px';
+      box.style.width = r.width + 'px';
+      if (poner === 'arriba') {
+        box.style.top = 'auto';
+        box.style.bottom = (window.innerHeight - r.top + 2) + 'px';
+        box.style.maxHeight = Math.max(120, arriba) + 'px';
+      } else {
+        box.style.bottom = 'auto';
+        box.style.top = (r.bottom + 2) + 'px';
+        box.style.maxHeight = Math.max(120, abajo) + 'px';
+      }
+    },
+
+    /* Antes de abrirla: si al campo no le queda sitio ni arriba ni abajo (está en el borde de un
+       modal con scroll), se ACERCA para que la lista quepa. Sin esto salían cinco resultados de
+       doce y el resto había que buscarlos con el scroll de la propia lista. */
+    ensureRoom: function (input) {
+      if (!input) return;
+      try {
+        var r = input.getBoundingClientRect();
+        var hueco = Math.max(window.innerHeight - r.bottom, r.top) - 12;
+        if (hueco >= MIN_HUECO) return;
+        input.scrollIntoView({ block: 'center' });
+      } catch (e) {}
+    },
+  };
+})();

@@ -41,6 +41,7 @@
       lista.__input = input;
       lista.__fila = input.closest('[data-demo-author]') || null;
       if (lista.__fila) lista.__fila.__lista = lista;
+      window.app33FloatList.ensureRoom(input);
       window.app33FloatList.attach(lista);
       window.app33FloatList.place(input, lista);
       if (!lista.__sigue) {

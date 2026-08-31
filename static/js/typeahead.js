@@ -1,43 +1,3 @@
-/* ══════════════════════════════════════════════════════════════════════════════════════════════
-   UNA LISTA DE SUGERENCIAS NO PUEDE QUEDAR RECORTADA
-   ⚠️⚠️ Colgada de su campo (`position:absolute`), la recorta cualquier ancestro con `overflow`: un
-   bocadillo con `overflow:hidden` (por su border-radius), el cuerpo de un modal con scroll, una
-   tabla… y los resultados se ven a medias o no se ven (bug real en el formulario de demos).
-   La solución es SACARLA al `<body>` y colocarla a mano en `position:fixed`. Este helper es el
-   punto ÚNICO: lo usan `typeahead.js` y las listas propias de `demo_form.js`.
-   ══════════════════════════════════════════════════════════════════════════════════════════════ */
-window.app33FloatList = {
-  // La saca del contenedor que la recorta (una sola vez) y la deja colgando del body.
-  attach: function (box) {
-    if (!box || box.__floating) return;
-    box.__floating = true;
-    box.__home = box.parentElement;             // por si algún día hay que devolverla
-    document.body.appendChild(box);
-    box.style.position = 'fixed';
-    if (!box.style.zIndex) box.style.zIndex = '2000';
-  },
-  // La pega al campo, con su ancho. Si no cabe debajo, se abre HACIA ARRIBA (en un modal el campo
-  // suele estar cerca del borde de abajo).
-  place: function (input, box) {
-    if (!input || !box) return;
-    var r = input.getBoundingClientRect();
-    var alto = box.offsetHeight || 200;
-    var hueco = window.innerHeight - r.bottom;
-    var arriba = (hueco < Math.min(alto, 200)) && (r.top > hueco);
-    box.style.left = r.left + 'px';
-    box.style.width = r.width + 'px';
-    if (arriba) {
-      box.style.top = 'auto';
-      box.style.bottom = (window.innerHeight - r.top + 2) + 'px';
-      box.style.maxHeight = Math.max(120, r.top - 12) + 'px';
-    } else {
-      box.style.bottom = 'auto';
-      box.style.top = (r.bottom + 2) + 'px';
-      box.style.maxHeight = Math.max(120, hueco - 12) + 'px';
-    }
-  },
-};
-
 function debounce(fn, ms){ let t; return function(...args){ clearTimeout(t); t=setTimeout(()=>fn.apply(this,args), ms); }; }
 
 /* ============================================================================
@@ -79,6 +39,7 @@ function initTypeahead(inputId, hiddenId, endpoint, opciones){
     box = document.createElement('div');
     box.className = 'ta-results';
     document.body.appendChild(box);
+    if (window.app33FloatList) window.app33FloatList.attach(box);
     box.addEventListener('mousedown', (ev) => {
       const it = ev.target.closest('[data-ta-id]');
       if (!it) return;
@@ -114,12 +75,16 @@ function initTypeahead(inputId, hiddenId, endpoint, opciones){
   /* Dónde se pinta la lista: pegada al campo, con su ancho. Si no cabe debajo, se abre HACIA
      ARRIBA (en un modal, el campo suele estar cerca del borde de abajo). */
   function coloca(){
-    if (!box || box.style.display === 'none') return;
+    // ⚠️ Sin el helper (una pantalla que no cargue `float_list.js`) no se peta: la lista se queda
+    // donde estaba. Un error aquí se llevaría por delante el resto del arranque de la página.
+    if (!box || box.style.display === 'none' || !window.app33FloatList) return;
     window.app33FloatList.place(input, box);
   }
 
   function abrir(){
     if (!box) return;
+    // Si al campo no le queda sitio, se acerca antes de abrir (ver `float_list.js`).
+    if (window.app33FloatList) window.app33FloatList.ensureRoom(input);
     box.style.display = 'block';
     coloca();
     window.addEventListener('scroll', coloca, true);

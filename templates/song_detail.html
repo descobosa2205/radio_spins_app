@@ -74,6 +74,21 @@
       {% endif %}
     </div>
   {% endif %}
+  {# ── LA BOLSA DE GASTOS del single. ⚠️ Si la canción la prepara un PROYECTO discográfico, este
+     botón lleva a LA BOLSA DEL PROYECTO: nunca se abre una segunda para el mismo lanzamiento. #}
+  {% if song_bag is defined and song_bag and CAN_EDIT_DISCOGRAFICA %}
+    {% if song_bag.bag_id %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bag_detail_view', bag_id=song_bag.bag_id) }}"
+         title="{{ 'Bolsa del proyecto ' ~ song_bag.project_title if song_bag.from_project else 'Bolsa de gastos del single' }}">
+        <i class="fa fa-sack-dollar me-1"></i>Bolsa{% if song_bag.total %} <span class="text-muted">{{ song_bag.total }}</span>{% endif %}</a>
+    {% else %}
+      <form method="post" action="{{ url_for('song_bag_open', song_id=song.id) }}" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline-secondary" type="submit" title="Abrir la bolsa de gastos de este single">
+          <i class="fa fa-sack-dollar me-1"></i>Abrir bolsa</button>
+      </form>
+    {% endif %}
+  {% endif %}
   {# ── SYNCRO: solo en un tema ONE-STOP (lo que se puede licenciar sin pedir permiso a nadie). ── #}
   {% if sync_in_repertoire %}
     <div class="dropdown">
@@ -3284,6 +3299,37 @@
         <div class="text-muted small py-2 mt-4">Sin playlists anteriores registradas.</div>
       {% endif %}
     </div>
+  {% elif tab == 'gastos' %}
+    {# ── LA BOLSA DE GASTOS del single ──────────────────────────────────────────────────────────
+       Un single preparado con un PROYECTO discográfico ya tiene su bolsa; los que no han pasado por
+       ahí abren la suya aquí. ⚠️ Si la canción la lleva un proyecto, esta pestaña enseña LA BOLSA
+       DEL PROYECTO: nunca hay dos bolsas para el mismo lanzamiento. #}
+    {% if song_bag and song_bag.bag_id %}
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h5 class="m-0"><i class="fa fa-sack-dollar me-2 text-muted"></i>
+          {% if song_bag.from_project %}Bolsa del proyecto{% if song_bag.project_title %} · {{ song_bag.project_title }}{% endif %}
+          {% else %}Bolsa de gastos{% endif %}</h5>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=song_bag.bag_id) }}">
+          <i class="fa fa-up-right-from-square me-1"></i>Abrir la bolsa</a>
+      </div>
+      {# El MISMO panel que /bolsas/<id>. Sin su cabecera: de quién es y qué es ya lo dice la
+         cabecera de la canción (regla de `bag_standalone`, en `_bag_panel.html`). #}
+      {% include '_bag_panel.html' %}
+    {% else %}
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div>
+          <h5 class="m-0">Gastos</h5>
+          <div class="text-muted">Todavía no hay bolsa de gastos para este single.</div>
+        </div>
+        {% if CAN_EDIT_DISCOGRAFICA %}
+          <form method="post" action="{{ url_for('song_bag_open', song_id=song.id) }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-primary" type="submit">
+              <i class="fa fa-sack-dollar me-1"></i>Abrir bolsa de gastos</button>
+          </form>
+        {% endif %}
+      </div>
+    {% endif %}
   {% else %}
     {% set ns = namespace(lbl='') %}
     {% for k, label, access_key in tabs %}

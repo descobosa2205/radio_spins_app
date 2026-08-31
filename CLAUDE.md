@@ -1007,6 +1007,30 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`bag-embed-head`) y su propio módulo de Ingresos. `bag_hide_hero` se conserva por compatibilidad,
   pero lo que manda es `bag_standalone`.
 
+- **LA BOLSA DE UN SINGLE QUE NO TIENE PROYECTO** (ago 2026): un single preparado con un PROYECTO
+  discográfico ya tiene su bolsa; los que no han pasado por ahí (los de antes, o los que se sacan sin
+  montar un proyecto) abren la suya desde la **pestaña «Gastos» de la ficha de la canción** —que era
+  el hueco que ponía «Próximamente»— y también desde la barra de botones de la ficha.
+  · Punto único **`_song_bag(session_db, song, create=)`**: `bag_type='SINGLE'`, `linked_type='SONG'`,
+  `linked_id` = la canción, artista y empresa **PIES**, `bag_scope='AUDIO'`.
+  ⚠️⚠️ **Si la canción la prepara un PROYECTO, la bolsa es LA DEL PROYECTO** (`_song_project`, el
+  punto único de «qué proyecto lleva esta canción»): si no, habría dos bolsas para el mismo
+  lanzamiento y el gasto acabaría repartido entre las dos sin que cuadre ninguna. La pestaña lo dice
+  («Bolsa del proyecto · X»).
+  · **Se ve EMBEBIDA** con el MISMO panel que `/bolsas/<id>` (como la de un proyecto), sin repetir su
+  cabecera (`bag_standalone`). ⚠️ Al mezclar su contexto hay que **quitar las claves que ya pasa la
+  ficha** (`song`, `tab`, `row`, `artists`, `companies`…) o `render_template` revienta con «got
+  multiple values».
+  · **CATEGORÍAS**: las mismas que un proyecto (`DISCO_BAG_EXPENSE_CATEGORIES`), que es lo que hace
+  `_bag_visible_expense_categories` con `bag_type='SINGLE'` + `linked_type='SONG'`. De un single
+  suelto se descarta **«Producción álbum físico»** (no sale en soporte) y **«Producción vídeo»** solo
+  si la canción está marcada «Sin videoclip»: lo que no se sabe se ofrece, que esconder una categoría
+  es peor que ofrecerla de más.
+  · **Desde /bolsas** también: al crear una bolsa se puede elegir un **single** (`linked_song_id`) y
+  entonces nace ya con su vínculo, su tipo y su artista. El selector solo ofrece los singles que
+  **todavía no tienen bolsa** (`_bag_song_options`, que mira en BLOQUE las bolsas propias y las de sus
+  proyectos), y si aun así se repite, se avisa y se lleva a la que ya había.
+
 - **CABECERA DE UNA BOLSA · la misma de una actividad** (ago 2026): donde la bolsa sí lleva cabecera
   (`/bolsas/<id>` y la pestaña Producción de una actividad) es ya un **`ficha-hero`** como el de la
   ficha de una actividad: foto redonda, antetítulo con el tipo de bolsa, título con las etiquetas de

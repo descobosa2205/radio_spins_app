@@ -19633,6 +19633,21 @@ def discografica_song_detail(song_id):
     # FLECHAS de anterior/siguiente: dependen del listado desde el que se ha llegado (`?nav=…`).
     ficha_nav = _ficha_nav(session_db, kind="SONG", item_id=s.id, tab=tab)
 
+    # LA BOLSA de gastos del single: en su pestaña se embebe con el MISMO panel que /bolsas/<id>
+    # (como la de un proyecto discográfico). Solo se monta ahí: el panel es caro.
+    _song_bag_ctx = _song_bag_context(session_db, s)
+    _song_bag_panel = {}
+    if tab == "gastos" and _song_bag_ctx.get("bag_id"):
+        _bag_fila = session_db.get(WorkflowBag, _safe_uuid(_song_bag_ctx["bag_id"]))
+        if _bag_fila is not None:
+            _song_bag_panel = _bag_panel_context(session_db, _bag_fila)
+            # ⚠️ Lo que la ficha de la canción ya pasa: sin quitarlo, `render_template` revienta con
+            # «got multiple values for keyword argument …».
+            for _c in ("today", "tab", "row", "song", "primary_artist", "CAN_EDIT",
+                       "artists", "companies", "promoters", "distributors", "ficha_nav",
+                       "ficha_nav_args", "one_stop", "release"):
+                _song_bag_panel.pop(_c, None)
+
     response = render_template(
         "song_detail.html",
         song=s,
@@ -19657,6 +19672,9 @@ def discografica_song_detail(song_id):
         sync_sent_tooltip=sync_sent_tooltip,
         sync_enabled=sync_enabled,
         sync_in_repertoire=sync_in_repertoire,
+        # LA BOLSA de gastos del single (la del proyecto si lo tiene; si no, la suya).
+        song_bag=_song_bag_ctx,
+        **_song_bag_panel,
         distributors=session_db.query(Distributor).order_by(Distributor.name.asc()).all(),
         song_distributor=(session_db.get(Distributor, s.distributor_id) if s.distributor_id else None),
         isrc_codes=isrc_codes,
@@ -85338,6 +85356,118 @@ def _bag_group_expenses(expenses: list[BagExpense]) -> dict[str, list[BagExpense
     return grouped
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# LA BOLSA DE UN SINGLE QUE NO TIENE PROYECTO DISCOGRÁFICO
+#
+# Un single preparado con un PROYECTO ya tiene su bolsa (`_ensure_project_bag`). Pero muchos singles
+# no han pasado por ahí —los de antes, o los que se sacan sin montar un proyecto— y sus gastos hay
+# que apuntarlos en algún sitio: se abre su bolsa desde la propia ficha de la canción.
+#
+# ⚠️⚠️ **Si el single YA tiene proyecto, se usa LA DEL PROYECTO**: si no, habría dos bolsas para el
+#    mismo lanzamiento y el gasto acabaría repartido entre las dos sin que cuadre ninguna.
+# ⚠️ Lleva las MISMAS categorías que la de un proyecto (`DISCO_BAG_EXPENSE_CATEGORIES`): producir un
+#    single no se parece a producir un concierto.
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _song_project(session_db, song_id):
+    """El proyecto discográfico que prepara esta canción, si lo hay."""
+    sid = _safe_uuid(song_id)
+    if not sid:
+        return None
+    try:
+        return (session_db.query(DiscoProject)
+                .filter(or_(DiscoProject.release_song_id == sid, DiscoProject.song_id == sid))
+                .order_by(DiscoProject.created_at.desc()).first())
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo buscar el proyecto de la canción")
+        return None
+
+
+def _song_bag(session_db, song, *, create: bool = False):
+    """La bolsa de gastos de un SINGLE. Punto único.
+
+    Si la canción la prepara un proyecto discográfico, la bolsa es LA DEL PROYECTO (no se crea otra).
+    Con `create=False` solo devuelve la que ya exista."""
+    if song is None:
+        return None
+    proyecto = _song_project(session_db, song.id)
+    if proyecto is not None:
+        bag = _ensure_project_bag(session_db, proyecto) if create else (
+            session_db.get(WorkflowBag, proyecto.bag_id) if getattr(proyecto, "bag_id", None) else None)
+        if bag is not None:
+            return bag
+    try:
+        bag = (session_db.query(WorkflowBag)
+               .filter(func.upper(func.coalesce(WorkflowBag.linked_type, "")) == "SONG")
+               .filter(WorkflowBag.linked_id == song.id)
+               .order_by(WorkflowBag.created_at.asc()).first())
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo buscar la bolsa de la canción")
+        bag = None
+    if bag is not None or not create:
+        return bag
+    artista = _song_primary_artist(session_db, song)
+    bag = WorkflowBag(
+        title=("Single · %s" % (song.title or "Sin título"))[:500],
+        artist_id=(artista.id if artista is not None else None),
+        artist_ids=([str(artista.id)] if artista is not None else []),
+        company_id=getattr(_pies_group_company(session_db), "id", None),
+        bag_type="SINGLE",
+        linked_type="SONG",
+        linked_id=song.id,
+        linked_title=(song.title or ""),
+        start_date=getattr(song, "release_date", None),
+        status="ACTIVA",
+        is_archived=False,
+        bag_scope="AUDIO",
+    )
+    session_db.add(bag)
+    session_db.flush()
+    return bag
+
+
+def _song_bag_context(session_db, song) -> dict:
+    """Lo que la ficha de la canción necesita para su botón de bolsa."""
+    if song is None:
+        return {}
+    proyecto = _song_project(session_db, song.id)
+    bag = _song_bag(session_db, song, create=False)
+    return {
+        "bag_id": (str(bag.id) if bag is not None else ""),
+        "from_project": bool(proyecto is not None),
+        "project_title": (_disco_project_title(proyecto) if proyecto is not None else ""),
+        "total": (format_eur(_bag_totals(list(getattr(bag, "expenses", None) or [])).get("all") or 0)
+                  if bag is not None else ""),
+    }
+
+
+@app.post("/discografica/canciones/<song_id>/bolsa", endpoint="song_bag_open")
+@admin_required
+def song_bag_open(song_id):
+    """Abre (creándola la primera vez) la bolsa de gastos de un single y lleva a ella."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar discográfica.")
+    session_db = db()
+    try:
+        song = session_db.get(Song, _safe_uuid(song_id))
+        if song is None:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        bag = _song_bag(session_db, song, create=True)
+        session_db.commit()
+        if bag is None:
+            flash("No se pudo abrir la bolsa.", "danger")
+            return redirect(url_for("song_detail_view", song_id=song_id))
+        return redirect(url_for("bag_detail_view", bag_id=bag.id))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[bolsas] no se pudo abrir la bolsa del single")
+        flash("No se pudo abrir la bolsa: %s" % exc, "danger")
+        return redirect(url_for("song_detail_view", song_id=song_id))
+    finally:
+        session_db.close()
+
+
 def _bag_visible_expense_categories(session_db, bag, expenses=None) -> list[tuple[str, str]]:
     """Las categorías de gasto que se OFRECEN en esta bolsa.
 
@@ -85347,15 +85477,30 @@ def _bag_visible_expense_categories(session_db, bag, expenses=None) -> list[tupl
     rider, músicos…) no se ofrecen ahí. Cualquier otra bolsa mantiene las de siempre.
     ⚠️ Se conserva además cualquier categoría que YA tenga gastos apuntados: la regla vale para lo que
     se va a apuntar, no para esconder lo ya apuntado (si no, un gasto quedaría invisible)."""
-    if (getattr(bag, "bag_type", None) or "").strip().upper() != "PROYECTO":
+    # ⚠️ La bolsa de un SINGLE sin proyecto lleva las MISMAS categorías que la de un proyecto:
+    # producir un single no se parece a producir un concierto, lo haya montado un proyecto o no.
+    tipo = (getattr(bag, "bag_type", None) or "").strip().upper()
+    enlace = (getattr(bag, "linked_type", None) or "").strip().upper()
+    es_disco = (tipo == "PROYECTO") or (tipo == "SINGLE" and enlace == "SONG")
+    if not es_disco:
         return list(BAG_EXPENSE_CATEGORIES)
-    project = None
+    project, song = None, None
     try:
-        if (getattr(bag, "linked_type", None) or "").strip().upper() == "PROJECT" and getattr(bag, "linked_id", None):
+        if enlace == "PROJECT" and getattr(bag, "linked_id", None):
             project = session_db.get(DiscoProject, bag.linked_id)
+        elif enlace == "SONG" and getattr(bag, "linked_id", None):
+            song = session_db.get(Song, bag.linked_id)
+            # Si esa canción acabó teniendo proyecto, manda el proyecto (sabe más).
+            project = _song_project(session_db, bag.linked_id)
     except Exception:
-        app.logger.exception("[bolsas] no se pudo leer el proyecto de la bolsa")
+        app.logger.exception("[bolsas] no se pudo leer el lanzamiento de la bolsa")
     fuera = set()
+    if project is None and song is not None:
+        # Un SINGLE suelto: se descarta solo lo que se SABE que no lleva (lo demás se ofrece; no se
+        # puede juzgar y esconder una categoría es peor que ofrecerla de más).
+        if bool(getattr(song, "no_videoclip", False)):
+            fuera.add("PROD_VIDEO")
+        fuera.add("PROD_FISICO")          # un single suelto no sale en soporte físico
     if project is not None:
         # Sin proyecto no se descarta nada: no se puede juzgar y es mejor ofrecerlo todo.
         kind = (getattr(project, "kind", None) or "").strip().upper()
@@ -85609,6 +85754,42 @@ def _bag_available_proration_bags(session_db, bag: WorkflowBag) -> list[dict]:
     return rows
 
 
+def _bag_song_options(session_db, limit: int = 400) -> list[dict]:
+    """Los SINGLES a los que se le puede abrir una bolsa: los que todavía no tienen ninguna.
+
+    ⚠️ Se descartan los que ya tienen bolsa (propia o de su proyecto): abrir una segunda para el
+    mismo lanzamiento repartiría el gasto entre dos y no cuadraría ninguna."""
+    try:
+        canciones = (session_db.query(Song)
+                     .options(selectinload(Song.artists))
+                     .order_by(Song.release_date.desc().nullslast(), Song.title.asc())
+                     .limit(limit).all())
+        if not canciones:
+            return []
+        ids = [c.id for c in canciones]
+        # En BLOQUE: una consulta para las bolsas propias y otra para las de sus proyectos.
+        con_bolsa = {str(x) for (x,) in session_db.query(WorkflowBag.linked_id)
+                     .filter(func.upper(func.coalesce(WorkflowBag.linked_type, "")) == "SONG")
+                     .filter(WorkflowBag.linked_id.in_(ids)).all() if x}
+        for sid, bid, vid in (session_db.query(DiscoProject.release_song_id, DiscoProject.bag_id,
+                                               DiscoProject.video_bag_id)
+                              .filter(DiscoProject.release_song_id.in_(ids)).all()):
+            if sid and (bid or vid):
+                con_bolsa.add(str(sid))
+        salida = []
+        for c in canciones:
+            if str(c.id) in con_bolsa:
+                continue
+            artista = ", ".join([(a.name or "") for a in (getattr(c, "artists", None) or [])])
+            fecha = c.release_date.strftime("%d/%m/%Y") if getattr(c, "release_date", None) else ""
+            salida.append({"id": str(c.id),
+                           "label": " · ".join([x for x in [(c.title or "Sin título"), artista, fecha] if x])})
+        return salida
+    except Exception:
+        app.logger.exception("[bolsas] no se pudieron listar los singles")
+        return []
+
+
 @app.route("/bolsas", methods=["GET", "POST"], endpoint="bags_view")
 @admin_required
 def bags_view():
@@ -85621,14 +85802,36 @@ def bags_view():
                 return redirect(url_for("bags_view"))
             artist_ids = _bag_artist_ids_from_form(request.form)
             primary_artist_id = _safe_uuid(artist_ids[0]) if artist_ids else None
+            # ¿Se ha vinculado a un SINGLE? Entonces la bolsa es la de ese lanzamiento: se le pone su
+            # vínculo y su tipo, que es lo que hace que ofrezca las categorías de disco.
+            cancion = None
+            _sid = _safe_uuid((request.form.get("linked_song_id") or "").strip() or None)
+            if _sid:
+                cancion = session_db.get(Song, _sid)
+            if cancion is not None:
+                ya = _song_bag(session_db, cancion, create=False)
+                if ya is not None:
+                    flash(Markup('Ese single ya tiene bolsa: <a class="alert-link" href="%s">abrirla</a>.'
+                                 % escape(url_for("bag_detail_view", bag_id=ya.id))), "warning")
+                    return redirect(url_for("bag_detail_view", bag_id=ya.id))
+                if not artist_ids:
+                    _art = _song_primary_artist(session_db, cancion)
+                    if _art is not None:
+                        artist_ids = [str(_art.id)]
+                        primary_artist_id = _art.id
             bag = WorkflowBag(
                 title=title,
                 artist_id=primary_artist_id,
                 artist_ids=artist_ids,
                 company_id=_safe_uuid(request.form.get("company_id")) if (request.form.get("company_id") or "").strip() else None,
-                bag_type=(request.form.get("bag_type") or "GENERAL").strip().upper() or "GENERAL",
-                linked_type=(request.form.get("linked_type") or "").strip().upper() or None,
-                linked_title=(request.form.get("linked_title") or "").strip() or None,
+                bag_type=("SINGLE" if cancion is not None
+                          else ((request.form.get("bag_type") or "GENERAL").strip().upper() or "GENERAL")),
+                linked_type=("SONG" if cancion is not None
+                             else ((request.form.get("linked_type") or "").strip().upper() or None)),
+                linked_id=(cancion.id if cancion is not None else None),
+                linked_title=((cancion.title or "") if cancion is not None
+                              else ((request.form.get("linked_title") or "").strip() or None)),
+                bag_scope=("AUDIO" if cancion is not None else None),
                 start_date=parse_optional_date(request.form.get("start_date")),
                 end_date=parse_optional_date(request.form.get("end_date")),
                 description=(request.form.get("description") or "").strip() or None,
@@ -85705,6 +85908,8 @@ def bags_view():
             filter_q=f_q,
             bag_status_options=BAG_STATUS_OPTIONS,
             bag_types=BAG_TYPES,
+            # Los SINGLES a los que se puede vincular una bolsa (los que aún no tienen ninguna).
+            bag_song_options=_bag_song_options(session_db),
             bag_artist_map=bag_artist_map,
             bag_expense_totals=bag_expense_totals,
         )

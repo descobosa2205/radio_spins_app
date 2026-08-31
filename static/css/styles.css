@@ -117,8 +117,9 @@ html, body { overflow-x: clip; }
   padding: .3rem;
   border-radius: 12px;
 }
-/* Logos de plataforma en color (PNG). Inactivo = mismo logo en gris y clicable (mete enlace a mano). */
-.song-platform i{ font-size: 28px; }
+/* Logos de plataforma: el ICONO DE MARCA en su color, TODOS DEL MISMO TAMAÑO (con los PNG sueltos
+   cada uno traía su margen y se veían desiguales). Inactivo = gris y clicable (mete el enlace). */
+.song-platform i{ font-size: 26px; width: 30px; line-height: 1; text-align: center; }
 .song-platform img{ width: 30px; height: 30px; object-fit: contain; display: block; transition: filter .12s ease, opacity .12s ease; }
 .song-platform.active:hover{ opacity: .85; }
 .song-platform.disabled{ color: #adb5bd !important; cursor: pointer; }
@@ -5363,6 +5364,9 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 }
 .ed-share__tag strong{ color:#495057; font-weight:700; }
 .ed-share__tag--warn{ background:#fff8e6; border-color:#f3e2b3; color:#8a6d1f; }
+/* El reparto editorial SE PINCHA para cambiarlo (no hay botón suelto del «%»). */
+.ed-share--edit{ cursor:pointer; border-radius:999px; }
+.ed-share--edit:hover .ed-share__tag{ border-color:var(--brand-accent,#007CA2); color:#111827; }
 .ed-share__edit{
   border:0; background:transparent; color:#adb5bd; padding:.1rem .3rem; line-height:1; font-size:.75rem;
 }

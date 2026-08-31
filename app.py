@@ -457,7 +457,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
+_CSRF_EXEMPT_ENDPOINTS = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
     "concert_artwork_public_upload",
     "public_prl_upload_post",
     "public_bag_invoice_upload_post",
@@ -859,7 +859,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -1485,6 +1485,8 @@ def inject_globals():
     return dict(
         BRAND_PRIMARY=settings.BRAND_PRIMARY,
         BRAND_ACCENT=settings.BRAND_ACCENT,
+        # El catálogo de PLATAFORMAS (icono de marca y color) para pintarlas siempre igual.
+        PLATFORM_META={m['key']: m for m in PLATFORM_META},
         company_logo=company_logo,
         one_stop_badge=one_stop_badge,
         explicit_badge=explicit_badge,
@@ -6350,6 +6352,9 @@ def _format_equivalent_copies(value) -> str:
 def _safe_download_filename(value: str | None, fallback: str = "archivo") -> str:
     raw = (value or "").strip() or fallback
     raw = raw.replace("/", "-").replace("\\", "-")
+    # ⚠️ Las tildes y la Ñ se TRANSLITERAN (Ñ→N, á→a) antes de filtrar: descartándolas a secas, «Los
+    # Ñus» se quedaba en «Los us» — y ese nombre se ve en el adjunto de un correo.
+    raw = unicodedata.normalize("NFKD", raw)
     allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ .()"
     cleaned = "".join(ch for ch in raw if ch in allowed)
     cleaned = " ".join(cleaned.split()).strip(" ._")
@@ -6464,6 +6469,116 @@ def _resolve_country_choice(raw_value: str | None) -> dict | None:
         if norm == item["name"].casefold() or norm in set(item.get("aliases") or []):
             return item
     return None
+
+
+# ⚠️ CERTIFICACIONES EN UN DOCUMENTO (Label Copy, correo, enlace): se enseñan SOLO LAS IMÁGENES,
+# ACUMULADAS (una por cada disco conseguido) y SIN TEXTO. Tope por tipo para que una canción con
+# quince platinos no reviente la maqueta.
+CERT_STACK_MAX = 6
+
+
+def _certifications_by_type(session_db, item, media_kind: str = "SONG") -> list[dict]:
+    """Las certificaciones de una canción o un álbum agrupadas POR TIPO (los países se suman).
+
+    Es «2 discos de oro», no uno por país: el mismo criterio que la ficha de Syncro. Devuelve por
+    tipo su imagen (URL absoluta para web/correo y ruta en disco para el PDF), cuántas son y el
+    texto para el tooltip."""
+    media_kind = (media_kind or "SONG").strip().upper()
+    try:
+        if media_kind == "ALBUM":
+            filas = (session_db.query(AlbumCertification)
+                     .filter(AlbumCertification.album_id == item.id)
+                     .order_by(AlbumCertification.created_at.asc()).all())
+        else:
+            filas = (session_db.query(SongCertification)
+                     .filter(SongCertification.song_id == item.id)
+                     .order_by(SongCertification.created_at.asc()).all())
+    except Exception:
+        app.logger.exception("[certificaciones] no se pudieron leer")
+        return []
+    catalogo = _certification_catalog(media_kind)
+    por_tipo = {}
+    for g in _group_certifications(filas, media_kind=media_kind):
+        fila = por_tipo.setdefault(g["certification_type"], {
+            "type": g["certification_type"], "image_url": g["image_url"],
+            "image": (catalogo.get(g["certification_type"]) or {}).get("image") or "",
+            "title": g["title"], "plural_title": g["plural_title"],
+            "count": 0, "order": g["sort_order"][0],
+        })
+        fila["count"] += int(g.get("count") or 0)
+    salida = sorted(por_tipo.values(), key=lambda x: x["order"])
+    for f in salida:
+        f["label"] = ("%d %s" % (f["count"], f["plural_title"])) if f["count"] > 1 else f["title"]
+        f["stack"] = max(1, min(int(f["count"] or 1), CERT_STACK_MAX))
+    return salida
+
+
+def _certification_small_png(image_rel: str, size: int = 96) -> bytes:
+    """La imagen de una certificación REDUCIDA (cacheada en memoria).
+
+    ⚠️ Los PNG de `static/img/certifications/` pesan ~290 KB cada uno: metidos tal cual en un correo
+    con varias certificaciones son medio mega de imágenes."""
+    # ⚠️ El tamaño se redondea a saltos de 32 px: `certification_icon_png` es PÚBLICO y el `?s=` lo
+    # elige quien llama, así que sin esto la caché guardaría una imagen por cada tamaño pedido.
+    size = max(32, min(int(size or 96), 256))
+    size = int(round(size / 32.0) * 32)
+    clave = (image_rel, size)
+    cache = globals().setdefault("_CERT_SMALL_CACHE", {})
+    if clave in cache:
+        return cache[clave]
+    datos = b""
+    try:
+        from PIL import Image
+        ruta = os.path.join(app.static_folder, *str(image_rel or "").split("/"))
+        img = Image.open(ruta)
+        img = img.convert("RGBA")
+        img.thumbnail((size, size), Image.LANCZOS)
+        buf = BytesIO()
+        img.save(buf, "PNG")
+        datos = buf.getvalue()
+    except Exception:
+        app.logger.exception("[certificaciones] no se pudo reducir %s", image_rel)
+    # ⚠️ Un FALLO no se cachea: si no, un pico de memoria dejaría esa imagen rota para siempre en
+    # ese worker.
+    if datos:
+        cache[clave] = datos
+    return datos
+
+
+def _certification_icon_path(image_rel: str, size: int = 120) -> str:
+    """La imagen reducida EN DISCO, que es lo que necesita ReportLab para un PDF."""
+    try:
+        datos = _certification_small_png(image_rel, size)
+        if not datos:
+            return os.path.join(app.static_folder, *str(image_rel or "").split("/"))
+        carpeta = Path(tempfile.gettempdir()) / "app33_cert_icons"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        ruta = carpeta / ("%s_%d.png" % (re.sub(r"[^a-z0-9_]", "", str(image_rel).rsplit("/", 1)[-1].lower()), size))
+        if not ruta.exists() or ruta.stat().st_size != len(datos):
+            ruta.write_bytes(datos)
+        return str(ruta)
+    except Exception:
+        app.logger.exception("[certificaciones] no se pudo preparar la imagen para el PDF")
+        return ""
+
+
+@app.get("/certificacion/<clave>.png", endpoint="certification_icon_png")
+def certification_icon_png(clave):
+    """La imagen de una certificación, pequeña (para los correos). Pública: va dentro de un `<img>`."""
+    meta = _certification_catalog("SONG").get((clave or "").strip().upper())
+    if not meta:
+        abort(404)
+    try:
+        tam = max(24, min(int(request.args.get("s") or 96), 256))
+    except (TypeError, ValueError):
+        tam = 96
+    datos = _certification_small_png(meta.get("image") or "", tam)
+    if not datos:
+        abort(404)
+    resp = make_response(datos)
+    resp.headers["Content-Type"] = "image/png"
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
 
 
 def _certification_group_title(meta: dict, count: int) -> str:
@@ -7927,12 +8042,29 @@ def _bundle_song_material_rows_to_zip(rows: list[SongMaterial], archive_label: s
     return buf.getvalue(), f"{filename_root}.zip"
 
 
+def _editorial_shares_sorted(shares) -> list:
+    """LOS AUTORES SIEMPRE EN EL MISMO ORDEN: del que más porcentaje tiene al que menos y, a
+    igualdad, por orden alfabético.
+
+    ⚠️ Es el orden en TODOS los sitios (la pestaña Editorial, el PDF del Label Copy, el enlace
+    público, el correo, la letra, el aviso de SGAE…): así el reparto se lee igual se mire donde se
+    mire. Se ordena en Python porque el nombre lo compone `_promoter_display_name` (nick, nombre y
+    apellidos), no es una columna."""
+    def clave(sh):
+        try:
+            pct = float(getattr(sh, 'pct', 0) or 0)
+        except (TypeError, ValueError):
+            pct = 0.0
+        nombre = _promoter_display_name(getattr(sh, 'promoter', None)) or ''
+        return (-pct, _norm_text_key(nombre))
+    return sorted(list(shares or []), key=clave)
+
+
 def _song_lyrics_meta(session_db, song: Song) -> dict:
-    shares = (
+    shares = _editorial_shares_sorted(
         session_db.query(SongEditorialShare)
         .options(joinedload(SongEditorialShare.promoter))
         .filter(SongEditorialShare.song_id == song.id)
-        .order_by(SongEditorialShare.created_at.asc())
         .all()
     )
     authors = []
@@ -8481,12 +8613,11 @@ def _song_editorial_split_map(session_db, song, shares=None, status=None) -> dic
     if song is None:
         return {}
     if shares is None:
-        shares = (
+        shares = _editorial_shares_sorted(
             session_db.query(SongEditorialShare)
             .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
                      joinedload(SongEditorialShare.publishing_company))
             .filter(SongEditorialShare.song_id == song.id)
-            .order_by(SongEditorialShare.created_at.asc())
             .all()
         )
     reg_date = _song_registration_date(session_db, song, status=status)
@@ -8687,63 +8818,6 @@ def _editorial_split_backfill_once():
                     datos["sin_registrar"], datos["sin_contrato"], datos["revisadas"])
 
 
-def _song_editorial_split_rows(session_db, song, status=None) -> list[dict]:
-    """El reparto editorial listo para pintar (PDF del LC de reparto editorial y correos)."""
-    shares = (
-        session_db.query(SongEditorialShare)
-        .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
-                 joinedload(SongEditorialShare.publishing_company))
-        .filter(SongEditorialShare.song_id == song.id)
-        .order_by(SongEditorialShare.created_at.asc())
-        .all()
-    )
-    mapa = _song_editorial_split_map(session_db, song, shares=shares, status=status)
-    filas = []
-    for share in shares:
-        info = mapa.get(str(share.id))
-        if not info or info.get("source") == "none":
-            continue
-        filas.append({
-            "author_name": _promoter_display_name(getattr(share, "promoter", None)) or "—",
-            "pct": info["pct"],
-            "pct_author": info["pct_author"],
-            "pct_platform": info["pct_platform"],
-            "final_author": info["final_author"],
-            "final_platform": info["final_platform"],
-            "special": info["source"] == "special",
-        })
-    return filas
-
-
-def _song_label_copy_author_rows(session_db, song: Song) -> tuple[list[list[str]], float]:
-    shares = (
-        session_db.query(SongEditorialShare)
-        .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company))
-        .filter(SongEditorialShare.song_id == song.id)
-        .order_by(SongEditorialShare.created_at.asc())
-        .all()
-    )
-    role_labels = {
-        'AUTHOR': 'Autor',
-        'COMPOSER': 'Compositor',
-        'AUTHOR_COMPOSER': 'Autor y Compositor',
-    }
-    rows = []
-    total_pct = 0.0
-    for share in shares or []:
-        promoter = share.promoter
-        publisher = _share_publisher(share)
-        pct = float(getattr(share, 'pct', 0) or 0)
-        total_pct += pct
-        rows.append([
-            _promoter_display_name(promoter) or '—',
-            role_labels.get((getattr(share, 'role', None) or '').strip().upper(), '—'),
-            (getattr(publisher, 'name', None) or '').strip() or '—',
-            f"{pct:.2f}%",
-        ])
-    return rows, round(total_pct, 2)
-
-
 def _song_label_copy_isrc_lines(session_db, song: Song) -> list[str]:
     rows = (
         session_db.query(SongISRCCode)
@@ -8766,39 +8840,87 @@ def _song_label_copy_isrc_lines(session_db, song: Song) -> list[str]:
     return lines
 
 
+# ⚠️ PUNTO ÚNICO DE LAS PLATAFORMAS DIGITALES de una canción o un álbum: la clave, su etiqueta, la
+# columna donde vive su enlace, su ICONO DE MARCA y su color. De aquí beben la ficha, el Label Copy
+# (PDF, enlace público y correo) y todo lo que enseñe estos enlaces.
+# ⚠️ Los logos se pintan con el ICONO DE MARCA (fa-brands) y no con los PNG sueltos de
+# `static/img/platforms/`: cada uno de esos PNG trae su propio margen y se veían de tamaños
+# distintos. Con el icono, los cinco miden lo mismo en la web, en el PDF y en el correo.
+PLATFORM_META = [
+    {'key': 'spotify',      'label': 'Spotify',      'field': 'spotify_url',
+     'icon': 'spotify', 'color': '1DB954', 'css_class': 'platform-spotify',
+     'asset': 'img/platforms/spotify.png'},
+    {'key': 'apple_music',  'label': 'Apple Music',  'field': 'apple_music_url',
+     'icon': 'apple', 'color': 'FA243C', 'css_class': 'platform-apple',
+     'asset': 'img/platforms/apple_music.png'},
+    {'key': 'amazon_music', 'label': 'Amazon Music', 'field': 'amazon_music_url',
+     'icon': 'amazon', 'color': '00A8E1', 'css_class': 'platform-amazon',
+     'asset': 'img/platforms/amazon_music.png'},
+    {'key': 'tiktok',       'label': 'TikTok',       'field': 'tiktok_url',
+     'icon': 'tiktok', 'color': '111827', 'css_class': 'platform-tiktok',
+     'asset': 'img/platforms/tiktok.png'},
+    {'key': 'youtube',      'label': 'YouTube',      'field': 'youtube_url',
+     'icon': 'youtube', 'color': 'FF0000', 'css_class': 'platform-youtube',
+     'asset': 'img/platforms/youtube.png'},
+]
+
+
+def _platform_link_url(value: str) -> str:
+    """La URL de una plataforma tal como se puede pinchar (o cadena vacía)."""
+    url = (value or '').strip()
+    if not url:
+        return ''
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    return url
+
+
 def _platform_links_for_item(item) -> list[dict]:
-    specs = [
-        ('spotify', 'Spotify', 'fa-brands fa-spotify', 'spotify_url', 'platform-spotify', 'img/platforms/spotify.png'),
-        ('apple_music', 'Apple Music', 'fa-brands fa-apple', 'apple_music_url', 'platform-apple', 'img/platforms/apple_music.png'),
-        ('amazon_music', 'Amazon Music', 'fa-brands fa-amazon', 'amazon_music_url', 'platform-amazon', 'img/platforms/amazon_music.png'),
-        ('tiktok', 'TikTok', 'fa-brands fa-tiktok', 'tiktok_url', 'platform-tiktok', 'img/platforms/tiktok.png'),
-        ('youtube', 'YouTube', 'fa-brands fa-youtube', 'youtube_url', 'platform-youtube', 'img/platforms/youtube.png'),
-    ]
+    """Los enlaces de plataforma QUE ESTÁN PUESTOS, en el orden del catálogo.
+
+    Lo que no está configurado no sale (ni en la ficha, ni en el PDF, ni en el enlace, ni en el
+    correo), y lo que sale es clicable: lleva a reproducir el tema en esa plataforma."""
     out = []
-    for key, label, icon, field, css_class, asset in specs:
-        url = (getattr(item, field, None) or '').strip() if item is not None else ''
+    for meta in PLATFORM_META:
+        url = _platform_link_url(getattr(item, meta['field'], None) if item is not None else '')
         if not url:
             continue
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
+        asset = meta['asset']
         try:
             asset_url = _external_url_for('static', filename=asset)
-            asset_path = str(Path(app.root_path) / 'static' / asset.replace('img/', 'img/'))
+            asset_path = str(Path(app.root_path) / 'static' / asset)
         except Exception:
             asset_url = ''
             asset_path = str(Path('static') / asset)
         out.append({
-            'key': key,
-            'label': label,
-            'icon': icon,
-            'class': css_class,
-            'css_class': css_class,
+            'key': meta['key'],
+            'label': meta['label'],
+            'icon': 'fa-brands fa-%s' % meta['icon'],
+            'icon_name': meta['icon'],
+            'color': meta['color'],
+            'class': meta['css_class'],
+            'css_class': meta['css_class'],
             'asset': asset,
             'asset_url': asset_url,
             'asset_path': asset_path,
             'url': url,
         })
     return out
+
+
+def _platform_icon_png_url(link: dict, size: int = 44) -> str:
+    """El logo de una plataforma como PNG (lo que entiende un CORREO, donde no carga la fuente)."""
+    try:
+        return _external_url_for('brand_icon_png', nombre=link.get('icon_name') or '',
+                                 c=link.get('color') or '111827', s=size, f='brands')
+    except Exception:
+        return link.get('asset_url') or ''
+
+
+def _platform_icon_png_path(link: dict, size: int = 48) -> str:
+    """El logo de una plataforma como PNG EN DISCO (lo que entiende ReportLab)."""
+    ruta = _fa_icon_png_path(link.get('icon_name') or '', link.get('color') or '111827', size, 'brands')
+    return ruta or (link.get('asset_path') or '')
 
 
 def _song_platform_links(song: Song | None) -> list[dict]:
@@ -8821,83 +8943,332 @@ class _LinkedRLImage(RLImage if REPORTLAB_AVAILABLE else object):
         super().drawOn(canv, x, y, _sW)
         if getattr(self, 'link_url', None):
             try:
-                canv.linkURL(self.link_url, (x, y, x + self.drawWidth, y + self.drawHeight), relative=0, thickness=0)
+                # ⚠️ `relative=1`: la x/y que recibe `drawOn` está en el sistema de coordenadas del
+                # SITIO donde se dibuja (dentro de una tabla, de un frame o de un KeepInFrame que
+                # encoge), no en el de la página. Con `relative=0` el enlace se colocaba en la
+                # esquina inferior izquierda del PDF y no se podía pinchar el icono (bug real).
+                canv.linkURL(self.link_url, (x, y, x + self.drawWidth, y + self.drawHeight),
+                             relative=1, thickness=0)
             except Exception:
                 pass
 
 
-def _platform_link_icon_flowable(link: dict, size_cm: float = 0.58):
-    if not REPORTLAB_AVAILABLE:
-        return None
+def _lc_timecode(seconds) -> str:
+    """La duración tal como va en el Label Copy: vacía cuando no hay dato (no «—»)."""
+    if seconds in (None, ''):
+        return ''
+    txt = (_seconds_to_timecode(seconds) or '').strip()
+    return '' if txt in ('', '—', '-') else txt
+
+
+def _label_copy_author_rows(session_db, song: Song, *, editorial: bool = False) -> tuple[list[dict], float, bool]:
+    """Los autores del Label Copy: nombre, rol, editorial, % y —si se pide— su reparto editorial.
+
+    Devuelve `(filas, total, fallo_del_reparto)`. ⚠️ Si se pidió el reparto y NO se ha podido
+    calcular, el documento lo DICE en vez de salir igual que el normal: un LC de reparto editorial
+    sin reparto y sin avisar es peor que no generarlo."""
+    shares = _editorial_shares_sorted(
+        session_db.query(SongEditorialShare)
+        .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
+                 joinedload(SongEditorialShare.publishing_company))
+        .filter(SongEditorialShare.song_id == song.id)
+        .all()
+    )
+    role_labels = {
+        'AUTHOR': 'Autor',
+        'COMPOSER': 'Compositor',
+        'AUTHOR_COMPOSER': 'Autor y Compositor',
+    }
+    mapa = {}
+    fallo = False
+    if editorial and shares:
+        try:
+            mapa = _song_editorial_split_map(session_db, song, shares=shares) or {}
+        except Exception:
+            app.logger.exception("[label copy] no se pudo calcular el reparto editorial")
+            mapa = {}
+            fallo = True
+    filas = []
+    total_pct = 0.0
+    for share in shares or []:
+        pct = float(getattr(share, 'pct', 0) or 0)
+        total_pct += pct
+        info = mapa.get(str(share.id)) if mapa else None
+        split = None
+        if info and info.get('source') != 'none':
+            split = {
+                'author': float(info.get('final_author') or 0),
+                'platform': float(info.get('final_platform') or 0),
+                'pct_author': float(info.get('pct_author') or 0),
+                'pct_platform': float(info.get('pct_platform') or 0),
+                'special': info.get('source') == 'special',
+            }
+        filas.append({
+            'name': _promoter_display_name(getattr(share, 'promoter', None)) or '—',
+            'role': role_labels.get((getattr(share, 'role', None) or '').strip().upper(), '—'),
+            'publisher': (getattr(_share_publisher(share), 'name', None) or '').strip() or '—',
+            'pct': pct,
+            'pct_label': f"{pct:.2f}%",
+            'split': split,
+        })
+    return filas, round(total_pct, 2), fallo
+
+
+def _label_copy_subject(song_title: str, interpreters_label: str) -> str:
+    """El asunto con el que sale el Label Copy: «Label Copy · Canción, Artista»."""
+    titulo = (song_title or '').strip() or 'Label Copy'
+    quien = (interpreters_label or '').strip()
+    return f"Label Copy · {titulo}, {quien}" if quien else f"Label Copy · {titulo}"
+
+
+def _label_copy_context(session_db, song: Song, *, editorial: bool = False) -> dict:
+    """TODO lo que necesitan el PDF, el enlace público y el correo del Label Copy de una canción."""
+    ctx = _song_label_copy_public_context(session_db, song, editorial=editorial)
+    ctx['editorial'] = bool(editorial)
+    ctx['certifications'] = _certifications_by_type(session_db, song, "SONG")
+    ctx['title'] = song.title
+    ctx['share_subject'] = _label_copy_subject(song.title, ctx.get('interpreters_label') or '')
     try:
-        from reportlab.lib.units import cm
-        asset_path = Path(link.get('asset_path') or '')
-        if not asset_path.exists():
-            asset = (link.get('asset') or '').lstrip('/')
-            asset_path = Path(app.root_path) / 'static' / asset
-        if not asset_path.exists():
-            return None
-        img = _LinkedRLImage(str(asset_path), width=size_cm * cm, height=size_cm * cm, link_url=link.get('url'))
-        img.hAlign = 'LEFT'
-        return img
+        ctx['public_url'] = _label_copy_public_url('SONG', song.id, editorial=editorial)
+        ctx['public_pdf_url'] = _label_copy_public_pdf_url('SONG', song.id, editorial=editorial)
     except Exception:
-        return None
+        # `url_for` revienta fuera de una petición (un cron, un hilo): el contenido sigue valiendo.
+        ctx['public_url'] = ''
+        ctx['public_pdf_url'] = ''
+    return ctx
 
 
-def _platform_links_pdf_table(item):
-    if not REPORTLAB_AVAILABLE:
-        return None
+def _album_label_copy_context(session_db, album: Album) -> dict:
+    """Lo que necesitan el PDF, el enlace público y el correo del Label Copy de un ÁLBUM."""
+    ctx = _album_label_copy_public_context(session_db, album)
+    ctx['title'] = album.title
+    ctx['interpreters_label'] = (ctx.get('artist_name') or '').strip()
+    ctx['author_rows'] = []
+    ctx['author_total'] = 0
+    ctx['editorial'] = False
+    ctx['certifications'] = _certifications_by_type(session_db, album, "ALBUM")
+    ctx['share_subject'] = _label_copy_subject(album.title, ctx.get('artist_name') or '')
     try:
-        from reportlab.lib.units import cm
-        cells = []
-        widths = []
-        for link in _platform_links_for_item(item):
-            icon = _platform_link_icon_flowable(link)
-            if not icon:
-                continue
-            cells.append(icon)
-            widths.append(0.74 * cm)
-        if not cells:
-            return None
-        table = Table([cells], colWidths=widths, hAlign='LEFT')
-        table.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 4),
-            ('TOPPADDING', (0,0), (-1,-1), 2),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ]))
-        return table
+        ctx['public_url'] = _label_copy_public_url('ALBUM', album.id)
+        ctx['public_pdf_url'] = _label_copy_public_pdf_url('ALBUM', album.id)
     except Exception:
-        return None
+        ctx['public_url'] = ''
+        ctx['public_pdf_url'] = ''
+    return ctx
 
 
-def _platform_links_pdf_html(item) -> str:
-    """Compatibilidad para plantillas antiguas: HTML con iconos imagen clicables."""
-    links = []
-    for link in _platform_links_for_item(item):
-        url = html.escape(link.get('url') or '', quote=True)
-        src = html.escape(link.get('asset_url') or '', quote=True)
-        label = html.escape(link.get('label') or 'Enlace')
-        if src:
-            links.append(f'<a href="{url}"><img src="{src}" alt="{label}" style="width:22px;height:22px;object-fit:contain;display:inline-block;margin-right:8px;"></a>')
-    return ''.join(links)
+# Cuántas imágenes de certificación caben en la cabecera sin estrujar el resto.
+CERT_HTML_MAX = 8
 
 
-def _song_platform_links_pdf_html(song: Song | None) -> str:
-    return _platform_links_pdf_html(song)
+def _lc_cert_imgs_html(ctx: dict, *, alto: int = 34) -> str:
+    """Las certificaciones como IMÁGENES ACUMULADAS y SIN TEXTO (una por cada disco conseguido)."""
+    trozos = []
+    for cert in (ctx.get('certifications') or []):
+        if len(trozos) >= CERT_HTML_MAX:
+            break
+        try:
+            src = _external_url_for('certification_icon_png', clave=cert.get('type') or '', s=alto * 3)
+        except Exception:
+            src = _absolute_media_url(cert.get('image_url') or '')
+        if not src:
+            continue
+        for _ in range(int(cert.get('stack') or 1)):
+            if len(trozos) >= CERT_HTML_MAX:
+                break
+            trozos.append(
+                f'<img src="{html.escape(src)}" alt="{html.escape(cert.get("label") or "")}" '
+                f'title="{html.escape(cert.get("label") or "")}" '
+                f'style="display:inline-block;height:{alto}px;width:auto;margin:0 2px;vertical-align:middle;">'
+            )
+    return ''.join(trozos)
 
 
-def _album_platform_links_pdf_html(album: Album | None) -> str:
-    return _platform_links_pdf_html(album)
+def _lc_platform_html(ctx: dict, *, tam: int = 26) -> str:
+    """Los enlaces de plataforma: SOLO los que están puestos, todos del mismo tamaño y clicables."""
+    trozos = []
+    for link in (ctx.get('platform_links') or []):
+        src = _platform_icon_png_url(link, size=tam * 2)
+        if not src:
+            continue
+        trozos.append(
+            f'<a href="{html.escape(link.get("url") or "")}" target="_blank" rel="noopener" '
+            f'title="{html.escape(link.get("label") or "")}" style="text-decoration:none;margin-right:10px;">'
+            f'<img src="{html.escape(src)}" alt="{html.escape(link.get("label") or "")}" '
+            f'style="display:inline-block;width:{tam}px;height:{tam}px;object-fit:contain;vertical-align:middle;">'
+            '</a>'
+        )
+    return ''.join(trozos)
 
 
-def _song_label_copy_public_context(session_db, song: Song) -> dict:
+def _label_copy_html(ctx: dict, *, note: str = '', with_button: bool = True) -> str:
+    """EL CONTENIDO del Label Copy, con estilos en línea: sirve igual para el correo y para el enlace.
+
+    Es el mismo documento que el PDF: logo arriba a la derecha, «Label Copy» centrado, la portada con
+    el título, los intérpretes y los enlaces de plataforma —y las certificaciones a la derecha—, la
+    tabla de datos y el reparto autoral."""
+    esc = lambda v: html.escape('' if v is None else str(v))
+    brand = ctx.get('brand') or {}
+    # Vale igual para una CANCIÓN y para un ÁLBUM: lo que se pinta es el título del contexto.
+    titulo = (ctx.get('title')
+              or getattr(ctx.get('song'), 'title', None)
+              or getattr(ctx.get('album'), 'title', None) or '')
+
+    logo_html = ''
+    if brand.get('logo_url'):
+        logo_html = (
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
+            '<tr><td align="right">'
+            f'<img src="{esc(_absolute_media_url(brand.get("logo_url") or ""))}" '
+            f'alt="{esc(brand.get("company_name") or "PIES")}" '
+            'style="display:inline-block;max-width:170px;max-height:56px;object-fit:contain;">'
+            '</td></tr></table>'
+        )
+
+    cover_url = _absolute_media_url(ctx.get('cover_url') or '') if (ctx.get('cover_url') or '') else ''
+    cover_cell = ''
+    if cover_url:
+        cover_cell = (
+            '<td class="lc-cover-cell" width="132" valign="middle" style="padding:0 14px 0 0;">'
+            f'<img src="{esc(cover_url)}" alt="{esc(titulo)}" '
+            'class="lc-cover" style="display:block;width:118px;height:118px;object-fit:cover;border-radius:12px;'
+            'border:1px solid #e5e7eb;background:#ffffff;">'
+            '</td>'
+        )
+
+    certs_html = _lc_cert_imgs_html(ctx)
+    certs_cell = (f'<td class="lc-certs" valign="middle" align="right" '
+                  f'style="padding-left:12px;white-space:nowrap;">{certs_html}</td>'
+                  if certs_html else '')
+
+    plat_html = _lc_platform_html(ctx)
+    hero = (
+        '<table class="lc-hero" role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        'style="border-collapse:collapse;margin:6px 0 16px;"><tr>'
+        + cover_cell +
+        '<td valign="middle">'
+        f'<div style="font-size:19px;font-weight:800;color:#111827;line-height:1.25;">{esc(titulo)}</div>'
+        + (f'<div style="font-size:14px;color:#4b5563;margin-top:3px;">{esc(ctx.get("interpreters_label") or "")}</div>'
+           if (ctx.get('interpreters_label') or '') else '')
+        + (f'<div style="margin-top:9px;">{plat_html}</div>' if plat_html else '')
+        + '</td>' + certs_cell + '</tr></table>'
+    )
+
+    filas_html = ''
+    for row in (ctx.get('info_rows') or []):
+        valor = esc(row.get('value') or '').replace('\n', '<br>')
+        filas_html += (
+            '<tr>'
+            '<td style="width:31%;background:#f9fafb;border:1px solid #d1d5db;padding:6px 8px;'
+            f'font-size:12.5px;font-weight:700;color:#374151;vertical-align:top;">{esc(row.get("label") or "")}</td>'
+            f'<td style="border:1px solid #d1d5db;padding:6px 8px;font-size:12.5px;color:#111827;">{valor}</td>'
+            '</tr>'
+        )
+    datos_html = ''
+    if filas_html:
+        datos_html = ('<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+                      f'style="border-collapse:collapse;margin-bottom:14px;">{filas_html}</table>')
+
+    autores_html = ''
+    if ctx.get('author_rows'):
+        cab = ('<tr>'
+               + ''.join('<td style="background:#f3f4f6;border:1px solid #d1d5db;padding:6px 8px;'
+                         f'font-size:12px;font-weight:700;color:#374151;">{t}</td>'
+                         for t in ('Autor', 'Rol', 'Editorial', '%'))
+               + '</tr>')
+        cuerpo = ''
+        for row in ctx['author_rows']:
+            split = row.get('split')
+            # ⚠️ El porcentaje del autor se pinta IGUAL que el de cualquier otro; el reparto va
+            # DEBAJO, en dos etiquetas pequeñas dentro de la misma celda.
+            pct_cell = f'<div style="font-size:12.5px;color:#111827;">{esc(row.get("pct_label") or "")}</div>'
+            if split:
+                pct_cell += (
+                    '<div style="margin-top:3px;line-height:1.5;">'
+                    '<span style="display:inline-block;background:#f3f4f6;border:1px solid #e5e7eb;'
+                    'border-radius:999px;padding:0 6px;font-size:10px;color:#4b5563;white-space:nowrap;">'
+                    f'Autor {split["author"]:.2f}%</span> '
+                    '<span style="display:inline-block;background:#f3f4f6;border:1px solid #e5e7eb;'
+                    'border-radius:999px;padding:0 6px;font-size:10px;color:#4b5563;white-space:nowrap;">'
+                    f'Plataforma {split["platform"]:.2f}%</span>'
+                    '</div>'
+                )
+            cuerpo += (
+                '<tr>'
+                f'<td style="border:1px solid #d1d5db;padding:6px 8px;font-size:12.5px;">{esc(row.get("name"))}</td>'
+                f'<td style="border:1px solid #d1d5db;padding:6px 8px;font-size:12.5px;">{esc(row.get("role"))}</td>'
+                f'<td style="border:1px solid #d1d5db;padding:6px 8px;font-size:12.5px;">{esc(row.get("publisher"))}</td>'
+                f'<td style="border:1px solid #d1d5db;padding:6px 8px;vertical-align:top;">{pct_cell}</td>'
+                '</tr>'
+            )
+        total = ctx.get('author_total') or 0
+        cuerpo += (
+            '<tr>'
+            '<td colspan="3" style="border:1px solid #d1d5db;padding:6px 8px;background:#fff7ed;'
+            'font-size:12.5px;font-weight:700;color:#7c2d12;">Porcentaje total</td>'
+            '<td style="border:1px solid #d1d5db;padding:6px 8px;background:#fff7ed;'
+            f'font-size:12.5px;font-weight:700;color:#7c2d12;">{total:.2f}%</td>'
+            '</tr>'
+        )
+        autores_html = (
+            '<div style="font-size:13px;font-weight:800;color:#111827;margin:4px 0 6px;">Reparto autoral</div>'
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            f'style="border-collapse:collapse;">{cab}{cuerpo}</table>'
+        )
+        if any(r.get('split') for r in ctx['author_rows']):
+            autores_html += ('<div style="font-size:10.5px;color:#6b7280;margin-top:6px;">'
+                             'Los porcentajes de «Autor» y «Plataforma» están referidos al conjunto de la obra.'
+                             '</div>')
+        elif ctx.get('editorial') and ctx.get('split_error'):
+            autores_html += ('<div style="font-size:10.5px;color:#b45309;margin-top:6px;">'
+                             'No se ha podido calcular el reparto editorial de esta obra.</div>')
+
+    nota_html = ''
+    if (note or '').strip():
+        nota_html = ('<div style="margin:14px 0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;'
+                     f'border-radius:10px;font-size:13.5px;color:#374151;">{esc(note.strip())}</div>')
+
+    boton_html = ''
+    if with_button and (ctx.get('public_pdf_url') or ''):
+        boton_html = (
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            'style="border-collapse:collapse;margin-top:18px;"><tr><td align="right">'
+            f'<a href="{esc(ctx.get("public_pdf_url"))}" '
+            'style="display:inline-block;background:#E33D48;color:#ffffff;text-decoration:none;'
+            'font-weight:700;font-size:13.5px;padding:9px 16px;border-radius:999px;">'
+            'Descargar en PDF</a>'
+            '</td></tr></table>'
+        )
+
+    # ⚠️ EN MÓVIL la cabecera se APILA (portada arriba, datos y certificaciones debajo): con la
+    # tabla a dos/tres columnas, las certificaciones se salían por la derecha. El `<style>` va DENTRO
+    # del cuerpo porque esto se manda también por correo, donde no hay hoja externa (el cliente que
+    # no entienda media queries sigue viendo la maqueta de escritorio).
+    estilos = (
+        '<style>@media (max-width:520px){'
+        '.lc-hero,.lc-hero tbody,.lc-hero tr,.lc-hero td{display:block !important;width:100% !important;'
+        'text-align:center !important;padding-left:0 !important;padding-right:0 !important;}'
+        '.lc-cover{margin:0 auto 10px !important;}'
+        '.lc-certs{white-space:normal !important;text-align:center !important;padding-top:8px !important;}'
+        '}</style>'
+    )
+    return (
+        '<div style="max-width:760px;margin:0 auto;padding:18px 20px;background:#ffffff;'
+        'font-family:Helvetica,Arial,sans-serif;color:#111827;">'
+        + estilos
+        + logo_html
+        + '<h1 style="margin:6px 0 14px;font-size:22px;font-weight:800;text-align:center;color:#111827;">Label Copy</h1>'
+        + nota_html + hero + datos_html + autores_html + boton_html
+        + '</div>'
+    )
+
+
+def _song_label_copy_public_context(session_db, song: Song, *, editorial: bool = False) -> dict:
     artist = _song_primary_artist(session_db, song)
     artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
     interpreters_label = _song_interpreters_label(session_db, song)
     isrc_lines = _song_label_copy_isrc_lines(session_db, song)
-    author_rows, author_total = _song_label_copy_author_rows(session_db, song)
+    author_rows, author_total, split_error = _label_copy_author_rows(session_db, song, editorial=editorial)
     musicians = []
     for row in (getattr(song, 'musicians', None) or []):
         instrument = (row.get('instrument') or '').strip() if isinstance(row, dict) else ''
@@ -8917,8 +9288,10 @@ def _song_label_copy_public_context(session_db, song: Song) -> dict:
     add_row('Versión', song.version)
     add_row('Fecha de publicación', song.release_date.strftime('%d/%m/%Y') if song.release_date else '')
     add_row('Códigos ISRC', '\n'.join(isrc_lines))
-    add_row('Duración (Timing)', _seconds_to_timecode(getattr(song, 'duration_seconds', None)))
-    add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
+    # ⚠️ `_seconds_to_timecode(None)` devuelve «—», no cadena vacía: sin este filtro la fila se
+    # pinta con un guion en vez de desaparecer.
+    add_row('Duración (Timing)', _lc_timecode(getattr(song, 'duration_seconds', None)))
+    add_row('Inicio en Tik Tok', _lc_timecode(getattr(song, 'tiktok_start_seconds', None)))
     add_row('BPM', str(song.bpm or ''))
     add_row('Género', song.genre)
     add_row('Copyright', song.copyright_text)
@@ -8944,6 +9317,7 @@ def _song_label_copy_public_context(session_db, song: Song) -> dict:
         'info_rows': info_rows,
         'author_rows': author_rows,
         'author_total': author_total,
+        'split_error': split_error,
     }
 
 
@@ -9229,18 +9603,21 @@ class _PitchHtmlCleaner(HTMLParser):
         return "".join(self.out)
 
 
-def _fa_icon_png_path(nombre: str, color: str = "374151", size: int = 40) -> str:
+def _fa_icon_png_path(nombre: str, color: str = "374151", size: int = 40, familia: str = "solid") -> str:
     """El icono sólido `nombre` como PNG **en disco**, para poder meterlo en un PDF.
 
     ⚠️ Un `Paragraph` de ReportLab admite `<img src="ruta">`, pero NO bytes ni un data URI, así que
     el PNG (que `_fa_icon_png` ya cachea en memoria) se deja también en un fichero de caché."""
     try:
-        datos = _fa_icon_png(nombre, color, size)
+        datos = _fa_icon_png(nombre, color, size, familia)
         if not datos:
             return ""
         carpeta = Path(tempfile.gettempdir()) / "app33_fa_icons"
         carpeta.mkdir(parents=True, exist_ok=True)
-        ruta = carpeta / ("%s_%s_%d.png" % (re.sub(r"[^a-z0-9-]", "", (nombre or "").lower()), color, size))
+        # ⚠️ La FAMILIA va en el nombre del fichero: sin ella, el sólido y el de marca del mismo
+        # icono se pisarían en la caché de disco.
+        ruta = carpeta / ("%s_%s_%s_%d.png" % (
+            re.sub(r"[^a-z0-9-]", "", (nombre or "").lower()), familia, color, size))
         if not ruta.exists() or ruta.stat().st_size != len(datos):
             ruta.write_bytes(datos)
         return str(ruta)
@@ -9891,13 +10268,103 @@ def _lc_link_items(session_db, campo: str, tipo: str, valor) -> list:
     return salida
 
 
+def _lc_pdf_text_block(par, ancho_cm: float = 18.0):
+    """Un texto suelto metido en una caja del ancho de las tablas.
+
+    ⚠️ Cuando el `KeepInFrame` ENCOGE el documento, las tablas se centran en el marco y un
+    `Paragraph` suelto se queda a la izquierda, descolocado. Metiéndolo en una tabla invisible del
+    mismo ancho, el título de sección y las tablas siguen alineados."""
+    t = Table([[par]], colWidths=[ancho_cm * cm_unit()])
+    t.setStyle(TableStyle([('LEFTPADDING', (0, 0), (-1, -1), 0),
+                           ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                           ('TOPPADDING', (0, 0), (-1, -1), 0),
+                           ('BOTTOMPADDING', (0, 0), (-1, -1), 0)]))
+    return t
+
+
+def _lc_pdf_platform_row(links: list[dict], *, tam_cm: float = 0.62):
+    """La fila de logos de plataforma del PDF: todos del MISMO tamaño y clicables (van a reproducir).
+
+    ⚠️ Se dibujan con el ICONO DE MARCA (fa-brands) en PNG, no con los logos sueltos de
+    `static/img/platforms/`: esos traen su propio margen y salían de tamaños distintos."""
+    if not REPORTLAB_AVAILABLE or not links:
+        return None
+    celdas = []
+    for link in links:
+        ruta = _platform_icon_png_path(link, size=96)
+        if not ruta or not os.path.exists(ruta):
+            continue
+        try:
+            celdas.append(_LinkedRLImage(ruta, width=tam_cm * cm_unit(), height=tam_cm * cm_unit(),
+                                         link_url=link.get('url') or ''))
+        except Exception:
+            continue
+    if not celdas:
+        return None
+    t = Table([celdas], colWidths=[(tam_cm + 0.22) * cm_unit()] * len(celdas))
+    t.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                           ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                           ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                           ('TOPPADDING', (0, 0), (-1, -1), 0),
+                           ('BOTTOMPADDING', (0, 0), (-1, -1), 0)]))
+    return t
+
+
+def _lc_pdf_certifications(certs: list[dict], *, alto_cm: float = 0.95, ancho_cm: float = 4.7):
+    """Las certificaciones del PDF: SOLO las imágenes, acumuladas y sin texto.
+
+    ⚠️ El tamaño se calcula con LAS QUE HAY: con cinco o más discos, a tamaño fijo la fila se salía
+    de su columna y pisaba lo de al lado."""
+    if not REPORTLAB_AVAILABLE or not certs:
+        return None
+    total = sum(max(1, int(c.get('stack') or 1)) for c in certs) or 1
+    # ⚠️ Con muchas, además de encoger hay un TOPE de cuántas caben: por debajo de 0,34 cm no se
+    # distingue nada y la fila volvía a salirse de su columna.
+    alto_cm = min(alto_cm, max(0.34, (ancho_cm / total) - 0.06))
+    max_imgs = max(1, int((ancho_cm + 1e-6) // (alto_cm + 0.06)))
+    celdas = []
+    for cert in certs:
+        ruta = _certification_icon_path(cert.get('image') or '', 160)
+        if not ruta or not os.path.exists(ruta):
+            continue
+        for _ in range(int(cert.get('stack') or 1)):
+            if len(celdas) >= max_imgs:
+                break
+            try:
+                # Los PNG de las certificaciones son cuadrados: ancho = alto y no se deforman.
+                celdas.append(RLImage(ruta, width=alto_cm * cm_unit(), height=alto_cm * cm_unit()))
+            except Exception:
+                continue
+    if not celdas:
+        return None
+    t = Table([celdas], colWidths=[(alto_cm + 0.06) * cm_unit()] * len(celdas))
+    t.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                           ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+                           ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                           ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                           ('TOPPADDING', (0, 0), (-1, -1), 0),
+                           ('BOTTOMPADDING', (0, 0), (-1, -1), 0)]))
+    return t
+
+
+def cm_unit() -> float:
+    """1 cm en puntos de ReportLab (para no importar `cm` en cada helper)."""
+    from reportlab.lib.units import cm as _cm
+    return float(_cm)
+
+
 def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = False,
                                      video: bool = False) -> tuple[bytes, str]:
-    """El Label Copy de una canción.
+    """El Label Copy de una canción. ⚠️ SIEMPRE EN UNA SOLA PÁGINA A4.
 
-    ⚠️ Con `editorial=True` se añade al final el **REPARTO EDITORIAL**: cuánto de la parte de cada
-    autor nuestro es del autor y cuánto de Plataforma Musical. Ese detalle es interno de editorial:
-    el LC que se comparte normalmente NO lo lleva.
+    Es el MISMO contenido que el enlace público y el correo (`_label_copy_html`): logo de PIES arriba
+    a la derecha, «Label Copy» centrado, la portada con el título, los intérpretes y los enlaces de
+    plataforma —y las certificaciones a la derecha, a la altura de la portada—, la tabla de datos y
+    el reparto autoral.
+
+    ⚠️ Con `editorial=True` cada autor nuestro lleva, DENTRO de la celda de su porcentaje y debajo
+    del número, dos etiquetas con el **REPARTO EDITORIAL** (cuánto es suyo y cuánto de Plataforma
+    Musical). Ese detalle es interno de editorial: el LC que se comparte normalmente NO lo lleva.
 
     ⚠️ Con `video=True` es el LC del **VIDEOCLIP**: el mismo documento y los mismos datos del single
     (título, intérpretes, autores…), pero con los **ISRC de VÍDEO**, las fechas del vídeo y su
@@ -9913,11 +10380,13 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     brand = _pies_brand_assets(session_db)
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
+    from reportlab.platypus import KeepInFrame
     styles = getSampleStyleSheet()
     # Estilo de casa: logo de la empresa arriba a la DERECHA y el título CENTRADO.
     title_style = ParagraphStyle('LCSongTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=18, leading=21, alignment=TA_CENTER, textColor=colors.HexColor('#111827'))
     small_style = ParagraphStyle('LCSmall', parent=styles['BodyText'], fontSize=9.2, leading=12, textColor=colors.HexColor('#374151'))
     label_style = ParagraphStyle('LCLabel', parent=styles['BodyText'], fontName='Helvetica-Bold', fontSize=9.3, leading=12, textColor=colors.HexColor('#111827'))
+    split_style = ParagraphStyle('LCSplit', parent=styles['BodyText'], fontSize=6.6, leading=8.4, textColor=colors.HexColor('#4b5563'))
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.5*cm, rightMargin=1.5*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
     story = []
@@ -9931,17 +10400,25 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     story.append(Spacer(1, 0.25*cm))
 
     cover = _rl_image_flowable_from_url((getattr(song, 'cover_url', None) or '').strip() or url_for('static', filename='img/placeholder_photo.png'), 3.2, 3.2)
-    platform_links_table = _platform_links_pdf_table(song)
+    platform_links_table = _lc_pdf_platform_row(_song_platform_links(song))
     right_col = [Paragraph(f"<b>{html.escape(song.title)}</b><br/>{html.escape(interpreters_label)}", small_style)]
     if platform_links_table:
-        right_col.extend([Spacer(1, 0.12*cm), Paragraph('<b>Enlaces:</b>', label_style), platform_links_table])
-    header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.7*cm, 13.2*cm])
-    header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),8)]))
+        right_col.extend([Spacer(1, 0.16*cm), platform_links_table])
+    # LAS CERTIFICACIONES van a la DERECHA, a la altura de la portada, y son solo las imágenes.
+    certs_table = _lc_pdf_certifications(_certifications_by_type(session_db, song, 'SONG'))
+    if certs_table is not None:
+        header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col, certs_table]],
+                             colWidths=[3.7*cm, 9.6*cm, 4.7*cm])
+    else:
+        header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.7*cm, 13.2*cm])
+    header_table.setStyle(TableStyle([('VALIGN', (0,0), (0,0), 'TOP'), ('VALIGN', (1,0), (-1,-1), 'MIDDLE'),
+                                      ('ALIGN', (-1,0), (-1,0), 'RIGHT'),
+                                      ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),8)]))
     story.append(header_table)
     story.append(Spacer(1, 0.35*cm))
 
     isrc_lines = _song_label_copy_isrc_lines(session_db, song)
-    author_rows, author_total = _song_label_copy_author_rows(session_db, song)
+    author_rows, author_total, split_error = _label_copy_author_rows(session_db, song, editorial=editorial)
     musicians = []
     for row in (getattr(song, 'musicians', None) or []):
         instrument = (row.get('instrument') or '').strip() if isinstance(row, dict) else ''
@@ -9974,8 +10451,10 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     else:
         add_row('Fecha de publicación', song.release_date.strftime('%d/%m/%Y') if song.release_date else '')
     add_row('Códigos ISRC', '\n'.join(isrc_lines))
-    add_row('Duración (Timing)', _seconds_to_timecode(getattr(song, 'duration_seconds', None)))
-    add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
+    # ⚠️ `_seconds_to_timecode(None)` devuelve «—», no cadena vacía: sin este filtro la fila se
+    # pinta con un guion en vez de desaparecer.
+    add_row('Duración (Timing)', _lc_timecode(getattr(song, 'duration_seconds', None)))
+    add_row('Inicio en Tik Tok', _lc_timecode(getattr(song, 'tiktok_start_seconds', None)))
     add_row('BPM', str(song.bpm or ''))
     add_row('Género', song.genre)
     add_row('Copyright', song.copyright_text)
@@ -10003,10 +10482,28 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     story.append(table)
     if author_rows:
         story.append(Spacer(1, 0.3*cm))
-        story.append(Paragraph('Reparto autoral', label_style))
+        story.append(_lc_pdf_text_block(Paragraph('Reparto autoral', label_style)))
+        cuerpo = []
+        for row in author_rows:
+            # ⚠️ El % del autor se pinta IGUAL que el de los demás: el reparto va DEBAJO, en dos
+            # etiquetas pequeñas dentro de la MISMA celda.
+            pct_cell = [Paragraph(html.escape(row['pct_label']), small_style)]
+            if row.get('split'):
+                # Dos ETIQUETAS (fondo gris claro), como en la ficha: el número del autor no cambia
+                # de tamaño y el reparto se lee debajo sin competir con él.
+                pct_cell.append(Paragraph(
+                    f'<font backColor="#f3f4f6"> Autor {row["split"]["author"]:.2f}% </font><br/>'
+                    f'<font backColor="#f3f4f6"> Plataforma {row["split"]["platform"]:.2f}% </font>',
+                    split_style))
+            cuerpo.append([
+                Paragraph(html.escape(row['name']), small_style),
+                Paragraph(html.escape(row['role']), small_style),
+                Paragraph(html.escape(row['publisher']), small_style),
+                pct_cell,
+            ])
         author_table = Table([
             [Paragraph('Autor', label_style), Paragraph('Rol', label_style), Paragraph('Editorial', label_style), Paragraph('%', label_style)]
-        ] + [[Paragraph(html.escape(col), small_style) for col in row] for row in author_rows] + [[Paragraph('Porcentaje total', label_style), Paragraph('', small_style), Paragraph('', small_style), Paragraph(f'{author_total:.2f}%', label_style)]], colWidths=[5.0*cm, 3.4*cm, 7.0*cm, 2.6*cm])
+        ] + cuerpo + [[Paragraph('Porcentaje total', label_style), Paragraph('', small_style), Paragraph('', small_style), Paragraph(f'{author_total:.2f}%', label_style)]], colWidths=[5.0*cm, 3.4*cm, 6.4*cm, 3.2*cm])
         author_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f3f4f6')),
@@ -10018,36 +10515,22 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
             ('BOTTOMPADDING', (0,0), (-1,-1), 4),
         ]))
         story.append(author_table)
-    # REPARTO EDITORIAL (solo en el LC de editorial): la parte de cada autor nuestro y cómo se reparte
-    # entre él y Plataforma Musical sobre el conjunto de la obra.
-    split_rows = _song_editorial_split_rows(session_db, song) if editorial else []
-    if split_rows:
-        story.append(Spacer(1, 0.3*cm))
-        story.append(Paragraph('Reparto editorial', label_style))
-        cabecera = [Paragraph('Autor', label_style), Paragraph('Parte autoral', label_style),
-                    Paragraph('Autor', label_style), Paragraph('Plataforma Musical', label_style)]
-        cuerpo = []
-        for row in split_rows:
-            cuerpo.append([
-                Paragraph(html.escape(row['author_name']), small_style),
-                Paragraph(f"{row['pct']:.2f}%", small_style),
-                Paragraph(f"{row['final_author']:.2f}% <font size=7>({row['pct_author']:.2f}% de su parte)</font>", small_style),
-                Paragraph(f"{row['final_platform']:.2f}% <font size=7>({row['pct_platform']:.2f}% de su parte)</font>", small_style),
-            ])
-        split_table = Table([cabecera] + cuerpo, colWidths=[5.0*cm, 3.0*cm, 5.0*cm, 5.0*cm])
-        split_table.setStyle(TableStyle([
-            ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f3f4f6')),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LEFTPADDING', (0,0), (-1,-1), 5),
-            ('RIGHTPADDING', (0,0), (-1,-1), 5),
-            ('TOPPADDING', (0,0), (-1,-1), 4),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-        ]))
-        story.append(split_table)
-        story.append(Spacer(1, 0.15*cm))
-        story.append(Paragraph('Los porcentajes de «Autor» y «Plataforma Musical» están referidos al conjunto de la obra.', small_style))
-    doc.build(story)
+        if any(r.get('split') for r in author_rows):
+            story.append(Spacer(1, 0.15*cm))
+            story.append(_lc_pdf_text_block(Paragraph(
+                'Los porcentajes de «Autor» y «Plataforma» están referidos al conjunto de la obra.',
+                split_style)))
+        elif editorial and split_error:
+            # ⚠️ Si se pidió el reparto y no se ha podido calcular, el documento LO DICE.
+            story.append(Spacer(1, 0.15*cm))
+            story.append(_lc_pdf_text_block(Paragraph(
+                'No se ha podido calcular el reparto editorial de esta obra.', split_style)))
+    # ⚠️ EL LABEL COPY CABE SIEMPRE EN UNA SOLA PÁGINA: todo el documento va dentro de un
+    # `KeepInFrame` que lo ENCOGE si hace falta. Sin esto, una canción muy cumplimentada (muchos
+    # ISRC, muchos músicos, muchos autores) se desbordaba a una segunda página que salía sin logo,
+    # sin cabeceras de tabla y sin numeración.
+    marco = KeepInFrame(doc.width, doc.height, story, mode='shrink')
+    doc.build([marco])
     filename = f"LC{'_reparto_editorial' if editorial else ''}_{song.title}_{artist_name}.pdf"
     return buf.getvalue(), _safe_download_filename(filename, 'LC_cancion.pdf')
 
@@ -10080,12 +10563,20 @@ def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]
     story.append(Paragraph('Label Copy', title_style))
     story.append(Spacer(1, 0.15*cm))
     cover = _rl_image_flowable_from_url((getattr(album, 'cover_url', None) or '').strip() or url_for('static', filename='img/placeholder_photo.png'), 2.8, 2.8)
-    platform_links_table = _platform_links_pdf_table(album)
+    platform_links_table = _lc_pdf_platform_row(_album_platform_links(album))
     right_col = [Paragraph(f"<b>{html.escape(album.title)}</b><br/>{html.escape(artist_name)}", small_style)]
     if platform_links_table:
-        right_col.extend([Spacer(1, 0.10*cm), Paragraph('<b>Enlaces:</b>', label_style), platform_links_table])
-    header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.2*cm, 14.0*cm])
-    header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),6)]))
+        right_col.extend([Spacer(1, 0.14*cm), platform_links_table])
+    # LAS CERTIFICACIONES van a la DERECHA, a la altura de la portada, y son solo las imágenes.
+    certs_table = _lc_pdf_certifications(_certifications_by_type(session_db, album, 'ALBUM'), ancho_cm=3.9)
+    if certs_table is not None:
+        header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col, certs_table]],
+                             colWidths=[3.2*cm, 10.1*cm, 3.9*cm])
+    else:
+        header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.2*cm, 14.0*cm])
+    header_table.setStyle(TableStyle([('VALIGN', (0,0), (0,0), 'TOP'), ('VALIGN', (1,0), (-1,-1), 'MIDDLE'),
+                                      ('ALIGN', (-1,0), (-1,0), 'RIGHT'),
+                                      ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),6)]))
     story.append(header_table)
     story.append(Spacer(1, 0.2*cm))
     code_rows = (
@@ -10133,7 +10624,11 @@ def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]
         ('BOTTOMPADDING', (0,0), (-1,-1), 3),
     ]))
     story.append(table)
-    doc.build(story)
+    # ⚠️ EL LABEL COPY CABE SIEMPRE EN UNA SOLA PÁGINA (igual que el de la canción): el documento va
+    # dentro de un `KeepInFrame` que lo encoge si hace falta. Con un disco de veinte temas se
+    # desbordaba a una segunda página que salía sin logo y sin cabeceras.
+    from reportlab.platypus import KeepInFrame
+    doc.build([KeepInFrame(doc.width, doc.height, story, mode='shrink')])
     filename = f"LC_{album.title}_{artist_name}.pdf"
     return buf.getvalue(), _safe_download_filename(filename, 'LC_album.pdf')
 
@@ -10433,11 +10928,10 @@ def _platforma_musical_brand_assets(session_db) -> dict:
 def _song_sgae_editorial_rows(session_db, song: Song) -> tuple[list[dict], float]:
     if not song or not getattr(song, 'id', None):
         return [], 0.0
-    shares = (
+    shares = _editorial_shares_sorted(
         session_db.query(SongEditorialShare)
         .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company))
         .filter(SongEditorialShare.song_id == song.id)
-        .order_by(SongEditorialShare.created_at.asc())
         .all()
     )
     role_labels = {
@@ -10475,13 +10969,12 @@ def _song_sgae_platform_author_delivery(session_db, song: Song) -> dict:
             'suggested_recipients': [],
         }
 
-    shares = (
+    shares = _editorial_shares_sorted(
         session_db.query(SongEditorialShare)
         .join(Promoter, Promoter.id == SongEditorialShare.promoter_id)
         .filter(SongEditorialShare.song_id == song.id)
         .filter(Promoter.publishing_company_id == publishing_company_id)
         .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company))
-        .order_by(SongEditorialShare.created_at.asc())
         .all()
     )
 
@@ -19878,12 +20371,11 @@ def discografica_song_detail(song_id):
     editorial_total_pct = 0.0
     editorial_split_contract = None
     if tab == "editorial":
-        shares = (
+        shares = _editorial_shares_sorted(
             session_db.query(SongEditorialShare)
             .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
                      joinedload(SongEditorialShare.publishing_company))
             .filter(SongEditorialShare.song_id == s.id)
-            .order_by(SongEditorialShare.created_at.asc())
             .all()
         )
         # REPARTO de la parte de cada autor NUESTRO entre él y Plataforma Musical (contrato editorial
@@ -20055,6 +20547,9 @@ def discografica_song_detail(song_id):
         lyrics_public_pdf_url=lyrics_public_pdf_url,
         label_copy_public_url=_label_copy_public_url('SONG', s.id),
         label_copy_pdf_public_url=_label_copy_public_pdf_url('SONG', s.id),
+        # El asunto con el que sale el LC: «Label Copy · Canción, Artista» (punto único, para que
+        # los tres menús de compartir digan lo mismo).
+        lc_share_subject=_label_copy_subject(s.title, _song_interpreters_label(session_db, s)),
         pitch=_pitch_context(session_db, 'SONG', s),
         song_producer_rows=song_producer_rows,
         song_cert_delivery=song_cert_delivery,
@@ -35982,10 +36477,10 @@ def _song_delivery_prefill(session_db, song, conf) -> tuple[dict, dict]:
     autores = []
     if pide("authoral"):
         try:
-            for sh in (session_db.query(SongEditorialShare)
-                       .options(joinedload(SongEditorialShare.promoter))
-                       .filter(SongEditorialShare.song_id == song.id)
-                       .order_by(SongEditorialShare.pct.desc()).all()):
+            for sh in _editorial_shares_sorted(
+                    session_db.query(SongEditorialShare)
+                    .options(joinedload(SongEditorialShare.promoter))
+                    .filter(SongEditorialShare.song_id == song.id).all()):
                 ed = _share_publisher(sh)
                 autores.append({
                     "name": _promoter_display_name(getattr(sh, "promoter", None)) or "",
@@ -37984,6 +38479,108 @@ def _pitch_send_email(kind, obj_id):
         session_db.close()
 
 
+@app.post("/discografica/albumes/<album_id>/label-copy/email", endpoint="discografica_album_label_copy_email")
+@admin_required
+def discografica_album_label_copy_email(album_id):
+    """Manda el Label Copy de un ÁLBUM por correo (mismo contenido que su PDF, y el PDF adjunto)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para enviar el Label Copy.")
+    destino = url_for("discografica_album_detail", album_id=album_id, tab="informacion")
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="albumes"))
+        recipients = (request.form.get("emails") or "").strip()
+        if not recipients:
+            flash("Indica a quién se lo mandamos.", "warning")
+            return redirect(destino)
+        note = (request.form.get("note") or "").strip()
+        ctx = _album_label_copy_context(session_db, album)
+        attachments = []
+        try:
+            pdf_bytes, filename = _build_album_label_copy_pdf_bytes(session_db, album.id)
+            attachments.append({"data": pdf_bytes, "filename": filename, "mimetype": "application/pdf"})
+        except Exception:
+            app.logger.exception("[label copy] no se pudo adjuntar el PDF del álbum")
+            attachments = []
+        ok, error = _send_optional_email(recipients, ctx["share_subject"],
+                                         _label_copy_html(ctx, note=note),
+                                         attachments=attachments or None)
+        if ok:
+            flash("Label Copy enviado." if attachments else
+                  "Label Copy enviado, pero sin el PDF adjunto (no se pudo generar).",
+                  "success" if attachments else "warning")
+        else:
+            flash(f"No se pudo enviar el Label Copy: {error or 'error desconocido'}", "danger")
+        return redirect(destino)
+    except Exception as e:
+        flash(f"No se pudo enviar el Label Copy: {e}", "danger")
+        return redirect(destino)
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/canciones/<song_id>/label-copy/email", endpoint="discografica_song_label_copy_email")
+@admin_required
+def discografica_song_label_copy_email(song_id):
+    """Manda el Label Copy POR CORREO desde el servidor.
+
+    ⚠️ El cuerpo del correo es EXACTAMENTE el mismo contenido que el PDF (`_label_copy_html`), con el
+    botón «Descargar en PDF» abajo a la derecha, y el PDF va además adjunto. Antes esto era un
+    `mailto:` del navegador: sin diseño, sin logo, sin adjunto y sin saber si llegaba."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para enviar el Label Copy.")
+    editorial = _truthy(request.form.get("editorial"))
+    # ⚠️ El REPARTO EDITORIAL es un dato interno de editorial: para mandarlo hay que tener esa
+    # pestaña (esconder el botón no basta, el `editorial=1` viaja en el formulario).
+    if editorial and not has_access_key("discografica.editorial"):
+        return forbid("No tienes acceso al reparto editorial de esta canción.")
+    destino = url_for("discografica_song_detail", song_id=song_id,
+                      tab="editorial" if editorial else "informacion")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        recipients = (request.form.get("emails") or "").strip()
+        if not recipients:
+            flash("Indica a quién se lo mandamos.", "warning")
+            return redirect(destino)
+        note = (request.form.get("note") or "").strip()
+        ctx = _label_copy_context(session_db, song, editorial=editorial)
+        attachments = []
+        try:
+            pdf_bytes, filename = _build_song_label_copy_pdf_bytes(session_db, song.id, editorial=editorial)
+            attachments.append({"data": pdf_bytes, "filename": filename, "mimetype": "application/pdf"})
+        except Exception:
+            app.logger.exception("[label copy] no se pudo adjuntar el PDF")
+            attachments = []
+        ok, error = _send_optional_email(
+            recipients,
+            ctx["share_subject"],
+            _label_copy_html(ctx, note=note),
+            attachments=attachments or None,
+        )
+        # ⚠️ `_send_optional_email` devuelve (ok, error): si no sale, NO se dice que se ha enviado.
+        # Y si el PDF no se pudo generar, el correo sale con el contenido y el enlace, pero SIN
+        # adjunto: eso también se dice.
+        if ok:
+            flash("Label Copy enviado." if attachments else
+                  "Label Copy enviado, pero sin el PDF adjunto (no se pudo generar).",
+                  "success" if attachments else "warning")
+        else:
+            flash(f"No se pudo enviar el Label Copy: {error or 'error desconocido'}", "danger")
+        return redirect(destino)
+    except Exception as e:
+        flash(f"No se pudo enviar el Label Copy: {e}", "danger")
+        return redirect(destino)
+    finally:
+        session_db.close()
+
+
 @app.post("/discografica/canciones/<song_id>/pitch/save")
 @admin_required
 def discografica_song_pitch_save(song_id):
@@ -38426,13 +39023,38 @@ def public_song_label_copy_view():
         song = session_db.get(Song, sid)
         if not song:
             abort(404)
-        ctx = _song_label_copy_public_context(session_db, song)
-        ctx["pdf_url"] = _external_url_for("public_song_label_copy_pdf", token=token)
         # El reparto entre el autor y Plataforma Musical solo se ve si el enlace se generó DESDE
         # editorial (token con `ed`): el LC que se comparte normalmente no lo lleva.
-        ctx["editorial_split_rows"] = (_song_editorial_split_rows(session_db, song)
-                                       if payload.get("ed") else [])
+        ctx = _label_copy_context(session_db, song, editorial=bool(payload.get("ed")))
+        ctx["pdf_url"] = _external_url_for("public_song_label_copy_pdf", token=token)
+        # ⚠️ EL CONTENIDO ES UNO SOLO: la página enseña EXACTAMENTE lo mismo que el PDF y que el
+        # correo (`_label_copy_html`); aquí sin el botón, que ya está en la barra de arriba.
+        ctx["lc_html"] = _label_copy_html(ctx, with_button=False)
+        ctx["og_title"] = ctx["share_subject"]
+        ctx["og_description"] = (ctx.get("interpreters_label") or "").strip()
+        ctx["og_image_url"] = _external_url_for("public_song_label_copy_og_image", token=token)
         return render_template("public_song_label_copy.html", **ctx)
+
+
+@app.get("/public/song-label-copy/og-image")
+def public_song_label_copy_og_image():
+    """La MINIATURA del Label Copy compartido: la portada de la canción y, si no tiene, la foto del
+    artista (y en último caso el logo). Sin esto, en WhatsApp o en un SMS sale un enlace pelado."""
+    payload = _parse_public_song_share_token((request.args.get("token") or "").strip())
+    if not payload or (payload.get("kind") or "").upper() != "LABEL_COPY_PDF":
+        abort(404)
+    try:
+        sid = to_uuid((payload.get("sid") or "").strip())
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        song = session_db.get(Song, sid)
+        if not song:
+            abort(404)
+        artist = _song_primary_artist(session_db, song)
+        fuentes = [(getattr(song, "cover_url", None) or "").strip(),
+                   (getattr(artist, "photo_url", None) or "").strip()]
+    return _share_og_image_response([f for f in fuentes if f])
 
 
 @app.get("/public/song-label-copy/pdf")
@@ -38483,9 +39105,35 @@ def public_album_label_copy_view():
         album = session_db.get(Album, aid)
         if not album:
             abort(404)
-        ctx = _album_label_copy_public_context(session_db, album)
+        ctx = _album_label_copy_context(session_db, album)
         ctx["pdf_url"] = _external_url_for("public_album_label_copy_pdf", token=token)
+        # ⚠️ EL CONTENIDO ES UNO SOLO: la página enseña lo mismo que el PDF y que el correo.
+        ctx["lc_html"] = _label_copy_html(ctx, with_button=False)
+        ctx["og_title"] = ctx["share_subject"]
+        ctx["og_description"] = (ctx.get("artist_name") or "").strip()
+        ctx["og_image_url"] = _external_url_for("public_album_label_copy_og_image", token=token)
         return render_template("public_album_label_copy.html", **ctx)
+
+
+@app.get("/public/album-label-copy/og-image")
+def public_album_label_copy_og_image():
+    """La MINIATURA del Label Copy de un álbum: su portada y, si no tiene, la foto del artista."""
+    payload = _parse_public_album_share_token((request.args.get("token") or "").strip())
+    if not payload or (payload.get("kind") or "").upper() != "LABEL_COPY_PDF":
+        abort(404)
+    try:
+        aid = to_uuid((payload.get("aid") or "").strip())
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        album = session_db.get(Album, aid)
+        if not album:
+            abort(404)
+        artist = (session_db.get(Artist, getattr(album, "artist_id", None))
+                  if getattr(album, "artist_id", None) else None)
+        fuentes = [(getattr(album, "cover_url", None) or "").strip(),
+                   (getattr(artist, "photo_url", None) or "").strip()]
+    return _share_og_image_response([f for f in fuentes if f])
 
 
 @app.get("/public/album-label-copy/pdf")
@@ -39532,6 +40180,7 @@ def discografica_album_detail(album_id):
         country_options=country_options,
         label_copy_public_url=_label_copy_public_url('ALBUM', album.id),
         label_copy_pdf_public_url=_label_copy_public_pdf_url('ALBUM', album.id),
+        lc_share_subject=_label_copy_subject(album.title, (getattr(artist, 'name', None) or '').strip()),
         pitch=_pitch_context(session_db, 'ALBUM', album),
         album_producer_rows=album_producer_rows,
         album_cert_delivery=album_cert_delivery,
@@ -69199,7 +69848,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -128542,9 +129191,20 @@ def _fa_codepoints() -> dict:
     return salida
 
 
-def _fa_icon_png(nombre: str, color: str = "007CA2", size: int = 40) -> bytes:
-    """El icono SÓLIDO `nombre` como PNG transparente, en el color pedido (cacheado en memoria)."""
-    clave = (nombre, color, size)
+# Las DOS familias de Font Awesome que sabemos dibujar. ⚠️ Un icono de MARCA (fa-spotify,
+# fa-tiktok…) tiene su codepoint en el CSS pero su glifo NO existe en la familia SOLID: dibujado con
+# `fa-solid-900.ttf` sale VACÍO y sin dar ningún error (la trampa que ya documenta la casa).
+_FA_FONT_FILES = {"solid": "fa-solid-900.ttf", "brands": "fa-brands-400.ttf"}
+
+
+def _fa_icon_png(nombre: str, color: str = "007CA2", size: int = 40, familia: str = "solid") -> bytes:
+    """El icono `nombre` como PNG transparente, en el color pedido (cacheado en memoria).
+
+    `familia` es 'solid' (lo de siempre) o 'brands' (los logos de plataforma: Spotify, TikTok…)."""
+    familia = (familia or "solid").strip().lower()
+    if familia not in _FA_FONT_FILES:
+        familia = "solid"
+    clave = (nombre, color, size, familia)
     if clave in _FA_ICON_CACHE:
         return _FA_ICON_CACHE[clave]
     from PIL import Image, ImageDraw, ImageFont
@@ -128553,7 +129213,7 @@ def _fa_icon_png(nombre: str, color: str = "007CA2", size: int = 40) -> bytes:
         return b""
     try:
         fuente = ImageFont.truetype(
-            os.path.join(app.static_folder, "vendor", "fontawesome", "webfonts", "fa-solid-900.ttf"),
+            os.path.join(app.static_folder, "vendor", "fontawesome", "webfonts", _FA_FONT_FILES[familia]),
             int(size * 0.82))
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
@@ -128579,7 +129239,8 @@ def brand_icon_png(nombre):
         tam = max(16, min(int(request.args.get("s") or 40), 128))
     except (TypeError, ValueError):
         tam = 40
-    datos = _fa_icon_png(nombre, color, tam)
+    familia = "brands" if (request.args.get("f") or "").strip().lower() == "brands" else "solid"
+    datos = _fa_icon_png(nombre, color, tam, familia)
     if not datos:
         abort(404)
     resp = make_response(datos)
@@ -128702,30 +129363,10 @@ def _sync_lang(value) -> str:
 def _sync_certifications(session_db, song) -> list[dict]:
     """Las CERTIFICACIONES de la canción para la ficha de Syncro: su icono y cuántas son.
 
-    Se agrupan con el MISMO motor que la pestaña Certificaciones (`_group_certifications`), así que
-    se cuentan igual en los dos sitios. Aquí solo hace falta la imagen, el número y el texto para el
-    tooltip: ni países ni equivalencias, que en una ficha de syncro no vienen a cuento.
+    Es el punto único `_certifications_by_type` (agrupa por TIPO sumando países, el mismo criterio
+    que la pestaña Certificaciones), que también usa el Label Copy.
     ⚠️ La imagen va en ABSOLUTO: esto se pinta también en el correo y en la página pública."""
-    try:
-        filas = (session_db.query(SongCertification)
-                 .filter(SongCertification.song_id == song.id)
-                 .order_by(SongCertification.created_at.asc()).all())
-    except Exception:
-        app.logger.exception("[syncro] no se pudieron leer las certificaciones")
-        return []
-    # Se juntan por TIPO (los países se suman): lo que se enseña es «2 discos de oro», no uno por país.
-    por_tipo = {}
-    for g in _group_certifications(filas, media_kind="SONG"):
-        fila = por_tipo.setdefault(g["certification_type"], {
-            "type": g["certification_type"], "image_url": g["image_url"],
-            "title": g["title"], "plural_title": g["plural_title"],
-            "count": 0, "order": g["sort_order"][0],
-        })
-        fila["count"] += int(g.get("count") or 0)
-    salida = sorted(por_tipo.values(), key=lambda x: x["order"])
-    for f in salida:
-        f["label"] = ("%d %s" % (f["count"], f["plural_title"])) if f["count"] > 1 else f["title"]
-    return salida
+    return _certifications_by_type(session_db, song, "SONG")
 
 
 def _sync_song_context(session_db, song, *, lang: str = "ES") -> dict:
@@ -128738,11 +129379,11 @@ def _sync_song_context(session_db, song, *, lang: str = "ES") -> dict:
     t = SYNC_TEXTS[lang]
     artistas = _song_artist_name_list(song=song)
     autores = []
-    for sh in (session_db.query(SongEditorialShare)
-               .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
-                        joinedload(SongEditorialShare.publishing_company))
-               .filter(SongEditorialShare.song_id == song.id)
-               .order_by(SongEditorialShare.pct.desc(), SongEditorialShare.created_at.asc()).all()):
+    for sh in _editorial_shares_sorted(
+            session_db.query(SongEditorialShare)
+            .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
+                     joinedload(SongEditorialShare.publishing_company))
+            .filter(SongEditorialShare.song_id == song.id).all()):
         rol = (getattr(sh, "role", "") or "").strip().upper()
         autores.append({
             "name": _promoter_display_name(getattr(sh, "promoter", None)) or "—",

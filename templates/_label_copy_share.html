@@ -1,0 +1,38 @@
+{# ═══════════════════════════════════════════════════════════════════════════════════════════════
+   COMPARTIR EL LABEL COPY · el MISMO menú en todos los sitios (la barra de botones de la ficha y
+   los dos botones del final de la pestaña Editorial). Si se toca una opción, se toca en los tres.
+
+   ⚠️ Lo que se comparte es la PÁGINA pública (que es la que se previsualiza con la portada), no el
+   PDF: el PDF se baja desde ella o desde «Descargar en PDF».
+   ⚠️ El correo NO es un `mailto:`: lo compone el SERVIDOR con el mismo contenido que el PDF
+   (modal `#lcEmailModal`).
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% macro lc_share(titulo, subject, public_url, pdf_url, email_url, editorial=False, can_edit=True, label='Compartir LC', icon='fa-share-alt', style='btn-outline-secondary') %}
+  <div class="dropdown">
+    <button class="btn btn-sm {{ style }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="fa {{ icon }} me-1"></i>{{ label }}
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><a class="dropdown-item" href="{{ pdf_url }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
+      <li><button class="dropdown-item" type="button" data-lc-share="whatsapp"
+                  data-lc-subject="{{ subject }}" data-lc-url="{{ public_url }}">
+        <i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+      {% if can_edit and email_url %}
+        <li><button class="dropdown-item" type="button" data-lc-email
+                    data-lc-subject="{{ subject }}" data-lc-editorial="{{ '1' if editorial else '' }}"
+                    data-lc-title="{{ titulo }}">
+          <i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
+      {% else %}
+        <li><button class="dropdown-item" type="button" data-lc-share="mail"
+                    data-lc-subject="{{ subject }}" data-lc-url="{{ public_url }}">
+          <i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
+      {% endif %}
+      <li><button class="dropdown-item" type="button" data-lc-share="sms"
+                  data-lc-subject="{{ subject }}" data-lc-url="{{ public_url }}">
+        <i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
+      <li><button class="dropdown-item" type="button" data-lc-share="copy"
+                  data-lc-url="{{ public_url }}">
+        <i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+    </ul>
+  </div>
+{% endmacro %}

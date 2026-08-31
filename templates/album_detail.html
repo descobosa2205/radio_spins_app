@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
+{% import '_label_copy_share.html' as lcshare with context %}
 
 <div class="mb-2">
   <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ (ficha_nav and ficha_nav.back_url) or url_for('discografica_view', section='canciones', rep_tab='albumes') }}" title="Volver" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
@@ -29,7 +30,12 @@
         ('amazon_music', album.amazon_music_url, 'Amazon Music'),
         ('tiktok', album.tiktok_url, 'TikTok'),
         ('youtube', album.youtube_url, 'YouTube')] %}
-        <a class="song-platform {% if purl %}active{% else %}disabled{% endif %}" data-platform="{{ pkey }}" data-platform-label="{{ plabel }}" title="{{ plabel }}{% if not purl %} · añadir enlace{% endif %}" {% if purl %}href="{{ purl }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><img src="{{ url_for('static', filename='img/platforms/' ~ pkey ~ '.png') }}" alt="{{ plabel }}"></a>
+        {# ⚠️ Con el ICONO DE MARCA, todos del mismo tamaño (los PNG sueltos se veían desiguales), y
+           los que no están configurados solo se enseñan a quien puede añadirlos. #}
+        {% if purl or CAN_EDIT_DISCOGRAFICA %}
+          {% set pm = PLATFORM_META.get(pkey) or {} %}
+          <a class="song-platform {% if purl %}active{% else %}disabled{% endif %}" data-platform="{{ pkey }}" data-platform-label="{{ plabel }}" title="{{ plabel }}{% if not purl %} · añadir enlace{% endif %}" {% if purl %}href="{{ purl }}" target="_blank" rel="noopener" style="color:#{{ pm.color or '111827' }};"{% else %}href="#"{% endif %}><i class="fa-brands fa-{{ pm.icon or 'music' }}"></i></a>
+        {% endif %}
       {% endfor %}
     </div>
   </div>
@@ -71,20 +77,72 @@
       </form>
     {% endif %}
   {% endif %}
-  {# Compartir el Label Copy: vale desde cualquier pestaña (las funciones de compartir son globales). #}
-  <div class="dropdown">
-    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-      <i class="fa fa-share-alt me-1"></i>Compartir LC
-    </button>
-    <ul class="dropdown-menu dropdown-menu-end">
-      <li><a class="dropdown-item" href="{{ url_for('discografica_album_label_copy_pdf', album_id=album.id) }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
-      <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
-      <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
-      <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
-      <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-    </ul>
-  </div>
+  {# Compartir el Label Copy: el MISMO menú que en la ficha de la canción (pieza única). #}
+  {{ lcshare.lc_share(album.title, lc_share_subject,
+                      label_copy_public_url,
+                      url_for('discografica_album_label_copy_pdf', album_id=album.id),
+                      url_for('discografica_album_label_copy_email', album_id=album.id),
+                      editorial=False, can_edit=CAN_EDIT_DISCOGRAFICA) }}
 </div>
+
+{# Pop-up del correo del Label Copy (el mismo que en la ficha de la canción: el cuerpo lo compone
+   el servidor con el contenido del PDF). Los clics se enganchan por delegación. #}
+{% if CAN_EDIT_DISCOGRAFICA %}
+  <div class="modal fade" id="lcEmailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post"
+            action="{{ url_for('discografica_album_label_copy_email', album_id=album.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">Enviar el Label Copy por correo</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="editorial" id="lcEmailEditorial" value="">
+          <div class="small text-muted mb-2" id="lcEmailWhat"></div>
+          <label class="form-label">¿A quién?</label>
+          <input class="form-control" name="emails" required placeholder="correo@ejemplo.com, otro@ejemplo.com">
+          <div class="form-text">Varios, separados por comas.</div>
+          <label class="form-label mt-3">Nota (opcional)</label>
+          <textarea class="form-control" name="note" rows="3" placeholder="Unas líneas antes del Label Copy."></textarea>
+          <div class="text-muted small mt-3">
+            <i class="fa fa-paperclip me-1"></i>El correo lleva el mismo contenido que el PDF, el botón
+            para descargarlo y el PDF adjunto.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-paper-plane"></i> Enviar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endif %}
+
+<script>
+(function(){
+  if (window.__lcShareBound) return;
+  window.__lcShareBound = true;
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest && ev.target.closest('[data-lc-share]');
+    if (b) {
+      var modo = b.getAttribute('data-lc-share');
+      var asunto = b.getAttribute('data-lc-subject') || '';
+      var url = b.getAttribute('data-lc-url') || '';
+      if (modo === 'whatsapp' && window.shareByWhatsapp) shareByWhatsapp(asunto, url);
+      else if (modo === 'mail' && window.shareByMail) shareByMail(asunto, url);
+      else if (modo === 'sms' && window.shareBySms) shareBySms(asunto, url);
+      else if (modo === 'copy' && window.copyShareLink) copyShareLink(url);
+      return;
+    }
+    var e = ev.target.closest && ev.target.closest('[data-lc-email]');
+    if (!e) return;
+    var modal = document.getElementById('lcEmailModal');
+    if (!modal || !window.bootstrap) return;
+    modal.querySelector('#lcEmailWhat').textContent = 'Se manda el Label Copy.';
+    new bootstrap.Modal(modal).show();
+  });
+})();
+</script>
 
 <ul class="nav nav-tabs ficha-tabs mt-3 mb-0">
   {% set tabs = [

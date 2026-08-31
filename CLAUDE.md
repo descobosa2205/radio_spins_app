@@ -2865,6 +2865,95 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   registrar. Las obras **sin registrar no se tocan** a propósito (su reparto se decide el día del
   registro; hasta entonces la ficha ya lo enseña calculado) y si el relleno se cae a medias **no se
   marca** como hecho, para que el siguiente arranque lo reintente.
+- ⚠️⚠️ **EL LABEL COPY ES UN SOLO CONTENIDO: PDF, ENLACE Y CORREO DICEN LO MISMO** (ago 2026,
+  rediseño). `_label_copy_context` reúne los datos y **`_label_copy_html`** los pinta con estilos en
+  línea; de ahí beben **el enlace público** (`public_song_label_copy_view` → `lc_html`) y el
+  **correo**, y el **PDF** (ReportLab) dibuja lo mismo en el mismo orden. Si hay que cambiar algo del
+  LC, se cambia en esos dos sitios y sale igual en los tres.
+  · **Maqueta**: logo de PIES arriba a la **derecha** · «Label Copy» centrado · la **portada** con el
+  título, los intérpretes y los **enlaces de plataforma**, y a la **derecha, a su altura, las
+  CERTIFICACIONES** · la tabla de datos · el **reparto autoral**.
+  · ⚠️ **CABE SIEMPRE EN UNA SOLA PÁGINA A4**: todo el documento va dentro de un **`KeepInFrame`**
+  (`mode='shrink'`) que lo encoge si hace falta —probado con 12 ISRC, 14 músicos y 12 autores—. Sin
+  eso se desbordaba a una segunda página que salía **sin logo, sin cabeceras de tabla y sin
+  numeración**. Vale igual para el LC del ÁLBUM.
+  ⚠️ Al encoger, las tablas se **centran** en el marco y un `Paragraph` suelto se queda a la
+  izquierda descolocado: los títulos de sección van en una caja del mismo ancho
+  (**`_lc_pdf_text_block`**).
+  · **EL REPARTO EDITORIAL va DENTRO de la celda del %** de cada autor nuestro, debajo del número y
+  en dos etiquetas pequeñas, **sin cambiarle el tamaño al porcentaje**. Ya no hay tabla aparte.
+  Se pide con `editorial=True` (el LC que se comparte normalmente NO lo lleva).
+  · **LOS AUTORES SE ORDENAN DEL QUE MÁS % TIENE AL QUE MENOS** y, a igualdad, **alfabéticamente**:
+  punto único **`_editorial_shares_sorted`**, aplicado en TODOS los sitios (la pestaña Editorial, el
+  LC, el aviso de SGAE, la letra, Syncros y el precumplimentado de la entrega de masters). Se ordena
+  en Python porque el nombre lo compone `_promoter_display_name`, no es una columna.
+  · **COMPARTIR es un solo menú** (`templates/_label_copy_share.html`, macro `lc_share`), usado en la
+  barra de la ficha, en los DOS botones del final de la pestaña Editorial y en la ficha del ÁLBUM:
+  Descargar en PDF · WhatsApp · Correo · SMS · Copiar enlace.
+  ⚠️ Lo que se comparte es la **PÁGINA pública** (la que se previsualiza), no el PDF: antes WhatsApp
+  y SMS mandaban el PDF adjunto, que no enseña nada.
+  ⚠️ Los datos van en **`data-*`** y el clic se engancha por delegación: un `onclick` con el título
+  dentro de comillas se rompe en cuanto la canción lleva un apóstrofo.
+  · **EL CORREO LO COMPONE EL SERVIDOR** (`discografica_song_label_copy_email` /
+  `discografica_album_label_copy_email`, modal `#lcEmailModal`): el cuerpo es el mismo contenido que
+  el PDF, con el botón **«Descargar en PDF» abajo a la derecha** y el **PDF adjunto**. Antes era un
+  `mailto:` del navegador: sin diseño, sin logo, sin adjunto y sin saber si llegaba.
+  · **EL ASUNTO** es «**Label Copy · \<canción\>, \<artista o intérpretes\>**» (punto único
+  `_label_copy_subject`, en el contexto como `lc_share_subject`): antes estaba escrito a mano en tres
+  plantillas y no decía de quién era.
+  · **PREVISUALIZACIÓN del enlace** (`public_song_label_copy_og_image` /
+  `public_album_label_copy_og_image`, token en la QUERY STRING como el de Syncros): la **portada** y,
+  si no hay, la **foto del artista**; en el subtítulo, el artista y los intérpretes separados por
+  comas. Antes no había ninguna `og:` y al compartirlo salía un enlace pelado.
+
+- ⚠️⚠️ **LOS LOGOS DE PLATAFORMA SE PINTAN CON EL ICONO DE MARCA, NO CON LOS PNG SUELTOS** (ago
+  2026). Punto único **`PLATFORM_META`** (clave · etiqueta · columna del enlace · icono `fa-brands` ·
+  color de la plataforma), inyectado también a las plantillas. Cada PNG de
+  `static/img/platforms/` traía su propio margen y los cinco se veían de tamaños distintos; con el
+  icono miden lo mismo en la ficha, en el PDF, en el enlace y en el correo, y **todos llevan a
+  reproducir** (en el PDF con `_LinkedRLImage`).
+  ⚠️ **Solo se enseña lo que está configurado**; en la FICHA, los que faltan se siguen viendo en gris
+  —solo a quien puede editarlos— porque ese icono es el que abre el modal para añadir el enlace.
+  ⚠️⚠️ **`brand_icon_png` dibujaba SIEMPRE con la familia SOLID**, donde un icono de marca no existe:
+  salía un PNG **vacío**. Ahora `_fa_icon_png(..., familia='brands')` usa `fa-brands-400.ttf`, el
+  endpoint acepta **`?f=brands`** y la caché (memoria y disco) lleva la familia en la clave.
+  ⚠️⚠️ **Y el enlace de una imagen en un PDF va con `relative=1`**: `drawOn` recibe la x/y del sitio
+  donde se dibuja (dentro de una tabla, de un frame o de un KeepInFrame que encoge), no de la página.
+  Con `relative=0` los cinco enlaces se apilaban en la **esquina inferior izquierda** y no se podía
+  pinchar ningún icono (bug real, comprobado leyendo las anotaciones del PDF).
+
+- **CERTIFICACIONES EN UN DOCUMENTO: solo las imágenes, acumuladas y sin texto** (ago 2026): punto
+  único **`_certifications_by_type`** (agrupa por TIPO sumando países, el mismo criterio que la ficha
+  de Syncro, que ahora lo usa) + `_lc_cert_imgs_html` (web y correo) y `_lc_pdf_certifications` (PDF).
+  Van a la **derecha, a la altura de la portada**, una imagen por cada disco conseguido (tope
+  `CERT_STACK_MAX` = 6).
+  ⚠️ Los PNG de las certificaciones pesan **~290 KB** cada uno: en un correo o en un PDF se sirven
+  **reducidos** (`_certification_small_png`, cacheado; endpoint público `certification_icon_png` para
+  el correo y `_certification_icon_path` para ReportLab).
+  ⚠️⚠️ **`certification_icon_png` TIENE que estar en las TRES listas de públicos** (como
+  `brand_icon_png`): su nombre no empieza por `public_`, así que sin eso el `<img>` del correo y el
+  del enlace se comen un redirect al login y las certificaciones salen **rotas**.
+  ⚠️ El **tamaño se redondea a saltos de 32 px** (el `?s=` lo elige quien llama y es público: si no,
+  la caché guardaría una imagen por cada tamaño pedido) y **un fallo no se cachea** (si no, un pico
+  de memoria dejaría esa imagen rota para siempre en ese worker).
+  ⚠️ **Nunca se salen de su columna**: en el PDF el alto se calcula con las que hay **y** hay tope de
+  cuántas caben (`ancho_cm`, que en el LC del ÁLBUM es 3,9 cm y no 4,7); en la web y en el correo, el
+  tope es `CERT_HTML_MAX` (8).
+
+- ⚠️ **UN LC DE REPARTO EDITORIAL SIN REPARTO LO DICE**: si el cálculo falla,
+  `_label_copy_author_rows` devuelve `split_error` y el documento (PDF, enlace y correo) escribe «No
+  se ha podido calcular el reparto editorial de esta obra» — antes salía idéntico al normal y sin
+  avisar. Y **mandarlo por correo exige el permiso de la pestaña Editorial**
+  (`discografica.editorial`): el `editorial=1` viaja en el formulario, así que esconder el botón no
+  basta.
+  ⚠️ Si el **PDF adjunto** no se puede generar, el correo sale igual (con el contenido y el enlace)
+  pero **se dice**: «enviado, pero sin el PDF adjunto».
+
+- ⚠️ **EL NOMBRE DE UN ARCHIVO QUE SE DESCARGA TRANSLITERA LAS TILDES Y LA Ñ**
+  (`_safe_download_filename`): descartaba a secas todo lo que no fuera ASCII, así que «Los Ñus» se
+  quedaba en «Los us» — y ese nombre se ve en el adjunto de un correo. Ahora normaliza (Ñ→N, á→a)
+  antes de filtrar.
+
 - **LC de REPARTO EDITORIAL** (ago 2026): el Label Copy que se comparte **NUNCA** lleva el reparto entre
   el autor y Plataforma; solo lo lleva el que se pide **desde Editorial**. Mismo generador con una
   bandera: `_build_song_label_copy_pdf_bytes(..., editorial=True)`,

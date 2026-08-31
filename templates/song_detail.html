@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
+{% import '_label_copy_share.html' as lcshare with context %}
 
 <div class="mb-2">
   {# Vuelve al listado del que se viene (repertorio, lanzamientos o Syncros); si no se sabe, al repertorio. #}
@@ -36,18 +37,30 @@
   </div>
   <div class="ficha-hero__actions">
     <div class="song-platforms">
+      {# ⚠️ LOS LOGOS SE PINTAN CON EL ICONO DE MARCA (fa-brands) y todos del MISMO tamaño: los PNG
+         sueltos traían cada uno su margen y se veían de tamaños distintos.
+         ⚠️ Los que NO están configurados solo se enseñan a quien puede editarlos (en gris, para
+         añadir el enlace); quien solo mira ve únicamente los que están puestos. #}
       {# Spotify / Apple / Amazon: el MISMO logo enlaza a la plataforma y muestra las reproducciones. #}
       {% for m in cm_song_header %}
-        <div class="song-plat">
-          <a class="song-platform {% if m.url %}active{% else %}disabled{% endif %}" data-platform="{{ m.platform }}" data-platform-label="{{ m.label }}" title="{{ m.label }}{% if not m.url %} · añadir enlace{% endif %}" {% if m.url %}href="{{ m.url }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><img src="{{ url_for('static', filename='img/platforms/' ~ m.platform ~ '.png') }}" alt="{{ m.label }}"></a>
-          <div class="song-plat-num" title="Reproducciones · {{ m.label }}">{% if m.value_fmt %}{{ m.value_fmt }}{% if m.arrow == 'up' %}<i class="fa fa-arrow-up cm-up" title="Sube vs semana anterior"></i>{% elif m.arrow == 'down' %}<i class="fa fa-arrow-down cm-down" title="Baja vs semana anterior"></i>{% elif m.arrow == 'flat' %}<i class="fa fa-arrow-right cm-flat" title="Estable"></i>{% endif %}{% else %}<span class="cm-empty">—</span>{% endif %}</div>
-        </div>
+        {# Se enseña si tiene enlace, si trae reproducciones (el dato viene de Chartmetric y puede
+           existir sin enlace guardado) o si quien mira puede añadirlo. #}
+        {% if m.url or m.value_fmt or CAN_EDIT_DISCOGRAFICA %}
+          {% set pm = PLATFORM_META.get(m.platform) or {} %}
+          <div class="song-plat">
+            <a class="song-platform {% if m.url %}active{% else %}disabled{% endif %}" data-platform="{{ m.platform }}" data-platform-label="{{ m.label }}" title="{{ m.label }}{% if not m.url %} · añadir enlace{% endif %}" {% if m.url %}href="{{ m.url }}" target="_blank" rel="noopener" style="color:#{{ pm.color or '111827' }};"{% else %}href="#"{% endif %}><i class="fa-brands fa-{{ pm.icon or 'music' }}"></i></a>
+            <div class="song-plat-num" title="Reproducciones · {{ m.label }}">{% if m.value_fmt %}{{ m.value_fmt }}{% if m.arrow == 'up' %}<i class="fa fa-arrow-up cm-up" title="Sube vs semana anterior"></i>{% elif m.arrow == 'down' %}<i class="fa fa-arrow-down cm-down" title="Baja vs semana anterior"></i>{% elif m.arrow == 'flat' %}<i class="fa fa-arrow-right cm-flat" title="Estable"></i>{% endif %}{% else %}<span class="cm-empty">—</span>{% endif %}</div>
+          </div>
+        {% endif %}
       {% endfor %}
       {# TikTok / YouTube: solo logo enlazado, mismo tamaño, después. #}
       {% for pkey, purl, plabel in [('tiktok', song.tiktok_url, 'TikTok'), ('youtube', song.youtube_url, 'YouTube')] %}
-        <div class="song-plat">
-          <a class="song-platform {% if purl %}active{% else %}disabled{% endif %}" data-platform="{{ pkey }}" data-platform-label="{{ plabel }}" title="{{ plabel }}{% if not purl %} · añadir enlace{% endif %}" {% if purl %}href="{{ purl }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><img src="{{ url_for('static', filename='img/platforms/' ~ pkey ~ '.png') }}" alt="{{ plabel }}"></a>
-        </div>
+        {% if purl or CAN_EDIT_DISCOGRAFICA %}
+          {% set pm = PLATFORM_META.get(pkey) or {} %}
+          <div class="song-plat">
+            <a class="song-platform {% if purl %}active{% else %}disabled{% endif %}" data-platform="{{ pkey }}" data-platform-label="{{ plabel }}" title="{{ plabel }}{% if not purl %} · añadir enlace{% endif %}" {% if purl %}href="{{ purl }}" target="_blank" rel="noopener" style="color:#{{ pm.color or '111827' }};"{% else %}href="#"{% endif %}><i class="fa-brands fa-{{ pm.icon or 'music' }}"></i></a>
+          </div>
+        {% endif %}
       {% endfor %}
     </div>
   </div>
@@ -149,20 +162,78 @@
       {% if master_delivery %}<span class="badge text-bg-success ms-1">activo</span>{% endif %}
     </button>
   {% endif %}
-  {# Compartir el Label Copy: vale desde cualquier pestaña (las funciones de compartir son globales). #}
-  <div class="dropdown">
-    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-      <i class="fa fa-share-alt me-1"></i>Compartir LC
-    </button>
-    <ul class="dropdown-menu dropdown-menu-end">
-      <li><a class="dropdown-item" href="{{ url_for('discografica_song_label_copy_pdf', song_id=song.id) }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
-      <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
-      <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
-      <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
-      <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-    </ul>
-  </div>
+  {# Compartir el Label Copy: vale desde cualquier pestaña (el menú es el mismo en los tres sitios). #}
+  {{ lcshare.lc_share(song.title, lc_share_subject,
+                      label_copy_public_url, url_for('discografica_song_label_copy_pdf', song_id=song.id),
+                      url_for('discografica_song_label_copy_email', song_id=song.id),
+                      editorial=False, can_edit=CAN_EDIT_DISCOGRAFICA) }}
 </div>
+
+{# ═════════════════════════════════════════════════════════════════════════════════════════════
+   COMPARTIR EL LABEL COPY · el pop-up del correo y el cableado de las opciones.
+   ⚠️ Va FUERA de las pestañas: los botones de compartir están en la barra y en Editorial.
+   ⚠️ Los datos viajan en `data-*` y el clic se engancha por DELEGACIÓN: un `onclick` con el título
+   dentro de comillas se rompe en cuanto la canción lleva un apóstrofo (bug conocido de la casa).
+   ═════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% if CAN_EDIT_DISCOGRAFICA %}
+  <div class="modal fade" id="lcEmailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post"
+            action="{{ url_for('discografica_song_label_copy_email', song_id=song.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">Enviar el Label Copy por correo</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="editorial" id="lcEmailEditorial" value="">
+          <div class="small text-muted mb-2" id="lcEmailWhat"></div>
+          <label class="form-label">¿A quién?</label>
+          <input class="form-control" name="emails" required placeholder="correo@ejemplo.com, otro@ejemplo.com">
+          <div class="form-text">Varios, separados por comas.</div>
+          <label class="form-label mt-3">Nota (opcional)</label>
+          <textarea class="form-control" name="note" rows="3" placeholder="Unas líneas antes del Label Copy."></textarea>
+          <div class="text-muted small mt-3">
+            <i class="fa fa-paperclip me-1"></i>El correo lleva el mismo contenido que el PDF, el botón
+            para descargarlo y el PDF adjunto.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-paper-plane"></i> Enviar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endif %}
+
+<script>
+(function(){
+  if (window.__lcShareBound) return;
+  window.__lcShareBound = true;
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest && ev.target.closest('[data-lc-share]');
+    if (b) {
+      var modo = b.getAttribute('data-lc-share');
+      var asunto = b.getAttribute('data-lc-subject') || '';
+      var url = b.getAttribute('data-lc-url') || '';
+      if (modo === 'whatsapp' && window.shareByWhatsapp) shareByWhatsapp(asunto, url);
+      else if (modo === 'mail' && window.shareByMail) shareByMail(asunto, url);
+      else if (modo === 'sms' && window.shareBySms) shareBySms(asunto, url);
+      else if (modo === 'copy' && window.copyShareLink) copyShareLink(url);
+      return;
+    }
+    var e = ev.target.closest && ev.target.closest('[data-lc-email]');
+    if (!e) return;
+    var modal = document.getElementById('lcEmailModal');
+    if (!modal || !window.bootstrap) return;
+    var esEd = !!e.getAttribute('data-lc-editorial');
+    modal.querySelector('#lcEmailEditorial').value = esEd ? '1' : '';
+    modal.querySelector('#lcEmailWhat').textContent =
+      esEd ? 'Se manda el Label Copy CON el reparto editorial.' : 'Se manda el Label Copy.';
+    new bootstrap.Modal(modal).show();
+  });
+})();
+</script>
 
 <!-- Pestañas de la ficha -->
 <ul class="nav nav-tabs ficha-tabs mt-3 mb-0">
@@ -2742,7 +2813,19 @@
                      él y cuánto a Plataforma. ⚠️ Antes eran dos filas del mismo tamaño y Plataforma
                      PARECÍA otro autor, que es justo lo que confundía. #}
                   {% if sh.is_platform %}
-                    <div class="ed-share mt-1">
+                    {# ⚠️ Se PINCHA EL PROPIO REPARTO para cambiarlo: el botón del «%» y la etiqueta
+                       «Al registrar» que había al lado no decían nada y solo hacían ruido. #}
+                    <div class="ed-share mt-1{% if CAN_EDIT_DISCOGRAFICA %} ed-share--edit{% endif %}"
+                         {% if CAN_EDIT_DISCOGRAFICA %}
+                         role="button" tabindex="0" title="Cambiar el reparto editorial"
+                         data-split-edit
+                         data-split-url="{{ url_for('discografica_song_editorial_share_split', song_id=song.id, share_id=sh.id) }}"
+                         data-split-name="{{ sh.full_name }}"
+                         data-split-pct="{{ sh.pct }}"
+                         data-split-special="{{ '1' if sh.special_split else '' }}"
+                         data-split-author="{{ sh.special_pct_author if sh.special_pct_author is not none else (sh.split.pct_author if sh.split and sh.split.pct_author is defined else '') }}"
+                         data-split-platform="{{ sh.special_pct_platform if sh.special_pct_platform is not none else (sh.split.pct_platform if sh.split and sh.split.pct_platform is defined else '') }}"
+                         {% endif %}>
                       {% if sh.split and sh.split.source != 'none' %}
                         <span class="ed-share__tag" title="Le queda el {{ '%.2f'|format(sh.split.pct_author) }}% de su parte autoral ({{ '%.2f'|format(sh.pct) }}%)">
                           Autor <strong>{{ '%.2f'|format(sh.split.final_author) }}%</strong></span>
@@ -2750,23 +2833,10 @@
                           Plataforma <strong>{{ '%.2f'|format(sh.split.final_platform) }}%</strong></span>
                         {% if sh.split.source == 'special' %}
                           <span class="ed-share__tag ed-share__tag--warn" title="Reparto fijado a mano">Reparto especial</span>
-                        {% elif sh.split.source == 'frozen' %}
-                          <span class="ed-share__tag" title="Congelado con el contrato vigente el día del registro">Al registrar</span>
                         {% endif %}
                       {% else %}
                         <span class="ed-share__tag" title="Sin contrato editorial del artista con el que repartir esta parte">
                           Sin reparto editorial</span>
-                      {% endif %}
-                      {% if CAN_EDIT_DISCOGRAFICA %}
-                        <button type="button" class="ed-share__edit"
-                                data-split-edit
-                                data-split-url="{{ url_for('discografica_song_editorial_share_split', song_id=song.id, share_id=sh.id) }}"
-                                data-split-name="{{ sh.full_name }}"
-                                data-split-pct="{{ sh.pct }}"
-                                data-split-special="{{ '1' if sh.special_split else '' }}"
-                                data-split-author="{{ sh.special_pct_author if sh.special_pct_author is not none else (sh.split.pct_author if sh.split and sh.split.pct_author is defined else '') }}"
-                                data-split-platform="{{ sh.special_pct_platform if sh.special_pct_platform is not none else (sh.split.pct_platform if sh.split and sh.split.pct_platform is defined else '') }}"
-                                title="Cambiar el reparto editorial"><i class="fa-solid fa-percent"></i></button>
                       {% endif %}
                     </div>
                   {% endif %}
@@ -2774,22 +2844,22 @@
               {% endfor %}
             </div>
 
-            {# El LC con este detalle solo se comparte desde aquí (el LC normal no lo lleva). #}
+            {# LOS DOS BOTONES: el Label Copy de siempre y el MISMO con el reparto editorial.
+               Las dos opciones son idénticas (PDF, WhatsApp, correo, SMS, copiar el enlace); lo único
+               que cambia es que la segunda lleva, dentro de la celda del % de cada autor nuestro, las
+               dos etiquetas del reparto entre él y Plataforma Musical. #}
             <div class="d-flex flex-wrap gap-2 mt-3 align-items-center">
-              <a class="btn btn-sm btn-outline-primary" href="{{ editorial_split_pdf_url }}">
-                <i class="fa fa-file-pdf me-1"></i>Descargar LC con el Reparto Editorial
-              </a>
-              <div class="dropdown" {% if not CAN_EDIT_DISCOGRAFICA %}hidden{% endif %}>
-                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                  <i class="fa fa-share-nodes me-1"></i>Compartir Reparto Editorial
-                </button>
-                <ul class="dropdown-menu">
-                  <li><button class="dropdown-item" type="button" onclick="shareByMail('Reparto Editorial · {{ song.title|e }}', '{{ editorial_split_public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Correo</button></li>
-                  <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Reparto Editorial · {{ song.title|e }}', '{{ editorial_split_public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
-                  <li><button class="dropdown-item" type="button" onclick="shareBySms('Reparto Editorial · {{ song.title|e }}', '{{ editorial_split_public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>SMS</button></li>
-                  <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ editorial_split_public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-                </ul>
-              </div>
+              {{ lcshare.lc_share(song.title, lc_share_subject,
+                                  label_copy_public_url,
+                                  url_for('discografica_song_label_copy_pdf', song_id=song.id),
+                                  url_for('discografica_song_label_copy_email', song_id=song.id),
+                                  editorial=False, can_edit=CAN_EDIT_DISCOGRAFICA) }}
+              {{ lcshare.lc_share(song.title, lc_share_subject,
+                                  editorial_split_public_url, editorial_split_pdf_url,
+                                  url_for('discografica_song_label_copy_email', song_id=song.id),
+                                  editorial=True, can_edit=CAN_EDIT_DISCOGRAFICA,
+                                  label='Compartir LC con reparto editorial',
+                                  icon='fa-share-nodes', style='btn-outline-primary') }}
               {% if editorial_split_contract and editorial_split_contract.found %}
                 <span class="small text-muted">
                   Contrato editorial: {{ '%.2f'|format(editorial_split_contract.pct_author) }}% autor ·

@@ -2321,9 +2321,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 
 - ⚠️⚠️ **UN `</div>` DE MÁS CIERRA EL CONTENEDOR ANTES DE TIEMPO** (bug real, ago 2026):
   `_concert_wizard_modal.html` tenía **un cierre sobrante** al final del paso de cartelería, así que
-  el navegador cerraba ahí el `modal-body` —los pasos 8 a 11 quedaban **fuera del formulario**— y,
-  en Inicio, cerraba también el envoltorio de los módulos, con lo que «Ordenar mi inicio» solo veía
-  los dos primeros. No da ningún error: el navegador lo «arregla» a su manera.
+  el navegador cerraba ahí el `modal-body` —los pasos 8 a 11 se quedaban **fuera del cuerpo del
+  modal** (dentro del `<form>`, así que sí se enviaban, pero sin su maqueta ni su scroll)— y, en
+  Inicio, cerraba también el envoltorio de los módulos, con lo que «Ordenar mi inicio» solo veía los
+  dos primeros. No da ningún error: el navegador lo «arregla» a su manera.
   ⚠️ La comprobación es de una línea y hay que hacerla al tocar una plantilla:
   `for f in templates/*.html; do a=$(grep -o '<div' $f|wc -l); b=$(grep -o '</div>' $f|wc -l); [ "$a" != "$b" ] && echo "$f $a/$b"; done`
   (un desajuste solo es legítimo cuando el `<div>` se abre en una rama `{% if %}` y se cierra en

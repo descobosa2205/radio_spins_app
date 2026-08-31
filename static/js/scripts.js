@@ -2617,3 +2617,27 @@ document.addEventListener('change', function (ev) {
     if (det) det.classList.toggle('d-none', !t.checked);
   }
 });
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   FILTROS QUE SE APLICAN SOLOS
+   Un formulario marcado con `data-filters-auto` se envía en cuanto se marca una casilla: no hay
+   botón «Ver». Si el cambio viene de DENTRO de un pop-up de filtros, se pide que el pop-up se
+   vuelva a abrir al recargar (`open=filtros` + `app33AutoOpenModal`), para poder seguir marcando
+   sin tener que abrirlo otra vez.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+document.addEventListener('change', function (ev) {
+  var campo = ev.target;
+  if (!campo || !campo.form) return;
+  var form = campo.form;
+  if (!form.hasAttribute('data-filters-auto')) return;
+  if (campo.closest('.modal')) {
+    // Que el pop-up se reabra solo al volver.
+    if (!form.querySelector('input[name="open"]')) {
+      var h = document.createElement('input');
+      h.type = 'hidden'; h.name = 'open'; h.value = 'filtros';
+      form.appendChild(h);
+    }
+  }
+  if (window.appLoader && window.appLoader.show) { try { window.appLoader.show(); } catch (e) {} }
+  if (form.requestSubmit) form.requestSubmit(); else form.submit();
+});

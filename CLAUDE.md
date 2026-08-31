@@ -7615,3 +7615,53 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - **Fase de seguridad** (sin empezar): rotar credenciales expuestas en git, eliminar contraseñas en
   texto plano (`UserSecurity.password_preview` y `users.txt`), añadir CSRF, tokens de reset de un
   solo uso, y mitigar host-header injection / SSRF. Ver sección 9 del `README.md`.
+
+- ⚠️⚠️ **UNA PESTAÑA CON RECURSO PROPIO HAY QUE MAPEARLA, O SE VE PERO DA 403** (bug real, ago 2026).
+  A la pestaña **«Gastos» de una canción** se le dio su recurso (`discografica.gastos`) pero el mapeo
+  de `discografica_song_detail` seguía apuntando a **`contabilidad`**: la pestaña **se pintaba** —el
+  menú mira su recurso, que se hereda de la sección— y al abrirla salía un **403 que en la pantalla
+  de Accesos no se podía explicar** («no me aparece que no tenga acceso»). Al crear un recurso hay
+  que tocar **las TRES cosas**: el catálogo (`CURATED_ACCESS_RESOURCES`), la lista de pestañas de la
+  plantilla y **el mapeo por `tab`** de esa ficha (en los dos mapeos, si el endpoint no lleva
+  prefijo).
+
+- **LA BOLSA DE GASTOS DE UN ÁLBUM** (ago 2026): la pestaña **«Gastos»** de la ficha del álbum,
+  hermana de la del single. Puntos únicos **`_album_project`** (qué proyecto lo prepara) ·
+  **`_album_bag(session_db, album, create=)`** · `_album_bag_context` · endpoint `album_bag_open`.
+  ⚠️ Si el álbum lo prepara un PROYECTO discográfico, la bolsa **es la del proyecto** (como en el
+  single): si no, habría dos bolsas para el mismo lanzamiento y el gasto se repartiría entre las dos
+  sin que cuadre ninguna. La pestaña lo dice («Bolsa del proyecto · X»).
+  ⚠️ Su `bag_type` es **`DISCO`** («Disco / EP»), que es el que ya existe en **`BAG_TYPES`**: un tipo
+  que no esté ahí no sale en el selector y **guardar la bolsa desde su pantalla lo cambiaría a
+  «General»** (el bug real que ya pasó con PROYECTO), con lo que perdería sus categorías.
+  ⚠️ Sus **categorías** son las de un lanzamiento (`DISCO_BAG_EXPENSE_CATEGORIES`), no las de un
+  concierto: lo decide `_bag_visible_expense_categories` con `bag_type='DISCO'` + `linked_type='ALBUM'`.
+  ⚠️ La pestaña hay que meterla en **`ALBUM_DETAIL_TABS`** (si no, cae en «Información» sin dar
+  ningún error) y `album_bag_open` en los DOS mapeos de endpoints.
+
+- **FILTROS DE APLICACIÓN DIRECTA · fuera el botón «Ver»** (ago 2026): un formulario marcado con
+  **`data-filters-auto`** se envía en cuanto se marca una casilla (handler global en `scripts.js`).
+  Los filtros del **pop-up** también se aplican solos y el pop-up **se vuelve a abrir** al recargar
+  (`open=filtros` → `app33AutoOpenModal`), para poder seguir marcando sin reabrirlo a mano.
+
+- **FILTRO POR AÑO en Conciertos y Actividades** (ago 2026): al lado de «Cuándo», etiquetas pequeñas
+  con el **año anterior, el actual y el siguiente** (`YEAR_FILTER_OFFSETS`), acumulables. Puntos
+  únicos `_year_filter_from_request` · **`_year_chips`** · **`_filter_by_year`**.
+  ⚠️ **Un año sin nada NO se ofrece** (la misma regla que los tipos del calendario), pero el que
+  esté marcado se conserva aunque salga a cero: si no, al filtrar desaparecería el botón con el que
+  quitar el filtro.
+  ⚠️ Sus contadores se calculan **sin aplicar el propio filtro de año** (si no, al marcar uno los
+  demás saldrían a cero y no se podrían combinar) y **el filtro se aplica ANTES de contar nada más**:
+  así el número de cada etiqueta de tipo, el de cada tarjeta de artista y el de la cabecera del
+  sujeto dicen lo que se va a ver (si no, la tarjeta seguía diciendo «13 actividades» y dentro había
+  una — el mismo criterio que el filtro de fechas).
+
+- ⚠️ **UN CHIP QUE ES `<a>` SALE SUBRAYADO**: `a.filter-chip{ text-decoration:none }` (un chip no es
+  un enlace de texto).
+
+- **LOS ÚLTIMOS ERRORES DEL SERVIDOR SE VEN** (ago 2026): un 500 se enseña como «cerrado por
+  mantenimiento», así que sin esto la única pista es el log del servidor, al que no siempre se puede
+  llegar. `_remember_last_error` guarda los últimos 20 (**en memoria del proceso**: si lo que falla es
+  la BD, escribir allí volvería a fallar; cada worker guarda los suyos) con la ruta, el endpoint,
+  quién, el tipo de error, el mensaje y la traza, y **dirección** los ve al final de
+  **«Configurar notificaciones»**.

@@ -619,7 +619,8 @@
     {% endif %}
 
     {% if payment_terms %}
-    <div class="ficha-section">
+    {# El id es el destino de las tareas de FACTURAR y COBRAR del módulo de Contratación. #}
+    <div class="ficha-section" id="plan-facturacion">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-file-invoice-dollar"></i>Plan de facturación / cobro{% if payment_pending %} <span class="badge text-bg-warning text-dark ms-2">Pendiente: {{ payment_pending|eur }}</span>{% endif %}</h6></div>
       <div class="ficha-section__body p-0">
         <div class="table-responsive">

@@ -24,13 +24,23 @@
   {% endif %}
 </div>
 
+{% set _tipos = type_chips|selectattr('active')|map(attribute='key')|list %}
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
   <span class="small text-muted me-1">Cuándo</span>
   {% for val, lbl in [('future','Próximas'),('past','Pasadas'),('all','Todas')] %}
-    {% set _tipos = type_chips|selectattr('active')|map(attribute='key')|list %}
-    <a href="{{ url_for('activities_view', when=val, tipo=_tipos, artist_id=artist_f, event_id=event_f) }}"
+    <a href="{{ url_for('activities_view', when=val, tipo=_tipos, year=f_years, artist_id=artist_f, event_id=event_f) }}"
        class="btn btn-sm {{ 'btn-danger' if when_f==val else 'btn-outline-secondary' }}">{{ lbl }}</a>
   {% endfor %}
+  {# AÑO: el anterior, el actual y el siguiente. Un año sin actividades no se ofrece. #}
+  {% if year_chips %}
+    <span class="vr mx-1"></span>
+    {% for y in year_chips %}
+      {% set _otros = f_years|reject('equalto', y.year)|list if y.active else (f_years + [y.year]) %}
+      <a class="filter-chip {{ 'is-on' if y.active }}"
+         href="{{ url_for('activities_view', when=when_f, tipo=_tipos, year=_otros, artist_id=artist_f, event_id=event_f) }}"
+         title="Solo las actividades de {{ y.year }}">{{ y.year }}<span class="filter-chip__n">{{ y.count }}</span></a>
+    {% endfor %}
+  {% endif %}
 </div>
 
 {% if not drill_subject %}
@@ -61,7 +71,7 @@
      ficha de quién se está trabajando. #}
   <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     {% set _tipos = type_chips|selectattr('active')|map(attribute='key')|list %}
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('activities_view', when=when_f, tipo=_tipos) }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('activities_view', when=when_f, tipo=_tipos, year=f_years) }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
     <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
       <img src="{{ drill_subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
            style="width:42px;height:42px;border-radius:50%;object-fit:cover;">

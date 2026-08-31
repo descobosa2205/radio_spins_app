@@ -1065,7 +1065,39 @@ def _handle_404(e):
 def _handle_500(e):
     # Ante un error del servidor mostramos la página animada de «estamos trabajando» (la web se
     # percibe como "caída"), con reintento automático.
+    # ⚠️⚠️ Y SE APUNTA QUÉ HA FALLADO. Un 500 se ve como «cerrado por mantenimiento», así que sin
+    # esto la única pista es el log del servidor, al que no siempre se puede llegar: el último error
+    # queda guardado y **dirección** lo ve en «Configurar notificaciones» → «Último error», que es
+    # lo que permite arreglarlo en vez de adivinarlo.
+    try:
+        _remember_last_error(e)
+    except Exception:
+        app.logger.exception("No se pudo apuntar el último error")
     return _render_maintenance_page(500)
+
+
+# Los últimos errores del servidor, en memoria del proceso (⚠️ no en la BD: si lo que falla ES la
+# BD, escribir allí volvería a fallar). Cada worker guarda los suyos.
+LAST_ERRORS = []
+LAST_ERRORS_MAX = 20
+
+
+def _remember_last_error(exc):
+    """Apunta un 500 con lo justo para poder arreglarlo: dónde, qué error y su traza."""
+    import traceback as _tb
+    original = getattr(exc, "original_exception", None) or exc
+    LAST_ERRORS.insert(0, {
+        "when": datetime.now(TZ_MADRID),
+        "path": (request.full_path or request.path or "").rstrip("?"),
+        "endpoint": (request.endpoint or ""),
+        "method": request.method,
+        "user": (session.get("email") or session.get("user_id") or ""),
+        "kind": type(original).__name__,
+        "message": str(original)[:400],
+        "trace": "".join(_tb.format_exception(type(original), original,
+                                              original.__traceback__))[-4000:],
+    })
+    del LAST_ERRORS[LAST_ERRORS_MAX:]
 
 
 # ---------- Roles / permisos ----------
@@ -1662,7 +1694,10 @@ def notification_settings_view():
         sms_listo = _sms_configured(session_db)
         return render_template("notificaciones_config.html",
                                kinds=_notice_kind_catalog(), channels=NOTICE_CHANNELS,
-                               values=canales, sms_ready=sms_listo)
+                               values=canales, sms_ready=sms_listo,
+                               # Los últimos 500 de este worker: es lo que permite arreglar una
+                               # pantalla que «sale como cerrada por mantenimiento».
+                               last_errors=list(LAST_ERRORS[:5]))
     finally:
         session_db.close()
 
@@ -14105,7 +14140,10 @@ SONG_DETAIL_TABS = {
     "informacion", "editorial", "materiales", "royalties", "ingresos",
     "gastos", "promocion", "marketing", "radio", "playlisting",
 }
-ALBUM_DETAIL_TABS = {"informacion", "canciones", "materiales", "beneficiarios", "promocion", "marketing"}
+# ⚠️ Una pestaña NUEVA hay que meterla aquí: si no, cae en «Información» y su panel no se pinta
+# (sin dar ningún error).
+ALBUM_DETAIL_TABS = {"informacion", "canciones", "materiales", "beneficiarios", "gastos",
+                     "promocion", "marketing"}
 
 # Lo que define el listado de origen. `nav` dice cuál es y el resto son SUS filtros.
 FICHA_NAV_PARAMS = ("nav", "nav_artista", "nav_q", "nav_onestop")
@@ -39165,9 +39203,26 @@ def discografica_album_detail(album_id):
 
     ficha_nav = _ficha_nav(session_db, kind="ALBUM", item_id=album.id, tab=tab)
 
+    # LA BOLSA de gastos del álbum: en su pestaña se embebe con el MISMO panel que /bolsas/<id>
+    # (igual que la del single). Solo se monta ahí: el panel es caro.
+    _album_bag_ctx = _album_bag_context(session_db, album)
+    _album_bag_panel = {}
+    if tab == "gastos" and _album_bag_ctx.get("bag_id"):
+        _bag_fila = session_db.get(WorkflowBag, _safe_uuid(_album_bag_ctx["bag_id"]))
+        if _bag_fila is not None:
+            _album_bag_panel = _bag_panel_context(session_db, _bag_fila)
+            # ⚠️ Lo que la ficha del álbum ya pasa: sin quitarlo, `render_template` revienta con
+            # «got multiple values for keyword argument …».
+            for _c in ("today", "tab", "row", "album", "artist", "CAN_EDIT", "artists", "companies",
+                       "promoters", "distributors", "ficha_nav", "ficha_nav_args", "release",
+                       "product_codes", "track_rows", "edit"):
+                _album_bag_panel.pop(_c, None)
+
     response = render_template(
         "album_detail.html",
         album=album,
+        album_bag=_album_bag_ctx,
+        **_album_bag_panel,
         artist=artist,
         tab=tab,
         ficha_nav=ficha_nav,
@@ -46602,6 +46657,48 @@ def simulation_archive(sid):
 
 
 # ============================ ACTIVIDADES (vista global de todos los artistas) ============================
+# ───────────────────────────── FILTRO POR AÑO (conciertos y actividades) ─────────────────────────
+# Etiquetas pequeñas junto a «Cuándo»: el año ANTERIOR, el ACTUAL y el SIGUIENTE.
+# ⚠️ Un año sin nada NO se ofrece: un filtro que no puede devolver nada solo hace ruido (la misma
+# regla que los tipos del calendario de agenda o los filtros de Supervisors).
+YEAR_FILTER_OFFSETS = (-1, 0, 1)
+
+
+def _year_filter_from_request():
+    """Los años marcados en la URL (`?year=`), quedándose solo con los que tienen sentido."""
+    fuera = set()
+    for x in request.args.getlist("year"):
+        x = (x or "").strip()
+        if x.isdigit() and 1900 <= int(x) <= 2200:
+            fuera.add(int(x))
+    return fuera
+
+
+def _year_chips(items, today, seleccionados, fecha=lambda it: getattr(it, "date", None)):
+    """Las etiquetas de año con su contador, sobre lo que se está viendo SIN el filtro de año."""
+    cuenta = {}
+    for it in items:
+        f = fecha(it)
+        if f:
+            cuenta[f.year] = cuenta.get(f.year, 0) + 1
+    chips = []
+    for off in YEAR_FILTER_OFFSETS:
+        anio = today.year + off
+        n = cuenta.get(anio, 0)
+        # El año marcado se conserva aunque salga a cero: si no, al filtrar desaparecería el botón
+        # con el que quitar el filtro.
+        if n <= 0 and anio not in (seleccionados or set()):
+            continue
+        chips.append({"year": anio, "count": n, "active": anio in (seleccionados or set())})
+    return chips
+
+
+def _filter_by_year(items, anios, fecha=lambda it: getattr(it, "date", None)):
+    if not anios:
+        return items
+    return [it for it in items if (fecha(it) and fecha(it).year in anios)]
+
+
 @app.get("/actividades", endpoint="activities_view")
 @admin_required
 def activities_view():
@@ -46616,6 +46713,7 @@ def activities_view():
         when_f = (request.args.get("when") or "future").strip().lower()
         artist_f = (request.args.get("artist_id") or "").strip()
         event_f = (request.args.get("event_id") or "").strip()
+        f_years = _year_filter_from_request()
         today = date.today()
         # TIPOS seleccionados (acumulables). `type=concert|action` sigue funcionando: son los enlaces
         # antiguos y los de otras pantallas.
@@ -46686,6 +46784,16 @@ def activities_view():
             if artist_f:
                 return not it["event_id"] and (it["artist_id"] == artist_f or artist_f in it["artist_ids"])
             return True
+        # AÑO: el anterior, el actual y el siguiente. Sus etiquetas se cuentan con los demás filtros
+        # puestos (el tipo y el sujeto) pero SIN el propio filtro de año: si no, al marcar uno los
+        # demás saldrían a cero y no se podrían combinar.
+        year_chips = _year_chips(
+            [it for it in items if _en_sujeto(it) and (not tipos_sel or it["type_key"] in tipos_sel)],
+            today, f_years, fecha=lambda it: it.get("date"))
+        # ⚠️ Y se aplica AQUÍ, antes de contar nada: así el número de cada etiqueta de tipo, el de
+        # cada tarjeta de artista y el de la cabecera del sujeto dicen lo que se va a ver (si no, la
+        # tarjeta seguía diciendo «13 actividades» y dentro había una).
+        items = _filter_by_year(items, f_years, fecha=lambda it: it.get("date"))
         cuenta = {}
         for it in items:
             if _en_sujeto(it):
@@ -46705,7 +46813,7 @@ def activities_view():
                 "key": k, "label": ("Acciones" if k == "ACCION" else _activity_kind_label(k)),
                 "icon": ("fa-rocket" if k == "ACCION" else QUAD_ACTIVITY_ICONS.get(k, "fa-calendar-day")),
                 "count": cuenta.get(k, 0), "active": k in tipos_sel,
-                "url": url_for("activities_view", when=when_f, tipo=otros, **extra),
+                "url": url_for("activities_view", when=when_f, tipo=otros, year=sorted(f_years), **extra),
             })
         if tipos_sel:
             items = [it for it in items if it["type_key"] in tipos_sel]
@@ -46738,7 +46846,7 @@ def activities_view():
                                               "photo_url": foto, "count": 0})
                 g["count"] += 1
         for g in grupos.values():
-            g["url"] = url_for("activities_view", when=when_f, tipo=sorted(tipos_sel),
+            g["url"] = url_for("activities_view", when=when_f, tipo=sorted(tipos_sel), year=sorted(f_years),
                                **({"event_id": g["id"]} if g["kind"] == "event" else {"artist_id": g["id"]}))
         subject_groups = sorted(grupos.values(), key=lambda x: (x["name"] or "").lower())
         # Al pinchar un sujeto: solo sus actividades. Arriba se enseña de QUIÉN son (foto y nombre) y
@@ -46769,6 +46877,7 @@ def activities_view():
         return render_template(
             "actividades.html", items=items, when_f=when_f, artist_f=artist_f, event_f=event_f,
             type_chips=type_chips, subject_groups=subject_groups, drill_subject=drill_subject,
+            year_chips=year_chips, f_years=sorted(f_years),
             counts=counts, CAN_EDIT_CONCERTS=can_edit_concerts(),
             wizard_available=bool(_wiz), **({**_wiz} if _wiz else {"artists": artists}),
         )
@@ -50128,6 +50237,7 @@ def concerts_page():
         f_statuses_raw = request.args.getlist("status") or []
         f_when_raw = request.args.getlist("when") or []
         f_announcements_raw = request.args.getlist('announcement') or []
+        f_years = _year_filter_from_request()
         f_concert_tags = _dedupe_concert_tags(request.args.getlist("concert_tag") or request.args.getlist("hashtag") or [])
 
         f_artist_ids = []
@@ -50332,6 +50442,10 @@ def concerts_page():
             concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
         if f_announcements:
             concerts = [c for c in concerts if _announcement_state(c, today) in f_announcements]
+        # AÑO: las etiquetas se cuentan con todos los demás filtros puestos pero SIN el propio filtro
+        # de año (si no, al marcar uno los otros saldrían a cero y no se podrían combinar).
+        year_chips = _year_chips(concerts, today, f_years)
+        concerts = _filter_by_year(concerts, f_years)
 
         for c in concerts:
             setattr(c, "tags_clean", _concert_tags(c))
@@ -50410,6 +50524,8 @@ def concerts_page():
                 count_q = count_q.filter(Concert.date < today)
             elif want_future and not want_past:
                 count_q = count_q.filter(Concert.date >= today)
+            if f_years:
+                count_q = count_q.filter(func.extract("year", Concert.date).in_(sorted(f_years)))
             count_rows = count_q.group_by(Concert.artist_id).all()
             count_map = {aid: int(n) for aid, n in count_rows}
             for a in artists:
@@ -50422,7 +50538,8 @@ def concerts_page():
             artist_groups.sort(key=lambda x: (x["artist"].name or "").lower())
             if len(f_artist_ids) == 1:
                 drill_artist = next((a for a in artists if a.id == f_artist_ids[0]), None)
-            filters_active = bool(f_sale_types or f_statuses or f_concert_tags or f_announcements or drill_artist or show_all)
+            filters_active = bool(f_sale_types or f_statuses or f_concert_tags or f_announcements
+                                  or f_years or drill_artist or show_all)
             vista_mode = "list" if filters_active else "grid"
             for c in concerts:
                 type_counts[c.sale_type] = type_counts.get(c.sale_type, 0) + 1
@@ -50467,6 +50584,10 @@ def concerts_page():
             f_statuses=f_statuses,
             f_when=sorted(list(f_when)),
             f_announcements=f_announcements,
+            f_years=sorted(f_years),
+            year_chips=year_chips,
+            # El pop-up de filtros se vuelve a abrir solo cuando el cambio vino de dentro de él.
+            open_filters=(request.args.get("open") == "filtros"),
         )
     finally:
         s.close()
@@ -68961,8 +69082,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
     if endpoint.startswith("artist_calendar_import"):
         return "artists.agenda"
-    # La BOLSA de gastos de un single: su pestaña «Gastos» de la ficha de la canción.
-    if endpoint == "song_bag_open":
+    # La BOLSA de gastos de un single o de un álbum: su pestaña «Gastos» de la ficha.
+    if endpoint in {"song_bag_open", "album_bag_open"}:
         return "discografica.gastos"
     # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
     if endpoint.startswith("group_artwork"):
@@ -69668,8 +69789,8 @@ def _resolve_request_resource_key() -> str | None:
     # Volcar un calendario de fuera (iCloud) a la agenda del artista: vive en su pestaña Agenda.
     if endpoint.startswith("artist_calendar_import"):
         return "artists.agenda"
-    # La BOLSA de gastos de un single: su pestaña «Gastos» de la ficha de la canción.
-    if endpoint == "song_bag_open":
+    # La BOLSA de gastos de un single o de un álbum: su pestaña «Gastos» de la ficha.
+    if endpoint in {"song_bag_open", "album_bag_open"}:
         return "discografica.gastos"
     # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
     if endpoint.startswith("group_artwork"):
@@ -69718,7 +69839,11 @@ def _resolve_request_resource_key() -> str | None:
             "radio": "radio.reportes",
             "promocion": "promocion",
             "marketing": "promocion",
-            "gastos": "contabilidad",
+            # ⚠️⚠️ La pestaña «Gastos» tiene SU PROPIO recurso desde que se le dio uno
+            # (`discografica.gastos`): apuntando a «contabilidad» —que no tiene nada que ver— la
+            # pestaña se PINTABA (el menú mira su recurso, que se hereda de la sección) pero al
+            # abrirla salía un 403 que en la pantalla de Accesos no se podía explicar.
+            "gastos": "discografica.gastos",
         }
         return mapping.get(tab, "discografica.canciones")
     if endpoint in {"registros_release_dates_view", "registros_release_date_confirm"}:
@@ -69751,6 +69876,7 @@ def _resolve_request_resource_key() -> str | None:
             "beneficiarios": "discografica.royalties",
             "promocion": "promocion",
             "marketing": "promocion",
+            "gastos": "discografica.gastos",
         }
         return mapping.get(tab, "discografica.canciones")
     if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
@@ -70903,7 +71029,10 @@ def _contracting_task_row(c, kind: str, payment: dict | None = None, event=None)
     if kind == "PRODUCTION":
         url = url_for("concert_detail_view", cid=c.id, tab="produccion")
     elif kind in ("INVOICE", "COLLECT"):
-        url = url_for("concerts_view", tab="facturacion") + "#billing-" + str(c.id)
+        # ⚠️ LLEVA A LA FICHA, que es donde se hace: al plan de facturación y cobro de ESA actividad
+        # (antes iba al listado de Facturación con un ancla, así que había que volver a buscarla).
+        url = url_for("concert_detail_view", cid=c.id, tab="general") + "#plan-facturacion"
+
     else:
         url = url_for("concert_detail_view", cid=c.id, tab="general")
     extra = ""
@@ -85555,6 +85684,108 @@ def song_bag_open(song_id):
         session_db.close()
 
 
+def _album_project(session_db, album_id):
+    """El proyecto discográfico que prepara este álbum, si lo hay."""
+    aid = _safe_uuid(album_id)
+    if not aid:
+        return None
+    try:
+        return (session_db.query(DiscoProject)
+                .filter(DiscoProject.album_id == aid)
+                .order_by(DiscoProject.created_at.desc()).first())
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo buscar el proyecto del álbum")
+        return None
+
+
+def _album_bag(session_db, album, *, create: bool = False):
+    """La bolsa de gastos de un ÁLBUM. Punto único, hermano de `_song_bag`.
+
+    ⚠️ Si el álbum lo prepara un PROYECTO discográfico, la bolsa es LA DEL PROYECTO: si no, habría
+    dos bolsas para el mismo lanzamiento y el gasto acabaría repartido entre las dos sin que cuadre
+    ninguna."""
+    if album is None:
+        return None
+    proyecto = _album_project(session_db, album.id)
+    if proyecto is not None:
+        bag = _ensure_project_bag(session_db, proyecto) if create else (
+            session_db.get(WorkflowBag, proyecto.bag_id) if getattr(proyecto, "bag_id", None) else None)
+        if bag is not None:
+            return bag
+    try:
+        bag = (session_db.query(WorkflowBag)
+               .filter(func.upper(func.coalesce(WorkflowBag.linked_type, "")) == "ALBUM")
+               .filter(WorkflowBag.linked_id == album.id)
+               .order_by(WorkflowBag.created_at.asc()).first())
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo buscar la bolsa del álbum")
+        bag = None
+    if bag is not None or not create:
+        return bag
+    artista = getattr(album, "artist", None)
+    bag = WorkflowBag(
+        title=("%s · %s" % (_album_kind_label(album), album.title or "Sin título"))[:500],
+        artist_id=(artista.id if artista is not None else getattr(album, "artist_id", None)),
+        artist_ids=([str(album.artist_id)] if getattr(album, "artist_id", None) else []),
+        company_id=getattr(_pies_group_company(session_db), "id", None),
+        # ⚠️ El tipo tiene que estar en `BAG_TYPES`: uno que no esté no sale en el selector y
+        # guardar la bolsa desde su pantalla lo cambiaría a «General» (bug real con PROYECTO).
+        bag_type="DISCO",
+        linked_type="ALBUM",
+        linked_id=album.id,
+        linked_title=(album.title or ""),
+        start_date=getattr(album, "release_date", None),
+        status="ACTIVA",
+        is_archived=False,
+        bag_scope="AUDIO",
+    )
+    session_db.add(bag)
+    session_db.flush()
+    return bag
+
+
+def _album_bag_context(session_db, album) -> dict:
+    """Lo que la ficha del álbum necesita para su pestaña de gastos (igual que la de la canción)."""
+    if album is None:
+        return {}
+    proyecto = _album_project(session_db, album.id)
+    bag = _album_bag(session_db, album, create=False)
+    return {
+        "bag_id": (str(bag.id) if bag is not None else ""),
+        "from_project": bool(proyecto is not None),
+        "project_title": (_disco_project_title(proyecto) if proyecto is not None else ""),
+        "total": (format_eur(_bag_totals(list(getattr(bag, "expenses", None) or [])).get("all") or 0)
+                  if bag is not None else ""),
+    }
+
+
+@app.post("/discografica/albumes/<album_id>/bolsa", endpoint="album_bag_open")
+@admin_required
+def album_bag_open(album_id):
+    """Abre (creándola la primera vez) la bolsa de gastos de un álbum y lleva a ella."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar discográfica.")
+    session_db = db()
+    try:
+        album = session_db.get(Album, _safe_uuid(album_id))
+        if album is None:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="albumes"))
+        bag = _album_bag(session_db, album, create=True)
+        session_db.commit()
+        if bag is None:
+            flash("No se pudo abrir la bolsa.", "danger")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="gastos"))
+        return redirect(url_for("bag_detail_view", bag_id=bag.id))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[bolsas] no se pudo abrir la bolsa del álbum")
+        flash("No se pudo abrir la bolsa: %s" % exc, "danger")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="gastos"))
+    finally:
+        session_db.close()
+
+
 def _bag_visible_expense_categories(session_db, bag, expenses=None) -> list[tuple[str, str]]:
     """Las categorías de gasto que se OFRECEN en esta bolsa.
 
@@ -85568,7 +85799,9 @@ def _bag_visible_expense_categories(session_db, bag, expenses=None) -> list[tupl
     # producir un single no se parece a producir un concierto, lo haya montado un proyecto o no.
     tipo = (getattr(bag, "bag_type", None) or "").strip().upper()
     enlace = (getattr(bag, "linked_type", None) or "").strip().upper()
-    es_disco = (tipo == "PROYECTO") or (tipo == "SINGLE" and enlace == "SONG")
+    es_disco = ((tipo == "PROYECTO")
+                or (tipo == "SINGLE" and enlace == "SONG")
+                or (tipo == "DISCO" and enlace == "ALBUM"))
     if not es_disco:
         return list(BAG_EXPENSE_CATEGORIES)
     project, song = None, None
@@ -85579,6 +85812,10 @@ def _bag_visible_expense_categories(session_db, bag, expenses=None) -> list[tupl
             song = session_db.get(Song, bag.linked_id)
             # Si esa canción acabó teniendo proyecto, manda el proyecto (sabe más).
             project = _song_project(session_db, bag.linked_id)
+        elif enlace == "ALBUM" and getattr(bag, "linked_id", None):
+            # Un ÁLBUM suelto: como el proyecto, pero sin él. Igual que con la canción, si acabó
+            # teniendo proyecto manda el proyecto.
+            project = _album_project(session_db, bag.linked_id)
     except Exception:
         app.logger.exception("[bolsas] no se pudo leer el lanzamiento de la bolsa")
     fuera = set()

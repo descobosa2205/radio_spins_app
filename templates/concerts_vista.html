@@ -72,7 +72,10 @@
   {% set TAGS = f_concert_tags or [] %}
   {% set extra_count = (T|length) + (S|length) + (A|length) + (TAGS|length) %}
 
-  <form method="get" action="{{ url_for('concerts_view') }}" class="mb-3">
+  {# ⚠️ Los filtros se aplican SOLOS: cualquier casilla que se marque envía el formulario (ya no hay
+     botón «Ver»). Los del pop-up también, y el pop-up se vuelve a abrir solo (`open=filtros`) para
+     poder seguir marcando sin tener que reabrirlo a mano. #}
+  <form method="get" action="{{ url_for('concerts_view') }}" class="mb-3" data-filters-auto>
     <input type="hidden" name="tab" value="vista">
     {% if drill_artist %}<input type="hidden" name="artist" value="{{ drill_artist.id }}">{% else %}<input type="hidden" name="all" value="1">{% endif %}
     <div class="filter-panel">
@@ -89,14 +92,23 @@
                 <input type="checkbox" name="when" value="PAST" {% if 'PAST' in W %}checked{% endif %}>
                 <i class="fa fa-backward"></i>Pasados
               </label>
+              {# AÑO: el anterior, el actual y el siguiente. Un año sin conciertos no se ofrece. #}
+              {% if year_chips %}
+                <span class="vr mx-1"></span>
+                {% for y in year_chips %}
+                  <label class="filter-chip" title="Solo los conciertos de {{ y.year }}">
+                    <input type="checkbox" name="year" value="{{ y.year }}" {% if y.active %}checked{% endif %}>
+                    {{ y.year }}<span class="opacity-75">{{ y.count }}</span>
+                  </label>
+                {% endfor %}
+              {% endif %}
             </div>
           </div>
           <div class="ms-auto d-flex gap-2">
             <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#concertsFiltersModal">
               <i class="fa fa-sliders me-1"></i>Filtros{% if extra_count %} <span class="badge text-bg-danger ms-1">{{ extra_count }}</span>{% endif %}
             </button>
-            <button class="btn btn-danger" type="submit"><i class="fa fa-eye me-1"></i>Ver</button>
-            {% if extra_count or 'PAST' in W %}
+            {% if extra_count or 'PAST' in W or f_years %}
               <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', **base_args) }}" title="Quitar todos los filtros"><i class="fa fa-rotate-left"></i></a>
             {% endif %}
           </div>
@@ -104,6 +116,7 @@
         <div class="filter-hint mt-2">
           <i class="fa fa-circle-info me-1"></i>Se muestran los <strong>conciertos futuros</strong>; marca «Pasados» para ver también los ya celebrados.
         </div>
+        {% if open_filters %}<input type="hidden" name="open" value="filtros">{% endif %}
       </div>
     </div>
 
@@ -168,12 +181,20 @@
           </div>
           <div class="modal-footer d-flex justify-content-between">
             <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', **base_args) }}">Limpiar todo</a>
-            <button class="btn btn-danger" type="submit"><i class="fa fa-eye me-1"></i>Ver resultados</button>
+            <button class="btn btn-danger" type="button" data-bs-dismiss="modal">Listo</button>
           </div>
         </div>
       </div>
     </div>
   </form>
+  {% if open_filters %}
+  <script>
+    // El pop-up de filtros se reabre solo tras aplicar uno desde dentro (helper global de layout).
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.app33AutoOpenModal) window.app33AutoOpenModal('concertsFiltersModal');
+    });
+  </script>
+  {% endif %}
 
   {% if concerts %}
   <div class="card"><div class="list-group list-group-flush">

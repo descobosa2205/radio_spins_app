@@ -73,4 +73,44 @@
     <button type="submit" class="btn btn-primary"><i class="fa fa-floppy-disk me-2"></i>Guardar</button>
   </div>
 </form>
+
+{# ⚠️ ÚLTIMOS ERRORES DEL SERVIDOR. Un fallo se ve como «cerrado por mantenimiento», así que sin
+   esto no hay forma de saber qué ha pasado sin entrar en el servidor. Solo lo ve dirección. #}
+<div class="card mt-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="fa fa-triangle-exclamation text-danger"></i>
+    <strong>Últimos errores</strong>
+    <span class="small text-muted">lo que ha fallado en este servidor (para poder arreglarlo)</span>
+  </div>
+  <div class="card-body">
+    {% if last_errors %}
+      <div class="accordion" id="lastErrorsAcc">
+        {% for e in last_errors %}
+        <div class="accordion-item">
+          <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#errItem{{ loop.index }}">
+              <span class="badge text-bg-danger me-2">{{ e.kind }}</span>
+              <span class="text-truncate">{{ e.path }}</span>
+              <span class="small text-muted ms-2">{{ e.when.strftime('%d/%m/%Y %H:%M') }}</span>
+            </button>
+          </h2>
+          <div id="errItem{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#lastErrorsAcc">
+            <div class="accordion-body">
+              <div class="small text-muted mb-2">
+                {{ e.method }} {{ e.path }}{% if e.endpoint %} · {{ e.endpoint }}{% endif %}
+                {% if e.user %} · {{ e.user }}{% endif %}
+              </div>
+              <div class="fw-semibold mb-2">{{ e.message }}</div>
+              <pre class="small bg-light border rounded p-2 mb-0" style="max-height:18rem;overflow:auto;">{{ e.trace }}</pre>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-muted small">No se ha registrado ningún error desde el último arranque.</div>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}

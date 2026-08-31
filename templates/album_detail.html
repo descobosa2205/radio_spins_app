@@ -56,6 +56,21 @@
       {% endif %}
     </div>
   {% endif %}
+  {# ── LA BOLSA DE GASTOS del lanzamiento. ⚠️ Si lo prepara un PROYECTO discográfico, este botón
+     lleva a LA BOLSA DEL PROYECTO: nunca se abre una segunda para el mismo lanzamiento. #}
+  {% if album_bag is defined and album_bag and CAN_EDIT_DISCOGRAFICA %}
+    {% if album_bag.bag_id %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bag_detail_view', bag_id=album_bag.bag_id) }}"
+         title="{{ 'Bolsa del proyecto ' ~ album_bag.project_title if album_bag.from_project else 'Bolsa de gastos del lanzamiento' }}">
+        <i class="fa fa-sack-dollar me-1"></i>Bolsa{% if album_bag.total %} <span class="text-muted">{{ album_bag.total }}</span>{% endif %}</a>
+    {% else %}
+      <form method="post" action="{{ url_for('album_bag_open', album_id=album.id) }}" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline-secondary" type="submit" title="Abrir la bolsa de gastos de este lanzamiento">
+          <i class="fa fa-sack-dollar me-1"></i>Abrir bolsa</button>
+      </form>
+    {% endif %}
+  {% endif %}
   {# Compartir el Label Copy: vale desde cualquier pestaña (las funciones de compartir son globales). #}
   <div class="dropdown">
     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -77,6 +92,7 @@
     ('canciones','Canciones','discografica.canciones'),
     ('materiales','Materiales','discografica.canciones'),
     ('beneficiarios','Beneficiarios','discografica.royalties'),
+    ('gastos','Gastos','discografica.gastos'),
     ('marketing','Marketing','promocion')
   ] %}
   {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
@@ -1232,6 +1248,37 @@
             </div>
           </form>
         </div>
+      </div>
+    {% endif %}
+
+  {% elif tab == 'gastos' %}
+    {# ── LA BOLSA DE GASTOS del álbum ───────────────────────────────────────────────────────────
+       Igual que la del single: un álbum preparado con un PROYECTO discográfico ya tiene su bolsa;
+       los que no han pasado por ahí abren la suya aquí. ⚠️ Si lo lleva un proyecto, esta pestaña
+       enseña LA BOLSA DEL PROYECTO: nunca hay dos bolsas para el mismo lanzamiento. #}
+    {% if album_bag and album_bag.bag_id %}
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h5 class="m-0"><i class="fa fa-sack-dollar me-2 text-muted"></i>
+          {% if album_bag.from_project %}Bolsa del proyecto{% if album_bag.project_title %} · {{ album_bag.project_title }}{% endif %}
+          {% else %}Bolsa de gastos{% endif %}</h5>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=album_bag.bag_id) }}">
+          <i class="fa fa-up-right-from-square me-1"></i>Abrir la bolsa</a>
+      </div>
+      {# El MISMO panel que /bolsas/<id>, sin repetir su cabecera (`bag_standalone`). #}
+      {% include '_bag_panel.html' %}
+    {% else %}
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div>
+          <h5 class="m-0">Gastos</h5>
+          <div class="text-muted">Todavía no hay bolsa de gastos para este lanzamiento.</div>
+        </div>
+        {% if CAN_EDIT_DISCOGRAFICA %}
+          <form method="post" action="{{ url_for('album_bag_open', album_id=album.id) }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-primary" type="submit">
+              <i class="fa fa-sack-dollar me-1"></i>Abrir bolsa de gastos</button>
+          </form>
+        {% endif %}
       </div>
     {% endif %}
 

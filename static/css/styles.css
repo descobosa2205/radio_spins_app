@@ -3172,6 +3172,8 @@ input.is-need{ border-color:#e0b400; box-shadow:0 0 0 .15rem rgba(255,214,0,.18)
 /* ⚠️ Un chip que es <button> (no <label>) hereda la tipografía del NAVEGADOR si no se le dice: en la
    misma fila se veía con otra letra que sus hermanos. */
 button.filter-chip{ font-family:inherit; }
+/* ⚠️ Y uno que es <a> sale SUBRAYADO: un chip no es un enlace de texto. */
+a.filter-chip, a.filter-chip:hover{ text-decoration:none; }
 .filter-chip .filter-dot{ width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
 .filter-chip input{ position:absolute; opacity:0; pointer-events:none; }
 .filter-chip:hover{ border-color:var(--brand-primary,#E33D48); }

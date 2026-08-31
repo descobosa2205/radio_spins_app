@@ -9,6 +9,9 @@
    ═══════════════════════════════════════════════════════════════════════════════════════════════ #}
 {% set board = HOME_DIRECCION_BOARD %}
 {% if board and board.areas %}
+{# ⚠️ La cabecera y la rejilla van ENVUELTAS: son dos hermanos que forman UN módulo, y sin el
+   envoltorio «Ordenar mi inicio» los movería por separado (la clave la lee `home_order.js`). #}
+<div data-home-module="cuadro-mando">
 <div class="d-flex align-items-center gap-2 mb-3">
   <i class="fa fa-table-columns text-danger"></i>
   <h5 class="mb-0">Cuadro de mando</h5>
@@ -101,4 +104,5 @@
     </div>
   {% endfor %}
 </div>
+</div>{# /cuadro-mando #}
 {% endif %}

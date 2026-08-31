@@ -3840,6 +3840,9 @@ class UserProfile(Base):
     # ORDEN DEL MENÚ elegido por la persona (lista de claves de sección, arrastrando). Vacío = el
     # orden automático por uso.
     menu_order = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # EL ORDEN DE LOS MÓDULOS DE INICIO que ha puesto cada uno arrastrándolos. Es una preferencia
+    # suya: vacío = el orden de siempre. Solo se ordena lo que esa persona ve (los avisos no).
+    home_order = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Última vez que esta persona entró en Producción → Activas (para marcar «Nueva actividad»).
     production_seen_at = Column(DateTime(timezone=True))
     # TAREAS que esta persona YA ha abierto en «Mis tareas pendientes» ({clave: fecha}): con eso
@@ -8482,6 +8485,7 @@ def ensure_third_party_and_contract_sheet_schema():
         # Empresas del grupo que lleva cada persona de CONTABILIDAD (reparto del trabajo contable).
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS accounting_company_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS menu_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS home_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS production_seen_at timestamptz;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS tasks_seen jsonb;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).

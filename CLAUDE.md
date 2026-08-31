@@ -1799,6 +1799,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   se escribe `%%` **solo si la cadena se formatea**, y desmarcar TODAS las publicaciones tiene que
   poder dejarlas todas apagadas (una lista vacía no es «no me han dicho nada»).
 
+- **ORDENAR MI INICIO** (ago 2026): cada persona se coloca los módulos de la portada como quiera.
+  Menú personal → **«Ordenar mi inicio»** (`/home?ordenar=1`), que enciende el modo: cada módulo se
+  marca con su **asa** (nombre + agarre) y abajo sale la barra con **Guardar · Cancelar · Orden de
+  siempre**. Se guarda en **`UserProfile.home_order`** (JSONB, lista de claves) con
+  `home_order_save` (`POST /mi-inicio/orden`, en **`PERSONAL_ENDPOINTS`**: es una preferencia de
+  cada uno). Motor `static/js/home_order.js` + clases `.home-order-*`.
+  · **Es una PREFERENCIA, no un permiso**: solo se ordena lo que esa persona YA ve (los módulos se
+  pintan según sus permisos y su departamento), así que la lista puede traer claves de módulos que
+  hoy no se pintan y no pasa nada.
+  · **Las claves salen del propio módulo** (`data-home-module` o, si no, un slug de su TÍTULO), así
+  que un módulo nuevo NO hay que declararlo en ningún sitio: entra solo.
+  ⚠️ Lo que **no se mueve** va marcado con **`data-home-fixed`** (la cabecera, la campanita de
+  «Mis avisos» y los accesos rápidos): los avisos son lo primero que hay que ver.
+  ⚠️ **Los módulos NO son hermanos consecutivos** (entre medias hay `<script>` y modales): `aplica()`
+  los coloca TODOS SEGUIDOS en el sitio del primero usando un **marcador**. Insertándolos «antes del
+  primero» se desordenaban en cuanto el primero era uno de los que había que mover (bug real: el
+  módulo arrastrado acababa el último).
+  ⚠️ **Varios hermanos que son UN módulo** (el cuadro de mando: su cabecera y su rejilla) van
+  **envueltos** en un `<div data-home-module="…">`, o se moverían por separado.
+  ⚠️ Se arrastra **por el asa** y con **eventos de PUNTERO** (no el arrastre nativo de HTML5): dentro
+  de un módulo hay botones que tienen que seguir pinchándose, y con el dedo (iPad) el HTML5 no
+  funciona. El asa lleva `touch-action:none`.
+
 - **INICIO DE DIRECCIÓN · SUS TAREAS y el CUADRO DE MANDO** (ago 2026). Dirección no trabaja dentro
   de una sección: **mira**. Su Inicio es, en este orden: **cabecera · MIS AVISOS (solo cuando hay) ·
   botones rápidos · el CALENDARIO · MIS TAREAS PENDIENTES · el CUADRO DE MANDO ·** y sus cosas
@@ -2295,6 +2318,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   búsqueda). Probado con la app real: pantalla, importación de un .xlsx de verdad, reimportación sin
   duplicados, los cuatro filtros, el alta a mano, la pestaña del tercero y los permisos (sin permiso
   403 · solo ver sin botones y con el POST rebotado · ver+editar).
+
+- ⚠️⚠️ **UN `</div>` DE MÁS CIERRA EL CONTENEDOR ANTES DE TIEMPO** (bug real, ago 2026):
+  `_concert_wizard_modal.html` tenía **un cierre sobrante** al final del paso de cartelería, así que
+  el navegador cerraba ahí el `modal-body` —los pasos 8 a 11 quedaban **fuera del formulario**— y,
+  en Inicio, cerraba también el envoltorio de los módulos, con lo que «Ordenar mi inicio» solo veía
+  los dos primeros. No da ningún error: el navegador lo «arregla» a su manera.
+  ⚠️ La comprobación es de una línea y hay que hacerla al tocar una plantilla:
+  `for f in templates/*.html; do a=$(grep -o '<div' $f|wc -l); b=$(grep -o '</div>' $f|wc -l); [ "$a" != "$b" ] && echo "$f $a/$b"; done`
+  (un desajuste solo es legítimo cuando el `<div>` se abre en una rama `{% if %}` y se cierra en
+  otra, o a caballo entre dos includes).
 
 - ⚠️⚠️ **UN `{% include %}` FUERA DEL `{% block content %}` SE PINTA ANTES DEL `<!doctype>`** (bug
   real con captura, ago 2026). El pop-up de envío de Syncros estaba al final de `song_detail.html`,

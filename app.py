@@ -70678,6 +70678,8 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         admin_responsibilities=list(getattr(profile, "admin_responsibilities", None) or []),
         accounting_company_ids=[str(x) for x in (getattr(profile, "accounting_company_ids", None) or [])],
         menu_order=[str(x) for x in (getattr(profile, "menu_order", None) or [])],
+        # El orden de los módulos de INICIO que ha puesto esa persona (vacío = el de siempre).
+        home_order=[str(x) for x in (getattr(profile, "home_order", None) or [])],
         production_seen_at=getattr(profile, "production_seen_at", None),
         # ⚠️ Lo que no esté aquí es INVISIBLE desde `_current_user_state()` y las plantillas.
         tasks_seen=getattr(profile, "tasks_seen", None),
@@ -72979,6 +72981,10 @@ def inject_personnel_globals():
         # LO QUE ESTÁ POR COBRAR y LO QUE SE LLEVA FACTURADO en el año (contratación y dirección).
         "HOME_BILLING_PENDING": _billing_pending,
         "HOME_BILLING_YEAR": _billing_year,
+        # EL ORDEN DE LOS MÓDULOS DE INICIO que ha puesto esa persona (vacío = el de siempre).
+        "HOME_ORDER": ((_estado.get("profile").home_order
+                        if _home and getattr(_estado.get("profile", None), "home_order", None) else [])
+                       if _home else []),
         "HOME_CONTRATACION_ONLY": (_home_contratacion_only()
                                    if request.endpoint == "home" and session.get("user_id")
                                    else False),
@@ -73271,6 +73277,7 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "my_expense_upload_invoice", "my_expense_no_invoice", "my_expense_send_direct",
                       # El ORDEN DEL MENÚ es cosa de cada uno: son sus preferencias, no una sección.
                       "nav_menu_order_save",
+                      "home_order_save",
                       # Apuntar que ya ha abierto una de SUS tareas (para que deje de salir «Nueva»).
                       "home_task_seen",
                       # Los AVISOS son de cada persona (solo ve los suyos: se filtra por su user_id).
@@ -97855,6 +97862,49 @@ def cron_holded_refresh():
     finally:
         session_db.close()
     return jsonify({"ok": True, **out})
+
+
+@app.post('/mi-inicio/orden', endpoint='home_order_save')
+@admin_required
+def home_order_save():
+    """Guarda EL ORDEN DE LOS MÓDULOS DE INICIO que ha puesto la persona arrastrándolos.
+
+    Es una preferencia SUYA, no un permiso: solo se ordena lo que ya ve (los módulos se pintan
+    según sus permisos y su departamento) y, vaciándola, se vuelve al orden de siempre.
+    ⚠️ Los AVISOS no se ordenan: son lo primero que hay que ver."""
+    uid = to_uuid(session.get("user_id") or "")
+    if not uid:
+        abort(403)
+    session_db = db()
+    try:
+        claves = [str(x).strip() for x in request.form.getlist("keys") if str(x or "").strip()]
+        if not claves:
+            crudo = (request.form.get("order") or "").strip()
+            claves = [x.strip() for x in crudo.split(",") if x.strip()]
+        vistos, limpio = set(), []
+        for k in claves:
+            if k in vistos:
+                continue
+            vistos.add(k)
+            limpio.append(k)
+        perfil = session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+        if perfil is None:
+            abort(404)
+        perfil.home_order = limpio
+        perfil.updated_at = _now_madrid()
+        session_db.commit()
+        if _wants_json_response() or _is_xhr_request():
+            return jsonify({"ok": True, "order": limpio})
+        flash("Inicio ordenado." if limpio else "Se ha vuelto al orden de siempre.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[inicio] no se pudo guardar el orden")
+        if _wants_json_response() or _is_xhr_request():
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        flash("No se pudo guardar el orden: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("home")))
 
 
 @app.post('/mi-menu/orden', endpoint='nav_menu_order_save')

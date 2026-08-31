@@ -2,7 +2,11 @@
 {% block content %}
 {% import '_my_invitation_menu.html' as inv_menu with context %}
 {% import '_agenda_calendar.html' as agenda with context %}
-<div class="dash-hero mb-4">
+{# ORDENAR MI INICIO: cada uno se coloca los módulos como quiera (`home_order.js`). Se ordena lo que
+   esa persona VE; los avisos no se mueven (`data-home-fixed`). #}
+<script>window.HOME_ORDER = {{ (HOME_ORDER or [])|tojson }};</script>
+<div data-home-modules>
+<div class="dash-hero mb-4" data-home-fixed>
   <div class="d-flex align-items-center gap-3 flex-wrap">
     <img src="{{ CURRENT_USER.photo_url if CURRENT_USER else url_for('static', filename='img/logo.png') }}" alt="Usuario" class="home-user-avatar">
     <div>
@@ -16,7 +20,7 @@
    esperando», así que en cuanto se lee (o se resuelve solo) el módulo desaparece. Es el mismo dato
    de la campanita, no otro. #}
 {% if HOME_NOTICES %}
-<div class="card mb-4 border-danger">
+<div class="card mb-4 border-danger" data-home-fixed>
   <div class="card-header bg-white d-flex align-items-center gap-2">
     <i class="fa fa-bell text-danger"></i>
     <h5 class="mb-0">Mis avisos</h5>
@@ -53,7 +57,7 @@
    lo que hace a diario, de un clic y sin buscarlo por el menú. Mismo estilo que las tarjetas
    de sección. Se filtran por permisos en `_build_home_quick_actions`. #}
 {% if HOME_QUICK_ACTIONS %}
-<div class="dash-quick mb-4">
+<div class="dash-quick mb-4" data-home-fixed>
   {% for qa in HOME_QUICK_ACTIONS %}
     {% if qa.modal %}
       {# Se abre AQUÍ mismo si el modal está en la página; si no, navega a su pantalla. #}
@@ -1445,6 +1449,8 @@ document.addEventListener('click', function (ev) {
 {{ inv_menu.full_edit_modal() }}
 {{ inv_menu.delete_modal() }}
 {% endif %}
+
+</div>{# /data-home-modules #}
 
 {% include "_quick_create_modals.html" %}
 {% include "_peticion_wizard_modal.html" %}

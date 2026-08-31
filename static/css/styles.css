@@ -5709,3 +5709,28 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   .hb-year{ flex-wrap:wrap; }
   .hb-year__bar{ order:3; flex-basis:100%; }
 }
+
+/* ── ORDENAR MI INICIO ──────────────────────────────────────────────────────────────────────────
+   Cada uno se coloca sus módulos. En el modo de ordenar, cada tarjeta lleva su asa con el nombre y
+   se arrastra; abajo, la barra con Guardar / Cancelar / Orden de siempre. */
+.home-order-item{ position:relative; outline:2px dashed transparent; transition:outline-color .15s ease; }
+.home-ordering .home-order-item{ outline-color:rgba(227,61,72,.35); outline-offset:3px; }
+.home-order-item.is-dragging{ opacity:.55; }
+/* ⚠️ SE ARRASTRA POR EL ASA (no por la tarjeta entera): dentro de un módulo hay botones y enlaces
+   que tienen que seguir pinchándose. `touch-action:none` para que con el dedo arrastre en vez de
+   hacer scroll (misma regla que el interruptor de tres posiciones). */
+.home-order-grip{ display:flex; align-items:center; gap:.5rem; padding:.45rem .8rem;
+  background:#f6f8fb; border-bottom:1px solid var(--line-2,#e3e6eb); color:#6b7683;
+  font-size:.8rem; font-weight:700; border-radius:12px 12px 0 0;
+  cursor:grab; touch-action:none; user-select:none; }
+.home-order-item.is-dragging .home-order-grip{ cursor:grabbing; }
+.home-order-grip__t{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.home-order-bar{ position:fixed; left:50%; transform:translateX(-50%); bottom:1rem; z-index:1080;
+  display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; justify-content:center;
+  background:#fff; border:1px solid var(--line-2,#e3e6eb); border-radius:999px;
+  padding:.5rem .75rem; box-shadow:0 14px 36px rgba(20,25,35,.16); max-width:min(96vw, 720px); }
+.home-order-bar__t{ font-size:.82rem; color:#6b7683; font-weight:600; }
+@media (max-width: 575.98px){
+  .home-order-bar{ border-radius:16px; left:.5rem; right:.5rem; transform:none; max-width:none; }
+  .home-order-bar__t{ flex-basis:100%; text-align:center; }
+}

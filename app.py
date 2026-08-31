@@ -43285,6 +43285,8 @@ def contracting_view():
         ]
         return render_template(
             "contratacion.html",
+            # Los EVENTOS del primer paso del asistente (van en el mismo selector que los artistas).
+            wizard_events=s.query(AppEvent).order_by(AppEvent.name.asc()).all(),
             section=section,
             show_past=show_past_activities,
             title=title,
@@ -45764,6 +45766,9 @@ def _concert_wizard_context(session_db):
         # «¿de quién es la actividad?» (artista o evento), así que aquí no debe salir.
         "artists": (session_db.query(Artist).filter(Artist.event_id.is_(None))
                     .order_by(Artist.name.asc()).all()),
+        # Los EVENTOS salen en el MISMO selector que los artistas («¿de quién es la actividad?»):
+        # un evento funciona igual que un artista y se pueden elegir varios sujetos a la vez.
+        "wizard_events": session_db.query(AppEvent).order_by(AppEvent.name.asc()).all(),
         # DISCOGRÁFICAS: los tipos que se despliegan en su tarjeta del paso 1.
         "disc_activity_choices": [(k, QUAD_ACTIVITY_LABELS.get(k, k), QUAD_ACTIVITY_ICONS.get(k, "fa-compact-disc"))
                                   for k in DISCOGRAFICA_ACTIVITY_TYPES],
@@ -50598,6 +50603,7 @@ def concerts_page():
         # Contratación) y lo que abre esta es el módulo de TAREAS pendientes (`CONTRACTING_TASKS`).
         return render_template(
             "concerts_vista.html" if active_tab == "vista" else "concerts.html",
+            wizard_events=s.query(AppEvent).order_by(AppEvent.name.asc()).all(),
             active_tab=active_tab,
             booking_status_meta=BOOKING_STATUS_META,
             vista_mode=vista_mode,
@@ -60223,11 +60229,17 @@ def concert_wizard_create():
         # actividades son las mismas, solo que cuelgan del evento). Si el evento no existe todavía se
         # crea aquí mismo con el nombre que se escriba. El artista de la actividad es el ESPEJO del
         # evento (`_ensure_artist_for_event`), porque Concert.artist_id no puede ir vacío.
+        # ⚠️ ARTISTAS Y EVENTO SE ELIGEN EN EL MISMO SELECTOR y se pueden marcar VARIOS: el
+        # asistente reparte lo elegido en `artist_id` (múltiple) y `event_id`, y `subject_kind` es
+        # EVENT solo cuando lo ÚNICO elegido es un evento (entonces el artista de la actividad es
+        # su ESPEJO, porque `Concert.artist_id` no puede ir vacío).
         subject_kind = (request.form.get('subject_kind') or 'ARTIST').strip().upper()
         event_uuid = None
-        if subject_kind == 'EVENT':
-            event_uuid = to_uuid((request.form.get('event_id') or '').strip() or None)
-            nuevo_evento = (request.form.get('new_event_name') or '').strip()
+        evento = None
+        _event_raw = (request.form.get('event_id') or '').strip()
+        nuevo_evento = (request.form.get('new_event_name') or '').strip()
+        if _event_raw or nuevo_evento or subject_kind == 'EVENT':
+            event_uuid = to_uuid(_event_raw or None)
             evento = session.get(AppEvent, event_uuid) if event_uuid else None
             if evento is None and nuevo_evento:
                 evento = (session.query(AppEvent)
@@ -60236,14 +60248,14 @@ def concert_wizard_create():
                     evento = AppEvent(name=nuevo_evento[:200])
                     session.add(evento)
                     session.flush()
-            if evento is None:
+            if evento is None and subject_kind == 'EVENT':
                 raise ValueError('Elige un evento o escribe el nombre del evento nuevo.')
-            event_uuid = evento.id
+            event_uuid = getattr(evento, 'id', None)
+        request_artist_ids = None
+        if subject_kind == 'EVENT' and evento is not None:
             espejo = _ensure_artist_for_event(session, evento)
             session.flush()
             request_artist_ids = [str(espejo.id)]
-        else:
-            request_artist_ids = None
         raw_artist_ids = (request_artist_ids if request_artist_ids is not None
                           else request.form.getlist('artist_id') + request.form.getlist('artist_ids'))
         artist_ids = []
@@ -90565,6 +90577,9 @@ ACTIVITY_NOTICE_CHANNELS = [
 ACTIVITY_NOTICE_CHANNEL_KEYS = [k for k, _l, _i in ACTIVITY_NOTICE_CHANNELS]
 # Los MÓDULOS del aviso, en el orden en que salen. Cada uno se puede ocultar con su «ojo».
 ACTIVITY_NOTICE_MODULES = [
+    # ⚠️ La HOJA DE RUTA es una opción MÁS del aviso (su botón): antes se decidía en el asistente, al
+    # crear la actividad, y ahí no se sabe todavía si se le va a mandar — se decide al comunicarla.
+    ("hoja_ruta", "Hoja de ruta"),
     ("descripcion", "Descripción"),
     ("cache", "Caché"),
     ("promotor", "Lo que cubre el promotor"),
@@ -91536,13 +91551,19 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
     )
 
     # ---- BARRA DE BOTONES (de momento solo la hoja de ruta; los futuros van a su derecha) ----
-    if (ctx.get("roadmap_url") or "").strip():
+    # ⚠️ Se puede dejar fuera con su OJO, como cualquier otro módulo: si se le manda la hoja de ruta
+    # al artista se decide AL COMUNICARLE la actividad, no al crearla.
+    if (ctx.get("roadmap_url") or "").strip() and not ("hoja_ruta" in ocultos and not preview):
+        _rm_estilo = "opacity:.35;" if (preview and "hoja_ruta" in ocultos) else ""
+        _rm_oculto = ' data-notice-hidden="1"' if "hoja_ruta" in ocultos else ""
         partes.append(
-            '<div style="margin:14px 0 4px;">'
+            f'<div class="an-module" data-notice-module="hoja_ruta"{_rm_oculto} '
+            f'style="margin:14px 0 4px;display:flex;align-items:center;gap:8px;{_rm_estilo}">'
             # Sin iconos de fuente: en un correo no cargan. Los botones futuros van a su derecha.
             f'<a href="{esc(ctx["roadmap_url"])}" style="display:inline-block;padding:10px 16px;background:#212529;'
-            'color:#fff;text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;margin-right:8px;">'
+            'color:#fff;text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">'
             'Ver hoja de ruta</a>'
+            + ojo("hoja_ruta", "Hoja de ruta") +
             '</div>'
         )
 

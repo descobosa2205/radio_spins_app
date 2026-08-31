@@ -15,51 +15,51 @@
 
           <div class="d-flex flex-wrap gap-2 mb-3" id="wizardStepPills"></div>
 
-          {# ============================ PRIMER PASO · Artista (data-step 12, común a conciertos y actividades) ============================ #}
+          {# ============================ PRIMER PASO · De quién es (data-step 12) ============================ #}
           <section class="wizard-step" data-step="12" data-mode="any">
-            {# El SUJETO de la actividad: un ARTISTA o un EVENTO. Un evento funciona igual que un
-               artista (las actividades son las mismas), solo que cuelgan del evento y salen en la
-               pestaña Eventos de Contratación. Si el evento no existe, se crea aquí con el +. #}
+            {# ⚠️ UN SOLO SELECTOR: artistas y EVENTOS juntos, y se pueden elegir VARIOS. Antes había
+               que decir antes «de un artista» o «de un evento», que no aportaba nada: un evento
+               funciona igual que un artista (las actividades son las mismas) y lo único que cambia
+               es que la actividad sale además en la pestaña Eventos. Lo reparte `syncSubjectPick`. #}
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-microphone-lines"></i>¿De quién es la actividad?</div>
-              <div class="row g-3">
-                <div class="col-6 col-md-3">
-                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                    <input class="form-check-input visually-hidden wizard-subject-radio" type="radio" name="subject_kind" value="ARTIST" checked>
-                    <i class="fa fa-microphone-lines d-block fs-3 mb-2 text-dark"></i>
-                    <span class="fw-semibold small">De un artista</span>
-                  </label>
-                </div>
-                <div class="col-6 col-md-3">
-                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                    <input class="form-check-input visually-hidden wizard-subject-radio" type="radio" name="subject_kind" value="EVENT">
-                    <i class="fa fa-star d-block fs-3 mb-2 text-dark"></i>
-                    <span class="fw-semibold small">De un evento</span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="mt-3" data-wz-panel id="wizardSubjectArtist">
-                <label class="form-label">Artista</label>
-                <div class="input-group">
-                  <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required multiple>
+              <label class="form-label">Artista o evento</label>
+              <div class="input-group">
+                <select id="wizard_subject_ids" class="form-select select-artists" multiple required>
+                  {% if artists %}
+                  <optgroup label="Artistas">
                     {% for a in artists %}
-                      <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
+                      <option value="artist:{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
                     {% endfor %}
-                  </select>
-                  {# Alta rápida GLOBAL (funciona en cualquier página donde se embeba el asistente). #}
-                  <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="wizard_artist_id"><i class="fa fa-plus"></i></button>
-                </div>
-                <div class="form-text">Puedes seleccionar varios artistas. El selector busca sin distinguir tildes, símbolos o mayúsculas.</div>
+                  </optgroup>
+                  {% endif %}
+                  {% if wizard_events %}
+                  <optgroup label="Eventos">
+                    {% for e in wizard_events %}
+                      <option value="event:{{ e.id }}" data-photo="{{ e.logo_url or url_for('static', filename='img/logo.png') }}">{{ e.name }}</option>
+                    {% endfor %}
+                  </optgroup>
+                  {% endif %}
+                </select>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="artist"
+                        data-target="wizard_artist_id" title="Crear un artista nuevo"><i class="fa fa-plus"></i></button>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="event"
+                        data-target="wizard_event_id" title="Crear un evento nuevo"><i class="fa fa-star"></i></button>
               </div>
+              <div class="form-text">Puedes elegir varios. Busca sin distinguir tildes, símbolos ni mayúsculas.
+                Con el <i class="fa fa-plus"></i> creas un artista y con la <i class="fa fa-star"></i> un evento.</div>
 
-              <div class="mt-3 d-none" data-wz-panel id="wizardSubjectEvent">
-                <label class="form-label">Evento</label>
-                <div class="input-group">
-                  <select name="event_id" id="wizard_event_id" class="form-select"></select>
-                  <button type="button" class="btn btn-outline-secondary" data-quick-create="event" data-target="wizard_event_id" title="Crear un evento nuevo"><i class="fa fa-plus"></i></button>
-                </div>
-                <div class="form-text">Busca el evento o créalo con el <i class="fa fa-plus"></i> (nombre y logo). La actividad quedará en la pestaña <strong>Eventos</strong>.</div>
+              {# Lo que el servidor espera: los artistas por un lado y el evento por otro. Los rellena
+                 el JS con lo elegido arriba (así el backend no cambia). #}
+              <div class="d-none" data-no-money-format>
+                <input type="hidden" name="subject_kind" id="wizard_subject_kind" value="ARTIST">
+                <select name="artist_id" id="wizard_artist_id" multiple>
+                  {% for a in artists %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
+                </select>
+                <select name="event_id" id="wizard_event_id">
+                  <option value=""></option>
+                  {% for e in wizard_events %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
+                </select>
               </div>
             </div>
           </section>
@@ -245,27 +245,37 @@
                 </div>
               </div>
 
-              {# El nombre manual SOLO aparece cuando NO se conoce el recinto. #}
-              <div class="row g-3 mt-0" id="wizardVenueManualWrap" style="display:none;">
-                <div class="col-lg-4">
+              {# El nombre manual SOLO aparece cuando NO se conoce el recinto.
+                 ⚠️ EL ORDEN es el de una dirección: nombre → dirección → municipio → código postal →
+                 provincia. Y la DIRECCIÓN se autocompleta: al escribir la calle salen las
+                 sugerencias y, al elegir una, el resto de campos se rellenan solos
+                 (`data-address-autocomplete` + un `data-addr` por campo, el mecanismo global). #}
+              <div class="row g-3 mt-0" id="wizardVenueManualWrap" style="display:none;"
+                   data-address-autocomplete>
+                <div class="col-lg-6">
                   <label class="form-label">Nombre del recinto <span class="text-muted">(si se conoce)</span></label>
                   <input class="form-control" name="manual_venue_name" placeholder="Nombre provisional del recinto">
                 </div>
-                <div class="col-lg-3">
-                  <label class="form-label">Municipio</label>
-                  <input class="form-control" name="manual_municipality" id="wizard_manual_municipality" placeholder="Municipio">
-                </div>
-                <div class="col-lg-3">
-                  <label class="form-label">Provincia</label>
-                  <input class="form-control" name="manual_province" id="wizard_manual_province" placeholder="Provincia">
-                </div>
-                <div class="col-lg-2">
-                  <label class="form-label">Código postal</label>
-                  <input class="form-control" name="manual_postal_code" placeholder="CP">
-                </div>
-                <div class="col-lg-6">
+                <div class="col-lg-6 position-relative">
                   <label class="form-label">Dirección</label>
-                  <span data-address-autocomplete class="d-block position-relative"><input class="form-control" name="manual_venue_address" data-addr="full" autocomplete="off" placeholder="Dirección del recinto: empieza a escribir la calle…"></span>
+                  <input class="form-control" name="manual_venue_address" data-addr="address" autocomplete="off"
+                         placeholder="Empieza a escribir la calle y el número…">
+                  <div class="form-text">Elige una dirección y el municipio, el código postal y la provincia se rellenan solos.</div>
+                </div>
+                <div class="col-lg-5">
+                  <label class="form-label">Municipio</label>
+                  <input class="form-control" name="manual_municipality" id="wizard_manual_municipality"
+                         data-addr="city" placeholder="Municipio" autocomplete="off">
+                </div>
+                <div class="col-lg-3">
+                  <label class="form-label">Código postal</label>
+                  <input class="form-control" name="manual_postal_code" data-addr="postal_code"
+                         placeholder="CP" inputmode="numeric" maxlength="10" autocomplete="off">
+                </div>
+                <div class="col-lg-4">
+                  <label class="form-label">Provincia</label>
+                  <input class="form-control" name="manual_province" id="wizard_manual_province"
+                         data-addr="province" placeholder="Provincia" autocomplete="off">
                 </div>
               </div>
               <div class="alert alert-warning mt-3 mb-0 d-none" id="wizardArtistConflict"></div>
@@ -670,10 +680,12 @@
 
           {# ============================ PASO 7 (direct) · Cartelería (penúltimo) ============================ #}
           <section class="wizard-step" data-step="7" data-mode="direct">
+            {# ⚠️ PRIMERO SI HAY CARTEL Y QUIÉN LO HACE; lo de solicitarlo va en OTRO bocadillo y no
+               se enseña hasta haber contestado eso (y solo si lo hacemos nosotros). #}
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-palette"></i>Cartelería</div>
               <input type="hidden" name="artwork_choice" id="wizard_artwork_choice" value="">
-              <div class="row g-3 mb-2">
+              <div class="row g-3">
                 <div class="col-6 col-md-3">
                   <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
                     <input class="form-check-input visually-hidden wizard-artmaker-radio" type="radio" name="artwork_maker" value="OURS" checked>
@@ -688,21 +700,31 @@
                     <span class="fw-semibold small">Los hace el promotor</span>
                   </label>
                 </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-artmaker-radio" type="radio" name="artwork_maker" value="NONE">
+                    <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">No hay cartel</span>
+                  </label>
+                </div>
               </div>
-              <div data-wz-panel id="wizardArtworkOursWrap">
+            </div>
+
+            <div class="wizard-card d-none" data-wz-panel id="wizardArtworkOursWrap">
+              <div class="wizard-card__title"><i class="fa fa-paper-plane"></i>¿Se piden ya a diseño?</div>
                 <div class="row g-3 mb-2">
                   <div class="col-6 col-md-3">
                     <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
                       <input class="form-check-input visually-hidden wizard-artnow-radio" type="radio" name="artwork_request_now" value="LATER" checked>
                       <i class="fa fa-clock d-block fs-3 mb-2 text-dark"></i>
-                      <span class="fw-semibold small">No solicitar carteles ahora</span>
+                      <span class="fw-semibold small">Ahora no</span>
                     </label>
                   </div>
                   <div class="col-6 col-md-3">
                     <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
                       <input class="form-check-input visually-hidden wizard-artnow-radio" type="radio" name="artwork_request_now" value="REQUEST">
                       <i class="fa fa-paper-plane d-block fs-3 mb-2 text-dark"></i>
-                      <span class="fw-semibold small">Solicitar carteles a diseño</span>
+                      <span class="fw-semibold small">Sí, solicitarlos</span>
                     </label>
                   </div>
                 </div>
@@ -982,13 +1004,33 @@
 
           {# ============================ PASO 10 (direct) · Gira + # ============================ #}
           <section class="wizard-step" data-step="10" data-mode="direct">
+            {# ⚠️ PRIMERO SÍ O NO. Con veinte giras y ciclos, la rejilla entera era un muro: se
+               pregunta si forma parte de alguno y solo entonces se enseñan para elegir. #}
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-route"></i>¿Forma parte de una gira comprada, ciclo o festival?</div>
-              <div class="wizard-card__hint">Opcional. Vincúlalo para agruparlo y compartir su producción general.</div>
+              <div class="row g-3">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-group-radio" type="radio" name="wizard_in_group" value="0" checked>
+                    <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i><span class="fw-semibold small">No</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-group-radio" type="radio" name="wizard_in_group" value="1">
+                    <i class="fa fa-layer-group d-block fs-3 mb-2 text-dark"></i><span class="fw-semibold small">Sí</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="wizard-card d-none" data-wz-panel id="wizardGroupPanel">
+              <div class="wizard-card__title"><i class="fa fa-layer-group"></i>¿A cuál?</div>
+              <div class="wizard-card__hint">Se agrupa con ella y comparten la producción general.</div>
               <input type="hidden" name="wizard_purchased_tour_id" id="wizard_purchased_tour_id">
               <input type="hidden" name="wizard_cycle_festival_id" id="wizard_cycle_festival_id">
               <div class="row g-2">
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md-3 d-none">
                   <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
                     <input class="form-check-input visually-hidden" type="radio" name="wizard_group_ref" value="" checked>
                     <i class="fa fa-ban d-block fs-3 mb-2 text-muted"></i><span class="fw-semibold small">No pertenece</span>
@@ -1775,27 +1817,42 @@
       if(step === 10){ renderTagSuggestions(); }
     }
 
-    /* ---- SUJETO: artista o EVENTO (un evento funciona igual que un artista) ---- */
-    function subjectKind(){
-      const r = document.querySelector('.wizard-subject-radio:checked');
-      return r ? r.value : 'ARTIST';
+    /* ---- DE QUIÉN ES: artistas y EVENTOS en el MISMO selector, varios a la vez ----
+       Lo elegido se reparte en los campos que el servidor ya espera: los artistas en `artist_id`
+       (múltiple) y el evento en `event_id`. `subject_kind` sigue existiendo para el backend: es
+       EVENT solo cuando lo único elegido es un evento. */
+    function subjectPicked(){
+      const sel = document.getElementById('wizard_subject_ids');
+      if(!sel) return { artists: [], events: [] };
+      const vals = Array.prototype.map.call(sel.selectedOptions || [], o => o.value || '');
+      return {
+        artists: vals.filter(v => v.indexOf('artist:') === 0).map(v => v.slice(7)),
+        events: vals.filter(v => v.indexOf('event:') === 0).map(v => v.slice(6)),
+      };
     }
-    function syncSubject(){
-      const esEvento = subjectKind() === 'EVENT';
-      const panelA = document.getElementById('wizardSubjectArtist');
-      const panelE = document.getElementById('wizardSubjectEvent');
-      if(!panelA || !panelE) return;
-      panelA.classList.toggle('d-none', esEvento);
-      panelE.classList.toggle('d-none', !esEvento);
-      // Solo el que esté a la vista es obligatorio (y el oculto no viaja al enviar).
+    function subjectKind(){
+      const p = subjectPicked();
+      return (p.events.length && !p.artists.length) ? 'EVENT' : 'ARTIST';
+    }
+    function syncSubjectPick(){
+      const p = subjectPicked();
       const selA = document.getElementById('wizard_artist_id');
       const selE = document.getElementById('wizard_event_id');
-      if(selA) selA.required = !esEvento;
-      if(selE) selE.required = esEvento;
-      if(esEvento) initEventSearch();
+      const kind = document.getElementById('wizard_subject_kind');
+      if(selA){
+        Array.prototype.forEach.call(selA.options, o => { o.selected = p.artists.indexOf(o.value) >= 0; });
+      }
+      if(selE) selE.value = p.events[0] || '';
+      if(kind) kind.value = subjectKind();
+      // Lo que depende del artista: sus etiquetas, sus giras y su repertorio.
+      try { filterTourCards(); } catch(e) {}
+      try { fetchArtistMeta(); } catch(e) {}
     }
+    function syncSubject(){ syncSubjectPick(); }
+    // ⚠️ El evento ya NO tiene su propio buscador: se elige en el MISMO selector que los artistas.
+    // Esta función se conserva por si alguna pantalla la llama, pero no hace nada.
     let eventSearchReady = false;
-    function initEventSearch(){
+    function initEventSearchLegacy(){
       const sel = document.getElementById('wizard_event_id');
       if(!sel || eventSearchReady || !window.jQuery || !jQuery.fn.select2) return;
       eventSearchReady = true;
@@ -1817,10 +1874,14 @@
         templateResult: fmt, templateSelection: fmt, escapeMarkup:function(m){ return m; }
       });
     }
-    document.querySelectorAll('.wizard-subject-radio').forEach(function(r){
-      r.addEventListener('change', syncSubject);
-    });
-    syncSubject();
+    // Al cambiar lo elegido (artistas y/o evento) se reparte a los campos del servidor.
+    (function(){
+      const sel = document.getElementById('wizard_subject_ids');
+      if (!sel) return;
+      sel.addEventListener('change', syncSubjectPick);
+      try { if (window.jQuery) jQuery(sel).on('change', syncSubjectPick); } catch(e) {}
+    })();
+    syncSubjectPick();
 
     function syncMode(){
       const checked = document.querySelector('input[name="wizard_mode_choice"]:checked');
@@ -2108,6 +2169,7 @@
       }));
     }
 
+    bindPanelRadio('.wizard-group-radio', 'wizardGroupPanel', '1');
     bindPanelRadio('.wizard-sings-radio', 'wizardSingsPanel', '1');
     bindPanelRadio('.wizard-formation-radio', 'wizardFormationPlusWrap', 'PLUS');
     bindPanelRadio('.wizard-pc-radio', 'wizardPromoterCostsPanel', '1');
@@ -2190,12 +2252,18 @@
     });
 
     /* Cartelería: nosotros/promotor + solicitar ahora o después. */
+    /* Cartelería: primero QUIÉN la hace (o si no hay cartel) y, solo si la hacemos nosotros, el
+       bocadillo de pedirla a diseño. ⚠️ Al mostrar un panel se rehabilitan sus campos
+       (`wizardPanelShow`): si no, los que se deshabilitaron en un envío anterior siguen muertos. */
     function syncArtwork(){
       const maker = document.querySelector('.wizard-artmaker-radio:checked')?.value || 'OURS';
-      document.getElementById('wizardArtworkOursWrap')?.classList.toggle('d-none', maker !== 'OURS');
+      wizardPanelShow(document.getElementById('wizardArtworkOursWrap'), maker === 'OURS');
       const now = document.querySelector('.wizard-artnow-radio:checked')?.value || 'LATER';
-      document.getElementById('wizardArtworkRequestPanel')?.classList.toggle('d-none', !(maker === 'OURS' && now === 'REQUEST'));
-      const choice = maker === 'PROMOTER' ? 'PROMOTER' : (now === 'REQUEST' ? 'REQUEST' : '');
+      wizardPanelShow(document.getElementById('wizardArtworkRequestPanel'), maker === 'OURS' && now === 'REQUEST');
+      // NONE = no hay cartel; PROMOTER = lo hace el promotor; REQUEST = se le pide a diseño.
+      const choice = (maker === 'NONE') ? 'NONE'
+                   : (maker === 'PROMOTER') ? 'PROMOTER'
+                   : (now === 'REQUEST' ? 'REQUEST' : '');
       document.getElementById('wizard_artwork_choice').value = choice;
     }
     document.querySelectorAll('.wizard-artmaker-radio, .wizard-artnow-radio').forEach(r => r.addEventListener('change', syncArtwork));
@@ -2837,18 +2905,25 @@
         // el sujeto puesto en EVENTO y el evento ya elegido, no con un artista que no existe.
         var opt = sel ? sel.querySelector('option[value="' + artistId + '"]') : null;
         var eventId = params.get('wizard_event') || (opt ? '' : (window.__wzAgendaEventId || ''));
+        // Artistas y eventos van en el MISMO selector: se marca la opción que toque («artist:…» o
+        // «event:…») y `syncSubjectPick` reparte lo demás.
+        var selSub = document.getElementById('wizard_subject_ids');
         if (!opt && eventId) {
-          var rEv = document.querySelector('.wizard-subject-radio[value="EVENT"]');
-          if (rEv) { rEv.checked = true; rEv.dispatchEvent(new Event('change', { bubbles: true })); }
-          var selEv = document.getElementById('wizard_event_id');
-          if (selEv) {
-            if (!selEv.querySelector('option[value="' + eventId + '"]')) {
-              var o = document.createElement('option'); o.value = eventId;
-              o.textContent = params.get('wizard_event_name') || 'Evento'; selEv.appendChild(o);
+          if (selSub) {
+            var valEv = 'event:' + eventId;
+            if (!selSub.querySelector('option[value="' + valEv + '"]')) {
+              var oe = document.createElement('option'); oe.value = valEv;
+              oe.textContent = params.get('wizard_event_name') || 'Evento'; selSub.appendChild(oe);
             }
-            selEv.value = eventId;
-            try { if (window.jQuery) jQuery(selEv).trigger('change'); } catch (e) {}
+            try { if (window.jQuery && jQuery(selSub).data('select2')) jQuery(selSub).val([valEv]).trigger('change');
+                  else { Array.prototype.forEach.call(selSub.options, function(o){ o.selected = (o.value === valEv); });
+                         selSub.dispatchEvent(new Event('change', { bubbles: true })); } } catch (e) {}
           }
+        } else if (selSub) {
+          var valArt = 'artist:' + artistId;
+          try { if (window.jQuery && jQuery(selSub).data('select2')) jQuery(selSub).val([valArt]).trigger('change');
+                else { Array.prototype.forEach.call(selSub.options, function(o){ o.selected = (o.value === valArt); });
+                       selSub.dispatchEvent(new Event('change', { bubbles: true })); } } catch (e) {}
         } else if (sel) {
           if (window.jQuery && jQuery(sel).data('select2')) jQuery(sel).val([artistId]).trigger('change');
           else { Array.prototype.forEach.call(sel.options, function (o) { if (o.value === artistId) o.selected = true; }); }

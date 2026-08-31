@@ -2018,8 +2018,7 @@ def artist_detail_view(artist_id):
 
         concerts = q.order_by(Concert.date.asc()).all()
         # Fuera de Contratación/dirección, las actividades en borrador/habladas NO aparecen en las
-        # listas ricas de la ficha (sí en su pestaña Agenda, como «Reserva — consultar con
-        # Contratación»); vuelven a verse al pasar a RESERVADO/CONFIRMADO.
+        # listas ricas de la ficha; vuelven a verse al pasar a CONFIRMADO.
         if not _user_sees_unconfirmed_activities():
             concerts = [c for c in concerts if (c.status or "").upper() not in _CONCERT_PRIVATE_STATUSES]
 
@@ -89517,9 +89516,12 @@ def _ensure_production_request_for_concert(session_db, concert):
 def _production_concert_row(session_db, concert):
     artists = _artists_from_ids(session_db, _concert_primary_artist_ids(concert))
     venue = getattr(concert, "venue", None)
-    # Actividad AÚN sin reservar/confirmar (borrador/hablada): fuera de Contratación/dirección se
+    # Actividad AÚN SIN CONFIRMAR (borrador, hablada o reservada): fuera de Contratación/dirección se
     # muestra solo como «Reserva — consultar con Contratación», sin detalles ni enlace a la ficha.
-    if (getattr(concert, "status", "") or "").upper() in _CONCERT_PRIVATE_STATUSES and not _user_sees_unconfirmed_activities():
+    # ⚠️ Salvo para QUIEN LA PRODUCE: con la producción activada es su trabajo y la ve entera.
+    if ((getattr(concert, "status", "") or "").upper() in _CONCERT_PRIVATE_STATUSES
+            and not _concert_visible_unconfirmed(concert,
+                                                 full_details=_user_sees_unconfirmed_activities())):
         return {
             "kind": "CONCERT",
             "id": str(concert.id),
@@ -114989,8 +114991,8 @@ def public_invitation_request_resend(token, request_id):
 # (por defecto las próximas 2 semanas) y las normaliza a un mismo formato para pintarlas en un
 # calendario visual. Tipos: conciertos/festivales/eventos (Concert), acciones (CompanyAction),
 # promoción en medios (MediaPromotionRecord) y lanzamientos (Album/Song). Los conciertos en
-# BORRADOR/HABLADO solo se ven al completo con full_details (Contratación/dirección); para el
-# resto aparecen como «Reserva — consultar con Contratación». En Inicio el color va por ARTISTA;
+# Lo que NO está confirmado (borrador, hablada o reservada) solo lo ven Contratación/dirección
+# (`full_details`) y quien la produce; para el resto NO aparece. En Inicio el color va por ARTISTA;
 # en la ficha del artista, por TIPO de actividad.
 
 # COLORES de los calendarios (uno por artista) — ninguno se repite, ni ahora ni cuando se creen más.
@@ -115142,15 +115144,30 @@ def _agenda_status_meta(code: str | None) -> tuple[str, str]:
     return table.get(code, ("", ""))
 
 
-# Estados de actividad PREVIOS a la reserva: sus detalles solo los ven Contratación y dirección;
-# el resto de la oficina (y los calendarios externos) ven «Reserva — consultar con Contratación»
-# hasta que la actividad pase a RESERVADO o CONFIRMADO.
-_CONCERT_PRIVATE_STATUSES = {"BORRADOR", "HABLADO"}
+# ⚠️⚠️ Lo que TODAVÍA NO ESTÁ CONFIRMADO es de CONTRATACIÓN: una reserva puede caerse, y el resto de
+# la oficina dando por hecho un concierto que aún se está hablando genera más ruido que información.
+# Solo lo ven CONTRATACIÓN y DIRECCIÓN — y, si la producción está activada, quien la produce (eso se
+# decide por ACTIVIDAD, no por sección: ver `_concert_visible_unconfirmed`).
+_CONCERT_PRIVATE_STATUSES = {"BORRADOR", "HABLADO", "RESERVADO"}
+
+
+def _concert_visible_unconfirmed(concert, *, full_details: bool = False, user_id=None) -> bool:
+    """¿Puede ver ESTA actividad sin confirmar quien está mirando?
+
+    Contratación y dirección ven todas (`full_details`); además, quien la PRODUCE la ve en cuanto se
+    le ha activado la producción, aunque siga sin confirmarse: es su trabajo."""
+    if full_details:
+        return True
+    uid = str(user_id or (_current_user_state() or {}).get("user_id") or "")
+    if not uid:
+        return False
+    return (str(getattr(concert, "production_owner_user_id", "") or "") == uid
+            and bool(getattr(concert, "production_activated_at", None)))
 
 
 def _user_sees_unconfirmed_activities() -> bool:
-    """¿El usuario actual ve al completo las actividades en BORRADOR/HABLADO? Solo CONTRATACIÓN
-    (acceso a la sección) y DIRECCIÓN (role 10)."""
+    """¿El usuario actual ve al completo las actividades sin confirmar (borrador, hablada o
+    reservada)? Solo CONTRATACIÓN (acceso a la sección) y DIRECCIÓN (role 10)."""
     try:
         state = _current_user_state()
         if int(state.get("role") or 0) == 10:
@@ -115521,10 +115538,11 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
     target_ids: iterable de UUIDs de artista a incluir, o None/vacío = TODOS los artistas.
     Devuelve dict serializable con `activities`, `artists` (con color), `kinds` presentes y fechas.
 
-    full_details: True solo para CONTRATACIÓN y dirección (ver `_user_sees_unconfirmed_activities`):
-    las actividades en BORRADOR/HABLADO se muestran al completo. Con False (resto de la oficina,
-    calendarios públicos/iCal/CalDAV) esas fechas aparecen como «Reserva — consultar con
-    Contratación», sin detalles ni enlace, hasta pasar a RESERVADO/CONFIRMADO.
+    full_details: True solo para CONTRATACIÓN y dirección (ver `_user_sees_unconfirmed_activities`).
+    ⚠️⚠️ Lo que TODAVÍA NO ESTÁ CONFIRMADO (borrador, hablada o **reservada**) **no se pinta** para
+    el resto de la oficina ni en los calendarios públicos/iCal/CalDAV: una reserva puede caerse y ese
+    día no está ocupado. Quien SÍ la ve (contratación, dirección y quien la produce con la producción
+    activada) la ve RAYADA —`tentative`—, con el color de su artista.
     """
     target = {str(x) for x in target_ids} if target_ids else None
 
@@ -115543,6 +115561,12 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         .filter(Concert.date >= start_date, Concert.date <= end_date)
         .all()
     )
+    # Quién está mirando: hace falta para saber si PRODUCE alguna de las actividades sin confirmar
+    # (esas las ve aunque no sea de contratación). Se resuelve una vez, no una por actividad.
+    try:
+        _agenda_viewer_id = str((_current_user_state() or {}).get("user_id") or "")
+    except Exception:
+        _agenda_viewer_id = ""
     for c in concerts:
         ids = []
         if c.artist_id:
@@ -115556,17 +115580,12 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         kind = "concierto" if at in ("CONCIERTO", "") else ("festival" if at == "FESTIVAL" else "evento")
         primary = ids[0] if ids else ""
         seen_artist_ids.update(ids)
-        # Actividades AÚN sin reservar/confirmar: solo Contratación/dirección las ven al completo;
-        # para el resto la fecha queda bloqueada como «Reserva — consultar con Contratación».
-        if (c.status or "").upper() in _CONCERT_PRIVATE_STATUSES and not full_details:
-            raw.append((ids, {
-                "kind": kind, "date": c.date.isoformat() if c.date else "",
-                "title": "Reserva", "subtitle": "Consultar con Contratación",
-                "artist_id": primary,
-                "status_label": "", "status_class": "",
-                "cover_url": "",
-                "url": "",
-            }))
+        # ⚠️⚠️ Actividades AÚN SIN CONFIRMAR (borrador, hablada o reservada): las ven CONTRATACIÓN y
+        # DIRECCIÓN —y quien la produce, si ya se le activó la producción—. Para el resto **NO
+        # aparecen en el calendario**: una reserva puede caerse y el día no está ocupado todavía.
+        sin_confirmar = (c.status or "").upper() in _CONCERT_PRIVATE_STATUSES
+        if sin_confirmar and not _concert_visible_unconfirmed(c, full_details=full_details,
+                                                              user_id=_agenda_viewer_id):
             continue
         slabel, sclass = _agenda_status_meta(c.status)
         venue = c.venue
@@ -115584,6 +115603,9 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
             "artist_id": primary,
             "status_label": slabel, "status_class": sclass,
             "cover_url": "",
+            # ⚠️ Sin confirmar se pinta RAYADO, **con el color de su artista** (no con otro color):
+            # sigue siendo su calendario, solo que la fecha todavía no está cerrada.
+            "tentative": bool(sin_confirmar),
             "url": url_for("concert_detail_view", cid=c.id),
         }))
 

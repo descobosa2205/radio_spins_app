@@ -378,6 +378,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Los endpoints (`artist_calendar_import_*`) se mapean a **`artists.agenda`** en los DOS mapeos, y
   exigen `can_edit_artists_stations()`.
 
+- ⚠️⚠️ **LO QUE NO ESTÁ CONFIRMADO ES DE CONTRATACIÓN** (ago 2026). Una **reserva puede caerse**, y
+  el resto de la oficina dando por ocupado un día que todavía se está hablando genera más ruido que
+  información. Por eso **RESERVADO entra en `_CONCERT_PRIVATE_STATUSES`** (con BORRADOR y HABLADO):
+  · lo ven **CONTRATACIÓN** y **DIRECCIÓN** (`_user_sees_unconfirmed_activities`);
+  · y **quien la PRODUCE**, en cuanto se le ha activado la producción, aunque siga sin confirmarse
+    (es su trabajo). Eso se decide **por ACTIVIDAD**, no por sección: punto único
+    **`_concert_visible_unconfirmed(concert, full_details=, user_id=)`**;
+  · **para el resto NO aparece en el calendario**. ⚠️ Antes se pintaba como «Reserva — consultar con
+    Contratación», ocupando el día: ahora directamente **no se pinta** (lo pidió así dirección).
+  · Quien SÍ la ve, la ve **RAYADA pero CON EL COLOR DE SU ARTISTA** (`tentative` en el ítem →
+    `.agenda-event.is-tentative`): las rayas se hacen con blanco translúcido **encima** del color
+    (`--c`), así valen para cualquier calendario y no hay que inventar un color aparte. Sigue siendo
+    su calendario, solo que la fecha no está cerrada. Al pasar el ratón lo dice.
+  ⚠️ El mismo criterio vale en el **listado de Producción** (`_production_concert_row`) y en las
+  listas ricas de la ficha del artista: los tres miran la MISMA lista de estados.
+  ⚠️ En los calendarios **públicos, iCal y CalDAV** no se pinta nada sin confirmar (van con
+  `full_details=False` y sin sesión).
+  Probado con la app real: dirección ve las cuatro (tres rayadas) · quien produce una reservada ve
+  esa y las confirmadas · promoción solo las confirmadas · el calendario público, solo lo confirmado.
+
 - **Calendario de agenda (Inicio + pestaña «Agenda» del artista)**: componente reutilizable
   `_agenda_build` (`app.py`, reúne conciertos/acciones/medios/lanzamientos en un formato común; conciertos
   en BORRADOR fuera) + `templates/_agenda_calendar.html` + `static/js/agenda_calendar.js` + estilos

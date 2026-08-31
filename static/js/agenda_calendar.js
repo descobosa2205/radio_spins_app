@@ -345,9 +345,13 @@
     function makeChip(a) {
       // Bloqueos y notas no navegan: se pintan como <span>; el resto (eventos, cumpleaños) enlazan.
       var hasUrl = !!a.url;
-      var chip = el(hasUrl ? 'a' : 'span', 'agenda-event' + (a.kind === 'bloqueo' ? ' agenda-event--block' : ''));
+      var chip = el(hasUrl ? 'a' : 'span', 'agenda-event' + (a.kind === 'bloqueo' ? ' agenda-event--block' : '')
+                    + (a.tentative ? ' is-tentative' : ''));
       if (hasUrl) chip.href = a.url; else chip.style.cursor = 'default';
       chip.style.setProperty('--c', colorOf(a));
+      // ⚠️ Sin confirmar: RAYADO, pero con el color de su artista (no con otro color): sigue siendo
+      // su calendario, solo que la fecha todavía no está cerrada.
+      if (a.tentative) chip.title = 'Todavía sin confirmar';
       var inner = '';
       // En Inicio (multi-artista) se anteponen las fotos de los artistas para identificarlos de un
       // vistazo. Si la actividad tiene VARIOS, se apilan (máx. 3 + «+N»).
@@ -383,8 +387,10 @@
     // contL/contR = si el evento continúa antes/después de esta semana (corta el redondeo del borde).
     function makeBar(a, seg) {
       var hasUrl = !!a.url;
-      var bar = el(hasUrl ? 'a' : 'span', 'agenda-event agenda-event--bar' + (a.kind === 'bloqueo' ? ' agenda-event--block' : ''));
+      var bar = el(hasUrl ? 'a' : 'span', 'agenda-event agenda-event--bar' + (a.kind === 'bloqueo' ? ' agenda-event--block' : '')
+                   + (a.tentative ? ' is-tentative' : ''));
       if (hasUrl) bar.href = a.url; else bar.style.cursor = 'default';
+      if (a.tentative) bar.title = 'Todavía sin confirmar';
       if (seg.contL) bar.classList.add('is-cont-l');
       if (seg.contR) bar.classList.add('is-cont-r');
       bar.style.setProperty('--c', colorOf(a));

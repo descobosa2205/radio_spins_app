@@ -50661,6 +50661,17 @@ def concert_detail_view(cid):
                        "produccion", "resultado", "promocion", "marketing", "fotos", "repertorio"}:
             tab = "general"
 
+        # ⚠️⚠️ LO QUE NO ESTÁ CONFIRMADO ES DE CONTRATACIÓN. Una reserva puede caerse, así que su
+        # ficha la abren solo CONTRATACIÓN y DIRECCIÓN —y QUIEN LA PRODUCE, en cuanto se le ha
+        # activado la producción, aunque siga sin confirmarse: es su trabajo—. Es el MISMO punto
+        # único que decide si se pinta en el calendario y en el listado de Producción
+        # (`_concert_visible_unconfirmed`), así que no se pueden desparejar: lo que se ve, se abre.
+        if ((getattr(c, "status", "") or "").upper() in _CONCERT_PRIVATE_STATUSES
+                and not _concert_visible_unconfirmed(
+                    c, full_details=_user_sees_unconfirmed_activities())):
+            return forbid("Esta actividad todavía no está confirmada: la llevan Contratación y "
+                          "dirección. En cuanto se confirme la verás aquí.")
+
         sheet = c.contract_sheet
         contract_sheet_data = _contract_sheet_prefill(c, sheet) if sheet else {}
         # Siempre calculadas (con {} si aún no hay sheet) para poder previsualizar en la solicitud.
@@ -53206,6 +53217,44 @@ def _promoter_social_links_from_form(form) -> dict:
     return out
 
 
+def _quick_create_representative(session_db, empresa):
+    """Crea el REPRESENTANTE de una empresa (otro tercero) y lo VINCULA con ella. Punto único.
+
+    Los dos terceros se crean en la misma operación: el representante es una PERSONA con su nombre,
+    su DNI, su correo y su teléfono, y queda vinculado a la empresa con la relación «Representante».
+    ⚠️ La vinculación (`ThirdPartyLink`) es BIDIRECCIONAL: se ve en la ficha de los dos.
+    Si no se rellena nada del representante, no se crea nada."""
+    form = request.form
+    nombre_completo = (form.get("rep_full_name") or "").strip()
+    dni = (form.get("rep_tax_id") or "").strip()
+    email = (form.get("rep_email") or "").strip()
+    telefono = (form.get("rep_phone") or "").strip()
+    if not any((nombre_completo, dni, email, telefono)):
+        return None
+    nombre, apellidos = _split_full_name(nombre_completo)
+    # ⚠️ `Promoter.nick` es UNIQUE: `_intake_unique_nick` le busca uno libre.
+    base = nombre_completo or dni or email or ("Representante de %s" % (empresa.nick or ""))
+    rep = Promoter(
+        nick=_intake_unique_nick(session_db, base),
+        first_name=nombre or None,
+        last_name=apellidos or None,
+        tax_id=dni or None,
+        contact_email=email or None,
+        contact_phone=telefono or None,
+    )
+    session_db.add(rep)
+    session_db.flush()
+    session_db.add(ThirdPartyLink(
+        source_type="promoter", source_id=empresa.id,
+        target_type="promoter", target_id=rep.id,
+        relation_title="Representante",
+        is_active=True,
+        created_by_user_id=_safe_uuid(session.get("user_id")),
+        created_by_nick=_current_user_email(),
+    ))
+    return rep
+
+
 @app.post("/api/promoters/create", endpoint="api_create_promoter")
 @admin_required
 def api_create_promoter():
@@ -53213,8 +53262,13 @@ def api_create_promoter():
     try:
         nick = (request.form.get("nick") or "").strip()
         contact_email = (request.form.get("contact_email") or "").strip()
+        # ⚠️ Todo es OPCIONAL menos saber cómo se llama: si no se pone nick, se usa el nombre de la
+        # empresa (o el nombre completo de la persona), que es como se la va a reconocer.
         if not nick:
-            return jsonify({"error": "El nick del tercero es obligatorio."}), 400
+            nick = ((request.form.get("legal_name") or "").strip()
+                    or (request.form.get("full_name") or "").strip())
+        if not nick:
+            return jsonify({"error": "Dinos al menos cómo se llama (nick o nombre)."}), 400
         force_new = _truthy(request.form.get("force_new"))
         rows = []
         for row in session.query(Promoter).order_by(Promoter.nick.asc()).all():
@@ -53246,8 +53300,21 @@ def api_create_promoter():
             kind=kind,
             social_links=_promoter_social_links_from_form(request.form),
         )
+        # EL NOMBRE DE LA EMPRESA (su razón social) y, en una persona, su nombre y apellidos: el
+        # `nick` es como la llamamos nosotros. De aquí lo coge `_billing_name`.
+        if kind:
+            p.legal_name = (request.form.get("legal_name") or "").strip() or None
+        else:
+            nombre, apellidos = _split_full_name(request.form.get("full_name") or "")
+            p.first_name = nombre or None
+            p.last_name = apellidos or None
+        _apply_fiscal_address(p, _fiscal_form_values(request.form))
         session.add(p)
         session.flush()
+        # ⚠️ EL REPRESENTANTE de una empresa es OTRO TERCERO: se crean los dos en la misma operación
+        # y quedan VINCULADOS entre sí (la vinculación es bidireccional, así que se ve en las dos
+        # fichas). Si no se rellena nada, no se crea nada.
+        representante = _quick_create_representative(session, p) if kind else None
         linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
         session.commit()
         return jsonify(
@@ -53264,6 +53331,9 @@ def api_create_promoter():
                 "social_links": (p.social_links or {}),
                 "companies": [],
                 "active_embargos_linked": linked_embargos,
+                "legal_name": (p.legal_name or ""),
+                "representative": ({"id": str(representante.id), "nick": representante.nick}
+                                   if representante is not None else None),
             }
         )
 
@@ -88639,6 +88709,81 @@ def _venue_label(venue, fallback=None):
     return (fallback or "").strip()
 
 
+PROMOTER_REPRESENTATIVE_WORD = "represent"
+
+
+def _promoter_representatives(session_db, promoter_id) -> list:
+    """Los terceros vinculados a este como REPRESENTANTES (la relación lleva esa palabra).
+
+    ⚠️ La vinculación es bidireccional (`ThirdPartyLink` se guarda en un solo sentido pero vale para
+    los dos), así que se mira en las DOS orientaciones."""
+    pid = _safe_uuid(promoter_id)
+    if not pid:
+        return []
+    try:
+        filas = (session_db.query(ThirdPartyLink)
+                 .filter(ThirdPartyLink.is_active.is_(True))
+                 .filter(func.lower(func.coalesce(ThirdPartyLink.relation_title, ""))
+                         .contains(PROMOTER_REPRESENTATIVE_WORD))
+                 .filter(or_(and_(ThirdPartyLink.source_type == "promoter", ThirdPartyLink.source_id == pid),
+                             and_(ThirdPartyLink.target_type == "promoter", ThirdPartyLink.target_id == pid)))
+                 .all())
+    except Exception:
+        app.logger.exception("[terceros] no se pudo leer el representante")
+        return []
+    otros = []
+    for fila in filas:
+        otro = (fila.target_id if str(fila.source_id) == str(pid) else fila.source_id)
+        tipo = (fila.target_type if str(fila.source_id) == str(pid) else fila.source_type)
+        if (tipo or "").strip().lower() != "promoter" or not otro:
+            continue
+        rep = session_db.get(Promoter, otro)
+        if rep is not None:
+            otros.append(rep)
+    return otros
+
+
+def _promoter_contact_line(promoter) -> str:
+    """Correo y teléfono de un tercero, en una línea (lo que hace falta para llamarle)."""
+    correo, telefono = _promoter_email_phone(promoter)
+    return " · ".join([x for x in ((correo or "").strip(), (telefono or "").strip()) if x])
+
+
+def _promoter_info_rows(session_db, promoter, *, prefijo: str = "Promotor") -> list:
+    """Los datos de un tercero para la FICHA DE CONTRATACIÓN: lo que se rellenó al darlo de alta.
+
+    Se enseña lo que hay y nada más (un campo vacío no se pinta), y de una EMPRESA se dice también
+    quién la REPRESENTA, que es con quien se habla."""
+    if promoter is None:
+        return []
+    filas = []
+    es_empresa = bool((getattr(promoter, "kind", None) or "").strip())
+    nombre = (getattr(promoter, "legal_name", None) or "").strip()
+    if not nombre and not es_empresa:
+        nombre = " ".join(x for x in ((getattr(promoter, "first_name", None) or "").strip(),
+                                      (getattr(promoter, "last_name", None) or "").strip()) if x).strip()
+    if nombre and nombre.lower() != (promoter.nick or "").strip().lower():
+        filas.append((("Nombre de la empresa" if es_empresa else "Nombre completo"), nombre))
+    if (getattr(promoter, "tax_id", None) or "").strip():
+        filas.append((("CIF" if es_empresa else "DNI"), promoter.tax_id.strip()))
+    direccion = _fiscal_address_text(promoter)
+    if direccion:
+        filas.append(("Dirección fiscal", direccion))
+    contacto = _promoter_contact_line(promoter)
+    if contacto:
+        filas.append(("Contacto", contacto))
+    for rep in _promoter_representatives(session_db, getattr(promoter, "id", None)):
+        detalle = " · ".join([x for x in [
+            (" ".join(y for y in ((rep.first_name or "").strip(), (rep.last_name or "").strip()) if y).strip()
+             or (rep.nick or "").strip()),
+            (rep.tax_id or "").strip(),
+            _promoter_contact_line(rep),
+        ] if x])
+        if detalle:
+            filas.append(("Representante", detalle))
+    return [("%s · %s" % (prefijo, etiqueta), valor) for etiqueta, valor in filas]
+
+
 def _concert_contracting_general_rows(session_db, concert):
     rows = []
 
@@ -88659,6 +88804,10 @@ def _concert_contracting_general_rows(session_db, concert):
         add("Empresa que factura", concert.billing_company.name)
     if getattr(concert, "promoter", None):
         add("Promotor", concert.promoter.nick)
+        # Y SUS DATOS, los que se pusieron al darlo de alta (nombre/razón social, CIF o DNI,
+        # dirección fiscal, contacto y quién lo representa). Un campo vacío no se pinta.
+        for _etiqueta, _valor in _promoter_info_rows(session_db, concert.promoter):
+            add(_etiqueta, _valor)
     if getattr(concert, "promoter_company", None):
         add("Sociedad promotor", getattr(concert.promoter_company, "legal_name", None) or getattr(concert.promoter_company, "name", None))
     if getattr(concert, "show_time_tbc", False):

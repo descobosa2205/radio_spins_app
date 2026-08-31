@@ -92,6 +92,29 @@
       });
   }
 
+
+  /* ── NUEVO TERCERO: EMPRESA o PARTICULAR ────────────────────────────────────────────────────
+     Los datos que hacen falta no son los mismos, así que se enseña un panel u otro.
+     ⚠️ El que NO toca se DESHABILITA, no basta con esconderlo: un campo oculto se envía igual, y
+     como las dos ramas comparten los nombres (`nick`, `tax_id`, la dirección fiscal) se pisarían.
+     ⚠️ Y va por DELEGACIÓN: el modal se puede repintar y hay pantallas que lo incluyen dos veces. */
+  function pintaTipoTercero(zona) {
+    if (!zona) return;
+    var elegido = zona.querySelector('input[name="kind"]:checked');
+    var esEmpresa = !!elegido && (elegido.value || '') === 'empresa';
+    zona.querySelectorAll('[data-qc-when]').forEach(function (panel) {
+      var toca = (panel.getAttribute('data-qc-when') === (esEmpresa ? 'empresa' : 'particular'));
+      panel.classList.toggle('d-none', !toca);
+      panel.querySelectorAll('input,select,textarea').forEach(function (campo) {
+        campo.disabled = !toca;
+      });
+    });
+  }
+  document.addEventListener('change', function (e) {
+    if (!e.target || e.target.name !== 'kind') return;
+    pintaTipoTercero(e.target.closest('[data-qc-promoter]'));
+  });
+
   // Abrir el modal del tipo indicado
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-quick-create]');
@@ -103,6 +126,7 @@
     if (!modalEl || !window.bootstrap) return;
     var form = modalEl.querySelector('.qc-form');
     if (form) { form.reset(); feedback(form, ''); }
+    pintaTipoTercero(modalEl.querySelector('[data-qc-promoter]'));
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
     var first = modalEl.querySelector('input,select,textarea');
     if (first) setTimeout(function () { first.focus(); }, 300);

@@ -3,6 +3,7 @@
         <button type="button" class="btn btn-outline-secondary qc-open" data-quick-create="venue" data-target="X">+</button>
    El helper (quick_create.js) abre el modal, crea la entidad por /api/.../create,
    añade la opción al <select> y la deja seleccionada, sin recargar ni salir del formulario. #}
+{% import '_fiscal_address_fields.html' as fiscal with context %}
 <div class="qc-modals">
 
   <div class="modal fade" id="qcModal-venue" tabindex="-1" aria-hidden="true" data-qc-type="venue">
@@ -32,23 +33,132 @@
     </div></div>
   </div>
 
+  {# ══════════════════════════════════════════════════════════════════════════════════════════
+     NUEVO TERCERO. Lo PRIMERO es qué es —una EMPRESA o un PARTICULAR—, porque los datos que hacen
+     falta no son los mismos. Todo lo demás es opcional: se pone lo que se sepa y el resto se
+     completa luego en su ficha. Lo que se rellene aquí queda GUARDADO en su ficha y se ve en la
+     ficha de contratación de la actividad.
+     ⚠️ De una EMPRESA se puede crear a la vez su REPRESENTANTE: son DOS terceros que se crean en la
+     misma operación y quedan VINCULADOS entre sí (se ven en las dos fichas).
+     ══════════════════════════════════════════════════════════════════════════════════════════ #}
   <div class="modal fade" id="qcModal-promoter" tabindex="-1" aria-hidden="true" data-qc-type="promoter">
-    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"><div class="modal-content">
       <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_promoter') }}">
         <div class="modal-header"><h5 class="modal-title">Nuevo tercero</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
-          <div class="mb-2"><label class="form-label">Nombre / nick *</label><input class="form-control" name="nick" required></div>
-          <div class="mb-2"><label class="form-label">Email de contacto</label><input type="email" class="form-control" name="contact_email"></div>
-          <div class="mb-2"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
-          {# Redes sociales opcionales (útiles p. ej. para mencionar al fotógrafo). #}
-          <div>
-            <button class="btn btn-sm btn-link p-0 text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#qcPromoterSocial"><i class="fa fa-hashtag me-1"></i>Redes sociales (opcional, para menciones)</button>
-            <div class="collapse mt-2" id="qcPromoterSocial">
-              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-instagram"></i></span><input class="form-control" name="social_instagram" placeholder="Instagram (@usuario o URL)"></div>
-              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-tiktok"></i></span><input class="form-control" name="social_tiktok" placeholder="TikTok (@usuario o URL)"></div>
-              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-x-twitter"></i></span><input class="form-control" name="social_twitter" placeholder="X / Twitter (@usuario o URL)"></div>
-              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-facebook"></i></span><input class="form-control" name="social_facebook" placeholder="Facebook (usuario o URL)"></div>
-              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-youtube"></i></span><input class="form-control" name="social_youtube" placeholder="YouTube (canal o URL)"></div>
+          <div class="demo-cards" data-qc-promoter>
+
+            {# ---------- ¿QUÉ ES? ---------- #}
+            <div class="demo-card">
+              <div class="demo-card__head"><i class="fa fa-id-card"></i>¿Qué es?</div>
+              <div class="demo-card__body">
+                <div class="d-flex flex-wrap gap-2">
+                  <label class="invitation-radio-option">
+                    <input type="radio" name="kind" value="empresa" checked>
+                    <i class="fa fa-building"></i><span>Empresa</span>
+                  </label>
+                  <label class="invitation-radio-option">
+                    <input type="radio" name="kind" value="">
+                    <i class="fa fa-user"></i><span>Particular</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {# ---------- EMPRESA ---------- #}
+            <div class="demo-card" data-qc-when="empresa">
+              <div class="demo-card__head"><i class="fa fa-building"></i>Datos de la empresa</div>
+              <div class="demo-card__body">
+                <div class="row g-2">
+                  <div class="col-12 col-md-5">
+                    <label class="form-label">Nick <span class="text-muted small fw-normal">(como la llamamos)</span></label>
+                    <input class="form-control" name="nick" data-qc-nick>
+                  </div>
+                  <div class="col-12 col-md-7">
+                    <label class="form-label">Nombre de la empresa</label>
+                    <input class="form-control" name="legal_name" placeholder="Razón social">
+                  </div>
+                  <div class="col-12 col-md-5">
+                    <label class="form-label">CIF</label>
+                    <input class="form-control" name="tax_id">
+                  </div>
+                  {{ fiscal.fields() }}
+                </div>
+              </div>
+            </div>
+
+            {# ---------- SU REPRESENTANTE (otro tercero, vinculado) ---------- #}
+            <div class="demo-card" data-qc-when="empresa">
+              <div class="demo-card__head"><i class="fa fa-user-tie"></i>Representante</div>
+              <div class="demo-card__body">
+                <div class="form-text mb-2">Se crea como otro tercero y queda vinculado a la empresa.</div>
+                <div class="row g-2">
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Nombre completo</label>
+                    <input class="form-control" name="rep_full_name">
+                  </div>
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">DNI</label>
+                    <input class="form-control" name="rep_tax_id">
+                  </div>
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-control" name="rep_email">
+                  </div>
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Teléfono</label>
+                    <input class="form-control" name="rep_phone">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {# ---------- PARTICULAR ---------- #}
+            <div class="demo-card" data-qc-when="particular">
+              <div class="demo-card__head"><i class="fa fa-user"></i>Datos de la persona</div>
+              <div class="demo-card__body">
+                <div class="row g-2">
+                  <div class="col-12 col-md-5">
+                    <label class="form-label">Nick <span class="text-muted small fw-normal">(como la llamamos)</span></label>
+                    <input class="form-control" name="nick" data-qc-nick>
+                  </div>
+                  <div class="col-12 col-md-7">
+                    <label class="form-label">Nombre completo</label>
+                    <input class="form-control" name="full_name">
+                  </div>
+                  <div class="col-12 col-md-5">
+                    <label class="form-label">DNI</label>
+                    <input class="form-control" name="tax_id">
+                  </div>
+                  <div class="col-12 col-md-7">
+                    <label class="form-label">Teléfono</label>
+                    <input class="form-control" name="contact_phone">
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-control" name="contact_email">
+                  </div>
+                  {{ fiscal.fields() }}
+                </div>
+              </div>
+            </div>
+
+            {# ---------- LO DE SIEMPRE ---------- #}
+            <div class="demo-card">
+              <div class="demo-card__head"><i class="fa fa-image"></i>Foto o logo</div>
+              <div class="demo-card__body">
+                <input type="file" class="form-control" name="logo" accept="image/*">
+                <div class="mt-2">
+                  <button class="btn btn-sm btn-link p-0 text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#qcPromoterSocial"><i class="fa fa-hashtag me-1"></i>Redes sociales (opcional, para menciones)</button>
+                  <div class="collapse mt-2" id="qcPromoterSocial">
+                    <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-instagram"></i></span><input class="form-control" name="social_instagram" placeholder="Instagram (@usuario o URL)"></div>
+                    <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-tiktok"></i></span><input class="form-control" name="social_tiktok" placeholder="TikTok (@usuario o URL)"></div>
+                    <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-x-twitter"></i></span><input class="form-control" name="social_twitter" placeholder="X / Twitter (@usuario o URL)"></div>
+                    <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-facebook"></i></span><input class="form-control" name="social_facebook" placeholder="Facebook (usuario o URL)"></div>
+                    <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-youtube"></i></span><input class="form-control" name="social_youtube" placeholder="YouTube (canal o URL)"></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="qc-feedback mt-2"></div>

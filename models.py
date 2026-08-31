@@ -1733,6 +1733,10 @@ class Promoter(Base):
     # Datos ampliados (autores / beneficiarios / etc.)
     first_name = Column(Text)
     last_name = Column(Text)
+    # EL NOMBRE DE LA EMPRESA (su razón social), cuando el tercero es una empresa o una institución:
+    # el `nick` es como la llamamos nosotros y esto es con lo que factura. De aquí lo coge
+    # `_billing_name`, que es lo que se manda a Holded y sale en los documentos.
+    legal_name = Column(Text)
     tax_id = Column(Text)
     contact_email = Column(Text)
     contact_phone = Column(Text)
@@ -8435,6 +8439,8 @@ def ensure_third_party_and_contract_sheet_schema():
 
         # Clasificación del tercero (empresa / institución) para vinculaciones.
         'ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS kind text;',
+        # El NOMBRE DE LA EMPRESA (razón social) del tercero: el nick es como la llamamos.
+        'ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS legal_name text;',
         # Redes sociales del tercero (fotógrafo…) para menciones.
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS social_links jsonb NOT NULL DEFAULT '{}'::jsonb;",
         # Domicilio del tercero (se autorrellena del DNI al darlo de alta; editable).

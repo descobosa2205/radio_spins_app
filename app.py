@@ -68510,7 +68510,7 @@ CURATED_ACCESS_RESOURCES = [
     # ⚠️ La pestaña GASTOS de la ficha de una canción es su BOLSA (la del single, o la de su
     # proyecto discográfico si lo tiene): son IMPORTES, así que tiene su propio permiso en vez de
     # colgar de otro que no venía a cuento.
-    {"key": "discografica.gastos", "label": "Gastos de un lanzamiento", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 142, "description": "Pestaña «Gastos» de la ficha de una canción o un álbum: su bolsa de gastos (la del single, o la del proyecto discográfico que lo prepara). Con «Ver datos económicos» se ven los importes."},
+    {"key": "discografica.gastos", "label": "Gastos de un lanzamiento", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 134, "description": "Pestaña «Gastos» de la ficha de una canción o un álbum: su bolsa de gastos (la del single, o la del proyecto discográfico que lo prepara). Con «Ver datos económicos» se ven los importes."},
     {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 143, "description": "Códigos ISRC: el repertorio de códigos y su configurador. ⚠️ La pantalla vive en REGISTROS → pestaña «ISRC» (el permiso se sigue llamando así a propósito: renombrarlo se llevaría por delante los permisos ya concedidos)."},
 
     {"key": "vacaciones", "label": "Vacaciones y días libres", "section_key": "vacaciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 148, "description": "Vacaciones del personal de la oficina: calendario de toda la oficina, saldo de cada persona, peticiones por aprobar y calendario de festivos. Se concede solo a quien tenga la responsabilidad «Gestionar vacaciones» del reparto de administración."},
@@ -69441,6 +69441,23 @@ def _ensure_user_security(session_db, user: User) -> UserSecurity:
     session_db.add(security)
     session_db.flush()
     return security
+
+
+def _sync_access_resources_for_screen(session_db) -> None:
+    """Pone al día el CATÁLOGO de permisos al abrir una pantalla de Accesos.
+
+    ⚠️⚠️ El catálogo se siembra en un hilo de SEGUNDO PLANO (`_bootstrap_personnel_bg`), así que una
+    función NUEVA puede no estar todavía en la BD y su fila **no sale en Accesos**: no hay forma de
+    concederla y el error que da es de los que no se pueden explicar («la pestaña se ve pero da
+    403»). Aquí cuesta una consulta de ~100 filas y solo escribe lo que falte, así que en cuanto
+    dirección entra a dar permisos el catálogo está al día.
+    Es *best-effort*: si fallara, la pantalla se pinta igual con lo que haya."""
+    try:
+        _sync_access_resources(session_db)
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[accesos] no se pudo poner al día el catálogo de permisos")
 
 
 def _sync_user_access_grants(session_db, user: User, profile: UserProfile):
@@ -84657,6 +84674,8 @@ def personnel_detail_view(user_id):
             return redirect(url_for("personnel_view"))
         profile = _ensure_user_profile(session_db, user, legacy_full_seed=False)
         security = _ensure_user_security(session_db, user)
+        # El catálogo, al día: una función nueva tiene que poder concederse desde aquí.
+        _sync_access_resources_for_screen(session_db)
         _sync_user_access_grants(session_db, user, profile)
         # QUÉ PESTAÑAS puede ver quien mira. Cada una tiene su permiso propio; el contrato y las
         # vacaciones llevan además su regla (administración/dirección, y las suyas siempre).
@@ -84966,6 +84985,7 @@ def personnel_bulk_access():
         return forbid("Solo dirección puede configurar accesos del personal.")
     session_db = db()
     try:
+        _sync_access_resources_for_screen(session_db)
         if request.method == "POST":
             user_ids = [to_uuid(x) for x in request.form.getlist("user_ids") if (x or "").strip()]
             section_keys = [x for x in request.form.getlist("section_keys") if (x or "").strip()]

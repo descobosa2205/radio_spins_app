@@ -7665,3 +7665,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la BD, escribir allí volvería a fallar; cada worker guarda los suyos) con la ruta, el endpoint,
   quién, el tipo de error, el mensaje y la traza, y **dirección** los ve al final de
   **«Configurar notificaciones»**.
+
+- ⚠️⚠️ **EL CATÁLOGO DE PERMISOS SE PONE AL DÍA AL ABRIR ACCESOS** (ago 2026,
+  `_sync_access_resources_for_screen`). Se sembraba **solo** en el hilo de segundo plano
+  (`_bootstrap_personnel_bg`), así que una función NUEVA podía no estar todavía en la BD y **su fila
+  no salía en Accesos**: no había forma de concederla y el error que daba era de los que no se pueden
+  explicar («la pestaña se ve pero da 403»). Ahora se sincroniza también al abrir la **ficha de
+  personal** y los **accesos en bloque** —una consulta de ~100 filas, y solo escribe lo que falte—,
+  que es justo cuando hace falta. Es *best-effort*: si fallara, la pantalla se pinta igual.

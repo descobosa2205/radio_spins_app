@@ -2901,6 +2901,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **LOS ENLACES DE PLATAFORMA van a la IZQUIERDA**, pegados a la portada y **debajo de los
   intérpretes**, igual en los cinco sitios: la ficha de la CANCIÓN, la ficha del ÁLBUM, el PDF, el
   enlace y el correo. Antes en las dos fichas estaban arriba a la derecha (`ficha-hero__actions`).
+  · ⚠️⚠️ **EN EL PDF, `(-1,0)` ES LA ÚLTIMA COLUMNA… Y LA ÚLTIMA CAMBIA** (bug real, sep 2026): la
+  cabecera tiene TRES columnas cuando hay certificaciones (portada · datos · certificaciones) y DOS
+  cuando no. El `('ALIGN', (-1,0), (-1,0), 'RIGHT')` que alineaba las certificaciones a la derecha
+  alineaba, en las canciones SIN certificaciones —o sea, casi todas—, **la columna del título y los
+  ENLACES**: los iconos se iban a la mitad derecha de la hoja. Ahora el ALIGN se pone con el índice
+  EXPLÍCITO (`(2,0)`) y solo cuando esa columna existe.
+  ⚠️ Un `(-1,…)` en una tabla cuyo número de columnas depende de los datos es siempre sospechoso.
+
   · ⚠️ **EN MÓVIL SE MANTIENE LA COMPOSICIÓN**: la cabecera son DOS bloques dentro de una tabla
   exterior (`.lc-top`) —la ficha (portada + título, intérpretes y plataformas) y las
   certificaciones—, así que en una pantalla estrecha solo se apilan ESOS DOS y la ficha conserva la

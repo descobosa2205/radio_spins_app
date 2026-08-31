@@ -10585,14 +10585,19 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
         right_col.extend([Spacer(1, 0.16*cm), platform_links_table])
     # LAS CERTIFICACIONES van a la DERECHA, a la altura de la portada, y son solo las imágenes.
     certs_table = _lc_pdf_certifications(_lc_certifications(session_db, song, 'SONG'))
+    estilo_cabecera = [('VALIGN', (0,0), (0,0), 'TOP'), ('VALIGN', (1,0), (-1,-1), 'MIDDLE'),
+                       ('ALIGN', (0,0), (1,0), 'LEFT'),
+                       ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),8)]
     if certs_table is not None:
         header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col, certs_table]],
                              colWidths=[3.7*cm, 9.6*cm, 4.7*cm])
+        # ⚠️ El ALIGN a la derecha es SOLO de la columna de las certificaciones. Puesto en la ÚLTIMA
+        # con `(-1,0)`, en las canciones SIN certificaciones la última columna es la del título y los
+        # ENLACES, y los iconos se iban a la derecha de la página (bug real).
+        estilo_cabecera.append(('ALIGN', (2,0), (2,0), 'RIGHT'))
     else:
         header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.7*cm, 13.2*cm])
-    header_table.setStyle(TableStyle([('VALIGN', (0,0), (0,0), 'TOP'), ('VALIGN', (1,0), (-1,-1), 'MIDDLE'),
-                                      ('ALIGN', (-1,0), (-1,0), 'RIGHT'),
-                                      ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),8)]))
+    header_table.setStyle(TableStyle(estilo_cabecera))
     story.append(header_table)
     story.append(Spacer(1, 0.35*cm))
 
@@ -10749,14 +10754,16 @@ def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]
         right_col.extend([Spacer(1, 0.14*cm), platform_links_table])
     # LAS CERTIFICACIONES van a la DERECHA, a la altura de la portada, y son solo las imágenes.
     certs_table = _lc_pdf_certifications(_lc_certifications(session_db, album, 'ALBUM'), ancho_cm=3.9)
+    estilo_cabecera = [('VALIGN', (0,0), (0,0), 'TOP'), ('VALIGN', (1,0), (-1,-1), 'MIDDLE'),
+                       ('ALIGN', (0,0), (1,0), 'LEFT'),
+                       ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),6)]
     if certs_table is not None:
         header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col, certs_table]],
                              colWidths=[3.2*cm, 10.1*cm, 3.9*cm])
+        estilo_cabecera.append(('ALIGN', (2,0), (2,0), 'RIGHT'))
     else:
         header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.2*cm, 14.0*cm])
-    header_table.setStyle(TableStyle([('VALIGN', (0,0), (0,0), 'TOP'), ('VALIGN', (1,0), (-1,-1), 'MIDDLE'),
-                                      ('ALIGN', (-1,0), (-1,0), 'RIGHT'),
-                                      ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),6)]))
+    header_table.setStyle(TableStyle(estilo_cabecera))
     story.append(header_table)
     story.append(Spacer(1, 0.2*cm))
     code_rows = (

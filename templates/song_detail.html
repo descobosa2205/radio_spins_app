@@ -314,28 +314,43 @@
       </div>
     {% endif %}
 
-    {# CONTENIDO EXPLÍCITO: hay que decirlo en TODAS las canciones. Mientras no se diga, sale el
-       aviso; una vez dicho, se ve lo que está marcado y se puede cambiar. La ETIQUETA (en la
-       cabecera, en los listados y en Syncro) solo se pinta cuando ES explícita. #}
-    {% if CAN_EDIT_DISCOGRAFICA %}
-      <div class="ficha-section mb-3{% if song.is_explicit is none %} border-warning{% endif %}" data-inline-zone id="songExplicitZone">
-        <form method="post" action="{{ url_for('discografica_song_explicit_save', song_id=song.id) }}"
-              data-inline data-inline-target="#songExplicitZone" class="d-flex align-items-center gap-3 flex-wrap">
-          <div class="d-flex align-items-center gap-2">
-            <i class="fa-solid fa-e text-muted"></i>
-            <h6 class="m-0">¿Contenido explícito?</h6>
+    {# ⚠️ LO QUE FALTA POR CUMPLIMENTAR, ARRIBA Y CON SU BOTÓN. Un dato que hay que decir siempre
+       —la calificación de contenido, el género, el pitch— se avisa aquí y se resuelve sin salir:
+       así se ve al entrar en vez de tener que ir a buscarlo. #}
+    {% if CAN_EDIT_DISCOGRAFICA and song_missing %}
+      <div class="ficha-section mb-3 border-warning" id="songMissingZone">
+        <div class="ficha-section__body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="fa fa-triangle-exclamation text-warning"></i>
+            <h6 class="m-0">Falta por cumplimentar</h6>
           </div>
-          {% if song.is_explicit is none %}
-            <span class="badge text-bg-warning text-dark"><i class="fa fa-triangle-exclamation me-1"></i>Sin decidir</span>
-          {% endif %}
-          <div class="btn-group btn-group-sm" role="group">
-            {% for val, label, icon in explicit_choices %}
-              <button class="btn {{ 'btn-dark' if (song.is_explicit is not none and (('1' if song.is_explicit else '0') == val)) else 'btn-outline-secondary' }}"
-                      name="is_explicit" value="{{ val }}">
-                <i class="fa-solid {{ icon }} me-1"></i>{{ label }}</button>
-            {% endfor %}
-          </div>
-        </form>
+          {% for m in song_missing %}
+            <div class="d-flex align-items-center gap-3 flex-wrap py-2{% if not loop.last %} border-bottom{% endif %}">
+              <div class="min-w-0">
+                <span class="fw-semibold"><i class="fa-solid {{ m.icon }} me-1 text-muted"></i>{{ m.label }}</span>
+                {% if m.hint %}<div class="small text-muted">{{ m.hint }}</div>{% endif %}
+              </div>
+              <div class="ms-auto">
+                {% if m.key == 'explicit' %}
+                  {# Se resuelve AQUÍ MISMO: las dos respuestas, sin salir de la pantalla. #}
+                  <form method="post" action="{{ url_for('discografica_song_explicit_save', song_id=song.id) }}"
+                        class="btn-group btn-group-sm" role="group">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    {% for val, label, icon in explicit_choices %}
+                      <button class="btn btn-outline-secondary" name="is_explicit" value="{{ val }}">
+                        <i class="fa-solid {{ icon }} me-1"></i>{{ label }}</button>
+                    {% endfor %}
+                  </form>
+                {% elif m.key == 'genre' %}
+                  <button type="button" class="btn btn-sm btn-outline-primary" data-edit-toggle="#songInfoForm">
+                    <i class="fa fa-pen me-1"></i>Poner el género</button>
+                {% elif m.key == 'pitch' %}
+                  <a class="btn btn-sm btn-outline-primary" href="#pitch"><i class="fa fa-pen me-1"></i>Escribir el pitch</a>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
       </div>
     {% endif %}
 
@@ -874,6 +889,15 @@
 
                   {% if song.copyright_text %}
                     <tr><th>Copyright</th><td>{{ song.copyright_text }}</td></tr>
+                  {% endif %}
+
+                  {# ⚠️ LA CALIFICACIÓN DE CONTENIDO es un campo más del Label Copy y aquí dice las
+                     DOS cosas (explícito o no). Fuera del LC —la cabecera, los listados, Syncros—
+                     la etiqueta solo se pinta cuando ES explícita. #}
+                  {% if content_rating_label %}
+                    <tr><th>{{ content_rating_field_label }}</th>
+                        <td><span class="badge-content-rating{{ ' is-explicit' if song.is_explicit }}">
+                          <i class="fa-solid {{ content_rating_icon }}"></i>{{ content_rating_label }}</span></td></tr>
                   {% endif %}
 
                   {% if song.musicians and (song.musicians|length) > 0 %}

@@ -7748,3 +7748,32 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ El JS de una plantilla corre ANTES que el de `layout.html`, así que `initTypeahead` puede no
   existir todavía: `initPromoterSearch` **reintenta** hasta que esté (la misma trampa que con
   Bootstrap y `app33AutoOpenModal`).
+
+- ⚠️⚠️ **UNA COMISIÓN SE APLICA DE DOS MANERAS Y NO ES LO MISMO** (ago 2026,
+  `ConcertZoneAgent.apply_mode` + `COMMISSION_APPLY_MODES`):
+  · **EXPENSE (gasto sobre el caché)** — entra en la BOLSA como un gasto más, en la categoría nueva
+    **«Comisiones»** (`COMMISSION_EXPENSE_CATEGORY`), y se le comunica al artista en su propio
+    módulo del aviso (con su ojo, para poder dejarlo fuera del envío).
+  · **REDUCE (reduce el caché)** — no es un concepto aparte: el caché que se ve
+    (`_concert_cache_summary`) y el que se le comunica ya va con ella **descontada**
+    (`_concert_commission_reduction`), y en la liquidación aparece en la parte del CACHÉ.
+  ⚠️ El gasto de la bolsa y la comisión son el MISMO dinero visto desde dos sitios
+  (`ConcertZoneAgent.bag_expense_id`, el patrón de `_disco_artwork_sync_bag`): si la comisión deja
+  de ser un gasto, su gasto **se retira**. Solo se puede apuntar la de importe FIJO; un porcentaje
+  sobre la recaudación no se sabe hasta liquidar.
+  · **LAS COMISIONES SE VEN SIEMPRE** en la ficha (antes colgaban de `sale_type != 'VENDIDO'`, así
+  que en la mayoría no se podían ni añadir), en la ficha de contratación
+  (`_concert_commission_rows` → `_concert_contracting_general_rows`) y con dos botones: **subir la
+  factura** (`concert_commission_invoice`) o **solicitársela** a quien la cobra
+  (`concert_commission_request_invoice`).
+  · En el asistente cada comisión es su propia **galleta**: a quién se le paga (barra de búsqueda
+  con foto y el «+» al lado), el tipo con iconos, sobre bruto o neto, el concepto y cómo se aplica.
+
+- ⚠️ **LA CALIFICACIÓN DE CONTENIDO es un campo del LABEL COPY** (ago 2026,
+  `CONTENT_RATING_FIELD_LABEL`): va **debajo de Copyright**, dice las DOS cosas —«Explícito» o «No
+  explícito»— y sale también en el PDF y en lo que se comparte. **Fuera del LC y de la ficha la
+  etiqueta solo se pinta cuando ES explícita** (cabeceras, listados, Syncros).
+  · **LO QUE FALTA POR CUMPLIMENTAR se avisa ARRIBA de la ficha** (`_song_missing_required`), con el
+  botón para resolverlo ahí mismo: la calificación de contenido se marca sin salir, el género y el
+  pitch llevan a su sitio. Es el patrón que ya tenía «¿contenido explícito?», ahora para todos los
+  campos obligatorios — al entrar se ve lo que falta en vez de tener que buscarlo.

@@ -5610,6 +5610,12 @@ ONE_STOP_PCT_TOLERANCE = Decimal("0.05")
 # CONTENIDO EXPLÍCITO · el texto de la etiqueta, en un solo sitio: lo usan la etiqueta de la web
 # (`explicit_badge`), el correo y la página de Syncros, y el PDF.
 EXPLICIT_LABEL = "Explícito"
+# ⚠️ En el LABEL COPY es un CAMPO MÁS (debajo de Copyright) y se llama «Calificación de contenido»,
+# con su etiqueta: «Explícito» o «No explícito». En TODO LO DEMÁS —cabeceras, listados, Syncros— la
+# etiqueta solo se pinta cuando ES explícita.
+CONTENT_RATING_FIELD_LABEL = "Calificación de contenido"
+CONTENT_RATING_LABELS = {True: "Explícito", False: "No explícito"}
+CONTENT_RATING_ICONS = {True: "fa-e", False: "fa-circle-check"}
 # Las tres respuestas posibles. ⚠️ **Sin decidir NO es «no explícita»**: hay que marcarlo siempre.
 EXPLICIT_CHOICES = (
     ("1", "Explícita", "fa-e"),
@@ -5617,9 +5623,59 @@ EXPLICIT_CHOICES = (
 )
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# LO QUE FALTA POR CUMPLIMENTAR EN UNA CANCIÓN
+# ⚠️ Un dato que hay que decir SIEMPRE (la calificación de contenido, el género, la fecha) se avisa
+# ARRIBA de su ficha, con el botón para resolverlo ahí mismo: así se ve al entrar en vez de tener
+# que buscarlo. Es el mismo patrón que ya tenía «¿contenido explícito?», ahora para todos.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+def _song_missing_required(song, *, genres=None) -> list[dict]:
+    """Los campos OBLIGATORIOS que esta canción tiene sin cumplimentar, listos para avisar."""
+    faltan = []
+    if song is None:
+        return faltan
+    if not _song_explicit_decided(song):
+        faltan.append({
+            "key": "explicit",
+            "label": "Calificación de contenido",
+            "icon": "fa-e",
+            "hint": "Hay que decir si es explícita o no (va en el Label Copy).",
+        })
+    _gen = genres if genres is not None else [x for x in ((getattr(song, "genre", None) or "").split(",")) if x.strip()]
+    if not _gen:
+        faltan.append({
+            "key": "genre",
+            "label": "Género",
+            "icon": "fa-guitar",
+            "hint": "Sin género no se puede presentar ni a radio, ni a una playlist, ni a un supervisor.",
+        })
+    if not (getattr(song, "pitch_text", None) or "").strip():
+        faltan.append({
+            "key": "pitch",
+            "label": "Pitch",
+            "icon": "fa-comment-dots",
+            "hint": "Es el texto con el que se presenta el lanzamiento.",
+        })
+    return faltan
+
+
 def _song_is_explicit(song) -> bool:
     """¿La canción ES explícita? (sin decidir cuenta como que no, para lo que se ENSEÑA)."""
     return bool(getattr(song, "is_explicit", None) is True)
+
+
+def _content_rating_label(song) -> str:
+    """«Explícito» / «No explícito» para el Label Copy — vacío mientras no se haya dicho.
+
+    ⚠️ Solo el LC (y la ficha) dicen las DOS cosas: fuera de ahí la etiqueta se pinta únicamente
+    cuando ES explícita."""
+    if not _song_explicit_decided(song):
+        return ""
+    return CONTENT_RATING_LABELS[bool(_song_is_explicit(song))]
+
+
+def _content_rating_icon(song) -> str:
+    return CONTENT_RATING_ICONS.get(bool(_song_is_explicit(song)), "fa-e")
 
 
 def _song_explicit_decided(song) -> bool:
@@ -8773,10 +8829,10 @@ def _song_label_copy_public_context(session_db, song: Song) -> dict:
     add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
     add_row('BPM', str(song.bpm or ''))
     add_row('Género', song.genre)
-    # CONTENIDO EXPLÍCITO: se dice justo detrás del género, y SOLO si lo es (si no, no se pinta la
-    # fila: `add_row` se salta lo vacío).
-    add_row('Contenido', EXPLICIT_LABEL if _song_is_explicit(song) else '')
     add_row('Copyright', song.copyright_text)
+    # ⚠️ LA CALIFICACIÓN DE CONTENIDO es un CAMPO MÁS del Label Copy, debajo de Copyright, y dice
+    # las dos cosas: «Explícito» o «No explícito» (fuera del LC solo se pinta si ES explícita).
+    add_row(CONTENT_RATING_FIELD_LABEL, _content_rating_label(song))
     add_row('Productor', ', '.join([x for x in (song.producers or []) if (x or '').strip()]))
     add_row('Ingeniero de grabación', song.recording_engineer)
     add_row('Estudio de grabación', song.studio)
@@ -9830,10 +9886,10 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
     add_row('BPM', str(song.bpm or ''))
     add_row('Género', song.genre)
-    # CONTENIDO EXPLÍCITO: se dice justo detrás del género, y SOLO si lo es (si no, no se pinta la
-    # fila: `add_row` se salta lo vacío).
-    add_row('Contenido', EXPLICIT_LABEL if _song_is_explicit(song) else '')
     add_row('Copyright', song.copyright_text)
+    # ⚠️ LA CALIFICACIÓN DE CONTENIDO es un CAMPO MÁS del Label Copy, debajo de Copyright, y dice
+    # las dos cosas: «Explícito» o «No explícito» (fuera del LC solo se pinta si ES explícita).
+    add_row(CONTENT_RATING_FIELD_LABEL, _content_rating_label(song))
     add_row('Productor', ', '.join([x for x in (song.producers or []) if (x or '').strip()]))
     add_row('Ingeniero de grabación', song.recording_engineer)
     add_row('Estudio de grabación', song.studio)
@@ -19832,6 +19888,12 @@ def discografica_song_detail(song_id):
         song_genres=song_genres,
         song_genre_catalog=(_song_genre_catalog(session_db) if tab == "informacion" else []),
         explicit_choices=EXPLICIT_CHOICES,
+        # LO QUE FALTA POR CUMPLIMENTAR (se avisa arriba, con su botón para resolverlo ahí mismo).
+        song_missing=_song_missing_required(s, genres=song_genres),
+        # LA CALIFICACIÓN DE CONTENIDO: un campo más del Label Copy, que dice las DOS cosas.
+        content_rating_field_label=CONTENT_RATING_FIELD_LABEL,
+        content_rating_label=_content_rating_label(s),
+        content_rating_icon=_content_rating_icon(s),
         sync_share_url=sync_share_url,
         sync_sent=sync_sent,
         sync_sent_count=sync_sent_count,

@@ -5654,3 +5654,15 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   font-weight:600; border-radius:999px; padding:.28rem .6rem; font-size:.74rem; line-height:1;
 }
 .badge-gratuito i{ color:var(--brand-accent,#007CA2); }
+
+/* ── CALIFICACIÓN DE CONTENIDO (Label Copy) ─────────────────────────────────────────────────────
+   En el LC dice las DOS cosas («Explícito» / «No explícito»); fuera de él solo se pinta cuando ES
+   explícita. Sobria, con su icono: no compite con las etiquetas de estado. */
+.badge-content-rating{
+  display:inline-flex; align-items:center; gap:.34rem;
+  background:#fff; border:1px solid var(--line-2,#e3e6eb); color:#42505f;
+  font-weight:600; border-radius:999px; padding:.24rem .58rem; font-size:.76rem; line-height:1;
+}
+.badge-content-rating i{ color:var(--brand-accent,#007CA2); }
+.badge-content-rating.is-explicit{ border-color:#212529; color:#212529; }
+.badge-content-rating.is-explicit i{ color:#212529; }

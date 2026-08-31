@@ -99,7 +99,11 @@ function initTypeahead(inputId, hiddenId, endpoint, opciones){
     try { r = await fetch(`${endpoint}?q=${encodeURIComponent(q)}`); } catch (e) { return; }
     if(!r.ok) return;
     const js = await r.json();
-    const conImagen = (js || []).some(it => it && (it.logo_url || it.photo_url));
+    /* ⚠️ Con `alwaysList` se usa SIEMPRE la lista propia, traiga imagen o no: hay buscadores en los
+       que el desplegable nativo no vale (el promotor del asistente de actividad, que se pidió como
+       barra de búsqueda con resultados a la vista). Quien no tenga foto sale con su hueco. */
+    const conImagen = ((opciones || {}).alwaysList === true)
+      || (js || []).some(it => it && (it.logo_url || it.photo_url));
     if (!conImagen){
       cerrar();
       dl.innerHTML = "";

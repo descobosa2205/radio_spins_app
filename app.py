@@ -60570,6 +60570,15 @@ def concert_wizard_create():
         # cartelería, hoja de ruta…): se deja RESERVADA y se avisa con el enlace para notificar.
         if (concert.status or "").upper() == "CONFIRMADO":
             _puerta_alta = _concert_notice_gate(session, concert, "CONFIRMADO")
+            # ⚠️⚠️ UNA ACTIVIDAD QUE YA HA PASADO SE CREA Y YA ESTÁ: no se va a mandar un aviso de
+            # algo que ya ocurrió, así que no tiene sentido dejarla en RESERVADA por eso (se estaba
+            # apuntando algo del mes pasado y salía como reserva, con su 403 detrás). El aviso queda
+            # marcado como hecho A MANO, que es lo que corresponde.
+            if _puerta_alta and _puerta_alta.get("can_ack"):
+                _concert_notice_mark_manual(
+                    session, concert,
+                    nota="Alta de una actividad ya pasada: se da el aviso por hecho.")
+                _puerta_alta = None
             if _puerta_alta:
                 concert.status = "RESERVADO"
                 flash(Markup(
@@ -90721,8 +90730,13 @@ def _cancel_is_active(concert) -> bool:
     return bool(fila.get("kind")) and not fila.get("undone_at")
 
 
-def _concert_cache_summary(session_db, concert) -> dict:
+def _concert_cache_reference(session_db, concert) -> dict:
     """El CACHÉ pactado, para enseñarlo como referencia al decidir si se cobra.
+
+    ⚠️⚠️ NO confundir con `_concert_cache_summary` (el texto corto del caché que usa la ficha de
+    contratación): esta se llamaba IGUAL y, como en Python la última `def` pisa a la anterior, la
+    de la ficha dejaba de existir → **500 en la ficha de cualquier actividad con ficha de
+    contratación**, que es lo que se veía como «cerrado por mantenimiento» (bug real).
 
     ⚠️ Se enseña lo que hay puesto en la ficha (`ConcertCache`), no un cálculo: es una referencia
     para decidir, no una liquidación."""
@@ -90862,7 +90876,7 @@ def _cancel_parse_form(session_db, concert, form, kind: str) -> tuple[dict, str]
     datos["reason"] = motivo[:1000]
 
     # ── EL CACHÉ (solo si la actividad tiene alguno pactado) ──────────────────────────────────
-    resumen = _concert_cache_summary(session_db, concert)
+    resumen = _concert_cache_reference(session_db, concert)
     cache = {"asked": bool(resumen["has"])}
     if resumen["has"] and _truthy(form.get("cache_charged")):
         modo = (form.get("cache_mode") or "TOTAL").strip().upper()
@@ -91066,6 +91080,42 @@ def _concert_notice_gate(session_db, concert, new_status: str) -> dict | None:
         "ack_url": (url_for("concert_artist_notice_ack", cid=concert.id) if puede_ack else ""),
         "notify_url": url_for("concert_artist_notice_view", cid=concert.id, confirmar=1),
     }
+
+
+def _concert_notice_mark_manual(session_db, concert, *, nota: str = "") -> None:
+    """Da el aviso al artista por HECHO sin mandar nada (solo para actividades ya pasadas).
+
+    Punto único: lo usan el botón «El artista ya fue informado» y el ALTA de una actividad cuya
+    fecha ya ha pasado (ahí no se va a mandar un aviso de algo que ya ocurrió, así que no tiene
+    sentido dejarla en RESERVADA por eso).
+    Queda apuntado igual que un envío —en `ConcertArtistNotification` con canal MANUAL y con la misma
+    FIRMA—, así que un cambio gordo posterior vuelve a pedir aviso como con cualquier otra."""
+    estado_previo = _concert_notice_state(session_db, concert)
+    kind = estado_previo["needs_kind"] if estado_previo["needs_kind"] in ACTIVITY_NOTICE_KINDS else "CONFIRMACION"
+    firma = _concert_notice_signature(session_db, concert)
+    ahora = _now_madrid()
+    yo = _current_user_state() or {}
+    session_db.add(ConcertArtistNotification(
+        concert_id=concert.id,
+        channel="MANUAL",
+        kind=kind,
+        recipients=[],
+        note=(nota or "Marcado a mano: el artista ya estaba informado (actividad ya pasada)."),
+        hidden_modules=[],
+        snapshot={"manual": True},
+        signature=firma,
+        sent_by_user_id=to_uuid(yo.get("user_id") or "") or None,
+        sent_by_nick=(yo.get("nick") or None),
+    ))
+    concert.artist_notified_at = ahora
+    concert.artist_notified_by_user_id = to_uuid(yo.get("user_id") or "") or None
+    concert.artist_notified_by_nick = (yo.get("nick") or None)
+    # Sin nombre ni correo (no se ha mandado nada a nadie) y con la marca `manual`, que es lo que
+    # lee `_concert_notice_state` para decirlo en la etiqueta.
+    concert.artist_notified_to = [{"manual": True}]
+    concert.artist_notified_signature = firma
+    concert.artist_notified_kind = kind
+    concert.updated_at = ahora
 
 
 def _concert_notified_parties(session_db, concert) -> list[dict]:
@@ -91681,33 +91731,8 @@ def concert_artist_notice_ack(cid):
         datos = request.get_json(silent=True) if request.is_json else None
         datos = datos if isinstance(datos, dict) else request.form
         nota = (datos.get("note") or "").strip()
-        estado_previo = _concert_notice_state(session_db, concert)
-        kind = estado_previo["needs_kind"] if estado_previo["needs_kind"] in ACTIVITY_NOTICE_KINDS else "CONFIRMACION"
-        firma = _concert_notice_signature(session_db, concert)
+        _concert_notice_mark_manual(session_db, concert, nota=nota)
         ahora = _now_madrid()
-        yo = _current_user_state() or {}
-
-        session_db.add(ConcertArtistNotification(
-            concert_id=concert.id,
-            channel="MANUAL",
-            kind=kind,
-            recipients=[],
-            note=nota or "Marcado a mano: el artista ya estaba informado (actividad ya pasada).",
-            hidden_modules=[],
-            snapshot={"manual": True},
-            signature=firma,
-            sent_by_user_id=to_uuid(yo.get("user_id") or "") or None,
-            sent_by_nick=(yo.get("nick") or None),
-        ))
-        concert.artist_notified_at = ahora
-        concert.artist_notified_by_user_id = to_uuid(yo.get("user_id") or "") or None
-        concert.artist_notified_by_nick = (yo.get("nick") or None)
-        # Sin nombre ni correo (no se ha mandado nada a nadie) y con la marca `manual`, que es lo que
-        # lee `_concert_notice_state` para decirlo en la etiqueta.
-        concert.artist_notified_to = [{"manual": True}]
-        concert.artist_notified_signature = firma
-        concert.artist_notified_kind = kind
-        concert.updated_at = ahora
 
         # Y se sigue con el cambio de estado que había quedado a medias (es para lo que se pulsa).
         nuevo = _norm_status(datos.get("status") or "CONFIRMADO")
@@ -91897,7 +91922,7 @@ def concert_cancel_view(cid):
             return forbid("No tienes permisos para cambiar el estado de una actividad.")
         return render_template("concert_cancel.html",
                                concert=c, kind=kind, meta=CANCEL_KINDS[kind],
-                               cache=_concert_cache_summary(session_db, c),
+                               cache=_concert_cache_reference(session_db, c),
                                state=_cancel_state(session_db, c),
                                cache_modes=CANCEL_CACHE_MODES,
                                cost_modes=CANCEL_COST_MODES,
@@ -116325,13 +116350,19 @@ _CONCERT_PRIVATE_STATUSES = {"BORRADOR", "HABLADO", "RESERVADO"}
 def _concert_visible_unconfirmed(concert, *, full_details: bool = False, user_id=None) -> bool:
     """¿Puede ver ESTA actividad sin confirmar quien está mirando?
 
-    Contratación y dirección ven todas (`full_details`); además, quien la PRODUCE la ve en cuanto se
-    le ha activado la producción, aunque siga sin confirmarse: es su trabajo."""
+    Contratación y dirección ven todas (`full_details`); además la ven **quien la PRODUCE** (en
+    cuanto se le ha activado la producción, aunque siga sin confirmarse: es su trabajo) y **quien la
+    CREÓ**.
+    ⚠️⚠️ Lo de quien la creó no es un adorno: una actividad nace RESERVADA mientras no se le haya
+    avisado al artista, así que sin esto la persona que acababa de darla de alta se comía un 403 al
+    terminar el asistente —en su propia actividad— (bug real)."""
     if full_details:
         return True
     uid = str(user_id or (_current_user_state() or {}).get("user_id") or "")
     if not uid:
         return False
+    if str(getattr(concert, "created_by_user_id", "") or "") == uid:
+        return True
     return (str(getattr(concert, "production_owner_user_id", "") or "") == uid
             and bool(getattr(concert, "production_activated_at", None)))
 

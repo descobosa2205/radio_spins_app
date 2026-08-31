@@ -14,6 +14,8 @@
     if (f) f.innerHTML = html || '';
   }
 
+  var currentTargetHiddenId = '';
+
   function selectInTarget(targetId, id, label, logo) {
     var sel = document.getElementById(targetId);
     if (!sel || !id) return;
@@ -37,8 +39,15 @@
         sel.dispatchEvent(new Event('change', { bubbles: true }));
       }
     } else {
-      // input de texto (+ hidden opcional indicado en data-target-hidden del botón)
+      /* Un BUSCADOR de la casa (input de texto + su oculto): se rellenan los DOS y se avisa del
+         cambio, igual que si se hubiera elegido de la lista. El oculto se dice con
+         `data-target-hidden` en el botón «+» o con `data-ta-hidden` en el propio input. */
       sel.value = label;
+      var hid = document.getElementById(
+        (currentTargetHiddenId || sel.getAttribute('data-ta-hidden') || ''));
+      if (hid) hid.value = id;
+      if (logo) sel.setAttribute('data-photo', logo);
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }
 
@@ -122,6 +131,7 @@
     e.preventDefault();
     var type = btn.getAttribute('data-quick-create');
     currentTargetId = btn.getAttribute('data-target');
+    currentTargetHiddenId = btn.getAttribute('data-target-hidden') || '';
     var modalEl = document.getElementById('qcModal-' + type);
     if (!modalEl || !window.bootstrap) return;
     var form = modalEl.querySelector('.qc-form');

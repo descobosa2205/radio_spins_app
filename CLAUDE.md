@@ -7711,3 +7711,40 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Un campo vacío no se pinta.
   ⚠️ Las dos ramas comparten los nombres de los campos (`nick`, `tax_id`, la dirección fiscal), así
   que el panel que no toca **se DESHABILITA**: esconderlo no basta, un campo oculto se envía igual.
+
+- ⚠️⚠️⚠️ **DOS FUNCIONES CON EL MISMO NOMBRE: LA ÚLTIMA PISA A LA PRIMERA** (bug real y gordo, ago
+  2026 — la causa de «me sale la pantalla de cerrado por mantenimiento al pinchar una actividad»).
+  El proceso de cancelación añadió un `_concert_cache_summary(session_db, concert)` cuando ya
+  existía `_concert_cache_summary(concert)`, así que la de siempre **dejó de existir** y la ficha de
+  contratación la llamaba con un solo argumento → `TypeError` → **500 en la ficha de CUALQUIER
+  actividad que tenga ficha de contratación** (por eso no se reproducía con datos de prueba: hacía
+  falta un `ConcertContractSheet`). La nueva se llama ahora `_concert_cache_reference`.
+  ⚠️ **La comprobación es de una línea y hay que hacerla**:
+  `grep -oE "^def [a-zA-Z_][a-zA-Z0-9_]*" app.py | sort | uniq -d` **tiene que salir VACÍO**.
+  ⚠️ Pyflakes NO lo detecta y el nombre «existe», así que el error solo aparece en tiempo de
+  ejecución y en el camino que use la definición vieja.
+
+- ⚠️ **QUIEN CREA UNA ACTIVIDAD LA VE** (`_concert_visible_unconfirmed`): una actividad nace
+  RESERVADA mientras no se le haya avisado al artista, así que sin esto la persona que acababa de
+  darla de alta se comía un **403 al terminar el asistente**, en su propia actividad.
+
+- ⚠️ **UNA ACTIVIDAD YA PASADA SE CREA Y YA ESTÁ**: no se va a mandar un aviso de algo que ya
+  ocurrió, así que no se queda en RESERVADA por eso. El aviso se apunta como hecho **a mano**
+  (`_concert_notice_mark_manual`, el punto único que usan el botón «El artista ya fue informado» y
+  el alta).
+
+- ⚠️⚠️ **AL MOSTRAR UN PANEL DEL ASISTENTE HAY QUE VOLVER A HABILITAR SUS CAMPOS**: al enviar se
+  deshabilita todo lo que está oculto (para que no viaje), y si el envío no llega a navegar —una
+  validación que lo para, un error— esos campos se quedan **muertos** con el modal todavía abierto:
+  no se podía escribir el nº de canciones, ni elegirlas, ni detallar la formación (bug real). Se
+  rehabilitan en `showStep` (por donde se pasa siempre) y al mostrar cada panel.
+
+- **EL PROMOTOR DEL ASISTENTE ES UNA BARRA DE BÚSQUEDA, no un desplegable** (ago 2026): se escribe y
+  salen las coincidencias con su foto o su logo (`initTypeahead` con la opción nueva
+  **`alwaysList`**, que fuerza la lista propia aunque ningún resultado traiga imagen), y el **«+»**
+  de crear uno nuevo se queda a la derecha.
+  ⚠️ `quick_create.js` sabe ya dejar lo creado en un BUSCADOR (input + su oculto), no solo en un
+  `<select>`: se le dice con `data-target-hidden` en el botón «+» o `data-ta-hidden` en el input.
+  ⚠️ El JS de una plantilla corre ANTES que el de `layout.html`, así que `initTypeahead` puede no
+  existir todavía: `initPromoterSearch` **reintenta** hasta que esté (la misma trampa que con
+  Bootstrap y `app33AutoOpenModal`).

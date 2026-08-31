@@ -425,12 +425,21 @@
             <div class="wizard-card" id="wizardPromoterWrap">
               <div class="wizard-card__title"><i class="fa fa-user-tie"></i>Promotor</div>
               <div class="wizard-card__hint">Busca el tercero o el medio de comunicación que organiza. Puedes crear uno nuevo con el botón +.</div>
+              {# ⚠️ Es una BARRA DE BÚSQUEDA, no un desplegable: se escribe y salen las coincidencias
+                 con su foto o su logo (el buscador de la casa, `initTypeahead`), y el «+» de crear
+                 uno nuevo se queda a la derecha. #}
               <div class="input-group">
-                <select id="wizard_promoter_search" class="form-select" data-no-loader>
-                  <option value=""></option>
-                </select>
-                <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="wizard_promoter_search" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+                <input type="text" id="wizard_promoter_search" class="form-control" autocomplete="off"
+                       placeholder="Escribe el nombre del promotor (tercero o medio)…"
+                       data-ta-hidden="wizard_promoter_pick" data-no-loader>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                        data-target="wizard_promoter_search" data-target-hidden="wizard_promoter_pick"
+                        title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
               </div>
+              {# Lo elegido: el id y de qué es (un tercero o un medio), que los pone el buscador. #}
+              <input type="hidden" id="wizard_promoter_pick" value="">
+              <input type="hidden" id="wizard_promoter_pick_kind" value="">
+              <input type="hidden" id="wizard_promoter_pick_logo" value="">
               <input type="hidden" name="promoter_id" id="wizard_promoter_id" value="">
               <input type="hidden" name="promoter_media_id" id="wizard_promoter_media_id" value="">
               <div class="d-flex align-items-center gap-2 mt-2 d-none" id="wizardPromoterChip">
@@ -1743,6 +1752,12 @@
 
     function showStep(step){
       currentStep = step;
+      /* ⚠️⚠️ TODO VUELVE A ESTAR VIVO AL MOVERSE POR EL ASISTENTE. Al enviar se deshabilitan los
+         campos de los pasos y paneles que no tocan (para que no viajen), y si el envío se para
+         —una validación, un error— se quedaban MUERTOS con el modal todavía abierto: no se podía
+         escribir el nº de canciones, ni elegirlas, ni detallar la formación (bug real). Se
+         rehabilitan aquí, que es por donde se pasa siempre; el envío los vuelve a deshabilitar. */
+      form?.querySelectorAll('input,select,textarea').forEach(i => { i.disabled = false; });
       const seq = stepSequence();
       document.querySelectorAll('.wizard-step').forEach(el => {
         const modes = (el.dataset.mode || 'any').split(',');
@@ -1929,37 +1944,31 @@
       if(target && !target.checked){ target.checked = true; target.dispatchEvent(new Event('change', { bubbles: true })); }
     }
 
-    /* ------------------- Promotor: buscador visual (terceros + medios) ------------------- */
-    function initPromoterSearch(){
+    /* ------------------- Promotor: BARRA DE BÚSQUEDA (terceros + medios) -------------------
+       Se escribe y salen las coincidencias con su foto; el «+» de al lado crea uno nuevo y lo deja
+       elegido. Es el buscador de la casa (`initTypeahead`), que ya pinta la lista con imagen. */
+    function initPromoterSearch(intentos){
       const el = document.getElementById('wizard_promoter_search');
-      if(!el || el.__psInit || !window.jQuery || !jQuery.fn.select2) return;
-      el.__psInit = true;
-      function fmt(d){
-        if(!d.id) return d.text;
-        const logo = d.logo_url || (d.element && (jQuery(d.element).data('photo') || jQuery(d.element).data('logo'))) || '';
-        const img = logo ? '<img class="thumb" src="'+logo+'">' : '<span class="me-2"><i class="fa fa-user-tie"></i></span>';
-        return jQuery('<span>'+img+(d.text || d.label || '')+'</span>');
+      if(!el || el.__psInit) return;
+      /* ⚠️⚠️ El JS de esta plantilla corre ANTES que el de `layout.html`, así que `initTypeahead`
+         puede no existir todavía: sin reintentar, el buscador se quedaba sin cablear y al escribir
+         no salía nada (la misma trampa que con Bootstrap y `app33AutoOpenModal`). */
+      if(typeof initTypeahead !== 'function'){
+        if((intentos || 0) < 40) setTimeout(() => initPromoterSearch((intentos || 0) + 1), 100);
+        return;
       }
-      jQuery(el).select2({
-        width:'100%', dropdownParent: jQuery(modalEl), placeholder:'Busca el promotor (tercero o medio)…', allowClear:true, minimumInputLength:1,
-        ajax:{
-          url:'{{ url_for("api_search_commission_entities") }}', dataType:'json', delay:200,
-          data:function(p){ return { q: p.term || '' }; },
-          processResults:function(data){ return { results:(data||[]).map(function(it){ return { id: it.kind + ':' + it.id, text: it.label || '', logo_url: it.logo_url || '', kind: it.kind, raw_id: it.id }; }) }; }
-        },
-        templateResult: fmt, templateSelection: fmt, escapeMarkup:function(m){ return m; }
-      });
-      jQuery(el).on('select2:select', function(e){
-        const d = e.params.data || {};
-        onMainPromoterPicked(d.raw_id || d.id, d.kind || 'promoter', (d.text || '').replace(' · medio',''), d.logo_url || '');
-      });
-      jQuery(el).on('select2:clear', function(){ clearMainPromoter(); });
-      // Alta rápida (+): quick_create añade la opción y dispara change nativo/jQuery.
-      jQuery(el).on('change', function(){
-        const opt = el.selectedOptions && el.selectedOptions[0];
-        if(!opt || !opt.value) return;
-        if(opt.value.indexOf(':') >= 0) return; // ya gestionado por select2:select
-        onMainPromoterPicked(opt.value, 'promoter', opt.textContent || '', opt.dataset.photo || opt.dataset.logo || '');
+      el.__psInit = true;
+      initTypeahead('wizard_promoter_search', 'wizard_promoter_pick',
+                    '{{ url_for("api_search_commission_entities") }}',
+                    { alwaysList: true,
+                      extra: { kind: 'wizard_promoter_pick_kind', logo_url: 'wizard_promoter_pick_logo' } });
+      el.addEventListener('change', function(){
+        const id = (document.getElementById('wizard_promoter_pick') || {}).value || '';
+        if(!id){ clearMainPromoter(true); return; }
+        const kind = (document.getElementById('wizard_promoter_pick_kind') || {}).value || 'promoter';
+        const logo = (document.getElementById('wizard_promoter_pick_logo') || {}).value
+                     || el.getAttribute('data-photo') || '';
+        onMainPromoterPicked(id, kind, (el.value || '').replace(' · medio',''), logo);
       });
     }
 
@@ -1986,13 +1995,16 @@
       syncPromoterVisibility();
     }
 
-    function clearMainPromoter(){
+    function clearMainPromoter(mantenerTexto){
       selectedPromoter = null;
       promoterIdInput.value = '';
       promoterMediaInput.value = '';
       document.getElementById('wizardPromoterChip')?.classList.add('d-none');
       const el = document.getElementById('wizard_promoter_search');
-      if(el && window.jQuery && jQuery(el).data('select2')) jQuery(el).val(null).trigger('change.select2');
+      if(el && !mantenerTexto) el.value = '';
+      ['wizard_promoter_pick','wizard_promoter_pick_kind','wizard_promoter_pick_logo'].forEach(function(k){
+        const h = document.getElementById(k); if(h) h.value = '';
+      });
       updateCompanyCards();
       document.getElementById('wizardPromoterCompanyWrap')?.classList.add('d-none');
       updateSellerCards();
@@ -2079,10 +2091,20 @@
     }
 
     /* ------------------- Paneles condicionales sencillos ------------------- */
+    /* ⚠️⚠️ AL MOSTRAR UN PANEL HAY QUE VOLVER A HABILITAR SUS CAMPOS. Al enviar se deshabilita todo
+       lo que está oculto (para que no viaje), y si el envío no llega a navegar —una validación que
+       lo para, un error del servidor— esos campos se quedan MUERTOS: el modal sigue abierto y al
+       marcar «Sí, canta» o «Artista +» el panel aparecía pero no se podía escribir en él (bug real:
+       no dejaba poner el nº de canciones, elegirlas, ni detallar la formación). */
+    function wizardPanelShow(panel, mostrar){
+      if(!panel) return;
+      panel.classList.toggle('d-none', !mostrar);
+      if(mostrar) panel.querySelectorAll('input,select,textarea').forEach(i => { i.disabled = false; });
+    }
     function bindPanelRadio(radioSelector, panelId, showValue){
       document.querySelectorAll(radioSelector).forEach(r => r.addEventListener('change', () => {
         const checked = document.querySelector(radioSelector + ':checked');
-        document.getElementById(panelId)?.classList.toggle('d-none', !(checked && checked.value === showValue));
+        wizardPanelShow(document.getElementById(panelId), !!(checked && checked.value === showValue));
       }));
     }
 
@@ -2739,7 +2761,16 @@
       setVal('#wizard_activity_description', pre.description);
       // 4 · Promotor: quien lo pidió (se pinta con su foto o su logo, como si se hubiera buscado).
       if (pre.promoter_id) {
-        pickSelect2('#wizard_promoter_search', pre.promoter_id, pre.promoter_name || '', pre.promoter_logo || '');
+        // El promotor ya no es un select: es la barra de búsqueda (input + su oculto).
+        var pIn = document.getElementById('wizard_promoter_search');
+        var pHid = document.getElementById('wizard_promoter_pick');
+        var pLogo = document.getElementById('wizard_promoter_pick_logo');
+        if (pIn && pHid) {
+          pIn.value = pre.promoter_name || '';
+          pHid.value = pre.promoter_id;
+          if (pLogo) pLogo.value = pre.promoter_logo || '';
+          pIn.dispatchEvent(new Event('change', { bubbles: true }));
+        }
       }
       // 5 · ¿Tiene caché? y el importe orientativo que traía la petición.
       setRadio('has_cache', (pre.has_cache ? '1' : '0'));

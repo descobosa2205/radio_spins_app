@@ -116594,16 +116594,28 @@ def _ical_url_is_safe(url: str) -> bool:
 
 
 def _ical_fetch(url: str) -> tuple[str, str]:
-    """Baja el .ics. Devuelve `(texto, error)`; con error, el texto va vacío."""
+    """Baja el .ics. Devuelve `(texto, error)`; con error, el texto va vacío.
+
+    ⚠️⚠️ `requests` **NO es un nombre global en `app.py`** (aquí `requests` es una VARIABLE LOCAL en
+    media docena de funciones: las peticiones de invitaciones). Hay que importarlo DENTRO, como ya
+    hace `holded_utils`. Sin esto era un `NameError` en tiempo de ejecución → 500 → la pantalla de
+    mantenimiento, y pyflakes no lo veía porque el nombre sí existe en otros ámbitos (bug real).
+    ⚠️ Y NADA de lo que pase bajando un archivo de fuera puede acabar en un 500: cualquier sorpresa
+    se convierte en un aviso legible en la propia pantalla."""
+    import requests as _rq
+
     limpia = _ical_normalize_url(url)
     if not limpia:
         return "", "Pega el enlace del calendario."
     if not _ical_url_is_safe(limpia):
         return "", "Ese enlace no vale: tiene que ser una dirección pública (https://…)."
     try:
-        r = requests.get(limpia, timeout=ICAL_IMPORT_TIMEOUT, stream=True,
-                         headers={"User-Agent": "33Producciones/1.0 (+calendario)"})
-    except requests.RequestException as exc:
+        r = _rq.get(limpia, timeout=ICAL_IMPORT_TIMEOUT, stream=True,
+                    headers={"User-Agent": "33Producciones/1.0 (+calendario)"})
+    except _rq.RequestException as exc:
+        return "", "No se pudo abrir el calendario: %s" % exc
+    except Exception as exc:
+        app.logger.exception("[calendario] fallo inesperado al abrir el calendario")
         return "", "No se pudo abrir el calendario: %s" % exc
     if r.status_code != 200:
         return "", ("El calendario respondió %d. Comprueba que el enlace es el de un calendario "
@@ -116617,7 +116629,10 @@ def _ical_fetch(url: str) -> tuple[str, str]:
             if total > ICAL_IMPORT_MAX_BYTES:
                 return "", "El calendario pesa demasiado (más de %d MB)." % (ICAL_IMPORT_MAX_BYTES // (1024 * 1024))
             trozos.append(chunk)
-    except requests.RequestException as exc:
+    except _rq.RequestException as exc:
+        return "", "Se cortó la descarga: %s" % exc
+    except Exception as exc:
+        app.logger.exception("[calendario] fallo inesperado bajando el calendario")
         return "", "Se cortó la descarga: %s" % exc
     finally:
         try:

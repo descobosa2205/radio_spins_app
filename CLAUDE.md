@@ -330,6 +330,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   las que pinta la REGLA, nunca al propio evento editado** — con eso se excluía a sí mismo y esa
   fecha se perdía (bug real que sacó la prueba).
   ⚠️ `STATUS:CANCELLED` no se importa.
+  ⚠️⚠️ **`requests` NO ES UN NOMBRE GLOBAL EN `app.py`** (bug real, ago 2026): ahí `requests` es una
+  VARIABLE LOCAL en media docena de funciones de invitaciones (`requests.append(...)`), y el módulo
+  no se importa arriba — lo importan `holded_utils`, `pleo_utils` y `chartmetric_utils`, cada uno el
+  suyo. Usarlo en una función de `app.py` sin importarlo DENTRO (`import requests as _rq`, como ya
+  hace `holded_utils`) es un **`NameError` en tiempo de ejecución** → 500 → **la pantalla de
+  mantenimiento**, y luego un «Method Not Allowed» al pulsar «Reintentar ahora» (recarga con GET una
+  URL que solo acepta POST: el 405 es la CONSECUENCIA, no la causa).
+  ⚠️ **Pyflakes NO lo detecta** aquí, porque el nombre sí existe en otros ámbitos del fichero.
+  ⚠️ Y no se vio en las pruebas porque **sustituían la descarga por un texto**: el único camino sin
+  probar era justo el que fallaba. Por eso existe **`tools/check_ics_download.py`**, que baja un
+  calendario público DE VERDAD. Regla: si una función sale a la red, hay que probar **la salida a la
+  red**, no solo lo que se hace con lo que trae.
   · **Lo descarga el SERVIDOR**, así que la URL se comprueba (`_ical_url_is_safe`): nada de
   `localhost` ni de IP privadas —sin eso sería una forma de que alguien con sesión le hiciera pedir
   cosas a la red interna—, solo http/https, con **timeout** y **tope de tamaño**.

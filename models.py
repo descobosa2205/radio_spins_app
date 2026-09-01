@@ -3266,6 +3266,10 @@ class ConcertArtworkRequest(Base):
     group_kind = Column(Text)     # TOUR (gira comprada) | CYCLE (ciclo, festival o evento)
     group_id = Column(PGUUID(as_uuid=True))
     public_token = Column(Text, nullable=False, unique=True)
+    # Enlace público para VER y DESCARGAR la cartelería de un GRUPO (gira, ciclo, festival, evento).
+    # ⚠️ Es un token OPACO y DISTINTO de `public_token`: con ese se SUBEN carteles, con este solo se
+    # ven y se descargan (el mismo criterio que `Concert.artwork_share_token`).
+    share_token = Column(Text)
     handled_by = Column(Text, nullable=False, server_default=text("'OURS'"))
     # DRAFT | PROMOTER | REQUESTED | REVIEW (subidos, pendientes de validar) | CORRECTIONS | UPLOADED
     status = Column(Text, nullable=False, server_default=text("'DRAFT'"))
@@ -9077,6 +9081,10 @@ def ensure_concert_artwork_schema():
         "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS video_requested boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS video_notes text;",
         "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS video_formats jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        # Enlace público de la cartelería de un GRUPO (ver y descargar; NO es el de subir).
+        "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS share_token text;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_artwork_requests_share_token "
+        "ON concert_artwork_requests(share_token) WHERE share_token IS NOT NULL;",
 
         """
         CREATE TABLE IF NOT EXISTS concert_artwork_requests (

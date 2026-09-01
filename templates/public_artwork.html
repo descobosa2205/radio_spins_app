@@ -9,11 +9,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cartelería · {{ subject_name }}{% if date_label %} · {{ date_label }}{% endif %}</title>
+  {# ⚠️ EL TÍTULO Y EL SUBTÍTULO LOS DA EL SERVIDOR (`_artwork_share_meta`), punto único:
+     «Cartelería, <tipo de actividad>, <artista o evento>, <actividad o municipio>» y debajo el
+     NOMBRE del cartel que se comparte. Antes eran «Cartelería · <nombre>» y «N formato(s) para
+     descargar», que no decían ni qué actividad era ni qué cartel se mandaba. #}
+  <title>{{ og_title }}</title>
   <meta property="og:type" content="article">
-  <meta property="og:title" content="Cartelería · {{ subject_name }}">
-  <meta property="og:description" content="{{ formats|length }} formato(s) para descargar{% if date_label %} · {{ date_label }}{% endif %}">
-  <meta name="description" content="{{ formats|length }} formato(s) para descargar{% if date_label %} · {{ date_label }}{% endif %}">
+  <meta property="og:title" content="{{ og_title }}">
+  <meta property="og:description" content="{{ og_description }}">
+  <meta name="description" content="{{ og_description }}">
   {% if og_image_url %}
     <meta property="og:image" content="{{ og_image_url }}">
     <meta property="og:image:secure_url" content="{{ og_image_url }}">
@@ -42,6 +46,12 @@
               border:1px solid var(--line); border-radius:18px; background:#fcfcfd; padding:16px 18px; }
     .galleta__foto{ flex:0 0 auto; width:76px; height:76px; border-radius:50%; object-fit:cover;
                     border:1px solid var(--line); background:#fff; }
+    /* La imagen de una GIRA (o de un ciclo) no es la foto de una persona: no va en círculo. */
+    .galleta__foto.is-square{ border-radius:14px; object-fit:contain; }
+    .compartido{ margin:18px 0 0; padding:11px 14px; border-radius:12px; background:#fff;
+                 border:1px solid var(--line); font-size:15px; text-align:center; }
+    .compartido i{ color:var(--brand); margin-right:6px; }
+    .fmt.is-focus{ border-color:var(--brand); box-shadow:0 0 0 3px rgba(227,61,72,.14); }
     .galleta__body{ flex:1 1 260px; min-width:0; }
     .eyebrow{ font-size:11px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:#8b95a1; }
     .galleta__name{ font-size:22px; font-weight:800; margin:2px 0 8px; }
@@ -108,10 +118,12 @@
         {% if logo_url %}<img class="brand" src="{{ logo_url }}" alt="{{ company_name }}">{% endif %}
       </div>
 
-      <h1>Cartelería</h1>
+      <h1>{{ page_heading }}</h1>
 
       <div class="galleta">
-        {% if subject_photo %}<img class="galleta__foto" src="{{ subject_photo }}" alt="">{% endif %}
+        {% if subject_photo %}
+          <img class="galleta__foto{% if not subject_photo_round %} is-square{% endif %}" src="{{ subject_photo }}" alt="">
+        {% endif %}
         <div class="galleta__body">
           {% if eyebrow %}<div class="eyebrow">{{ eyebrow }}</div>{% endif %}
           <div class="galleta__name">{{ subject_name }}</div>
@@ -123,13 +135,22 @@
         </div>
       </div>
 
-      <h2>Descargar Cartelería</h2>
+      {# Lo que se ha compartido, dicho por su nombre: si el enlace venía de UN cartel, es lo primero
+         que se lee (y sale marcado abajo). #}
+      {% if focus %}
+        <div class="compartido">
+          <i class="fa fa-share-nodes"></i>
+          Te han compartido <strong>{{ focus.format_label }}</strong>
+        </div>
+      {% endif %}
+
+      <h2>{{ section_heading }}</h2>
       <p class="sub">
         {% if formats %}
           {{ formats|length }} formato{{ 's' if formats|length != 1 }} disponible{{ 's' if formats|length != 1 }}.
           Pincha el que necesites para descargarlo.
         {% else %}
-          Todavía no hay carteles subidos.
+          Todavía no hay nada subido.
         {% endif %}
       </p>
 
@@ -143,7 +164,7 @@
         <div class="fmts">
           {% for f in formats %}
             {# Toda la tarjeta es el enlace de descarga: se pincha donde sea. #}
-            <a class="fmt" href="{{ f.download_url }}" title="Descargar {{ f.format_label }}">
+            <a class="fmt{% if f.is_focus %} is-focus{% endif %}" href="{{ f.download_url }}" title="Descargar {{ f.format_label }}">
               <span class="fmt__shot">
                 <span class="fmt__frame{% if f.is_video %} fmt__frame--vid{% endif %}" style="width:{{ f.frame_w }}px;height:{{ f.frame_h }}px;">
                   {% if f.is_video %}

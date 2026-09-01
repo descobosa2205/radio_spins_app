@@ -1763,12 +1763,14 @@
                    usuario y ahí se comería la pantalla de acceso. En esa página se ve el formato y
                    se descarga. Si por lo que sea no hubiera enlace, se cae a los archivos. #}
                 {% set share_link = artwork_share_url or (visible_assets|map(attribute='file_url')|join('\n')) %}
-                {% set share_text = ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ (' · ' ~ concert.date.strftime('%d/%m/%Y') if concert.date else '') ~ ':\n' ~ share_link) %}
+                {# El asunto y el texto son los MISMOS que la previsualización del enlace. #}
+                {% set share_title = artwork_share_title or ('Cartelería · ' ~ (concert.artist.name if concert.artist else 'concierto')) %}
+                {% set share_text = (share_title ~ '\n\n' ~ share_link) %}
                 {# Al compartir se MARCA el estado (etiqueta «Compartido con…» de la cabecera). #}
                 <div class="dropdown">
                   <button class="btn btn-outline-danger btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir con el artista</button>
                   <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" data-artwork-shared="artist" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+                    <li><a class="dropdown-item" data-artwork-shared="artist" href="mailto:?subject={{ share_title|urlencode }}&body={{ share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
                     <li><a class="dropdown-item" data-artwork-shared="artist" href="https://wa.me/?text={{ share_text|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
                     <li><a class="dropdown-item" data-artwork-shared="artist" href="sms:?&body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
                     <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ share_link }}"><i class="fa fa-link fa-fw me-1"></i>Copiar el enlace</button></li>
@@ -1787,7 +1789,7 @@
                   <div class="dropdown">
                     <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir con el promotor</button>
                     <ul class="dropdown-menu dropdown-menu-end">
-                      <li><a class="dropdown-item" data-artwork-shared="promoter" href="mailto:{{ concert.promoter.contact_email or '' }}?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ share_text_promo|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+                      <li><a class="dropdown-item" data-artwork-shared="promoter" href="mailto:{{ concert.promoter.contact_email or '' }}?subject={{ share_title|urlencode }}&body={{ share_text_promo|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
                       <li><a class="dropdown-item" data-artwork-shared="promoter" href="https://wa.me/?text={{ share_text_promo|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
                       <li><a class="dropdown-item" data-artwork-shared="promoter" href="sms:?&body={{ share_text_promo|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
                       {% if artwork_request and artwork_request.shared_with_promoter_at %}
@@ -1820,7 +1822,11 @@
           </div>
           {% if visible_assets %}
             <div class="row g-3">
+              {# El título con el que se comparte (el mismo de la previsualización del enlace) y, por
+                 cartel, el enlace de la PÁGINA pública apuntando a ese cartel. #}
+              {% set share_title = artwork_share_title or ('Cartelería · ' ~ (concert.artist.name if concert.artist else 'concierto')) %}
               {% for asset in visible_assets %}
+                {% set asset_link = (artwork_share_url ~ '?f=' ~ asset.id) if artwork_share_url else asset.file_url %}
                 <div class="col-12 col-xl-6">
                   <div class="border rounded p-3 h-100">
                     <div class="d-flex justify-content-between align-items-start gap-2">
@@ -1836,10 +1842,15 @@
                         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-v"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
                           <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
-                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartel ' ~ asset.format_label ~ ' · ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</a></li>
-                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartel ' ~ asset.format_label ~ ' · ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</a></li>
-                          <li><a class="dropdown-item" href="sms:?&body={{ ('Cartel ' ~ asset.format_label ~ ': ' ~ asset.file_url)|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</a></li>
-                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button></li>
+                          {# ⚠️ Se comparte la PÁGINA pública de la cartelería apuntando a ESTE
+                             cartel (`?f=`), NUNCA la URL de Storage del archivo: quien lo recibe no
+                             tiene usuario y un enlace a Storage no trae previsualización ninguna
+                             (era el bug: en WhatsApp salía un enlace pelado). El título y el
+                             subtítulo del enlace los pone el servidor. #}
+                          <li><a class="dropdown-item" href="mailto:?subject={{ (share_title ~ ' · ' ~ asset.format_label)|urlencode }}&body={{ ((share_title ~ ' · ' ~ asset.format_label) ~ '\n\n' ~ asset_link)|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</a></li>
+                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ((share_title ~ ' · ' ~ asset.format_label) ~ '\n\n' ~ asset_link)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</a></li>
+                          <li><a class="dropdown-item" href="sms:?&body={{ ((share_title ~ ' · ' ~ asset.format_label) ~ '\n\n' ~ asset_link)|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</a></li>
+                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset_link }}"><i class="fa fa-link fa-fw me-1"></i>Copiar el enlace</button></li>
                           {% if CAN_EDIT_CONCERTS and (visible_assets|length > 1) and not asset.is_primary %}
                             <li>
                               <form method="post" action="{{ url_for('concert_artwork_asset_primary', cid=concert.id, asset_id=asset.id) }}">
@@ -1860,8 +1871,8 @@
                     </div>
                     <div class="d-flex gap-2 mt-3 flex-wrap">
                       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a>
-                      <a class="btn btn-sm btn-outline-secondary" href="https://wa.me/?text={{ ('Cartel ' ~ asset.format_label ~ ' · ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</a>
-                      <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button>
+                      <a class="btn btn-sm btn-outline-secondary" href="https://wa.me/?text={{ ((share_title ~ ' · ' ~ asset.format_label) ~ '\n\n' ~ asset_link)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</a>
+                      <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset_link }}"><i class="fa fa-link fa-fw me-1"></i>Copiar el enlace</button>
                     </div>
                   </div>
                 </div>
@@ -1926,7 +1937,9 @@
                         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-v"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
                           <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
-                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button></li>
+                          {# ⚠️ Un cartel ARCHIVADO o RECHAZADO no está en la página pública, así que
+                             no hay enlace que compartir: se descarga y ya (antes se ofrecía copiar
+                             la URL de Storage, que es justo lo que no debe salir de casa). #}
                           {% if CAN_EDIT_CONCERTS %}
                             <li><hr class="dropdown-divider"></li>
                             <li>

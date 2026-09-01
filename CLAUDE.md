@@ -8382,3 +8382,42 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`syncSubjectPick(true)`): al validar un paso sacaría su `confirm` por segunda vez.
   ⚠️ Comprobado que no queda ningún otro sitio así (barrido de los 33 selects con clase de Select2:
   ninguno lleva un `addEventListener('change')` nativo).
+
+- ⚠️⚠️ **COMPARTIR CARTELERÍA · LO QUE SE MANDA ES LA PÁGINA, Y SU TÍTULO LO DICE TODO** (sep 2026).
+  Al compartir **un cartel** se mandaba la **URL cruda de Storage**: en WhatsApp salía un enlace
+  pelado (una URL de Storage no tiene `og:` ninguna) y lo que se abría era el archivo suelto — «la
+  previsualización y el contenido no cargan bien». Y el «compartir todo» sí mandaba la página, pero
+  su título era «Cartelería · \<nombre\>» y su subtítulo «N formato(s) para descargar», que no decían
+  ni de qué actividad era ni qué cartel se estaba mandando.
+  · **UN SOLO ENLACE PÚBLICO para las dos cosas**: `/carteles/<token>` sirve la cartelería de una
+  **ACTIVIDAD** y la de un **GRUPO** (gira, ciclo, festival, evento) — punto único
+  **`_artwork_share_target`**, así que la página, sus descargas, su ZIP y su miniatura son los MISMOS
+  cuatro endpoints en vez de duplicarlos. El token del grupo vive en
+  **`ConcertArtworkRequest.share_token`** (opaco, y **distinto de `public_token`**: con ese se SUBEN
+  carteles y con este solo se ven y se descargan).
+  · **`?f=<asset_id>`** = el cartel que se ha compartido: sale **el primero y marcado**, la página
+  dice «Te han compartido \<nombre\>» y de él salen la miniatura y el subtítulo del enlace.
+  · **`?cat=LOGO`** = los **logotipos** de un grupo (que no se mezclan nunca con los carteles).
+  · **EL TÍTULO Y EL SUBTÍTULO son un punto único** (`_artwork_share_meta` sobre
+  `_artwork_share_subject`), y se usan en el `<title>`, en las `og:` y como asunto de lo que se
+  comparte desde la app:
+  **«Cartelería, \<tipo de actividad\>, \<artista o evento\>, \<nombre de la actividad o el
+  municipio\>»** y debajo **el nombre del cartel** que se manda (su formato, p. ej. «Vídeo
+  promocional gira»); compartiendo todo, cuántos formatos hay y cuáles. En un grupo, «Cartelería,
+  Gira, \<nombre\>» (y «Logotipos, …» con `cat=LOGO`).
+  ⚠️ El TIPO es lo que ES la actividad (`_activity_kind_label`), no su tipo de venta, y el cuarto
+  elemento es el **festival y, si no tiene, el municipio** — el mismo criterio que el asunto del
+  aviso de salida a la venta.
+  · **La MINIATURA** es el cartel compartido → el principal → cualquiera que sea imagen → la foto
+  del artista → el logo, y **NUNCA da 404** (en WhatsApp un 404 se ve como un enlace pelado). De un
+  cartel en **VÍDEO** se usa su miniatura y un **PDF** no vale (`_artwork_image_src`).
+  ⚠️ **El id del cartel viaja en la URL**: `_artwork_public_asset_or_404` lo valida contra lo que ESE
+  token puede enseñar (sus carteles y, en un grupo, también sus logos), así que con el token de una
+  actividad no se baja un cartel de la gira ni al revés (comprobado).
+  ⚠️ Un cartel **ARCHIVADO o RECHAZADO no está en la página pública**, así que ahí no se ofrece
+  «copiar el enlace»: se descarga y ya (antes se ofrecía la URL de Storage, que es justo lo que no
+  debe salir de casa).
+  ⚠️ En el panel del grupo, `gk_share_url` va **sin parámetros** y `gk_brand_share_url` **siempre con
+  `?cat=LOGO`**, así que el enlace de una pieza concreta es `…url ~ '?f=' ~ id` y `…url ~ '&f=' ~ id`.
+  ⚠️ La imagen de una **GIRA** no es la foto de una persona: en la galleta de la página va cuadrada
+  (`.galleta__foto.is-square`), no en círculo.

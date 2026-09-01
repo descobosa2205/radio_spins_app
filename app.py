@@ -53270,8 +53270,13 @@ def concert_detail_view(cid):
         # ENLACE PÚBLICO de la cartelería: es lo que se comparte con el artista y con el promotor
         # (ellos no tienen usuario). Solo se crea el token si de verdad hay carteles aprobados.
         artwork_share_url = ""
+        artwork_share_title = ""
         if tab == "carteleria" and _concert_artwork_share_assets(session, c):
             artwork_share_url = _concert_artwork_share_url(session, c)
+            # El TÍTULO con el que se comparte, el MISMO que la previsualización del enlace:
+            # «Cartelería, <tipo de actividad>, <artista o evento>, <actividad o municipio>».
+            artwork_share_title = _artwork_share_meta(
+                _artwork_share_subject(session, {"kind": "CONCERT", "concert": c}))["title"]
 
         promotion_requests_display = []
         promotion_entries_display = []
@@ -53438,6 +53443,7 @@ def concert_detail_view(cid):
             location_summary=_concert_location_summary(c),
             artwork_upload_url=_external_url_for('concert_artwork_public_upload', token=artwork_request.public_token) if artwork_request else None,
             artwork_share_url=artwork_share_url,
+            artwork_share_title=artwork_share_title,
             promotion_requests_display=promotion_requests_display,
             promotion_entries_display=promotion_entries_display,
             promo_entity_rows=promo_entity_rows,
@@ -54079,6 +54085,14 @@ def _artwork_group_context(session_db, kind: str, gid) -> dict:
         "gk_brand_formats": ARTWORK_BRAND_FORMATS,
         # La imagen que representa hoy al grupo (la que pinta su ficha y los listados).
         "gk_image_url": (getattr(grupo, ARTWORK_GROUP_IMAGE_FIELD, None) or "").strip() if grupo else "",
+        # ⚠️ LO QUE SE COMPARTE ES LA PÁGINA PÚBLICA, no la URL de Storage de cada archivo (quien lo
+        # recibe no tiene usuario y un enlace a Storage no tiene previsualización ninguna).
+        # `gk_share_url` va SIN parámetros y `gk_brand_share_url` SIEMPRE con `?cat=LOGO`, así que en
+        # la plantilla el enlace de una pieza concreta es `…url ~ '?f=' ~ id` y `…url ~ '&f=' ~ id`.
+        "gk_share_url": (_group_artwork_share_url(session_db, kind, gid)
+                         if _por("POSTER", "APPROVED") else ""),
+        "gk_brand_share_url": (_group_artwork_share_url(session_db, kind, gid, category="LOGO")
+                               if _por("LOGO", "APPROVED") else ""),
     }
 
 
@@ -96568,16 +96582,47 @@ def _ensure_concert_artwork_share_token(session_db, concert) -> str:
     return token
 
 
-def _concert_artwork_share_url(session_db, concert) -> str:
-    """El enlace PÚBLICO de la cartelería de la actividad (lo que se manda al artista)."""
+def _concert_artwork_share_url(session_db, concert, *, asset_id=None) -> str:
+    """El enlace PÚBLICO de la cartelería de la actividad (lo que se manda al artista).
+
+    Con `asset_id` es el enlace de UN cartel concreto: la página lo enseña primero y su nombre y su
+    imagen son los de la previsualización.
+    ⚠️ Lo que se comparte es SIEMPRE esta página, nunca la URL de Storage del archivo: quien lo
+    recibe no tiene usuario, y un enlace directo a Storage no tiene previsualización ninguna (era el
+    bug: en WhatsApp salía un enlace pelado y el contenido no se veía)."""
     if concert is None:
         return ""
     try:
-        return _external_url_for("public_artwork_view",
-                                 token=_ensure_concert_artwork_share_token(session_db, concert))
+        url = _external_url_for("public_artwork_view",
+                                token=_ensure_concert_artwork_share_token(session_db, concert))
     except Exception:
         app.logger.exception("[carteleria] no se pudo construir el enlace público")
         return ""
+    if url and asset_id:
+        url += ("&" if "?" in url else "?") + "f=" + str(asset_id)
+    return url
+
+
+def _group_artwork_share_url(session_db, kind: str, gid, *, asset_id=None,
+                             category: str = "POSTER") -> str:
+    """El enlace PÚBLICO de la cartelería (o de los logotipos) de una GIRA, CICLO o EVENTO."""
+    req = _artwork_group_request(session_db, kind, gid)
+    tok = _ensure_group_artwork_share_token(session_db, req)
+    if not tok:
+        return ""
+    try:
+        url = _external_url_for("public_artwork_view", token=tok)
+    except Exception:
+        app.logger.exception("[carteleria] no se pudo construir el enlace público del grupo")
+        return ""
+    extra = []
+    if (category or "POSTER").upper() == "LOGO":
+        extra.append("cat=LOGO")
+    if asset_id:
+        extra.append("f=" + str(asset_id))
+    if extra:
+        url += ("&" if "?" in url else "?") + "&".join(extra)
+    return url
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -96618,7 +96663,7 @@ def _artwork_ratio_label(w, h) -> str:
     return f"{a}:{b}" if max(a, b) <= 20 else ""
 
 
-def _artwork_asset_public_row(session_db, concert, asset, token: str) -> dict:
+def _artwork_asset_public_row(session_db, subject, asset, token: str) -> dict:
     """Un formato de la página pública: su proporción DIBUJADA, su tamaño y por dónde se descarga."""
     w, h = getattr(asset, "width", None), getattr(asset, "height", None)
     try:
@@ -96676,47 +96721,64 @@ def _artwork_asset_public_row(session_db, concert, asset, token: str) -> dict:
     }
 
 
-def _artwork_public_context(session_db, concert, token: str) -> dict:
-    """Lo que necesita la página pública de cartelería (y su miniatura de enlace)."""
-    company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+def _artwork_public_context(session_db, target: dict, token: str, *,
+                            category: str = "POSTER", focus_id: str = "") -> dict:
+    """Lo que necesita la página pública de cartelería (y su miniatura de enlace).
+
+    Vale para una ACTIVIDAD y para un GRUPO (gira, ciclo, festival, evento): lo único que cambia es
+    la galleta de arriba (una actividad tiene fecha y recinto; un grupo, su nombre) y que en un
+    grupo se pueden pedir sus LOGOTIPOS (`category='LOGO'`).
+    Con `focus_id` se comparte UN cartel concreto: sale el primero, marcado, y es el que da la
+    miniatura y el subtítulo del enlace."""
+    concert = (target or {}).get("concert")
+    company = None
+    if concert is not None:
+        company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
     logo = (getattr(company, "logo_url", None) or "").strip()
     if not logo:
         try:
             logo = url_for("static", filename="img/logo_33_producciones.png")
         except Exception:
             logo = ""
-    artist = getattr(concert, "artist", None)
-    evento = None
-    if getattr(concert, "event_id", None):
-        try:
-            evento = session_db.get(AppEvent, concert.event_id)
-        except Exception:
-            evento = None
-    nombre = ((getattr(evento, "name", None) or "").strip()
-              or (getattr(artist, "name", None) or "").strip() or "Actividad")
-    foto = ((getattr(evento, "logo_url", None) or "").strip()
-            or (getattr(artist, "photo_url", None) or "").strip())
-    try:
-        eyebrow = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
-    except Exception:
-        eyebrow = ""
-    assets = _concert_artwork_share_assets(session_db, concert)
+    subject = _artwork_share_subject(session_db, target)
+    category = category if category in ARTWORK_SHARE_CATEGORIES else "POSTER"
+    assets = _artwork_share_assets_for(session_db, target, category)
     # El principal primero (es el que representa la actividad) y el resto detrás.
     assets = sorted(assets, key=lambda a: (0 if bool(getattr(a, "is_primary", False)) else 1,
                                            (getattr(a, "format_label", None) or "")))
+    # ⚠️ Y si se ha compartido UNO concreto, ese va delante: es el que la persona espera ver.
+    foco = (focus_id or "").strip()
+    if foco:
+        assets = sorted(assets, key=lambda a: (0 if str(a.id) == foco else 1))
+    filas = [_artwork_asset_public_row(session_db, subject, a, token) for a in assets]
+    for f in filas:
+        f["is_focus"] = bool(foco and f["id"] == foco)
+    elegido = next((f for f in filas if f.get("is_focus")), None)
+    meta = _artwork_share_meta(subject, category=category, focus=elegido,
+                               names=[f["format_label"] for f in filas])
+    cabeza, titulo_seccion, _sing = ARTWORK_SHARE_CATEGORIES[category]
     return {
         "token": token,
+        "category": category,
         "company_name": (getattr(company, "name", None) or "").strip(),
         "logo_url": _absolute_media_url(logo) if logo else "",
-        "subject_name": nombre,
-        "subject_photo": _absolute_media_url(foto) if foto else "",
-        "eyebrow": eyebrow,
-        "hero_rows": [{"icon": i, "label": l, "value": str(v)}
-                      for i, l, v in _contract_sheet_hero_rows(concert)],
-        "formats": [_artwork_asset_public_row(session_db, concert, a, token) for a in assets],
-        "zip_url": url_for("public_artwork_download_all", token=token),
-        "og_image_url": _external_url_for("public_artwork_og_image", token=token),
-        "date_label": (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else ""),
+        "subject_name": subject["name"],
+        "subject_photo": _absolute_media_url(subject["photo"]) if subject["photo"] else "",
+        "subject_photo_round": bool(target and target.get("kind") == "CONCERT"),
+        "eyebrow": subject["kind_label"],
+        "is_group": bool(target and target.get("kind") == "GROUP"),
+        "hero_rows": ([{"icon": i, "label": l, "value": str(v)}
+                       for i, l, v in _contract_sheet_hero_rows(concert)] if concert is not None else []),
+        "formats": filas,
+        "focus": elegido,
+        "page_heading": cabeza,
+        "section_heading": titulo_seccion,
+        "og_title": meta["title"],
+        "og_description": meta["description"],
+        "zip_url": url_for("public_artwork_download_all", token=token, cat=category),
+        "og_image_url": _external_url_for("public_artwork_og_image", token=token,
+                                          **({"f": foco} if foco else {})),
+        "date_label": subject["date_label"],
     }
 
 
@@ -96730,25 +96792,168 @@ def _concert_by_artwork_token(session_db, token: str):
             .filter(Concert.artwork_share_token == token).first())
 
 
+# Las categorías que puede enseñar el enlace público (y cómo se llaman): los CARTELES de siempre y,
+# en un grupo, sus LOGOTIPOS. No se mezclan nunca (ver `_artwork_group_panel.html`).
+ARTWORK_SHARE_CATEGORIES = {
+    "POSTER": ("Cartelería", "Descargar Cartelería", "cartel"),
+    "LOGO": ("Logotipos", "Descargar Logotipos", "logotipo"),
+}
+
+
+def _ensure_group_artwork_share_token(session_db, req) -> str:
+    """El token OPACO del enlace público de la cartelería de un GRUPO. Se crea CON COMMIT.
+
+    ⚠️ Es DISTINTO de `public_token`: con ese se SUBEN carteles y con este solo se ven y se
+    descargan (el mismo criterio que los dos tokens de las autorizaciones de menores).
+    ⚠️ Con un `flush` sin commit se perdería al cerrar la sesión y en la carga siguiente saldría
+    otro: un enlace ya compartido dejaría de valer."""
+    if req is None:
+        return ""
+    tok = (getattr(req, "share_token", None) or "").strip()
+    if tok:
+        return tok
+    try:
+        req.share_token = _uuid_token()
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[carteleria] no se pudo crear el enlace público del grupo")
+        return ""
+    return (getattr(req, "share_token", None) or "")
+
+
+def _artwork_share_target(session_db, token: str):
+    """A QUÉ apunta un token de cartelería: una ACTIVIDAD o un GRUPO (gira, ciclo, evento).
+
+    Punto ÚNICO: así el enlace público, sus descargas y su miniatura son los MISMOS endpoints para
+    los dos casos, en vez de duplicar cuatro rutas. Devuelve None si el token no vale."""
+    tok = (token or "").strip()
+    if not tok:
+        return None
+    concert = _concert_by_artwork_token(session_db, tok)
+    if concert is not None:
+        return {"kind": "CONCERT", "concert": concert, "request": None,
+                "group_kind": "", "group_id": None}
+    req = (session_db.query(ConcertArtworkRequest)
+           .filter(ConcertArtworkRequest.share_token == tok).first())
+    if req is None or not (getattr(req, "group_kind", None) and getattr(req, "group_id", None)):
+        return None
+    return {"kind": "GROUP", "concert": None, "request": req,
+            "group_kind": (req.group_kind or ""), "group_id": req.group_id}
+
+
+def _artwork_share_assets_for(session_db, target: dict, category: str = "POSTER") -> list:
+    """Los carteles (o logos) que enseña un enlace público, sea de una actividad o de un grupo."""
+    if not target:
+        return []
+    if target["kind"] == "CONCERT":
+        # ⚠️ En una actividad solo se comparten CARTELES: los logos son de la marca del grupo.
+        return _concert_artwork_share_assets(session_db, target["concert"])
+    ctx = _artwork_group_context(session_db, target["group_kind"], target["group_id"])
+    return list((ctx.get("gk_brand") if category == "LOGO" else ctx.get("gk_assets")) or [])
+
+
 def _artwork_public_asset_or_404(session_db, token: str, asset_id: str):
-    """El cartel pedido, comprobando que de verdad es de ESTA actividad (si no, 404)."""
-    concert = _concert_by_artwork_token(session_db, token)
-    if concert is None:
+    """El cartel pedido, comprobando que de verdad es de ESE enlace (si no, 404).
+
+    ⚠️ El id viaja en la URL: se valida contra lo que ese token puede enseñar (sus carteles Y sus
+    logos si es un grupo), nunca contra la tabla entera."""
+    target = _artwork_share_target(session_db, token)
+    if target is None:
         abort(404)
     aid = to_uuid(asset_id)
-    for a in _concert_artwork_share_assets(session_db, concert):
-        if aid and a.id == aid:
-            return concert, a
+    for categoria in ("POSTER", "LOGO"):
+        for a in _artwork_share_assets_for(session_db, target, categoria):
+            if aid and a.id == aid:
+                return target, a
     abort(404)
 
 
-def _artwork_download_name(concert, asset) -> str:
-    """«<Artista> <fecha> <formato>.<ext>», sin caracteres que rompan el nombre del archivo."""
+def _artwork_share_subject(session_db, target: dict) -> dict:
+    """De QUIÉN es la cartelería de un enlace: nombre, tipo, lugar y foto.
+
+    Punto único del título del enlace y del nombre de los archivos, para la actividad y para el
+    grupo (una gira, un ciclo, un festival o un evento)."""
+    vacio = {"name": "", "kind_label": "", "place": "", "photo": "", "date": None, "date_label": ""}
+    if not target:
+        return vacio
+    if target["kind"] == "GROUP":
+        _grupo, nombre = _artwork_group_owner(session_db, target["group_kind"], target["group_id"])
+        etiqueta = (ARTWORK_GROUP_KINDS.get(target["group_kind"]) or "gira").capitalize()
+        foto = ""
+        try:
+            foto = (getattr(_grupo, ARTWORK_GROUP_IMAGE_FIELD, None) or "").strip()
+        except Exception:
+            foto = ""
+        return {"name": (nombre or "").strip(), "kind_label": etiqueta, "place": "",
+                "photo": foto, "date": None, "date_label": ""}
+    concert = target["concert"]
+    artist = getattr(concert, "artist", None)
+    evento = None
+    if getattr(concert, "event_id", None):
+        try:
+            evento = session_db.get(AppEvent, concert.event_id)
+        except Exception:
+            evento = None
+    try:
+        etiqueta = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+    except Exception:
+        etiqueta = ""
+    return {
+        "name": ((getattr(evento, "name", None) or "").strip()
+                 or (getattr(artist, "name", None) or "").strip() or "Actividad"),
+        "kind_label": etiqueta,
+        # El nombre con el que se identifica la actividad: el festival y, si no, el municipio (el
+        # mismo criterio que el asunto del aviso de salida a la venta).
+        "place": ((getattr(concert, "festival_name", None) or "").strip()
+                  or (_concert_city(concert) or "").strip()),
+        "photo": ((getattr(evento, "logo_url", None) or "").strip()
+                  or (getattr(artist, "photo_url", None) or "").strip()),
+        "date": getattr(concert, "date", None),
+        "date_label": (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else ""),
+    }
+
+
+def _artwork_share_meta(subject: dict, *, category: str = "POSTER", focus=None, names=()) -> dict:
+    """EL TÍTULO Y EL SUBTÍTULO del enlace que se comparte. Punto único.
+
+    · **Título**: «Cartelería, <tipo de actividad>, <artista o evento>, <nombre de la actividad o el
+      municipio>» — y «Logotipos, …» cuando lo que se comparte son los logos de un grupo.
+    · **Debajo**: el NOMBRE del cartel que se comparte (su formato, p. ej. «Vídeo promocional gira»)
+      y, si se comparte todo, cuántos formatos hay y cuáles.
+    ⚠️ Antes el título era «Cartelería · <nombre>» y el subtítulo «N formato(s) para descargar»: no
+    decía qué actividad era ni qué cartel se estaba mandando."""
+    cabeza = ARTWORK_SHARE_CATEGORIES.get(category, ARTWORK_SHARE_CATEGORIES["POSTER"])[0]
+    titulo = ", ".join([x for x in [cabeza, (subject or {}).get("kind_label"),
+                                    (subject or {}).get("name"), (subject or {}).get("place")]
+                        if str(x or "").strip()])
+    etiquetas = [str(x).strip() for x in (names or []) if str(x or "").strip()]
+    if focus:
+        # Lo que se ha compartido: el nombre de ESE cartel (su formato).
+        sub = (str(focus.get("format_label") or "").strip()
+               or ARTWORK_SHARE_CATEGORIES.get(category, ARTWORK_SHARE_CATEGORIES["POSTER"])[2].capitalize())
+    elif etiquetas:
+        sub = "%d formato%s para descargar" % (len(etiquetas), "s" if len(etiquetas) != 1 else "")
+        junto = " · ".join(etiquetas)
+        sub += ": " + (junto if len(junto) <= 120 else junto[:117] + "…")
+    else:
+        sub = "Todavía no hay nada subido."
+    return {"title": titulo, "description": sub}
+
+
+def _artwork_download_name(subject, asset) -> str:
+    """«<Artista o grupo> <fecha> <formato>.<ext>», sin caracteres que rompan el nombre del archivo.
+
+    `subject` es lo que devuelve `_artwork_share_subject` (o, por compatibilidad, un Concert)."""
     original = (getattr(asset, "original_name", None) or "").strip()
     _b, ext = os.path.splitext(original)
-    partes = [(getattr(getattr(concert, "artist", None), "name", None) or "Carteleria"),
-              (concert.date.strftime("%Y-%m-%d") if getattr(concert, "date", None) else ""),
-              (getattr(asset, "format_label", None) or "")]
+    if isinstance(subject, dict):
+        nombre = (subject.get("name") or "Carteleria")
+        fecha = (subject["date"].strftime("%Y-%m-%d") if subject.get("date") else "")
+    else:
+        nombre = (getattr(getattr(subject, "artist", None), "name", None) or "Carteleria")
+        fecha = (subject.date.strftime("%Y-%m-%d") if getattr(subject, "date", None) else "")
+    partes = [nombre, fecha, (getattr(asset, "format_label", None) or "")]
     base = " ".join([x for x in partes if str(x or "").strip()])
     base = re.sub(r"[\\/:*?\"<>|]+", " ", base).strip() or "Cartel"
     return base + (ext or ".jpg")
@@ -96759,12 +96964,18 @@ def _artwork_download_name(concert, asset) -> str:
 # esta página no se habría podido abrir nunca (y sin dar ningún error).
 @app.get("/carteles/<token>", endpoint="public_artwork_view")
 def public_artwork_view(token):
-    """La CARTELERÍA de una actividad por enlace público: se ve el formato y se descarga."""
+    """La CARTELERÍA por enlace público: se ve el formato y se descarga.
+
+    El MISMO enlace sirve la cartelería de una ACTIVIDAD y la de un GRUPO (gira, ciclo, festival,
+    evento). `?f=<id>` es el cartel que se ha compartido (sale primero y da la previsualización) y
+    `?cat=LOGO` los logotipos de un grupo."""
     with get_db() as session_db:
-        concert = _concert_by_artwork_token(session_db, token)
-        if concert is None:
+        target = _artwork_share_target(session_db, token)
+        if target is None:
             abort(404)
-        ctx = _artwork_public_context(session_db, concert, (token or "").strip())
+        ctx = _artwork_public_context(session_db, target, (token or "").strip(),
+                                      category=(request.args.get("cat") or "POSTER").upper(),
+                                      focus_id=(request.args.get("f") or "").strip())
         return render_template("public_artwork.html", **ctx)
 
 
@@ -96774,7 +96985,7 @@ def public_artwork_file(token, asset_id):
 
     Con `?poster=1` se sirve la MINIATURA de un cartel en vídeo (la que saca ffmpeg al subirlo)."""
     with get_db() as session_db:
-        _concert, asset = _artwork_public_asset_or_404(session_db, token, asset_id)
+        _target, asset = _artwork_public_asset_or_404(session_db, token, asset_id)
         src = (asset.file_url or "")
         if (request.args.get("poster") or "").strip() in ("1", "true", "si", "sí"):
             src = (getattr(asset, "poster_url", None) or "").strip() or src
@@ -96790,52 +97001,64 @@ def public_artwork_file(token, asset_id):
 def public_artwork_download(token, asset_id):
     """Descarga UN formato (por nuestro dominio, con un nombre de archivo que se entiende)."""
     with get_db() as session_db:
-        concert, asset = _artwork_public_asset_or_404(session_db, token, asset_id)
+        target, asset = _artwork_public_asset_or_404(session_db, token, asset_id)
         try:
             datos, ctype = _download_remote_content(asset.file_url, timeout=30)
         except Exception:
             app.logger.exception("[carteleria] no se pudo descargar el cartel")
             abort(404)
+        nombre = _artwork_download_name(_artwork_share_subject(session_db, target), asset)
         return send_file(BytesIO(datos), mimetype=(ctype or asset.mime_type or "application/octet-stream"),
-                         as_attachment=True, download_name=_artwork_download_name(concert, asset))
+                         as_attachment=True, download_name=nombre)
 
 
 @app.get("/carteles/<token>/descargar-todo", endpoint="public_artwork_download_all")
 def public_artwork_download_all(token):
     """Todos los formatos en un ZIP (el mismo que la descarga de dentro)."""
     with get_db() as session_db:
-        concert = _concert_by_artwork_token(session_db, token)
-        if concert is None:
+        target = _artwork_share_target(session_db, token)
+        if target is None:
             abort(404)
-        assets = _concert_artwork_share_assets(session_db, concert)
+        categoria = (request.args.get("cat") or "POSTER").upper()
+        assets = _artwork_share_assets_for(session_db, target,
+                                           categoria if categoria in ARTWORK_SHARE_CATEGORIES else "POSTER")
         if not assets:
             abort(404)
-        etiqueta = " ".join([x for x in [
-            (getattr(getattr(concert, "artist", None), "name", None) or "Carteleria"),
-            (concert.date.strftime("%Y-%m-%d") if getattr(concert, "date", None) else "")] if x])
+        sujeto = _artwork_share_subject(session_db, target)
+        etiqueta = " ".join([x for x in [(sujeto["name"] or "Carteleria"),
+                                         (sujeto["date"].strftime("%Y-%m-%d") if sujeto["date"] else "")] if x])
         return _artwork_zip_response(assets, etiqueta)
 
 
 @app.get("/carteles/<token>/og.jpg", endpoint="public_artwork_og_image")
 def public_artwork_og_image(token):
-    """La miniatura del enlace: el cartel principal (y si no hay, la foto del artista)."""
+    """La miniatura del enlace: EL CARTEL QUE SE HA COMPARTIDO (`?f=`) y, si no se dice cuál, el
+    principal; de último, la foto del artista o el logo.
+
+    ⚠️ Aquí hace falta una IMAGEN de verdad: de un cartel en VÍDEO se usa su miniatura y un PDF no
+    vale (`_artwork_image_src`).
+    ⚠️ Y NUNCA da 404: en WhatsApp un 404 se ve como un enlace pelado."""
     with get_db() as session_db:
-        concert = _concert_by_artwork_token(session_db, token)
-        if concert is None:
-            abort(404)
-        assets = _concert_artwork_share_assets(session_db, concert)
-        # ⚠️ Aquí hace falta una IMAGEN: de un cartel en vídeo se usa su miniatura, y un PDF no vale.
-        principal = next((a for a in assets if bool(getattr(a, "is_primary", False))
-                          and _artwork_image_src(a)), None)
-        if principal is None:
-            principal = next((a for a in assets if _artwork_image_src(a)), None)
-        src = _artwork_image_src(principal)
+        target = _artwork_share_target(session_db, token)
+        if target is None:
+            return redirect(url_for("og_default_image"))
+        categoria = (request.args.get("cat") or "POSTER").upper()
+        assets = _artwork_share_assets_for(session_db, target,
+                                           categoria if categoria in ARTWORK_SHARE_CATEGORIES else "POSTER")
+        foco = (request.args.get("f") or "").strip()
+        elegido = next((a for a in assets if foco and str(a.id) == foco and _artwork_image_src(a)), None)
+        if elegido is None:
+            elegido = next((a for a in assets if bool(getattr(a, "is_primary", False))
+                            and _artwork_image_src(a)), None)
+        if elegido is None:
+            elegido = next((a for a in assets if _artwork_image_src(a)), None)
+        src = _artwork_image_src(elegido)
         if not src:
-            src = ((getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()
+            src = ((_artwork_share_subject(session_db, target).get("photo") or "").strip()
                    or url_for("static", filename="img/logo.png"))
     datos = _og_image_jpeg_bytes(src if src.startswith("/static/") else _absolute_media_url(src))
     if not datos:
-        abort(404)
+        return redirect(url_for("og_default_image"))
     resp = send_file(BytesIO(datos), mimetype="image/jpeg")
     resp.headers["Cache-Control"] = "public, max-age=3600"
     return resp

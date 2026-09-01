@@ -17,8 +17,14 @@
    ============================================================================ #}
 {% import '_artwork_media.html' as artm with context %}
 {% set _puede_editar = (not gk_readonly) and CAN_EDIT_CONCERTS %}
-{% set _share_text = ('Carteles ' ~ gk_name ~ ':\n' ~ (gk_assets|map(attribute='file_url')|join('\n'))) %}
-{% set _brand_share = ('Logos ' ~ gk_name ~ ':\n' ~ (gk_brand|map(attribute='file_url')|join('\n'))) %}
+{# ⚠️ LO QUE SE COMPARTE ES LA PÁGINA PÚBLICA (`gk_share_url` / `gk_brand_share_url`), NUNCA la
+   URL de Storage de cada archivo: quien lo recibe no tiene usuario y un enlace a Storage no trae
+   previsualización ninguna. `gk_share_url` va sin parámetros y `gk_brand_share_url` con
+   `?cat=LOGO`, así que el enlace de UNA pieza es `…?f=<id>` y `…&f=<id>`. #}
+{% set _titulo = 'Cartelería, ' ~ ({'TOUR':'Gira','EVENT':'Evento'}.get(gk_kind, 'Ciclo')) ~ ', ' ~ gk_name %}
+{% set _titulo_logos = 'Logotipos, ' ~ ({'TOUR':'Gira','EVENT':'Evento'}.get(gk_kind, 'Ciclo')) ~ ', ' ~ gk_name %}
+{% set _share_text = (_titulo ~ '\n\n' ~ (gk_share_url or '')) %}
+{% set _brand_share = (_titulo_logos ~ '\n\n' ~ (gk_brand_share_url or '')) %}
 {% set _img_label = {'TOUR': 'Imagen de la gira', 'EVENT': 'Imagen del evento'}.get(gk_kind, 'Imagen del ciclo') %}
 
 {# ============ LOGOTIPOS E IMAGEN DE MARCA (va PRIMERO: es la identidad del grupo) ============ #}
@@ -34,9 +40,9 @@
           <div class="dropdown">
             <button class="btn btn-outline-danger btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir</button>
             <ul class="dropdown-menu dropdown-menu-end">
-              <li><a class="dropdown-item" href="mailto:?subject={{ ('Logos ' ~ gk_name)|urlencode }}&body={{ _brand_share|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+              <li><a class="dropdown-item" href="mailto:?subject={{ _titulo_logos|urlencode }}&body={{ _brand_share|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
               <li><a class="dropdown-item" href="https://wa.me/?text={{ _brand_share|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
-              <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ gk_brand|map(attribute='file_url')|join('\n') }}"><i class="fa fa-link fa-fw me-1"></i>Copiar los enlaces</button></li>
+              <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ gk_brand_share_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar el enlace</button></li>
               <li><a class="dropdown-item" href="{{ url_for('group_artwork_download_all', gkind=gk_kind, gid=gk_id, category='LOGO') }}"><i class="fa fa-file-zipper fa-fw me-1"></i>Descargar todos</a></li>
             </ul>
           </div>
@@ -60,6 +66,7 @@
     {% if gk_brand %}
       <div class="row g-3">
         {% for asset in gk_brand %}
+          {% set _pieza_logo = (gk_brand_share_url ~ '&f=' ~ asset.id) if gk_brand_share_url else asset.file_url %}
           <div class="col-6 col-md-4 col-xl-3">
             <div class="border rounded p-2 h-100 text-center {{ 'border-warning' if asset.is_primary else '' }}">
               <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:110px;object-fit:contain;', pdf_cls='fs-1') }}</span>
@@ -70,7 +77,7 @@
               {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
               <div class="d-flex justify-content-center gap-1 mt-2 flex-wrap">
                 <a class="btn btn-sm btn-outline-secondary" href="{{ asset.file_url }}" target="_blank" rel="noopener" download title="Descargar"><i class="fa fa-download"></i></a>
-                <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset.file_url }}" title="Copiar el enlace"><i class="fa fa-link"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ _pieza_logo }}" title="Copiar el enlace"><i class="fa fa-link"></i></button>
                 {% if _puede_editar %}
                   {% if not asset.is_primary and artwork_kind(asset) == 'IMAGE' %}
                     <form method="post" action="{{ url_for('group_artwork_asset_primary', gkind=gk_kind, gid=gk_id, asset_id=asset.id) }}">
@@ -152,10 +159,10 @@
           <div class="dropdown">
             <button class="btn btn-outline-danger btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir estos</button>
             <ul class="dropdown-menu dropdown-menu-end">
-              <li><a class="dropdown-item" href="mailto:?subject={{ ('Carteles ' ~ gk_name)|urlencode }}&body={{ _share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+              <li><a class="dropdown-item" href="mailto:?subject={{ _titulo|urlencode }}&body={{ _share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
               <li><a class="dropdown-item" href="https://wa.me/?text={{ _share_text|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
               <li><a class="dropdown-item" href="sms:?&body={{ _share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
-              <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ gk_assets|map(attribute='file_url')|join('\n') }}"><i class="fa fa-link fa-fw me-1"></i>Copiar los enlaces</button></li>
+              <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ gk_share_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar el enlace</button></li>
               <li><a class="dropdown-item" href="{{ url_for('group_artwork_download_all', gkind=gk_kind, gid=gk_id) }}"><i class="fa fa-file-zipper fa-fw me-1"></i>Descargar todos</a></li>
             </ul>
           </div>
@@ -176,6 +183,7 @@
     {% if gk_assets %}
       <div class="row g-3">
         {% for asset in gk_assets %}
+          {% set _pieza = (gk_share_url ~ '?f=' ~ asset.id) if gk_share_url else asset.file_url %}
           <div class="col-12 col-md-6 col-xl-4">
             <div class="border rounded p-3 h-100">
               <div class="d-flex gap-2 align-items-start">
@@ -189,8 +197,8 @@
                   {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
                   <div class="d-flex gap-2 mt-2 flex-wrap">
                     <a class="btn btn-sm btn-outline-secondary" href="{{ asset.file_url }}" target="_blank" rel="noopener" download><i class="fa fa-download fa-fw me-1"></i>Descargar</a>
-                    <a class="btn btn-sm btn-outline-secondary" href="https://wa.me/?text={{ ('Cartel ' ~ asset.format_label ~ ' · ' ~ gk_name ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</a>
-                    <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button>
+                    <a class="btn btn-sm btn-outline-secondary" href="https://wa.me/?text={{ ((_titulo ~ ' · ' ~ asset.format_label) ~ '\n\n' ~ _pieza)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</a>
+                    <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ _pieza }}"><i class="fa fa-link fa-fw me-1"></i>Copiar el enlace</button>
                   </div>
                   {% if _puede_editar %}
                     <div class="d-flex gap-2 mt-2 flex-wrap">

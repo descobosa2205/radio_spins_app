@@ -51,7 +51,7 @@
       <div class="col-6 col-md-4 col-lg-3 col-xl-2">
         <a href="{{ g.url }}" class="card h-100 text-decoration-none text-reset text-center">
           <div class="card-body">
-            <img src="{{ g.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+            <img src="{{ g.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1"
                  style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
             <div class="fw-semibold text-truncate">{{ g.name }}</div>
             <div class="small text-muted">
@@ -73,7 +73,7 @@
     {% set _tipos = type_chips|selectattr('active')|map(attribute='key')|list %}
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('activities_view', when=when_f, tipo=_tipos, year=f_years) }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
     <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
-      <img src="{{ drill_subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+      <img src="{{ drill_subject.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1"
            style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
       {% if drill_subject.url %}<a class="text-reset text-decoration-none" href="{{ drill_subject.url }}">{{ drill_subject.name }}</a>{% else %}{{ drill_subject.name }}{% endif %}
       {% if drill_subject.kind == 'event' %}<span class="badge text-bg-light border align-self-center">Evento</span>{% endif %}

@@ -21,7 +21,7 @@
           <tr class="royalty-search-row" data-royalty-search="{{ ((item.title or '') ~ ' ' ~ (item.subtitle or '') ~ ' ' ~ (item.code or '') ~ ' ' ~ (item.release_date or '') ~ ' ' ~ item_badges)|lower }}">
             <td>
               <a href="{{ item.detail_url }}">
-                <img src="{{ item.cover_url or item.fallback_cover_url or default_avatar }}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff">
+                <img src="{{ item.cover_url or item.fallback_cover_url or DEFAULT_COVER_URL }}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff">
               </a>
             </td>
             <td>
@@ -311,7 +311,7 @@
         <a class="btn btn-sm {% if not royalty_selected_artist_id %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, roy_tab=royalty_tab) }}">Todos</a>
         {% for artist in royalty_filter_artists %}
           <a class="btn btn-sm d-inline-flex align-items-center gap-2 {% if royalty_selected_artist_id == (artist.id|string) %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=artist.id, roy_tab=royalty_tab) }}">
-            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+            <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-mini" alt="" data-avatar="1">
             <span>{{ artist.name }}</span>
           </a>
         {% endfor %}
@@ -374,94 +374,154 @@
 </div>
 
 {% if royalty_tab == 'afavor' %}
-  {# ---------- A FAVOR: misma estética que las liquidaciones, agrupado por ARTISTA y, dentro,
-       por COMPAÑÍA (que es a quien se le solicita y quien lleva el estado). Los importes NO van
-       aquí: se introducen en «Ingresos». ---------- #}
+  {# ---------- A FAVOR: lo que nos liquidan las compañías externas por nuestras colaboraciones.
+       Se puede ver agrupado por ARTISTA o por COMPAÑÍA (por compañía manda la MATRIZ: todo lo de
+       «Sony Music» junto). El estado y los botones son de cada compañía + semestre. ---------- #}
+  {% set _af_base = {'section': 'royalties', 'roy_tab': 'afavor', 's': royalty_semester_key} %}
   <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-    <div class="me-auto small text-muted"><i class="fa fa-hand-holding-dollar me-1"></i>Colaboraciones externas: lo que nos tienen que liquidar las compañías. Los importes se cargan en <strong>Ingresos</strong>.</div>
-    {% if CAN_EDIT_DISCOGRAFICA and afavor_groups %}
-      <form method="post" action="{{ url_for('afavor_request_liquidation') }}" onsubmit="return confirm('Se enviará la solicitud de liquidación a todas las compañías pendientes. ¿Continuar?');">
-        <input type="hidden" name="s" value="{{ royalty_semester_key }}">
-        <input type="hidden" name="all" value="1">
-        <input type="hidden" name="next" value="{{ request.full_path }}">
-        <button class="btn btn-outline-success btn-sm"><i class="fa fa-paper-plane me-1"></i>Solicitar liquidaciones</button>
-      </form>
+    <div class="me-auto small text-muted">
+      <i class="fa fa-hand-holding-dollar me-1"></i>Colaboraciones externas: lo que nos tienen que
+      liquidar las compañías. Al artista solo se le incluye un tema cuando está <strong>cobrado</strong>.
+    </div>
+    {# Agrupación: por artista o por compañía (agrupando los terceros de una misma matriz). #}
+    <div class="btn-group btn-group-sm" role="group" aria-label="Agrupar">
+      <a class="btn {% if afavor_group_by != 'company' %}btn-dark{% else %}btn-outline-secondary{% endif %}"
+         href="{{ url_for('discografica_view', artist=royalty_selected_artist_id or None, **_af_base) }}"
+         title="Agrupado por artista"><i class="fa fa-user me-1"></i>Por artista</a>
+      <a class="btn {% if afavor_group_by == 'company' %}btn-dark{% else %}btn-outline-secondary{% endif %}"
+         href="{{ url_for('discografica_view', group='company', **_af_base) }}"
+         title="Agrupado por compañía (junta los terceros de la misma matriz)"><i class="fa fa-building me-1"></i>Por compañía</a>
+    </div>
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#afavorUploadModal"
+              title="Cargar de golpe las liquidaciones que nos han mandado">
+        <i class="fa fa-file-arrow-up me-1"></i>Subir liquidaciones
+      </button>
+      {% if afavor_pending_request %}
+        <a class="btn btn-outline-success btn-sm"
+           href="{{ url_for('afavor_request_view', s=royalty_semester_key, pendientes=1) }}">
+          <i class="fa fa-paper-plane me-1"></i>Solicitar liquidaciones
+          <span class="badge text-bg-light border ms-1">{{ afavor_pending_request }}</span>
+        </a>
+      {% endif %}
     {% endif %}
   </div>
 
+  {% if afavor_pending_review %}
+    <div class="alert alert-warning py-2 px-3">
+      <i class="fa fa-inbox me-1"></i>Hay <strong>{{ afavor_pending_review }}</strong>
+      {{ 'tema' if afavor_pending_review == 1 else 'temas' }} subidos por las compañías pendientes de revisar.
+    </div>
+  {% endif %}
+
   {% if not afavor_groups %}
-    <div class="text-muted">No hay colaboraciones externas{% if royalty_selected_artist_id %} para el artista filtrado{% endif %}.</div>
+    <div class="text-muted">No hay colaboraciones externas{% if royalty_selected_artist_id %} para el artista filtrado{% endif %} en este periodo.</div>
   {% else %}
     {% for g in afavor_groups %}
-      <div class="card mb-3 royalty-beneficiary-card" data-royalty-beneficiary-search="{{ (g.artist_name or '')|lower }}">
+      <div class="card mb-3 royalty-beneficiary-card" data-royalty-beneficiary-search="{{ (g.title or '')|lower }}">
         <div class="card-body">
-          {# Cabecera del artista, igual que en las liquidaciones #}
+          {# Cabecera del grupo (artista o compañía matriz). #}
           <div class="d-flex align-items-center gap-2 mb-3">
-            <img src="{{ g.artist_photo or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid #eee;background:#fff">
-            <div>
-              <div class="fw-semibold">{{ g.artist_name }}</div>
-              {% if g.artist_id %}{{ linked_mini('artist', g.artist_id) }}{% endif %}
-              <div class="small text-muted">Colaboraciones externas</div>
+            <img src="{{ g.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                 style="width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid #eee;background:#fff">
+            <div class="min-w-0">
+              <div class="fw-semibold">{{ g.title }}</div>
+              {% if g.group_kind == 'artist' and g.group_id %}{{ linked_mini('artist', g.group_id) }}{% endif %}
+              <div class="small text-muted">{{ g.subtitle }}</div>
+            </div>
+            <div class="ms-auto text-end">
+              <div class="small text-muted">A favor nuestro</div>
+              <div class="fw-semibold">{{ g.total|eur }}</div>
             </div>
           </div>
 
           {% for blk in g.companies %}
             <div class="afavor-company{% if not loop.last %} mb-3{% endif %}">
               <div class="afavor-company__head">
-                <img src="{{ blk.company_logo or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
+                <img src="{{ blk.company_logo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                     style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
                 <div class="flex-grow-1 min-w-0">
                   <div class="fw-semibold text-truncate">{{ blk.company_name }}</div>
-                  <div class="small text-muted">{{ blk.songs|length }} {{ 'canción' if blk.songs|length == 1 else 'canciones' }}</div>
+                  <div class="small text-muted">
+                    {{ blk.rows|length }} {{ 'tema' if blk.rows|length == 1 else 'temas' }}
+                    {% if blk.total %} · {{ blk.total|eur }} a favor{% endif %}
+                  </div>
                 </div>
-                <span class="afavor-st {{ blk.status.cls }}"><i class="fa {{ blk.status.icon }} me-1"></i>{{ blk.status.label }}</span>
+                {# La etiqueta de estado DICE lo que ha pasado al pasar el ratón: cuándo se solicitó
+                   y a quién, cuándo se pidió la factura, cuándo se envió y cuándo se cobró. #}
+                <span class="afavor-st {{ blk.status.cls }}"{% if blk.status_tooltip %} title="{{ blk.status_tooltip }}"{% endif %}>
+                  <i class="fa {{ blk.status.icon }} me-1"></i>{{ blk.status.label }}
+                </span>
                 {% if CAN_EDIT_DISCOGRAFICA and blk.company_id %}
                   <div class="d-flex gap-2 flex-wrap align-items-center">
-                    {% if blk.status.key == 'PENDING' or blk.status.key == 'REQUESTED' %}
-                      <form method="post" action="{{ url_for('afavor_request_liquidation') }}">
-                        <input type="hidden" name="s" value="{{ royalty_semester_key }}">
-                        <input type="hidden" name="company_id" value="{{ blk.company_id }}">
+                    {% if blk.pending_review %}
+                      <a class="btn btn-outline-warning btn-sm" href="{{ url_for('afavor_review_view', liq_id=blk.liquidation_id) }}">
+                        <i class="fa fa-magnifying-glass me-1"></i>Revisar
+                        <span class="badge text-bg-light border ms-1">{{ blk.pending_review }}</span>
+                      </a>
+                    {% endif %}
+                    {% if blk.status.key in ['PENDING', 'REQUESTED'] %}
+                      <a class="btn btn-outline-success btn-sm"
+                         href="{{ url_for('afavor_request_view', s=royalty_semester_key, company_id=blk.company_id) }}">
+                        <i class="fa fa-paper-plane me-1"></i>{{ 'Reenviar solicitud' if blk.status.key == 'REQUESTED' else 'Solicitar liquidación' }}
+                      </a>
+                    {% endif %}
+                    {% if blk.status.key == 'PENDING_INVOICE' and has_access_key('administracion.pendiente', include_descendants=True) %}
+                      <a class="btn btn-outline-primary btn-sm" href="{{ url_for('administration_afavor_invoice', liq_id=blk.liquidation_id) }}">
+                        <i class="fa fa-file-invoice me-1"></i>Emitir factura
+                      </a>
+                    {% endif %}
+                    {% if blk.status.key == 'INVOICE_ISSUED' %}
+                      <form method="post" action="{{ url_for('afavor_invoice_mark_sent', liq_id=blk.liquidation_id) }}">
                         <input type="hidden" name="next" value="{{ request.full_path }}">
-                        <button class="btn btn-outline-success btn-sm"><i class="fa fa-paper-plane me-1"></i>{{ 'Reenviar solicitud' if blk.status.key == 'REQUESTED' else 'Solicitar liquidación' }}</button>
+                        <button class="btn btn-outline-secondary btn-sm" title="La factura ya está en manos de la compañía">
+                          <i class="fa fa-paper-plane me-1"></i>Marcar como enviada
+                        </button>
                       </form>
                     {% endif %}
-                    {% if blk.has_income and blk.status.key in ['REQUESTED', 'PENDING'] %}
-                      <form method="post" action="{{ url_for('afavor_request_invoice') }}">
-                        <input type="hidden" name="s" value="{{ royalty_semester_key }}">
-                        <input type="hidden" name="company_id" value="{{ blk.company_id }}">
+                    {% if blk.status.key == 'INVOICE_SENT' %}
+                      <form method="post" action="{{ url_for('afavor_mark_collected', liq_id=blk.liquidation_id) }}"
+                            data-confirm="¿Marcar como cobrada? Estos temas entrarán ya en la liquidación del artista.">
                         <input type="hidden" name="next" value="{{ request.full_path }}">
-                        <button class="btn btn-outline-primary btn-sm"><i class="fa fa-file-invoice me-1"></i>Solicitar factura</button>
+                        <button class="btn btn-outline-success btn-sm"><i class="fa fa-circle-check me-1"></i>Marcar como cobrada</button>
                       </form>
                     {% endif %}
-                    {% if blk.liquidation_id %}
-                      <div class="dropdown">
-                        <button class="btn btn-sm btn-light border" data-bs-toggle="dropdown" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
-                        <ul class="dropdown-menu dropdown-menu-end">
-                          {% if blk.invoice_url %}
-                            <li><h6 class="dropdown-header">Reenviar factura</h6></li>
-                            <li>
-                              <form method="post" action="{{ url_for('afavor_invoice_resend', liq_id=blk.liquidation_id) }}">
-                                <input type="hidden" name="next" value="{{ request.full_path }}">
-                                <button class="dropdown-item"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</button>
-                              </form>
-                            </li>
-                            <li><a class="dropdown-item" target="_blank" rel="noopener" href="https://wa.me/?text={{ (('Factura de royalties · ' ~ blk.company_name ~ ' ' ~ blk.invoice_url))|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
-                            <li><a class="dropdown-item" href="sms:?&body={{ (('Factura de royalties: ' ~ blk.invoice_url))|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="{{ blk.invoice_url }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar factura</a></li>
-                          {% endif %}
-                          <li><a class="dropdown-item" href="{{ url_for('afavor_liquidation_pdf', liq_id=blk.liquidation_id) }}"><i class="fa fa-file-lines fa-fw me-1"></i>Descargar liquidación</a></li>
-                          {% if blk.status.key == 'INVOICED' %}
-                            <li><hr class="dropdown-divider"></li>
-                            <li>
-                              <form method="post" action="{{ url_for('afavor_mark_collected', liq_id=blk.liquidation_id) }}" onsubmit="return confirm('¿Marcar como cobrada?');">
-                                <input type="hidden" name="next" value="{{ request.full_path }}">
-                                <button class="dropdown-item text-success"><i class="fa fa-circle-check fa-fw me-1"></i>Marcar como cobrada</button>
-                              </form>
-                            </li>
-                          {% endif %}
-                        </ul>
-                      </div>
-                    {% endif %}
+                    <div class="dropdown">
+                      <button class="btn btn-sm btn-light border" data-bs-toggle="dropdown" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        {% if blk.public_url %}
+                          <li><h6 class="dropdown-header">Su enlace para subírnosla</h6></li>
+                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ blk.public_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar el enlace</button></li>
+                          <li><a class="dropdown-item" href="{{ blk.public_url }}" target="_blank" rel="noopener"><i class="fa fa-arrow-up-right-from-square fa-fw me-1"></i>Abrir lo que ve la compañía</a></li>
+                          <li><hr class="dropdown-divider"></li>
+                        {% endif %}
+                        {% if blk.liquidation_id %}
+                          <li><a class="dropdown-item" href="{{ url_for('afavor_review_view', liq_id=blk.liquidation_id) }}"><i class="fa fa-list-check fa-fw me-1"></i>Ver la liquidación y su seguimiento</a></li>
+                          <li><a class="dropdown-item" href="{{ url_for('afavor_liquidation_pdf', liq_id=blk.liquidation_id) }}"><i class="fa fa-file-lines fa-fw me-1"></i>Descargar en PDF</a></li>
+                        {% endif %}
+                        {% if blk.invoice_url %}
+                          <li><hr class="dropdown-divider"></li>
+                          <li><a class="dropdown-item" href="{{ blk.invoice_url }}" target="_blank" rel="noopener"><i class="fa fa-file-invoice-dollar fa-fw me-1"></i>Ver la factura{% if blk.invoice_number %} {{ blk.invoice_number }}{% endif %}</a></li>
+                          <li>
+                            <form method="post" action="{{ url_for('afavor_invoice_resend', liq_id=blk.liquidation_id) }}">
+                              <input type="hidden" name="next" value="{{ request.full_path }}">
+                              <button class="dropdown-item"><i class="fa fa-envelope fa-fw me-1"></i>Reenviar la factura</button>
+                            </form>
+                          </li>
+                        {% endif %}
+                        {% if blk.status.key == 'COLLECTED' %}
+                          <li><hr class="dropdown-divider"></li>
+                          <li>
+                            <form method="post" action="{{ url_for('afavor_mark_collected', liq_id=blk.liquidation_id) }}"
+                                  data-confirm="¿Vuelve a estar pendiente de cobro?">
+                              <input type="hidden" name="undo" value="1">
+                              <input type="hidden" name="next" value="{{ request.full_path }}">
+                              <button class="dropdown-item text-danger"><i class="fa fa-rotate-left fa-fw me-1"></i>No estaba cobrada</button>
+                            </form>
+                          </li>
+                        {% endif %}
+                      </ul>
+                    </div>
                   </div>
                 {% endif %}
               </div>
@@ -470,22 +530,31 @@
                   <thead class="table-light">
                     <tr>
                       <th style="width:52px;"></th>
-                      <th>Canción</th>
-                      <th>Colaboradores</th>
+                      <th>Tema</th>
+                      <th>Artista e intérpretes</th>
                       <th class="text-nowrap">Publicación</th>
-                      <th>ISRC</th>
-                      <th class="text-end text-nowrap">A favor nuestro</th>
+                      <th>Código</th>
+                      <th class="text-end text-nowrap">A favor</th>
+                      <th class="text-end text-nowrap">Ingreso</th>
+                      <th class="text-end text-nowrap">Importe</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {% for it in blk.songs %}
+                    {% for it in blk.rows %}
                       <tr>
                         <td><img src="{{ it.cover_url or DEFAULT_COVER_URL }}" alt="" data-default-cover="1" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff"></td>
-                        <td><span class="fw-semibold">{{ it.title }}</span>{% if it.artist_name %}<span class="d-block small text-muted">{{ it.artist_name }}</span>{% endif %}</td>
-                        <td class="small text-muted">{{ it.collaborators or '—' }}</td>
+                        <td>
+                          <a class="fw-semibold text-reset" href="{{ it.detail_url }}">{{ it.title }}</a>
+                          <span class="badge text-bg-light border ms-1">{{ it.kind_label }}</span>
+                        </td>
+                        <td class="small text-muted">{{ it.who_label or '—' }}</td>
                         <td class="small text-nowrap">{{ it.release_date or '—' }}</td>
-                        <td class="small text-muted font-monospace">{{ it.isrc or '—' }}</td>
-                        <td class="text-end text-nowrap"><span class="fw-semibold">{{ it.our_pct }}%</span> <span class="small text-muted">{{ it.base_label }}</span></td>
+                        <td class="small text-muted font-monospace text-nowrap">{{ it.code or '—' }}</td>
+                        <td class="text-end text-nowrap"><span class="fw-semibold">{{ it.our_pct_label }}%</span> <span class="small text-muted">{{ it.base_label }}</span></td>
+                        <td class="text-end text-nowrap small">{% if it.item_amount_income is not none %}{{ it.item_amount_income|eur }}{% elif it.amount_base %}{{ it.amount_base|eur }}{% else %}—{% endif %}</td>
+                        <td class="text-end text-nowrap">{% if it.item_our_amount is not none %}{{ it.item_our_amount|eur }}{% elif it.our_amount %}{{ it.our_amount|eur }}{% else %}—{% endif %}</td>
+                        <td class="text-end"><span class="afavor-it {{ it.item_status_cls }}"><i class="fa {{ it.item_status_icon }} me-1"></i>{{ it.item_status_label }}</span></td>
                       </tr>
                     {% endfor %}
                   </tbody>
@@ -497,6 +566,8 @@
       </div>
     {% endfor %}
   {% endif %}
+
+  {% if CAN_EDIT_DISCOGRAFICA %}{% include '_afavor_upload_modal.html' %}{% endif %}
 {% else %}
 {% set total_beneficiaries = (royalty_beneficiaries_artists|length) + (royalty_beneficiaries_others|length) %}
 {% if total_beneficiaries == 0 %}
@@ -508,7 +579,7 @@
       <div class="royalty-section-block" data-royalty-section-block>
         <div class="mb-2 text-muted royalty-section-title">Artistas</div>
         {% for b in royalty_beneficiaries_artists %}
-          {{ render_liquidation_card(b, url_for('static', filename='img/logo.png')) }}
+          {{ render_liquidation_card(b, DEFAULT_AVATAR_URL) }}
         {% endfor %}
       </div>
     {% endif %}
@@ -526,7 +597,7 @@
       <div class="royalty-section-block" data-royalty-section-block>
         <div class="mb-2 text-muted royalty-section-title">Artistas</div>
         {% for b in royalty_beneficiaries_artists %}
-          {{ render_summary_card(b, url_for('static', filename='img/logo.png')) }}
+          {{ render_summary_card(b, DEFAULT_AVATAR_URL) }}
         {% endfor %}
       </div>
     {% endif %}
@@ -541,7 +612,7 @@
     {% endif %}
 
     {% for b in royalty_beneficiaries_artists %}
-      {{ render_summary_modal(b, url_for('static', filename='img/logo.png')) }}
+      {{ render_summary_modal(b, DEFAULT_AVATAR_URL) }}
     {% endfor %}
     {% for b in royalty_beneficiaries_others %}
       {{ render_summary_modal(b, DEFAULT_PHOTO_URL) }}

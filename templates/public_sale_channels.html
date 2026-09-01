@@ -9,7 +9,7 @@
     <h3 class="text-center mb-3">Actualizar canales de venta</h3>
     <div class="card shadow-sm mb-4">
       <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
-        <img src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
+        <img src="{{ (concert.artist.photo_url if concert.artist else None) or DEFAULT_AVATAR_URL }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
         <div class="flex-grow-1">
           <h4 class="mb-1">{{ concert.artist.name if concert.artist else 'Actividad' }}</h4>
           <div class="text-muted">
@@ -30,7 +30,7 @@
             {% for ch in channels %}
               <div class="col-12 col-md-6">
                 <div class="border rounded p-2 d-flex align-items-center gap-2">
-                  <img src="{{ ch.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;">
+                  <img src="{{ ch.logo_url or DEFAULT_AVATAR_URL }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;">
                   <div class="min-w-0">
                     <div class="fw-semibold small">{{ ch.name }}</div>
                     {% if ch.sale_url %}<a class="small d-block text-truncate" href="{{ ch.sale_url }}" target="_blank">{{ ch.sale_url }}</a>{% else %}<span class="small text-muted">Sin link</span>{% endif %}

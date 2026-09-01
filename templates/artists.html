@@ -34,7 +34,7 @@
     <a href="{{ url_for('artist_detail_view', artist_id=a.id) }}" class="text-decoration-none text-dark">
       <div class="card h-100 hover-card">
         <div class="card-body d-flex align-items-center gap-3">
-          <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+          <img src="{{ a.photo_url or DEFAULT_AVATAR_URL }}" class="artist-avatar" alt="" data-avatar="1">
           <div class="flex-grow-1">
             <div class="fw-semibold">{{ a.name }}</div>
             <div class="small">

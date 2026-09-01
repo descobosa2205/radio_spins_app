@@ -170,7 +170,7 @@
             <div class="col-12 {% if _companies|length > 1 %}col-md-6{% endif %}">
               <div class="border rounded-3 p-3 h-100">
                 <div class="d-flex align-items-center gap-2 mb-2">
-                  <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:52px;height:52px;object-fit:contain;background:#fff;border:1px solid #eee;border-radius:10px;">
+                  <img src="{{ co.logo_url or DEFAULT_AVATAR_URL }}" alt="" style="width:52px;height:52px;object-fit:contain;background:#fff;border:1px solid #eee;border-radius:10px;">
                   <div class="fw-semibold">{{ co.name }}</div>
                 </div>
                 {% if co.tax_info %}

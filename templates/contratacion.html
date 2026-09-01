@@ -73,7 +73,7 @@
       <div class="col-6 col-md-4 col-lg-3 col-xl-2">
         <a href="{{ g.url }}" class="card h-100 text-decoration-none text-reset text-center">
           <div class="card-body">
-            <img src="{{ g.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+            <img src="{{ g.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
             <div class="fw-semibold text-truncate">{{ g.name }}</div>
             <div class="small text-muted">
               <span class="badge text-bg-light border"><i class="fa fa-shapes me-1"></i>{{ g.count }} actividad{{ '' if g.count == 1 else 'es' }}</span>
@@ -93,7 +93,7 @@
     <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('contracting_view', section='otras-actividades', pasadas=(1 if show_past else None)) }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
       <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
-        <img src="{{ drill_subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
+        <img src="{{ drill_subject.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1" style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
         {{ drill_subject.name }}
         {% if drill_subject.kind == 'event' %}<span class="badge text-bg-light border align-self-center">Evento</span>{% endif %}
       </h5>

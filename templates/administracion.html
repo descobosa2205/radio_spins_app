@@ -293,8 +293,9 @@
     {% for grupo in payment_groups %}
       <div class="card mb-3 pay-group" data-pay-company="{{ grupo.company_id }}">
         <div class="card-header bg-white d-flex align-items-center gap-3 flex-wrap">
-          <img src="{{ grupo.company_logo or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
-               style="width:38px;height:38px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
+          {# EMPRESA DEL GRUPO: el helper pinta su logo y, si todavía no tiene, un icono — NUNCA el
+             logo de la casa (parecía que la fila era nuestra). #}
+          {{ company_logo(name=grupo.company_name, logo_url=grupo.company_logo, size=38) }}
           <div class="flex-grow-1 min-w-0">
             <div class="fw-semibold">{{ grupo.company_name }}</div>
             <div class="small text-muted">{{ grupo.count }} gasto{{ '' if grupo.count == 1 else 's' }} pendiente{{ '' if grupo.count == 1 else 's' }} · <strong>{{ grupo.total|eur }}</strong></div>
@@ -508,10 +509,11 @@
           {% for r in afavor_invoice_rows %}
             <a class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap text-decoration-none text-reset" href="{{ r.url }}">
               <div class="d-flex align-items-center gap-2">
-                {{ company_logo(r.company, size=34) }}
+                <img src="{{ r.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                     style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
                 <div>
                   <div class="fw-semibold">{{ r.name }}</div>
-                  <div class="small text-muted">{{ r.period_label }}{% if r.rec.invoice_requested_at %} · pedida el {{ r.rec.invoice_requested_at.strftime('%d/%m/%Y') }}{% endif %}</div>
+                  <div class="small text-muted">{{ r.period_ordinal }}{% if r.rec.invoice_requested_at %} · pedida el {{ r.rec.invoice_requested_at.strftime('%d/%m/%Y') }}{% endif %}{% if r.total is not none %} · {{ r.total|eur }}{% endif %}</div>
                 </div>
               </div>
               <div class="d-flex align-items-center gap-2">
@@ -519,6 +521,46 @@
                 <span class="btn btn-sm btn-outline-primary"><i class="fa fa-file-invoice me-1"></i>Emitir factura</span>
               </div>
             </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+    {# Con la factura ya enviada, la liquidación a favor está PENDIENTE DE COBRO: lo marca
+       administración cuando entra el dinero. #}
+    {% if afavor_collect_rows %}
+      <div class="card mb-3 border-success">
+        <div class="card-header bg-white d-flex align-items-center gap-2">
+          <strong><i class="fa fa-hand-holding-dollar me-1 text-success"></i>Royalties a favor · pendientes de cobro</strong>
+          <span class="badge text-bg-success">{{ afavor_collect_rows|length }}</span>
+        </div>
+        <div class="card-body p-0">
+          {% for r in afavor_collect_rows %}
+            <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
+              <div class="d-flex align-items-center gap-2">
+                <img src="{{ r.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                     style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
+                <div>
+                  <div class="fw-semibold">{{ r.name }}</div>
+                  <div class="small text-muted">
+                    {{ r.period_ordinal }}{% if r.total is not none %} · {{ r.total|eur }}{% endif %}{% if r.invoice_number %} · factura {{ r.invoice_number }}{% endif %}
+                  </div>
+                </div>
+              </div>
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="afavor-st {{ r.status.cls }}"{% if r.status_tooltip %} title="{{ r.status_tooltip }}"{% endif %}>
+                  <i class="fa {{ r.status.icon }} me-1"></i>{{ r.status.label }}
+                </span>
+                {% if r.invoice_url %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ r.invoice_url }}" target="_blank" rel="noopener">
+                    <i class="fa fa-file-invoice-dollar me-1"></i>Ver la factura</a>
+                {% endif %}
+                <form method="post" action="{{ url_for('afavor_mark_collected', liq_id=r.rec.id) }}"
+                      data-confirm="¿Marcar como cobrada? Estos temas entrarán ya en la liquidación del artista.">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <button class="btn btn-sm btn-outline-success"><i class="fa fa-circle-check me-1"></i>Cobrada</button>
+                </form>
+              </div>
+            </div>
           {% endfor %}
         </div>
       </div>

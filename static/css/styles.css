@@ -3014,6 +3014,69 @@ input.is-need{ border-color:#e0b400; box-shadow:0 0 0 .15rem rgba(255,214,0,.18)
 .afavor-st--pendinv{   background:#e2f5f3; color:#0f7168; border-color:#bfe8e2; }
 .afavor-st--invoiced{  background:#e6f6ea; color:#1a7f4b; border-color:#c6eacf; }
 .afavor-st--collected{ background:#198754; color:#fff; border-color:#198754; }
+.afavor-st--received{  background:#fff4e0; color:#8a5300; border-color:#ffe0b3; }
+.afavor-st--issued{    background:#fdeaea; color:#9b2226; border-color:#f7c9c9; }
+
+/* ---- A FAVOR · el estado de un TEMA dentro de la liquidación ---- */
+.afavor-it{
+  display:inline-flex; align-items:center; white-space:nowrap;
+  padding:.2rem .5rem; border-radius:999px; font-size:.72rem; font-weight:700;
+  border:1px solid transparent;
+}
+.afavor-it--pending{   background:#eef2f7; color:#495867; border-color:#dfe5ec; }
+.afavor-it--submitted{ background:#e4f1fb; color:#116b8f; border-color:#c3e2f2; }
+.afavor-it--approved{  background:#e6f6ea; color:#1a7f4b; border-color:#c6eacf; }
+.afavor-it--rejected{  background:#fdeaea; color:#9b2226; border-color:#f7c9c9; }
+
+/* La etiqueta del % a favor: el azul de la marca (no es un porcentaje más, es lo que se cobra). */
+.afavor-pct{
+  display:inline-block; background:#e8f4f9; color:#07607e; border:1px solid #c9e6f1;
+  border-radius:999px; padding:.2rem .6rem; font-size:.82rem; font-weight:700; white-space:nowrap;
+}
+
+/* ---- A FAVOR · el selector de SEMESTRE de la página pública ----
+   Los que no se están viendo son grises y apagados; el activo, en el rojo de la casa. */
+.afavor-sem{
+  display:inline-block; padding:.34rem .8rem; border-radius:999px; font-size:.84rem; font-weight:600;
+  text-decoration:none; background:#eef1f5; color:#6b7683; border:1px solid #e1e6ec;
+}
+.afavor-sem:hover{ background:#e5eaf0; color:#414b57; }
+.afavor-sem.is-on{
+  background:var(--brand-primary, #E33D48); color:#fff; border-color:var(--brand-primary, #E33D48);
+}
+
+/* ---- A FAVOR · el bocadillo de cada tema en la página pública ---- */
+.afavor-pub{
+  border:1px solid rgba(0,0,0,.09); border-radius:14px; background:#fff; padding:.9rem 1rem;
+}
+.afavor-pub.is-locked{ background:#f7f8fa; opacity:.72; }
+.afavor-pub.has-file{ border-color:#1a7f4b; }
+.afavor-pub__head{ display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+.afavor-pub__cover{
+  width:72px; height:72px; flex:0 0 auto; object-fit:cover; border-radius:10px;
+  border:1px solid #e5e7eb; background:#fff;
+}
+.afavor-pub__who{ min-width:0; flex:1 1 12rem; }
+.afavor-pub__title{ font-weight:700; font-size:1.02rem; }
+.afavor-pub__sub{ color:#6b7280; font-size:.86rem; }
+.afavor-pub__date, .afavor-pub__pct{ flex:0 0 auto; }
+.afavor-pub__amount{ flex:0 0 11rem; }
+.afavor-pub__total{
+  margin-top:.6rem; padding-top:.6rem; border-top:1px dashed rgba(0,0,0,.1);
+  font-size:.92rem; color:#374151;
+}
+.afavor-pub__drop{
+  margin-top:.7rem; border:1px dashed #c9d2dc; border-radius:12px; padding:.8rem 1rem;
+  background:#fbfcfe; font-size:.9rem; color:#414b57;
+}
+.afavor-pub__drop.is-done{ border-style:solid; background:#f2f5f8; }
+.afavor-pub__drop.is-drop-hover{ border-color:var(--brand-primary, #E33D48); background:#fff5f6; }
+.afavor-pub__pick{ color:var(--brand-primary, #E33D48); font-weight:700; cursor:pointer; text-decoration:underline; }
+
+@media (max-width: 575.98px){
+  .afavor-pub__amount{ flex:1 1 100%; }
+  .afavor-pub__cover{ width:56px; height:56px; }
+}
 
 /* =========================================================
    MIS GASTOS · pantalla de asignación: dos columnas con scroll INDEPENDIENTE y

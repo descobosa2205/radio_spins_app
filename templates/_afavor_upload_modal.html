@@ -1,0 +1,245 @@
+{# ============================================================================================
+   A FAVOR · SUBIR LIQUIDACIONES EN BLOQUE. Se arrastran (o se eligen) los documentos que nos han
+   mandado las compañías, el sistema los LEE, enseña las COINCIDENCIAS con nuestro catálogo y, al
+   aceptarlas, carga los importes como ingresos de esos temas.
+
+   ⚠️ Lo que se carga queda **pendiente de revisar**: la factura no se pide hasta que alguien lo
+   valide. Y lo que NO casa no se calla: se lista con su motivo.
+   ============================================================================================ #}
+<div class="modal fade" id="afavorUploadModal" tabindex="-1" aria-hidden="true"
+     data-afavor-upload
+     data-url-read="{{ url_for('afavor_statement_read') }}"
+     data-url-apply="{{ url_for('afavor_statement_apply') }}"
+     data-semester="{{ royalty_semester_key }}">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0"><i class="fa fa-file-arrow-up me-2"></i>Subir liquidaciones</h5>
+          <div class="small text-muted">Las que nos han mandado las compañías. Se leen y se te enseña qué ha casado.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+
+        {# ---- Paso 1: los documentos ---- #}
+        <div data-afavor-up-step="1">
+          <div class="afavor-pub__drop" data-file-drop-for="#afavorUpFiles">
+            <i class="fa fa-cloud-arrow-up me-1"></i>
+            Arrastra aquí las liquidaciones o
+            <label for="afavorUpFiles" class="afavor-pub__pick">elígelas</label>.
+            <span class="d-block text-muted small mt-1">PDF, Excel o CSV. Puedes soltar varias a la vez.</span>
+            <input class="d-none" type="file" id="afavorUpFiles" multiple
+                   accept=".pdf,.xlsx,.xls,.csv">
+            <div class="small mt-2 fw-semibold d-none" data-afavor-up-names></div>
+          </div>
+          <div class="row g-2 align-items-end mt-3">
+            <div class="col-12 col-md-5">
+              <label class="form-label small mb-1">Periodo</label>
+              <select class="form-select form-select-sm" data-afavor-up-semester>
+                {% for t in royalty_semester_tabs %}
+                  <option value="{{ t.key }}"{% if t.is_active %} selected{% endif %}>{{ t.label }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">Si el documento dice de qué semestre es, manda el documento.</div>
+            </div>
+            <div class="col-12 col-md-7 text-md-end">
+              <button type="button" class="btn btn-primary" data-afavor-up-read disabled>
+                <i class="fa fa-magnifying-glass me-1"></i>Leer y ver las coincidencias
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {# ---- Paso 2: lo que ha casado ---- #}
+        <div class="d-none" data-afavor-up-step="2">
+          <div data-afavor-up-results></div>
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-afavor-up-back>
+              <i class="fa fa-arrow-left me-1"></i>Volver a elegir
+            </button>
+            <div class="text-end">
+              <div class="small text-muted" data-afavor-up-summary></div>
+              <button type="button" class="btn btn-success mt-1" data-afavor-up-apply>
+                <i class="fa fa-check me-1"></i>Cargar los importes
+              </button>
+            </div>
+          </div>
+          <div class="text-muted small mt-2">
+            Los importes se cargan como ingresos de esos temas y quedan <strong>pendientes de revisar</strong>:
+            la factura no se pide hasta que los valides.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var raiz = document.querySelector('[data-afavor-upload]');
+  if (!raiz || raiz.__afavorUp) return;
+  raiz.__afavorUp = true;
+
+  var entrada = raiz.querySelector('#afavorUpFiles');
+  var nombres = raiz.querySelector('[data-afavor-up-names]');
+  var btnLeer = raiz.querySelector('[data-afavor-up-read]');
+  var btnCargar = raiz.querySelector('[data-afavor-up-apply]');
+  var caja = raiz.querySelector('[data-afavor-up-results]');
+  var resumen = raiz.querySelector('[data-afavor-up-summary]');
+  var paso1 = raiz.querySelector('[data-afavor-up-step="1"]');
+  var paso2 = raiz.querySelector('[data-afavor-up-step="2"]');
+
+  function esc(t) {
+    return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function paso(n) {
+    paso1.classList.toggle('d-none', n !== 1);
+    paso2.classList.toggle('d-none', n !== 2);
+  }
+
+  /* El arrastre lo hace el mecanismo global (file_drop.js): aquí solo se escucha el change. */
+  raiz.addEventListener('change', function (ev) {
+    if (ev.target !== entrada) return;
+    var lista = Array.prototype.slice.call(entrada.files || []);
+    nombres.textContent = lista.map(function (f) { return f.name; }).join(' · ');
+    nombres.classList.toggle('d-none', !lista.length);
+    btnLeer.disabled = !lista.length;
+  });
+
+  raiz.addEventListener('click', function (ev) {
+    if (ev.target.closest('[data-afavor-up-back]')) { paso(1); return; }
+    if (ev.target.closest('[data-afavor-up-read]')) { leer(); return; }
+    if (ev.target.closest('[data-afavor-up-apply]')) { cargar(); return; }
+  });
+
+  function leer() {
+    var lista = Array.prototype.slice.call(entrada.files || []);
+    if (!lista.length) return;
+    var sem = (raiz.querySelector('[data-afavor-up-semester]') || {}).value || raiz.getAttribute('data-semester');
+    var datos = new FormData();
+    datos.append('s', sem || raiz.getAttribute('data-semester'));
+    lista.forEach(function (f) { datos.append('files', f); });
+    var previo = btnLeer.innerHTML;
+    btnLeer.disabled = true;
+    btnLeer.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Leyendo…';
+    fetch(raiz.getAttribute('data-url-read'), { method: 'POST', body: datos })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btnLeer.disabled = false;
+        btnLeer.innerHTML = previo;
+        if (!d || !d.ok) { alert((d && d.error) || 'No se han podido leer los documentos.'); return; }
+        pinta(d.files || []);
+        paso(2);
+      })
+      .catch(function () {
+        btnLeer.disabled = false;
+        btnLeer.innerHTML = previo;
+        alert('No se han podido leer los documentos.');
+      });
+  }
+
+  function pinta(ficheros) {
+    var html = '';
+    var total = 0;
+    ficheros.forEach(function (f, i) {
+      html += '<div class="border rounded-3 p-3 mb-3" data-afavor-up-file="' + i + '"' +
+              ' data-doc-url="' + esc(f.document_url || '') + '" data-doc-name="' + esc(f.name || '') + '"' +
+              ' data-period="' + esc(f.period || '') + '">';
+      html += '<div class="d-flex align-items-center gap-2 flex-wrap mb-2">' +
+              '<i class="fa fa-file-lines text-muted"></i><span class="fw-semibold">' + esc(f.name) + '</span>' +
+              '<span class="badge text-bg-light border">' + esc(f.period_label || '') + '</span>' +
+              (f.period_detected ? '<span class="badge text-bg-light border" title="El periodo lo dice el propio documento"><i class="fa fa-circle-check me-1"></i>periodo del documento</span>' : '') +
+              (f.total ? '<span class="badge text-bg-light border">Total del documento: ' + esc(f.total) + '</span>' : '') +
+              '</div>';
+      if (f.error) {
+        html += '<div class="alert alert-danger py-2 px-3 mb-0">' + esc(f.error) + '</div></div>';
+        return;
+      }
+      (f.warnings || []).forEach(function (w) {
+        html += '<div class="alert alert-warning py-2 px-3 small">' + esc(w) + '</div>';
+      });
+      if (!(f.matched || []).length) {
+        html += '<div class="text-muted">No ha casado ninguna línea con el repertorio a favor.</div>';
+      } else {
+        html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0">' +
+                '<thead class="table-light"><tr><th style="width:34px;"></th><th>Tema</th><th>Compañía</th>' +
+                '<th class="text-end">Ingreso</th><th class="text-end">A favor</th><th class="text-end">Importe</th></tr></thead><tbody>';
+        (f.matched || []).forEach(function (m, j) {
+          total += 1;
+          html += '<tr data-afavor-up-row="' + i + '-' + j + '"' +
+                  ' data-kind="' + esc(m.kind) + '" data-item="' + esc(m.item_id) + '"' +
+                  ' data-company="' + esc(m.company_id) + '" data-amount="' + esc(m.amount) + '"' +
+                  ' data-title="' + esc(m.title) + '" data-pct="' + esc(m.our_pct) + '">' +
+                  '<td><input class="form-check-input" type="checkbox" checked data-afavor-up-pick></td>' +
+                  '<td><span class="fw-semibold">' + esc(m.title) + '</span> <span class="badge text-bg-light border">' + esc(m.kind_label) + '</span>' +
+                  (m.artist_name ? '<span class="d-block small text-muted">' + esc(m.artist_name) + '</span>' : '') +
+                  (m.lines > 1 ? '<span class="d-block small text-muted">' + esc(m.lines) + ' líneas sumadas</span>' : '') + '</td>' +
+                  '<td class="small">' + esc(m.company || '—') + '</td>' +
+                  '<td class="text-end text-nowrap">' + esc(m.amount_label) + '</td>' +
+                  '<td class="text-end text-nowrap">' + esc(m.our_pct_label) + '%</td>' +
+                  '<td class="text-end text-nowrap fw-semibold">' + esc(m.our_amount_label) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+      if ((f.unmatched || []).length) {
+        html += '<details class="mt-2"><summary class="small text-muted">' +
+                'No ha casado ' + esc(f.unmatched_total) + ' ' + (f.unmatched_total === 1 ? 'línea' : 'líneas') +
+                ' (mira por qué)</summary><ul class="small text-muted mt-2 mb-0">';
+        (f.unmatched || []).forEach(function (u) {
+          html += '<li>' + esc(u.code || u.title || '—') + ' · ' + esc(u.amount || 'sin importe') +
+                  ' — ' + esc(u.reason) + '</li>';
+        });
+        html += '</ul></details>';
+      }
+      html += '</div>';
+    });
+    caja.innerHTML = html || '<div class="text-muted">No hay nada que cargar.</div>';
+    resumen.textContent = total ? (total + (total === 1 ? ' tema casado' : ' temas casados')) : 'Nada que cargar';
+    btnCargar.disabled = !total;
+  }
+
+  function cargar() {
+    var filas = [];
+    caja.querySelectorAll('[data-afavor-up-row]').forEach(function (tr) {
+      var pick = tr.querySelector('[data-afavor-up-pick]');
+      if (pick && !pick.checked) return;
+      var fichero = tr.closest('[data-afavor-up-file]');
+      filas.push({
+        kind: tr.getAttribute('data-kind'),
+        item_id: tr.getAttribute('data-item'),
+        company_id: tr.getAttribute('data-company'),
+        amount: tr.getAttribute('data-amount'),
+        our_pct: tr.getAttribute('data-pct'),
+        title: tr.getAttribute('data-title'),
+        s: (fichero && fichero.getAttribute('data-period')) || raiz.getAttribute('data-semester'),
+        document_url: (fichero && fichero.getAttribute('data-doc-url')) || '',
+        document_name: (fichero && fichero.getAttribute('data-doc-name')) || ''
+      });
+    });
+    if (!filas.length) { alert('No has marcado ningún tema.'); return; }
+    var previo = btnCargar.innerHTML;
+    btnCargar.disabled = true;
+    btnCargar.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cargando…';
+    fetch(raiz.getAttribute('data-url-apply'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: filas })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || !d.ok) {
+        btnCargar.disabled = false;
+        btnCargar.innerHTML = previo;
+        alert((d && d.error) || 'No se han podido cargar los importes.');
+        return;
+      }
+      window.location.reload();
+    }).catch(function () {
+      btnCargar.disabled = false;
+      btnCargar.innerHTML = previo;
+      alert('No se han podido cargar los importes.');
+    });
+  }
+})();
+</script>

@@ -48,7 +48,7 @@
               <button type="button" class="agenda-artist-card{% if not a.active %} agenda-artist-card--extra d-none{% endif %}"
                       data-agenda-pick="{{ a.id }}" data-name="{{ a.name }}" data-search="{{ a.name|lower }}"
                       data-event="{{ a.event_id or '' }}"{% if not a.active %} data-agenda-extra="1"{% endif %}>
-                <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" alt="" loading="lazy">
+                <img src="{{ a.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" loading="lazy">
                 <span>{{ a.name }}</span>
               </button>
               {% endif %}

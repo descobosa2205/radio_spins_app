@@ -7,8 +7,8 @@
 
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round"
-       src="{{ (artist.photo_url if artist else None) or url_for('static', filename='img/logo.png') }}"
-       alt="" data-default-photo="1"{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>
+       src="{{ (artist.photo_url if artist else None) or DEFAULT_AVATAR_URL }}"
+       alt="" data-default-photo="1" data-avatar="1"{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>
   <div class="ficha-hero__body">
     {# QUÉ SE PIDE manda, igual que en una actividad: el tipo por delante y, detrás, si lleva caché. #}
     <div class="ficha-hero__eyebrow">Petición · {{ activity_label }} · {{ 'Sin caché' if no_cache else 'Con caché' }}</div>

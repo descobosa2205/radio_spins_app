@@ -229,7 +229,7 @@
               <button type="button" class="btn btn-sm btn-dark active" data-song-artist-filter="all">Todos</button>
               {% for artist, songs in artist_blocks %}
                 <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-song-artist-filter="{{ artist.id }}">
-                  <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                  <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-mini" alt="" data-avatar="1">
                   <span>{{ artist.name }}</span>
                 </button>
               {% endfor %}
@@ -257,7 +257,7 @@
         {% for artist, songs in artist_blocks %}
           <div class="mb-4 song-artist-block" data-song-artist-block="{{ artist.id }}">
             <div class="d-flex align-items-center gap-2 mb-2">
-              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="" data-artist-link="{{ artist.id }}">
+              <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-avatar" alt="" data-avatar="1" data-artist-link="{{ artist.id }}">
               <h5 class="m-0" data-artist-link="{{ artist.id }}">{{ artist.name }}</h5>
               {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
             </div>
@@ -339,7 +339,7 @@
                         </td>
                         <td>
                           <div class="d-flex align-items-center gap-2">
-                            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                            <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-mini" alt="" data-avatar="1">
                             <span>{{ artist.name }}</span>
                           </div>
                         </td>
@@ -736,7 +736,7 @@
               <button type="button" class="btn btn-sm btn-dark active" data-album-artist-filter="all">Todos</button>
               {% for artist, albums in album_blocks %}
                 <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-album-artist-filter="{{ artist.id }}">
-                  <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                  <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-mini" alt="" data-avatar="1">
                   <span>{{ artist.name }}</span>
                 </button>
               {% endfor %}
@@ -757,7 +757,7 @@
         {% for artist, albums in album_blocks %}
           <div class="mb-4 album-artist-block" data-album-artist-block="{{ artist.id }}">
             <div class="d-flex align-items-center gap-2 mb-2">
-              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="" data-artist-link="{{ artist.id }}">
+              <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-avatar" alt="" data-avatar="1" data-artist-link="{{ artist.id }}">
               <h5 class="m-0" data-artist-link="{{ artist.id }}">{{ artist.name }}</h5>
               {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
             </div>
@@ -811,7 +811,7 @@
                       </td>
                       <td>
                         <div class="d-flex align-items-center gap-2">
-                          <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                          <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-mini" alt="" data-avatar="1">
                           <span>{{ artist.name }}</span>
                         </div>
                       </td>
@@ -970,7 +970,7 @@
             <button type="button" class="btn btn-sm btn-dark active" data-editorial-artist-filter="all">Todos</button>
             {% for artist in editorial_filter_artists %}
               <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-editorial-artist-filter="{{ artist.id }}">
-                <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-mini" alt="" data-avatar="1">
                 <span>{{ artist.name }}</span>
               </button>
             {% endfor %}

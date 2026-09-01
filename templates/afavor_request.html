@@ -1,0 +1,303 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ROYALTIES «A FAVOR» · SOLICITAR la liquidación a las compañías externas.
+   Se ve TAL COMO va a llegar (el mismo HTML que el correo). A la izquierda, una tarjeta por
+   compañía —a quién se le manda, se puede quitar a alguien o añadir otros correos y dejar fuera del
+   envío a la compañía que no toque—, la nota y qué módulos se ven; a la derecha, la vista previa de
+   la que se esté mirando. #}
+<div class="mb-2">
+  <a class="btn-volver" href="{{ back_url }}"
+     title="Volver a Royalties a favor" aria-label="Volver a Royalties a favor"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <h5 class="m-0">Solicitar liquidación de Royaltys</h5>
+    <span class="badge text-bg-light border">{{ period_ordinal }}</span>
+  </div>
+  <div class="text-muted small">{{ period_label }}</div>
+</div>
+
+<div class="row g-3" data-afavor-request
+     data-url-preview="{{ url_for('afavor_request_preview') }}"
+     data-url-send="{{ url_for('afavor_request_liquidation') }}"
+     data-url-back="{{ back_url }}"
+     data-semester="{{ semester_key }}">
+
+  {# ---------- IZQUIERDA: a quién se le pide y qué se manda ---------- #}
+  <div class="col-12 col-lg-5">
+
+    {% if not sms_available %}
+      {# Sin pasarela no se ofrece «SMS» (sería un botón que no manda nada), y se dice por qué. #}
+      <div class="alert alert-light border py-2 px-3 small mb-3">
+        <i class="fa fa-circle-info me-1"></i>Los avisos por <strong>SMS</strong> están sin
+        configurar, así que todo va por correo.
+        {% if IS_MASTER %}<a href="{{ url_for('integrations_view') }}#tab-sms" class="alert-link">Configurar la pasarela</a>.{% endif %}
+      </div>
+    {% endif %}
+
+    {% for t in targets %}
+      <div class="card mb-3{% if t.company_id == first_company %} border-danger{% endif %}"
+           data-afavor-card="{{ t.company_id }}" data-afavor-name="{{ t.name }}">
+        <div class="card-body">
+
+          <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+            <img src="{{ t.logo_url or DEFAULT_AVATAR_URL }}" alt=""
+                 style="width:34px;height:34px;border-radius:8px;object-fit:cover;flex:0 0 auto;">
+            <div class="flex-grow-1" style="min-width:0;">
+              <div class="fw-semibold text-truncate">{{ t.name }}</div>
+              <div class="text-muted small">{{ t.rows|length }} tema{{ '' if t.rows|length == 1 else 's' }} en este periodo</div>
+            </div>
+            <span class="afavor-st {{ t.status.cls }}"><i class="fa {{ t.status.icon }} me-1"></i>{{ t.status.label }}</span>
+          </div>
+
+          {% if targets|length > 1 %}
+            {# Con varias compañías se puede dejar fuera del envío a la que no toque. #}
+            <label class="an-mod-toggle mb-2">
+              <input class="form-check-input m-0" type="checkbox" checked
+                     data-afavor-company="{{ t.company_id }}"
+                     title="Quítale la marca para no pedírsela">
+              <span>Pedírsela</span>
+            </label>
+          {% endif %}
+
+          <div class="text-muted small mb-2">
+            Van el correo de la compañía, sus correos adicionales y sus personas de contacto. Quita a
+            quien no toque o añade otros correos.
+          </div>
+
+          <div data-afavor-recipients="{{ t.company_id }}">
+            {% if t.recipients %}
+              {# El selector por persona es el de siempre (`_notify_channel_picker.html`). #}
+              {% with np_rows = t.recipients, np_checks = True %}
+                {% include '_notify_channel_picker.html' %}
+              {% endwith %}
+            {% else %}
+              <div class="alert alert-warning py-2 px-3 small mb-0">
+                No hay ningún correo configurado. Escribe abajo a quién se lo mandamos.
+              </div>
+            {% endif %}
+          </div>
+
+          <label class="form-label small mb-1 mt-3">Otros correos <span class="text-muted">(opcional)</span></label>
+          <input class="form-control form-control-sm" data-afavor-extra="{{ t.company_id }}"
+                 placeholder="correo@ejemplo.com, otro@ejemplo.com">
+
+          <div class="mt-3">
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-afavor-show="{{ t.company_id }}">
+              <i class="fa fa-eye me-1"></i>Ver esta previsualización
+            </button>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <label class="form-label small mb-1">Nota <span class="text-muted">(sale arriba, debajo del título)</span></label>
+        <textarea class="form-control form-control-sm" rows="3" data-afavor-note
+                  placeholder="Lo que quieras añadir."></textarea>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="fa fa-eye-slash me-1 text-muted"></i>Qué se ve</h6>
+        <div class="text-muted small mb-2">Pincha el ojo de cada módulo para dejarlo fuera del correo.</div>
+        <div class="d-flex flex-column gap-1">
+          {% for key, label in notice_modules %}
+            <label class="an-mod-toggle">
+              <input class="form-check-input m-0" type="checkbox" checked data-afavor-mod="{{ key }}">
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="d-grid gap-2">
+      <button class="btn btn-primary" type="button" data-afavor-send>
+        <i class="fa fa-paper-plane me-1"></i>{% if targets|length > 1 %}Enviar {{ targets|length }} solicitudes{% else %}Enviar la solicitud{% endif %}
+      </button>
+      <a class="btn btn-outline-secondary" href="{{ back_url }}">Cancelar</a>
+    </div>
+  </div>
+
+  {# ---------- DERECHA: la vista previa ---------- #}
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-1">
+          <h6 class="m-0"><i class="fa fa-envelope-open-text me-1 text-muted"></i>Vista previa</h6>
+          <span class="text-muted small" data-afavor-subject>{{ previews[first_company].subject }}</span>
+        </div>
+        <div class="text-muted small mb-2">
+          Es exactamente lo que se manda ·
+          <strong data-afavor-previewing>{{ targets[0].name }}</strong>
+        </div>
+        <div class="an-preview" data-afavor-preview>{{ previews[first_company].html|safe }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Las previas ya calculadas, para cambiar de compañía sin pedirle nada al servidor la primera vez. #}
+<script type="application/json" id="afavorPreviews">{{ previews|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var root = document.querySelector('[data-afavor-request]');
+  if (!root) return;
+  var preview = root.querySelector('[data-afavor-preview]');
+  var asunto = root.querySelector('[data-afavor-subject]');
+  var quien = root.querySelector('[data-afavor-previewing]');
+  var note = root.querySelector('[data-afavor-note]');
+  var sem = root.getAttribute('data-semester') || '';
+  var actual = null;
+  var timer = null;
+
+  // Las previas que ya vienen calculadas del servidor (para el primer cambio de compañía).
+  var yaHechas = {};
+  try {
+    var crudo = document.getElementById('afavorPreviews');
+    if (crudo) yaHechas = JSON.parse(crudo.textContent || '{}') || {};
+  } catch (e) { yaHechas = {}; }
+
+  function tarjetas() {
+    return Array.prototype.slice.call(root.querySelectorAll('[data-afavor-card]'));
+  }
+  function tarjeta(cid) {
+    return root.querySelector('[data-afavor-card="' + cid + '"]');
+  }
+  // Los módulos DESMARCADOS: eso es lo que NO se ve.
+  function hidden() {
+    return Array.prototype.slice.call(root.querySelectorAll('[data-afavor-mod]'))
+      .filter(function (c) { return !c.checked; })
+      .map(function (c) { return c.getAttribute('data-afavor-mod'); });
+  }
+  // A quién se le manda: las filas de ESA compañía cuya casilla está marcada.
+  function destinos(cid) {
+    var zona = root.querySelector('[data-afavor-recipients="' + cid + '"]');
+    if (!zona) return [];
+    return Array.prototype.slice.call(zona.querySelectorAll('.notify-row')).filter(function (f) {
+      var c = f.querySelector('[data-notify-on]');
+      return !c || c.checked;
+    }).map(function (f) { return f.getAttribute('data-notify-key'); });
+  }
+  function extras(cid) {
+    var campo = root.querySelector('[data-afavor-extra="' + cid + '"]');
+    return campo ? campo.value : '';
+  }
+  // Las compañías a las que se les pide: si no hay casillas (una sola), todas.
+  function elegidas() {
+    var cajas = Array.prototype.slice.call(root.querySelectorAll('[data-afavor-company]'));
+    if (!cajas.length) {
+      return tarjetas().map(function (c) { return c.getAttribute('data-afavor-card'); });
+    }
+    return cajas.filter(function (c) { return c.checked; })
+      .map(function (c) { return c.getAttribute('data-afavor-company'); });
+  }
+
+  function marca(cid) {
+    tarjetas().forEach(function (c) {
+      c.classList.toggle('border-danger', c.getAttribute('data-afavor-card') === cid);
+    });
+    var t = tarjeta(cid);
+    if (quien && t) quien.textContent = t.getAttribute('data-afavor-name') || '';
+  }
+  function pinta(d) {
+    if (!d) return;
+    if (preview && d.html) preview.innerHTML = d.html;
+    if (asunto && d.subject) asunto.textContent = d.subject;
+  }
+
+  function repaint() {
+    if (!actual) return;
+    fetch(root.getAttribute('data-url-preview'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        s: sem,
+        company_id: actual,
+        note: note ? note.value : '',
+        hidden: hidden()
+      })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok) pinta(d);
+    }).catch(function () {});
+  }
+  function repaintSoon() { clearTimeout(timer); timer = setTimeout(repaint, 350); }
+
+  function mira(cid, sinPedir) {
+    if (!cid) return;
+    actual = cid;
+    marca(cid);
+    // La primera vez vale la previa que ya trajo el servidor; si hay nota o módulos fuera, se pide.
+    var limpio = (!note || !note.value.trim()) && !hidden().length;
+    if (sinPedir && limpio && yaHechas[cid]) { pinta(yaHechas[cid]); return; }
+    repaint();
+  }
+
+  root.addEventListener('click', function (ev) {
+    // El OJO de la vista previa y la casilla de la izquierda son lo mismo.
+    var eye = ev.target.closest('[data-notice-eye]');
+    if (eye) {
+      ev.preventDefault();
+      var key = eye.getAttribute('data-notice-eye');
+      var box = root.querySelector('[data-afavor-mod="' + key + '"]');
+      if (box) { box.checked = !box.checked; repaint(); }
+      return;
+    }
+    var ver = ev.target.closest('[data-afavor-show]');
+    if (ver) {
+      ev.preventDefault();
+      mira(ver.getAttribute('data-afavor-show'), true);
+    }
+  });
+  root.addEventListener('change', function (ev) {
+    if (ev.target.matches('[data-afavor-mod]')) repaint();
+  });
+  if (note) note.addEventListener('input', repaintSoon);
+
+  root.querySelector('[data-afavor-send]').addEventListener('click', function () {
+    var btn = this;
+    var previo = btn.innerHTML;
+    var companias = elegidas().map(function (cid) {
+      return { company_id: cid, to: destinos(cid), extra_emails: extras(cid) };
+    });
+    if (!companias.length) {
+      alert('Marca al menos una compañía a la que pedírsela.');
+      return;
+    }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+    fetch(root.getAttribute('data-url-send'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        s: sem,
+        note: note ? note.value : '',
+        hidden: hidden(),
+        companies: companias
+      })
+    }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {
+      if (!d || !d.ok) {
+        btn.disabled = false; btn.innerHTML = previo;
+        alert((d && d.error) || 'No se pudo enviar la solicitud.');
+        return;
+      }
+      window.location.href = d.url || root.getAttribute('data-url-back');
+    }).catch(function () {
+      btn.disabled = false; btn.innerHTML = previo;
+      alert('No se pudo enviar la solicitud.');
+    });
+  });
+
+  // Al abrir se ve la primera compañía, con la previa que ya venía hecha.
+  var primera = tarjetas()[0];
+  if (primera) mira(primera.getAttribute('data-afavor-card'), true);
+})();
+</script>
+{% endblock %}

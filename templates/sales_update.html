@@ -667,7 +667,7 @@
             <label class="form-label">Artistas</label>
             <select class="form-select select-artists" name="artist_ids" multiple>
               {% for a in report_artists %}
-                <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" selected>{{ a.name }}</option>
+                <option value="{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}" selected>{{ a.name }}</option>
               {% endfor %}
             </select>
             <div class="form-text">Por defecto se incluyen todos los artistas visibles en este día.</div>

@@ -37,7 +37,7 @@
               <button type="button" class="btn btn-sm btn-dark active" data-isrc-artist-filter="all">Todos</button>
               {% for artist in isrc_filter_list %}
                 <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-isrc-artist-filter="{{ artist.id }}">
-                  <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                  <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-mini" alt="" data-avatar="1">
                   <span>{{ artist.name }}</span>
                 </button>
               {% endfor %}
@@ -102,7 +102,7 @@
       {% for artist, rows in isrc_artist_blocks %}
         <div class="mb-4 isrc-artist-block" data-isrc-artist-block="{{ artist.id }}">
           <div class="d-flex align-items-center gap-2 mb-2">
-            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="" data-artist-link="{{ artist.id }}">
+            <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-avatar" alt="" data-avatar="1" data-artist-link="{{ artist.id }}">
             <h5 class="m-0" data-artist-link="{{ artist.id }}">{{ artist.name }}</h5>
             {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
           </div>
@@ -168,7 +168,7 @@
                       </td>
                       <td>
                         <div class="d-flex align-items-center gap-2">
-                          <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                          <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-mini" alt="" data-avatar="1">
                           <span>{{ artist.name }}</span>
                         </div>
                       </td>
@@ -356,7 +356,7 @@
                 {% set st = isrc_artist_settings.get(a.id) %}
                 <div class="col-12 col-lg-6">
                   <form method="post" action="{{ url_for('discografica_isrc_artist_set', artist_id=a.id) }}" class="border rounded p-2 bg-white d-flex gap-2 align-items-center">
-                    <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="" data-artist-link="{{ a.id }}">
+                    <img src="{{ a.photo_url or DEFAULT_AVATAR_URL }}" class="artist-avatar" alt="" data-avatar="1" data-artist-link="{{ a.id }}">
                     <div class="flex-grow-1">
                       <div class="fw-semibold" data-artist-link="{{ a.id }}">{{ a.name }}</div>
                       <div class="small text-muted">Matriz artista (2 dígitos)</div>

@@ -62,7 +62,7 @@
           <div class="input-group">
             <select class="form-select select-artists" name="artist_id" id="tourArtist" data-no-loader data-sw-advance required>
               <option value="">Selecciona un artista…</option>
-              {% for a in artists %}<option value="{{ a.id }}" data-name="{{ a.name }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>{% endfor %}
+              {% for a in artists %}<option value="{{ a.id }}" data-name="{{ a.name }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}">{{ a.name }}</option>{% endfor %}
             </select>
             {% if CAN_EDIT_CONCERTS %}<button class="btn btn-outline-secondary" type="button" data-quick-create="artist" data-target="tourArtist"><i class="fa fa-plus"></i></button>{% endif %}
           </div>

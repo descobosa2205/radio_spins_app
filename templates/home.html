@@ -8,7 +8,7 @@
 <div data-home-modules>
 <div class="dash-hero mb-4" data-home-fixed>
   <div class="d-flex align-items-center gap-3 flex-wrap">
-    <img src="{{ CURRENT_USER.photo_url if CURRENT_USER else url_for('static', filename='img/logo.png') }}" alt="Usuario" class="home-user-avatar">
+    <img src="{{ (CURRENT_USER.photo_url if CURRENT_USER else None) or DEFAULT_AVATAR_URL }}" alt="Usuario" data-avatar="1" class="home-user-avatar">
     <div>
       <h2 class="dash-hero__title mb-1">{{ CURRENT_USER.nick if CURRENT_USER else 'Back Office' }}</h2>
       <div class="text-muted">{{ CURRENT_USER.email if CURRENT_USER else '' }}</div>
@@ -506,17 +506,6 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
-{% if HOME_AFAVOR_ALERT %}
-<div class="card mb-4 border-success">
-  <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <div>
-      <h5 class="mb-0"><i class="fa fa-hand-holding-dollar text-success me-2"></i>Colaboraciones externas · liquidación pendiente</h5>
-      <div class="small text-muted">Semestre cerrado <strong>{{ HOME_AFAVOR_ALERT.semester_label }}</strong>: solicita la liquidación de las colaboraciones externas ({{ HOME_AFAVOR_ALERT.count }}).</div>
-    </div>
-    <a class="btn btn-success" href="{{ HOME_AFAVOR_ALERT.url }}"><i class="fa fa-arrow-right me-1"></i>Ir a Royalties · A favor</a>
-  </div>
-</div>
-{% endif %}
 
 {% if HOME_PRODUCCION_PENDING %}
 <div class="card mb-4 border-success">
@@ -533,7 +522,7 @@ document.addEventListener('click', function (ev) {
         <div class="col-12 col-lg-6">
           <a href="{{ row.url }}" class="text-decoration-none text-reset">
             <div class="d-flex align-items-center gap-3 border rounded p-2 h-100">
-              <img src="{{ row.artist_photo or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:48px;height:48px;object-fit:cover;border-radius:50%;border:1px solid #eee;">
+              <img src="{{ row.artist_photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" style="width:48px;height:48px;object-fit:cover;border-radius:50%;border:1px solid #eee;">
               <div class="flex-grow-1 min-w-0">
                 <div class="fw-semibold text-truncate">{{ row.artist_name }} <span class="badge text-bg-light border ms-1">{{ row.activity_label }}</span></div>
                 <div class="small text-muted text-truncate"><i class="fa fa-calendar-day me-1"></i>{{ row.date_label }}{% if row.venue %} · <i class="fa fa-location-dot me-1"></i>{{ row.venue }}{% endif %}</div>
@@ -589,7 +578,7 @@ document.addEventListener('click', function (ev) {
       {% for row in HOME_PROMO_TASKS %}
         <div class="col-12 col-lg-6">
           <div class="d-flex align-items-center gap-3 border rounded p-2 h-100">
-            <img src="{{ row.artist_photo or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:48px;height:48px;object-fit:cover;border-radius:50%;border:1px solid #eee;">
+            <img src="{{ row.artist_photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" style="width:48px;height:48px;object-fit:cover;border-radius:50%;border:1px solid #eee;">
             <div class="flex-grow-1 min-w-0">
               <a href="{{ row.url }}" class="fw-semibold text-truncate d-block text-decoration-none text-reset">{{ row.title }}</a>
               <div class="small text-muted text-truncate">
@@ -882,6 +871,108 @@ document.addEventListener('click', function (ev) {
 {# NOTAS DE PRENSA pendientes: a promoción le toca redactarla y luego enviarla; a diseño, el
    gráfico. Con el plazo (el lunes previo al lanzamiento) y en rojo si ya se pasó. #}
 {# ENLACES DE LA DISTRIBUIDORA que hay que pedir y subir (quien es Registros y Sello). #}
+{# ROYALTIES A FAVOR · pedir la liquidación cuando toca (un mes después de cerrar el semestre).
+   Desaparece solo en cuanto no queda ninguna compañía por pedir. #}
+{% if HOME_AFAVOR_REQUEST %}
+<div class="card mb-4 border-success" data-home-module="afavor-solicitar">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-hand-holding-dollar text-success me-2"></i>Liquidaciones de royalties a favor
+      <span class="badge text-bg-success ms-1">{{ HOME_AFAVOR_REQUEST.count }}</span>
+    </span>
+    <span class="text-muted small">{{ HOME_AFAVOR_REQUEST.semester_label }} · se pueden pedir todas de una vez.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    <div class="ctask">
+      <div class="ctask__head">
+        <span class="ctask__subject text-truncate">{{ HOME_AFAVOR_REQUEST.semester_label }}</span>
+        <span class="ctask__facts">
+          <span class="ctask__fact"><i class="fa fa-building"></i>{{ HOME_AFAVOR_REQUEST.count }} {{ 'compañía' if HOME_AFAVOR_REQUEST.count == 1 else 'compañías' }}</span>
+          <span class="ctask__fact"><i class="fa fa-music"></i>{{ HOME_AFAVOR_REQUEST.temas }} {{ 'tema' if HOME_AFAVOR_REQUEST.temas == 1 else 'temas' }}</span>
+        </span>
+        <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+          <a class="btn btn-sm btn-outline-success" href="{{ HOME_AFAVOR_REQUEST.url }}">
+            <i class="fa fa-paper-plane me-1"></i>Pedirlas todas</a>
+        </span>
+      </div>
+      <div class="ctask__tasks">
+        {% for c in HOME_AFAVOR_REQUEST.companies %}
+          <span class="badge text-bg-light border">{{ c.name }}</span>
+        {% endfor %}
+        {% if HOME_AFAVOR_REQUEST.count > HOME_AFAVOR_REQUEST.companies|length %}
+          <span class="badge text-bg-light border">y {{ HOME_AFAVOR_REQUEST.count - (HOME_AFAVOR_REQUEST.companies|length) }} más</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ROYALTIES A FAVOR · lo que ha subido la compañía y hay que revisar. #}
+{% if HOME_AFAVOR_REVIEW %}
+<div class="card mb-4 border-warning" data-home-module="afavor-revisar">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-inbox text-warning me-2"></i>Liquidaciones a favor por revisar
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_AFAVOR_REVIEW|length }}</span>
+    </span>
+    <span class="text-muted small">Valida los importes y se pide la factura.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_AFAVOR_REVIEW %}
+      <div class="ctask">
+        <div class="ctask__head">
+          <img class="artist-avatar-inline" src="{{ r.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}">{{ r.company }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-calendar"></i>{{ r.period }}</span>
+            <span class="ctask__fact"><i class="fa fa-music"></i>{{ r.count }} {{ 'tema' if r.count == 1 else 'temas' }}</span>
+            {% if r.total %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ r.total|eur }}</span>{% endif %}
+            {% if r.submitted_by %}<span class="ctask__fact"><i class="fa fa-user"></i>{{ r.submitted_by }}</span>{% endif %}
+          </span>
+          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+            <a class="btn btn-sm btn-outline-warning" href="{{ r.url }}">
+              <i class="fa fa-magnifying-glass me-1"></i>Revisar</a>
+          </span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ROYALTIES A FAVOR · la factura que tiene que emitir contabilidad (con el importe y el concepto). #}
+{% if HOME_AFAVOR_INVOICES %}
+<div class="card mb-4 border-primary" data-home-module="afavor-facturar">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-file-invoice text-primary me-2"></i>Facturas de royalties a favor
+      <span class="badge text-bg-primary ms-1">{{ HOME_AFAVOR_INVOICES|length }}</span>
+    </span>
+    <span class="text-muted small">Emítelas y súbelas: se le mandan solas a la compañía.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_AFAVOR_INVOICES %}
+      <div class="ctask">
+        <div class="ctask__head">
+          <img class="artist-avatar-inline" src="{{ r.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}">{{ r.company }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-calendar"></i>{{ r.period }}</span>
+            {% if r.total is not none %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ r.total|eur }}</span>{% endif %}
+          </span>
+          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+            <a class="btn btn-sm btn-outline-primary" href="{{ r.url }}">
+              <i class="fa fa-file-invoice me-1"></i>Emitir la factura</a>
+          </span>
+        </div>
+        {% if r.concept %}<div class="ctask__tasks"><span class="small text-muted">{{ r.concept }}</span></div>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if HOME_RELEASE_LINKS %}
 <div class="card mb-4 border-warning">
   <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">

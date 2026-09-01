@@ -1,0 +1,290 @@
+{# ============================================================================================
+   PÁGINA PÚBLICA · LIQUIDACIONES DE ROYALTYS de una compañía externa. Standalone (la ve gente de
+   fuera, sin sesión), con el estilo de la casa: el logo de la empresa del grupo arriba a la
+   derecha y el título centrado debajo.
+
+   Lo que hace la compañía aquí: elegir el SEMESTRE, escribir el importe generado de cada tema y
+   subir su liquidación. Puede mandar unos temas y no otros; lo que ya ha mandado se queda a la
+   vista, en gris y con su etiqueta «Enviado».
+   ⚠️ El importe se lee del documento SOLO si no lo escribe: es una ayuda, no una barrera.
+   ============================================================================================ #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Liquidaciones de Royaltys · {{ ctx.company_name }}</title>
+  <meta property="og:title" content="Liquidaciones de Royaltys">
+  <meta property="og:description" content="{{ ctx.company_name }} · {{ ctx.period_ordinal }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4" style="max-width:960px;">
+
+  <div class="card shadow-sm">
+    <div class="card-body p-4">
+
+      {# ---- Logo de la empresa del grupo arriba a la DERECHA y título centrado ---- #}
+      <div class="d-flex justify-content-end">
+        {% if ctx.brand_logo %}
+          <img src="{{ ctx.brand_logo }}" alt="{{ ctx.brand_name }}"
+               style="max-height:56px;max-width:180px;object-fit:contain;">
+        {% endif %}
+      </div>
+      <h1 class="h3 text-center mt-2 mb-4">Liquidaciones de Royaltys</h1>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ 'danger' if category == 'danger' else ('warning' if category == 'warning' else 'info') }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+      {% if ok_msg == 'enviado' %}
+        <div class="alert alert-success"><i class="fa fa-circle-check me-1"></i>Hemos recibido tu liquidación. Gracias.</div>
+      {% elif ok_msg == 'datos' %}
+        <div class="alert alert-success"><i class="fa fa-circle-check me-1"></i>Datos actualizados.</div>
+      {% endif %}
+
+      {# ---- LA CABECERA de la compañía: su logo a la izquierda y su nombre en negrita ---- #}
+      <div class="border rounded-3 p-3 mb-4 bg-white">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <img src="{{ ctx.company_logo or DEFAULT_AVATAR_URL }}" alt=""
+               style="width:64px;height:64px;object-fit:contain;border-radius:12px;border:1px solid #e5e7eb;background:#fff;">
+          <div class="min-w-0 flex-grow-1">
+            <div class="fs-5 fw-bold">{{ ctx.company_name }}</div>
+            {% if ctx.tax_id %}<div class="text-muted small">{{ ctx.tax_id }}</div>{% endif %}
+          </div>
+        </div>
+
+        {# Datos fiscales: solo lo que tenemos. El botón de actualizarlos va DENTRO de la
+           cabecera, abajo a la derecha. #}
+        <div class="mt-3 small">
+          <div class="text-muted text-uppercase fw-semibold" style="letter-spacing:.03em;font-size:.72rem;">Datos fiscales</div>
+          <div class="mt-1">
+            {% if ctx.billing_name %}<div><i class="fa fa-building fa-fw text-muted me-1"></i>{{ ctx.billing_name }}</div>{% endif %}
+            {% if ctx.tax_id %}<div><i class="fa fa-id-card fa-fw text-muted me-1"></i>{{ ctx.tax_id }}</div>{% endif %}
+            {% if ctx.fiscal_text %}<div><i class="fa fa-location-dot fa-fw text-muted me-1"></i>{{ ctx.fiscal_text }}</div>{% endif %}
+            {% if ctx.email %}<div><i class="fa fa-envelope fa-fw text-muted me-1"></i>{{ ctx.email }}</div>{% endif %}
+            {% if ctx.phone %}<div><i class="fa fa-phone fa-fw text-muted me-1"></i>{{ ctx.phone }}</div>{% endif %}
+            {% if not (ctx.billing_name or ctx.tax_id or ctx.fiscal_text or ctx.email or ctx.phone) %}
+              <div class="text-muted">Todavía no tenemos tus datos fiscales.</div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="d-flex justify-content-end mt-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-afavor-datos-toggle>
+            <i class="fa fa-pen me-1"></i>Actualizar datos
+          </button>
+        </div>
+
+        {# El formulario con TODOS los datos, para corregir cualquiera. #}
+        <form method="post" action="{{ url_for('public_afavor_update_data', token=token) }}"
+              class="mt-3 pt-3 border-top {% if not editar %}d-none{% endif %}" data-afavor-datos-form>
+          <input type="hidden" name="s" value="{{ ctx.semester_key }}">
+          <div class="row g-2">
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-1">Nombre o razón social</label>
+              <input class="form-control form-control-sm" name="legal_name" value="{{ ctx.company.legal_name or '' }}">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-1">CIF / NIF</label>
+              <input class="form-control form-control-sm" name="tax_id" value="{{ ctx.tax_id }}">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-1">Correo</label>
+              <input class="form-control form-control-sm" type="email" name="contact_email" value="{{ ctx.email }}">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-1">Teléfono</label>
+              <input class="form-control form-control-sm" name="contact_phone" value="{{ ctx.phone }}">
+            </div>
+          </div>
+          <div class="mt-2">
+            {% import '_fiscal_address_fields.html' as fiscal with context %}
+            {{ fiscal.fields(ctx.fiscal_parts) }}
+          </div>
+          <div class="d-flex justify-content-end gap-2 mt-3">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-afavor-datos-toggle>Cancelar</button>
+            <button class="btn btn-sm btn-primary"><i class="fa fa-floppy-disk me-1"></i>Guardar los datos</button>
+          </div>
+        </form>
+      </div>
+
+      {# ---- EL SEMESTRE: todos desde que se publicó el primer tema. Solo uno a la vez. ---- #}
+      <div class="mb-2 small text-muted text-uppercase fw-semibold" style="letter-spacing:.03em;font-size:.72rem;">Periodo que estás liquidando</div>
+      <div class="d-flex flex-wrap gap-2 mb-4">
+        {% for s in ctx.semesters %}
+          <a class="afavor-sem {% if s.is_active %}is-on{% endif %}"
+             href="{{ url_for('public_afavor_liquidation', token=token, s=s.key) }}"
+             title="{{ s.short }}">{{ s.label }}</a>
+        {% endfor %}
+      </div>
+
+      {% if not ctx.rows %}
+        <div class="alert alert-light border">
+          No tenemos ningún tema tuyo publicado en este periodo. Prueba con otro semestre.
+        </div>
+      {% else %}
+      <form method="post" enctype="multipart/form-data" data-afavor-form
+            action="{{ url_for('public_afavor_submit', token=token) }}">
+        <input type="hidden" name="s" value="{{ ctx.semester_key }}">
+
+        {% for r in ctx.rows %}
+          {# Un bocadillo por tema. Lo ya enviado se queda a la vista, en gris. #}
+          <div class="afavor-pub{% if r.locked %} is-locked{% endif %} mb-3"
+               data-afavor-item="{{ r.afavor_item_id }}" data-pct="{{ r.pct_effective_label }}">
+            <div class="afavor-pub__head">
+              <img class="afavor-pub__cover" src="{{ r.cover_url or DEFAULT_COVER_URL }}" alt="">
+              <div class="afavor-pub__who">
+                <div class="afavor-pub__title">{{ r.title }}</div>
+                <div class="afavor-pub__sub">{{ r.who_label or '—' }}</div>
+                <span class="badge text-bg-light border">{{ r.kind_label }}</span>
+                {% if r.locked %}
+                  <span class="afavor-it {{ r.item_status_cls }}"><i class="fa {{ r.item_status_icon }} me-1"></i>{{ r.item_status_label }}</span>
+                {% elif r.item_status == 'REJECTED' %}
+                  <span class="afavor-it {{ r.item_status_cls }}"><i class="fa {{ r.item_status_icon }} me-1"></i>{{ r.item_status_label }}</span>
+                {% endif %}
+              </div>
+              <div class="afavor-pub__date">
+                <div class="text-muted small">Publicación</div>
+                <div class="fw-semibold">{{ r.release_date or '—' }}</div>
+              </div>
+              <div class="afavor-pub__pct">
+                <div class="text-muted small">Royalty a favor de compañía</div>
+                <span class="afavor-pct">{{ r.pct_effective_label }}%</span>
+              </div>
+              <div class="afavor-pub__amount">
+                <label class="form-label small mb-1">Importe generado (€)</label>
+                <input class="form-control" data-money inputmode="decimal"
+                       name="amount_{{ r.afavor_item_id }}" value="{{ r.amount_income_input }}"
+                       placeholder="0,00" {% if r.locked %}disabled{% endif %} data-afavor-amount>
+              </div>
+            </div>
+
+            <div class="afavor-pub__total">
+              Total Royalty de compañía: <strong data-afavor-total>{{ (r.item_our_amount or 0)|eur }}</strong>
+            </div>
+
+            {% if r.reject_note %}
+              <div class="alert alert-warning py-2 px-3 small mt-2 mb-0">
+                <i class="fa fa-triangle-exclamation me-1"></i>Nos hace falta que la corrijas: {{ r.reject_note }}
+              </div>
+            {% endif %}
+
+            {% if r.locked %}
+              <div class="afavor-pub__drop is-done">
+                <i class="fa fa-paperclip me-1"></i>
+                {% if r.document_url %}
+                  <a href="{{ r.document_url }}" target="_blank" rel="noopener">{{ r.document_name or 'Liquidación enviada' }}</a>
+                {% else %}Liquidación enviada{% endif %}
+              </div>
+            {% else %}
+              {# Arrastrar o elegir: lo resuelve el mecanismo GLOBAL (file_drop.js). #}
+              <div class="afavor-pub__drop" data-file-drop-for="#doc_{{ r.afavor_item_id }}">
+                <i class="fa fa-cloud-arrow-up me-1"></i>
+                Arrastra aquí la liquidación de este tema o
+                <label for="doc_{{ r.afavor_item_id }}" class="afavor-pub__pick">elígela</label>.
+                <span class="d-block text-muted small mt-1">
+                  PDF, imagen, Excel o CSV. Si no escribes el importe, lo intentamos leer del documento.
+                </span>
+                <input class="d-none" type="file" id="doc_{{ r.afavor_item_id }}" name="doc_{{ r.afavor_item_id }}"
+                       accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.csv,.zip">
+                <div class="small mt-1 fw-semibold d-none" data-afavor-file></div>
+              </div>
+              <input type="hidden" name="send_{{ r.afavor_item_id }}" value="">
+            {% endif %}
+          </div>
+        {% endfor %}
+
+        {% if ctx.pending %}
+          <div class="row g-2 align-items-end mt-4">
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-1">¿Quién nos la manda? <span class="text-muted">(opcional)</span></label>
+              <input class="form-control" name="submitted_by" placeholder="Tu nombre">
+            </div>
+            <div class="col-12 col-md-6 text-md-end">
+              <button class="btn btn-primary btn-lg">
+                <i class="fa fa-paper-plane me-1"></i>Enviar liquidaciones
+              </button>
+            </div>
+          </div>
+          <div class="text-muted small mt-2">
+            Puedes mandar solo los temas que tengas listos: el resto se quedan aquí esperando.
+            De cada tema que envíes tiene que ir su liquidación adjunta.
+          </div>
+        {% else %}
+          <div class="alert alert-success mt-4 mb-0">
+            <i class="fa fa-circle-check me-1"></i>Ya nos has mandado la liquidación de todos los temas de este periodo.
+          </div>
+        {% endif %}
+      </form>
+      {% endif %}
+
+    </div>
+  </div>
+
+  <div class="text-center text-muted small mt-3">
+    Si tienes cualquier duda, escríbenos a
+    <a href="mailto:{{ ctx.inbox_email }}">{{ ctx.inbox_email }}</a>.
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/money_input.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/file_drop.js', v=ASSET_V) }}"></script>
+<script>
+(function () {
+  /* El total de cada tema se calcula EN VIVO: importe × el % a favor. */
+  function num(v) {
+    if (window.numv) return window.numv(v);
+    var t = String(v || '').replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.');
+    var n = parseFloat(t);
+    return isNaN(n) ? 0 : n;
+  }
+  function eur(n) {
+    try { return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
+    catch (e) { return n.toFixed(2) + ' €'; }
+  }
+  function recalcula(caja) {
+    var campo = caja.querySelector('[data-afavor-amount]');
+    var salida = caja.querySelector('[data-afavor-total]');
+    if (!campo || !salida) return;
+    var pct = num(caja.getAttribute('data-pct'));
+    salida.textContent = eur(num(campo.value) * pct / 100);
+  }
+  document.addEventListener('input', function (ev) {
+    var caja = ev.target.closest && ev.target.closest('[data-afavor-item]');
+    if (caja && ev.target.matches('[data-afavor-amount]')) recalcula(caja);
+  });
+
+  /* Al elegir (o soltar) un archivo se dice cuál es y el tema queda marcado para enviarse. */
+  document.addEventListener('change', function (ev) {
+    if (!ev.target.matches || !ev.target.matches('input[type="file"]')) return;
+    var caja = ev.target.closest('[data-afavor-item]');
+    if (!caja) return;
+    var f = ev.target.files && ev.target.files[0];
+    var aviso = caja.querySelector('[data-afavor-file]');
+    if (aviso) {
+      aviso.textContent = f ? f.name : '';
+      aviso.classList.toggle('d-none', !f);
+    }
+    var marca = caja.querySelector('input[name^="send_"]');
+    if (marca) marca.value = f ? '1' : '';
+    caja.classList.toggle('has-file', !!f);
+  });
+
+  /* El formulario de datos se abre y se cierra con el botón. */
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('[data-afavor-datos-toggle]');
+    if (!b) return;
+    var f = document.querySelector('[data-afavor-datos-form]');
+    if (f) f.classList.toggle('d-none');
+  });
+
+  document.querySelectorAll('[data-afavor-item]').forEach(recalcula);
+})();
+</script>
+</body>
+</html>

@@ -24,7 +24,7 @@
     <div class="col-6 col-md-4 col-lg-3 col-xl-2">
       <a href="{{ url_for('concerts_view', tab='vista', artist=g.artist.id) }}" class="card h-100 text-decoration-none text-reset text-center">
         <div class="card-body">
-          <img src="{{ g.artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+          <img src="{{ g.artist.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
           <div class="fw-semibold text-truncate">{{ g.artist.name }}</div>
           <div class="small text-muted"><span class="badge text-bg-light border"><i class="fa fa-guitar me-1"></i>{{ g.count }} concierto{{ '' if g.count == 1 else 's' }}</span></div>
         </div>
@@ -203,7 +203,7 @@
       <div class="text-center flex-shrink-0" style="width:52px;">
         {% if c.date %}<div class="fw-bold" style="font-size:1.15rem;line-height:1;">{{ c.date.strftime('%d') }}</div><div class="small text-danger text-uppercase fw-semibold">{{ c.date.strftime('%b') }}</div><div class="small text-muted">{{ c.date.strftime('%Y') }}</div>{% else %}<i class="fa fa-calendar text-muted"></i>{% endif %}
       </div>
-      {% if not drill_artist %}<img src="{{ (c.artist.photo_url if c.artist else '') or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">{% endif %}
+      {% if not drill_artist %}<img src="{{ (c.artist.photo_url if c.artist else '') or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">{% endif %}
       <div class="flex-grow-1" style="min-width:0;">
         <div class="fw-semibold text-truncate">{{ c.festival_name or (c.artist.name if c.artist else 'Concierto') }}</div>
         <div class="small text-muted text-truncate">{% if not drill_artist and c.artist %}{{ c.artist.name }} · {% endif %}{{ c.location_summary or (c.venue.name if c.venue else 'Sin recinto') }}</div>

@@ -10,7 +10,7 @@
 <div class="artist-hero mb-3">
   <div class="d-flex flex-wrap gap-3 align-items-center">
     <span class="logo-country-wrap flex-shrink-0">
-      <img src="{{ outlet.logo_url or url_for('static', filename='img/logo.png') }}" class="artist-hero-photo" alt="{{ outlet.name }}">
+      <img src="{{ outlet.logo_url or DEFAULT_AVATAR_URL }}" class="artist-hero-photo" alt="{{ outlet.name }}" data-avatar="1">
       {% if (outlet.country_code or 'ES') != 'ES' %}
         <span class="country-flag-badge" title="{{ outlet.country_name or country_name_es(outlet.country_code) }}">{{ country_flag_emoji(outlet.country_code) }}</span>
       {% endif %}

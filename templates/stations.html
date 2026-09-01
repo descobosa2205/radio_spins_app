@@ -64,7 +64,7 @@
     <div class="card h-100">
       <div class="card-body d-flex">
         <span class="logo-country-wrap me-3">
-          <img src="{{ s.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+          <img src="{{ s.logo_url or DEFAULT_AVATAR_URL }}" class="station-logo" alt="" data-avatar="1">
           {% if (s.country_code or 'ES') != 'ES' %}
             <span class="country-flag-badge" title="{{ s.country_name or country_name_es(s.country_code) }}">{{ country_flag_emoji(s.country_code) }}</span>
           {% endif %}

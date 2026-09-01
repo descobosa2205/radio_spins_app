@@ -10,7 +10,7 @@
 
     <div class="card shadow-sm mb-3">
       <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
-        <img src="{{ (artist.photo_url if artist else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
+        <img src="{{ (artist.photo_url if artist else None) or DEFAULT_AVATAR_URL }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
         <div class="flex-grow-1">
           <h4 class="mb-1">{{ artist.name if artist else 'Actividad' }}</h4>
           <div class="text-muted">

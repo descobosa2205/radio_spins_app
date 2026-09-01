@@ -10,7 +10,7 @@
 
 <div class="artist-hero mb-3">
   <div class="d-flex flex-wrap gap-3 align-items-center">
-    <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-hero-photo" alt="">
+    <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-hero-photo" alt="" data-avatar="1">
     <div class="flex-grow-1 min-w-0">
       <div class="small text-muted"><i class="fa {{ kind_icon }} me-1"></i>Plantilla de {{ kind_label|lower }} · {{ artist.name }}</div>
       <h3 class="m-0 text-truncate">{{ tpl.name }}</h3>

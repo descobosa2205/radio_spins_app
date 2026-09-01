@@ -29,14 +29,14 @@
                   {% if artists %}
                   <optgroup label="Artistas">
                     {% for a in artists %}
-                      <option value="artist:{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
+                      <option value="artist:{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}">{{ a.name }}</option>
                     {% endfor %}
                   </optgroup>
                   {% endif %}
                   {% if wizard_events %}
                   <optgroup label="Eventos">
                     {% for e in wizard_events %}
-                      <option value="event:{{ e.id }}" data-photo="{{ e.logo_url or url_for('static', filename='img/logo.png') }}">{{ e.name }}</option>
+                      <option value="event:{{ e.id }}" data-photo="{{ e.logo_url or DEFAULT_AVATAR_URL }}">{{ e.name }}</option>
                     {% endfor %}
                   </optgroup>
                   {% endif %}
@@ -135,8 +135,8 @@
                 {% for co in companies %}
                   <div class="col-md-6 col-lg-4">
                     <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
-                      <input class="form-check-input" type="radio" name="billing_company_id" value="{{ co.id }}" data-company-name="{{ co.name }}" data-company-logo="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" {% if loop.first %}checked{% endif %}>
-                      <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;">
+                      <input class="form-check-input" type="radio" name="billing_company_id" value="{{ co.id }}" data-company-name="{{ co.name }}" data-company-logo="{{ co.logo_url or '' }}" {% if loop.first %}checked{% endif %}>
+                      {{ company_logo(co, size=34) }}
                       <span class="fw-semibold small">{{ co.name }}</span>
                     </label>
                   </div>
@@ -785,7 +785,7 @@
                     <div class="col-6 col-md-4 col-lg-3">
                       <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
                         <input class="form-check-input" type="checkbox" name="artwork_company_ids[]" value="{{ co.id }}">
-                        <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:32px;height:32px;object-fit:contain;">
+                        {{ company_logo(co, size=32) }}
                         <span class="small fw-semibold">{{ co.name }}</span>
                       </label>
                     </div>
@@ -1794,7 +1794,7 @@
         const opt = document.createElement('option');
         opt.value = data.id;
         opt.textContent = data.name || data.label;
-        opt.dataset.photo = data.photo_url || '{{ url_for("static", filename="img/logo.png") }}';
+        opt.dataset.photo = data.photo_url || '{{ DEFAULT_AVATAR_URL }}';
         sel.appendChild(opt);
         sel.value = data.id;
         if(window.jQuery && jQuery.fn.select2){ jQuery(sel).trigger('change'); }

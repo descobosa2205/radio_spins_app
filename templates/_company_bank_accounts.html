@@ -23,7 +23,7 @@
           {% set _idx = ns.vistas.get(bkey, 0) + 1 %}
           {% set _ = ns.vistas.update({bkey: _idx}) %}
           <div class="border rounded p-2 d-flex align-items-center gap-3 flex-wrap">
-            <img src="{{ (acc.bank.logo_url if acc.bank else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+            <img src="{{ (acc.bank.logo_url if acc.bank else None) or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
                  style="width:40px;height:40px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
             <div class="flex-grow-1 min-w-0">
               <div class="fw-semibold">

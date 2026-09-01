@@ -98,8 +98,8 @@
 {% set bag_type_label = bag_type_labels.get(bag.bag_type, bag.bag_type or 'General') %}
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round"
-       src="{{ (bag_artists[0].photo_url if bag_artists else None) or url_for('static', filename='img/logo.png') }}"
-       alt="" data-default-photo="1"
+       src="{{ (bag_artists[0].photo_url if bag_artists else None) or DEFAULT_AVATAR_URL }}"
+       alt="" data-avatar="1"
        {% if bag_artists %}title="{{ bag_artists|map(attribute='name')|join(', ') }}" data-artist-link="{{ bag_artists[0].id }}"{% endif %}>
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow"><i class="fa fa-sack-dollar me-1"></i>Bolsa de gastos · {{ bag_type_label }}</div>
@@ -161,7 +161,7 @@
             {% if bag.linked_type and bag.linked_id %}
               <div class="border rounded p-2 bg-light d-flex flex-wrap gap-2">
                 {% for artist in bag_artists %}
-                  <span class="badge text-bg-white border text-dark d-inline-flex align-items-center gap-1"><img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:22px;height:22px;object-fit:cover;border-radius:50%;"> {{ artist.name }}</span>
+                  <span class="badge text-bg-white border text-dark d-inline-flex align-items-center gap-1"><img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" style="width:22px;height:22px;object-fit:cover;border-radius:50%;"> {{ artist.name }}</span>
                   <input type="hidden" name="artist_ids" value="{{ artist.id }}">
                 {% else %}
                   <span class="text-muted small">Sin artista vinculado en el origen.</span>
@@ -169,7 +169,7 @@
               </div>
               <div class="form-text">Esta bolsa está vinculada a {{ bag.linked_type }}; los artistas se heredan del evento/promoción.</div>
             {% else %}
-              <div class="input-group"><select id="bagEditArtists" name="artist_ids" class="form-select select-artists" multiple {% if not can_edit_bag %}disabled{% endif %}>{% for artist in artists %}<option value="{{ artist.id }}" data-photo="{{ (artist.logo_url or artist.photo_url) or url_for('static', filename='img/logo.png') }}" {% if (artist.id|string) in bag_artist_id_strings %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}</select>{% if can_edit_bag %}<button type="button" class="btn btn-outline-secondary qc-open" data-quick-create="artist" data-target="bagEditArtists" title="Crear"><i class="fa fa-plus"></i></button>{% endif %}</div>
+              <div class="input-group"><select id="bagEditArtists" name="artist_ids" class="form-select select-artists" multiple {% if not can_edit_bag %}disabled{% endif %}>{% for artist in artists %}<option value="{{ artist.id }}" data-photo="{{ (artist.logo_url or artist.photo_url) or DEFAULT_AVATAR_URL }}" {% if (artist.id|string) in bag_artist_id_strings %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}</select>{% if can_edit_bag %}<button type="button" class="btn btn-outline-secondary qc-open" data-quick-create="artist" data-target="bagEditArtists" title="Crear"><i class="fa fa-plus"></i></button>{% endif %}</div>
             {% endif %}
           </div>
           <div class="col-md-6"><label class="form-label">Empresa</label><select name="company_id" class="form-select" {% if not can_edit_bag %}disabled{% endif %}><option value="">Sin empresa</option>{% for company in companies %}<option value="{{ company.id }}" {% if bag.company_id == company.id %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></div>
@@ -280,7 +280,7 @@
           <div class="d-grid gap-2 mb-3">
             {% for p in bag_providers_pending %}
               <div class="border rounded p-2 d-flex align-items-center gap-2">
-                <img src="{{ p.logo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+                <img src="{{ p.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
                 <div class="flex-grow-1 min-w-0">
                   <div class="fw-semibold small text-truncate">{{ p.name }}</div>
                   <div class="small text-muted text-truncate">{{ p['items']|length }} concepto{{ '' if p['items']|length == 1 else 's' }} · {{ p.net|eur }} sin IVA · {{ p.gross|eur }} con IVA</div>

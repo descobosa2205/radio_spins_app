@@ -497,7 +497,7 @@
             <div class="card-header bg-light-subtle">
               <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
                 <div class="d-flex align-items-center gap-3">
-                  <img src="{{ g.artist_photo or url_for('static', filename='img/logo.png') }}" alt=""
+                  <img src="{{ g.artist_photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
                        class="rounded-circle border bg-white" style="width:48px;height:48px;object-fit:cover;"
                        {% if g.artist_id %}data-artist-link="{{ g.artist_id }}"{% endif %}>
                   <div>
@@ -720,7 +720,7 @@
             <div class="card-header bg-light-subtle">
               <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
                 <div class="d-flex align-items-center gap-3">
-                  <img src="{{ g.artist_photo or url_for('static', filename='img/logo.png') }}" alt=""
+                  <img src="{{ g.artist_photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
                        class="rounded-circle border bg-white" style="width:48px;height:48px;object-fit:cover;">
                   <div>
                     <div class="fw-semibold">{{ g.title }}</div>

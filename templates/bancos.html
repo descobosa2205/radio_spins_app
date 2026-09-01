@@ -15,7 +15,7 @@
     <div class="list-group list-group-flush">
       {% for bank in banks %}
         <div class="list-group-item d-flex align-items-center gap-3 flex-wrap">
-          <img src="{{ bank.logo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+          <img src="{{ bank.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
                style="width:44px;height:44px;object-fit:contain;border-radius:10px;border:1px solid #eee;background:#fff;">
           <div class="flex-grow-1 min-w-0">
             <div class="fw-semibold">{{ bank.name }}</div>

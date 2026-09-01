@@ -484,8 +484,8 @@
         <div class="quad-artist-card" style="border-left-color: {{ g.artist_color }};">
           <div class="qac-top">
             <div class="qac-id" style="min-width:0;">
-              <img class="qac-photo" data-artist-link="{{ g.artist_id }}"
-                   src="{{ g.artist_photo or url_for('static', filename='img/logo.png') }}" alt="">
+              <img class="qac-photo" data-artist-link="{{ g.artist_id }}" data-avatar="1"
+                   src="{{ g.artist_photo or DEFAULT_AVATAR_URL }}" alt="">
               <div style="min-width:0;">
                 <div class="qac-name text-truncate" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
                 <div class="qac-year"><i class="fa fa-calendar"></i>{{ g.year or year }}</div>
@@ -587,8 +587,8 @@
         <div class="quad-artist-card" style="border-left-color: {{ g.artist_color }};">
           <div class="qac-top">
             <div class="qac-id">
-              <img class="qac-photo" data-artist-link="{{ g.artist_id }}"
-                   src="{{ g.artist_photo or url_for('static', filename='img/logo.png') }}" alt="">
+              <img class="qac-photo" data-artist-link="{{ g.artist_id }}" data-avatar="1"
+                   src="{{ g.artist_photo or DEFAULT_AVATAR_URL }}" alt="">
               <div>
                 <div class="qac-name" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
                 <div class="qac-year"><i class="fa fa-calendar"></i>{{ g.year or year }}</div>

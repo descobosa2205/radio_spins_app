@@ -22,7 +22,7 @@
     <select class="form-select select-with-thumbs" name="media_id">
       <option value="">Sin medio concreto / crear después</option>
       {% for outlet in media_outlets %}
-        <option value="{{ outlet.id }}" data-photo="{{ outlet.logo_url or url_for('static', filename='img/logo.png') }}" data-type="{{ outlet.media_type }}" {% if row and row.media_id == outlet.id %}selected{% endif %}>{{ outlet.media_type }} · {{ outlet.name }}{% if (outlet.country_code or 'ES') != 'ES' %} · {{ outlet.country_name }}{% endif %}</option>
+        <option value="{{ outlet.id }}" data-photo="{{ outlet.logo_url or DEFAULT_AVATAR_URL }}" data-type="{{ outlet.media_type }}" {% if row and row.media_id == outlet.id %}selected{% endif %}>{{ outlet.media_type }} · {{ outlet.name }}{% if (outlet.country_code or 'ES') != 'ES' %} · {{ outlet.country_name }}{% endif %}</option>
       {% endfor %}
     </select>
     <div class="form-text">La búsqueda lee el nombre, tipo y país del medio. También puedes crear un medio rápido desde aquí si aún no existe.</div>

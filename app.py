@@ -313,6 +313,7 @@ from models import (
     BagInvoiceRequest,
     SupplierInvoice,
     AfavorLiquidation,
+    AfavorItem,
     PersonalExpense,
     BagExpenseInvoice,
     PleoAccount,
@@ -333,6 +334,7 @@ from models import (
     UserContract,
     ensure_vacations_schema,
     ensure_syncros_schema,
+    ensure_afavor_schema,
     ensure_song_demos_schema,
     ensure_song_genres_schema,
     ensure_playlists_schema,
@@ -353,6 +355,7 @@ import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plant
 import invoice_read  # motor puro de LECTURA de facturas (nº, fechas e importes del PDF)
 import labelcopy_read  # motor puro de LECTURA de los Label Copy en PDF
 import promoter_import  # motor puro de IMPORTACIÓN de terceros (columnas de un Excel/CSV)
+import royalty_statement_read  # motor puro de LECTURA de una liquidación de royalties (líneas e importes)
 import address_utils  # cómo se escribe una dirección (motor puro, único formato)
 import buyer_import  # importar compradores desde un fichero (motor puro)
 import sms_utils  # pasarela de SMS (avisos por mensaje de texto); sin credenciales no manda nada
@@ -457,7 +460,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
     "concert_artwork_public_upload",
     "public_prl_upload_post",
     "public_bag_invoice_upload_post",
@@ -859,7 +862,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -1405,7 +1408,10 @@ def inject_globals():
         return name in app.view_functions
 
     def _artist_photo_src(photo_url=None):
-        return photo_url or url_for("static", filename="img/logo.png")
+        # ⚠️ Un artista SIN FOTO lleva el muñequito gris (`avatar_placeholder`), NO el logo de la
+        # casa: el logo de PIES en el hueco de un artista es justo lo que confunde (mismo criterio
+        # que `company_logo`, que tampoco cae al logo de otra empresa del grupo).
+        return photo_url or url_for("static", filename="img/avatar_placeholder.png")
 
     def artist_avatar(photo_url=None, name="", cls="artist-avatar-inline", artist_id=None):
         # Solo la foto del artista en círculo (sin nombre); para ponerla delante de un nombre ya escrito.
@@ -6178,6 +6184,9 @@ def _album_kind_label(album: Album | None) -> str:
 def _album_ownership_key(album: Album | None) -> str:
     if not album:
         return "DISCOGRAFICA"
+    # Un disco de otra compañía en el que participamos: es lo que va a «Royalties · A favor».
+    if bool(getattr(album, "is_external_collab", False)):
+        return "COLABORACION"
     if bool(getattr(album, "is_distribution", False)):
         return "DISTRIBUCION"
     if bool(getattr(album, "is_catalog", False)):
@@ -6187,6 +6196,8 @@ def _album_ownership_key(album: Album | None) -> str:
 
 def _album_ownership_label(album: Album | None) -> str:
     key = _album_ownership_key(album)
+    if key == "COLABORACION":
+        return "Colaboración externa"
     if key == "DISTRIBUCION":
         return "Distribución"
     if key == "CATALOGO":
@@ -6196,6 +6207,8 @@ def _album_ownership_label(album: Album | None) -> str:
 
 def _album_ownership_badge_class(album: Album | None) -> str:
     key = _album_ownership_key(album)
+    if key == "COLABORACION":
+        return "text-bg-warning text-dark"
     if key == "DISTRIBUCION":
         return "text-bg-info"
     if key == "CATALOGO":
@@ -10846,6 +10859,29 @@ def _royalty_external_collab_income(song, gross, net):
     return ref * our_pct / 100.0
 
 
+def _royalty_collab_gate(session_db, sem_start: date) -> set:
+    """Las compañías cuyo A FAVOR de ese semestre ya está **COBRADO**.
+
+    ⚠️⚠️ Un tema de COLABORACIÓN EXTERNA no entra en la liquidación del artista hasta que hemos
+    cobrado: hasta entonces no hay dinero que repartir. Es UNA sola consulta por semestre (mismo
+    patrón que el estado de la pantalla «A favor»)."""
+    try:
+        return {str(rec.company_id) for rec in
+                (session_db.query(AfavorLiquidation)
+                 .filter(AfavorLiquidation.period_start == sem_start).all())
+                if _afavor_status_key(getattr(rec, "status", None)) == "COLLECTED"}
+    except Exception:
+        app.logger.exception("[royalties] no se pudo leer qué colaboraciones están cobradas")
+        return set()
+
+
+def _royalty_collab_blocked(material, cobradas) -> bool:
+    """¿Este tema es una colaboración externa que TODAVÍA no está cobrada? (entonces no entra)."""
+    if not bool(getattr(material, "is_external_collab", False)):
+        return False
+    return str(getattr(material, "external_company_id", "") or "") not in (cobradas or set())
+
+
 def _royalty_concept_variants_for_material(material) -> list[str]:
     if bool(getattr(material, "is_distribution", False)):
         return ["distribución", "distribucion"]
@@ -11838,6 +11874,9 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
     if kind not in ("ARTIST", "PROMOTER") or not bid:
         return None
 
+    # Las compañías cuyo A FAVOR de este semestre ya está COBRADO: hasta entonces, una colaboración
+    # externa no entra en la liquidación (no hay dinero que repartir).
+    _collab_cobradas = _royalty_collab_gate(session_db, sem_start)
     month_starts = _semester_month_starts(sem_start)
 
     def _append_item(bucket: dict, item: dict):
@@ -12071,10 +12110,19 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
             n = song_net_map.get(song.id, 0.0)
             if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
                 continue
+            # ⚠️ Una COLABORACIÓN EXTERNA no entra hasta que su A FAVOR está COBRADO.
+            if _royalty_collab_blocked(song, _collab_cobradas):
+                continue
             commitment, _contract = _pick_cached(_royalty_concept_variants_for_material(song), material_date=getattr(song, "release_date", None))
             pct = float(getattr(commitment, "pct_artist", 0) or 0) if commitment else 0.0
             base = _norm_contract_base(getattr(commitment, "base", "GROSS") or "GROSS") if commitment else "GROSS"
             income = n if base in ("NET", "PROFIT") else g
+            # ⚠️ En una COLABORACIÓN EXTERNA lo que se reparte NO es el ingreso de la compañía, sino
+            # lo que nos queda a nosotros (nuestro %). Sin esto, el PDF y el congelado repartían el
+            # importe COMPLETO mientras la pantalla enseñaba el reducido (bug real).
+            _ext = _royalty_external_collab_income(song, g, n)
+            if _ext is not None:
+                income = _ext
             amount = float(income) * (pct / 100.0)
             badges = ["Canción"]
             ownership_label = _royalty_item_ownership_label(song)
@@ -12108,10 +12156,18 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
             n = album_net_map.get(album.id, 0.0)
             if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
                 continue
+            if _royalty_collab_blocked(album, _collab_cobradas):
+                continue
             commitment, _contract = _pick_cached(_royalty_concept_variants_for_material(album), material_date=getattr(album, "release_date", None))
             pct = float(getattr(commitment, "pct_artist", 0) or 0) if commitment else 0.0
             base = _norm_contract_base(getattr(commitment, "base", "GROSS") or "GROSS") if commitment else "GROSS"
             income = n if base in ("NET", "PROFIT") else g
+            # ⚠️ En una COLABORACIÓN EXTERNA lo que se reparte NO es el ingreso de la compañía, sino
+            # lo que nos queda a nosotros (nuestro %). Sin esto, el PDF y el congelado repartían el
+            # importe COMPLETO mientras la pantalla enseñaba el reducido (bug real).
+            _ext = _royalty_external_collab_income(album, g, n)
+            if _ext is not None:
+                income = _ext
             amount = float(income) * (pct / 100.0)
             badges = ["Disco"]
             ownership_label = _royalty_item_ownership_label(album)
@@ -12280,11 +12336,20 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
             n = song_net_map.get(song.id, 0.0)
             if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
                 continue
+            # Una colaboración externa no se reparte hasta que su A FAVOR está cobrado.
+            if _royalty_collab_blocked(song, _collab_cobradas):
+                continue
             base = (getattr(row, "base", "GROSS") or "GROSS").strip().upper()
             if base not in ("GROSS", "NET", "PROFIT"):
                 base = "GROSS"
             pct = float(getattr(row, "pct", 0) or 0)
             income = n if base in ("NET", "PROFIT") else g
+            # ⚠️ En una COLABORACIÓN EXTERNA lo que se reparte NO es el ingreso de la compañía, sino
+            # lo que nos queda a nosotros (nuestro %). Sin esto, el PDF y el congelado repartían el
+            # importe COMPLETO mientras la pantalla enseñaba el reducido (bug real).
+            _ext = _royalty_external_collab_income(song, g, n)
+            if _ext is not None:
+                income = _ext
             amount = float(income) * (pct / 100.0)
             badges = ["Canción"]
             ownership_label = _royalty_item_ownership_label(song)
@@ -12319,11 +12384,20 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
             n = album_net_map.get(album.id, 0.0)
             if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
                 continue
+            # Una colaboración externa no se reparte hasta que su A FAVOR está cobrado.
+            if _royalty_collab_blocked(album, _collab_cobradas):
+                continue
             base = (getattr(row, "base", "GROSS") or "GROSS").strip().upper()
             if base not in ("GROSS", "NET", "PROFIT"):
                 base = "GROSS"
             pct = float(getattr(row, "pct", 0) or 0)
             income = n if base in ("NET", "PROFIT") else g
+            # ⚠️ En una COLABORACIÓN EXTERNA lo que se reparte NO es el ingreso de la compañía, sino
+            # lo que nos queda a nosotros (nuestro %). Sin esto, el PDF y el congelado repartían el
+            # importe COMPLETO mientras la pantalla enseñaba el reducido (bug real).
+            _ext = _royalty_external_collab_income(album, g, n)
+            if _ext is not None:
+                income = _ext
             amount = float(income) * (pct / 100.0)
             badges = ["Disco"]
             ownership_label = _royalty_item_ownership_label(album)
@@ -12373,6 +12447,8 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
                                  only_beneficiary: tuple[str, str] | None = None,
                                  apply_frozen: bool = True) -> dict:
     selected_artist_id_str = str(selected_artist_id) if selected_artist_id else None
+    # Igual que en la ruta rápida: una colaboración externa solo entra si ya se ha cobrado.
+    _collab_cobradas = _royalty_collab_gate(session_db, sem_start)
 
     month_starts = []
     cursor = date(sem_start.year, sem_start.month, 1)
@@ -12651,6 +12727,9 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
         n = song_net_map.get(song.id, 0.0)
         if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
             continue
+        # Una colaboración externa no entra hasta que su A FAVOR está COBRADO.
+        if _royalty_collab_blocked(song, _collab_cobradas):
+            continue
 
         commitment, _contract = _pick_artist_commitment(
             session_db,
@@ -12708,6 +12787,9 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
         n = song_net_map.get(song.id, 0.0)
         if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
             continue
+        # Una colaboración externa no entra hasta que su A FAVOR está COBRADO.
+        if _royalty_collab_blocked(song, _collab_cobradas):
+            continue
 
         base = (getattr(row, "base", "GROSS") or "GROSS").strip().upper()
         if base not in ("GROSS", "NET", "PROFIT"):
@@ -12761,6 +12843,8 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
         n = album_net_map.get(album.id, 0.0)
         if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
             continue
+        if _royalty_collab_blocked(album, _collab_cobradas):
+            continue
 
         commitment, _contract = _pick_artist_commitment(
             session_db,
@@ -12772,6 +12856,12 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
         pct = float(getattr(commitment, "pct_artist", 0) or 0) if commitment else 0.0
         base = _norm_contract_base(getattr(commitment, "base", "GROSS") or "GROSS") if commitment else "GROSS"
         income = n if base in ("NET", "PROFIT") else g
+        # ⚠️ En una COLABORACIÓN EXTERNA lo que se reparte NO es el ingreso de la compañía, sino
+        # lo que nos queda a nosotros (nuestro %). Sin esto, el PDF y el congelado repartían el
+        # importe COMPLETO mientras la pantalla enseñaba el reducido (bug real).
+        _ext = _royalty_external_collab_income(album, g, n)
+        if _ext is not None:
+            income = _ext
         amount = float(income) * (pct / 100.0)
 
         badges = ["Disco"]
@@ -12823,12 +12913,20 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
         n = album_net_map.get(album.id, 0.0)
         if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
             continue
+        if _royalty_collab_blocked(album, _collab_cobradas):
+            continue
 
         base = (getattr(row, "base", "GROSS") or "GROSS").strip().upper()
         if base not in ("GROSS", "NET", "PROFIT"):
             base = "GROSS"
         pct = float(getattr(row, "pct", 0) or 0)
         income = n if base in ("NET", "PROFIT") else g
+        # ⚠️ En una COLABORACIÓN EXTERNA lo que se reparte NO es el ingreso de la compañía, sino
+        # lo que nos queda a nosotros (nuestro %). Sin esto, el PDF y el congelado repartían el
+        # importe COMPLETO mientras la pantalla enseñaba el reducido (bug real).
+        _ext = _royalty_external_collab_income(album, g, n)
+        if _ext is not None:
+            income = _ext
         amount = float(income) * (pct / 100.0)
 
         badges = ["Disco"]
@@ -12898,25 +12996,100 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
     }
 
 
-# Estados de una liquidación A FAVOR, en orden, con su color (de azul a verde).
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# ROYALTIES «A FAVOR» · lo que nos tienen que liquidar las compañías externas por nuestras
+# colaboraciones. Un A FAVOR puede ser de una CANCIÓN o de un DISCO, y el estado va por
+# COMPAÑÍA + SEMESTRE (`AfavorLiquidation`) con el detalle por tema (`AfavorItem`).
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+# Estados en orden, con su color (de azul a verde).
+# ⚠️ «Factura emitida» y «Factura enviada» son DOS cosas distintas: emitida = está subida pero no se
+# ha podido mandar (y entonces se puede marcar a mano como enviada); enviada = ya está en manos de
+# la compañía y por tanto pendiente de cobro.
 AFAVOR_STATUS_FLOW = [
     ("PENDING", "Pendiente", "afavor-st--pending", "fa-hourglass-half"),
-    ("REQUESTED", "Solicitado", "afavor-st--requested", "fa-paper-plane"),
-    ("PENDING_INVOICE", "Pendiente de facturación", "afavor-st--pendinv", "fa-file-invoice"),
-    ("INVOICED", "Facturado", "afavor-st--invoiced", "fa-file-invoice-dollar"),
+    ("REQUESTED", "Solicitada", "afavor-st--requested", "fa-paper-plane"),
+    ("RECEIVED", "Recibida", "afavor-st--received", "fa-inbox"),
+    ("PENDING_INVOICE", "Pendiente de facturar", "afavor-st--pendinv", "fa-file-invoice"),
+    ("INVOICE_ISSUED", "Factura emitida", "afavor-st--issued", "fa-file-circle-exclamation"),
+    ("INVOICE_SENT", "Factura enviada", "afavor-st--invoiced", "fa-file-invoice-dollar"),
     ("COLLECTED", "Cobrado", "afavor-st--collected", "fa-circle-check"),
 ]
 AFAVOR_STATUS_LABELS = {k: l for k, l, _c, _i in AFAVOR_STATUS_FLOW}
 AFAVOR_STATUS_CLASSES = {k: c for k, _l, c, _i in AFAVOR_STATUS_FLOW}
 AFAVOR_STATUS_ICONS = {k: i for k, _l, _c, i in AFAVOR_STATUS_FLOW}
+AFAVOR_STATUS_ORDER = {k: n for n, (k, _l, _c, _i) in enumerate(AFAVOR_STATUS_FLOW)}
+# Lo que ya estaba guardado con el estado antiguo: «Facturado» era la factura ya mandada.
+AFAVOR_STATUS_ALIASES = {"INVOICED": "INVOICE_SENT"}
+
+# Estados de un TEMA dentro de la liquidación.
+AFAVOR_ITEM_STATUSES = {
+    "PENDING": ("Pendiente", "afavor-it--pending", "fa-hourglass-half"),
+    "SUBMITTED": ("Enviado", "afavor-it--submitted", "fa-paper-plane"),
+    "APPROVED": ("Validado", "afavor-it--approved", "fa-circle-check"),
+    "REJECTED": ("Rechazado", "afavor-it--rejected", "fa-circle-xmark"),
+}
+
+AFAVOR_EVENT_LABELS = {
+    "REQUESTED": "Liquidación solicitada",
+    "SUBMITTED": "La compañía ha subido la liquidación",
+    "APPROVED": "Liquidación validada",
+    "REJECTED": "Liquidación rechazada",
+    "INVOICE_REQUESTED": "Factura solicitada a contabilidad",
+    "INVOICE_ISSUED": "Factura emitida",
+    "INVOICE_SENT": "Factura enviada a la compañía",
+    "COLLECTED": "Cobrado",
+    "REOPENED": "Vuelta atrás",
+}
+
+
+def _afavor_dt(valor) -> str:
+    """Una fecha y hora en el formato de la casa. Acepta el objeto o el texto ISO del historial."""
+    if not valor:
+        return ""
+    try:
+        if isinstance(valor, str):
+            valor = datetime.fromisoformat(valor)
+        if getattr(valor, "tzinfo", None) is not None:
+            valor = valor.astimezone(TZ_MADRID)
+        return valor.strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return str(valor)
+
+
+def _afavor_public_url(session_db, company) -> str:
+    """El enlace público de una compañía para subirnos sus liquidaciones. El token es OPACO y se
+    crea la primera vez que hace falta, **con commit**: con un flush sin commit se perdería y en la
+    carga siguiente saldría otro, así que un enlace ya mandado dejaría de valer."""
+    if company is None:
+        return ""
+    try:
+        token = (getattr(company, "afavor_token", None) or "").strip()
+        if not token:
+            token = _uuid_token()
+            company.afavor_token = token
+            session_db.commit()
+        return _external_url_for("public_afavor_liquidation", token=token)
+    except Exception:
+        app.logger.exception("[a favor] no se pudo preparar el enlace público de la compañía")
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+        return ""
+
+
+def _afavor_status_key(status: str | None) -> str:
+    st = (status or "PENDING").upper()
+    st = AFAVOR_STATUS_ALIASES.get(st, st)
+    return st if st in AFAVOR_STATUS_LABELS else "PENDING"
 
 
 def _afavor_status_meta(status: str | None) -> dict:
-    st = (status or "PENDING").upper()
-    if st not in AFAVOR_STATUS_LABELS:
-        st = "PENDING"
+    st = _afavor_status_key(status)
     return {"key": st, "label": AFAVOR_STATUS_LABELS[st],
-            "cls": AFAVOR_STATUS_CLASSES[st], "icon": AFAVOR_STATUS_ICONS[st]}
+            "cls": AFAVOR_STATUS_CLASSES[st], "icon": AFAVOR_STATUS_ICONS[st],
+            "order": AFAVOR_STATUS_ORDER[st]}
 
 
 def _afavor_liquidation_row(session_db, company_id, sem_start: date, sem_end: date, create: bool = False):
@@ -12951,128 +13124,468 @@ def _afavor_pies_company(session_db):
     return _pies_group_company(session_db)
 
 
-def _build_afavor_groups(session_db, sem_start: date, selected_artist_id=None) -> dict:
-    """Royalties «A FAVOR»: lo que nos tienen que liquidar las compañías externas por nuestras
-    colaboraciones. Se agrupa por ARTISTA (como las liquidaciones normales) y, dentro, por
-    COMPAÑÍA, que es a quien se le solicita la liquidación y quien lleva el estado.
+def _afavor_billing_company(session_db, rec=None):
+    """La empresa del grupo que FACTURA esta liquidación a favor: la que quedó apuntada al pedir la
+    factura y, si no hay ninguna, PIES (que es lo que corresponde a lo discográfico)."""
+    cid = getattr(rec, "billing_company_id", None) if rec is not None else None
+    if cid:
+        try:
+            co = session_db.get(GroupCompany, cid)
+            if co is not None:
+                return co
+        except Exception:
+            pass
+    return _afavor_pies_company(session_db)
 
-    Los IMPORTES no se muestran aquí: se introducen en «Ingresos». Aquí van los datos de la
-    colaboración (portada, artista y colaboradores, fecha de publicación, ISRC y % a favor nuestro).
-    """
-    sem_end = _semester_range(sem_start.year, 1 if sem_start.month <= 6 else 2)[1]
-    songs = (
-        session_db.query(Song)
-        .options(selectinload(Song.artists))
-        .filter(Song.is_external_collab.is_(True))
-        .order_by(Song.release_date.desc())
-        .all()
-    )
-    if not songs:
-        return {"groups": [], "total": Decimal("0"), "companies": []}
-    # Ingresos del semestre (para saber si YA hay importes cargados: de eso depende poder facturar).
-    rev = {}
-    for sid, gross, net, eid in (
-        session_db.query(SongRevenueEntry.song_id, SongRevenueEntry.gross, SongRevenueEntry.net, SongRevenueEntry.id)
-        .filter(SongRevenueEntry.song_id.in_([s.id for s in songs]))
-        .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
-        .filter(SongRevenueEntry.period_start == sem_start)
-        .filter(SongRevenueEntry.is_base.is_(True))
-        .all()
-    ):
-        rev[sid] = {"gross": gross or Decimal("0"), "net": net or Decimal("0"), "entry_id": str(eid)}
-    comp_ids = {s.external_company_id for s in songs if s.external_company_id}
+
+# ---------------------------------------------------------------------------------------------
+# SEMESTRES
+# ---------------------------------------------------------------------------------------------
+def _afavor_semester_ordinal(year: int, half: int) -> str:
+    """«1º semestre 2026» — es como se nombra en los correos y en el asunto."""
+    return f"{1 if int(half) == 1 else 2}º semestre {int(year)}"
+
+
+AFAVOR_DUE_MONTHS = 1     # se reclama UN MES después de que cierre el semestre
+
+
+def _afavor_due_semester(today: date | None = None) -> tuple[int, int]:
+    """El semestre que TOCA liquidar: el último cerrado hace ya más de un mes.
+
+    S1 cierra el 30 de junio → se reclama del 1 de agosto en adelante; S2 cierra el 31 de
+    diciembre → del 1 de febrero. Antes de eso todavía no se le puede pedir nada a nadie."""
+    d = today or today_local()
+    if d >= date(d.year, 8, 1):
+        return d.year, 1
+    if d >= date(d.year, 2, 1):
+        return d.year - 1, 2
+    return d.year - 1, 1
+
+
+def _afavor_semester_index(year: int, half: int) -> int:
+    return int(year) * 2 + (int(half) - 1)
+
+
+def _afavor_semester_is_due(year: int, half: int, today: date | None = None) -> bool:
+    dy, dh = _afavor_due_semester(today)
+    return _afavor_semester_index(year, half) <= _afavor_semester_index(dy, dh)
+
+
+def _afavor_semesters_since(first_date: date | None, until: tuple[int, int] | None = None) -> list[tuple[int, int]]:
+    """Todos los semestres desde el de `first_date` hasta el que toca liquidar (incluido), del más
+    reciente al más antiguo. Es lo que se le ofrece a la compañía en su enlace público."""
+    if not first_date:
+        return [_afavor_due_semester()]
+    y, h = first_date.year, (1 if first_date.month <= 6 else 2)
+    fy, fh = until or _afavor_due_semester()
+    ini, fin = _afavor_semester_index(y, h), _afavor_semester_index(fy, fh)
+    if fin < ini:
+        return [(y, h)]
+    out = [_add_semesters(y, h, i) for i in range(fin - ini + 1)]
+    return list(reversed(out))
+
+
+# ---------------------------------------------------------------------------------------------
+# TRAZABILIDAD
+# ---------------------------------------------------------------------------------------------
+def _afavor_history_add(rec, kind: str, **extra) -> None:
+    """Apunta un paso en el historial de la liquidación (mismo patrón que las liquidaciones
+    normales): quién, cuándo y los datos que hagan falta. Se recorta a los últimos 60."""
+    if rec is None:
+        return
+    estado = {}
+    try:
+        estado = _current_user_state() or {}
+    except Exception:
+        estado = {}
+    evento = {"kind": (kind or "").upper(), "at": _now_madrid().isoformat(),
+              "by": (estado.get("nick") or "").strip() or None}
+    evento.update({k: v for k, v in (extra or {}).items() if v not in (None, "")})
+    hist = list(getattr(rec, "history", None) or [])
+    hist.append(evento)
+    rec.history = hist[-60:]
+
+
+def _afavor_timeline(rec) -> list[dict]:
+    """El historial en texto, de lo más reciente a lo más antiguo."""
+    out = []
+    for ev in reversed(list(getattr(rec, "history", None) or [])):
+        kind = (ev.get("kind") or "").upper()
+        out.append({
+            "kind": kind,
+            "label": AFAVOR_EVENT_LABELS.get(kind, kind.replace("_", " ").capitalize()),
+            "at": _afavor_dt(ev.get("at")),
+            "by": ev.get("by") or "",
+            "to": ", ".join(ev.get("to") or []) if isinstance(ev.get("to"), list) else (ev.get("to") or ""),
+            "note": ev.get("note") or "",
+            "total": ev.get("total") or "",
+        })
+    return out
+
+
+def _afavor_status_tooltip(rec) -> str:
+    """QUÉ HA PASADO con esta liquidación, para el tooltip de la etiqueta de estado: cuándo se
+    solicitó y a quién, cuándo se subió, cuándo se pidió la factura y a quién, cuándo se envió y
+    cuándo se cobró. Es la información de contabilidad que se pide al pasar el ratón."""
+    if rec is None:
+        return ""
+    partes = []
+
+    def _quien(valor):
+        return f" · {valor}" if valor else ""
+
+    if getattr(rec, "requested_at", None):
+        destinos = ", ".join([str(x) for x in (getattr(rec, "requested_to", None) or [])][:3])
+        partes.append("Solicitada el %s%s%s" % (_afavor_dt(rec.requested_at),
+                                                _quien(getattr(rec, "requested_by_nick", "")),
+                                                (" → %s" % destinos) if destinos else ""))
+    if getattr(rec, "submitted_at", None):
+        partes.append("Subida por %s el %s" % ((getattr(rec, "submitted_by_name", "") or "la compañía"),
+                                               _afavor_dt(rec.submitted_at)))
+    if getattr(rec, "reviewed_at", None):
+        partes.append("Validada el %s%s" % (_afavor_dt(rec.reviewed_at), _quien(getattr(rec, "reviewed_by_nick", ""))))
+    if getattr(rec, "rejected_at", None):
+        partes.append("Rechazada el %s%s%s" % (_afavor_dt(rec.rejected_at),
+                                               _quien(getattr(rec, "rejected_by_nick", "")),
+                                               (" · %s" % rec.reject_note) if getattr(rec, "reject_note", "") else ""))
+    if getattr(rec, "invoice_requested_at", None):
+        partes.append("Factura solicitada el %s%s" % (_afavor_dt(rec.invoice_requested_at),
+                                                      _quien(getattr(rec, "invoice_requested_by_nick", ""))))
+    if getattr(rec, "invoice_issued_at", None):
+        partes.append("Factura emitida el %s%s" % (_afavor_dt(rec.invoice_issued_at),
+                                                   _quien(getattr(rec, "invoice_issued_by_nick", ""))))
+    if getattr(rec, "invoice_sent_at", None):
+        destinos = ", ".join([str(x) for x in (getattr(rec, "invoice_sent_to", None) or [])][:3])
+        partes.append("Factura enviada el %s%s" % (_afavor_dt(rec.invoice_sent_at),
+                                                   (" → %s" % destinos) if destinos else ""))
+    elif getattr(rec, "invoice_send_error", None):
+        partes.append("No se pudo enviar la factura: %s" % rec.invoice_send_error)
+    if getattr(rec, "collected_at", None):
+        partes.append("Cobrado el %s%s" % (_afavor_dt(rec.collected_at), _quien(getattr(rec, "collected_by_nick", ""))))
+    return " · ".join(partes)
+
+
+# ---------------------------------------------------------------------------------------------
+# COMPAÑÍAS: la matriz agrupa a todos sus terceros («todo lo de Sony Music»)
+# ---------------------------------------------------------------------------------------------
+def _promoter_parent_map(session_db) -> dict:
+    """{id del tercero: id de su compañía matriz}. Cacheado por petición."""
+    clave = "_afavor_parent_map"
+    try:
+        cache = getattr(g, clave, None)
+        if cache is not None:
+            return cache
+    except Exception:
+        cache = None
+    mapa = {}
+    try:
+        for pid, parent in session_db.query(Promoter.id, Promoter.parent_promoter_id).filter(
+                Promoter.parent_promoter_id.isnot(None)).all():
+            mapa[str(pid)] = str(parent)
+    except Exception:
+        mapa = {}
+    try:
+        setattr(g, clave, mapa)
+    except Exception:
+        pass
+    return mapa
+
+
+def _promoter_root_id(promoter_id, parents: dict) -> str:
+    """La compañía MATRIZ de un tercero (o él mismo). Un solo nivel en la práctica, pero se sigue
+    la cadena con tope para que un bucle mal guardado no cuelgue la pantalla."""
+    actual = str(promoter_id or "")
+    vistos = set()
+    for _ in range(6):
+        padre = parents.get(actual)
+        if not padre or padre in vistos or padre == actual:
+            break
+        vistos.add(actual)
+        actual = padre
+    return actual
+
+
+# ---------------------------------------------------------------------------------------------
+# EL MOTOR: qué temas hay a favor y cuánto nos toca
+# ---------------------------------------------------------------------------------------------
+def _afavor_detail_url(kind: str, material_id: str) -> str:
+    """El enlace a la ficha del tema. ⚠️ `url_for` REVIENTA fuera de una petición (un cron, un hilo),
+    y estas filas se montan también desde el barrido diario: por eso va protegido."""
+    try:
+        if (kind or "").upper() == "ALBUM":
+            return url_for("discografica_album_detail", album_id=material_id, tab="informacion")
+        return url_for("discografica_song_detail", song_id=material_id, tab="informacion")
+    except Exception:
+        return ""
+
+
+def _afavor_income_maps(session_db, model, id_col, ids, sem_start: date, sem_end: date) -> dict:
+    """Los ingresos del semestre por material, en UNA consulta.
+
+    ⚠️ Un semestre puede estar cargado como UNA fila SEMESTER o como SEIS filas MONTH: hay que
+    sumar las dos formas (es lo que hace el motor de las liquidaciones normales), o la mitad de los
+    datos se queda fuera."""
+    out = {}
+    if not ids:
+        return out
+    meses = _semester_month_starts(sem_start)
+    try:
+        filas = (session_db.query(id_col, model.gross, model.net)
+                 .filter(id_col.in_(list(ids)))
+                 .filter(model.is_base.is_(True))
+                 .filter(or_(
+                     and_(func.upper(model.period_type) == "SEMESTER", model.period_start == sem_start),
+                     and_(func.upper(model.period_type) == "MONTH", model.period_start.in_(meses)),
+                 )).all())
+    except Exception:
+        app.logger.exception("[a favor] no se pudieron leer los ingresos del semestre")
+        return out
+    for mid, gross, net in filas:
+        d = out.setdefault(str(mid), {"gross": Decimal("0"), "net": Decimal("0")})
+        d["gross"] += (gross or Decimal("0"))
+        d["net"] += (net or Decimal("0"))
+    return out
+
+
+def _afavor_our_amount(amount_base, our_pct) -> Decimal:
+    try:
+        return (Decimal(str(amount_base or 0)) * Decimal(str(our_pct or 0)) / Decimal("100"))
+    except Exception:
+        return Decimal("0")
+
+
+def _afavor_material_rows(session_db, sem_start: date, sem_end: date, company_id=None) -> list[dict]:
+    """TODOS los temas a favor (canciones y discos) que ya estaban publicados en ese semestre, con
+    su artista, sus colaboradores, su código, su % y lo que nos corresponde.
+
+    ⚠️ Se filtra por `release_date <= sem_end`: un tema publicado después no se le puede reclamar a
+    nadie por un semestre en el que no existía."""
+    cid = to_uuid(str(company_id)) if company_id else None
+    filas: list[dict] = []
+
+    q_songs = (session_db.query(Song)
+               .options(selectinload(Song.artists))
+               .filter(Song.is_external_collab.is_(True))
+               .filter(Song.release_date <= sem_end))
+    q_albums = (session_db.query(Album)
+                .options(joinedload(Album.artist))
+                .filter(Album.is_external_collab.is_(True))
+                .filter(Album.release_date <= sem_end))
+    if cid:
+        q_songs = q_songs.filter(Song.external_company_id == cid)
+        q_albums = q_albums.filter(Album.external_company_id == cid)
+    songs = q_songs.order_by(Song.release_date.desc()).all()
+    albums = q_albums.order_by(Album.release_date.desc()).all()
+    if not songs and not albums:
+        return filas
+
+    rev_songs = _afavor_income_maps(session_db, SongRevenueEntry, SongRevenueEntry.song_id,
+                                   [s.id for s in songs], sem_start, sem_end)
+    rev_albums = _afavor_income_maps(session_db, AlbumRevenueEntry, AlbumRevenueEntry.album_id,
+                                    [a.id for a in albums], sem_start, sem_end)
+    interpretes = _song_interpreter_rows_map(session_db, [s.id for s in songs]) if songs else {}
+    codigos_album = _first_album_code_display_map(session_db, [a.id for a in albums]) if albums else {}
+
+    comp_ids = {x.external_company_id for x in (list(songs) + list(albums)) if x.external_company_id}
     comp_map = {}
     if comp_ids:
         for pr in session_db.query(Promoter).filter(Promoter.id.in_(comp_ids)).all():
-            comp_map[pr.id] = pr
-    # Estado por compañía en este semestre (una sola consulta).
-    state_map = {}
-    for rec in (session_db.query(AfavorLiquidation)
-                .filter(AfavorLiquidation.period_start == sem_start).all()):
-        state_map[str(rec.company_id)] = rec
+            comp_map[str(pr.id)] = pr
 
+    def _fila(material, kind, artist, code, code_label, collaborators, cover, rev):
+        company = comp_map.get(str(getattr(material, "external_company_id", "") or ""))
+        base = (getattr(material, "our_pct_base", None) or "GROSS").upper()
+        our_pct = Decimal(str(getattr(material, "our_pct", 0) or 0))
+        info = rev.get(str(material.id)) or {"gross": Decimal("0"), "net": Decimal("0")}
+        amount_base = info["net"] if base == "NET" else info["gross"]
+        artist_name = (getattr(artist, "name", "") or "") if artist is not None else ""
+        quienes = [x for x in ([artist_name] + list(collaborators)) if x]
+        return {
+            "kind": kind,
+            "item_id": str(material.id),
+            "title": (getattr(material, "title", "") or ""),
+            "kind_label": ("Disco" if kind == "ALBUM" else "Canción"),
+            "cover_url": (cover or ""),
+            "artist_id": (str(artist.id) if artist is not None else ""),
+            "artist_name": artist_name,
+            "artist_photo": ((getattr(artist, "photo_url", "") or "") if artist is not None else ""),
+            "collaborators": ", ".join(collaborators),
+            # El artista y los colaboradores JUNTOS, separados por comas (es como va en el correo).
+            "who_label": ", ".join(quienes),
+            "release_date": (material.release_date.strftime("%d/%m/%Y") if getattr(material, "release_date", None) else ""),
+            "release_date_obj": getattr(material, "release_date", None),
+            "code": (code or ""),
+            "code_label": code_label,
+            "company_id": (str(company.id) if company is not None else ""),
+            "company": (_promoter_display_name(company) if company is not None else ""),
+            "company_logo": ((company.logo_url or "") if company is not None else ""),
+            "our_pct": our_pct,
+            "our_pct_label": _fmt_pct_es(our_pct),
+            "base": base,
+            "base_label": ("Neto" if base == "NET" else "Bruto"),
+            "income_gross": info["gross"],
+            "income_net": info["net"],
+            "amount_base": amount_base,
+            "our_amount": _afavor_our_amount(amount_base, our_pct),
+            "has_income": bool(amount_base),
+            "detail_url": _afavor_detail_url(kind, str(material.id)),
+        }
+
+    for s_row in songs:
+        art = s_row.artists[0] if getattr(s_row, "artists", None) else None
+        partes = _song_display_parts(s_row, interpretes.get(str(s_row.id)))
+        otros = [a.name for a in (getattr(s_row, "artists", None) or [])[1:] if getattr(a, "name", None)]
+        for nombre in (partes.get("interpreters") or []):
+            if nombre and nombre != (getattr(art, "name", "") or "") and nombre not in otros:
+                otros.append(nombre)
+        if (partes.get("collaborator") or "").strip():
+            for nombre in [x.strip() for x in partes["collaborator"].split(",") if x.strip()]:
+                if nombre not in otros:
+                    otros.append(nombre)
+        filas.append(_fila(s_row, "SONG", art, _norm_isrc(getattr(s_row, "isrc", None)), "ISRC",
+                           otros, (getattr(s_row, "cover_url", None) or ""), rev_songs))
+    for a_row in albums:
+        art = getattr(a_row, "artist", None)
+        code = (codigos_album.get(str(a_row.id))
+                or ((_clean_csv_cell(getattr(a_row, "upc_code", None)) or "").strip()))
+        filas.append(_fila(a_row, "ALBUM", art, code, "Código", [],
+                           (getattr(a_row, "cover_url", None) or ""), rev_albums))
+    return filas
+
+
+def _build_afavor_groups(session_db, sem_start: date, selected_artist_id=None, group_by: str = "artist") -> dict:
+    """Royalties «A FAVOR» agrupados por ARTISTA o por COMPAÑÍA.
+
+    Por compañía se agrupa por la **matriz**: así se ve junto todo lo que tenemos con «Sony Music»
+    aunque cada sello sea una ficha distinta. El estado y los botones son de cada compañía +
+    semestre (`AfavorLiquidation`), que es a quien se le solicita y quien factura.
+    """
+    sem_end = _semester_range(sem_start.year, 1 if sem_start.month <= 6 else 2)[1]
+    group_by = "company" if str(group_by or "").lower() == "company" else "artist"
+    filas = _afavor_material_rows(session_db, sem_start, sem_end)
+    if not filas:
+        return {"groups": [], "total": Decimal("0"), "companies": [], "group_by": group_by,
+                "period_start": sem_start, "period_end": sem_end}
+
+    # Estado por compañía en este semestre (una sola consulta) y su detalle por tema.
+    state_map, items_map = {}, {}
+    recs = (session_db.query(AfavorLiquidation)
+            .options(selectinload(AfavorLiquidation.items))
+            .filter(AfavorLiquidation.period_start == sem_start).all())
+    for rec in recs:
+        state_map[str(rec.company_id)] = rec
+        for it in (rec.items or []):
+            clave = "%s:%s" % (("ALBUM" if it.album_id else "SONG"), str(it.album_id or it.song_id))
+            items_map.setdefault(str(rec.company_id), {})[clave] = it
+
+    parents = _promoter_parent_map(session_db)
+    comp_cache = {}
+
+    def _company(cid):
+        if not cid:
+            return None
+        if cid not in comp_cache:
+            comp_cache[cid] = session_db.get(Promoter, to_uuid(cid))
+        return comp_cache[cid]
+
+    sel = str(selected_artist_id) if selected_artist_id else None
     groups, order = {}, []
     grand = Decimal("0")
     companies_seen = {}
-    sel = str(selected_artist_id) if selected_artist_id else None
-    for s_row in songs:
-        art = s_row.artists[0] if getattr(s_row, "artists", None) else None
-        aid = str(art.id) if art else "sin"
-        if sel and aid != sel:
+
+    for it in filas:
+        if group_by == "artist" and sel and (it["artist_id"] or "sin") != sel:
             continue
-        info = rev.get(s_row.id) or {"gross": Decimal("0"), "net": Decimal("0"), "entry_id": ""}
-        base = (getattr(s_row, "our_pct_base", None) or "GROSS").upper()
-        amount_base = info["net"] if base == "NET" else info["gross"]
-        our_pct = Decimal(str(getattr(s_row, "our_pct", 0) or 0))
-        our_amount = (amount_base * our_pct / Decimal("100"))
-        grand += our_amount
-        company = comp_map.get(s_row.external_company_id)
-        company_id = str(company.id) if company is not None else ""
+        grand += it["our_amount"]
+        company_id = it["company_id"]
         rec = state_map.get(company_id)
-        g = groups.get(aid)
-        if g is None:
-            g = {
-                "artist_id": aid if art else "",
-                "artist_name": (art.name if art else "Sin artista"),
-                "artist_photo": ((getattr(art, "photo_url", "") or "") if art else ""),
-                "companies": [],       # bloques por compañía (cada uno con su estado)
-                "items": [],           # todas las canciones del artista (compat)
-                "total": Decimal("0"),
-            }
-            groups[aid] = g
-            order.append(aid)
-        # Colaboradores: el resto de artistas de la canción + el campo libre.
-        others = [a.name for a in (getattr(s_row, "artists", None) or [])[1:] if getattr(a, "name", None)]
-        if (getattr(s_row, "collaborator", None) or "").strip():
-            others.append(s_row.collaborator.strip())
-        item = {
-            "song_id": str(s_row.id),
-            "title": s_row.title,
-            "cover_url": (getattr(s_row, "cover_url", None) or ""),
-            "artist_name": (art.name if art else ""),
-            "collaborators": ", ".join(others),
-            "release_date": (s_row.release_date.strftime("%d/%m/%Y") if getattr(s_row, "release_date", None) else ""),
-            "isrc": _norm_isrc(getattr(s_row, "isrc", None)),
-            "company": (_promoter_display_name(company) or company.nick or "") if company is not None else "",
-            "company_id": company_id,
-            "our_pct": our_pct,
-            "base": base,
-            "base_label": ("Neto" if base == "NET" else "Bruto"),
-            "has_income": bool(info["entry_id"]) and (info["gross"] or info["net"]),
-            "our_amount": our_amount,
-        }
-        g["items"].append(item)
-        g["total"] += our_amount
-        # Bloque de la compañía dentro del artista.
+        estado = _afavor_status_meta(getattr(rec, "status", None))
+        fila_item = dict(it)
+        guardado = (items_map.get(company_id) or {}).get("%s:%s" % (it["kind"], it["item_id"]))
+        if guardado is not None:
+            st = (guardado.status or "PENDING").upper()
+            etiqueta, cls, icono = AFAVOR_ITEM_STATUSES.get(st, AFAVOR_ITEM_STATUSES["PENDING"])
+            fila_item.update({
+                "item_status": st, "item_status_label": etiqueta,
+                "item_status_cls": cls, "item_status_icon": icono,
+                "item_amount_income": guardado.amount_income,
+                "item_our_amount": guardado.our_amount,
+                "item_document_url": (guardado.document_url or ""),
+                "afavor_item_id": str(guardado.id),
+            })
+        else:
+            fila_item.update({"item_status": "PENDING", "item_status_label": "Pendiente",
+                              "item_status_cls": "afavor-it--pending", "item_status_icon": "fa-hourglass-half"})
+
+        if group_by == "company":
+            root = _promoter_root_id(company_id, parents) if company_id else ""
+            gkey = root or "sin"
+            g = groups.get(gkey)
+            if g is None:
+                matriz = _company(root) if root else None
+                g = {
+                    "group_kind": "company",
+                    "group_id": (root or ""),
+                    "title": (_promoter_display_name(matriz) if matriz is not None else "Sin compañía"),
+                    "photo": ((getattr(matriz, "logo_url", "") or "") if matriz is not None else ""),
+                    "subtitle": "Compañía",
+                    "companies": [], "total": Decimal("0"),
+                }
+                groups[gkey] = g
+                order.append(gkey)
+        else:
+            gkey = it["artist_id"] or "sin"
+            g = groups.get(gkey)
+            if g is None:
+                g = {
+                    "group_kind": "artist",
+                    "group_id": (it["artist_id"] or ""),
+                    "title": (it["artist_name"] or "Sin artista"),
+                    "photo": it["artist_photo"],
+                    "subtitle": "Colaboraciones externas",
+                    "companies": [], "total": Decimal("0"),
+                }
+                groups[gkey] = g
+                order.append(gkey)
+
+        g["total"] += it["our_amount"]
         block = next((c for c in g["companies"] if c["company_id"] == company_id), None)
         if block is None:
+            company = _company(company_id)
             block = {
                 "company_id": company_id,
-                "company_name": item["company"] or "Sin compañía",
-                "company_logo": ((company.logo_url or "") if company is not None else ""),
-                "status": _afavor_status_meta(getattr(rec, "status", None)),
+                "company_name": (it["company"] or "Sin compañía"),
+                "company_logo": it["company_logo"],
+                "status": estado,
+                "status_tooltip": _afavor_status_tooltip(rec),
                 "liquidation_id": (str(rec.id) if rec is not None else ""),
-                "invoice_url": (getattr(rec, "invoice_url", None) or "") if rec is not None else "",
-                "invoice_sent_at": (getattr(rec, "invoice_sent_at", None) if rec is not None else None),
-                "requested_at": (getattr(rec, "requested_at", None) if rec is not None else None),
-                "songs": [],
-                "has_income": False,
+                "invoice_url": ((getattr(rec, "invoice_url", None) or "") if rec is not None else ""),
+                "invoice_number": ((getattr(rec, "invoice_number", None) or "") if rec is not None else ""),
+                "total_amount": (getattr(rec, "total_amount", None) if rec is not None else None),
+                "public_url": (_afavor_public_url(session_db, company) if company is not None else ""),
+                "rows": [], "total": Decimal("0"),
+                "has_income": False, "submitted": 0, "pending_review": 0,
             }
             g["companies"].append(block)
-        block["songs"].append(item)
-        if item["has_income"]:
+        block["rows"].append(fila_item)
+        block["total"] += it["our_amount"]
+        if it["has_income"]:
             block["has_income"] = True
+        if fila_item["item_status"] == "SUBMITTED":
+            block["submitted"] += 1
+            block["pending_review"] += 1
         if company_id and company_id not in companies_seen:
             companies_seen[company_id] = {
-                "company_id": company_id,
-                "name": item["company"],
-                "logo_url": ((company.logo_url or "") if company is not None else ""),
-                "status": _afavor_status_meta(getattr(rec, "status", None)),
+                "company_id": company_id, "name": it["company"],
+                "logo_url": it["company_logo"], "status": estado,
             }
+    for gkey in order:
+        groups[gkey]["companies"].sort(key=lambda b: (b["company_name"] or "").lower())
     return {
         "groups": [groups[a] for a in order],
         "total": grand,
         "companies": list(companies_seen.values()),
+        "group_by": group_by,
         "period_start": sem_start,
         "period_end": sem_end,
     }
@@ -14073,7 +14586,10 @@ def _royalty_liquidation_brand_assets(session_db, beneficiary: dict | None = Non
     logo_url = (getattr(pies_company, 'logo_url', None) or '').strip() or _external_url_for('static', filename='img/logo.png')
 
     beneficiary = beneficiary or {}
-    fallback_photo = 'img/default_promoter.png' if (beneficiary.get('kind') or '').strip().upper() == 'PROMOTER' else 'img/logo.png'
+    # ⚠️ Sin foto, el muñequito gris: el logo de la casa YA va arriba a la derecha, y ponerlo
+    # también en el hueco del beneficiario hace pensar que la liquidación es de PIES.
+    fallback_photo = ('img/default_promoter.png' if (beneficiary.get('kind') or '').strip().upper() == 'PROMOTER'
+                      else 'img/avatar_placeholder.png')
     photo_url = (beneficiary.get('photo_url') or '').strip() or _external_url_for('static', filename=fallback_photo)
     return logo_url, photo_url
 
@@ -15436,6 +15952,9 @@ def discografica_view():
     royalty_tab = "liquidaciones"
     afavor_groups: list[dict] = []
     afavor_total = Decimal("0")
+    afavor_group_by = "artist"
+    afavor_pending_request = 0
+    afavor_pending_review = 0
     royalty_semester_start_iso = ""
 
     # Para redirecciones tras POST
@@ -15716,10 +16235,17 @@ def discografica_view():
         royalty_beneficiaries_artists = [bucket for bucket in royalty_beneficiaries_artists if _match_royalty_status(bucket)]
         royalty_beneficiaries_others = [bucket for bucket in royalty_beneficiaries_others if _match_royalty_status(bucket)]
 
-        # Pestaña «A favor»: lo que cobramos nosotros por colaboraciones externas.
-        _afavor = _build_afavor_groups(session_db, sem_start, selected_artist_uuid) if royalty_tab == "afavor" else {"groups": [], "total": Decimal("0")}
+        # Pestaña «A favor»: lo que nos liquidan las compañías externas. Se puede ver agrupado por
+        # ARTISTA o por COMPAÑÍA (y por compañía manda la MATRIZ: todo lo de «Sony Music» junto).
+        afavor_group_by = "company" if (request.args.get("group") or "").strip().lower() == "company" else "artist"
+        _afavor = (_build_afavor_groups(session_db, sem_start, selected_artist_uuid, group_by=afavor_group_by)
+                   if royalty_tab == "afavor" else {"groups": [], "total": Decimal("0")})
         afavor_groups = _afavor["groups"]
         afavor_total = _afavor["total"]
+        afavor_pending_request = len([b for g in afavor_groups for b in g.get("companies", [])
+                                      if b.get("company_id") and b["status"]["key"] == "PENDING"])
+        afavor_pending_review = sum(b.get("pending_review") or 0
+                                    for g in afavor_groups for b in g.get("companies", []))
         royalty_semester_start_iso = sem_start.isoformat()
 
     if section == "ingresos":
@@ -16479,6 +17005,9 @@ def discografica_view():
         royalty_pending_send=royalty_pending_send,
         royalty_tab=royalty_tab,
         afavor_groups=afavor_groups,
+        afavor_group_by=afavor_group_by,
+        afavor_pending_request=afavor_pending_request,
+        afavor_pending_review=afavor_pending_review,
         afavor_total=afavor_total,
         royalty_semester_start_iso=royalty_semester_start_iso,
         # Registros
@@ -19618,137 +20147,452 @@ def _royalty_pending_buckets(session_db, sem_start, sem_end, statuses=("GENERATE
     return out
 
 
-def _afavor_request_email_html(session_db, company, sem_start: date, sem_end: date, songs: list) -> str:
-    """Correo de SOLICITUD de liquidación a una compañía externa: logo de PIES arriba a la derecha,
-    título centrado, cabecera con el logo de la compañía a la que se le solicita (mismo borde que
-    las liquidaciones), etiqueta del periodo y el listado de canciones a favor nuestro."""
-    pies = _afavor_pies_company(session_db)
-    pies_logo = (getattr(pies, "logo_url", None) or _external_url_for("static", filename="img/logo.png"))
-    period_label = _royalty_liquidation_period_label_from_dates(sem_start, sem_end)
-    rows = ""
-    for it in songs:
-        cover = (it.get("cover_url") or "")
-        cover_cell = (f"<img src='{escape(cover)}' alt='' width='40' height='40' "
-                      "style='border-radius:8px;object-fit:cover;border:1px solid #e5e7eb;vertical-align:middle'>"
-                      ) if cover else ""
-        who = escape(it.get("artist_name") or "")
-        if it.get("collaborators"):
-            who += f"<br><span style='color:#6b7280;font-size:12px'>con {escape(it['collaborators'])}</span>"
-        rows += (
-            "<tr>"
-            f"<td style='padding:8px 10px;border-bottom:1px solid #eceef1;width:52px'>{cover_cell}</td>"
-            f"<td style='padding:8px 10px;border-bottom:1px solid #eceef1;font-size:13px;color:#111'>"
-            f"<strong>{escape(it.get('title') or '')}</strong><br><span style='color:#6b7280;font-size:12px'>{who}</span></td>"
-            f"<td style='padding:8px 10px;border-bottom:1px solid #eceef1;font-size:13px;color:#374151;white-space:nowrap'>{escape(it.get('release_date') or '—')}</td>"
-            f"<td style='padding:8px 10px;border-bottom:1px solid #eceef1;font-size:12px;color:#374151;white-space:nowrap'>{escape(it.get('isrc') or '—')}</td>"
-            f"<td style='padding:8px 10px;border-bottom:1px solid #eceef1;font-size:13px;color:#111;text-align:right;white-space:nowrap'><strong>{it.get('our_pct')}%</strong>"
-            f"<br><span style='color:#6b7280;font-size:11px'>{escape(it.get('base_label') or '')}</span></td>"
-            "</tr>"
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# A FAVOR · SOLICITAR LA LIQUIDACIÓN a la compañía externa
+# Sigue el patrón de la casa para cualquier aviso: los destinatarios CONFIGURADOS con su casilla,
+# se pueden añadir correos a mano, hay una NOTA y la VISTA PREVIA es EL MISMO HTML que se manda
+# (`_afavor_request_html`), así que no hay una segunda versión que se pueda desparejar.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+# A dónde puede mandarnos la liquidación por correo si prefiere no usar el enlace.
+AFAVOR_INBOX_EMAIL = "music@piesrecords.com"
+
+AFAVOR_REQUEST_MODULES = [
+    ("temas", "Listado de temas"),
+    ("subir", "Cómo enviárnosla"),
+]
+AFAVOR_REQUEST_MODULE_LABELS = {k: l for k, l in AFAVOR_REQUEST_MODULES}
+
+
+def _afavor_company_recipients(session_db, company) -> list[dict]:
+    """A QUIÉN se le pide la liquidación: el correo principal de la compañía, sus correos adicionales
+    y sus personas de contacto. Cada fila lleva su `key` (correo o teléfono normalizado), que es la
+    identidad en el formulario — nunca el índice."""
+    filas, vistos = [], set()
+
+    def anota(nombre, correo, telefono="", papel=""):
+        correo = (correo or "").strip()
+        telefono = sms_utils.normalize_phone(telefono) or ""
+        if correo and not _looks_like_email_address(correo):
+            correo = ""
+        clave = (correo.lower() or telefono)
+        if not clave or clave in vistos:
+            return
+        vistos.add(clave)
+        filas.append({"key": clave, "name": (nombre or correo or telefono), "email": correo,
+                      "phone": telefono, "role": papel, "photo": "", "is_person": bool(papel != "Principal")})
+
+    if company is None:
+        return filas
+    correo, telefono = _promoter_email_phone(company)
+    anota(_promoter_display_name(company), correo, telefono, "Principal")
+    try:
+        for row in (session_db.query(PromoterEmail)
+                    .filter(PromoterEmail.promoter_id == company.id)
+                    .order_by(PromoterEmail.concept.asc()).all()):
+            anota(row.concept or "Otro correo", row.email, "", (row.concept or "Otro correo"))
+    except Exception:
+        app.logger.exception("[a favor] no se pudieron leer los correos de la compañía")
+    try:
+        for c in (session_db.query(PromoterContact)
+                  .filter(PromoterContact.promoter_id == company.id)
+                  .order_by(PromoterContact.title.asc()).all()):
+            nombre = " ".join([x for x in [c.first_name, c.last_name] if x]).strip() or (c.title or "Contacto")
+            anota(nombre, c.email, (c.phone or ""), (c.title or "Contacto"))
+    except Exception:
+        app.logger.exception("[a favor] no se pudieron leer los contactos de la compañía")
+    return filas
+
+
+def _afavor_request_context(session_db, company, sem_start: date, sem_end: date, items: list) -> dict:
+    """Todo lo que necesitan el correo, la vista previa y el asunto."""
+    sem_half = 1 if sem_start.month <= 6 else 2
+    brand = _afavor_pies_company(session_db)
+    return {
+        "company": company,
+        "company_id": str(getattr(company, "id", "") or ""),
+        "company_name": _promoter_display_name(company) or (getattr(company, "nick", "") or "Compañía"),
+        "company_logo": (getattr(company, "logo_url", None) or ""),
+        "brand_name": (getattr(brand, "name", "") or "PIES"),
+        "brand_logo": (getattr(brand, "logo_url", None) or ""),
+        "period_ordinal": _afavor_semester_ordinal(sem_start.year, sem_half),
+        "period_label": _semester_label(sem_start.year, sem_half),
+        "period_year": sem_start.year,
+        "period_half": sem_half,
+        "items": items,
+        "public_url": _afavor_public_url(session_db, company),
+        "inbox_email": AFAVOR_INBOX_EMAIL,
+    }
+
+
+def _afavor_request_subject(ctx: dict) -> str:
+    """«Solicitud liquidación de Royaltys (1º semestre 2026)»."""
+    return "Solicitud liquidación de Royaltys (%s)" % ctx.get("period_ordinal", "")
+
+
+def _afavor_pct_chip(pct_label: str) -> str:
+    """La etiqueta del % a favor, en los colores de la casa (el azul de marca)."""
+    return ("<span style=\"display:inline-block;background:#e8f4f9;color:#07607e;"
+            "border:1px solid #c9e6f1;border-radius:999px;padding:3px 10px;font-size:12px;"
+            "font-weight:700;white-space:nowrap;\">%s%%</span>" % pct_label)
+
+
+def _afavor_request_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = False) -> str:
+    """EL MOTOR del correo de solicitud: el MISMO HTML para el correo y para la vista previa.
+
+    ⚠️ `escape()` devuelve Markup y `'<div>' + Markup(...)` escaparía el trozo de la izquierda: aquí
+    se escapa SIEMPRE a str."""
+    def esc(valor) -> str:
+        return str(escape("" if valor is None else valor))
+
+    ocultos = {str(x).strip().lower() for x in (hidden or [])}
+    logo = _absolute_media_url(ctx.get("brand_logo") or "") if (ctx.get("brand_logo") or "") else ""
+    clogo = _absolute_media_url(ctx.get("company_logo") or "") if (ctx.get("company_logo") or "") else ""
+    asunto = _afavor_request_subject(ctx)
+
+    def ojo(clave, etiqueta):
+        if not preview:
+            return ""
+        return ('<button type="button" class="an-eye" data-notice-eye="%s" title="Ocultar «%s» del aviso" '
+                'style="border:0;background:transparent;cursor:pointer;color:#8b95a1;font-size:14px;">'
+                '<i class="fa fa-eye"></i></button>' % (esc(clave), esc(etiqueta)))
+
+    def modulo(clave, etiqueta, cuerpo):
+        if clave in ocultos and not preview:
+            return ""
+        atenuado = "opacity:.35;" if (preview and clave in ocultos) else ""
+        marca = ' data-notice-hidden="1"' if clave in ocultos else ""
+        cabecera = ""
+        if preview:
+            cabecera = ('<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" '
+                        'style="border-collapse:collapse;"><tr><td></td>'
+                        '<td align="right">%s</td></tr></table>' % ojo(clave, etiqueta))
+        return ('<div data-notice-module="%s"%s style="%s">%s%s</div>'
+                % (esc(clave), marca, atenuado, cabecera, cuerpo))
+
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    # 1 · LOGO de la empresa del grupo (PIES) arriba a la DERECHA
+    partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                  + (('<img src="%s" alt="%s" style="max-height:54px;max-width:190px;">'
+                      % (esc(logo), esc(ctx.get("brand_name")))) if logo else "")
+                  + '</div>')
+    # 2 · TÍTULO centrado
+    partes.append('<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">'
+                  'Solicitud liquidación de Royaltys</h2>')
+    # 3 · LA NOTA, si la hay
+    if (note or "").strip():
+        partes.append('<div style="margin:0 0 16px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;'
+                      'white-space:pre-line;">' + esc(note.strip()) + '</div>')
+    # 4 · EL TEXTO, justificado
+    partes.append('<p style="text-align:justify;font-size:14px;line-height:1.7;color:#374151;margin:0 0 16px;">'
+                  'Hola, tenemos pendiente recibir la liquidación de Royaltys del '
+                  '<strong>%s semestre del año %s</strong>, de los siguientes temas:</p>'
+                  % (esc("1º" if ctx.get("period_half") == 1 else "2º"), esc(ctx.get("period_year"))))
+    # 5 · LA CABECERA de la compañía: su logo a la IZQUIERDA y su nombre completo en NEGRITA
+    partes.append(
+        '<div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;margin:0 0 16px;">'
+        '<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>'
+        + (('<td style="padding-right:12px;vertical-align:middle;"><img src="%s" alt="" width="54" height="54" '
+            'style="border-radius:10px;object-fit:contain;background:#fff;border:1px solid #e6e8eb;"></td>'
+            % esc(clogo)) if clogo else "")
+        + '<td style="vertical-align:middle;font-size:18px;font-weight:800;color:#111;">%s</td>'
+          '</tr></table></div>' % esc(ctx.get("company_name")))
+    # 6 · EL LISTADO de temas (tabla sin líneas)
+    filas = ""
+    for it in (ctx.get("items") or []):
+        cover = _absolute_media_url(it.get("cover_url") or "") if (it.get("cover_url") or "") else ""
+        celda_cover = (('<img src="%s" alt="" width="44" height="44" style="border-radius:8px;'
+                        'object-fit:cover;border:1px solid #e6e8eb;vertical-align:middle;">' % esc(cover))
+                       if cover else "")
+        filas += (
+            '<tr>'
+            '<td style="padding:8px 10px 8px 0;width:56px;vertical-align:middle;">%s</td>'
+            '<td style="padding:8px 10px 8px 0;font-size:14px;color:#111;vertical-align:middle;">'
+            '<strong>%s</strong><br><span style="color:#6b7280;font-size:12px;">%s</span></td>'
+            '<td style="padding:8px 10px;font-size:13px;color:#374151;white-space:nowrap;vertical-align:middle;">%s</td>'
+            '<td style="padding:8px 0 8px 10px;text-align:right;white-space:nowrap;vertical-align:middle;">%s</td>'
+            '</tr>' % (celda_cover, esc(it.get("title")), esc(it.get("who_label")),
+                       esc(it.get("release_date") or "—"),
+                       _afavor_pct_chip(esc(it.get("our_pct_label") or "0")))
         )
-    th = ("padding:8px 10px;border-bottom:2px solid #E33D48;font-size:11px;color:#6b7280;"
-          "text-transform:uppercase;text-align:left;letter-spacing:.03em")
-    company_logo = (getattr(company, "logo_url", None) or "")
-    company_logo_cell = (f"<img src='{escape(company_logo)}' alt='' width='54' height='54' "
-                         "style='border-radius:10px;object-fit:contain;background:#fff;border:1px solid #e5e7eb'>"
-                         ) if company_logo else ""
-    return f"""
-    <div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:660px;margin:0 auto;padding:8px 4px;">
-      <div style="text-align:right;margin-bottom:6px;">
-        <img src="{escape(pies_logo)}" alt="PIES" style="max-height:48px;max-width:180px;object-fit:contain;">
-      </div>
-      <h2 style="text-align:center;font-size:20px;color:#111;margin:0 0 18px;">Solicitud Liquidación de Royalties</h2>
-      <div style="border:1px solid #e5e7eb;border-radius:14px;padding:14px 16px;background:#f9fafb;margin:0 0 14px;">
-        <table role="presentation" style="border-collapse:collapse;"><tr>
-          <td style="padding-right:12px;">{company_logo_cell}</td>
-          <td style="font-size:16px;font-weight:700;color:#111;">{escape(getattr(company, 'nick', '') or 'Compañía')}</td>
-        </tr></table>
-      </div>
-      <div style="margin:0 0 12px;">
-        <span style="display:inline-block;background:#eef2f7;color:#374151;border:1px solid #e5e7eb;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;">
-          Periodo de liquidación: {escape(period_label)}
-        </span>
-      </div>
-      <table style="width:100%;border-collapse:collapse;margin:0 0 16px;">
-        <thead><tr>
-          <th style="{th}"></th><th style="{th}">Canción</th><th style="{th}">Publicación</th>
-          <th style="{th}">ISRC</th><th style="{th};text-align:right">A favor nuestro</th>
-        </tr></thead>
-        <tbody>{rows}</tbody>
-      </table>
-      <p style="font-size:13px;color:#374151;margin:0 0 6px;">
-        <strong>Nota:</strong> por favor responda a este correo con las liquidaciones correspondientes
-        o envíelas a <a href="mailto:music@piesrecords.com">music@piesrecords.com</a>.
-      </p>
-    </div>
-    """
+    if not filas:
+        filas = ('<tr><td colspan="4" style="padding:10px 0;font-size:13px;color:#6b7280;">'
+                 'No hay temas con esta compañía en este periodo.</td></tr>')
+    partes.append(modulo("temas", "Listado de temas",
+                         '<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" '
+                         'style="border-collapse:collapse;margin:0 0 6px;"><tbody>%s</tbody></table>' % filas))
+    # 7 · CÓMO ENVIARLA + EL BOTÓN abajo a la derecha
+    enlace = ctx.get("public_url") or ""
+    correo = ctx.get("inbox_email") or AFAVOR_INBOX_EMAIL
+    mailto = "mailto:%s?subject=%s" % (correo, quote_plus("Re: " + asunto))
+    cuerpo_subir = (
+        '<p style="text-align:justify;font-size:14px;line-height:1.7;color:#374151;margin:14px 0 6px;">'
+        'Puedes subir la liquidación en el siguiente botón o enviarla por correo a '
+        '<a href="%s" style="color:#E33D48;font-weight:700;">%s</a>.</p>'
+        '<p style="font-size:14px;color:#374151;margin:0 0 10px;">Gracias.</p>'
+        % (esc(mailto), esc(correo)))
+    if enlace:
+        cuerpo_subir += (
+            '<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" '
+            'style="border-collapse:collapse;"><tr><td align="right">'
+            '<a href="%s" style="display:inline-block;background:#E33D48;color:#fff;text-decoration:none;'
+            'padding:11px 18px;border-radius:9px;font-weight:700;font-size:14px;">Enviar liquidación</a>'
+            '</td></tr></table>' % esc(enlace))
+    partes.append(modulo("subir", "Cómo enviárnosla", cuerpo_subir))
+    partes.append('</div>')
+    return "".join(partes)
+
+
+def _afavor_request_targets(session_db, sem_start: date, sem_end: date, only_company: str = "",
+                            pending_only: bool = False) -> list[dict]:
+    """Las compañías a las que se les puede pedir la liquidación de ese semestre, con sus temas, su
+    estado y sus destinatarios configurados."""
+    filas = _afavor_material_rows(session_db, sem_start, sem_end,
+                                  company_id=(only_company or None))
+    por_compania: dict[str, list] = {}
+    for it in filas:
+        if not it["company_id"]:
+            continue
+        por_compania.setdefault(it["company_id"], []).append(it)
+    salida = []
+    for cid, items in por_compania.items():
+        company = session_db.get(Promoter, to_uuid(cid))
+        if company is None:
+            continue
+        rec = _afavor_liquidation_row(session_db, cid, sem_start, sem_end)
+        estado = _afavor_status_meta(getattr(rec, "status", None))
+        if pending_only and estado["key"] != "PENDING":
+            continue
+        salida.append({
+            "company_id": cid,
+            "company": company,
+            "name": _promoter_display_name(company) or (company.nick or ""),
+            "logo_url": (company.logo_url or ""),
+            "rows": items,
+            "status": estado,
+            "recipients": _notify_apply_prefs(session_db, _afavor_company_recipients(session_db, company)),
+        })
+    salida.sort(key=lambda x: (x["name"] or "").lower())
+    return salida
+
+
+@app.get("/discografica/royalties/afavor/solicitar", endpoint="afavor_request_view")
+@admin_required
+def afavor_request_view():
+    """La pantalla de SOLICITUD: a quién, la nota, qué se ve y la vista previa del correo."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para solicitar liquidaciones a favor.")
+    sem_key = (request.args.get("s") or "").strip()
+    parsed = _parse_semester_key(sem_key) or _afavor_due_semester()
+    sem_year, sem_half = parsed
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+    only_company = (request.args.get("company_id") or "").strip()
+    solo_pendientes = _truthy(request.args.get("pendientes")) and not only_company
+    session_db = db()
+    try:
+        targets = _afavor_request_targets(session_db, sem_start, sem_end, only_company,
+                                          pending_only=solo_pendientes)
+        if not targets:
+            flash("No hay compañías a las que pedir la liquidación de este periodo.", "info")
+            return redirect(url_for("discografica_view", section="royalties", roy_tab="afavor",
+                                    s=_semester_key(sem_year, sem_half)))
+        previas = {}
+        for t in targets:
+            ctx = _afavor_request_context(session_db, t["company"], sem_start, sem_end, t["rows"])
+            previas[t["company_id"]] = {"html": _afavor_request_html(ctx, preview=True),
+                                        "subject": _afavor_request_subject(ctx)}
+        return render_template(
+            "afavor_request.html",
+            targets=targets,
+            previews=previas,
+            first_company=targets[0]["company_id"],
+            semester_key=_semester_key(sem_year, sem_half),
+            period_ordinal=_afavor_semester_ordinal(sem_year, sem_half),
+            period_label=_semester_label(sem_year, sem_half),
+            notice_modules=AFAVOR_REQUEST_MODULES,
+            notify_channels=NOTIFY_CHANNELS,
+            notify_channel_labels=NOTIFY_CHANNEL_LABELS,
+            notify_channel_icons=NOTIFY_CHANNEL_ICONS,
+            sms_available=_sms_available(),
+            back_url=url_for("discografica_view", section="royalties", roy_tab="afavor",
+                             s=_semester_key(sem_year, sem_half)),
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/royalties/afavor/solicitar/vista-previa", endpoint="afavor_request_preview")
+@admin_required
+def afavor_request_preview():
+    """Recalcula la vista previa con la nota y los módulos ocultos (mismo HTML que se manda)."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    datos = request.get_json(silent=True) or {}
+    parsed = _parse_semester_key((datos.get("s") or "").strip()) or _afavor_due_semester()
+    sem_start, sem_end = _semester_range(*parsed)
+    cid = (datos.get("company_id") or "").strip()
+    session_db = db()
+    try:
+        company = session_db.get(Promoter, to_uuid(cid)) if cid else None
+        if company is None:
+            return jsonify({"ok": False, "error": "Compañía no encontrada."}), 404
+        items = [x for x in _afavor_material_rows(session_db, sem_start, sem_end, company_id=cid)]
+        ctx = _afavor_request_context(session_db, company, sem_start, sem_end, items)
+        return jsonify({"ok": True, "subject": _afavor_request_subject(ctx),
+                        "html": _afavor_request_html(ctx, note=(datos.get("note") or ""),
+                                                     hidden=(datos.get("hidden") or []), preview=True)})
+    finally:
+        session_db.close()
 
 
 @app.post("/discografica/royalties/afavor/solicitar", endpoint="afavor_request_liquidation")
 @admin_required
 def afavor_request_liquidation():
-    """Solicita la liquidación a una compañía externa (o a TODAS las pendientes con `all=1`)."""
-    sem_key = (request.form.get("s") or "").strip()
+    """Manda la solicitud a una o a VARIAS compañías. Acepta JSON (la pantalla de solicitud) y
+    formulario (los enlaces antiguos)."""
+    if not can_edit_discografica():
+        if request.is_json:
+            return jsonify({"ok": False, "error": "Sin permisos."}), 403
+        return forbid("No tienes permisos para solicitar liquidaciones a favor.")
+    datos = request.get_json(silent=True) if request.is_json else None
+    es_json = isinstance(datos, dict)
+    datos = datos if es_json else request.form
+    sem_key = (datos.get("s") or "").strip()
     parsed = _parse_semester_key(sem_key)
     if not parsed:
+        if es_json:
+            return jsonify({"ok": False, "error": "Semestre no válido."}), 400
         flash("Semestre no válido.", "warning")
         return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor")))
     sem_year, sem_half = parsed
     sem_start, sem_end = _semester_range(sem_year, sem_half)
-    only_company = (request.form.get("company_id") or "").strip()
-    do_all = _truthy(request.form.get("all"))
+    nota = (datos.get("note") or "").strip()
+    ocultos = ([str(x).strip().lower() for x in datos.getlist("hidden")] if hasattr(datos, "getlist")
+               else [str(x).strip().lower() for x in (datos.get("hidden") or [])])
+    ocultos = [x for x in ocultos if x in AFAVOR_REQUEST_MODULE_LABELS]
+    # Qué compañías: lo que manda la pantalla, o `company_id` / `all=1` de los enlaces antiguos.
+    peticiones = datos.get("companies") if es_json else None
+    if not isinstance(peticiones, list) or not peticiones:
+        only = (datos.get("company_id") or "").strip()
+        todas = _truthy(datos.get("all"))
+        peticiones = [{"company_id": only}] if only else ([] if not todas else None)
     sent, errors = 0, []
-    with get_db() as session_db:
-        payload = _build_afavor_groups(session_db, sem_start)
-        # Canciones agrupadas por compañía (para el listado del correo).
-        by_company = {}
-        for g in payload.get("groups") or []:
-            for block in g.get("companies") or []:
-                if not block.get("company_id"):
-                    continue
-                by_company.setdefault(block["company_id"], []).extend(block.get("songs") or [])
-        targets = [cid for cid in by_company if (not only_company or cid == only_company)]
-        for cid in targets:
+    session_db = db()
+    try:
+        if peticiones is None:      # «solicitar todas»: solo las que están PENDIENTES
+            peticiones = [{"company_id": t["company_id"]}
+                          for t in _afavor_request_targets(session_db, sem_start, sem_end, pending_only=True)]
+        for pet in peticiones:
+            cid = str((pet or {}).get("company_id") or "").strip()
+            if not cid:
+                continue
             company = session_db.get(Promoter, to_uuid(cid))
             if company is None:
                 continue
-            rec = _afavor_liquidation_row(session_db, cid, sem_start, sem_end, create=True)
-            if do_all and (rec.status or "PENDING").upper() != "PENDING":
-                continue      # «solicitar todas» solo escribe a las que están pendientes
-            emails = [e["email"] for e in _bag_provider_email_suggestions(
-                session_db, SimpleNamespace(provider=company, provider_id=company.id))]
-            if not emails:
-                errors.append(f"{company.nick}: sin correo")
+            nombre = _promoter_display_name(company) or (company.nick or "la compañía")
+            items = _afavor_material_rows(session_db, sem_start, sem_end, company_id=cid)
+            if not items:
+                errors.append("%s: sin temas en este periodo" % nombre)
                 continue
-            ok, err = _send_optional_email(
-                emails[:3],
-                f"Solicitud Liquidación de Royalties · {_royalty_liquidation_period_label_from_dates(sem_start, sem_end)}",
-                _afavor_request_email_html(session_db, company, sem_start, sem_end, by_company[cid]),
-            )
+            configurados = _notify_apply_prefs(session_db, _afavor_company_recipients(session_db, company))
+            marcados = {str(x).strip().lower() for x in ((pet.get("to") or []) if isinstance(pet, dict) else [])
+                        if str(x or "").strip()}
+            elegidos = []
+            for fila in configurados:
+                if marcados and str(fila.get("key") or "").lower() not in marcados:
+                    continue                     # sin marcar a nadie, van TODOS
+                elegidos.append(fila)
+            extras = [x.strip() for x in re.split(r"[;,\n]+", str((pet.get("extra_emails") or "") if isinstance(pet, dict) else ""))
+                      if x.strip()]
+            conocidos = {str(r.get("key") or "").lower() for r in configurados}
+            extras += [x for x in marcados if x not in conocidos and "@" in x]
+            correos = _dedupe_valid_email_addresses(
+                [r.get("email") for r in elegidos if r.get("email")] + extras)
+            if not correos:
+                errors.append("%s: sin correo" % nombre)
+                continue
+            rec = _afavor_liquidation_row(session_db, cid, sem_start, sem_end, create=True)
+            ctx = _afavor_request_context(session_db, company, sem_start, sem_end, items)
+            ok, err = _send_optional_email(correos, _afavor_request_subject(ctx),
+                                           _afavor_request_html(ctx, note=nota, hidden=ocultos))
             if not ok:
-                errors.append(f"{company.nick}: {err or 'error al enviar'}")
+                errors.append("%s: %s" % (nombre, err or "error al enviar"))
                 continue
             rec.status = "REQUESTED"
             rec.requested_at = _now_madrid()
             rec.requested_by_nick = _email_to_nick(_current_user_email() or "")
-            rec.requested_to = emails[:3]
+            rec.requested_to = correos[:6]
             rec.updated_at = _now_madrid()
+            _afavor_history_add(rec, "REQUESTED", to=correos[:6], note=(nota or None))
+            # Los temas de la liquidación, para que la compañía los vea en su enlace.
+            _afavor_sync_items(session_db, rec, items)
             session_db.commit()
             sent += 1
+        _notify_resolve(session_db, "AFAVOR_REQUEST", _semester_key(sem_year, sem_half))
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[a favor] no se pudo solicitar la liquidación")
+        if es_json:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        flash("No se pudo solicitar la liquidación: %s" % exc, "danger")
+        return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor", s=sem_key)))
+    finally:
+        session_db.close()
+    destino = url_for("discografica_view", section="royalties", roy_tab="afavor", s=sem_key)
+    if es_json:
+        return jsonify({"ok": bool(sent), "sent": sent, "failed": errors, "url": destino,
+                        "error": ("No se pudo enviar: " + "; ".join(errors[:4])) if (not sent and errors) else ""})
     if sent:
-        flash(f"Solicitud enviada a {sent} compañía{'s' if sent != 1 else ''}."
-              + (f" Incidencias: {'; '.join(errors[:4])}" if errors else ""),
+        flash("Solicitud enviada a %d compañía%s." % (sent, "s" if sent != 1 else "")
+              + (" Incidencias: %s" % "; ".join(errors[:4]) if errors else ""),
               "warning" if errors else "success")
     elif errors:
         flash("No se pudo enviar: " + "; ".join(errors[:4]), "danger")
     else:
         flash("No había liquidaciones pendientes de solicitar.", "info")
-    return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor", s=sem_key)))
+    return redirect(safe_next_or(destino))
+
+
+def _afavor_sync_items(session_db, rec, items: list) -> None:
+    """Deja en la liquidación una fila por TEMA (sin tocar lo que la compañía ya haya enviado).
+
+    ⚠️ Solo se crean las que falten y se actualiza el % de las que siguen PENDIENTES: el % de un
+    tema ya enviado queda CONGELADO con el que se liquidó."""
+    if rec is None:
+        return
+    try:
+        actuales = {}
+        for it in (session_db.query(AfavorItem)
+                   .filter(AfavorItem.liquidation_id == rec.id).all()):
+            actuales["%s:%s" % (("ALBUM" if it.album_id else "SONG"), str(it.album_id or it.song_id))] = it
+        for row in (items or []):
+            clave = "%s:%s" % (row["kind"], row["item_id"])
+            fila = actuales.get(clave)
+            if fila is None:
+                fila = AfavorItem(
+                    liquidation_id=rec.id, item_kind=row["kind"],
+                    song_id=(to_uuid(row["item_id"]) if row["kind"] == "SONG" else None),
+                    album_id=(to_uuid(row["item_id"]) if row["kind"] == "ALBUM" else None),
+                    our_pct=row["our_pct"], our_pct_base=row["base"], status="PENDING",
+                )
+                session_db.add(fila)
+            elif (fila.status or "PENDING").upper() == "PENDING":
+                fila.our_pct = row["our_pct"]
+                fila.our_pct_base = row["base"]
+                fila.updated_at = _now_madrid()
+        session_db.flush()
+    except Exception:
+        app.logger.exception("[a favor] no se pudieron preparar los temas de la liquidación")
 
 
 @app.post("/discografica/royalties/afavor/solicitar-factura", endpoint="afavor_request_invoice")
 @admin_required
 def afavor_request_invoice():
-    """Pide a ADMINISTRACIÓN que emita la factura de esta liquidación a favor."""
+    """Pide a CONTABILIDAD (la persona que lleva esa empresa del grupo) que emita la factura."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para pedir la factura.")
     sem_key = (request.form.get("s") or "").strip()
     parsed = _parse_semester_key(sem_key)
     company_id = (request.form.get("company_id") or "").strip()
@@ -19758,12 +20602,9 @@ def afavor_request_invoice():
     sem_start, sem_end = _semester_range(*parsed)
     with get_db() as session_db:
         rec = _afavor_liquidation_row(session_db, company_id, sem_start, sem_end, create=True)
-        rec.status = "PENDING_INVOICE"
-        rec.invoice_requested_at = _now_madrid()
-        rec.invoice_requested_by_nick = _email_to_nick(_current_user_email() or "")
-        rec.updated_at = _now_madrid()
+        _afavor_request_invoice_apply(session_db, rec)
         session_db.commit()
-    flash("Factura solicitada: administración la emitirá y la enviará.", "success")
+    flash("Factura solicitada a contabilidad.", "success")
     return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor", s=sem_key)))
 
 
@@ -35401,8 +36242,8 @@ def public_demo_submit_identify(token):
             first_name=nombre.split(" ")[0] if " " in nombre else nombre,
             last_name=" ".join(nombre.split(" ")[1:]) if " " in nombre else None,
             tax_id=numero,
-            email=(datos.get("email") or "").strip() or None,
-            phone=(datos.get("phone") or "").strip() or None,
+            contact_email=(datos.get("email") or "").strip() or None,
+            contact_phone=(datos.get("phone") or "").strip() or None,
         )
         session_db.add(tercero)
         session_db.commit()
@@ -40131,7 +40972,13 @@ def discografica_album_create():
 
     ownership_type = (request.form.get("ownership_type") or "own").strip().lower()
     is_distribution = ownership_type == "distribution"
-    is_catalog = bool(request.form.get("is_catalog")) if not is_distribution else False
+    is_external_collab = ownership_type == "external_collab"
+    is_catalog = (bool(request.form.get("is_catalog"))
+                  if not (is_distribution or is_external_collab) else False)
+    our_pct = _money_or_zero(request.form.get("our_pct")) if is_external_collab else Decimal("0")
+    our_pct_base = ("NET" if (request.form.get("our_pct_base") or "").upper() == "NET" else "GROSS")
+    external_company_id = (to_uuid((request.form.get("external_company_id") or "").strip())
+                           if is_external_collab else None)
 
     if not title:
         flash("El nombre del disco / EP es obligatorio.", "warning")
@@ -40160,6 +41007,10 @@ def discografica_album_create():
             physical_vinyl=physical_vinyl,
             is_distribution=is_distribution,
             is_catalog=is_catalog,
+            is_external_collab=is_external_collab,
+            our_pct=our_pct,
+            our_pct_base=our_pct_base,
+            external_company_id=external_company_id,
             distributor_id=to_uuid((request.form.get("distributor_id") or "").strip()),
             copyright_text=_default_album_copy_text(release_date),
             edited_by="PIES Compañía Discográfica",
@@ -40442,6 +41293,8 @@ def discografica_album_detail(album_id):
         album_kind_label=_album_kind_label(album),
         ownership_label=_album_ownership_label(album),
         ownership_badge_class=_album_ownership_badge_class(album),
+        album_external_company_name=_promoter_display_name(
+            session_db.get(Promoter, album.external_company_id)) if getattr(album, "external_company_id", None) else "",
         physical_labels=_album_physical_labels(album),
         default_copyright=_default_album_copy_text(getattr(album, "release_date", None)),
         product_code_config=product_code_config,
@@ -40576,7 +41429,17 @@ def discografica_album_info_update(album_id):
 
         ownership_type = (request.form.get("ownership_type") or "own").strip().lower()
         album.is_distribution = ownership_type == "distribution"
-        album.is_catalog = bool(request.form.get("is_catalog")) if not album.is_distribution else False
+        # COLABORACIÓN EXTERNA (igual que en la canción): es lo que alimenta los royalties «A favor».
+        album.is_external_collab = ownership_type == "external_collab"
+        album.is_catalog = (bool(request.form.get("is_catalog"))
+                            if not (album.is_distribution or album.is_external_collab) else False)
+        if album.is_external_collab:
+            album.our_pct = _money_or_zero(request.form.get("our_pct"))
+            album.our_pct_base = ("NET" if (request.form.get("our_pct_base") or "").upper() == "NET" else "GROSS")
+            album.external_company_id = to_uuid((request.form.get("external_company_id") or "").strip()) or None
+        else:
+            album.our_pct = Decimal("0")
+            album.external_company_id = None
 
         album.upc_code = (request.form.get("upc_code") or "").strip() or None
         album.legal_deposit_code = (request.form.get("legal_deposit_code") or "").strip() or None
@@ -42779,6 +43642,34 @@ def promoter_update(pid):
     if "kind" in request.form:
         _kind = (request.form.get("kind") or "").strip().lower()
         p.kind = _kind if _kind in ("empresa", "institucion") else None
+    # COMPAÑÍA MATRIZ (para ver junto todo lo del grupo en Royalties «A favor»).
+    # ⚠️ Un tercero no puede ser su PROPIO padre, y el grupo es de UN SOLO nivel: si el que se elige
+    # ya tiene matriz, se apunta la de ARRIBA (si no, agrupar dejaría de significar nada).
+    if "parent_promoter_id" in request.form:
+        _padre = to_uuid((request.form.get("parent_promoter_id") or "").strip())
+        if _padre and str(_padre) == str(p.id):
+            _padre = None
+            flash("Un tercero no puede ser su propia compañía matriz.", "warning")
+        if _padre:
+            # ⚠️ Ni un CICLO: si la cadena del candidato vuelve a este tercero, no vale (con un ciclo,
+            # «todo lo de Sony junto» dejaría de tener un grupo al que agrupar).
+            _actual, _vistos = _padre, set()
+            while _actual and str(_actual) not in _vistos:
+                _vistos.add(str(_actual))
+                if str(_actual) == str(p.id):
+                    _padre = None
+                    flash("Esa compañía ya cuelga de este tercero: no se puede poner como su matriz.",
+                          "warning")
+                    break
+                _arriba = session.get(Promoter, _actual)
+                _actual = getattr(_arriba, "parent_promoter_id", None) if _arriba is not None else None
+        if _padre:
+            # El grupo es de UN SOLO nivel: si el elegido ya tiene matriz, se apunta la de ARRIBA.
+            _arriba = session.get(Promoter, _padre)
+            _abuelo = getattr(_arriba, "parent_promoter_id", None) if _arriba is not None else None
+            if _abuelo:
+                _padre = _abuelo
+        p.parent_promoter_id = _padre
     # PREFERENCIA de comunicación (correo o SMS). ⚠️ Solo tiene sentido con las DOS cosas puestas: si
     # se queda con una sola, se borra (no hay nada que preferir y no se preguntará más).
     if "notify_channel" in request.form:
@@ -44472,7 +45363,7 @@ def contracting_view():
         return render_template(
             "contratacion.html",
             # Los EVENTOS del primer paso del asistente (van en el mismo selector que los artistas).
-            wizard_events=s.query(AppEvent).order_by(AppEvent.name.asc()).all(),
+            wizard_events=session_db.query(AppEvent).order_by(AppEvent.name.asc()).all(),
             section=section,
             show_past=show_past_activities,
             title=title,
@@ -60272,6 +61163,9 @@ def promoter_detail_view(pid):
             'promoter_detail.html',
             promoter=promoter,
             tab=tab,
+            # Su compañía MATRIZ, para el buscador (y para poder enseñarla).
+            parent_promoter_name=(_promoter_display_name(session.get(Promoter, promoter.parent_promoter_id))
+                                  if getattr(promoter, "parent_promoter_id", None) else ""),
             travel_prefs=_travel_prefs_of(promoter),
             travel_summary=_travel_summary(promoter),
             contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
@@ -64910,6 +65804,7 @@ def _bootstrap_schema_bg():
         (ensure_invoice_attempts_schema, "ensure_invoice_attempts_schema"),
         (ensure_vacations_schema, "ensure_vacations_schema"),
         (ensure_syncros_schema, "ensure_syncros_schema"),
+        (ensure_afavor_schema, "ensure_afavor_schema"),
         (ensure_song_genres_schema, "ensure_song_genres_schema"),
         (ensure_song_demos_schema, "ensure_song_demos_schema"),
         (ensure_playlists_schema, "ensure_playlists_schema"),
@@ -68161,168 +69056,925 @@ def administration_royalty_invoice_validate(invoice_id):
         session_db.close()
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# A FAVOR · lo que hace la COMPAÑÍA por su enlace público, la REVISIÓN de la casa, la FACTURA
+# que emite contabilidad y el COBRO.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+AFAVOR_DOC_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".xlsx", ".xls", ".csv", ".zip"}
+
+
+def _afavor_by_token(session_db, token: str):
+    """La compañía a la que pertenece un enlace público de liquidaciones. El token es OPACO."""
+    tok = (token or "").strip()
+    if not tok:
+        return None
+    return session_db.query(Promoter).filter(Promoter.afavor_token == tok).first()
+
+
+def _afavor_item_state(it) -> dict:
+    st = (getattr(it, "status", None) or "PENDING").upper()
+    etiqueta, cls, icono = AFAVOR_ITEM_STATUSES.get(st, AFAVOR_ITEM_STATUSES["PENDING"])
+    return {"key": st, "label": etiqueta, "cls": cls, "icon": icono}
+
+
+def _afavor_items_map(session_db, rec) -> dict:
+    """Los temas ya guardados de una liquidación, por «SONG:id» / «ALBUM:id»."""
+    out = {}
+    if rec is None:
+        return out
+    try:
+        for it in session_db.query(AfavorItem).filter(AfavorItem.liquidation_id == rec.id).all():
+            out["%s:%s" % (("ALBUM" if it.album_id else "SONG"), str(it.album_id or it.song_id))] = it
+    except Exception:
+        app.logger.exception("[a favor] no se pudieron leer los temas de la liquidación")
+    return out
+
+
+def _afavor_company_rows(session_db, company, sem_start: date, sem_end: date, rec=None) -> list[dict]:
+    """Los temas de una compañía en un semestre, cada uno con su estado y lo que ya se envió."""
+    filas = _afavor_material_rows(session_db, sem_start, sem_end, company_id=str(company.id))
+    guardados = _afavor_items_map(session_db, rec)
+    salida = []
+    for row in filas:
+        fila = dict(row)
+        it = guardados.get("%s:%s" % (row["kind"], row["item_id"]))
+        estado = _afavor_item_state(it) if it is not None else _afavor_item_state(None)
+        fila.update({
+            "afavor_item_id": (str(it.id) if it is not None else ""),
+            "item_status": estado["key"], "item_status_label": estado["label"],
+            "item_status_cls": estado["cls"], "item_status_icon": estado["icon"],
+            "amount_income": (it.amount_income if it is not None else None),
+            "amount_income_input": (_money_input_text(it.amount_income) if it is not None else ""),
+            "item_our_amount": (it.our_amount if it is not None else None),
+            "document_url": ((it.document_url or "") if it is not None else ""),
+            "document_name": ((it.document_name or "") if it is not None else ""),
+            "reject_note": ((it.reject_note or "") if it is not None else ""),
+            # El % CONGELADO manda sobre el de la ficha en cuanto el tema se ha enviado.
+            "pct_effective": ((it.our_pct if (it is not None and it.our_pct is not None and estado["key"] != "PENDING")
+                               else row["our_pct"])),
+            "locked": (estado["key"] in ("SUBMITTED", "APPROVED")),
+        })
+        fila["pct_effective_label"] = _fmt_pct_es(fila["pct_effective"])
+        salida.append(fila)
+    return salida
+
+
+def _money_input_text(value) -> str:
+    """Un importe como se escribe en un campo de dinero de la casa («1.234,56»); vacío si no hay."""
+    if value in (None, ""):
+        return ""
+    try:
+        return format_eur(value).replace(" €", "")
+    except Exception:
+        return ""
+
+
+def _afavor_first_release(session_db, company_id) -> date | None:
+    """La publicación más ANTIGUA de los temas a favor de esa compañía: de ahí arrancan los
+    semestres que se le ofrecen («todos los semestres desde que se publicó»)."""
+    cid = to_uuid(str(company_id)) if company_id else None
+    if not cid:
+        return None
+    fechas = []
+    try:
+        f = (session_db.query(func.min(Song.release_date))
+             .filter(Song.is_external_collab.is_(True), Song.external_company_id == cid).scalar())
+        if f:
+            fechas.append(f)
+        f = (session_db.query(func.min(Album.release_date))
+             .filter(Album.is_external_collab.is_(True), Album.external_company_id == cid).scalar())
+        if f:
+            fechas.append(f)
+    except Exception:
+        app.logger.exception("[a favor] no se pudo resolver la primera publicación de la compañía")
+    return min(fechas) if fechas else None
+
+
+def _afavor_detect_amount(data: bytes, filename: str = "") -> Decimal | None:
+    """Intenta leer el IMPORTE de una liquidación que llega sin importe escrito.
+
+    Es una AYUDA: si no se puede, no se inventa nada (se deja el campo para que lo rellenen)."""
+    if not data:
+        return None
+    nombre = (filename or "").lower()
+    try:
+        if nombre.endswith(".pdf"):
+            campos = invoice_read.read_fields(data=data) or {}
+            for clave in ("amount_gross", "amount_net"):
+                valor = campos.get(clave)
+                if valor:
+                    return Decimal(str(valor))
+            filas = invoice_read.pdf_rows(data) or []
+            candidatos = []
+            for fila in filas:
+                texto = " ".join([t for _x, t in fila])
+                bajo = invoice_read.norm(texto)
+                if "total" in bajo or "royalt" in bajo or "liquidacion" in bajo:
+                    for m in re.finditer(invoice_read.AMOUNT, texto):
+                        v = invoice_read.parse_amount(m.group(0))
+                        if v:
+                            candidatos.append(v)
+            if candidatos:
+                return max(candidatos)
+        elif nombre.endswith((".xlsx", ".xls", ".csv")):
+            filas = promoter_import.read_rows(data, filename) or []
+            candidatos = []
+            for fila in filas:
+                for celda in fila:
+                    v = invoice_read.parse_amount(promoter_import._cell_text(celda))
+                    if v:
+                        candidatos.append(v)
+            if candidatos:
+                return max(candidatos)
+    except Exception:
+        app.logger.exception("[a favor] no se pudo leer el importe de la liquidación")
+    return None
+
+
+def _afavor_public_context(session_db, company, sem_year: int, sem_half: int) -> dict:
+    """Todo lo que necesita la página pública de la compañía."""
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+    rec = _afavor_liquidation_row(session_db, company.id, sem_start, sem_end)
+    brand = _afavor_pies_company(session_db)
+    primera = _afavor_first_release(session_db, company.id)
+    semestres = []
+    for y, h in _afavor_semesters_since(primera):
+        ss, se = _semester_range(y, h)
+        semestres.append({"key": _semester_key(y, h), "label": _afavor_semester_ordinal(y, h),
+                          "short": _semester_label(y, h), "is_active": (y == sem_year and h == sem_half)})
+    filas = _afavor_company_rows(session_db, company, sem_start, sem_end, rec)
+    return {
+        "company": company,
+        "company_name": _promoter_display_name(company) or (company.nick or ""),
+        "company_logo": (company.logo_url or ""),
+        "brand": brand,
+        "brand_name": (getattr(brand, "name", "") or "PIES"),
+        "brand_logo": (getattr(brand, "logo_url", None) or ""),
+        "fiscal_text": _fiscal_address_text(company),
+        "fiscal_parts": _fiscal_parts_for_form(company),
+        "tax_id": (company.tax_id or ""),
+        "billing_name": _billing_name(company),
+        "email": _promoter_email_phone(company)[0],
+        "phone": _promoter_email_phone(company)[1],
+        "semesters": semestres,
+        "semester_key": _semester_key(sem_year, sem_half),
+        "period_ordinal": _afavor_semester_ordinal(sem_year, sem_half),
+        "period_start": sem_start, "period_end": sem_end,
+        "rows": filas,
+        "status": _afavor_status_meta(getattr(rec, "status", None)),
+        "liquidation_id": (str(rec.id) if rec is not None else ""),
+        "pending": [r for r in filas if not r["locked"]],
+        "sent": [r for r in filas if r["locked"]],
+        "inbox_email": AFAVOR_INBOX_EMAIL,
+    }
+
+
+@app.get("/liquidaciones-royalties/<token>", endpoint="public_afavor_liquidation")
+def public_afavor_liquidation(token):
+    """LA PÁGINA de la compañía externa: elige el semestre, escribe los importes y sube su
+    liquidación tema a tema. Lo ya enviado se ve en gris con su etiqueta «Enviado»."""
+    session_db = db()
+    try:
+        company = _afavor_by_token(session_db, token)
+        if company is None:
+            abort(404)
+        parsed = _parse_semester_key((request.args.get("s") or "").strip())
+        if not parsed:
+            parsed = _afavor_due_semester()
+        ctx = _afavor_public_context(session_db, company, parsed[0], parsed[1])
+        return render_template("public_afavor_liquidation.html", token=token, ctx=ctx,
+                               editar=_truthy(request.args.get("datos")),
+                               ok_msg=(request.args.get("ok") or ""))
+    finally:
+        session_db.close()
+
+
+@app.post("/liquidaciones-royalties/<token>/datos", endpoint="public_afavor_update_data")
+def public_afavor_update_data(token):
+    """La compañía actualiza SUS datos (contacto y fiscales) desde su propia página."""
+    session_db = db()
+    try:
+        company = _afavor_by_token(session_db, token)
+        if company is None:
+            abort(404)
+        f = request.form
+        for campo, columna in (("legal_name", "legal_name"), ("tax_id", "tax_id"),
+                               ("contact_email", "contact_email"), ("contact_phone", "contact_phone"),
+                               ("address", "address")):
+            if campo in f:
+                valor = (f.get(campo) or "").strip()
+                setattr(company, columna, valor or None)
+        _apply_fiscal_address(company, _fiscal_form_values(f))
+        company.billing_updated_at = _now_madrid()
+        _promoter_sync_contact_rows(session_db, company)
+        session_db.commit()
+        return redirect(url_for("public_afavor_liquidation", token=token,
+                                s=(f.get("s") or None), ok="datos"))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[a favor] no se pudieron guardar los datos de la compañía")
+        flash("No se pudieron guardar los datos.", "danger")
+        return redirect(url_for("public_afavor_liquidation", token=token, s=(request.form.get("s") or None)))
+    finally:
+        session_db.close()
+
+
+@app.post("/liquidaciones-royalties/<token>/enviar", endpoint="public_afavor_submit")
+def public_afavor_submit(token):
+    """La compañía nos manda la liquidación de los temas que quiera: cada uno con SU documento y SU
+    importe. Lo que no traiga documento no se manda (no se puede dar por liquidado un tema sin su
+    liquidación)."""
+    session_db = db()
+    try:
+        company = _afavor_by_token(session_db, token)
+        if company is None:
+            abort(404)
+        parsed = _parse_semester_key((request.form.get("s") or "").strip()) or _afavor_due_semester()
+        sem_start, sem_end = _semester_range(*parsed)
+        rec = _afavor_liquidation_row(session_db, company.id, sem_start, sem_end, create=True)
+        filas = _afavor_material_rows(session_db, sem_start, sem_end, company_id=str(company.id))
+        _afavor_sync_items(session_db, rec, filas)
+        guardados = _afavor_items_map(session_db, rec)
+        quien = (request.form.get("submitted_by") or "").strip() or (_promoter_display_name(company) or (company.nick or ""))
+        enviados, avisos = 0, []
+        for row in filas:
+            clave = "%s:%s" % (row["kind"], row["item_id"])
+            it = guardados.get(clave)
+            if it is None:
+                continue
+            if (it.status or "PENDING").upper() in ("SUBMITTED", "APPROVED"):
+                continue                        # ya estaba enviado: no se toca
+            campo = "amount_%s" % str(it.id)
+            marcado = _truthy(request.form.get("send_%s" % str(it.id)))
+            fichero = request.files.get("doc_%s" % str(it.id))
+            importe = _parse_money_decimal(request.form.get(campo))
+            tiene_fichero = bool(fichero and getattr(fichero, "filename", ""))
+            if not marcado and not tiene_fichero and importe is None:
+                continue
+            if not tiene_fichero:
+                avisos.append("%s: falta el documento de la liquidación" % row["title"])
+                continue
+            try:
+                url = upload_file(fichero, "afavor", AFAVOR_DOC_EXTS)
+            except ValueError as exc:
+                avisos.append("%s: %s" % (row["title"], exc))
+                continue
+            if not url:
+                avisos.append("%s: no se pudo subir el documento" % row["title"])
+                continue
+            it.document_url = url
+            it.document_name = (getattr(fichero, "filename", "") or "")[:200]
+            # Si no escribe el importe, se intenta LEER del documento (es una ayuda, no una barrera).
+            if importe is None:
+                try:
+                    fichero.stream.seek(0)
+                    datos = fichero.stream.read()
+                except Exception:
+                    datos = b""
+                detectado = _afavor_detect_amount(datos, it.document_name)
+                it.detected_amount = detectado
+                importe = detectado
+            pct = it.our_pct if it.our_pct is not None else row["our_pct"]
+            it.amount_income = importe
+            it.our_amount = (_afavor_our_amount(importe, pct) if importe is not None else None)
+            it.status = "SUBMITTED"
+            it.submitted_at = _now_madrid()
+            it.submitted_by_name = quien[:120]
+            it.reject_note = None
+            it.updated_at = _now_madrid()
+            enviados += 1
+        if enviados:
+            rec.status = "RECEIVED"
+            rec.submitted_at = _now_madrid()
+            rec.submitted_by_name = quien[:120]
+            rec.submitted_by_photo = (company.logo_url or "")
+            rec.rejected_at = None
+            rec.reject_note = None
+            rec.updated_at = _now_madrid()
+            _afavor_history_add(rec, "SUBMITTED", by=quien, note="%d tema%s" % (enviados, "s" if enviados != 1 else ""))
+            session_db.commit()
+            _afavor_notify_submitted(session_db, rec, company, enviados)
+            session_db.commit()
+        else:
+            session_db.commit()
+        if avisos:
+            flash("No se pudo enviar todo: " + "; ".join(avisos[:4]), "warning")
+        return redirect(url_for("public_afavor_liquidation", token=token,
+                                s=_semester_key(*parsed), ok=("enviado" if enviados else "")))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[a favor] no se pudo recibir la liquidación")
+        flash("No se pudo enviar la liquidación. Inténtalo de nuevo.", "danger")
+        return redirect(url_for("public_afavor_liquidation", token=token))
+    finally:
+        session_db.close()
+
+
+def _afavor_notify_submitted(session_db, rec, company, cuantos: int) -> None:
+    """Aviso a quien es REGISTROS y SELLO a la vez: la compañía ha subido su liquidación.
+
+    Lleva la CARA de quien la ha subido (no es de la casa: su logo o su foto)."""
+    try:
+        nombre = _promoter_display_name(company) or (company.nick or "una compañía")
+        periodo = _afavor_semester_ordinal(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
+        url = url_for("afavor_review_view", liq_id=str(rec.id))
+        _notify_users(
+            session_db, _registros_sello_user_ids(session_db), "REGISTROS",
+            "%s ha subido una liquidación de royalties a favor" % nombre,
+            "%s · %d tema%s. Revisa los importes y valídalos." % (periodo, cuantos, "s" if cuantos != 1 else ""),
+            url, ref_type="AFAVOR_REVIEW", ref_id=str(rec.id),
+            actor_name=(rec.submitted_by_name or nombre),
+            actor_photo=(rec.submitted_by_photo or (company.logo_url or "")),
+            email={
+                "subject": "Liquidación de royalties a favor · %s" % nombre,
+                "title": "Liquidación de royalties a favor",
+                "intro": "%s ha subido su liquidación del %s." % (nombre, periodo),
+                "image_url": (company.logo_url or ""), "image_round": False,
+                "eyebrow": "Royalties a favor", "heading": nombre,
+                "facts": [("fa-calendar", "Periodo", periodo),
+                          ("fa-music", "Temas", str(cuantos))],
+                "button": {"label": "Revisar la liquidación", "url": _external_url_for("afavor_review_view", liq_id=str(rec.id))},
+            },
+        )
+    except Exception:
+        app.logger.exception("[a favor] no se pudo avisar de la liquidación recibida")
+
+
+# ---------------------------------------------------------------------------------------------
+# LA REVISIÓN (registros + sello): el documento a la izquierda, los importes a la derecha
+# ---------------------------------------------------------------------------------------------
+def _afavor_can_review() -> bool:
+    """Quien revisa una liquidación a favor: registros+sello, quien puede editar discográfica o
+    dirección."""
+    estado = _current_user_state() or {}
+    if int(estado.get("role") or 0) == 10:
+        return True
+    if _is_registros_sello(estado.get("profile")):
+        return True
+    return can_edit_discografica()
+
+
+@app.get("/discografica/royalties/afavor/<liq_id>/revisar", endpoint="afavor_review_view")
+@admin_required
+def afavor_review_view(liq_id):
+    """Revisar lo que ha subido la compañía: validar, rechazar o corregir los importes."""
+    if not _afavor_can_review():
+        return forbid("No tienes permisos para revisar las liquidaciones a favor.")
+    session_db = db()
+    try:
+        rec = session_db.get(AfavorLiquidation, to_uuid(liq_id) or uuid.uuid4())
+        if rec is None:
+            abort(404)
+        company = session_db.get(Promoter, rec.company_id)
+        if company is None:
+            abort(404)
+        sem_half = 1 if rec.period_start.month <= 6 else 2
+        filas = _afavor_company_rows(session_db, company, rec.period_start, rec.period_end, rec)
+        return render_template(
+            "afavor_review.html",
+            rec=rec, company=company,
+            company_name=(_promoter_display_name(company) or company.nick or ""),
+            rows=filas,
+            submitted=[r for r in filas if r["item_status"] == "SUBMITTED"],
+            reviewed=[r for r in filas if r["item_status"] in ("APPROVED", "REJECTED")],
+            status=_afavor_status_meta(rec.status),
+            status_tooltip=_afavor_status_tooltip(rec),
+            period_ordinal=_afavor_semester_ordinal(rec.period_start.year, sem_half),
+            semester_key=_semester_key(rec.period_start.year, sem_half),
+            timeline=_afavor_timeline(rec),
+            back_url=url_for("discografica_view", section="royalties", roy_tab="afavor",
+                             s=_semester_key(rec.period_start.year, sem_half)),
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/royalties/afavor/<liq_id>/revisar", endpoint="afavor_review_save")
+@admin_required
+def afavor_review_save(liq_id):
+    """Valida o rechaza los temas subidos (y corrige el importe si hace falta).
+
+    ⚠️ Al VALIDAR, el importe declarado pasa a ser el INGRESO del semestre de ese tema (que es lo
+    que alimenta las liquidaciones del artista) y se le pide la factura a contabilidad."""
+    if not _afavor_can_review():
+        return forbid("No tienes permisos para revisar las liquidaciones a favor.")
+    accion = (request.form.get("accion") or "").strip().lower()
+    session_db = db()
+    try:
+        rec = session_db.get(AfavorLiquidation, to_uuid(liq_id) or uuid.uuid4())
+        if rec is None:
+            abort(404)
+        nick = _email_to_nick(_current_user_email() or "")
+        items = {str(it.id): it for it in session_db.query(AfavorItem)
+                 .filter(AfavorItem.liquidation_id == rec.id).all()}
+        marcados = [x for x in request.form.getlist("item_ids") if x in items]
+        if not marcados:
+            marcados = [k for k, it in items.items() if (it.status or "").upper() == "SUBMITTED"]
+        aprobados, rechazados = 0, 0
+        for iid in marcados:
+            it = items[iid]
+            importe = _parse_money_decimal(request.form.get("amount_%s" % iid))
+            if importe is not None:
+                it.amount_income = importe
+                it.our_amount = _afavor_our_amount(importe, it.our_pct)
+            if accion == "rechazar":
+                it.status = "REJECTED"
+                it.reject_note = (request.form.get("note") or "").strip()[:400] or None
+                it.approved_at = None
+                it.approved_by_nick = None
+                rechazados += 1
+            else:
+                if it.amount_income is None:
+                    continue                     # no se valida un tema sin importe
+                it.status = "APPROVED"
+                it.approved_at = _now_madrid()
+                it.approved_by_nick = nick
+                it.reject_note = None
+                aprobados += 1
+                _afavor_apply_income(session_db, rec, it)
+            it.updated_at = _now_madrid()
+        if accion == "rechazar" and rechazados:
+            rec.status = "REQUESTED"
+            rec.rejected_at = _now_madrid()
+            rec.rejected_by_nick = nick
+            rec.reject_note = (request.form.get("note") or "").strip()[:400] or None
+            _afavor_history_add(rec, "REJECTED", note=rec.reject_note)
+            session_db.commit()
+            _afavor_notify_rejected(session_db, rec)
+            flash("Liquidación rechazada: se le ha pedido a la compañía que la corrija.", "warning")
+        elif aprobados:
+            rec.reviewed_at = _now_madrid()
+            rec.reviewed_by_nick = nick
+            rec.rejected_at = None
+            rec.reject_note = None
+            _afavor_history_add(rec, "APPROVED", total=format_eur(_afavor_recompute_total(session_db, rec)))
+            _afavor_request_invoice_apply(session_db, rec)
+            flash("Liquidación validada: la factura ya está pedida a contabilidad.", "success")
+        else:
+            flash("No se validó nada: a los temas les falta el importe.", "warning")
+        rec.updated_at = _now_madrid()
+        _notify_resolve(session_db, "AFAVOR_REVIEW", str(rec.id))
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[a favor] no se pudo revisar la liquidación")
+        flash("No se pudo guardar la revisión: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("afavor_review_view", liq_id=liq_id)))
+
+
+def _afavor_recompute_total(session_db, rec) -> Decimal:
+    """El total aprobado de la liquidación (lo que se factura): la suma de los temas VALIDADOS."""
+    total = Decimal("0")
+    try:
+        for it in session_db.query(AfavorItem).filter(AfavorItem.liquidation_id == rec.id).all():
+            if (it.status or "").upper() == "APPROVED" and it.our_amount is not None:
+                total += Decimal(str(it.our_amount))
+    except Exception:
+        app.logger.exception("[a favor] no se pudo recalcular el total de la liquidación")
+    rec.total_amount = total
+    return total
+
+
+def _afavor_apply_income(session_db, rec, it) -> None:
+    """El importe que declara la compañía ES el ingreso del semestre de ese tema.
+
+    ⚠️ Se escribe en la fila BASE de ingresos (`SongRevenueEntry`/`AlbumRevenueEntry` con
+    `period_type='SEMESTER'`), que es de donde lo leen las liquidaciones del artista: así no hay dos
+    verdades ni hay que teclear el mismo número dos veces."""
+    try:
+        bruto = Decimal(str(it.amount_income or 0))
+        base = (it.our_pct_base or "GROSS").upper()
+        if it.album_id:
+            modelo, col, mid = AlbumRevenueEntry, AlbumRevenueEntry.album_id, it.album_id
+        else:
+            modelo, col, mid = SongRevenueEntry, SongRevenueEntry.song_id, it.song_id
+        if not mid:
+            return
+        fila = (session_db.query(modelo)
+                .filter(col == mid)
+                .filter(func.upper(modelo.period_type) == "SEMESTER")
+                .filter(modelo.period_start == rec.period_start)
+                .filter(modelo.is_base.is_(True)).first())
+        if fila is None:
+            kwargs = {"period_type": "SEMESTER", "period_start": rec.period_start,
+                      "period_end": rec.period_end, "is_base": True,
+                      "gross": Decimal("0"), "net": Decimal("0")}
+            kwargs["album_id" if it.album_id else "song_id"] = mid
+            fila = modelo(**kwargs)
+            session_db.add(fila)
+        # El ingreso declarado va a la base sobre la que se calcula nuestro %.
+        if base == "NET":
+            fila.net = bruto
+            if not fila.gross:
+                fila.gross = bruto
+        else:
+            fila.gross = bruto
+            if not fila.net:
+                fila.net = bruto
+        fila.updated_at = _now_madrid()
+        session_db.flush()
+    except Exception:
+        app.logger.exception("[a favor] no se pudo guardar el ingreso del tema")
+
+
+def _afavor_notify_rejected(session_db, rec) -> None:
+    """Se le dice a la compañía que hay que corregirla (con su enlace, que sigue valiendo)."""
+    try:
+        company = session_db.get(Promoter, rec.company_id)
+        if company is None:
+            return
+        correos = _dedupe_valid_email_addresses([x for x in (rec.requested_to or [])]
+                                               + [_promoter_email_phone(company)[0]])
+        if not correos:
+            return
+        periodo = _afavor_semester_ordinal(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
+        enlace = _afavor_public_url(session_db, company)
+        cuerpo = _notice_email_html(
+            title="Liquidación de Royaltys pendiente de corregir",
+            intro="Hemos revisado la liquidación del %s y necesitamos que la corrijas." % periodo,
+            logo_url=(getattr(_afavor_pies_company(session_db), "logo_url", None) or ""),
+            image_url=(company.logo_url or ""), image_round=False,
+            eyebrow="Royalties a favor",
+            heading=(_promoter_display_name(company) or company.nick or ""),
+            facts=[("fa-calendar", "Periodo", periodo)],
+            note=(rec.reject_note or ""),
+            button=({"label": "Volver a enviarla", "url": enlace} if enlace else None),
+        )
+        _send_optional_email(correos, "Liquidación de Royaltys (%s) · pendiente de corregir" % periodo, cuerpo)
+    except Exception:
+        app.logger.exception("[a favor] no se pudo avisar del rechazo a la compañía")
+
+
+# ---------------------------------------------------------------------------------------------
+# LA FACTURA: se le pide a CONTABILIDAD de la empresa del grupo que corresponda
+# ---------------------------------------------------------------------------------------------
+def _afavor_invoice_concept(session_db, rec) -> str:
+    """El CONCEPTO de la factura: «Royaltys 1º semestre 2026 · <canción> (<artistas>)»."""
+    periodo = _afavor_semester_ordinal(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
+    trozos = []
+    try:
+        company = session_db.get(Promoter, rec.company_id)
+        filas = _afavor_company_rows(session_db, company, rec.period_start, rec.period_end, rec) if company else []
+        for r in filas:
+            if r["item_status"] != "APPROVED":
+                continue
+            quien = r["who_label"] or r["artist_name"]
+            trozos.append("%s%s" % (r["title"], (" (%s)" % quien) if quien else ""))
+    except Exception:
+        app.logger.exception("[a favor] no se pudo componer el concepto de la factura")
+    if not trozos:
+        return "Royaltys %s" % periodo
+    if len(trozos) > 6:
+        trozos = trozos[:6] + ["y %d más" % (len(trozos) - 6)]
+    return "Royaltys %s · %s" % (periodo, " · ".join(trozos))
+
+
+def _afavor_request_invoice_apply(session_db, rec) -> None:
+    """Pasa la liquidación a PENDIENTE DE FACTURAR y se lo dice a quien de CONTABILIDAD lleva esa
+    empresa del grupo (si nadie la lleva, a todo el departamento)."""
+    if rec is None:
+        return
+    brand = _afavor_billing_company(session_db, rec)
+    rec.billing_company_id = getattr(brand, "id", None)
+    total = _afavor_recompute_total(session_db, rec)
+    rec.status = "PENDING_INVOICE"
+    rec.invoice_requested_at = _now_madrid()
+    rec.invoice_requested_by_nick = _email_to_nick(_current_user_email() or "")
+    rec.invoice_send_error = None
+    rec.updated_at = _now_madrid()
+    _afavor_history_add(rec, "INVOICE_REQUESTED", total=format_eur(total))
+    try:
+        company = session_db.get(Promoter, rec.company_id)
+        nombre = (_promoter_display_name(company) or getattr(company, "nick", "") or "una compañía")
+        periodo = _afavor_semester_ordinal(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
+        url = url_for("administration_afavor_invoice", liq_id=str(rec.id))
+        _notify_users(
+            session_db, _accounting_company_user_ids(session_db, rec.billing_company_id),
+            "CONTABILIDAD",
+            "Factura de royalties a favor · %s" % nombre,
+            "%s · %s. Emite la factura y súbela." % (periodo, format_eur(total)),
+            url, ref_type="AFAVOR_INVOICE", ref_id=str(rec.id),
+            email={
+                "subject": "Emitir factura de royalties a favor · %s" % nombre,
+                "title": "Factura de royalties a favor",
+                "intro": "Hay que emitir la factura del %s a %s." % (periodo, nombre),
+                "logo_url": (getattr(brand, "logo_url", None) or ""),
+                "image_url": (getattr(company, "logo_url", None) or ""), "image_round": False,
+                "eyebrow": "Royalties a favor", "heading": nombre,
+                "facts": [("fa-calendar", "Periodo", periodo),
+                          ("fa-euro-sign", "Importe a facturar", format_eur(total)),
+                          ("fa-file-lines", "Concepto", _afavor_invoice_concept(session_db, rec))],
+                "button": {"label": "Emitir la factura", "url": _external_url_for("administration_afavor_invoice", liq_id=str(rec.id))},
+            },
+        )
+    except Exception:
+        app.logger.exception("[a favor] no se pudo avisar a contabilidad")
+
+
 def _afavor_admin_pending_rows(session_db) -> list:
-    """Liquidaciones a favor con FACTURA PEDIDA (tarea de administración: emitirla y enviarla)."""
-    rows = []
+    """Las liquidaciones a favor PENDIENTES DE FACTURAR (bandeja de administración)."""
+    out = []
     try:
         recs = (session_db.query(AfavorLiquidation)
                 .options(joinedload(AfavorLiquidation.company))
                 .filter(AfavorLiquidation.status == "PENDING_INVOICE")
-                .order_by(AfavorLiquidation.invoice_requested_at.desc()).all())
+                .order_by(AfavorLiquidation.invoice_requested_at.desc().nullslast()).all())
+        for rec in recs:
+            company = rec.company
+            out.append({
+                "rec": rec, "company": company,
+                "name": (_promoter_display_name(company) or getattr(company, "nick", "") or ""),
+                "logo_url": (getattr(company, "logo_url", None) or ""),
+                "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
+                "period_ordinal": _afavor_semester_ordinal(rec.period_start.year,
+                                                           1 if rec.period_start.month <= 6 else 2),
+                "total": rec.total_amount,
+                "url": url_for("administration_afavor_invoice", liq_id=rec.id),
+            })
     except Exception:
-        return rows
-    for rec in recs:
-        rows.append({
-            "rec": rec,
-            "company": rec.company,
-            "name": (rec.company.nick if rec.company else "Compañía"),
-            "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
-            "url": url_for("administration_afavor_invoice", liq_id=rec.id),
-        })
-    return rows
+        app.logger.exception("[a favor] no se pudo leer la bandeja de facturación")
+        return []
+    return out
+
+
+def _afavor_admin_collect_rows(session_db) -> list:
+    """Las liquidaciones a favor con la FACTURA YA ENVIADA: pendientes de cobro."""
+    out = []
+    try:
+        recs = (session_db.query(AfavorLiquidation)
+                .options(joinedload(AfavorLiquidation.company))
+                .filter(AfavorLiquidation.status.in_(["INVOICE_SENT", "INVOICED", "INVOICE_ISSUED"]))
+                .order_by(AfavorLiquidation.invoice_sent_at.desc().nullslast()).all())
+        for rec in recs:
+            company = rec.company
+            estado = _afavor_status_meta(rec.status)
+            out.append({
+                "rec": rec, "company": company,
+                "name": (_promoter_display_name(company) or getattr(company, "nick", "") or ""),
+                "logo_url": (getattr(company, "logo_url", None) or ""),
+                "period_ordinal": _afavor_semester_ordinal(rec.period_start.year,
+                                                           1 if rec.period_start.month <= 6 else 2),
+                "total": rec.total_amount,
+                "status": estado,
+                "status_tooltip": _afavor_status_tooltip(rec),
+                "invoice_url": (rec.invoice_url or ""),
+                "invoice_number": (rec.invoice_number or ""),
+                "url": url_for("administration_afavor_invoice", liq_id=rec.id),
+            })
+    except Exception:
+        app.logger.exception("[a favor] no se pudo leer lo pendiente de cobro")
+        return []
+    return out
 
 
 def _afavor_liquidation_songs(session_db, rec) -> list:
-    """Canciones (con sus datos) de la liquidación a favor de esa compañía y semestre."""
-    payload = _build_afavor_groups(session_db, rec.period_start)
-    out = []
-    for g in payload.get("groups") or []:
-        for block in g.get("companies") or []:
-            if str(block.get("company_id")) == str(rec.company_id):
-                out.extend(block.get("songs") or [])
-    return out
+    """Los temas de esa liquidación (con su estado y sus importes)."""
+    company = session_db.get(Promoter, rec.company_id) if rec is not None else None
+    if company is None:
+        return []
+    return _afavor_company_rows(session_db, company, rec.period_start, rec.period_end, rec)
 
 
 @app.get('/administracion/royalties-afavor/<liq_id>', endpoint='administration_afavor_invoice')
 @admin_required
 def administration_afavor_invoice(liq_id):
-    """Emitir la factura de una liquidación A FAVOR: la liquidación a la izquierda y, a la derecha,
-    los datos de facturación (la empresa del grupo que factura es siempre PIES) y la subida."""
+    """Emitir la factura de una liquidación a favor: el importe, los datos y el concepto."""
     session_db = db()
     try:
         rec = session_db.get(AfavorLiquidation, to_uuid(liq_id) or uuid.uuid4())
         if not rec:
             abort(404)
         company = session_db.get(Promoter, rec.company_id)
-        billing_company = _afavor_pies_company(session_db)
-        emails = _bag_provider_email_suggestions(
-            session_db, SimpleNamespace(provider=company, provider_id=rec.company_id)) if company else []
+        billing_company = _afavor_billing_company(session_db, rec)
+        sem_half = 1 if rec.period_start.month <= 6 else 2
+        filas = _afavor_liquidation_songs(session_db, rec)
         return render_template(
             "administration_afavor_invoice.html",
             rec=rec, company=company, billing_company=billing_company,
-            songs=_afavor_liquidation_songs(session_db, rec),
+            company_name=(_promoter_display_name(company) or getattr(company, "nick", "") or ""),
+            songs=filas,
+            approved=[r for r in filas if r["item_status"] == "APPROVED"],
+            total=_afavor_recompute_total(session_db, rec),
+            concept=_afavor_invoice_concept(session_db, rec),
             period_label=_royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
+            period_ordinal=_afavor_semester_ordinal(rec.period_start.year, sem_half),
             status=_afavor_status_meta(rec.status),
-            recipients=emails,
+            status_tooltip=_afavor_status_tooltip(rec),
+            timeline=_afavor_timeline(rec),
+            recipients=_notify_apply_prefs(session_db, _afavor_company_recipients(session_db, company)),
+            notify_channels=NOTIFY_CHANNELS,
+            notify_channel_labels=NOTIFY_CHANNEL_LABELS,
+            notify_channel_icons=NOTIFY_CHANNEL_ICONS,
+            fiscal_text=_fiscal_address_text(company),
+            billing_name=_billing_name(company),
         )
     finally:
         session_db.close()
 
 
+def _afavor_invoice_email_html(session_db, rec, company, *, note: str = "") -> str:
+    """El correo con el que se le manda la factura a la compañía."""
+    brand = _afavor_billing_company(session_db, rec)
+    periodo = _afavor_semester_ordinal(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
+    hechos = [("fa-calendar", "Periodo", periodo)]
+    if rec.invoice_number:
+        hechos.append(("fa-hashtag", "Nº de factura", rec.invoice_number))
+    if rec.total_amount is not None:
+        hechos.append(("fa-euro-sign", "Importe", format_eur(rec.total_amount)))
+    return _notice_email_html(
+        title="Factura de Royaltys",
+        intro="Te adjuntamos la factura de los royalties del %s." % periodo,
+        logo_url=(getattr(brand, "logo_url", None) or ""),
+        image_url=(getattr(company, "logo_url", None) or ""), image_round=False,
+        eyebrow="Royalties a favor",
+        heading=(_promoter_display_name(company) or getattr(company, "nick", "") or ""),
+        facts=hechos, note=note,
+        button=({"label": "Ver la factura", "url": rec.invoice_url} if (rec.invoice_url or "") else None),
+    )
+
+
+def _afavor_invoice_send(session_db, rec, company, correos: list, *, note: str = "") -> tuple[bool, str]:
+    """Manda la factura y deja constancia. Devuelve (ok, error)."""
+    if not correos:
+        return False, "no hay correo al que mandarla"
+    periodo = _afavor_semester_ordinal(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
+    ok, err = _send_optional_email(correos, "Factura de Royaltys (%s)" % periodo,
+                                   _afavor_invoice_email_html(session_db, rec, company, note=note))
+    if ok:
+        rec.status = "INVOICE_SENT"
+        rec.invoice_sent_at = _now_madrid()
+        rec.invoice_sent_to = correos[:6]
+        rec.invoice_send_error = None
+        _afavor_history_add(rec, "INVOICE_SENT", to=correos[:6])
+        _afavor_notify_pending_collect(session_db, rec, company)
+    else:
+        rec.status = "INVOICE_ISSUED"
+        rec.invoice_send_error = (err or "error al enviar")[:300]
+    rec.updated_at = _now_madrid()
+    return ok, (err or "")
+
+
 @app.post('/administracion/royalties-afavor/<liq_id>/factura', endpoint='administration_afavor_invoice_upload')
 @admin_required
 def administration_afavor_invoice_upload(liq_id):
-    """Sube la factura emitida (arrastrada o elegida). No la envía todavía."""
+    """Sube la factura y, en cuanto está, SE LA MANDA a la compañía.
+
+    ⚠️ Si el correo no sale, la liquidación queda como «Factura emitida» (no «enviada») y se le dice
+    a quien lleva el sello para que la mande a mano: no se puede dar por enviado lo que no salió."""
     session_db = db()
     try:
         rec = session_db.get(AfavorLiquidation, to_uuid(liq_id) or uuid.uuid4())
         if not rec:
             abort(404)
         f = request.files.get("file")
-        if not f or not f.filename:
-            flash("Falta el archivo de la factura.", "warning")
+        if not f or not getattr(f, "filename", ""):
+            flash("Sube el documento de la factura.", "warning")
             return redirect(url_for("administration_afavor_invoice", liq_id=liq_id))
-        filename = (f.filename or "factura").strip()
-        is_pdf = filename.lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
-        url = upload_pdf(f, "invoices") if is_pdf else upload_file(f, "invoices")
+        nombre = (f.filename or "").lower()
+        try:
+            url = upload_pdf(f, "invoices") if nombre.endswith(".pdf") else upload_file(f, "invoices")
+        except ValueError as exc:
+            flash("No se pudo subir la factura: %s" % exc, "danger")
+            return redirect(url_for("administration_afavor_invoice", liq_id=liq_id))
         if not url:
-            flash("No se pudo guardar la factura.", "danger")
+            flash("No se pudo subir la factura.", "danger")
             return redirect(url_for("administration_afavor_invoice", liq_id=liq_id))
         rec.invoice_url = url
-        rec.invoice_name = filename[:200]
-        rec.invoice_number = (request.form.get("invoice_number") or "").strip() or rec.invoice_number
-        amount = (request.form.get("invoice_amount") or "").strip()
-        if amount:
-            rec.invoice_amount = _money_or_zero(amount)
-        rec.updated_at = _now_madrid()
+        rec.invoice_name = (f.filename or "")[:200]
+        numero = (request.form.get("invoice_number") or "").strip()
+        if numero:
+            rec.invoice_number = numero[:80]
+        importe = _parse_money_decimal(request.form.get("invoice_amount"))
+        if importe is not None:
+            rec.invoice_amount = importe
+        rec.invoice_issued_at = _now_madrid()
+        rec.invoice_issued_by_nick = _email_to_nick(_current_user_email() or "")
+        rec.status = "INVOICE_ISSUED"
+        _afavor_history_add(rec, "INVOICE_ISSUED", file_url=url, note=(numero or None))
+        company = session_db.get(Promoter, rec.company_id)
+        correos = _dedupe_valid_email_addresses(
+            [r.get("email") for r in _afavor_company_recipients(session_db, company) if r.get("email")])
+        ok, err = _afavor_invoice_send(session_db, rec, company, correos,
+                                       note=(request.form.get("note") or "").strip())
+        _notify_resolve(session_db, "AFAVOR_INVOICE", str(rec.id))
         session_db.commit()
-        flash("Factura subida. Revísala y pulsa «Enviar factura».", "success")
+        if ok:
+            flash("Factura subida y enviada a %s." % ", ".join(correos[:3]), "success")
+        else:
+            _afavor_notify_invoice_not_sent(session_db, rec, company, err)
+            session_db.commit()
+            flash("Factura subida, pero NO se pudo enviar: %s. Queda como «Factura emitida»." % (err or "error"),
+                  "warning")
         return redirect(url_for("administration_afavor_invoice", liq_id=liq_id))
     except Exception as exc:
         session_db.rollback()
-        flash(f"No se pudo subir la factura: {exc}", "danger")
+        app.logger.exception("[a favor] no se pudo subir la factura")
+        flash("No se pudo subir la factura: %s" % exc, "danger")
         return redirect(url_for("administration_afavor_invoice", liq_id=liq_id))
     finally:
         session_db.close()
 
 
+def _afavor_notify_invoice_not_sent(session_db, rec, company, err: str) -> None:
+    """Si la factura no se pudo mandar, quien lleva el sello tiene que poder mandarla a mano."""
+    try:
+        nombre = (_promoter_display_name(company) or getattr(company, "nick", "") or "la compañía")
+        _notify_users(
+            session_db, _registros_sello_user_ids(session_db), "REGISTROS",
+            "La factura de %s está emitida pero no se ha enviado" % nombre,
+            "No se pudo mandar por correo (%s). Mándala y márcala como enviada." % (err or "error"),
+            url_for("discografica_view", section="royalties", roy_tab="afavor",
+                    s=_semester_key(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)),
+            ref_type="AFAVOR_INVOICE_SEND", ref_id=str(rec.id))
+    except Exception:
+        app.logger.exception("[a favor] no se pudo avisar de la factura sin enviar")
+
+
+def _afavor_notify_pending_collect(session_db, rec, company) -> None:
+    """Con la factura enviada, la liquidación pasa a estar PENDIENTE DE COBRO para administración."""
+    try:
+        nombre = (_promoter_display_name(company) or getattr(company, "nick", "") or "la compañía")
+        periodo = _afavor_semester_ordinal(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
+        _notify_users(
+            session_db, _admin_responsible_user_ids(session_db, "COBROS") or _department_user_ids(session_db, "Administración"),
+            "ADMIN_PETICION",
+            "Royalties a favor pendientes de cobro · %s" % nombre,
+            "%s · %s. Márcalo cuando se haya cobrado." % (periodo, format_eur(rec.total_amount or 0)),
+            url_for("administracion_view", tab="pendiente", subtab="facturacion"),
+            ref_type="AFAVOR_COLLECT", ref_id=str(rec.id))
+    except Exception:
+        app.logger.exception("[a favor] no se pudo avisar de lo pendiente de cobro")
+
+
 @app.post('/administracion/royalties-afavor/<liq_id>/enviar', endpoint='administration_afavor_invoice_send')
 @admin_required
 def administration_afavor_invoice_send(liq_id):
-    """Envía la factura a la persona de la compañía: la liquidación pasa a FACTURADO y la factura
-    queda pendiente de cobro."""
+    """Manda (o vuelve a mandar) la factura a la compañía."""
     session_db = db()
     try:
         rec = session_db.get(AfavorLiquidation, to_uuid(liq_id) or uuid.uuid4())
         if not rec:
             abort(404)
         if not (rec.invoice_url or "").strip():
-            flash("Sube primero la factura.", "warning")
+            flash("Primero sube la factura.", "warning")
             return redirect(url_for("administration_afavor_invoice", liq_id=liq_id))
         company = session_db.get(Promoter, rec.company_id)
-        recipients = [e for e in (request.form.getlist("recipients") or []) if _looks_like_email_address(e)]
-        extra = (request.form.get("extra_emails") or "").strip()
-        if extra:
-            recipients += [x.strip() for x in re.split(r"[;,\n]+", extra) if _looks_like_email_address(x.strip())]
-        if not recipients and company is not None:
-            recipients = [e["email"] for e in _bag_provider_email_suggestions(
-                session_db, SimpleNamespace(provider=company, provider_id=rec.company_id))][:2]
-        recipients = _dedupe_valid_email_addresses(recipients)
-        if not recipients:
-            flash("No hay ningún correo válido al que enviar la factura.", "warning")
-            return redirect(url_for("administration_afavor_invoice", liq_id=liq_id))
-        pies = _afavor_pies_company(session_db)
-        pies_logo = (getattr(pies, "logo_url", None) or _external_url_for("static", filename="img/logo.png"))
-        period_label = _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end)
-        body = f"""
-        <div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;">
-          <div style="text-align:right;margin-bottom:6px;"><img src="{escape(pies_logo)}" alt="PIES" style="max-height:48px;max-width:180px;object-fit:contain;"></div>
-          <h2 style="text-align:center;font-size:20px;color:#111;margin:0 0 16px;">Factura de royalties</h2>
-          <div style="border:1px solid #e5e7eb;border-radius:14px;padding:14px 16px;background:#f9fafb;margin:0 0 14px;">
-            <div style="font-size:16px;font-weight:700;color:#111;">{escape(getattr(company, 'nick', '') or 'Compañía')}</div>
-            <div style="font-size:13px;color:#6b7280;margin-top:2px;">Periodo: {escape(period_label)}</div>
-          </div>
-          <p style="font-size:14px;color:#374151;margin:0 0 14px;">Adjuntamos la factura correspondiente a la liquidación de royalties del periodo indicado.</p>
-          <p style="text-align:center;margin:18px 0;">
-            <a href="{escape(rec.invoice_url)}" style="background:#E33D48;color:#fff;text-decoration:none;padding:12px 26px;border-radius:8px;font-weight:600;display:inline-block;">Ver / descargar la factura</a>
-          </p>
-          <p style="font-size:13px;color:#6b7280;margin:0;">Cualquier duda, responda a este correo.</p>
-        </div>
-        """
-        ok, err = _send_optional_email(recipients, f"Factura de royalties · {period_label}", body)
-        if not ok:
-            flash(f"No se pudo enviar la factura: {err or 'error'}", "danger")
-            return redirect(url_for("administration_afavor_invoice", liq_id=liq_id))
-        rec.status = "INVOICED"
-        rec.invoice_sent_at = _now_madrid()
-        rec.invoice_sent_to = recipients
-        rec.updated_at = _now_madrid()
+        configurados = _afavor_company_recipients(session_db, company)
+        marcados = {str(x).strip().lower() for x in request.form.getlist("recipients") if str(x or "").strip()}
+        extras = [x.strip() for x in re.split(r"[;,\n]+", (request.form.get("extra_emails") or "")) if x.strip()]
+        conocidos = {str(r.get("key") or "").lower() for r in configurados}
+        correos = _dedupe_valid_email_addresses(
+            [r.get("email") for r in configurados
+             if r.get("email") and (not marcados or str(r.get("key") or "").lower() in marcados)]
+            + extras + [x for x in marcados if x not in conocidos and "@" in x])
+        ok, err = _afavor_invoice_send(session_db, rec, company, correos,
+                                       note=(request.form.get("note") or "").strip())
         session_db.commit()
-        flash(f"Factura enviada a {', '.join(recipients)}. Queda pendiente de cobro.", "success")
-        return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="facturacion")))
-    except Exception as exc:
-        session_db.rollback()
-        flash(f"No se pudo enviar la factura: {exc}", "danger")
+        flash(("Factura enviada a %s." % ", ".join(correos[:3])) if ok
+              else ("No se pudo enviar: %s" % (err or "error")), "success" if ok else "danger")
         return redirect(url_for("administration_afavor_invoice", liq_id=liq_id))
     finally:
         session_db.close()
 
 
+@app.post('/discografica/royalties/afavor/<liq_id>/marcar-enviada', endpoint='afavor_invoice_mark_sent')
+@admin_required
+def afavor_invoice_mark_sent(liq_id):
+    """La factura se mandó por otro camino: se marca a mano como enviada (solo cuando no se pudo
+    mandar desde aquí). Lo hace quien lleva el sello."""
+    if not _afavor_can_review():
+        return forbid("No tienes permisos para marcar la factura como enviada.")
+    session_db = db()
+    try:
+        rec = session_db.get(AfavorLiquidation, to_uuid(liq_id) or uuid.uuid4())
+        if not rec:
+            abort(404)
+        if not (rec.invoice_url or "").strip():
+            flash("Todavía no hay factura.", "warning")
+            return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor")))
+        rec.status = "INVOICE_SENT"
+        rec.invoice_sent_at = _now_madrid()
+        rec.invoice_send_error = None
+        rec.updated_at = _now_madrid()
+        _afavor_history_add(rec, "INVOICE_SENT", note="marcada a mano")
+        company = session_db.get(Promoter, rec.company_id)
+        _afavor_notify_pending_collect(session_db, rec, company)
+        _notify_resolve(session_db, "AFAVOR_INVOICE_SEND", str(rec.id))
+        session_db.commit()
+        flash("Factura marcada como enviada: queda pendiente de cobro.", "success")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor")))
+
+
 @app.get('/discografica/royalties/afavor/<liq_id>/pdf', endpoint='afavor_liquidation_pdf')
 @admin_required
 def afavor_liquidation_pdf(liq_id):
-    """PDF de la liquidación A FAVOR: logo de PIES arriba a la derecha, título centrado, cabecera de
-    la compañía, etiqueta del periodo y el listado de canciones (sin importes: van en Ingresos)."""
+    """PDF de la liquidación A FAVOR: logo de la empresa que factura arriba a la derecha, título
+    centrado, cabecera de la compañía y el listado de temas con su % y lo que nos corresponde."""
     if not REPORTLAB_AVAILABLE:
         abort(503)
     session_db = db()
@@ -68331,9 +69983,10 @@ def afavor_liquidation_pdf(liq_id):
         if not rec:
             abort(404)
         company = session_db.get(Promoter, rec.company_id)
-        songs = _afavor_liquidation_songs(session_db, rec)
+        filas = _afavor_liquidation_songs(session_db, rec)
+        brand = _afavor_billing_company(session_db, rec)
+        nombre_comp = _promoter_display_name(company) or getattr(company, 'nick', '') or 'compania'
         period_label = _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end)
-        pies = _afavor_pies_company(session_db)
         buf = BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=24, bottomMargin=24)
         styles = getSampleStyleSheet()
@@ -68341,16 +69994,16 @@ def afavor_liquidation_pdf(liq_id):
         h_style = ParagraphStyle('AfH', parent=styles['Normal'], fontSize=11, leading=13, fontName='Helvetica-Bold')
         s_style = ParagraphStyle('AfS', parent=styles['Normal'], fontSize=8, leading=10)
         story = []
-        logo = _fetch_image_reader(getattr(pies, 'logo_url', None) or '')
-        logo_cell = RLImage(logo, width=110, height=40, kind='proportional') if logo else ''
-        lr = Table([['', logo_cell]], colWidths=[411, 120])
+        logo = _fetch_image_reader(getattr(brand, 'logo_url', None) or '')
+        lr = Table([['', RLImage(logo, width=110, height=40, kind='proportional') if logo else '']],
+                   colWidths=[411, 120])
         lr.setStyle(TableStyle([('ALIGN', (1, 0), (1, 0), 'RIGHT')]))
         story.append(lr)
-        story.append(Paragraph('Liquidación de Royalties · a favor', t_style))
+        story.append(Paragraph('Liquidación de Royaltys · a favor', t_style))
         story.append(Spacer(1, 6))
         clogo = _fetch_image_reader(getattr(company, 'logo_url', None) or '')
         head = Table([[RLImage(clogo, width=46, height=46, kind='proportional') if clogo else '',
-                       Paragraph(getattr(company, 'nick', '') or 'Compañía', h_style)]], colWidths=[56, 475])
+                       Paragraph(escape(nombre_comp), h_style)]], colWidths=[56, 475])
         head.setStyle(TableStyle([
             ('BOX', (0, 0), (-1, -1), 0.7, colors.HexColor('#e5e7eb')),
             ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f9fafb')),
@@ -68362,32 +70015,35 @@ def afavor_liquidation_pdf(liq_id):
         story.append(Spacer(1, 8))
         story.append(Paragraph(f"Periodo de liquidación: <b>{escape(period_label)}</b>", s_style))
         story.append(Spacer(1, 8))
-        data = [[Paragraph(x, s_style) for x in ['Canción', 'Artista y colaboradores', 'Publicación', 'ISRC', 'A favor']]]
-        for it in songs:
-            who = it.get('artist_name') or ''
-            if it.get('collaborators'):
-                who += f" · {it['collaborators']}"
+        cab = ['Tema', 'Artista e intérpretes', 'Publicación', 'Código', 'Ingreso', 'A favor', 'Importe']
+        data = [[Paragraph(x, s_style) for x in cab]]
+        for it in filas:
             data.append([
                 Paragraph(escape(it.get('title') or ''), s_style),
-                Paragraph(escape(who), s_style),
+                Paragraph(escape(it.get('who_label') or '—'), s_style),
                 Paragraph(it.get('release_date') or '—', s_style),
-                Paragraph(it.get('isrc') or '—', s_style),
-                Paragraph(f"{it.get('our_pct')}% {it.get('base_label') or ''}", s_style),
+                Paragraph(escape(it.get('code') or '—'), s_style),
+                Paragraph((format_eur(it['amount_income']) if it.get('amount_income') is not None else '—'), s_style),
+                Paragraph(f"{it.get('pct_effective_label') or '0'}%", s_style),
+                Paragraph((format_eur(it['item_our_amount']) if it.get('item_our_amount') is not None else '—'), s_style),
             ])
-        tbl = Table(data, colWidths=[150, 175, 70, 80, 56], repeatRows=1)
+        if rec.total_amount is not None:
+            data.append(['', '', '', '', '', Paragraph('<b>TOTAL</b>', s_style),
+                         Paragraph('<b>%s</b>' % format_eur(rec.total_amount), s_style)])
+        tbl = Table(data, colWidths=[118, 132, 58, 78, 62, 42, 62], repeatRows=1)
         tbl.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E33D48')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#e5e7eb')),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fb')]),
         ]))
         story.append(tbl)
         doc.build(story)
         buf.seek(0)
-        name = (getattr(company, 'nick', '') or 'compania').replace(' ', '_')
-        return send_file(buf, mimetype='application/pdf', as_attachment=True,
-                         download_name=f"liquidacion_afavor_{name}.pdf")
+        return _pdf_al_vuelo_response(buf.read(),
+                                      _safe_download_filename("Liquidacion a favor_%s.pdf" % nombre_comp))
     finally:
         session_db.close()
 
@@ -68395,20 +70051,28 @@ def afavor_liquidation_pdf(liq_id):
 @app.post('/discografica/royalties/afavor/<liq_id>/cobrado', endpoint='afavor_mark_collected')
 @admin_required
 def afavor_mark_collected(liq_id):
-    """Marca la liquidación a favor como COBRADA."""
+    """Se ha COBRADO: con esto el tema entra ya en la liquidación de royalties del artista."""
     session_db = db()
     try:
         rec = session_db.get(AfavorLiquidation, to_uuid(liq_id) or uuid.uuid4())
-        if rec:
+        if not rec:
+            abort(404)
+        if _truthy(request.form.get("undo")):
+            rec.status = ("INVOICE_SENT" if (rec.invoice_sent_at or rec.invoice_url) else "PENDING_INVOICE")
+            rec.collected_at = None
+            rec.collected_by_nick = None
+            _afavor_history_add(rec, "REOPENED", note="vuelve a estar pendiente de cobro")
+            flash("Vuelve a estar pendiente de cobro.", "info")
+        else:
             rec.status = "COLLECTED"
             rec.collected_at = _now_madrid()
-            rec.updated_at = _now_madrid()
-            session_db.commit()
-            flash("Liquidación marcada como cobrada.", "success")
+            rec.collected_by_nick = _email_to_nick(_current_user_email() or "")
+            _afavor_history_add(rec, "COLLECTED", total=format_eur(rec.total_amount or 0))
+            _notify_resolve(session_db, "AFAVOR_COLLECT", str(rec.id))
+            flash("Cobrado: estos temas ya entran en la liquidación del artista.", "success")
+        rec.updated_at = _now_madrid()
+        session_db.commit()
         return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor")))
-    except Exception:
-        session_db.rollback()
-        raise
     finally:
         session_db.close()
 
@@ -68424,22 +70088,276 @@ def afavor_invoice_resend(liq_id):
             flash("No hay factura que reenviar.", "warning")
             return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor")))
         company = session_db.get(Promoter, rec.company_id)
-        recipients = _dedupe_valid_email_addresses(list(rec.invoice_sent_to or []) or [
-            e["email"] for e in _bag_provider_email_suggestions(
-                session_db, SimpleNamespace(provider=company, provider_id=rec.company_id))][:2])
-        if not recipients:
+        correos = _dedupe_valid_email_addresses(
+            list(rec.invoice_sent_to or [])
+            or [r.get("email") for r in _afavor_company_recipients(session_db, company) if r.get("email")])
+        if not correos:
             flash("No hay correo al que reenviarla.", "warning")
             return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor")))
-        period_label = _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end)
-        ok, err = _send_optional_email(
-            recipients, f"Factura de royalties · {period_label}",
-            f"<p>Le reenviamos la factura de royalties del periodo {escape(period_label)}.</p>"
-            f"<p><a href='{escape(rec.invoice_url)}'>Ver / descargar la factura</a></p>")
-        flash(f"Factura reenviada a {', '.join(recipients)}." if ok else f"No se pudo reenviar: {err}",
+        ok, err = _afavor_invoice_send(session_db, rec, company, correos)
+        session_db.commit()
+        flash(("Factura reenviada a %s." % ", ".join(correos[:3])) if ok else ("No se pudo reenviar: %s" % err),
               "success" if ok else "danger")
         return redirect(safe_next_or(url_for("discografica_view", section="royalties", roy_tab="afavor")))
     finally:
         session_db.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# A FAVOR · SUBIR LIQUIDACIONES EN BLOQUE
+# Se arrastran (o se eligen) los documentos que nos han mandado las compañías, el sistema los LEE,
+# enseña las COINCIDENCIAS con nuestro catálogo y, al aceptarlas, actualiza los ingresos de esos
+# temas y los deja pendientes de revisar.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+def _afavor_catalog_index(session_db, sem_end: date) -> dict:
+    """Índices para casar una línea de una liquidación con NUESTRO catálogo a favor.
+
+    Devuelve códigos → material y título normalizado → material, solo de lo que es colaboración
+    externa y ya estaba publicado. Todo en tres consultas."""
+    songs = (session_db.query(Song).options(selectinload(Song.artists))
+             .filter(Song.is_external_collab.is_(True))
+             .filter(Song.release_date <= sem_end).all())
+    albums = (session_db.query(Album).options(joinedload(Album.artist))
+              .filter(Album.is_external_collab.is_(True))
+              .filter(Album.release_date <= sem_end).all())
+    por_codigo, por_titulo = {}, {}
+
+    def _apunta(mapa, clave, valor):
+        if not clave:
+            return
+        if clave in mapa and mapa[clave] != valor:
+            mapa[clave] = "AMBIGUO"      # dos materiales con el mismo código/título: no se adivina
+        else:
+            mapa.setdefault(clave, valor)
+
+    for s_row in songs:
+        ref = ("SONG", str(s_row.id))
+        _apunta(por_codigo, _norm_isrc(getattr(s_row, "isrc", None)), ref)
+        _apunta(por_titulo, _norm_text_key(s_row.title or ""), ref)
+    for a_row in albums:
+        ref = ("ALBUM", str(a_row.id))
+        _apunta(por_codigo, _norm_product_code(getattr(a_row, "upc_code", None)), ref)
+        _apunta(por_titulo, _norm_text_key(a_row.title or ""), ref)
+    if songs:
+        for song_id, code in (session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+                              .filter(SongISRCCode.song_id.in_([s.id for s in songs])).all()):
+            _apunta(por_codigo, _norm_isrc(code), ("SONG", str(song_id)))
+    if albums:
+        for album_id, code in (session_db.query(AlbumProductCode.album_id, AlbumProductCode.code)
+                               .filter(AlbumProductCode.album_id.in_([a.id for a in albums])).all()):
+            _apunta(por_codigo, _norm_product_code(code), ("ALBUM", str(album_id)))
+    return {"by_code": por_codigo, "by_title": por_titulo,
+            "songs": {str(s.id): s for s in songs}, "albums": {str(a.id): a for a in albums}}
+
+
+def _afavor_statement_match(session_db, lineas: list, sem_start: date, sem_end: date) -> dict:
+    """Casa las líneas leídas de una liquidación con nuestro catálogo.
+
+    ⚠️ Las líneas del MISMO tema se SUMAN (una liquidación trae una fila por plataforma o por país).
+    Lo que no casa NO se calla: se devuelve en `unmatched` con el motivo."""
+    idx = _afavor_catalog_index(session_db, sem_end)
+    casadas, sin_casar = {}, []
+    for fila in (lineas or []):
+        importe = fila.get("amount")
+        if importe is None:
+            sin_casar.append({**fila, "reason": "sin importe"})
+            continue
+        ref = None
+        clave = norm_code_afavor(fila.get("code"))
+        if clave:
+            ref = idx["by_code"].get(_norm_isrc(clave)) or idx["by_code"].get(_norm_product_code(clave))
+        if ref is None and (fila.get("title") or "").strip():
+            ref = idx["by_title"].get(_norm_text_key(fila["title"]))
+        if ref == "AMBIGUO":
+            sin_casar.append({**fila, "reason": "hay más de un tema con ese código o título"})
+            continue
+        if ref is None:
+            sin_casar.append({**fila, "reason": "no está en el repertorio a favor"})
+            continue
+        kind, mid = ref
+        acumulada = casadas.get(ref)
+        if acumulada is None:
+            material = idx["songs" if kind == "SONG" else "albums"].get(mid)
+            artist = (material.artists[0] if kind == "SONG" and getattr(material, "artists", None)
+                      else getattr(material, "artist", None))
+            company_id = str(getattr(material, "external_company_id", "") or "")
+            company = session_db.get(Promoter, to_uuid(company_id)) if company_id else None
+            acumulada = {
+                "kind": kind, "item_id": mid,
+                "title": (getattr(material, "title", "") or ""),
+                "kind_label": ("Disco" if kind == "ALBUM" else "Canción"),
+                "cover_url": (getattr(material, "cover_url", None) or ""),
+                "artist_name": ((getattr(artist, "name", "") or "") if artist is not None else ""),
+                "company_id": company_id,
+                "company": (_promoter_display_name(company) if company is not None else ""),
+                "company_logo": ((company.logo_url or "") if company is not None else ""),
+                "our_pct": Decimal(str(getattr(material, "our_pct", 0) or 0)),
+                "base": (getattr(material, "our_pct_base", None) or "GROSS").upper(),
+                "amount": Decimal("0"), "lines": 0,
+            }
+            casadas[ref] = acumulada
+        acumulada["amount"] += Decimal(str(importe))
+        acumulada["lines"] += 1
+    salida = []
+    for fila in casadas.values():
+        fila["our_amount"] = _afavor_our_amount(fila["amount"], fila["our_pct"])
+        fila["our_pct_label"] = _fmt_pct_es(fila["our_pct"])
+        fila["amount_label"] = format_eur(fila["amount"])
+        fila["our_amount_label"] = format_eur(fila["our_amount"])
+        salida.append(fila)
+    salida.sort(key=lambda x: ((x["company"] or "").lower(), (x["title"] or "").lower()))
+    return {"matched": salida, "unmatched": sin_casar}
+
+
+def norm_code_afavor(value) -> str:
+    """El código de una línea en seco (sin guiones ni espacios), en mayúsculas."""
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+@app.post("/discografica/royalties/afavor/liquidaciones/leer", endpoint="afavor_statement_read")
+@admin_required
+def afavor_statement_read():
+    """Lee los documentos que se sueltan y devuelve las COINCIDENCIAS con nuestro catálogo."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    parsed = _parse_semester_key((request.form.get("s") or "").strip()) or _afavor_due_semester()
+    sem_start, sem_end = _semester_range(*parsed)
+    ficheros = request.files.getlist("files") or ([request.files["file"]] if "file" in request.files else [])
+    if not ficheros:
+        return jsonify({"ok": False, "error": "No has soltado ningún documento."}), 400
+    salida = []
+    session_db = db()
+    try:
+        for f in ficheros:
+            nombre = (getattr(f, "filename", "") or "")
+            try:
+                datos = f.stream.read()
+            except Exception:
+                datos = b""
+            if not datos:
+                salida.append({"name": nombre, "error": "no se ha podido leer el archivo",
+                               "matched": [], "unmatched": [], "warnings": []})
+                continue
+            # El documento se guarda YA (aunque luego no se acepte): es lo que permite dejarlo
+            # adjunto en cada tema al cargarlo, y son documentos pequeños.
+            doc_url = ""
+            try:
+                f.stream.seek(0)
+                doc_url = upload_file(f, "afavor", AFAVOR_DOC_EXTS) or ""
+            except Exception:
+                app.logger.exception("[a favor] no se pudo guardar el documento de la liquidación")
+            try:
+                leido = royalty_statement_read.read_statement(datos, nombre) or {}
+            except Exception as exc:
+                app.logger.exception("[a favor] no se pudo leer la liquidación")
+                salida.append({"name": nombre, "error": str(exc), "matched": [], "unmatched": [], "warnings": []})
+                continue
+            periodo = (leido.get("period") or "").strip()
+            per = _parse_semester_key(periodo) if periodo else None
+            ss, se = (_semester_range(*per) if per else (sem_start, sem_end))
+            casado = _afavor_statement_match(session_db, leido.get("rows") or [], ss, se)
+            salida.append({
+                "name": nombre,
+                "document_url": doc_url,
+                "kind": leido.get("kind") or "",
+                "period": (_semester_key(*per) if per else _semester_key(*parsed)),
+                "period_label": _afavor_semester_ordinal(*(per or parsed)),
+                "period_detected": bool(per),
+                "total": (format_eur(leido["total"]) if leido.get("total") is not None else ""),
+                "matched": [{k: (str(v) if isinstance(v, Decimal) else v) for k, v in fila.items()}
+                            for fila in casado["matched"]],
+                "unmatched": [{"code": (u.get("code") or ""), "title": (u.get("title") or ""),
+                               "amount": (format_eur(u["amount"]) if u.get("amount") is not None else ""),
+                               "reason": u.get("reason") or ""} for u in casado["unmatched"][:40]],
+                "unmatched_total": len(casado["unmatched"]),
+                "warnings": list(leido.get("warnings") or []),
+            })
+        return jsonify({"ok": True, "files": salida,
+                        "semester": _semester_key(*parsed)})
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/royalties/afavor/liquidaciones/aplicar", endpoint="afavor_statement_apply")
+@admin_required
+def afavor_statement_apply():
+    """Carga los importes de la liquidación en los temas que se han aceptado.
+
+    ⚠️ Los deja **pendientes de revisar** (como si los hubiera subido la compañía): el importe ya
+    queda cargado como ingreso, pero la factura no se pide hasta que alguien los valide."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    datos = request.get_json(silent=True) or {}
+    filas = datos.get("rows") if isinstance(datos.get("rows"), list) else []
+    if not filas:
+        return jsonify({"ok": False, "error": "No hay nada que cargar."}), 400
+    quien = _email_to_nick(_current_user_email() or "") or "la oficina"
+    aplicados, avisos = 0, []
+    session_db = db()
+    try:
+        # Se agrupa por (compañía, semestre) para tocar cada liquidación una sola vez.
+        por_liq = {}
+        for fila in filas:
+            cid = str(fila.get("company_id") or "")
+            sem = _parse_semester_key(str(fila.get("s") or ""))
+            if not cid or not sem:
+                avisos.append("una línea venía sin compañía o sin periodo")
+                continue
+            por_liq.setdefault((cid, sem), []).append(fila)
+        for (cid, sem), lineas in por_liq.items():
+            sem_start, sem_end = _semester_range(*sem)
+            company = session_db.get(Promoter, to_uuid(cid))
+            if company is None:
+                continue
+            rec = _afavor_liquidation_row(session_db, cid, sem_start, sem_end, create=True)
+            materiales = _afavor_material_rows(session_db, sem_start, sem_end, company_id=cid)
+            _afavor_sync_items(session_db, rec, materiales)
+            guardados = _afavor_items_map(session_db, rec)
+            for fila in lineas:
+                clave = "%s:%s" % (str(fila.get("kind") or "SONG"), str(fila.get("item_id") or ""))
+                it = guardados.get(clave)
+                if it is None:
+                    avisos.append("«%s» ya no está en el repertorio a favor" % (fila.get("title") or "un tema"))
+                    continue
+                if (it.status or "").upper() == "APPROVED":
+                    avisos.append("«%s» ya estaba validado: no se toca" % (fila.get("title") or "un tema"))
+                    continue
+                importe = _parse_money_decimal(str(fila.get("amount") or ""))
+                if importe is None:
+                    avisos.append("«%s» sin importe" % (fila.get("title") or "un tema"))
+                    continue
+                pct = it.our_pct if it.our_pct is not None else Decimal(str(fila.get("our_pct") or 0))
+                it.amount_income = importe
+                it.detected_amount = importe
+                it.our_amount = _afavor_our_amount(importe, pct)
+                it.status = "SUBMITTED"
+                it.submitted_at = _now_madrid()
+                it.submitted_by_name = quien
+                it.reject_note = None
+                it.updated_at = _now_madrid()
+                url = (fila.get("document_url") or "").strip()
+                if url:
+                    it.document_url = url
+                    it.document_name = (fila.get("document_name") or "")[:200] or it.document_name
+                # El importe declarado ES el ingreso del semestre de ese tema.
+                _afavor_apply_income(session_db, rec, it)
+                aplicados += 1
+            if _afavor_status_key(rec.status) in ("PENDING", "REQUESTED"):
+                rec.status = "RECEIVED"
+            rec.submitted_at = rec.submitted_at or _now_madrid()
+            rec.submitted_by_name = rec.submitted_by_name or quien
+            rec.updated_at = _now_madrid()
+            _afavor_history_add(rec, "SUBMITTED", note="cargada en bloque por %s" % quien)
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[a favor] no se pudo cargar la liquidación")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+    return jsonify({"ok": bool(aplicados), "applied": aplicados, "warnings": avisos[:8],
+                    "error": ("No se pudo cargar nada. " + "; ".join(avisos[:3])) if not aplicados else ""})
 
 
 def _prl_admin_altas_context(session_db) -> dict:
@@ -69723,6 +71641,8 @@ ADMIN_RESPONSIBILITIES = [
     ("GASTOS_SIN_TICKET", "Validar gastos sin ticket", "fa-receipt", "administracion"),
     ("ITA", "Altas e ITAs", "fa-id-card-clip", "administracion"),
     ("EMBARGOS", "Órdenes de embargo", "fa-gavel", "administracion"),
+    # Lo que nos tienen que PAGAR a nosotros: los royalties «a favor» ya facturados.
+    ("COBROS", "Cobros de royalties a favor", "fa-hand-holding-dollar", "administracion"),
     # Las VACACIONES no son una tarea de administración más: quien la tenga entra además en la
     # sección «Vacaciones y días libres» (el permiso se concede solo, _sync_vacation_access_grant).
     ("VACACIONES", "Gestionar vacaciones y días libres", "fa-umbrella-beach", "vacaciones"),
@@ -70119,7 +72039,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -73870,7 +75790,12 @@ def inject_personnel_globals():
                                  if _dept and "_home_ticketing_sales_wrap" in globals() else []),
         # Carteles que subió esta persona y diseño ha rechazado (con la nota de qué cambiar).
         "HOME_ARTWORK_REJECTED": ([] if _dir else _artwork),
-        "HOME_AFAVOR_ALERT": _home_afavor_alert() if _dept and "_home_afavor_alert" in globals() and has_access_key("registros") else None,
+        # ROYALTIES A FAVOR · las tres tareas, cada una a quien le toca. Van en «LO SUYO» (con
+        # `_home`, no con `_dept`): se le piden a la persona por su NOMBRE, así que las ve también
+        # dirección y quien no tenga la sección de Royalties concedida.
+        "HOME_AFAVOR_REQUEST": (_home_afavor_request() if _home and "_home_afavor_request" in globals() else None),
+        "HOME_AFAVOR_REVIEW": (_home_afavor_review() if _home and "_home_afavor_review" in globals() else []),
+        "HOME_AFAVOR_INVOICES": (_home_afavor_invoices() if _home and "_home_afavor_invoices" in globals() else []),
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
@@ -74218,6 +76143,12 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
 # (Se comprueba antes que `SUPPORT_ACTION_ENDPOINTS`, que sí exige ser «actor».)
 REQUEST_ANY_ENDPOINTS = {
     "promo_peticion_create",
+    # ⚠️ REVISAR una liquidación de royalties A FAVOR la hace REGISTROS+SELLO, que no tiene por qué
+    # tener la pestaña de Royalties concedida: sin esto se comería un 403 en su propia tarea. Los
+    # tres endpoints comprueban dentro con `_afavor_can_review()`.
+    "afavor_review_view",
+    "afavor_review_save",
+    "afavor_invoice_mark_sent",
     "marketing_peticion_create",
     # Editar la petición que has hecho: la comprobación fina (que sea TUYA, o que gestiones esa
     # bandeja) la hace el propio endpoint.
@@ -83656,6 +85587,9 @@ def administracion_view():
                                 if _en_liquidacion else [])
         afavor_invoice_rows = (_afavor_admin_pending_rows(session_db)
                                if (tab == "pendiente" and pending_subtab == "facturacion") else [])
+        # Con la factura ya enviada, la liquidación a favor está PENDIENTE DE COBRO.
+        afavor_collect_rows = (_afavor_admin_collect_rows(session_db)
+                               if (tab == "pendiente" and pending_subtab == "facturacion") else [])
         return render_template(
             "administracion.html",
             tab=tab,
@@ -83685,6 +85619,7 @@ def administracion_view():
             orphan_invoice_rows=orphan_invoice_rows,
             royalty_link_options=royalty_link_options,
             afavor_invoice_rows=afavor_invoice_rows,
+            afavor_collect_rows=afavor_collect_rows,
             embargo_subtab=embargo_subtab,
             pending_counts=pending_counts,
             counts=counts,
@@ -102073,7 +104008,10 @@ def cron_expired_documents():
                     "entregas_masters": _song_delivery_reminders_sweep(),
                     # Y el recordatorio del PLAZO DE ENTREGA de materiales de un proyecto (a
                     # DISCO_MATERIALS_REMINDER_DAYS días de la fecha máxima, una sola vez).
-                    "materiales_proyecto": _disco_materials_reminder_sweep()})
+                    "materiales_proyecto": _disco_materials_reminder_sweep(),
+                    # Y las liquidaciones de royalties A FAVOR que ya toca pedir (un mes después de
+                    # que cierre el semestre): así no depende de otra tarea en el servidor.
+                    "afavor": _afavor_request_sweep()})
 
 
 @app.post("/documentos/pedir", endpoint="person_doc_request_send")
@@ -120291,30 +122229,194 @@ for _cd_path, _cd_ep, _cd_view, _cd_methods in [
     app.add_url_rule(_cd_path, endpoint=_cd_ep, view_func=_caldav_logged(_cd_view), methods=_cd_methods, provide_automatic_options=False)
 
 
-def _home_afavor_alert():
-    """Alerta en Inicio (responsable de registros) al cerrar cada semestre: solicitar la liquidación
-    de las colaboraciones externas del semestre recién cerrado. Devuelve None si no procede."""
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# A FAVOR · LAS TAREAS PENDIENTES en Inicio
+#   · pedir la liquidación cuando toca (un mes después de que cierre el semestre) → registros+sello
+#   · revisar lo que ha subido la compañía                                        → registros+sello
+#   · emitir la factura                                                           → contabilidad
+#   · cobrarla                                                                    → administración
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+def _afavor_pending_by_semester(session_db, sem_year: int, sem_half: int) -> list[dict]:
+    """Las compañías a las que TODAVÍA no se les ha pedido la liquidación de ese semestre."""
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+    try:
+        return [{"company_id": t["company_id"], "name": t["name"], "logo_url": t["logo_url"],
+                 "temas": len(t["rows"])}
+                for t in _afavor_request_targets(session_db, sem_start, sem_end, pending_only=True)]
+    except Exception:
+        app.logger.exception("[a favor] no se pudo resolver lo pendiente de solicitar")
+        return []
+
+
+def _home_afavor_request():
+    """TAREA de REGISTROS+SELLO: pedir las liquidaciones a favor del semestre que toca.
+
+    Sale **un mes después** de que cierre el semestre (`_afavor_due_semester`) y **desaparece sola**
+    en cuanto no queda ninguna compañía por pedir: es la regla de la casa (una tarea es «esto te
+    está esperando»)."""
+    estado = _current_user_state() or {}
+    if not (_is_registros_sello(estado.get("profile")) or int(estado.get("role") or 0) == 10):
+        return None
     session_db = db()
     try:
-        n_ext = session_db.query(func.count(Song.id)).filter(Song.is_external_collab.is_(True)).scalar() or 0
-        if not n_ext:
+        sem_year, sem_half = _afavor_due_semester()
+        pendientes = _afavor_pending_by_semester(session_db, sem_year, sem_half)
+        if not pendientes:
             return None
-        today = today_local()
-        # Semestre recién cerrado (mismo criterio por defecto que la vista de royalties).
-        if today.month <= 6:
-            sem_year, sem_half = today.year - 1, 2
-        else:
-            sem_year, sem_half = today.year, 1
-        key = _semester_key(sem_year, sem_half)
         return {
-            "count": int(n_ext),
-            "semester_label": _semester_label(sem_year, sem_half),
-            "url": url_for("discografica_view", section="royalties", s=key, roy_tab="afavor"),
+            "semester_key": _semester_key(sem_year, sem_half),
+            "semester_label": _afavor_semester_ordinal(sem_year, sem_half),
+            "companies": pendientes[:8],
+            "count": len(pendientes),
+            "temas": sum(p["temas"] for p in pendientes),
+            "url": url_for("afavor_request_view", s=_semester_key(sem_year, sem_half), pendientes=1),
         }
     except Exception:
+        app.logger.exception("[a favor] no se pudo montar la tarea de solicitar liquidaciones")
         return None
     finally:
         session_db.close()
+
+
+def _home_afavor_review():
+    """TAREA de REGISTROS+SELLO: lo que han subido las compañías y está pendiente de revisar."""
+    estado = _current_user_state() or {}
+    if not (_is_registros_sello(estado.get("profile")) or int(estado.get("role") or 0) == 10):
+        return []
+    session_db = db()
+    try:
+        recs = (session_db.query(AfavorLiquidation)
+                .options(joinedload(AfavorLiquidation.company), selectinload(AfavorLiquidation.items))
+                .filter(AfavorLiquidation.status == "RECEIVED")
+                .order_by(AfavorLiquidation.submitted_at.desc().nullslast()).all())
+        filas = []
+        for rec in recs:
+            pendientes = [it for it in (rec.items or []) if (it.status or "").upper() == "SUBMITTED"]
+            if not pendientes:
+                continue
+            company = rec.company
+            total = sum([Decimal(str(it.our_amount or 0)) for it in pendientes], Decimal("0"))
+            filas.append({
+                "liquidation_id": str(rec.id),
+                "company": (_promoter_display_name(company) or getattr(company, "nick", "") or ""),
+                "logo_url": (getattr(company, "logo_url", None) or ""),
+                "period": _afavor_semester_ordinal(rec.period_start.year,
+                                                   1 if rec.period_start.month <= 6 else 2),
+                "count": len(pendientes),
+                "total": total,
+                "submitted_by": (rec.submitted_by_name or ""),
+                "submitted_at": (_afavor_dt(rec.submitted_at) if rec.submitted_at else ""),
+                "url": url_for("afavor_review_view", liq_id=str(rec.id)),
+            })
+        return filas
+    except Exception:
+        app.logger.exception("[a favor] no se pudo montar la tarea de revisar liquidaciones")
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_afavor_invoices():
+    """TAREA de CONTABILIDAD: emitir la factura de las liquidaciones a favor ya validadas.
+
+    ⚠️ Solo se le enseña a quien lleva ESA empresa del grupo (el reparto de contabilidad); si nadie
+    la lleva, a todo el departamento (mismo criterio que el resto de la app)."""
+    estado = _current_user_state() or {}
+    yo = str(estado.get("user_id") or "")
+    if not yo:
+        return []
+    es_direccion = int(estado.get("role") or 0) == 10
+    if not (es_direccion or _profile_in_department(estado.get("profile"), "Contabilidad")):
+        return []
+    session_db = db()
+    try:
+        filas = []
+        for row in _afavor_admin_pending_rows(session_db):
+            rec = row["rec"]
+            if not es_direccion:
+                if yo not in _accounting_company_user_ids(session_db, rec.billing_company_id):
+                    continue
+            filas.append({
+                "liquidation_id": str(rec.id),
+                "company": row["name"], "logo_url": row["logo_url"],
+                "period": row["period_ordinal"],
+                "total": rec.total_amount,
+                "concept": _afavor_invoice_concept(session_db, rec),
+                "url": row["url"],
+            })
+        return filas
+    except Exception:
+        app.logger.exception("[a favor] no se pudo montar la tarea de facturar")
+        return []
+    finally:
+        session_db.close()
+
+
+def _afavor_request_sweep() -> dict:
+    """BARRIDO diario: cuando pasa un mes del cierre de un semestre, se le dice a REGISTROS+SELLO que
+    toca pedir las liquidaciones a favor.
+
+    ⚠️ **Una sola vez por semestre y persona**: si ya tiene el aviso de ese periodo, no se repite (un
+    aviso que insiste todos los días deja de leerse). El aviso se cierra solo cuando no queda ninguna
+    compañía por pedir."""
+    creados, revisados = 0, 0
+    session_db = db()
+    try:
+        sem_year, sem_half = _afavor_due_semester()
+        sem_key = _semester_key(sem_year, sem_half)
+        pendientes = _afavor_pending_by_semester(session_db, sem_year, sem_half)
+        if not pendientes:
+            _notify_resolve(session_db, "AFAVOR_REQUEST", sem_key)
+            session_db.commit()
+            return {"created": 0, "pending": 0, "semester": sem_key}
+        ya = {str(n.user_id) for n in (session_db.query(AppNotification)
+                                       .filter(func.upper(AppNotification.ref_type) == "AFAVOR_REQUEST")
+                                       .filter(AppNotification.ref_id == sem_key).all())}
+        destinos = [uid for uid in _registros_sello_user_ids(session_db) if str(uid) not in ya]
+        if destinos:
+            periodo = _afavor_semester_ordinal(sem_year, sem_half)
+            creados = _notify_users(
+                session_db, destinos, "REGISTROS",
+                "Toca pedir las liquidaciones de royalties a favor",
+                "%s · %d compañía%s pendiente%s. Se pueden pedir todas de una vez."
+                % (periodo, len(pendientes), "s" if len(pendientes) != 1 else "",
+                   "s" if len(pendientes) != 1 else ""),
+                url_for("afavor_request_view", s=sem_key, pendientes=1),
+                ref_type="AFAVOR_REQUEST", ref_id=sem_key,
+                email={
+                    "subject": "Liquidaciones de royalties a favor · %s" % periodo,
+                    "title": "Toca pedir las liquidaciones de Royaltys",
+                    "intro": "Ha cerrado el %s: hay %d compañía%s a la%s que pedirle la liquidación."
+                             % (periodo, len(pendientes), "s" if len(pendientes) != 1 else "",
+                                "s" if len(pendientes) != 1 else ""),
+                    "logo_url": (getattr(_afavor_pies_company(session_db), "logo_url", None) or ""),
+                    "eyebrow": "Royalties a favor", "heading": periodo,
+                    "facts": [("fa-building", "Compañías", str(len(pendientes))),
+                              ("fa-music", "Temas", str(sum(p["items"] for p in pendientes)))],
+                    "button": {"label": "Pedirlas todas",
+                               "url": _external_url_for("afavor_request_view", s=sem_key, pendientes=1)},
+                })
+        session_db.commit()
+        return {"created": creados, "pending": len(pendientes), "semester": sem_key,
+                "reviewed": revisados}
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[a favor] falló el barrido de solicitudes")
+        return {"created": 0, "error": True}
+    finally:
+        session_db.close()
+
+
+@app.get("/cron/afavor", endpoint="cron_afavor")
+def cron_afavor():
+    """Barrido de los royalties «A favor» (se cuelga también del cron diario de documentos)."""
+    clave = (request.args.get("key") or "").strip()
+    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
+                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
+    if not esperada or clave != esperada:
+        abort(404)
+    return jsonify({"ok": True, **_afavor_request_sweep()})
 
 
 def _pitch_sello_user_ids(session_db, artist_id) -> list[str]:
@@ -126702,6 +128804,19 @@ def _merge_repoint_references(s, model, keep_id, drop_id):
                         # La fila re-apuntada ya existe para el ganador: era un duplicado puro.
                         with s.begin_nested():
                             s.execute(tbl.delete().where(cond))
+    # ⚠️ Una FK AUTO-REFERENCIAL (promoters.parent_promoter_id) deja al ganador como padre de sí
+    # mismo: es un ciclo y agrupar por compañía se quedaría colgado. Se limpia siempre.
+    for tbl in target.metadata.sorted_tables:
+        for col in list(tbl.columns):
+            if tbl is not target or not col.foreign_keys:
+                continue
+            if not any(fk.column.table is target and fk.column.name == "id" for fk in col.foreign_keys):
+                continue
+            try:
+                with s.begin_nested():
+                    s.execute(tbl.update().where(col == keep_id).where(tbl.c.id == keep_id).values(**{col.name: None}))
+            except _IE:
+                pass
     return total
 
 

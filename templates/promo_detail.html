@@ -27,7 +27,7 @@
    y, arriba a la derecha, la empresa del grupo que factura. #}
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round"
-       src="{{ promotion_display.cover_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+       src="{{ promotion_display.cover_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1"
        {% if promo_artist_id %}data-artist-link="{{ promo_artist_id }}"{% endif %}>
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">

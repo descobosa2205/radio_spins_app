@@ -14,8 +14,8 @@
         {% set marcada = (current_id and acc.id|string == current_id|string) or (not current_id and acc.is_default) %}
         <label class="acc-pick__item {{ 'is-on' if marcada }}">
           <input class="acc-pick__radio" type="radio" name="{{ name }}" value="{{ acc.id }}" {% if marcada %}checked{% endif %}>
-          <img class="acc-pick__logo" src="{{ (acc.bank.logo_url if acc.bank else None) or url_for('static', filename='img/logo.png') }}"
-               alt="" data-default-photo="1">
+          <img class="acc-pick__logo" src="{{ (acc.bank.logo_url if acc.bank else None) or DEFAULT_AVATAR_URL }}"
+               alt="" data-avatar="1">
           <span class="acc-pick__txt">
             <span class="acc-pick__name">{{ acc.alias or (acc.bank.name if acc.bank else 'Cuenta') }}</span>
             <span class="acc-pick__sub">{% if acc.alias and acc.bank %}{{ acc.bank.name }} · {% endif %}{{ iban_masked(acc.iban) }}</span>

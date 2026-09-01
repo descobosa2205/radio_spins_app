@@ -564,6 +564,23 @@
                     <label class="form-label">Foto o logo</label>
                     <input type="file" class="form-control" name="logo" accept="image/*">
                   </div>
+                  {# COMPAÑÍA MATRIZ: el grupo al que pertenece (otro tercero), para ver junto todo
+                     lo que tenemos con «Sony Music» aunque cada sello sea una ficha distinta. #}
+                  <div class="col-12">
+                    <label class="form-label">Compañía matriz <span class="text-muted small fw-normal">(opcional)</span></label>
+                    <div class="input-group">
+                      <input type="text" class="form-control" id="promoterParentSearch" autocomplete="off"
+                             placeholder="Buscar el grupo al que pertenece…"
+                             value="{{ parent_promoter_name or '' }}">
+                      <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                              data-target="promoterParentSelect" data-target-hidden="promoterParentId"><i class="fa fa-plus"></i></button>
+                    </div>
+                    <input type="hidden" name="parent_promoter_id" id="promoterParentId" value="{{ promoter.parent_promoter_id or '' }}">
+                    <select id="promoterParentSelect" class="d-none"></select>
+                    <div class="form-text">
+                      En Royalties «A favor» se puede ver todo lo del grupo junto. Déjalo vacío si no pertenece a ninguno.
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -850,6 +867,17 @@
       });
     });
   }
+})();
+
+/* La COMPAÑÍA MATRIZ se busca con su logo, como cualquier tercero de la app. */
+(function () {
+  function arranca() {
+    if (!window.initTypeahead) { setTimeout(arranca, 120); return; }
+    if (!document.getElementById('promoterParentSearch')) return;
+    initTypeahead('promoterParentSearch', 'promoterParentId', '/api/search/promoters');
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', arranca);
+  else arranca();
 })();
 </script>
 {% endblock %}

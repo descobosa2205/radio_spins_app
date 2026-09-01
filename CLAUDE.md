@@ -7435,6 +7435,109 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_afavor_pies_company`), `afavor_invoice_resend`, `afavor_mark_collected`, `afavor_liquidation_pdf`.
   ⚠️ Sus endpoints NO llevan prefijo `discografica_`: están mapeados a mano en
   `_resolve_request_resource_key`/`_coarse_endpoint_resource` (si no, solo dirección podría usarlos).
+
+- ⚠️⚠️ **ROYALTIES «A FAVOR» · EL PROCESO COMPLETO** (sep 2026, rediseño). Antes era una pantalla de
+  consulta con un correo y un estado que se movía a mano; ahora es el ciclo entero, y **un tema no
+  entra en la liquidación del artista hasta que lo hemos COBRADO**.
+  · **Un A FAVOR puede ser de una CANCIÓN o de un DISCO**: `Album` gana las MISMAS cuatro columnas de
+  colaboración externa que `Song` (`is_external_collab` · `external_company_id` · `our_pct` ·
+  `our_pct_base`), se eligen en «Propiedad» de la ficha del disco y en su alta, y
+  `_album_ownership_label` dice «Colaboración externa».
+  · **EL DETALLE por tema**: `AfavorItem` (una fila por liquidación + canción/disco) con SU documento,
+  SU importe y su estado PENDING → SUBMITTED → APPROVED / REJECTED. `AfavorLiquidation` gana la
+  trazabilidad (`history`, mismo patrón que las liquidaciones normales), quién lo subió, la revisión,
+  la factura y `total_amount`. `ensure_afavor_schema()`.
+  · **ESTADOS** (`AFAVOR_STATUS_FLOW`): Pendiente → Solicitada → **Recibida** → Pendiente de facturar
+  → **Factura emitida** → **Factura enviada** → Cobrado. ⚠️ «Emitida» y «enviada» son DOS cosas: la
+  factura puede estar subida y no haber salido (y entonces se marca a mano). El `INVOICED` de antes se
+  lee como «Factura enviada» (`AFAVOR_STATUS_ALIASES`).
+  ⚠️ **La etiqueta de estado CUENTA la historia al pasar el ratón** (`_afavor_status_tooltip`): cuándo
+  se solicitó y a quién, cuándo la subieron, cuándo se pidió la factura y a quién, cuándo se envió y
+  cuándo se cobró. Es la información de contabilidad que se pide sin abrir nada.
+  · **CUÁNDO SE PIDE**: `_afavor_due_semester()` — **un mes después** de que cierre el semestre (del 1
+  de agosto para el S1, del 1 de febrero para el S2). El barrido `_afavor_request_sweep`
+  (`/cron/afavor`, colgado también del cron diario de documentos) le crea la tarea a quien es
+  **REGISTROS y SELLO a la vez**, **una sola vez por semestre** y con el aviso que se cierra solo
+  cuando no queda ninguna compañía por pedir. Módulo de Inicio `HOME_AFAVOR_REQUEST` con el botón
+  **«Pedirlas todas»**.
+  · **LA SOLICITUD tiene VISTA PREVIA** (`afavor_request_view` + `afavor_request_preview` +
+  `afavor_request_liquidation`, plantilla `afavor_request.html`), con el patrón exacto de la casa: los
+  destinatarios CONFIGURADOS con su casilla (`_afavor_company_recipients` + `_notify_apply_prefs` +
+  `_notify_channel_picker.html`), correos a mano, la NOTA y los ojos por módulo. La previa es **EL
+  MISMO HTML** que se manda (`_afavor_request_html`). Vale para UNA compañía o para TODAS (una tarjeta
+  por compañía, con su casilla y sus correos, y la previa de la que se esté mirando).
+  · **EL ASUNTO** es «**Solicitud liquidación de Royaltys (1º semestre 2026)**»
+  (`_afavor_request_subject` + `_afavor_semester_ordinal`).
+  · **ENLACE PÚBLICO POR COMPAÑÍA** (`Promoter.afavor_token`, opaco y creado **con commit**):
+  `public_afavor_liquidation` (`/liquidaciones-royalties/<token>`). Elige el SEMESTRE (**todos desde
+  que se publicó** su primer tema, `_afavor_semesters_since`; por defecto el que toca), ve sus temas
+  con la portada, el artista y los intérpretes, el **% a favor** y escribe el importe (con separador
+  de miles), con el **«Total Royalty de compañía»** en vivo; sube la liquidación **tema a tema**
+  arrastrándola, y **puede mandar unos y no otros**. Lo ya enviado se queda a la vista en gris con su
+  etiqueta «Enviado». Y actualiza sus **datos fiscales** desde la propia cabecera.
+  ⚠️ **Sin documento no se manda**: no se puede dar por liquidado un tema sin su liquidación.
+  ⚠️ Si no escribe el importe se intenta **leer del documento** (`_afavor_detect_amount`): es una
+  ayuda, no una barrera — si no se puede, se deja el campo.
+  · **LA REVISIÓN** (`afavor_review_view`/`_save`, pantalla partida: el documento a la izquierda y los
+  importes a la derecha) la hace **registros+sello**: validar, rechazar con su motivo (y se le dice a
+  la compañía con su enlace) o corregir el importe. ⚠️ **Al validar, el importe declarado pasa a ser
+  el INGRESO del semestre de ese tema** (`_afavor_apply_income` escribe la fila base de
+  `SongRevenueEntry`/`AlbumRevenueEntry`): no hay dos verdades ni se teclea el mismo número dos veces.
+  · **LA FACTURA** se le pide a **CONTABILIDAD de la empresa del grupo que corresponda** (PIES) con el
+  importe, los datos de facturación y el **concepto** «Royaltys 1º semestre 2026 · Canción (Artistas)»
+  (`_afavor_invoice_concept`); les sale en Inicio (`HOME_AFAVOR_INVOICES`) y en Administración →
+  Pendiente → De facturación. **Al subirla se le manda sola a la compañía**; si el correo no sale
+  queda «Factura emitida» y se avisa al sello para mandarla a mano (`afavor_invoice_mark_sent`).
+  · **EL COBRO** lo marca administración (bloque «pendientes de cobro» en esa misma subpestaña, con la
+  responsabilidad nueva `COBROS`), y con eso el tema entra ya en la liquidación del artista.
+  ⚠️⚠️ **EL GATE**: `_royalty_collab_gate(session_db, sem_start)` (las compañías COBRADAS de ese
+  semestre, UNA consulta) + `_royalty_collab_blocked(material, cobradas)`, aplicados en los **OCHO**
+  bucles de los dos builders. Un tema excluido no entra en el congelado, así que al cobrarlo la
+  liquidación ya generada salta con el aviso de «los ingresos han cambiado» y se regenera.
+  · ⚠️⚠️ **Y DE PASO, un bug de dinero**: `_build_royalty_single_beneficiary` —la ruta RÁPIDA, la que
+  usan el PDF, el correo y el congelado— **no aplicaba `_royalty_external_collab_income`**: la pantalla
+  enseñaba el importe reducido a nuestro % y el PDF repartía el ingreso COMPLETO de la compañía. Ya se
+  aplica en los cuatro sitios de ese builder (y en los dos de álbumes del otro).
+  · **AGRUPADO por artista o por COMPAÑÍA**: `?group=company` agrupa por la **matriz**
+  (`Promoter.parent_promoter_id`, que se elige en la ficha del tercero), así se ve junto todo lo de
+  «Sony Music» aunque cada sello sea una ficha distinta. ⚠️ Un tercero no puede ser su propio padre ni
+  cerrar un ciclo, el grupo es de **un solo nivel** (si el elegido ya tiene matriz se apunta la de
+  arriba) y `_merge_repoint_references` limpia el auto-padre que dejaría una fusión.
+  · **SUBIR LIQUIDACIONES EN BLOQUE** (botón arriba a la derecha, `_afavor_upload_modal.html`):
+  motor puro **`royalty_statement_read.py`** (`read_statement` → líneas con código, título, artista,
+  importe y periodo; reutiliza `pdf_rows` y `read_rows`) con su prueba de regresión
+  **`tools/check_royalty_statement_read.py`**. Casa por ISRC / código de producto / título
+  (`_afavor_catalog_index` + `_afavor_statement_match`, **sumando** las líneas del mismo tema), enseña
+  las coincidencias y **lo que NO casa con su motivo**, y al aceptarlas carga los ingresos y deja los
+  temas **pendientes de revisar**. ⚠️ **Lo ya VALIDADO no se pisa** (y se dice).
+  ⚠️⚠️ **`csv.Sniffer` se queda con la COMA en un CSV español**, donde la coma es el separador
+  DECIMAL: «…;Tema;120;45,10» se partía y el importe salía **10**. El motor lo arregla por su cuenta
+  (`_resplit_csv`); **el mismo lector lo usan las importaciones de TERCEROS y de COMPRADORES**, así que
+  ahí el bug sigue vivo (pendiente de arreglar en el punto único, `promoter_import.read_rows`).
+  ⚠️ Los tres endpoints públicos van en las **tres** listas y los de la revisión
+  (`afavor_review_view`/`_save`, `afavor_invoice_mark_sent`) en **`REQUEST_ANY_ENDPOINTS`**: los hace
+  registros+sello, que no tiene por qué tener la pestaña de Royalties concedida.
+  ⚠️ `_afavor_material_rows` filtra **`release_date <= sem_end`** (un tema no se le puede reclamar por
+  un semestre en el que no existía) y suma los ingresos cargados **como SEMESTER y como los 6 MONTH**
+  (antes solo miraba SEMESTER: un semestre cargado por meses se veía a cero).
+  ⚠️ Una clave de un dict que se lea en Jinja **no puede llamarse `items`** (`blk.items` devolvería el
+  método): por eso el bloque de compañía lleva `rows` y el módulo de Inicio `temas`.
+
+- ⚠️⚠️ **UNA FOTO O UN LOGO QUE FALTA NO SE RELLENA CON LA MARCA DE LA CASA** (sep 2026, barrido
+  completo). El respaldo `X or url_for('static', filename='img/logo.png')` estaba en **~120 sitios**:
+  un artista, un tercero, un medio, una emisora, un banco, una ticketera o una empresa del grupo sin
+  logo salían con el logo de PIES, que es justo lo que confunde (parece que la fila es nuestra).
+  · **PERSONA, ARTISTA, TERCERO, MEDIO, EMISORA, BANCO, TICKETERA, EVENTO, RECINTO** →
+  **`DEFAULT_AVATAR_URL`** (el muñequito gris: SE VE, así que el hueco no descoloca la fila) con
+  `data-avatar="1"` para que el respaldo del JS caiga en lo mismo.
+  · **PORTADA** → `DEFAULT_COVER_URL`. · **EMPRESA DEL GRUPO** → el helper `company_logo(...)`.
+  · **Los DOS puntos únicos**: `_artist_photo_src` (de él viven `artist_avatar` y `artist_chip`, o sea
+  media app) y el `fallback_photo` del PDF/correo de una liquidación de royalties.
+  ⚠️ **Lo que SÍ es legítimo y no se toca**: la cabecera de marca de una página pública, de un correo
+  o de un PDF, el login, la landing, la guía de CalDAV y el último escalón de una `og:image`. Hoy solo
+  quedan esos.
+  ⚠️ `data-default-photo="1"` NO arreglaba nada aquí: el respaldo del JS solo actúa en el evento
+  `error` de la imagen, y el logo de la casa cargaba perfectamente.
 - **Colaboraciones externas en la liquidación del ARTISTA**: `_build_royalty_beneficiaries` ya NO las
   excluye. `_royalty_external_collab_income(song, gross, net)` devuelve lo que nos ingresa la
   compañía (ingreso × `Song.our_pct`, sobre bruto o neto según `our_pct_base`) y ese importe es la

@@ -51,7 +51,7 @@
         <select name="artist" class="form-select select-artists" multiple>
           {% for a in artists %}
             <option value="{{ a.id }}"
-                    data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
+                    data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}"
                     {% if (a.id|string) in f_artist_ids %}selected{% endif %}>
               {{ a.name }}
             </option>
@@ -181,8 +181,8 @@
 
                 <!-- IZQ: foto + info principal -->
                 <div class="d-flex gap-3 flex-grow-1">
-                  <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}"
-                       class="artist-avatar rounded-circle" alt="" style="width:50px;height:50px;object-fit:cover;"{% if c.artist %} data-artist-link="{{ c.artist.id }}"{% endif %}>
+                  <img src="{{ (c.artist.photo_url if c.artist else None) or DEFAULT_AVATAR_URL }}"
+                       class="artist-avatar rounded-circle" alt="" data-avatar="1" style="width:50px;height:50px;object-fit:cover;"{% if c.artist %} data-artist-link="{{ c.artist.id }}"{% endif %}>
 
                   <div class="flex-grow-1">
 
@@ -703,7 +703,7 @@
             <label class="form-label mb-1 fw-semibold"><i class="fa fa-users me-1 text-danger"></i>Artistas</label>
             <select name="artist" class="form-select select-artists" multiple data-placeholder="Todos los artistas...">
               {% for a in artists %}
-                <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
+                <option value="{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}"
                         {% if (a.id|string) in f_artist_ids %}selected{% endif %}>{{ a.name }}</option>
               {% endfor %}
             </select>
@@ -885,7 +885,7 @@
             <select name="artist_id" class="form-select select-artists" required>
               <option value="">—</option>
               {% for a in artists %}
-                <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
+                <option value="{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}">{{ a.name }}</option>
               {% endfor %}
             </select>
             <button type="button" class="btn btn-outline-secondary" onclick="openArtistModal()"><i class="fa fa-plus"></i></button>
@@ -1538,7 +1538,7 @@
       const opt = document.createElement('option');
       opt.value = data.id;
       opt.textContent = data.name;
-      opt.dataset.photo = data.photo_url || "{{ url_for('static', filename='img/logo.png') }}";
+      opt.dataset.photo = data.photo_url || "{{ DEFAULT_AVATAR_URL }}";
       sel.appendChild(opt);
       sel.value = data.id;
       if (window.jQuery && jQuery.fn.select2) jQuery(sel).trigger('change');

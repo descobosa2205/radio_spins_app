@@ -66,7 +66,7 @@
           <div class="input-group">
             <select class="form-select select-artists" name="artist_id" id="pwArtist" data-no-loader>
               <option value="">Sin artista concreto</option>
-              {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>{% endfor %}
+              {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}">{{ a.name }}</option>{% endfor %}
             </select>
             <button class="btn btn-outline-secondary" type="button" data-quick-create="artist" data-target="pwArtist" title="Crear artista"><i class="fa fa-plus"></i></button>
           </div>

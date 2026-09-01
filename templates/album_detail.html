@@ -370,10 +370,45 @@
                           <input class="form-check-input" type="radio" name="ownership_type" id="albumInfoTypeDist" value="distribution" {% if album.is_distribution %}checked{% endif %}>
                           <label class="form-check-label" for="albumInfoTypeDist">En distribución</label>
                         </div>
+                        {# COLABORACIÓN EXTERNA: un disco de otra compañía en el que participamos.
+                           Es lo que alimenta los royalties «A favor». #}
+                        <div class="form-check">
+                          <input class="form-check-input" type="radio" name="ownership_type" id="albumInfoTypeExt" value="external_collab" {% if album.is_external_collab %}checked{% endif %}>
+                          <label class="form-check-label" for="albumInfoTypeExt">Colaboración externa</label>
+                        </div>
                       </div>
                       <div class="form-check" id="albumInfoCatalogWrap">
                         <input class="form-check-input" type="checkbox" name="is_catalog" id="albumInfoIsCatalog" value="1" {% if album.is_catalog %}checked{% endif %}>
                         <label class="form-check-label" for="albumInfoIsCatalog">Marcar como catálogo</label>
+                      </div>
+                      {# Lo propio de una colaboración externa: nuestro %, la base y la compañía. #}
+                      <div class="row g-2 mt-2 {% if not album.is_external_collab %}d-none{% endif %}" data-album-ext>
+                        <div class="col-12 col-md-5">
+                          <label class="form-label small mb-1">% que nos corresponde</label>
+                          <input name="our_pct" type="number" class="form-control form-control-sm" min="0" max="100" step="0.01"
+                                 value="{{ album.our_pct or 0 }}">
+                        </div>
+                        <div class="col-12 col-md-7">
+                          <label class="form-label small mb-1">Base</label>
+                          <select class="form-select form-select-sm" name="our_pct_base">
+                            <option value="GROSS" {% if (album.our_pct_base or 'GROSS') != 'NET' %}selected{% endif %}>Sobre bruto</option>
+                            <option value="NET" {% if (album.our_pct_base or 'GROSS') == 'NET' %}selected{% endif %}>Sobre neto</option>
+                          </select>
+                        </div>
+                        <div class="col-12">
+                          <label class="form-label small mb-1">Compañía colaboradora (tercero)</label>
+                          <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" id="albumExtCompanySearch" autocomplete="off"
+                                   placeholder="Buscar tercero por cualquier dato…"
+                                   value="{{ album_external_company_name or '' }}">
+                            <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                                    data-target="albumExtCompanySelect" data-target-hidden="albumExtCompanyId"><i class="fa fa-plus"></i></button>
+                          </div>
+                          <input type="hidden" name="external_company_id" id="albumExtCompanyId"
+                                 value="{{ album.external_company_id or '' }}">
+                          <select id="albumExtCompanySelect" class="d-none"></select>
+                          <div class="form-text">Se le cobrará el % que nos corresponde (Royalties · A favor).</div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1174,7 +1209,7 @@
             {% if royalties_artist %}
               <div class="d-flex align-items-center justify-content-between gap-3 mt-3 flex-wrap">
                 <div class="d-flex align-items-center gap-2">
-                  <img src="{{ royalties_artist.artist_photo or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+                  <img src="{{ royalties_artist.artist_photo or DEFAULT_AVATAR_URL }}" class="artist-avatar" alt="" data-avatar="1">
                   <div>
                     <div class="fw-semibold">{{ royalties_artist.artist_name }}</div>
                     {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
@@ -1416,11 +1451,20 @@
       });
     }
 
+    const extRadio = document.getElementById('albumInfoTypeExt');
     const isDistribution = distRadio && distRadio.checked;
-    if (catalogWrap) catalogWrap.style.display = isDistribution ? 'none' : '';
+    const isExterna = extRadio && extRadio.checked;
+    if (catalogWrap) catalogWrap.style.display = (isDistribution || isExterna) ? 'none' : '';
     if (catalogChk) {
-      catalogChk.disabled = !!isDistribution;
-      if (isDistribution) catalogChk.checked = false;
+      catalogChk.disabled = !!(isDistribution || isExterna);
+      if (isDistribution || isExterna) catalogChk.checked = false;
+    }
+    /* Lo propio de una colaboración externa solo se pide (y solo se envía) si lo es: un campo
+       oculto se manda igual, así que además se deshabilita. */
+    const extWrap = document.querySelector('[data-album-ext]');
+    if (extWrap) {
+      extWrap.classList.toggle('d-none', !isExterna);
+      extWrap.querySelectorAll('input, select').forEach(el => { el.disabled = !isExterna; });
     }
   }
 
@@ -1754,11 +1798,15 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    ['albumInfoNoPhysical', 'albumInfoTypeOwn', 'albumInfoTypeDist'].forEach(id => {
+    ['albumInfoNoPhysical', 'albumInfoTypeOwn', 'albumInfoTypeDist', 'albumInfoTypeExt'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', applyAlbumInfoEditState);
     });
     applyAlbumInfoEditState();
+    /* La compañía colaboradora se BUSCA (con su logo), como en el resto de la app. */
+    if (window.initTypeahead && document.getElementById('albumExtCompanySearch')) {
+      initTypeahead('albumExtCompanySearch', 'albumExtCompanyId', '{{ url_for("api_search_promoters") }}');
+    }
 
     ['albumProductFormat', 'albumProductModeManual', 'albumProductModeGenerate'].forEach(id => {
       const el = document.getElementById(id);

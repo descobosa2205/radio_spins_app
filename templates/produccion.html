@@ -74,10 +74,10 @@
   <div class="production-cover-stack">
     {% if row.artists %}
       {% for artist in row.artists[:3] %}
-        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="production-artist-photo bg-white" alt="{{ artist.name }}" title="{{ artist.name }}"{% if artist.id %} data-artist-link="{{ artist.id }}"{% endif %}>
+        <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" data-avatar="1" class="production-artist-photo bg-white" alt="{{ artist.name }}" title="{{ artist.name }}"{% if artist.id %} data-artist-link="{{ artist.id }}"{% endif %}>
       {% endfor %}
     {% else %}
-      <img src="{{ url_for('static', filename='img/logo.png') }}" class="production-artist-photo bg-white" alt="Sin artista">
+      <img src="{{ DEFAULT_AVATAR_URL }}" data-avatar="1" class="production-artist-photo bg-white" alt="Sin artista">
     {% endif %}
   </div>
 {%- endmacro %}
@@ -162,7 +162,7 @@
                 <span class="badge text-bg-danger position-absolute" style="top:.5rem;right:.5rem;">Nueva actividad</span>
               {% endif %}
               <div class="card-body">
-                <img src="{{ g.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+                <img src="{{ g.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1"
                      style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
                 <div class="fw-semibold text-truncate">{{ g.name }}</div>
                 <div class="small text-muted">
@@ -252,7 +252,7 @@
     <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('produccion_view', tab='activas') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
       <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
-        <img src="{{ activas.subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+        <img src="{{ activas.subject.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1"
              style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
         {{ activas.subject.name }}
         {% if activas.subject.kind == 'event' %}<span class="badge text-bg-light border align-self-center">Evento</span>{% endif %}
@@ -303,7 +303,7 @@
     {% for group in archived_groups %}
       <div class="card mb-4 production-archive-group" data-production-archive-group>
         <div class="card-header bg-white d-flex align-items-center gap-2">
-          <img src="{{ group.artist.photo_url or url_for('static', filename='img/logo.png') }}" class="rounded-circle border" style="width:36px;height:36px;object-fit:cover;" alt="{{ group.artist.name }}">
+          <img src="{{ group.artist.photo_url or DEFAULT_AVATAR_URL }}" data-avatar="1" class="rounded-circle border" style="width:36px;height:36px;object-fit:cover;" alt="{{ group.artist.name }}">
           <strong>{{ group.artist.name }}</strong>
           {% if group.artist %}{{ linked_mini('artist', group.artist.id) }}{% endif %}
         </div>

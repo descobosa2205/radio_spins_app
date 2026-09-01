@@ -98,7 +98,7 @@
                   <div class="d-flex gap-3 align-items-start flex-grow-1">
                     {% if row.media %}
                       <span class="logo-country-wrap flex-shrink-0">
-                        <img src="{{ row.media.logo_url or url_for('static', filename='img/logo.png') }}" alt="{{ row.media.name }}" style="width:54px;height:54px;object-fit:contain;border-radius:14px;border:1px solid #eee;background:#fff;">
+                        <img src="{{ row.media.logo_url or DEFAULT_AVATAR_URL }}" alt="{{ row.media.name }}" style="width:54px;height:54px;object-fit:contain;border-radius:14px;border:1px solid #eee;background:#fff;" data-avatar="1">
                         {% if (row.media.country_code or 'ES') != 'ES' %}<span class="country-flag-badge" title="{{ row.media.country_name or country_name_es(row.media.country_code) }}">{{ country_flag_emoji(row.media.country_code) }}</span>{% endif %}
                       </span>
                     {% else %}

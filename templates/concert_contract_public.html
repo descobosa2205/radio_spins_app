@@ -16,7 +16,7 @@
   {# ---------- CABECERA DE LA ACTIVIDAD (misma estética que su ficha) ---------- #}
   <div class="ficha-hero mb-4">
     <img class="ficha-hero__media ficha-hero__media--round"
-         src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="">
+         src="{{ (concert.artist.photo_url if concert.artist else None) or DEFAULT_AVATAR_URL }}" alt="">
     <div class="ficha-hero__body">
       <div class="ficha-hero__eyebrow">{{ activity_type_label or 'Actividad' }}</div>
       <h2 class="ficha-hero__title">{{ concert.artist.name if concert.artist else 'Actividad' }}</h2>

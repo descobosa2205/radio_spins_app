@@ -128,8 +128,8 @@
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div class="d-flex align-items-center gap-3">
           <a href="{{ url_for('sales_report_by_artist', aid=c.artist_id) if c.artist_id else '#' }}" onclick="event.stopPropagation();">
-            <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}"
-                 class="artist-avatar" alt="">
+            <img src="{{ (c.artist.photo_url if c.artist else None) or DEFAULT_AVATAR_URL }}"
+                 class="artist-avatar" alt="" data-avatar="1">
           </a>
           <div class="d-flex align-items-center flex-wrap gap-2">
             <div class="fw-semibold"{% if c.artist %} data-artist-link="{{ c.artist.id }}"{% endif %}>
@@ -155,7 +155,7 @@
           {% if c.sale_type == 'EMPRESA' and (c.billing_company or c.group_company) %}
             {% set billing = c.billing_company or c.group_company %}
             <a href="{{ url_for('sales_report_by_company', gid=billing.id) }}" class="logo-chip" title="{{ billing.name }}" onclick="event.stopPropagation();">
-              <img src="{{ billing.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+              {{ company_logo(billing, size=40, cls='station-logo') }}
             </a>
           {% elif c.sale_type in ['PARTICIPADOS','CADIZ'] %}
             {% for s in c.company_shares %}
@@ -163,7 +163,7 @@
               {% if comp %}
                 <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}" class="socio-chip"
                    title="{{ comp.name }}{% if s.pct %} · {{ s.pct }}%{% elif s.amount %} · {{ s.amount }}€{% endif %}" onclick="event.stopPropagation();">
-                  <img src="{{ comp.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                  {{ company_logo(comp, size=38, cls='station-logo') }}
                   {% if s.pct %}<span class="socio-chip__pct">{{ s.pct }}%</span>
                   {% elif s.amount %}<span class="socio-chip__pct">{{ s.amount }}€</span>{% endif %}
                 </a>
@@ -174,7 +174,7 @@
               {% if prom %}
                 <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}" class="socio-chip"
                    title="{{ prom.nick }}{% if s.pct %} · {{ s.pct }}%{% elif s.amount %} · {{ s.amount }}€{% endif %}" onclick="event.stopPropagation();">
-                  <img src="{{ prom.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                  <img src="{{ prom.logo_url or DEFAULT_AVATAR_URL }}" class="station-logo" alt="" data-avatar="1">
                   {% if s.pct %}<span class="socio-chip__pct socio-chip__pct--prom">{{ s.pct }}%</span>
                   {% elif s.amount %}<span class="socio-chip__pct socio-chip__pct--prom">{{ s.amount }}€</span>{% endif %}
                 </a>
@@ -182,7 +182,7 @@
             {% endfor %}
           {% elif c.promoter %}
             <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}" class="logo-chip" title="{{ c.promoter.nick }}" onclick="event.stopPropagation();">
-              <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+              <img src="{{ c.promoter.logo_url or DEFAULT_AVATAR_URL }}" class="station-logo" alt="" data-avatar="1">
             </a>
           {% endif %}
         </div>

@@ -1,0 +1,341 @@
+{% extends "layout.html" %}
+{% block content %}
+{# REVISAR una liquidación de royalties «A FAVOR» (registros + sello).
+   Pantalla PARTIDA: a la IZQUIERDA el DOCUMENTO que ha subido la compañía y a la DERECHA sus
+   importes, para contrastar sin cambiar de pantalla. Desde aquí se VALIDA (el importe declarado
+   pasa a ser el ingreso del semestre de ese tema y se le pide la factura a contabilidad), se
+   RECHAZA con el motivo (se le pide a la compañía que la corrija) o se corrige el importe antes
+   de validarlo. Al pinchar un tema de la derecha se cambia el documento de la izquierda. #}
+<style>
+  /* Solo lo de esta pantalla (prefijo `afrev-`); lo demás son clases de la casa. */
+  .afrev-logo{ width:54px; height:54px; object-fit:contain; padding:3px; background:#fff;
+    border:1px solid rgba(0,0,0,.08); border-radius:10px; flex:0 0 auto; }
+  .afrev-eyebrow{ letter-spacing:.05em; font-size:.7rem; }
+  .afrev-cover{ width:44px; height:44px; object-fit:cover; border-radius:8px; background:#f1f3f5; flex:0 0 auto; }
+  /* La tarjeta de cada tema se pincha para ver SU documento. ⚠️ El marco lo pone la clase `border`
+     de Bootstrap (con !important), así que el color se cambia por su VARIABLE. */
+  .afrev-row{ cursor:pointer; background:#fff; }
+  .afrev-row.is-on{ --bs-border-color:var(--brand-accent,#007CA2);
+    box-shadow:0 0 0 .16rem rgba(0,124,162,.12); }
+  .afrev-total{ background:#f6f8fa; border-radius:10px; padding:.45rem .6rem; }
+  .afrev-file{ display:flex; align-items:center; gap:.75rem; padding:1.5rem 1rem; background:#fff; }
+  .afrev-file i{ font-size:2rem; color:var(--brand-accent,#007CA2); }
+</style>
+
+<div class="mb-2">
+  <a class="btn-volver" href="{{ back_url }}"
+     title="Volver a royalties a favor" aria-label="Volver a royalties a favor"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+{# ---------- CABECERA: de quién es, de qué periodo y cómo va ---------- #}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+  <div class="d-flex align-items-center gap-3">
+    <img class="afrev-logo" src="{{ company.logo_url or DEFAULT_AVATAR_URL }}" alt="">
+    <div>
+      <div class="text-muted text-uppercase fw-semibold afrev-eyebrow">Royalties a favor</div>
+      <h5 class="mb-0 fw-bold">{{ company_name or 'Compañía' }}</h5>
+      <div class="text-muted small">
+        <i class="fa fa-calendar-days me-1"></i>{{ period_ordinal }}
+        {% if rec.submitted_by_name %}
+          · Subida por <strong>{{ rec.submitted_by_name }}</strong>{% if rec.submitted_at %} el {{ rec.submitted_at.strftime('%d/%m/%Y') }}{% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    {% if rec.total_amount %}
+      <span class="text-muted small">Validado hasta ahora: <strong>{{ rec.total_amount|eur }}</strong></span>
+    {% endif %}
+    <span class="afavor-st {{ status.cls }}" title="{{ status_tooltip }}">
+      <i class="fa {{ status.icon }} me-1"></i>{{ status.label }}
+    </span>
+  </div>
+</div>
+
+{% if rec.reject_note %}
+  <div class="alert alert-warning">
+    <i class="fa fa-triangle-exclamation me-1"></i>
+    <strong>Se le devolvió para que la corrija:</strong> {{ rec.reject_note }}
+  </div>
+{% endif %}
+
+{% if submitted %}
+<form method="post" action="{{ url_for('afavor_review_save', liq_id=rec.id) }}" data-afavor-review>
+  <div class="row g-3">
+
+    {# ---------- IZQUIERDA: el documento del tema que se está mirando ---------- #}
+    <div class="col-12 col-lg-7">
+      {% if submitted|length > 1 %}
+        {# Con varios temas se cambia de documento con estas pastillas (o pinchando su tarjeta). #}
+        <div class="filter-chips mb-2">
+          {% for r in submitted %}
+            <button type="button" class="filter-chip {% if loop.first %}is-on{% endif %}"
+                    data-afavor-doc="{{ r.afavor_item_id }}" title="Ver el documento de «{{ r.title }}»">
+              <i class="fa fa-file-lines"></i>{{ r.title }}
+            </button>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% for r in submitted %}
+        {% set archivo = (r.document_url or '').split('?')[0]|lower %}
+        <div class="inv-split__doc {% if not loop.first %}d-none{% endif %}"
+             data-afavor-docbox="{{ r.afavor_item_id }}">
+          <div class="inv-split__doclab d-flex justify-content-between align-items-center gap-2">
+            <span class="text-truncate">
+              <i class="fa fa-file-lines me-1"></i>{{ r.document_name or r.title }}
+            </span>
+            {% if r.document_url %}
+              <span class="d-flex align-items-center gap-1 flex-shrink-0">
+                <a class="btn btn-outline-secondary btn-sm" href="{{ r.document_url }}" target="_blank" rel="noopener"
+                   title="Abrir en otra pestaña"><i class="fa fa-arrow-up-right-from-square"></i></a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ r.document_url }}" download
+                   title="Descargar el documento"><i class="fa fa-download"></i></a>
+              </span>
+            {% endif %}
+          </div>
+          {% if not r.document_url %}
+            <div class="p-3 small text-muted">Este tema se envió sin documento.</div>
+          {% elif archivo.endswith('.pdf') %}
+            <div class="inv-split__frame">
+              <iframe src="{{ r.document_url }}#view=FitH&zoom=page-width" title="Liquidación de {{ r.title }}"></iframe>
+            </div>
+          {% elif archivo.endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif')) %}
+            <div class="inv-split__frame">
+              <img src="{{ r.document_url }}" alt="Liquidación de {{ r.title }}">
+            </div>
+          {% else %}
+            {# Un Excel, un CSV o un ZIP no se pueden pintar aquí: se descarga y se mira. #}
+            <div class="afrev-file">
+              {% if archivo.endswith(('.xlsx', '.xls')) %}<i class="fa fa-file-excel"></i>
+              {% elif archivo.endswith('.csv') %}<i class="fa fa-file-csv"></i>
+              {% elif archivo.endswith('.zip') %}<i class="fa fa-file-zipper"></i>
+              {% else %}<i class="fa fa-file"></i>{% endif %}
+              <div class="flex-grow-1">
+                <div class="fw-semibold text-break">{{ r.document_name or 'Liquidación' }}</div>
+                <div class="text-muted small">Este tipo de archivo no se puede ver aquí: descárgalo para mirarlo.</div>
+              </div>
+              <a class="btn btn-outline-secondary btn-sm flex-shrink-0" href="{{ r.document_url }}" download>
+                <i class="fa fa-download me-1"></i>Descargar
+              </a>
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    {# ---------- DERECHA: los importes, tema a tema ---------- #}
+    <div class="col-12 col-lg-5">
+      <div class="text-muted small mb-2">
+        Comprueba cada importe con su documento. Si no cuadra, corrígelo aquí antes de validar;
+        el que se valida es el que pasa a ser el ingreso del semestre de ese tema.
+      </div>
+
+      {% for r in submitted %}
+        <div class="afrev-row border rounded-3 p-3 mb-3 {% if loop.first %}is-on{% endif %}"
+             data-afavor-row="{{ r.afavor_item_id }}" data-pct="{{ r.pct_effective_label }}"
+             title="Ver el documento de este tema">
+          <div class="d-flex align-items-start gap-2">
+            <img class="afrev-cover" src="{{ r.cover_url or DEFAULT_COVER_URL }}" alt="">
+            <div class="flex-grow-1 min-w-0">
+              <div class="fw-semibold text-break">{{ r.title }}</div>
+              <div class="text-muted small text-break">{{ r.who_label or '—' }}</div>
+              <div class="d-flex align-items-center flex-wrap gap-1 mt-1">
+                <span class="badge text-bg-light border">{{ r.kind_label }}</span>
+                {% if r.release_date %}
+                  <span class="text-muted small"><i class="fa fa-calendar me-1"></i>{{ r.release_date }}</span>
+                {% endif %}
+                {% if r.code %}
+                  <span class="text-muted small text-nowrap">{{ r.code_label }} {{ r.code }}</span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="text-end flex-shrink-0">
+              <span class="afavor-pct">{{ r.pct_effective_label }}%</span>
+              <div class="text-muted small">sobre el {{ (r.base_label or 'Bruto')|lower }}</div>
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <label class="form-label small mb-1" for="amount_{{ r.afavor_item_id }}">Ingreso declarado (€)</label>
+            <div class="input-group">
+              <input class="form-control" id="amount_{{ r.afavor_item_id }}" name="amount_{{ r.afavor_item_id }}"
+                     data-money inputmode="decimal" placeholder="0,00"
+                     value="{{ r.amount_income_input }}" data-afavor-amount>
+              <span class="input-group-text">€</span>
+            </div>
+          </div>
+
+          <div class="afrev-total mt-2 d-flex justify-content-between align-items-center gap-2">
+            <span class="text-muted small">Total Royalty a favor</span>
+            <strong data-afavor-total>{{ (r.item_our_amount or 0)|eur }}</strong>
+          </div>
+
+          {% if r.reject_note %}
+            <div class="alert alert-warning py-2 px-3 small mt-2 mb-0">
+              <i class="fa fa-triangle-exclamation me-1"></i>{{ r.reject_note }}
+            </div>
+          {% endif %}
+
+          <label class="form-check mt-2 mb-0">
+            <input class="form-check-input" type="checkbox" name="item_ids"
+                   value="{{ r.afavor_item_id }}" checked>
+            <span class="form-check-label small">Incluir en la revisión</span>
+          </label>
+        </div>
+      {% endfor %}
+
+      <div class="card">
+        <div class="card-body">
+          <label class="form-label small mb-1" for="afrevNote">Motivo, si la rechazas</label>
+          <textarea class="form-control" id="afrevNote" name="note" rows="3"
+                    placeholder="Lo que tiene que corregir la compañía (el importe, el documento, el periodo…)."></textarea>
+          <div class="d-flex justify-content-end gap-2 mt-3">
+            <button class="btn btn-outline-danger" name="accion" value="rechazar"
+                    data-confirm="Se le pedirá a la compañía que la corrija. ¿Continuar?">
+              <i class="fa fa-circle-xmark me-1"></i>Rechazar
+            </button>
+            <button class="btn btn-success" name="accion" value="validar">
+              <i class="fa fa-circle-check me-1"></i>Validar
+            </button>
+          </div>
+          <div class="text-muted small mt-2">
+            Al validar, la factura queda pedida a contabilidad.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</form>
+{% else %}
+  <div class="alert alert-light border">
+    <i class="fa fa-circle-info me-1"></i>No hay nada pendiente de revisar.
+  </div>
+{% endif %}
+
+{# ---------- LO YA REVISADO ---------- #}
+{% if reviewed %}
+  <div class="card mt-3">
+    <div class="card-header bg-white">
+      <strong><i class="fa fa-clipboard-check me-1 text-muted"></i>Ya revisados</strong>
+    </div>
+    <ul class="list-group list-group-flush">
+      {% for r in reviewed %}
+        <li class="list-group-item">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <img class="afrev-cover" src="{{ r.cover_url or DEFAULT_COVER_URL }}" alt="">
+            <div class="flex-grow-1 min-w-0">
+              <div class="fw-semibold text-break">{{ r.title }}</div>
+              <div class="text-muted small text-break">{{ r.who_label or '—' }}</div>
+            </div>
+            <span class="afavor-it {{ r.item_status_cls }}">
+              <i class="fa {{ r.item_status_icon }} me-1"></i>{{ r.item_status_label }}
+            </span>
+            <div class="text-end">
+              <div class="fw-semibold">{{ (r.item_our_amount or 0)|eur }}</div>
+              {% if r.amount_income is not none %}
+                <div class="text-muted small">Declarado {{ r.amount_income|eur }}</div>
+              {% endif %}
+            </div>
+            {% if r.document_url %}
+              <a class="btn btn-outline-secondary btn-sm flex-shrink-0" href="{{ r.document_url }}"
+                 target="_blank" rel="noopener" title="Ver su documento"><i class="fa fa-file-lines"></i></a>
+            {% endif %}
+          </div>
+          {% if r.item_status == 'REJECTED' and r.reject_note %}
+            <div class="text-danger small mt-1">
+              <i class="fa fa-triangle-exclamation me-1"></i>{{ r.reject_note }}
+            </div>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+{# ---------- SEGUIMIENTO: todo lo que ha pasado con esta liquidación ---------- #}
+{% if timeline %}
+  <div class="card mt-3">
+    <div class="card-header bg-white">
+      <strong><i class="fa fa-clock-rotate-left me-1 text-muted"></i>Seguimiento</strong>
+    </div>
+    <ul class="list-group list-group-flush">
+      {% for ev in timeline %}
+        <li class="list-group-item">
+          <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+            <div>
+              <div class="fw-semibold">{{ ev.label }}</div>
+              {% if ev.note %}<div class="text-muted small">{{ ev.note }}</div>{% endif %}
+              {% if ev.to %}<div class="text-muted small">A: {{ ev.to }}</div>{% endif %}
+              {% if ev.total %}<div class="text-muted small">Total: {{ ev.total }}</div>{% endif %}
+            </div>
+            <div class="text-muted small text-end">
+              {% if ev.at %}{{ ev.at }}{% endif %}
+              {% if ev.by %}<div>{{ ev.by }}</div>{% endif %}
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+  var root = document.querySelector('[data-afavor-review]');
+  if (!root) return;
+
+  /* El «Total Royalty a favor» se calcula EN VIVO: el importe declarado × su %. */
+  function num(v) {
+    if (window.numv) return window.numv(v);
+    var t = String(v || '').replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.');
+    var n = parseFloat(t);
+    return isNaN(n) ? 0 : n;
+  }
+  function eur(n) {
+    try { return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
+    catch (e) { return n.toFixed(2) + ' €'; }
+  }
+  function recalcula(caja) {
+    if (!caja) return;
+    var campo = caja.querySelector('[data-afavor-amount]');
+    var salida = caja.querySelector('[data-afavor-total]');
+    if (!campo || !salida) return;
+    salida.textContent = eur(num(campo.value) * num(caja.getAttribute('data-pct')) / 100);
+  }
+
+  /* Cambiar el documento de la izquierda: se pincha la tarjeta del tema o su pastilla. */
+  function muestra(id) {
+    if (!id) return;
+    root.querySelectorAll('[data-afavor-docbox]').forEach(function (box) {
+      box.classList.toggle('d-none', box.getAttribute('data-afavor-docbox') !== id);
+    });
+    root.querySelectorAll('[data-afavor-row]').forEach(function (fila) {
+      fila.classList.toggle('is-on', fila.getAttribute('data-afavor-row') === id);
+    });
+    root.querySelectorAll('[data-afavor-doc]').forEach(function (chip) {
+      chip.classList.toggle('is-on', chip.getAttribute('data-afavor-doc') === id);
+    });
+  }
+
+  root.addEventListener('input', function (ev) {
+    if (!ev.target.closest) return;
+    if (ev.target.matches('[data-afavor-amount]')) recalcula(ev.target.closest('[data-afavor-row]'));
+  });
+
+  root.addEventListener('click', function (ev) {
+    if (!ev.target.closest) return;
+    var chip = ev.target.closest('[data-afavor-doc]');
+    if (chip) { muestra(chip.getAttribute('data-afavor-doc')); return; }
+    var fila = ev.target.closest('[data-afavor-row]');
+    if (fila) muestra(fila.getAttribute('data-afavor-row'));
+  });
+
+  root.querySelectorAll('[data-afavor-row]').forEach(recalcula);
+})();
+</script>
+{% endblock %}

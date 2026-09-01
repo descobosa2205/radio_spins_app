@@ -7,7 +7,7 @@
   <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('media_gallery_view') if _from_media else url_for('concerts_view', tab='vista') }}" title="{{ 'Volver a Fotos / Vídeos' if _from_media else 'Volver a conciertos' }}" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
 </div>
 <div class="ficha-hero">
-  <img class="ficha-hero__media ficha-hero__media--round" src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>
+  <img class="ficha-hero__media ficha-hero__media--round" src="{{ (concert.artist.photo_url if concert.artist else None) or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>
   <div class="ficha-hero__body">
     {# QUÉ ES la actividad manda: un evento promocional no es un concierto de ningún tipo, así que el
        tipo de venta solo se enseña cuando la actividad es un concierto (o un festival). #}
@@ -464,7 +464,7 @@
             <label class="form-label">Artista</label>
             <div class="input-group">
               <select name="artist_id" id="concertDatosArtist" class="form-select select-artists" required>
-                {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" {% if concert.artist_id == a.id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+                {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}" {% if concert.artist_id == a.id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
               </select>
               <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="concertDatosArtist"><i class="fa fa-plus"></i></button>
             </div>
@@ -1374,7 +1374,7 @@
                       <div class="col-12 col-md-6">
                         <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
                           <input class="form-check-input" type="checkbox" name="group_company_ids[]" value="{{ co.id }}" {% if (co.id|string) in artwork_company_ids %}checked{% endif %}>
-                          <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:36px;height:36px;object-fit:contain;">
+                          {{ company_logo(co, size=36) }}
                           <span>{{ co.name }}</span>
                         </label>
                       </div>
@@ -1388,7 +1388,7 @@
                       <div class="col-12 col-md-6">
                         <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
                           <input class="form-check-input" type="checkbox" name="ticketer_ids[]" value="{{ ticketer.id }}" {% if (ticketer.id|string) in artwork_ticketer_ids %}checked{% endif %}>
-                          <img src="{{ ticketer.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:36px;height:36px;object-fit:contain;">
+                          <img src="{{ ticketer.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" style="width:36px;height:36px;object-fit:contain;">
                           <span>{{ ticketer.name }}</span>
                         </label>
                       </div>
@@ -1479,7 +1479,7 @@
                   <div class="d-flex flex-wrap gap-2 mt-2">
                     {% for co in artwork_companies if (co.id|string) in artwork_company_ids %}
                       <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2">
-                        <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:26px;height:26px;object-fit:contain;">
+                        {{ company_logo(co, size=26) }}
                         {{ co.name }}
                       </span>
                     {% endfor %}
@@ -1495,7 +1495,7 @@
                   <div class="d-flex flex-wrap gap-2 mt-2">
                     {% for ticketer in artwork_ticketers if (ticketer.id|string) in artwork_ticketer_ids %}
                       <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2">
-                        <img src="{{ ticketer.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:26px;height:26px;object-fit:contain;">
+                        <img src="{{ ticketer.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" style="width:26px;height:26px;object-fit:contain;">
                         {{ ticketer.name }}
                       </span>
                     {% endfor %}
@@ -1815,7 +1815,7 @@
                   <div class="col-12 col-md-6">
                     <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
                       <input class="form-check-input" type="checkbox" name="group_company_ids[]" value="{{ co.id }}">
-                      <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:36px;height:36px;object-fit:contain;">
+                      {{ company_logo(co, size=36) }}
                       <span>{{ co.name }}</span>
                     </label>
                   </div>
@@ -1835,7 +1835,7 @@
                   <div class="col-12 col-md-6">
                     <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
                       <input class="form-check-input" type="checkbox" name="ticketer_ids[]" value="{{ ticketer.id }}">
-                      <img src="{{ ticketer.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:36px;height:36px;object-fit:contain;">
+                      <img src="{{ ticketer.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" style="width:36px;height:36px;object-fit:contain;">
                       <span>{{ ticketer.name }}</span>
                     </label>
                   </div>
@@ -1947,7 +1947,7 @@
                         <div class="col-12">
                           <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
                             <input class="form-check-input" type="checkbox" name="group_company_ids[]" value="{{ co.id }}" {% if (co.id|string) in artwork_company_ids %}checked{% endif %}>
-                            <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:30px;height:30px;object-fit:contain;">
+                            {{ company_logo(co, size=30) }}
                             <span class="small">{{ co.name }}</span>
                           </label>
                         </div>
@@ -2580,7 +2580,7 @@
               {% for ch in sale_channels %}
                 <div class="col-12 col-md-6 col-xl-4">
                   <div class="border rounded p-2 h-100 d-flex align-items-center gap-2">
-                    <img src="{{ ch.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:38px;height:38px;object-fit:contain;border-radius:8px;">
+                    <img src="{{ ch.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1" style="width:38px;height:38px;object-fit:contain;border-radius:8px;">
                     <div class="flex-grow-1 min-w-0">
                       <div class="fw-semibold small text-truncate">{{ ch.name }}</div>
                       {% if ch.sale_url %}

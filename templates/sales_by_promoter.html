@@ -3,7 +3,7 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div class="d-flex align-items-center gap-2">
     {% if promoter %}
-      <img src="{{ promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+      <img src="{{ promoter.logo_url or DEFAULT_AVATAR_URL }}" class="station-logo" alt="" data-avatar="1">
       <div>
         <h6 class="m-0">Conciertos por promotor — {{ promoter.nick }}</h6>
         {{ linked_mini('promoter', promoter.id) }}
@@ -19,7 +19,7 @@
   <div class="mb-3 border rounded bg-white">
     <div class="p-2 d-flex align-items-center justify-content-between">
       <div class="d-flex align-items-center">
-        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" data-artist-link="{{ artist.id }}">
+        <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-avatar me-2" alt="" data-avatar="1" data-artist-link="{{ artist.id }}">
         <div>
           <h5 class="m-0" data-artist-link="{{ artist.id }}">{{ artist.name }}</h5>
           {{ linked_mini('artist', artist.id) }}

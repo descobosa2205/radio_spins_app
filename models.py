@@ -1782,6 +1782,14 @@ class Promoter(Base):
     # 'empresa' = empresa, 'institucion' = institución (ayuntamiento, organismo, etc.).
     kind = Column(Text)
 
+    # COMPAÑÍA MATRIZ: el grupo empresarial al que pertenece este tercero (otro `Promoter`), para
+    # poder ver junto todo lo de «Sony Music» aunque cada sello sea una ficha distinta. Es UN solo
+    # nivel a propósito: la matriz no tiene matriz (lo valida el guardado).
+    parent_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    # Enlace público (token OPACO) con el que una compañía externa nos sube sus liquidaciones de
+    # royalties «A FAVOR». Uno por compañía y para todos los semestres: no caduca.
+    afavor_token = Column(Text, unique=True)
+
     publishing_company_id = Column(
         PGUUID(as_uuid=True),
         ForeignKey("publishing_companies.id", ondelete="SET NULL"),
@@ -1804,6 +1812,14 @@ class Promoter(Base):
         cascade="all, delete-orphan",
         order_by="PromoterContact.title",
         foreign_keys="PromoterContact.promoter_id",
+    )
+    # ⚠️ AUTO-REFERENCIAL: hace falta `remote_side` (y `foreign_keys`, porque ahora `promoters` tiene
+    # un camino a sí misma) o SQLAlchemy no sabe cuál de los dos lados es el padre y no arranca.
+    parent = relationship(
+        "Promoter",
+        remote_side="Promoter.id",
+        foreign_keys="Promoter.parent_promoter_id",
+        backref="children",
     )
 
 
@@ -2222,6 +2238,14 @@ class Album(Base):
 
     is_distribution = Column(Boolean, nullable=False, server_default=text("false"))
     is_catalog = Column(Boolean, nullable=False, server_default=text("false"))
+
+    # COLABORACIÓN EXTERNA (igual que en Song): un disco de otra compañía en el que participamos.
+    # Se cobra a la compañía colaboradora (un tercero) según el % que nos corresponde: es lo que
+    # alimenta los royalties «A FAVOR». Un A FAVOR puede ser de una canción o de un DISCO.
+    is_external_collab = Column(Boolean, nullable=False, server_default=text("false"))
+    external_company_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    our_pct = Column(Numeric, nullable=False, server_default=text("0"))
+    our_pct_base = Column(Text, nullable=False, server_default=text("'GROSS'"))  # GROSS | NET
 
     # Distribuidora digital (BD Distribuidoras), como en Song.
     distributor_id = Column(PGUUID(as_uuid=True), ForeignKey("distributors.id", ondelete="SET NULL"))
@@ -3428,11 +3452,87 @@ class AfavorLiquidation(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # ---- LO QUE SUBE LA COMPAÑÍA por su enlace público ----
+    submitted_at = Column(DateTime(timezone=True))
+    submitted_by_name = Column(Text)        # quién lo subió (no es de la casa: se guarda su nombre)
+    submitted_by_photo = Column(Text)       # su foto o su logo, para la cara del aviso
+    # ---- LA REVISIÓN (registros + sello) ----
+    reviewed_at = Column(DateTime(timezone=True))
+    reviewed_by_nick = Column(Text)
+    rejected_at = Column(DateTime(timezone=True))
+    rejected_by_nick = Column(Text)
+    reject_note = Column(Text)
+    # ---- LA FACTURA que emitimos ----
+    # `invoice_issued_at` = cuándo se subió; `invoice_send_error` = por qué no se pudo enviar (de ahí
+    # sale el estado «Factura emitida» en vez de «Factura enviada»).
+    invoice_issued_at = Column(DateTime(timezone=True))
+    invoice_issued_by_nick = Column(Text)
+    invoice_send_error = Column(Text)
+    billing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    collected_by_nick = Column(Text)
+    # Total aprobado (suma de lo que nos corresponde de los temas validados). Es lo que se factura.
+    total_amount = Column(Numeric)
+    # Trazabilidad completa, igual que en RoyaltyLiquidation.history.
+    history = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+
     company = relationship("Promoter")
+    items = relationship(
+        "AfavorItem",
+        back_populates="liquidation",
+        cascade="all, delete-orphan",
+        order_by="AfavorItem.created_at",
+    )
 
     __table_args__ = (
         UniqueConstraint("company_id", "period_start", name="uq_afavor_company_period"),
         Index("idx_afavor_liquidations_period", "period_start", "status"),
+    )
+
+
+class AfavorItem(Base):
+    """UN TEMA (canción o disco) dentro de una liquidación «A FAVOR».
+
+    La compañía externa puede mandar la liquidación de unos temas y no de otros, y cada uno lleva
+    SU documento y SU importe, así que el detalle es una fila por tema: PENDING → SUBMITTED (lo ha
+    subido) → APPROVED (validado por registros+sello) / REJECTED.
+    """
+
+    __tablename__ = "afavor_items"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    liquidation_id = Column(PGUUID(as_uuid=True), ForeignKey("afavor_liquidations.id", ondelete="CASCADE"),
+                            nullable=False)
+    # SONG | ALBUM. Solo una de las dos columnas está puesta (lo garantiza un CHECK).
+    item_kind = Column(Text, nullable=False, server_default=text("'SONG'"))
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"))
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="CASCADE"))
+
+    # El % a favor nuestro CONGELADO al enviar (si mañana cambia en la ficha, lo liquidado no cambia).
+    our_pct = Column(Numeric)
+    our_pct_base = Column(Text)                 # GROSS | NET
+    amount_income = Column(Numeric)             # el ingreso que declara la compañía
+    our_amount = Column(Numeric)                # amount_income × our_pct / 100
+    detected_amount = Column(Numeric)           # lo que se leyó del documento (informativo)
+
+    document_url = Column(Text)
+    document_name = Column(Text)
+
+    status = Column(Text, nullable=False, server_default=text("'PENDING'"))
+    submitted_at = Column(DateTime(timezone=True))
+    submitted_by_name = Column(Text)
+    approved_at = Column(DateTime(timezone=True))
+    approved_by_nick = Column(Text)
+    reject_note = Column(Text)
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    liquidation = relationship("AfavorLiquidation", back_populates="items")
+    song = relationship("Song")
+    album = relationship("Album")
+
+    __table_args__ = (
+        Index("idx_afavor_items_liq", "liquidation_id", "status"),
     )
 
 
@@ -12600,3 +12700,74 @@ def ensure_syncros_schema():
         "ALTER TABLE IF EXISTS sync_submissions ALTER COLUMN supervisor_id DROP NOT NULL;",
         "ALTER TABLE IF EXISTS sync_submissions ALTER COLUMN promoter_id DROP NOT NULL;",
     ], "syncros_schema")
+
+
+def ensure_afavor_schema():
+    """Royalties «A FAVOR»: el detalle por tema, la trazabilidad y lo que hace falta para que una
+    compañía externa nos suba sus liquidaciones por su enlace público.
+
+    ⚠️ Un A FAVOR puede ser de una CANCIÓN o de un DISCO: por eso el álbum gana las mismas cuatro
+    columnas de colaboración externa que la canción.
+    """
+    _create_all_once()
+    _exec_ddl_statements([
+        # --- COLABORACIÓN EXTERNA EN UN ÁLBUM (las mismas cuatro columnas que en songs) ---
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS is_external_collab boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS external_company_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS our_pct numeric NOT NULL DEFAULT 0;",
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS our_pct_base text NOT NULL DEFAULT 'GROSS';",
+        # --- EL TERCERO: su compañía matriz y su enlace público de liquidaciones ---
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS parent_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS afavor_token text;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_promoters_afavor_token ON promoters(afavor_token) WHERE afavor_token IS NOT NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_promoters_parent ON promoters(parent_promoter_id) WHERE parent_promoter_id IS NOT NULL;",
+        # --- LA LIQUIDACIÓN A FAVOR: lo que sube la compañía, la revisión y la factura ---
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS submitted_at timestamptz;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS submitted_by_name text;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS submitted_by_photo text;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS reviewed_at timestamptz;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS reviewed_by_nick text;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS rejected_at timestamptz;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS rejected_by_nick text;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS reject_note text;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS invoice_issued_at timestamptz;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS invoice_issued_by_nick text;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS invoice_send_error text;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS billing_company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS collected_by_nick text;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS total_amount numeric;",
+        "ALTER TABLE IF EXISTS afavor_liquidations ADD COLUMN IF NOT EXISTS history jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        # --- EL DETALLE POR TEMA ---
+        """
+        CREATE TABLE IF NOT EXISTS afavor_items (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            liquidation_id uuid NOT NULL REFERENCES afavor_liquidations(id) ON DELETE CASCADE,
+            item_kind text NOT NULL DEFAULT 'SONG',
+            song_id uuid REFERENCES songs(id) ON DELETE CASCADE,
+            album_id uuid REFERENCES albums(id) ON DELETE CASCADE,
+            our_pct numeric,
+            our_pct_base text,
+            amount_income numeric,
+            our_amount numeric,
+            detected_amount numeric,
+            document_url text,
+            document_name text,
+            status text NOT NULL DEFAULT 'PENDING',
+            submitted_at timestamptz,
+            submitted_by_name text,
+            approved_at timestamptz,
+            approved_by_nick text,
+            reject_note text,
+            notes text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_afavor_items_one_target CHECK (
+                (song_id IS NOT NULL AND album_id IS NULL) OR (song_id IS NULL AND album_id IS NOT NULL)
+            )
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_afavor_items_liq ON afavor_items(liquidation_id, status);",
+        # Un tema no puede estar dos veces en la misma liquidación.
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_afavor_items_song ON afavor_items(liquidation_id, song_id) WHERE song_id IS NOT NULL;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_afavor_items_album ON afavor_items(liquidation_id, album_id) WHERE album_id IS NOT NULL;",
+    ], "afavor_schema")

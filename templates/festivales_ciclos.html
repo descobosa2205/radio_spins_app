@@ -100,7 +100,7 @@
           <div class="input-group mb-3">
             <select class="form-select select-with-thumbs" name="event_id" id="cfEvent" data-no-loader {% if only_events %}required{% endif %}>
               <option value="">Sin evento asociado</option>
-              {% for e in events %}<option value="{{ e.id }}" data-name="{{ e.name }}" data-logo="{{ e.logo_url or url_for('static', filename='img/logo.png') }}">{{ e.name }}</option>{% endfor %}
+              {% for e in events %}<option value="{{ e.id }}" data-name="{{ e.name }}" data-logo="{{ e.logo_url or DEFAULT_AVATAR_URL }}">{{ e.name }}</option>{% endfor %}
             </select>
             {% if CAN_EDIT_CONCERTS %}<button class="btn btn-outline-secondary" type="button" data-quick-create="event" data-target="cfEvent"><i class="fa fa-plus"></i></button>{% endif %}
           </div>
@@ -122,7 +122,7 @@
           <label class="form-label">Recinto</label>
           <select class="form-select select-venues mb-3" name="venue_id" data-no-loader>
             <option value="">—</option>
-            {% for v in venues %}<option value="{{ v.id }}" data-name="{{ v.name }}" data-photo="{{ v.photo_url or url_for('static', filename='img/logo.png') }}">{{ v.name }}</option>{% endfor %}
+            {% for v in venues %}<option value="{{ v.id }}" data-name="{{ v.name }}" data-photo="{{ v.photo_url or DEFAULT_AVATAR_URL }}">{{ v.name }}</option>{% endfor %}
           </select>
           <div class="row g-3">
             <div class="col-6"><label class="form-label">Municipio <span class="text-muted small">(opcional)</span></label><input class="form-control" name="municipality"></div>

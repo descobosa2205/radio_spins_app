@@ -43,7 +43,7 @@
           </div>
           <div class="card-body d-flex gap-3 align-items-center">
             <span class="logo-country-wrap flex-shrink-0">
-              <img src="{{ outlet.logo_url or url_for('static', filename='img/logo.png') }}" alt="{{ outlet.name }}" class="media-card__logo">
+              <img src="{{ outlet.logo_url or DEFAULT_AVATAR_URL }}" alt="{{ outlet.name }}" class="media-card__logo" data-avatar="1">
               {% if (outlet.country_code or 'ES') != 'ES' %}
                 <span class="country-flag-badge" title="{{ outlet.country_name or country_name_es(outlet.country_code) }}">{{ country_flag_emoji(outlet.country_code) }}</span>
               {% endif %}

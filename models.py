@@ -458,6 +458,10 @@ def ensure_artist_notifications_schema():
             ADD COLUMN IF NOT EXISTS sales_request_token text,
             ADD COLUMN IF NOT EXISTS sales_request_error_at timestamptz,
             ADD COLUMN IF NOT EXISTS sales_request_error text,
+            -- Las comunicaciones ya mandadas que TODAVÍA no se han contestado (y a quién), y cuándo
+            -- se actualizaron las ventas por última vez: al actualizarlas, la lista se vacía.
+            ADD COLUMN IF NOT EXISTS sales_request_log jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS sales_updated_at timestamptz,
             -- Enlace PÚBLICO de la cartelería (para que el artista y el promotor la vean y la
             -- descarguen sin entrar en la app). Es un token OPACO y distinto del de la solicitud a
             -- diseño: con ese se SUBEN carteles, con este solo se descargan.
@@ -2553,6 +2557,10 @@ class Concert(Base):
     manual_municipality = Column(Text)
     manual_province = Column(Text)
     manual_postal_code = Column(Text)
+    # ⚠️ El PAÍS de una actividad SIN RECINTO: `_concert_country_value` ya lo leía (y con él se pinta
+    # la bandera de lo que es de FUERA), pero la columna no existía, así que un `getattr` devolvía
+    # siempre None y una fecha en Francia sin recinto no se distinguía de una de aquí.
+    manual_country = Column(Text)
     show_time = Column(Text)
     doors_time = Column(Text)
     show_time_tbc = Column(Boolean, nullable=False, server_default=text("false"))
@@ -2615,6 +2623,12 @@ class Concert(Base):
     #    el día con un correo que está mal y para poder DECIRLO en la ficha.
     sales_request_error_at = Column(DateTime(timezone=True))
     sales_request_error = Column(Text)
+    #  · `sales_request_log` = las comunicaciones MANDADAS que siguen esperando respuesta, con a
+    #    quién y cuándo (una fila por envío). ⚠️ Cuando el promotor ACTUALIZA las ventas se VACÍA:
+    #    lo que se enseña es lo que está esperando, no un archivo (lo pidió así Dani).
+    #  · `sales_updated_at`   = cuándo actualizó las ventas por última vez.
+    sales_request_log = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    sales_updated_at = Column(DateTime(timezone=True))
     # Enlace PÚBLICO de la cartelería (token opaco; ⚠️ NO es el de la solicitud a diseño, que sirve
     # para SUBIR carteles: aquí solo se ven y se descargan).
     artwork_share_token = Column(Text)
@@ -5125,6 +5139,9 @@ class BagExpense(Base):
     amount_net = Column(Numeric, nullable=False, server_default=text("0"))
     amount_tax = Column(Numeric, nullable=False, server_default=text("0"))
     amount_gross = Column(Numeric, nullable=False, server_default=text("0"))
+    # El % de IVA con el que se calculó el gasto (21 por defecto). Se apunta para poder recalcularlo
+    # y para poder CAMBIARLO desde los tres puntitos del gasto sin adivinar con qué se hizo.
+    vat_pct = Column(Numeric)
     retention_amount = Column(Numeric, nullable=False, server_default=text("0"))
     payment_status = Column(Text, nullable=False, server_default=text("'NO_PAGADO'"))
     paid_amount = Column(Numeric, nullable=False, server_default=text("0"))
@@ -5231,6 +5248,9 @@ class BagExpenseAlert(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="CASCADE"), nullable=False)
     alert_date = Column(Date, nullable=False)
+    # La HORA del aviso («HH:MM», opcional): un aviso a una hora concreta es lo que se pide para no
+    # enterarse a las 23:00 de algo que había que hacer por la mañana.
+    alert_time = Column(Text)
     body = Column(Text)
     is_done = Column(Boolean, nullable=False, server_default=text("false"))
     done_at = Column(DateTime(timezone=True))
@@ -8849,6 +8869,7 @@ def ensure_third_party_and_contract_sheet_schema():
             ADD COLUMN IF NOT EXISTS manual_municipality text,
             ADD COLUMN IF NOT EXISTS manual_province text,
             ADD COLUMN IF NOT EXISTS manual_postal_code text,
+            ADD COLUMN IF NOT EXISTS manual_country text,
             ADD COLUMN IF NOT EXISTS show_time text,
             ADD COLUMN IF NOT EXISTS doors_time text,
             ADD COLUMN IF NOT EXISTS show_time_tbc boolean NOT NULL DEFAULT false,
@@ -9938,6 +9959,10 @@ def ensure_actions_contracting_admin_schema():
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS payment_receipt_url text;",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS payment_receipt_name text;",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS supplements jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        # El % de IVA con el que se calculó el gasto (se puede cambiar desde sus tres puntitos) y la
+        # HORA del aviso de un gasto.
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS vat_pct numeric;",
+        "ALTER TABLE IF EXISTS bag_expense_alerts ADD COLUMN IF NOT EXISTS alert_time text;",
         """
         CREATE TABLE IF NOT EXISTS concert_budget_items (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

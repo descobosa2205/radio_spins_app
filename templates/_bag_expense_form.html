@@ -1,0 +1,209 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   AÑADIR UN GASTO A LA BOLSA · el formulario, por MÓDULOS (bocadillos) y en un solo paso.
+   Estética de las bolsas (`.sim-cat-card`), y el ÚNICO campo obligatorio es el CONCEPTO.
+
+   Cuatro módulos, cada uno en su bocadillo:
+     1 · DATOS      → concepto · importe (con o sin IVA) · nota y aviso
+     2 · PROVEEDOR  → quién nos factura (barra de búsqueda en toda la base) y con qué sociedad
+     3 · FACTURA    → se arrastra el documento: se lee y se dice si es FACTURA o TICKET
+     4 · PAGO       → si está pagado (completo o parcial) y con qué método
+
+   Del contexto necesita: `bag`, `bag_next`, `bag_payment_methods`, `bag_payment_method_icons`,
+   `bag_vat_pct_default`.
+   ⚠️ El motor es `static/js/bag_expense_form.js` (GLOBAL, por delegación): este modal se pinta en
+   la pantalla de la bolsa y también EMBEBIDO en una ficha, cuyas zonas se repintan por AJAX.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+<div class="modal fade" id="addExpenseModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('bag_expense_create', bag_id=bag.id) }}"
+            enctype="multipart/form-data" data-bag-expense-form>
+        <input type="hidden" name="next" value="{{ bag_next }}">
+        <input type="hidden" name="category" id="addExpenseCategory" value="OTROS">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-receipt me-2 text-danger"></i>Añadir gasto</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+
+          {# ═════════ 1 · DATOS ═════════ #}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><span><i class="fa fa-circle-info"></i>Datos</span>
+              <span class="small fw-normal" data-be-cat-label></span></div>
+            <div class="sim-cat-card__body">
+              <div class="row g-3">
+                <div class="col-12">
+                  <label class="form-label">Concepto <span class="text-danger">*</span></label>
+                  <input type="text" name="concept" class="form-control" required
+                         placeholder="Qué es el gasto (lo único obligatorio)">
+                </div>
+                <div class="col-md-5">
+                  <label class="form-label">Importe</label>
+                  <input type="text" name="amount_value" class="form-control" data-money
+                         placeholder="0,00" inputmode="decimal">
+                </div>
+                <div class="col-md-7">
+                  <label class="form-label d-block">¿El importe lleva IVA?</label>
+                  {# Dos botones, uno de los dos siempre marcado. Sin IVA, se calcula al {{ bag_vat_pct_default }}%. #}
+                  <div class="btn-group w-100" role="group">
+                    <input type="radio" class="btn-check" name="amount_mode" value="GROSS" id="beVatIn" checked>
+                    <label class="btn btn-outline-secondary" for="beVatIn"><i class="fa fa-check me-1"></i>Lo incluye</label>
+                    <input type="radio" class="btn-check" name="amount_mode" value="NET" id="beVatOut">
+                    <label class="btn btn-outline-secondary" for="beVatOut"><i class="fa fa-plus me-1"></i>Sin IVA</label>
+                  </div>
+                  <div class="form-text" data-be-vat-hint></div>
+                  <input type="hidden" name="vat_pct" value="{{ bag_vat_pct_default }}" data-be-vat-pct>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Nota <span class="text-muted">(opcional)</span></label>
+                  <div class="input-group">
+                    <input type="text" name="note" class="form-control" placeholder="Lo que haya que recordar de este gasto">
+                    {# LA CAMPANITA: un aviso el día y la hora que se diga. #}
+                    <button type="button" class="btn btn-outline-secondary" data-be-alert-toggle
+                            title="Ponerme un aviso"><i class="fa fa-bell"></i></button>
+                  </div>
+                  <div class="border rounded p-2 mt-2 d-none" data-be-alert-panel>
+                    <div class="row g-2 align-items-end">
+                      <div class="col-auto">
+                        <label class="form-label small mb-1">Avisarme el día</label>
+                        <input type="date" name="alert_date" class="form-control form-control-sm" data-be-alert-date>
+                      </div>
+                      <div class="col-auto">
+                        <label class="form-label small mb-1">a las</label>
+                        <input type="time" name="alert_time" class="form-control form-control-sm" value="09:00">
+                      </div>
+                      <div class="col-12 col-md-auto d-flex gap-1 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-be-alert-preset="1">El día de antes</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-be-alert-preset="7">Una semana antes</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-be-alert-preset="0">Hoy</button>
+                      </div>
+                    </div>
+                    <div class="form-text">Los presets se cuentan desde la fecha del gasto (o desde hoy si aún no la hay).</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# ═════════ 2 · PROVEEDOR ═════════ #}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><span><i class="fa fa-user-tie"></i>Proveedor</span></div>
+            <div class="sim-cat-card__body" data-be-provider
+                 data-url-search="{{ url_for('api_bag_provider_search') }}">
+              <label class="form-label">¿Quién nos factura?</label>
+              <div class="input-group">
+                <input type="text" class="form-control" data-be-prov-input autocomplete="off"
+                       placeholder="Busca un tercero, un medio, un artista o alguien de la casa…">
+                {# El «+» de siempre: crea el tercero sobre la marcha y lo deja elegido. #}
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                        data-target="beProviderSelect" title="Crear un tercero nuevo"><i class="fa fa-plus"></i></button>
+              </div>
+              {# El `<select>` oculto es lo que rellena el alta rápida global (quick_create.js). #}
+              <select id="beProviderSelect" class="d-none" data-be-prov-select><option value=""></option></select>
+              <input type="hidden" name="provider_id" data-be-prov-id>
+              <input type="hidden" name="provider_kind" data-be-prov-kind>
+              <input type="hidden" name="provider_ref" data-be-prov-ref>
+              {# Lo elegido, con su foto o su logo. #}
+              <div class="mt-2 d-none" data-be-prov-chosen></div>
+              <div class="alert alert-warning small mt-2 mb-0 d-none" data-be-prov-embargo>
+                <i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.
+              </div>
+
+              {# DATOS DE FACTURACIÓN: con qué sociedad factura (o sus propios datos). #}
+              <div class="mt-3 d-none" data-be-billing>
+                <label class="form-label d-block">Datos de facturación</label>
+                <div class="d-flex flex-wrap gap-2" data-be-billing-opts></div>
+                <input type="hidden" name="provider_company_id" data-be-company-id>
+                <div class="mt-2 d-none" data-be-linked-wrap>
+                  <label class="form-label small">Sociedad vinculada</label>
+                  <div class="input-group">
+                    <input type="text" class="form-control" data-be-linked-input autocomplete="off"
+                           placeholder="Busca la sociedad o el tercero que factura…">
+                    <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                            data-target="beLinkedSelect" title="Crear el tercero que factura"><i class="fa fa-plus"></i></button>
+                  </div>
+                  <select id="beLinkedSelect" class="d-none" data-be-linked-select><option value=""></option></select>
+                  <div class="form-text">Se guarda como el proveedor del gasto: es quien emite la factura.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# ═════════ 3 · FACTURA / RECIBO ═════════ #}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><span><i class="fa fa-file-invoice"></i>Factura o ticket</span>
+              <span class="badge text-bg-light border d-none" data-be-doc-kind></span></div>
+            <div class="sim-cat-card__body" data-be-doc
+                 data-url-detect="{{ url_for('api_bag_document_detect') }}">
+              {# Se arrastra o se elige (el mecanismo global `file_drop.js`). #}
+              <label class="be-drop w-100 mb-0" data-file-drop-for="#beDocInput">
+                <i class="fa fa-cloud-arrow-up"></i>
+                <span data-be-doc-name>Arrastra aquí la factura o el ticket, o pincha para elegirlo</span>
+              </label>
+              <input type="file" id="beDocInput" name="documents" class="d-none"
+                     accept=".pdf,image/*" multiple>
+              <input type="hidden" name="document_type" value="FACTURA" data-be-doc-type>
+              <div class="form-text" data-be-doc-hint>Se lee solo: si es una <strong>factura</strong> se
+                desglosa el IVA y si es un <strong>ticket</strong> no (el IVA de un ticket no es deducible).</div>
+              <div class="row g-2 mt-2 d-none" data-be-doc-fields>
+                <div class="col-md-4">
+                  <label class="form-label small">Nº de factura</label>
+                  <input type="text" name="invoice_number" class="form-control form-control-sm" data-be-invnum>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">Fecha de emisión</label>
+                  <input type="date" name="issue_date" class="form-control form-control-sm" data-be-issue>
+                </div>
+                <div class="col-md-4 d-none" data-be-establishment-wrap>
+                  <label class="form-label small">Establecimiento</label>
+                  <input type="text" name="ticket_establishment" class="form-control form-control-sm">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# ═════════ 4 · ESTADO DEL PAGO ═════════ #}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><span><i class="fa fa-euro-sign"></i>Estado del pago</span></div>
+            <div class="sim-cat-card__body" data-be-pay>
+              <div class="d-flex flex-wrap gap-2">
+                <input type="radio" class="btn-check" name="payment_status" value="NO_PAGADO" id="bePayNo" checked>
+                <label class="btn btn-outline-secondary" for="bePayNo"><i class="fa fa-hourglass-half me-1"></i>Sin pagar</label>
+                <input type="radio" class="btn-check" name="payment_status" value="PAGADO" id="bePayYes">
+                <label class="btn btn-outline-success" for="bePayYes"><i class="fa fa-circle-check me-1"></i>Ya está pagado</label>
+              </div>
+              <div class="mt-3 d-none" data-be-pay-panel>
+                <label class="form-label d-block">¿El pago ha sido…?</label>
+                <div class="d-flex flex-wrap gap-2">
+                  <input type="radio" class="btn-check" name="paid_kind" value="FULL" id="bePayFull" checked>
+                  <label class="btn btn-outline-success" for="bePayFull"><i class="fa fa-check-double me-1"></i>Completo</label>
+                  <input type="radio" class="btn-check" name="paid_kind" value="PARTIAL" id="bePayPart">
+                  <label class="btn btn-outline-warning" for="bePayPart"><i class="fa fa-percent me-1"></i>Parcial</label>
+                </div>
+                <div class="row g-2 mt-2 d-none" data-be-paid-amount-wrap>
+                  <div class="col-md-5">
+                    <label class="form-label small">¿Cuánto se ha pagado?</label>
+                    <input type="text" name="paid_amount" class="form-control" data-money placeholder="0,00" inputmode="decimal">
+                  </div>
+                </div>
+                <label class="form-label d-block mt-3">¿Cómo se ha pagado?</label>
+                <div class="d-flex flex-wrap gap-2">
+                  {% for method in bag_payment_methods %}
+                    <input type="radio" class="btn-check" name="payment_method" value="{{ method }}" id="bePayM{{ loop.index }}">
+                    <label class="btn btn-outline-secondary" for="bePayM{{ loop.index }}">
+                      <i class="fa {{ (bag_payment_method_icons or {}).get(method, 'fa-money-check-dollar') }} me-1"></i>{{ method }}</label>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-plus me-1"></i>Añadir gasto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

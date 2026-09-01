@@ -8421,3 +8421,237 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `?cat=LOGO`**, así que el enlace de una pieza concreta es `…url ~ '?f=' ~ id` y `…url ~ '&f=' ~ id`.
   ⚠️ La imagen de una **GIRA** no es la foto de una persona: en la galleta de la página va cuadrada
   (`.galleta__foto.is-square`), no en círculo.
+
+- ⚠️⚠️ **LO CREADO ANTES DEL 2-SEP-2026 SE CONFIRMA SIN COMUNICAR** (sep 2026). La comunicación al
+  artista desde la app es de septiembre de 2026: lo que se dio de alta ANTES ya se habló en su día
+  por teléfono o por correo, así que **mandar ahora un aviso de algo ya hablado solo haría ruido** y
+  esas actividades no se podían confirmar sin él. Corte **`ARTIST_NOTICE_LEGACY_CREATED_BEFORE`**
+  (2-sep-2026), y es la **FECHA DE CREACIÓN** (`Concert.created_at`), no la de la actividad: una
+  fecha de dentro de seis meses apuntada en agosto también entra.
+  · Punto único **`_concert_notice_ack_reason(concert)`** → **`PASADA`** (su último día ya pasó, lo
+  de siempre) · **`ANTIGUA`** (creada antes del corte) · `""` (hay que avisar de verdad), y
+  **`_artist_notice_ack_texts(motivo)`**, que da la NOTA y cómo se llaman los dos botones. Con eso,
+  al pinchar CONFIRMADO sale el pop-up **«Confirmar sin comunicar»** con la nota —«esta actividad se
+  creó antes del 2 de septiembre de 2026, por lo que la puedes confirmar sin necesidad de
+  comunicársela al artista»— y **«Confirmar»** / **«Confirmar y comunicar»**.
+  ⚠️ Los TEXTOS los manda el SERVIDOR en el JSON de la compuerta (`ack_reason`/`ack_note`/
+  `ack_label`/`notify_label`/`ack_title`): `pedirDecisionAviso` (scripts.js) no repite ninguno, así
+  que cambiar la fecha del corte cambia el pop-up, la pantalla del aviso y el flash a la vez.
+  ⚠️ La fecha del texto sale del propio corte (`_artist_notice_legacy_date_label`), nunca escrita a
+  mano.
+  ⚠️ Confirmar así **queda apuntado igual que un envío** (`_concert_notice_mark_manual`:
+  `ConcertArtistNotification` con canal MANUAL y la misma FIRMA, y la nota dice por qué), así que un
+  cambio gordo posterior (fecha, hora, recinto o caché) vuelve a pedir aviso como en cualquier otra.
+  ⚠️ **El servidor lo vuelve a comprobar** (`concert_artist_notice_ack`): una actividad creada
+  después del corte y sin celebrar no se puede dar por informada ni llamando al endpoint a mano.
+  ⚠️ El ALTA solo se auto-marca con el motivo **PASADA** (`ack_reason == "PASADA"`): una actividad
+  que se está creando AHORA no es antigua, y darlo por hecho en silencio sería confirmar sin avisar
+  sin que nadie lo haya decidido.
+
+- ⚠️⚠️ **EL RESPONSABLE DE TICKETING se pide SIEMPRE que las entradas las venda un TERCERO**
+  (sep 2026). Antes la tarea solo salía si **no había ningún correo** al que escribir, así que en la
+  mayoría de las actividades no se reclamaba nunca (el promotor casi siempre tiene correo en su
+  ficha). Punto único **`_concert_ticketing_contact_unset`**: está configurado cuando el contacto
+  sale de la ACTIVIDAD o del propio TERCERO (`source` CONCERT / PROMOTER_DEFAULT); **caer en el
+  correo de la ficha del promotor es el RESPALDO, no una decisión**.
+  · Sale como tarea en la pestaña **«Inicio»** de la actividad y como tarea de **Contratación**
+  («Sin responsable de ticketing»).
+  ⚠️ **No bloquea nada**: sin configurarlo, las comunicaciones para actualizar la venta se le siguen
+  mandando por la cascada de siempre (y la tarea lo DICE: «mientras no esté, las ventas se le piden
+  al correo del promotor»).
+  · **Se configura desde TRES sitios y es el MISMO pop-up** (`#ticketingContactModal`, endpoint
+  `concert_ticketing_contact_save`): la tarea de Inicio, **CONTACTOS de la ficha de contratación** y
+  «Entradas y venta». El hueco que se ve es el parcial único **`_concert_ticketing_owner.html`**
+  (foto, nombre, correo, la etiqueta «Sin configurar» y el botón), así que no hay dos versiones.
+
+- **TICKETING · LAS COMUNICACIONES QUE SIGUEN ESPERANDO** (sep 2026): en la pestaña Ticketing se ve
+  **cuándo** se le ha pedido la actualización de ventas y **a quién**, una línea por envío
+  («Pendientes de que actualice»), y **en cuanto el promotor actualiza las ventas, todas las
+  anteriores desaparecen** y se dice cuándo lo hizo. Lo que se enseña es el trabajo que está
+  esperando, no un archivo (lo pidió así Dani).
+  · `Concert.sales_request_log` (JSONB) + `Concert.sales_updated_at`, con
+  **`_sales_request_log_add`** (lo llama `_sales_request_send`, así que valen el barrido automático
+  y el envío a mano), **`_sales_request_log_clear`** (lo llama `public_sales_update_save` al guardar
+  el reporte) y `_sales_request_log_rows`.
+  ⚠️ En el envío a mano, al primer destinatario se le apunta con **su ficha** (nombre y foto) si es
+  el contacto de ticketing, y **cada correo extra al que SÍ le sale** se apunta también: un envío que
+  no salió no puede figurar como pendiente de contestar.
+
+- ⚠️⚠️ **TODAS LAS TAREAS DE LA PESTAÑA «INICIO» SE PUEDEN HACER DESDE AHÍ** (sep 2026). Las tareas
+  del DEPARTAMENTO (confirmar, contrato, anuncio, venta, producción, ticketing) se pintaban **sin
+  ningún botón** —su control colgaba de `t.mine` y una tarea del departamento no es de nadie—, así
+  que había que buscar dónde se hacía cada cosa, que es justo lo que este tablero viene a evitar.
+  Ahora cada tarea lleva cómo se resuelve: `url` (a donde se hace), `modal` (el pop-up que se abre) o
+  **`do`** (su control propio):
+  · **confirmar** → el MISMO camino que la etiqueta de estado (`[data-status-menu]` +
+    `data-status-option="CONFIRMADO"`, handler global), así que pasa por su compuerta y sale el
+    pop-up del aviso al artista si hace falta;
+  · **anuncio** → la MISMA etiqueta clicable de la cabecera (`_concert_announcement_badge.html`);
+  · **venta** → el formulario de `concert_sale_activate`;
+  · **contrato** → la ficha de contratación en `#contratos-actividad`;
+  · **producción** → `#prodOwnerModal` · **ticketing** → `#ticketingContactModal`.
+  ⚠️ Cada tarea dice qué permiso hace falta (**`perm`**: `concerts` u `onsale`): un botón que abre un
+  pop-up que no se ha pintado no hace nada.
+  ⚠️ Lo que **es de otra persona** (las fases de una petición) sigue siendo suyo: se ve en gris con
+  su nombre y su campanita, y solo se añade un **«Ir»** sin relleno para poder entrar a verlo.
+
+- ⚠️ **EN LA CABECERA DE UNA ACTIVIDAD NO VAN LAS PERSONAS VINCULADAS AL ARTISTA** (sep 2026): su
+  hermano, su asistente… eso es de la **ficha del ARTISTA**, no de la actividad, y ahí solo hacía
+  ruido (se veía en cualquier concierto: «Jose Luis — Hermano y Road Manager», «Eva — Asistente»).
+  Misma regla que la cabecera de una canción. Los contactos de ESA actividad están en su ficha de
+  contratación.
+
+- ⚠️⚠️ **EL ASISTENTE DE ACTIVIDAD ES UNO, Y SU CONTEXTO SALE DE UN SOLO SITIO** (sep 2026). El
+  parcial ya era único (`_concert_wizard_modal.html`, incluido en 12 pantallas), pero **Contratación,
+  la vista de conciertos, la ficha de una gira y la de un ciclo se montaban sus propias listas a
+  mano** y se quedaban sin las claves nuevas: el MISMO asistente salía con la tarjeta de
+  «Discográficas» VACÍA, sin gente en «¿quién de producción se encarga?» y sin giras ni ciclos según
+  desde dónde se abriera (bug real). Ahora:
+  · **`_concert_wizard_context`** es el único sitio donde se dice qué necesita el asistente, y
+  · **`_with_concert_wizard(session_db, ctx)`** es por donde pasa **toda** pantalla que lo incluya:
+    añade lo que falta **sin pisar** lo que la pantalla ya pasa (sus propias listas para sus
+    listados y filtros) y pone `wizard_available`.
+  Un dato nuevo del asistente se añade en `_concert_wizard_context` y **aparece en todas a la vez**.
+  · Enganchado en las 12: Inicio · Actividades · Contratación (otras actividades) · vista de
+  conciertos y Facturación · **listado de giras compradas** · **listado de festivales/ciclos** ·
+  Eventos · ficha del artista · ficha de una **gira** y de un **ciclo/festival/evento** · ficha de
+  una petición aprobada.
+  ⚠️ **El botón «+ Actividad» también tiene que estar en todas**: el listado de giras compradas y el
+  de festivales/ciclos eran las únicas pestañas de Contratación sin él (solo tenían «Nueva gira» /
+  «Nuevo ciclo»), así que desde ahí había que irse a otra pantalla para añadir una fecha.
+  ⚠️ En la ficha de una gira/ciclo, «Crear concierto» abre el asistente **en esa misma pantalla**
+  (`url_for(request.endpoint, open_wizard=1, wizard_group=…, **request.view_args)`): la auto-apertura
+  por parámetros vive en el propio parcial, así que funciona en cualquier página que lo incluya —
+  antes te llevaba a `/conciertos` y perdías el contexto de la gira.
+  ⚠️ Con `setdefault` la pantalla manda sobre el helper: en `contracting_view` se retiró su `artists`
+  a propósito (era **todos** los artistas, con los espejos de EVENTO dentro, que no deben salir en el
+  selector; el helper los excluye) y en `concerts_view` se conservan `artists` y `venues`, que son los
+  de su rejilla y sus filtros.
+
+- ⚠️⚠️ **EL REPERTORIO DE UNA ACTIVIDAD: se busca ESCRIBIENDO y se ordena ARRASTRANDO** (sep 2026).
+  Al marcar «Sí, canta», el nº de canciones se podía poner pero **la barra de búsqueda de canciones
+  no funcionaba**: era un `<select multiple>` con **Select2 SIN `dropdownParent`** y dentro del
+  asistente (un modal con scroll) su desplegable **se queda detrás y no se abre** — el clásico de
+  esta app. Ahora:
+  · Parcial ÚNICO **`templates/_performance_songs.html`** + motor **GLOBAL**
+    `static/js/performance_songs.js` (`window.app33PerfSongs`), usados por el **asistente** y por la
+    sección **«Actividad» de la ficha**: se pone igual en los dos y una mejora vale para los dos.
+  · Se escribe y salen las coincidencias del repertorio del artista (sin acentos ni mayúsculas), y lo
+    elegido son **filas que se arrastran**: **ese es el orden del repertorio**.
+  ⚠️ La lista de sugerencias cuelga del `<body>` con **`app33FloatList`** (la misma de todos los
+  buscadores de la casa): dentro del modal, cualquier ancestro con `overflow` la recortaría.
+  ⚠️ **El motor es GLOBAL y por DELEGACIÓN** porque la sección «Actividad» vive dentro de una zona
+  `data-inline-zone` que se REEMPLAZA al guardar: un `<script>` de dentro no se volvería a ejecutar
+  (regla de la casa). Comprobado: tras guardar por AJAX, el buscador sigue funcionando.
+  ⚠️ **Cada fila lleva DENTRO su `<input type="hidden" name="performance_song_ids[]">`**, así que el
+  orden del DOM **es** el orden que se guarda (`_wizard_performance_payload` respeta el orden de la
+  lista): al arrastrar no hay nada que recalcular.
+  ⚠️ El **Nº de canciones** sigue a lo elegido **mientras nadie lo escriba a mano** (`dataset.touched`,
+  el patrón de la casa). Y **Enter añade la primera coincidencia**, no envía el asistente.
+  ⚠️ Al **cambiar de artista** se limpia lo elegido (era de otro repertorio) y se recarga su catálogo
+  desde `api_artist_wizard_meta` (`window.app33PerfSongs.setCatalog/clear`). Si el artista no tiene
+  canciones **se dice**, en vez de no pasar nada al escribir.
+  · **ESAS CANCIONES SON EL REPERTORIO de la actividad**: al crearla se siembran en su set list
+  (`_seed_concert_setlist_from_performance` → `RepertoireTemplate` con owner CONCERT, el mismo que
+  pinta la pestaña «Repertorio»), **en su orden y con sus duraciones**.
+  ⚠️ **Solo SIEMBRA**: si la actividad ya tiene set list (se tocó a mano o se cargó una plantilla) no
+  se pisa nada. Es *best-effort*: un fallo ahí no puede tumbar el alta.
+  ⚠️ El repertorio que se ofrece es el de **TODOS los artistas** de la actividad
+  (`_setlist_concert_artist_ids`), no solo el del primero.
+
+- ⚠️⚠️ **LA DIRECCIÓN SE RELLENA EN DOS PASOS: primero la BARRA, luego los campos** (sep 2026). Sin
+  recinto había cuatro campos a la vista (dirección, CP, municipio, provincia) y la barra buscando a
+  la vez: la gente escribía el municipio a mano mientras la barra buscaba y la dirección se quedaba a
+  medias. Ahora, en un bloque marcado con **`data-addr-reveal`** solo se ve **una barra**
+  («Escribe dirección, municipio, provincia…») y al ELEGIR una sugerencia aparecen debajo los campos
+  **ya rellenos**: dirección · código postal · municipio · provincia · país (`[data-addr-parts]`).
+  · Motor único `static/js/address_autocomplete.js` (rol nuevo `data-addr="search"`); la lista cuelga
+  del `<body>` con `app33FloatList`, así que no la recorta el modal.
+  · **Si el buscador no conoce el sitio**, el enlace **«Escribirla a mano»** enseña los campos (sin
+  eso, un pueblo que el geocodificador no tenga bloquearía el alta). Al revelarlos, esa línea
+  desaparece.
+  · **Editando** (los campos ya traen datos) se ven desde el principio: lo repasa `repasar()` al
+  cargar y con `shown.bs.modal` / `ficha:shown` / `inline:updated`.
+  ⚠️⚠️ **Y EL ERROR DE VERDAD ESTABA EN EL BUSCADOR**: un resultado puede ser un **MUNICIPIO** y
+  `geo_utils.parse_feature` lo leía como CALLE (`props['name']`), así que al elegir «Chipiona» se
+  rellenaba «Dirección: Chipiona» y **municipio y provincia se quedaban VACÍOS** → el asistente decía
+  «indica al menos municipio y provincia» justo después de elegir el municipio. Ahora
+  **`is_place_feature`** (por el `type` de Photon: `city`/`locality`) lo manda a `city`, y
+  **`is_admin_feature`** descarta lo que es una provincia, una comunidad o un país (Photon devuelve
+  «Sevilla» dos veces y la segunda solo confunde).
+  ⚠️ La **PROVINCIA** sigue saliendo del **código postal**; sin CP (un municipio no lo tiene) se
+  acepta la del proveedor **solo si es una de las 52** (`PROVINCE_NAMES`, así una comarca como
+  «Sierra de Cádiz» no cuela) y, si aún falta, **con NUESTROS datos**
+  (`_address_rows_fill_province`: los pares municipio→provincia de recintos y actividades, que es lo
+  que ya usa `api_city_search`).
+  · **`Concert.manual_country`** existe ya de verdad: `_concert_country_value` lo leía (y de él sale
+  la **bandera** de lo que es de fuera), pero **la columna no estaba**, así que un `getattr` devolvía
+  siempre None y una fecha en Francia sin recinto no se distinguía de una de aquí.
+  ⚠️ En la ficha, el bloque del recinto a mano tenía la zona `data-address-autocomplete` envolviendo
+  **solo la columna de la izquierda**: el CP, el municipio y la provincia estaban FUERA y no se
+  rellenaban nunca.
+
+- ⚠️⚠️ **LO QUE FALTA SE MARCA EN AMARILLO Y LO QUE ESTÁ MAL EN ROJO, Y NO SE DEJA PASAR** (sep 2026,
+  motor GLOBAL `static/js/form_check.js` · `window.app33FormCheck`). Antes se podía recorrer un
+  asistente entero y el fallo aparecía **al final**, en un `alert()` que no decía dónde estaba.
+  · **AMARILLO** (`.is-check-missing`) = obligatorio y sin rellenar (no es un error: falta).
+    **ROJO** (`.is-check-bad`) = relleno pero mal. Se lleva el foco al primero y arriba de lo que se
+    está mirando sale **qué falta**.
+  · **Al ENVIAR** cualquier formulario y **al pasar de paso** en un asistente: `step_wizard.js` y el
+    asistente de actividad llaman a `app33FormCheck.check(seccion)`; una regla propia de la pantalla
+    se dice con `app33FormCheck.fail(ambito, campo, motivo)`.
+  ⚠️⚠️ **HAY QUE QUITARLE AL NAVEGADOR SU VALIDACIÓN**: con un campo `required`, el navegador PARA el
+  envío **antes** de lanzar el evento `submit` y saca su bocadillo — nuestro aviso no se pintaba nunca
+  (comprobado). Por eso el motor le pone **`novalidate`** a cada formulario que gestiona (y a los que
+  se pintan después, con un `MutationObserver`). Opt-out: **`[data-no-check]`** (ese conserva la del
+  navegador) y el `formnovalidate` del botón que envía.
+  ⚠️⚠️ **`stopImmediatePropagation`, no `stopPropagation`**: el LOADER a pantalla completa, el envío
+  por AJAX y la subida con progreso escuchan `submit` en `document` **igual que el motor**, y
+  `stopPropagation` solo impide que el evento salte a otro nodo — salía el «Cargando…» de un
+  formulario que no se estaba enviando.
+  ⚠️ Un campo **oculto o deshabilitado no se comprueba** (un paso que no toca, un panel cerrado): no
+  puede bloquear un envío. Y un **Select2** se marca en su recuadro visible (`.select2-selection`):
+  su `<select>` de verdad está escondido detrás y la marca no se veía.
+  ⚠️ El aviso se pinta en el **`.modal-body`** cuando lo hay: puesto «al principio del formulario»
+  salía FUERA del modal, flotando sobre la página.
+
+- ⚠️⚠️ **AÑADIR UN GASTO A LA BOLSA · el formulario, por MÓDULOS** (sep 2026, parcial único
+  `templates/_bag_expense_form.html` + motor GLOBAL `static/js/bag_expense_form.js`). Un solo paso con
+  cuatro **bocadillos** (`.sim-cat-card`, la estética de las bolsas) y **el CONCEPTO como único campo
+  obligatorio**:
+  · **1 · DATOS** — concepto · **importe** con dos botones (**«Lo incluye» / «Sin IVA»**; sin IVA se
+    calcula el **21%** y se ve al momento el desglose) · **nota** con la **campanita** que abre el
+    aviso (día y hora, con «el día de antes», «una semana antes» y «hoy»).
+  · **2 · PROVEEDOR** — una barra que busca en **TODA la base** (terceros, **medios**, **artistas** y
+    **personal**) con su foto o su logo (`api_bag_provider_search`) y el «+» de siempre para crear un
+    tercero. Debajo, **datos de facturación**: sus sociedades **con logo**, «datos del proveedor» o
+    **«factura otra sociedad»** (que se busca igual y queda **VINCULADA** al proveedor para que la
+    próxima vez se sugiera).
+  · **3 · FACTURA O TICKET** — se arrastra (o se elige) y **se LEE** con el mismo lector que la base
+    de facturas (`api_bag_document_detect` → `_detect_invoice_meta`): dice si es **FACTURA** (y
+    desglosa el IVA) o **TICKET** (que no lo desglosa, porque su IVA no es deducible) y rellena el
+    nº, la fecha y el importe.
+  · **4 · ESTADO DEL PAGO** — «sin pagar» / «ya está pagado» → **completo o parcial** (y cuánto) →
+    **método con iconos** (`BAG_PAYMENT_METHOD_ICONS`).
+  ⚠️ **El DESGLOSE lo hace el SERVIDOR** (`_bag_update_expense_from_form` con `amount_value` +
+  `amount_mode` + `vat_pct`), no el navegador: sale igual desde donde se guarde. El % se apunta en
+  **`BagExpense.vat_pct`** y se **cambia desde los tres puntitos** del gasto («IVA %»).
+  ⚠️ **El ESTADO del pago lo decide el servidor** con `payment_status` + **`paid_kind`** (completo o
+  parcial) y el importe: **dos campos con el mismo `name` se pisan** al leerlos, así que no se manda
+  un segundo `payment_status` oculto.
+  ⚠️ Lo que **no es un tercero** (un medio, un artista, alguien de la casa) se **ESPEJA** a tercero al
+  guardar (`_bag_provider_from_form` + `_promoter_mirror_by_name`, el patrón de
+  `_ensure_promoter_for_media`): `BagExpense.provider_id` apunta a **promoters**.
+  ⚠️ El **aviso de un gasto tiene HORA** (`BagExpenseAlert.alert_time`, con `_agenda_clean_time`): un
+  aviso sin hora se ve cuando ya no sirve.
+  ⚠️ El motor es **GLOBAL y por delegación**: este formulario se pinta en la pantalla de la bolsa y
+  también **embebido** en una ficha (proyecto, actividad, promoción), cuyas zonas se repintan por AJAX.
+
+- ⚠️ **QUIEN CREA UNA ACTIVIDAD LA SIGUE VIENDO HASTA QUE SE CONFIRMA** (sep 2026): alguien que no es
+  de contratación da de alta una actividad y **la ve en el calendario, en /actividades y en la vista
+  de Contratación** aunque esté RESERVADA; **al confirmarse la ve todo el mundo**. Punto único
+  **`_concert_list_visible`** (usa el MISMO criterio que `_concert_visible_unconfirmed`, así que «lo
+  que se ve en el calendario» y «lo que se ve en los listados» no se pueden desparejar), aplicado en
+  las listas ricas de la ficha del artista, en **`/actividades`** —que antes las enseñaba TODAS, así
+  que una reserva que se estaba hablando salía para toda la oficina— y en la vista de conciertos, a la
+  que llega también quien trabaja en producción.

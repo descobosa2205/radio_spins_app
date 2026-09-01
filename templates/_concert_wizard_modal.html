@@ -245,37 +245,57 @@
                 </div>
               </div>
 
-              {# El nombre manual SOLO aparece cuando NO se conoce el recinto.
-                 ⚠️ EL ORDEN es el de una dirección: nombre → dirección → municipio → código postal →
-                 provincia. Y la DIRECCIÓN se autocompleta: al escribir la calle salen las
-                 sugerencias y, al elegir una, el resto de campos se rellenan solos
-                 (`data-address-autocomplete` + un `data-addr` por campo, el mecanismo global). #}
+              {# ⚠️⚠️ SIN RECINTO SE RELLENA EN DOS PASOS: primero **solo la barra de búsqueda**
+                 («escribe dirección, municipio, provincia…») y, al elegir una sugerencia, aparecen
+                 los campos por separado ya rellenos (`data-addr-reveal` + `[data-addr-parts]`, el
+                 mecanismo global de `address_autocomplete.js`).
+                 Con los cuatro campos a la vista, la gente escribía el municipio a mano mientras la
+                 barra buscaba y la dirección se quedaba a medias — y elegir un MUNICIPIO en la barra
+                 lo metía como «Dirección» dejando municipio y provincia vacíos, así que el asistente
+                 decía «indica al menos municipio y provincia» justo después de elegirlo (bug real,
+                 corregido también en `geo_utils.parse_feature`). #}
               <div class="row g-3 mt-0" id="wizardVenueManualWrap" style="display:none;"
-                   data-address-autocomplete>
+                   data-address-autocomplete data-addr-reveal>
                 <div class="col-lg-6">
                   <label class="form-label">Nombre del recinto <span class="text-muted">(si se conoce)</span></label>
                   <input class="form-control" name="manual_venue_name" placeholder="Nombre provisional del recinto">
                 </div>
                 <div class="col-lg-6 position-relative">
-                  <label class="form-label">Dirección</label>
-                  <input class="form-control" name="manual_venue_address" data-addr="address" autocomplete="off"
-                         placeholder="Empieza a escribir la calle y el número…">
-                  <div class="form-text">Elige una dirección y el municipio, el código postal y la provincia se rellenan solos.</div>
+                  <label class="form-label">¿Dónde es?</label>
+                  <input class="form-control" data-addr="search" autocomplete="off"
+                         placeholder="Escribe dirección, municipio, provincia…">
+                  <div class="form-text">Elige una de las sugerencias y se rellenan la dirección, el
+                    municipio, el código postal y la provincia.
+                    <a href="#" data-addr-manual>Escribirla a mano</a>.</div>
                 </div>
-                <div class="col-lg-5">
-                  <label class="form-label">Municipio</label>
-                  <input class="form-control" name="manual_municipality" id="wizard_manual_municipality"
-                         data-addr="city" placeholder="Municipio" autocomplete="off">
-                </div>
-                <div class="col-lg-3">
-                  <label class="form-label">Código postal</label>
-                  <input class="form-control" name="manual_postal_code" data-addr="postal_code"
-                         placeholder="CP" inputmode="numeric" maxlength="10" autocomplete="off">
-                </div>
-                <div class="col-lg-4">
-                  <label class="form-label">Provincia</label>
-                  <input class="form-control" name="manual_province" id="wizard_manual_province"
-                         data-addr="province" placeholder="Provincia" autocomplete="off">
+                <div class="col-12 d-none" data-addr-parts>
+                  <div class="row g-3">
+                    <div class="col-lg-5">
+                      <label class="form-label">Dirección</label>
+                      <input class="form-control" name="manual_venue_address" data-addr="address"
+                             placeholder="Calle y número" autocomplete="off">
+                    </div>
+                    <div class="col-lg-4">
+                      <label class="form-label">Municipio</label>
+                      <input class="form-control" name="manual_municipality" id="wizard_manual_municipality"
+                             data-addr="city" placeholder="Municipio" autocomplete="off">
+                    </div>
+                    <div class="col-lg-3">
+                      <label class="form-label">Código postal</label>
+                      <input class="form-control" name="manual_postal_code" data-addr="postal_code"
+                             placeholder="CP" inputmode="numeric" maxlength="10" autocomplete="off">
+                    </div>
+                    <div class="col-lg-5">
+                      <label class="form-label">Provincia</label>
+                      <input class="form-control" name="manual_province" id="wizard_manual_province"
+                             data-addr="province" placeholder="Provincia" autocomplete="off">
+                    </div>
+                    <div class="col-lg-4">
+                      <label class="form-label">País</label>
+                      <input class="form-control" name="manual_country" data-addr="country"
+                             placeholder="España" autocomplete="off">
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="alert alert-warning mt-3 mb-0 d-none" id="wizardArtistConflict"></div>
@@ -375,10 +395,19 @@
                   <label class="form-label">Nº de canciones</label>
                   <input type="number" min="1" class="form-control" name="performance_songs_count" id="wizard_songs_count" placeholder="3">
                 </div>
+                {# ⚠️⚠️ EL REPERTORIO SE BUSCA ESCRIBIENDO Y SE ORDENA ARRASTRANDO, y es el
+                   MISMO parcial que la sección «Actividad» de la ficha (`_performance_songs.html`),
+                   así que se pone igual en los dos sitios. Antes era un `<select multiple>` con
+                   Select2 SIN `dropdownParent`: dentro de este modal su desplegable se queda detrás
+                   y no se podía usar (bug real: «la barra de búsqueda de canciones no funciona»). #}
                 <div class="col-lg-9">
-                  <label class="form-label">Canciones del repertorio <span class="text-muted">(opcional)</span></label>
-                  <select name="performance_song_ids[]" id="wizardSongsSelect" class="form-select" multiple data-no-loader></select>
-                  <div class="form-text">Se cargan las canciones del artista seleccionado; puedes marcar solo el número si aún no se sabe cuáles.</div>
+                  <label class="form-label">Repertorio <span class="text-muted">(opcional)</span></label>
+                  {% with ps_songs=[], ps_chosen=[], ps_count='wizard_songs_count' %}
+                    {% include '_performance_songs.html' %}
+                  {% endwith %}
+                  <div class="form-text">Se buscan las canciones del artista elegido. <strong>Arrastra
+                    para cambiar el orden</strong>: es el repertorio de la actividad. Puedes indicar
+                    solo el número si aún no se sabe cuáles.</div>
                 </div>
               </div>
               <hr>
@@ -1217,12 +1246,6 @@
     });
     selectEl.innerHTML = html;
     selectEl.closest('.company-select-wrap')?.classList.toggle('d-none', companies.length === 0);
-  }
-
-  function ensureSelect2(el){
-    if(window.jQuery && jQuery.fn.select2 && el){
-      jQuery(el).select2({width:'100%'});
-    }
   }
 
   /* ----------------------- CACHÉS (filas dinámicas del asistente) -----------------------
@@ -2232,16 +2255,20 @@
       const sel = document.getElementById('wizard_artist_id');
       const artistId = sel ? sel.value : '';
       if(!artistId || artistId === lastMetaArtist) return;
+      const cambioDeArtista = !!lastMetaArtist && lastMetaArtist !== artistId;
       lastMetaArtist = artistId;
       try{
         const res = await fetch('{{ url_for("api_artist_wizard_meta", aid="__AID__") }}'.replace('__AID__', encodeURIComponent(artistId)), { headers: { 'Accept': 'application/json' } });
         if(!res.ok) return;
         const data = await res.json();
-        const songsSel = document.getElementById('wizardSongsSelect');
-        if(songsSel){
-          const selected = new Set(Array.from(songsSel.selectedOptions || []).map(o => o.value));
-          songsSel.innerHTML = (data.songs || []).map(s => `<option value="${s.id}" ${selected.has(s.id) ? 'selected' : ''}>${s.title}</option>`).join('');
-          ensureSelect2(songsSel);
+        /* EL REPERTORIO del artista, al buscador del parcial único (`window.app33PerfSongs`): se
+           filtra en el navegador, que son unas pocas canciones y así no hay que salir a la red en
+           cada tecla. ⚠️ Si se ha CAMBIADO de artista, lo elegido antes era de OTRO repertorio y se
+           limpia. */
+        const bloqueSongs = document.querySelector('#wizardSingsPanel [data-perf-songs]');
+        if(bloqueSongs && window.app33PerfSongs){
+          if(cambioDeArtista) window.app33PerfSongs.clear(bloqueSongs);
+          window.app33PerfSongs.setCatalog(bloqueSongs, data.songs || []);
         }
         window.__wizardArtistTags = data.tags || [];
         renderTagSuggestions();
@@ -2675,39 +2702,56 @@
       if(!keep){ document.getElementById('wizard_date').value = ''; }
     }
 
+    /* ⚠️⚠️ NO SE PASA DE PASO CON ALGO SIN RELLENAR O MAL, y se VE cuál: lo obligatorio que falta se
+       marca en AMARILLO y lo que está mal en ROJO, con el motivo arriba del paso y el foco en el
+       primero (motor único de la casa, `form_check.js`). Antes se dejaba llegar al final y el fallo
+       salía en un `alert()` que no decía dónde estaba. */
     function validateStep(step){
+      const sec = form.querySelector('.wizard-step[data-step="' + step + '"]:not(.d-none)')
+                || form.querySelector('.wizard-step[data-step="' + step + '"]');
+      const fc = window.app33FormCheck;
+      const falla = (el, motivo) => (fc ? fc.fail(sec, el, motivo) : (alert(motivo), false));
+      // Lo genérico (todo lo `required` del paso) lo comprueba el motor.
+      if(fc && sec && !fc.check(sec)) return false;
       // ⚠️ El espejo de «artistas / evento» a los campos del servidor se refresca AQUÍ: así lo que
       // se valida es lo que de verdad está elegido, aunque el evento de cambio no haya llegado.
       try { syncSubjectPick(); } catch(e) {}
       if(step === 12){
+        const sub = document.getElementById('wizard_subject_ids');
         if(subjectKind() === 'EVENT'){
           const ev = document.getElementById('wizard_event_id');
-          if(!ev || !(ev.value || '').trim()){ alert('Elige el evento (o créalo con el +).'); return false; }
+          if(!ev || !(ev.value || '').trim()) return falla(sub, 'Elige el evento (o créalo con el +).');
         } else if(!document.getElementById('wizard_artist_id').value){
-          alert('Debes seleccionar un artista.'); return false;
+          return falla(sub, 'Elige el artista o el evento de la actividad.');
         }
       }
       if(step === 3){
-        if(!document.getElementById('wizard_date').value){ alert('Debes indicar la fecha de la actividad.'); return false; }
+        const fecha = document.getElementById('wizard_date');
+        if(!fecha.value) return falla(fecha, 'Indica la fecha de la actividad.');
         if(!document.getElementById('wizard_venue_id').value && !document.querySelector('input[name="manual_municipality"]').value.trim() && !document.querySelector('input[name="manual_province"]').value.trim()){
-          alert('Indica un recinto o al menos municipio y provincia.');
-          return false;
+          // Sin recinto hace falta al menos el sitio: se marca la barra de búsqueda, que es por
+          // donde se rellena (los campos sueltos aparecen al elegir una sugerencia).
+          const barra = form.querySelector('#wizardVenueManualWrap [data-addr="search"]')
+                     || document.querySelector('input[name="manual_municipality"]');
+          return falla(barra, 'Indica el recinto o, si no lo sabes, busca el municipio.');
         }
       }
       if(step === 4 && modeInput.value === 'request_sheet'){
-        const email = form.querySelector('input[name="promoter_email"]').value.trim();
-        if(!email){ alert('Debes indicar el email del promotor.'); return false; }
+        const email = form.querySelector('input[name="promoter_email"]');
+        if(!email.value.trim()) return falla(email, 'Indica el email del promotor.');
       }
       if(step === 4 && modeInput.value === 'direct' && isPromoActivity()){
         // Solo en actividades promocionales/TV/marca/otros: en un concierto o festival se canta
         // siempre, así que ni se pregunta ni se puede exigir (el panel está oculto).
-        if(!document.querySelector('input[name="artist_sings"]:checked')){ alert('Indica si el artista canta o no.'); return false; }
+        if(!document.querySelector('input[name="artist_sings"]:checked')){
+          return falla(document.querySelector('.wizard-sings-radio'), 'Indica si el artista canta o no.');
+        }
       }
       if(step === 7 && modeInput.value === 'direct'){
         syncArtwork();
-        if(document.getElementById('wizard_artwork_choice').value === 'REQUEST' && !document.getElementById('wizard_artwork_deadline').value){
-          alert('Indica la fecha máxima de entrega de los carteles (es obligatoria al solicitarlos).');
-          return false;
+        const plazo = document.getElementById('wizard_artwork_deadline');
+        if(document.getElementById('wizard_artwork_choice').value === 'REQUEST' && !plazo.value){
+          return falla(plazo, 'Indica la fecha máxima de entrega de los carteles (es obligatoria al solicitarlos).');
         }
       }
       return true;

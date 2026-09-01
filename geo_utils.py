@@ -45,6 +45,34 @@ PROVINCE_BY_CP = {
 }
 
 
+# ⚠️⚠️ UN RESULTADO PUEDE SER UN MUNICIPIO, NO UNA CALLE. Photon devuelve también sitios (`osm_key`
+# = «place»): «Sevilla», «Aracena»… Ahí el nombre es el MUNICIPIO y no hay calle, así que tiene que
+# ir a `city` — leyéndolo como calle (que es lo que pasaba) se rellenaba «Dirección: Sevilla» y el
+# municipio y la provincia se quedaban VACÍOS, con lo que el asistente decía «indica al menos
+# municipio y provincia» justo después de elegir el municipio (bug real).
+# El `type` de Photon dice QUÉ es cada resultado: house · street · locality · district · city ·
+# county · state · country · other. Es lo que mejor lo distingue (mucho más fiable que mirar el
+# `osm_key`/`osm_value` de OSM), y de ahí salen las dos listas:
+PLACE_TYPES = {"city", "locality"}                       # un MUNICIPIO (o una aldea)
+# ⚠️ Una PROVINCIA, una comunidad o un país NO son una dirección: se descartan. Photon devuelve
+# «Sevilla» dos veces —el municipio y la provincia— y la segunda solo confunde.
+ADMIN_TYPES = {"county", "state", "country", "region"}
+# Respaldo por si algún día cambia `type` (los valores de OSM para un sitio habitado).
+PLACE_KEYS = {"place"}
+PLACE_VALUES = {"city", "town", "village", "hamlet", "municipality"}
+
+# Las 52 provincias, para poder ACEPTAR la que dé el proveedor cuando no hay código postal (un
+# municipio no lo tiene). ⚠️ Se acepta SOLO si es una de ellas: así «Sierra de Cádiz» (una comarca) o
+# «Andalucía» (la comunidad) se descartan, que es el motivo por el que no se usa `state`/`county`.
+def _norm_name(value: str | None) -> str:
+    import unicodedata
+    texto = unicodedata.normalize("NFD", (value or "").strip().lower())
+    return "".join(ch for ch in texto if unicodedata.category(ch) != "Mn")
+
+
+PROVINCE_NAMES = {_norm_name(v): v for v in PROVINCE_BY_CP.values()}
+
+
 class GeoError(RuntimeError):
     """Error al buscar una dirección, con mensaje en claro."""
 
@@ -72,25 +100,71 @@ def _street_of(props: dict) -> str:
     return calle
 
 
+def feature_type(props: dict) -> str:
+    return ((props or {}).get("type") or "").strip().lower()
+
+
+def is_admin_feature(props: dict) -> bool:
+    """¿Es una PROVINCIA, una comunidad o un país? Eso no es una dirección: no se ofrece."""
+    if not isinstance(props, dict):
+        return False
+    if feature_type(props) in ADMIN_TYPES:
+        return True
+    return ((props.get("osm_key") or "").strip().lower() == "place"
+            and (props.get("osm_value") or "").strip().lower() in {"province", "state", "region", "country"})
+
+
+def is_place_feature(props: dict) -> bool:
+    """¿Este resultado es un MUNICIPIO, y no una calle, un portal o un sitio?"""
+    if not isinstance(props, dict):
+        return False
+    if (props.get("street") or "").strip() or (props.get("housenumber") or "").strip():
+        return False
+    if feature_type(props) in PLACE_TYPES:
+        return True
+    return ((props.get("osm_key") or "").strip().lower() in PLACE_KEYS
+            and (props.get("osm_value") or "").strip().lower() in PLACE_VALUES)
+
+
+def _province_of(props: dict, cp: str, codigo_pais: str) -> str:
+    """La PROVINCIA: del código postal (que no falla) y, si no hay, la del proveedor SOLO si es una
+    de las 52 (así no se cuela una comarca ni una comunidad autónoma)."""
+    if codigo_pais and codigo_pais != "ES":
+        # Fuera de España no hay tabla: se usa lo que dé el proveedor, que para eso sirve.
+        return (props.get("state") or props.get("county") or "").strip()
+    de_cp = province_for_postal_code(cp)
+    if de_cp:
+        return de_cp
+    for clave in ("county", "state", "city"):
+        cand = PROVINCE_NAMES.get(_norm_name(props.get(clave)))
+        if cand:
+            return cand
+    return ""
+
+
 def parse_feature(feature: dict) -> dict | None:
     """Una sugerencia de Photon → las piezas de nuestra dirección fiscal.
 
-    La PROVINCIA se deduce del código postal (ver la nota de arriba); si el resultado no trae CP, se
-    deja vacía antes que poner una comarca o una comunidad autónoma.
+    La PROVINCIA se deduce del código postal (ver la nota de arriba); si el resultado no trae CP se
+    acepta la del proveedor solo cuando es una de las 52, antes que poner una comarca o una comunidad
+    autónoma.
+    ⚠️ Si el resultado es un MUNICIPIO (`is_place_feature`), su nombre va a `city` y la calle se deja
+    VACÍA: es lo que se elige cuando no se sabe el recinto y solo se conoce el pueblo.
     """
     if not isinstance(feature, dict):
         return None
     props = feature.get("properties") or {}
-    calle = _street_of(props)
+    if is_admin_feature(props):
+        return None
+    es_municipio = is_place_feature(props)
+    calle = "" if es_municipio else _street_of(props)
     municipio = (props.get("city") or props.get("district") or "").strip()
+    if es_municipio:
+        municipio = (props.get("name") or municipio).strip()
     cp = normalize_postal_code(props.get("postcode"))
     pais = (props.get("country") or "").strip()
     codigo_pais = (props.get("countrycode") or "").strip().upper()
-    if codigo_pais == "ES":
-        provincia = province_for_postal_code(cp)
-    else:
-        # Fuera de España no hay tabla: se usa lo que dé el proveedor, que para eso sirve.
-        provincia = (props.get("state") or props.get("county") or "").strip()
+    provincia = _province_of(props, cp, codigo_pais)
     if not (calle or municipio):
         return None
     etiqueta = " · ".join([x for x in [calle, " ".join([y for y in [cp, municipio] if y]).strip(),

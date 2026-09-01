@@ -8,7 +8,14 @@
     <div class="text-muted">Giras compradas por una empresa del grupo. Agrupan sus conciertos y su producción general.</div>
   </div>
   {% if CAN_EDIT_CONCERTS %}
-  <button class="btn btn-primary" type="button" data-tour-new><i class="fa fa-plus me-1"></i> Nueva gira</button>
+  <div class="d-flex gap-2 flex-wrap">
+    {# EL MISMO botón «+ Actividad» que el resto de Contratación: el asistente es uno solo y se abre
+       aquí mismo (antes esta pestaña era la única sin él y había que irse a otra pantalla). #}
+    {% if wizard_available %}
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Actividad</button>
+    {% endif %}
+    <button class="btn btn-primary" type="button" data-tour-new><i class="fa fa-plus me-1"></i> Nueva gira</button>
+  </div>
   {% endif %}
 </div>
 
@@ -137,6 +144,7 @@
   </div>
 </div>
 
+{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}
 {% include "_quick_create_modals.html" %}
 <script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 <script>

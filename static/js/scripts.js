@@ -2352,28 +2352,40 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
      que aquí hay que ofrecer DOS caminos («avisarle ahora» o «ya fue informado») y con un confirm()
      no caben: se pinta un pop-up propio. Sin Bootstrap (o sin la opción de dar por informado) se cae
      al confirm de siempre, que sigue funcionando. */
+  /* Falta el aviso al artista, pero HAY casos en los que no hace falta mandarlo (`ack_reason` del
+     servidor): la actividad ya ha pasado, o se creó antes de que la app comunicara al artista. El
+     servidor manda ya la NOTA que hay que enseñar y cómo se llaman los dos botones, así que aquí no
+     se repite ningún texto (si cambia la fecha del corte, cambia solo). */
   function pedirDecisionAviso(d, onAvisar, onYaInformado) {
     var puedeAck = !!(d.can_ack && d.ack_url);
     if (!puedeAck || !window.bootstrap) {
       if (confirm((d.error || 'Falta avisar al artista.') + '\n\n¿Quieres avisarle ahora?')) onAvisar();
       return;
     }
+    var antigua = (d.ack_reason || '') === 'ANTIGUA';
     var caja = document.createElement('div');
     caja.className = 'modal fade';
     caja.innerHTML =
       '<div class="modal-dialog modal-dialog-centered"><div class="modal-content">' +
-        '<div class="modal-header"><h5 class="modal-title"><i class="fa fa-bell me-2"></i>Falta avisar al artista</h5>' +
+        '<div class="modal-header"><h5 class="modal-title"><i class="fa fa-bell me-2"></i><span data-sg-title></span></h5>' +
         '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
-        '<div class="modal-body"><p class="mb-2"></p>' +
-        '<p class="small text-muted m-0">Esta actividad ya ha pasado: si se le comunicó en su día, ' +
-        'déjalo apuntado y sigue con el cambio de estado.</p></div>' +
+        '<div class="modal-body"><p class="mb-2" data-sg-note></p>' +
+        '<p class="small text-muted m-0" data-sg-sub></p></div>' +
         '<div class="modal-footer flex-wrap gap-2">' +
           '<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Dejarlo como está</button>' +
-          '<button type="button" class="btn btn-outline-success" data-sg-ack><i class="fa fa-user-check me-1"></i>El artista ya fue informado</button>' +
-          '<button type="button" class="btn btn-primary" data-sg-notify><i class="fa fa-paper-plane me-1"></i>Avisarle ahora</button>' +
+          '<button type="button" class="btn btn-outline-success" data-sg-ack><i class="fa me-1" data-sg-ack-icon></i><span data-sg-ack-label></span></button>' +
+          '<button type="button" class="btn btn-primary" data-sg-notify><i class="fa fa-paper-plane me-1"></i><span data-sg-notify-label></span></button>' +
         '</div>' +
       '</div></div>';
-    caja.querySelector('.modal-body p').textContent = d.error || 'Falta avisar al artista.';
+    caja.querySelector('[data-sg-title]').textContent = d.ack_title || 'Falta avisar al artista';
+    // En una actividad ANTIGUA la NOTA es lo que hay que leer (va arriba y en grande); en una que ya
+    // ha pasado, lo que manda es el motivo del servidor y la nota va debajo como aclaración.
+    caja.querySelector('[data-sg-note]').textContent =
+      antigua ? (d.ack_note || d.error || '') : (d.error || 'Falta avisar al artista.');
+    caja.querySelector('[data-sg-sub]').textContent = antigua ? '' : (d.ack_note || '');
+    caja.querySelector('[data-sg-ack-icon]').classList.add(d.ack_icon || 'fa-user-check');
+    caja.querySelector('[data-sg-ack-label]').textContent = d.ack_label || 'El artista ya fue informado';
+    caja.querySelector('[data-sg-notify-label]').textContent = d.notify_label || 'Avisarle ahora';
     document.body.appendChild(caja);
     var modal = bootstrap.Modal.getOrCreateInstance(caja);
     caja.addEventListener('hidden.bs.modal', function () { caja.remove(); });
@@ -2413,7 +2425,8 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
         if (!res.r.ok) {
           opt.classList.remove('disabled');
           // El artista no está avisado: se ofrece avisarle ahora (y al enviar se confirma solo) y,
-          // si la actividad ya ha pasado, marcar que ya fue informado y seguir con el estado.
+          // cuando no hace falta mandar nada (ya ha pasado, o se creó antes del corte), confirmarla
+          // dejando el aviso apuntado.
           if (d.needs_artist_notice && d.notify_url) {
             pedirDecisionAviso(d, function () {
               window.location.href = d.notify_url;
@@ -2425,9 +2438,9 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
               }).then(function (r) { return r.json().catch(function () { return null; }); })
                 .then(function (j) {
                   if (j && j.ok) { window.location.reload(); return; }
-                  alert((j && j.error) || 'No se pudo apuntar que el artista ya fue informado.');
+                  alert((j && j.error) || 'No se pudo confirmar sin comunicar.');
                 })
-                .catch(function () { alert('No se pudo apuntar que el artista ya fue informado.'); });
+                .catch(function () { alert('No se pudo confirmar sin comunicar.'); });
             });
             return;
           }

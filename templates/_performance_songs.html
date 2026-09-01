@@ -1,0 +1,32 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   EL REPERTORIO DE UNA ACTIVIDAD · se busca escribiendo y se ordena ARRASTRANDO.
+   Parcial ÚNICO: lo usan el asistente de actividad (`_concert_wizard_modal.html`) y la sección
+   «Actividad» de la ficha, así que se ve y funciona IGUAL en los dos y una mejora vale para los dos.
+   El motor es GLOBAL (`static/js/performance_songs.js`), por delegación: sobrevive a que la zona se
+   repinte por AJAX (un `<script>` dentro de una zona `data-inline-zone` NO se vuelve a ejecutar).
+
+   Parámetros:
+     · `ps_songs`  → el repertorio del artista para buscar: lista de {id, title} (puede ir vacía y
+                     cargarse después con `window.app33PerfSongs.setCatalog`).
+     · `ps_chosen` → lo que ya está elegido, EN SU ORDEN: lista de {id, title}.
+     · `ps_count`  → id del campo «Nº de canciones» que sigue a lo elegido (opcional).
+   ⚠️ Cada fila lleva DENTRO su `<input type="hidden" name="performance_song_ids[]">`: el orden del
+   DOM **es** el orden que se guarda, así que al arrastrar no hay nada que recalcular.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+<div data-perf-songs {% if ps_count %}data-perf-count="{{ ps_count }}"{% endif %}>
+  <input type="text" class="form-control" data-perf-input autocomplete="off" data-no-loader
+         placeholder="Escribe para buscar una canción del artista…">
+  <div class="wz-songs" data-perf-rows>
+    {% for c in (ps_chosen or []) %}
+      <div class="wz-song" draggable="true" data-perf-row="{{ c.id }}">
+        <span class="wz-song__grip" title="Arrastra para cambiar el orden"><i class="fa fa-grip-vertical"></i></span>
+        <span class="wz-song__n" data-perf-n>{{ loop.index }}.</span>
+        <span class="wz-song__t">{{ c.title }}</span>
+        <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto" data-perf-del title="Quitar"><i class="fa fa-xmark"></i></button>
+        <input type="hidden" name="performance_song_ids[]" value="{{ c.id }}">
+      </div>
+    {% endfor %}
+  </div>
+  {# El repertorio del artista, para buscar sin salir a la red (son unas pocas canciones). #}
+  <script type="application/json" data-perf-catalog>{{ (ps_songs or [])|tojson }}</script>
+</div>

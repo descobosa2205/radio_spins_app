@@ -1747,16 +1747,10 @@ def home():
             artists = s.query(Artist).filter(Artist.event_id.is_(None)).order_by(Artist.name.asc()).all()
         except Exception:
             artists = []
-        # Contexto del asistente de concierto para abrirlo IN SITU desde el «+» de la agenda (sin
-        # navegar a /conciertos). Best-effort: si falla, la home no se rompe y el «+» cae al redirect.
-        try:
-            wizard_ctx = _concert_wizard_context(s)
-        except Exception:
-            wizard_ctx = {}
-        wizard_available = bool(wizard_ctx)
-        wizard_ctx.pop("artists", None)   # la home ya pasa `artists` (misma lista); evita colisión de kwarg
-        # Se renderiza DENTRO de la sesión abierta para que los objetos ORM del wizard sigan válidos.
-        return render_template("home.html", artists=artists, wizard_available=wizard_available, **wizard_ctx)
+        # El asistente de actividad se abre IN SITU desde el «+» de la agenda (sin navegar a
+        # /conciertos): lo que necesita lo pone el punto único `_with_concert_wizard`.
+        # Se renderiza DENTRO de la sesión abierta para que sus objetos ORM sigan válidos.
+        return render_template("home.html", **_with_concert_wizard(s, dict(artists=artists)))
     finally:
         s.close()
 
@@ -2067,10 +2061,10 @@ def artist_detail_view(artist_id):
             q = q.filter(Concert.date >= today)
 
         concerts = q.order_by(Concert.date.asc()).all()
-        # Fuera de Contratación/dirección, las actividades en borrador/habladas NO aparecen en las
-        # listas ricas de la ficha; vuelven a verse al pasar a CONFIRMADO.
-        if not _user_sees_unconfirmed_activities():
-            concerts = [c for c in concerts if (c.status or "").upper() not in _CONCERT_PRIVATE_STATUSES]
+        # Fuera de Contratación/dirección, las actividades sin confirmar NO aparecen en las listas
+        # ricas de la ficha; vuelven a verse al pasar a CONFIRMADO. ⚠️ Salvo a QUIEN LA CREÓ (y a
+        # quien la produce): el punto único es `_concert_list_visible`.
+        concerts = _concert_list_visible(concerts)
 
         concerts_sections = {k: [] for k in CONCERTS_SECTION_ORDER}
         for c in concerts:
@@ -2134,18 +2128,12 @@ def artist_detail_view(artist_id):
 
         artist_fotos_groups = _build_artist_fotos_groups(session_db, artist.id) if tab == "fotos" else None
 
-        # Contexto del asistente de concierto para abrirlo IN SITU desde el «+» de la agenda del
-        # artista (sin navegar a /conciertos). Best-effort: si falla, el «+» cae al redirect.
-        try:
-            _wizctx = _concert_wizard_context(session_db)
-        except Exception:
-            _wizctx = {}
-
+        # El asistente de actividad se abre IN SITU desde el «+» de la agenda del artista (sin
+        # navegar a /conciertos): lo pone el punto único, al final de este render.
         return render_template(
             "artist_detail.html",
             artist=artist,
             tab=tab,
-            wizard_available=bool(_wizctx),
             # LOGOTIPOS del artista (todas sus versiones), solo en la pestaña donde se ven.
             logos=(_brand_logo_context(session_db, "ARTIST", artist.id,
                                        can_edit=can_edit_artists_stations())
@@ -2221,7 +2209,8 @@ def artist_detail_view(artist_id):
             entity_links_can_edit=True,
             chartmetric_header=_chartmetric_header_metrics(session_db, artist),
             chartmetric_playlists=(_chartmetric_playlists_grouped(session_db, artist_id=artist.id) if tab == 'playlisting' else None),
-            **_wizctx,
+            # Lo que necesita el asistente de actividad (punto único, el mismo en toda la app).
+            **_with_concert_wizard(session_db, {}),
         )
     finally:
         session_db.close()
@@ -45559,23 +45548,11 @@ def contracting_view():
                     "status_label": st_label,
                     "status_badge": st_badge,
                 })
-        promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
-        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
-        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
-        all_concert_tags = _collect_all_concert_tags(session_db)
-        promoters_payload = [
-            {
-                "id": str(p.id),
-                "nick": (p.nick or "").strip(),
-                "logo_url": (p.logo_url or "").strip(),
-                "companies": [_serialize_promoter_company(x) for x in (p.companies or [])],
-            }
-            for p in promoters
-        ]
+        # ⚠️ Las listas del ASISTENTE ya no se montan aquí: las da `_with_concert_wizard` (punto
+        # único), así que este asistente es exactamente el mismo que el de las demás pantallas.
         return render_template(
             "contratacion.html",
-            # Los EVENTOS del primer paso del asistente (van en el mismo selector que los artistas).
-            wizard_events=session_db.query(AppEvent).order_by(AppEvent.name.asc()).all(),
+            **_with_concert_wizard(session_db, dict(
             section=section,
             show_past=show_past_activities,
             title=title,
@@ -45589,15 +45566,8 @@ def contracting_view():
             drill_subject=drill_subject,
             type_chips=type_chips,
             activity_rows=activity_rows,
-            artists=artists,
-            promoters=promoters,
-            promoters_payload=promoters_payload,
-            companies=companies,
-            type_choices=type_choices,
-            all_concert_tags=all_concert_tags,
-            wizard_tours=_wizard_group_options(session_db)[0],
-            wizard_cycles=_wizard_group_options(session_db)[1],
             CAN_EDIT_CONCERTS=can_edit_concerts(),
+            )),
         )
     finally:
         session_db.close()
@@ -46103,30 +46073,26 @@ def booking_request_detail_view(rid):
         # añadir una nueva) con lo de la petición ya puesto. Al terminarlo, la actividad queda creada
         # y ligada a esta petición.
         puede_configurar = bool(r.accepted_at and not r.concert_id)
-        wizard_ctx = {}
         wizard_prefill = None
         if puede_configurar:
             try:
-                wizard_ctx = _concert_wizard_context(session_db)
-                wizard_ctx.pop("artists", None)      # la ficha ya pasa `artists` (misma lista)
                 wizard_prefill = _peticion_wizard_prefill(session_db, r)
                 wizard_prefill["autoopen"] = bool(_truthy(request.args.get("configurar")))
             except Exception:
                 app.logger.exception("[peticiones] no se pudo preparar el asistente")
-                wizard_ctx, wizard_prefill = {}, None
+                wizard_prefill = None
         # Pestañas SERVIDAS (?tab=), como en la ficha de una actividad: solo las que tienen algo que
         # enseñar, y si se pide una que no existe se cae a la primera.
         claves = [t["key"] for t in detalle["tabs"]]
         tab = (request.args.get("tab") or "").strip().lower()
         if tab not in claves:
             tab = claves[0] if claves else "datos"
-        return render_template(
-            "peticion_detail.html",
+        # ⚠️ El asistente de ACTIVIDAD es el MISMO que en las demás pantallas (punto único), y aquí
+        # se abre cumplimentado con lo de la petición. Solo se monta si hay algo que configurar.
+        ctx = dict(
             **detalle,
-            **wizard_ctx,
             tab=tab,
             can_configure=puede_configurar,
-            wizard_available=bool(wizard_ctx),
             # El asistente SIEMPRE se abre cumplimentado; lo que decide `?configurar=1` (el botón de
             # la tarea) es si se abre SOLO al entrar o si hay que pulsar «Configurar evento».
             wizard_prefill=wizard_prefill,
@@ -46137,6 +46103,11 @@ def booking_request_detail_view(rid):
                      .order_by(Artist.name.asc()).all()),
             back_url=safe_next_or(url_for("contracting_view", section="peticiones")),
         )
+        if puede_configurar:
+            ctx = _with_concert_wizard(session_db, ctx)
+        else:
+            ctx["wizard_available"] = False
+        return render_template("peticion_detail.html", **ctx)
     finally:
         session_db.close()
 
@@ -46742,13 +46713,23 @@ def _concert_task_board(session_db, concert) -> dict:
     hechas = {f["key"] for f in filas}
     extra = []
 
-    def suelta(key, n, label, icon, url="", modal="", action_label="", hint=""):
+    def suelta(key, n, label, icon, url="", modal="", action_label="", hint="", do="",
+               perm="concerts"):
+        """Una tarea DEL DEPARTAMENTO (no es de nadie en concreto).
+
+        ⚠️⚠️ **TODAS SE PUEDEN HACER DESDE AQUÍ**: cada una lleva cómo se resuelve —un `url` a donde
+        se hace, un `modal` que se abre o un `do` con su control propio (la etiqueta de estado, la
+        del anuncio, activar la venta)—. Una tarea que solo se puede leer obliga a buscar dónde se
+        hace, que es justo lo que este tablero viene a evitar.
+        `perm` dice qué permiso hace falta para ofrecer el control (`concerts` o `onsale`): un botón
+        que abre un pop-up que no se ha pintado no hace nada."""
         if key in hechas:
             return
         extra.append({"key": key, "phase": n, "label": label, "icon": icon, "state": "todo",
                       "mine": False, "blocked": False, "blocked_reason": "", "owner_nick": "",
                       "owner_user_id": "", "nudge_url": "", "url": url, "modal": modal,
-                      "action_label": action_label, "hint": hint, "generic": True})
+                      "action_label": action_label, "hint": hint, "generic": True,
+                      "do": do, "perm": perm})
 
     try:
         _estado_actual = (getattr(concert, "status", None) or "BORRADOR").upper()
@@ -46758,29 +46739,46 @@ def _concert_task_board(session_db, concert) -> dict:
         if _estado_actual == "CANCELADO":
             raise _CancelledActivity
         if not confirmada:
-            suelta("confirmar", 5, "Pendiente de confirmar", "fa-circle-question")
+            # Se confirma AQUÍ MISMO (el mismo camino que la etiqueta de estado, con su compuerta
+            # del aviso al artista).
+            suelta("confirmar", 5, "Pendiente de confirmar", "fa-circle-question",
+                   do="confirmar", action_label="Confirmar")
         else:
             if not session_db.query(ConcertContract.id).filter(
                     ConcertContract.concert_id == concert.id).first():
-                suelta("contrato", 6, "Sin contrato", "fa-file-signature")
+                suelta("contrato", 6, "Sin contrato", "fa-file-signature",
+                       url=(url_for("concert_detail_view", cid=concert.id, tab="general")
+                            + "#contratos-actividad"),
+                       action_label="Adjuntar el contrato")
             if (not getattr(concert, "announcement_date", None)
                     and not getattr(concert, "do_not_announce", False)):
-                suelta("anuncio", 7, "Pendiente de anunciar", "fa-bullhorn")
+                # La MISMA etiqueta clicable de la cabecera: se pone la fecha o «Anunciado» sin salir.
+                suelta("anuncio", 7, "Pendiente de anunciar", "fa-bullhorn", do="anuncio")
             if _concert_sale_state(session_db, concert)["needs_activation"]:
-                suelta("venta", 8, "Sin activar la venta", "fa-ticket")
-            # Las entradas las vende un TERCERO: hay que decir a quién se le piden las ventas.
-            if _concert_ticketing_contact_missing(session_db, concert):
-                suelta("contacto_ticketing", 9, "Configurar el contacto de ticketing",
-                       "fa-address-book", modal="#ticketingContactModal",
+                suelta("venta", 8, "Sin activar la venta", "fa-ticket", do="venta",
+                       action_label="Activar la venta")
+            # Las entradas las vende un TERCERO: hay que decir A QUIÉN se le piden las ventas.
+            # ⚠️ Salta SIEMPRE que no se haya configurado, aunque el promotor tenga correo en su
+            # ficha (que es el respaldo, no una decisión). No bloquea nada: sin configurarlo, las
+            # comunicaciones se le siguen mandando por la cascada de siempre.
+            if _concert_ticketing_contact_unset(session_db, concert):
+                _hay_correo = bool((_concert_ticketing_contact(session_db, concert) or {}).get("email"))
+                suelta("contacto_ticketing", 9, "Configurar el responsable de ticketing",
+                       "fa-address-book", modal="#ticketingContactModal", perm="onsale",
                        action_label="Configurarlo",
-                       hint="Sin él no se le puede pedir la actualización de ventas")
+                       hint=("Mientras no esté, las ventas se le piden al correo del promotor"
+                             if _hay_correo else
+                             "Sin un correo no se le puede pedir la actualización de ventas"))
         # Si la actividad NO viene de una petición, sus dos tareas de siempre también salen aquí.
         if not pendientes and (r is None or not getattr(r, "accepted_at", None)):
             if _concert_production_pending(concert):
-                suelta("produccion", 4, "Activar producción", "fa-user-gear")
+                suelta("produccion", 4, "Activar producción", "fa-user-gear",
+                       modal="#prodOwnerModal", action_label="Activar producción",
+                       hint="Di quién de producción se encarga")
             if _peticion_artist_notice_pending(session_db, concert):
                 suelta("informar", 4, "Informar al artista", "fa-bell",
-                       url=url_for("concert_artist_notice_view", cid=concert.id))
+                       url=url_for("concert_artist_notice_view", cid=concert.id),
+                       action_label="Avisar al artista")
     except _CancelledActivity:
         pass                              # cancelada: sin tareas propias (ver arriba)
     except Exception:
@@ -48189,7 +48187,15 @@ def _concert_wizard_context(session_db):
     """Contexto que necesita el asistente de concierto (_concert_wizard_modal.html) para poder
     incluirlo en CUALQUIER página (Inicio, ficha de artista…) y abrirlo in situ, sin navegar a
     /conciertos. El recinto es un Select2 AJAX autocontenido y `activity_options` se define en la
-    propia plantilla, así que solo hacen falta estas listas (mismas que usa `contratacion`)."""
+    propia plantilla, así que solo hacen falta estas listas.
+
+    ⚠️⚠️ **ES EL ÚNICO SITIO donde se dice qué necesita el asistente**, y las pantallas lo cogen con
+    `_with_concert_wizard`. Antes, Contratación, la vista de conciertos y la ficha de una gira se
+    montaban sus propias listas a mano y se quedaban SIN las claves nuevas (`disc_activity_choices`,
+    `production_people_wizard`, `wizard_events`, `wizard_tours`/`wizard_cycles`): el MISMO asistente
+    salía con la tarjeta de «Discográficas» vacía, sin gente de producción en el paso de logística y
+    sin giras ni ciclos según desde dónde se abriera (bug real). Al añadir un dato nuevo al
+    asistente se añade AQUÍ y aparece en todas a la vez."""
     promoters = (
         session_db.query(Promoter).options(selectinload(Promoter.companies))
         .order_by(Promoter.nick.asc()).all()
@@ -48224,6 +48230,26 @@ def _concert_wizard_context(session_db):
         "wizard_tours": tours,
         "wizard_cycles": cycles,
     }
+
+
+def _with_concert_wizard(session_db, ctx: dict) -> dict:
+    """Añade al contexto lo que necesita el asistente de actividad, SIN pisar lo que ya pasa la
+    pantalla (sus propias listas para sus listados y filtros).
+
+    ⚠️ **Toda pantalla que incluya `_concert_wizard_modal.html` tiene que pasar por aquí**: así el
+    asistente es el MISMO en todas (el «+» del calendario, «+ Actividad» de Actividades, el de
+    Contratación, la vista de conciertos, la ficha de una gira, un evento, la de un artista y la de
+    una petición) y una mejora vale para todas a la vez.
+    Es *best-effort*: si algo falla, la pantalla se pinta igual y el botón cae a `/conciertos`."""
+    datos = {}
+    try:
+        datos = _concert_wizard_context(session_db)
+    except Exception:
+        app.logger.exception("[asistente] no se pudo montar el contexto del asistente de actividad")
+    for clave, valor in (datos or {}).items():
+        ctx.setdefault(clave, valor)
+    ctx.setdefault("wizard_available", bool(datos))
+    return ctx
 
 
 def _group_general_roadmap(concerts):
@@ -48391,8 +48417,10 @@ def _render_purchased_tours():
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         return render_template(
-            "giras_compradas.html", section="giras-compradas", rows=rows,
-            artists=artists, companies=companies, CAN_EDIT_CONCERTS=can_edit_concerts(),
+            "giras_compradas.html", **_with_concert_wizard(s, dict(
+                section="giras-compradas", rows=rows,
+                artists=artists, companies=companies, CAN_EDIT_CONCERTS=can_edit_concerts(),
+            )),
         )
     finally:
         s.close()
@@ -48482,19 +48510,23 @@ def purchased_tour_detail(tid):
         )
         return render_template(
             "activity_group_detail.html",
-            # Cartelería de TODA la gira (una sola solicitud para todas sus fechas).
-            **_artwork_group_context(s, "TOUR", t.id),
-            # Marketing de la gira entera: lo que se pidió y lo que ya hay creado.
-            **_promotion_panel_context(s, "GIRA", t.id),
-            can_validate_artwork=_can_validate_artwork(),
-            group_kind="TOUR", group_is_event=False, group=t, concerts=rows, general=general,
-            advance_share=advance_share, gen_total=gen_total,
-            candidates=cand_rows, status_label=label, status_badge=badge,
-            artists=artists, companies=companies, simulations=simulations,
-            linked_sims=_group_linked_sims(s, general),
-            general_roadmap=_group_general_roadmap(concerts),
-            group_result=_group_result_context(s, concerts, general),
-            CAN_EDIT_CONCERTS=can_edit_concerts(),
+            # El asistente de actividad (el MISMO de todas las pantallas): aquí se abre con la gira
+            # ya vinculada, así que la fecha nueva nace dentro de ella.
+            **_with_concert_wizard(s, dict(
+                # Cartelería de TODA la gira (una sola solicitud para todas sus fechas).
+                **_artwork_group_context(s, "TOUR", t.id),
+                # Marketing de la gira entera: lo que se pidió y lo que ya hay creado.
+                **_promotion_panel_context(s, "GIRA", t.id),
+                can_validate_artwork=_can_validate_artwork(),
+                group_kind="TOUR", group_is_event=False, group=t, concerts=rows, general=general,
+                advance_share=advance_share, gen_total=gen_total,
+                candidates=cand_rows, status_label=label, status_badge=badge,
+                artists=artists, companies=companies, simulations=simulations,
+                linked_sims=_group_linked_sims(s, general),
+                general_roadmap=_group_general_roadmap(concerts),
+                group_result=_group_result_context(s, concerts, general),
+                CAN_EDIT_CONCERTS=can_edit_concerts(),
+            )),
         )
     finally:
         s.close()
@@ -48691,10 +48723,9 @@ def _render_event_activities():
             drill_group_id=drill_group_id,
             show_past=show_past,
             CAN_EDIT_CONCERTS=can_edit_concerts(),
-            # Sin esta bandera `eventos.html` no incluye el asistente y el botón «+ Actividad»
-            # no abría nada (el modal no llegaba siquiera al HTML).
-            wizard_available=True,
-            **_concert_wizard_context(s),
+            # Sin `wizard_available` (que pone el punto único) `eventos.html` no incluye el
+            # asistente y el botón «+ Actividad» no abría nada: el modal no llegaba al HTML.
+            **_with_concert_wizard(s, {}),
         )
     finally:
         s.close()
@@ -48739,6 +48770,7 @@ def _render_cycle_festivals(only_events: bool = False):
         venues = s.query(Venue).order_by(Venue.name.asc()).all()
         return render_template(
             "festivales_ciclos.html",
+            **_with_concert_wizard(s, dict(
             section=("eventos" if only_events else "festivales-ciclos"),
             only_events=only_events,
             page_title=("Eventos · giras y ciclos" if only_events else "Festivales / Ciclos"),
@@ -48748,6 +48780,7 @@ def _render_cycle_festivals(only_events: bool = False):
                            "Festivales y ciclos organizados por el grupo, con sus conciertos."),
             rows=rows, artists=artists, companies=companies, events=events, venues=venues,
             CAN_EDIT_CONCERTS=can_edit_concerts(),
+            )),
         )
     finally:
         s.close()
@@ -48848,21 +48881,24 @@ def cycle_festival_detail(cfid):
         )
         return render_template(
             "activity_group_detail.html",
-            # Cartelería de TODO el ciclo/festival/evento.
-            **_artwork_group_context(s, "CYCLE", cf.id),
-            # Marketing del ciclo/festival/evento entero.
-            **_promotion_panel_context(s, "CICLO", cf.id),
-            can_validate_artwork=_can_validate_artwork(),
-            group_kind=(cf.kind or "FESTIVAL").upper(),
-            # Un contenedor es de un EVENTO por su tipo o por colgar de un AppEvent.
-            group_is_event=bool(cf.event_id) or (cf.kind or "").upper() in CYCLE_FESTIVAL_EVENT_KINDS,
-            group=cf, concerts=rows, general=general,
-            advance_share=0.0, gen_total=gen_total, candidates=cand_rows,
-            status_label=label, status_badge=badge, artists=artists, companies=companies,
-            venues=venues, simulations=simulations, linked_sims=_group_linked_sims(s, general),
-            general_roadmap=_group_general_roadmap(concerts),
-            group_result=_group_result_context(s, concerts, general),
-            CAN_EDIT_CONCERTS=can_edit_concerts(),
+            # El MISMO asistente de actividad, con el ciclo/festival ya vinculado.
+            **_with_concert_wizard(s, dict(
+                # Cartelería de TODO el ciclo/festival/evento.
+                **_artwork_group_context(s, "CYCLE", cf.id),
+                # Marketing del ciclo/festival/evento entero.
+                **_promotion_panel_context(s, "CICLO", cf.id),
+                can_validate_artwork=_can_validate_artwork(),
+                group_kind=(cf.kind or "FESTIVAL").upper(),
+                # Un contenedor es de un EVENTO por su tipo o por colgar de un AppEvent.
+                group_is_event=bool(cf.event_id) or (cf.kind or "").upper() in CYCLE_FESTIVAL_EVENT_KINDS,
+                group=cf, concerts=rows, general=general,
+                advance_share=0.0, gen_total=gen_total, candidates=cand_rows,
+                status_label=label, status_badge=badge, artists=artists, companies=companies,
+                venues=venues, simulations=simulations, linked_sims=_group_linked_sims(s, general),
+                general_roadmap=_group_general_roadmap(concerts),
+                group_result=_group_result_context(s, concerts, general),
+                CAN_EDIT_CONCERTS=can_edit_concerts(),
+            )),
         )
     finally:
         s.close()
@@ -49218,7 +49254,11 @@ def activities_view():
             cq = cq.filter(Concert.date >= today)
         elif when_f == "past":
             cq = cq.filter(Concert.date < today)
-        for c in cq.order_by(Concert.date.asc().nullslast()).limit(1000).all():
+        # ⚠️ Lo que NO ESTÁ CONFIRMADO solo lo ven contratación, dirección, quien la produce y QUIEN
+        # LA CREÓ (el mismo criterio que el calendario y la ficha: `_concert_list_visible`). Antes
+        # esta pantalla las enseñaba TODAS, así que una reserva que se estaba hablando salía para
+        # toda la oficina.
+        for c in _concert_list_visible(cq.order_by(Concert.date.asc().nullslast()).limit(1000).all()):
             # QUÉ es la actividad (un evento promocional no es un concierto de ningún tipo).
             _kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
             lbl, bdg = _concert_status_meta(c.status)
@@ -49353,19 +49393,17 @@ def activities_view():
                              "url": (url_for("artist_detail_view", artist_id=artist_f) if art else "")}
         items.sort(key=lambda x: (x["date"] or date.max), reverse=(when_f == "past"))
         counts = {"all": len(items)}
-        # El asistente «+ Actividad» se abre AQUÍ MISMO (un solo botón para todo).
-        _wiz = {}
-        try:
-            _wiz = _concert_wizard_context(s) if can_edit_concerts() else {}
-        except Exception:
-            _wiz = {}
-        return render_template(
-            "actividades.html", items=items, when_f=when_f, artist_f=artist_f, event_f=event_f,
-            type_chips=type_chips, subject_groups=subject_groups, drill_subject=drill_subject,
-            year_chips=year_chips, f_years=sorted(f_years),
-            counts=counts, CAN_EDIT_CONCERTS=can_edit_concerts(),
-            wizard_available=bool(_wiz), **({**_wiz} if _wiz else {"artists": artists}),
-        )
+        # El asistente «+ Actividad» se abre AQUÍ MISMO (un solo botón para todo), y es el MISMO
+        # que en las demás pantallas (punto único). Quien no puede editar no lo lleva.
+        ctx = dict(items=items, when_f=when_f, artist_f=artist_f, event_f=event_f,
+                   type_chips=type_chips, subject_groups=subject_groups, drill_subject=drill_subject,
+                   year_chips=year_chips, f_years=sorted(f_years),
+                   counts=counts, CAN_EDIT_CONCERTS=can_edit_concerts())
+        if can_edit_concerts():
+            ctx = _with_concert_wizard(s, ctx)
+        else:
+            ctx.update(artists=artists, wizard_available=False)
+        return render_template("actividades.html", **ctx)
     finally:
         s.close()
 
@@ -52917,6 +52955,10 @@ def concerts_page():
             q = q.filter(Concert.date >= today)
 
         concerts = q.order_by(Concert.date.asc()).all()
+        # ⚠️ Lo que NO ESTÁ CONFIRMADO es de contratación: a esta pantalla llega también quien trabaja
+        # en producción (el acceso de LECTURA no exige la pestaña de Conciertos), así que se filtra con
+        # el MISMO criterio que el calendario — y quien la CREÓ sigue viendo la suya.
+        concerts = _concert_list_visible(concerts)
         # Quien tiene artistas asignados solo ve los conciertos de SUS artistas (como principal o
         # como co-artista del JSONB); el resto de usuarios —y dirección— ven todos.
         _assigned_set = {str(x) for x in (_current_user_state().get("assigned_artist_ids") or []) if x}
@@ -53033,13 +53075,13 @@ def concerts_page():
             for c in concerts:
                 type_counts[c.sale_type] = type_counts.get(c.sale_type, 0) + 1
 
-        _wizard_tours, _wizard_cycles = _wizard_group_options(s)
-
         # Las peticiones pendientes ya NO se listan aquí: viven en su propia pestaña (la primera de
         # Contratación) y lo que abre esta es el módulo de TAREAS pendientes (`CONTRACTING_TASKS`).
+        # ⚠️ Lo del ASISTENTE lo da `_with_concert_wizard` (punto único): esta pantalla se montaba
+        # sus propias listas y el asistente salía distinto que en las demás.
         return render_template(
             "concerts_vista.html" if active_tab == "vista" else "concerts.html",
-            wizard_events=s.query(AppEvent).order_by(AppEvent.name.asc()).all(),
+            **_with_concert_wizard(s, dict(
             active_tab=active_tab,
             booking_status_meta=BOOKING_STATUS_META,
             vista_mode=vista_mode,
@@ -53047,13 +53089,10 @@ def concerts_page():
             drill_artist=drill_artist,
             show_all=show_all,
             type_counts=type_counts,
-            wizard_tours=_wizard_tours,
-            wizard_cycles=_wizard_cycles,
+            # `artists` y `venues` son los de ESTA pantalla (su rejilla y sus filtros); el resto de
+            # las listas del asistente las pone el punto único.
             artists=artists,
             venues=venues,
-            promoters=promoters,
-            promoters_payload=promoters_payload,
-            companies=companies,
             concerts=concerts,
             billing_items=billing_items,
             billing_groups=billing_groups,
@@ -53078,6 +53117,7 @@ def concerts_page():
             year_chips=year_chips,
             # El pop-up de filtros se vuelve a abrir solo cuando el cambio vino de dentro de él.
             open_filters=(request.args.get("open") == "filtros"),
+            )),
         )
     finally:
         s.close()
@@ -53355,7 +53395,10 @@ def concert_detail_view(cid):
                                  or (c.sale_type or "").strip().upper() == CONCERT_FREE_SALE_TYPE]
             if is_promo_activity:
                 try:
-                    activity_songs = _repertoire_songs_for_artists(session, [c.artist_id])
+                    # TODOS los artistas de la actividad (una puede ser de varios), el mismo punto
+                    # que usa el set list: antes solo se ofrecía el repertorio del primero.
+                    activity_songs = _repertoire_songs_for_artists(
+                        session, _setlist_concert_artist_ids(c))
                 except Exception:
                     activity_songs = []
 
@@ -55326,6 +55369,8 @@ def concert_section_update_handler(cid, section):
             c.manual_municipality = (request.form.get("manual_municipality") or "").strip() or None
             c.manual_province = (request.form.get("manual_province") or "").strip() or None
             c.manual_postal_code = (request.form.get("manual_postal_code") or "").strip() or None
+            if "manual_country" in request.form:
+                c.manual_country = (request.form.get("manual_country") or "").strip() or None
             # HORARIOS (con su «por confirmar»): son de esta pantalla, no de otra.
             c.show_time_tbc = _truthy(request.form.get("show_time_tbc"))
             c.doors_time_tbc = _truthy(request.form.get("doors_time_tbc"))
@@ -55363,7 +55408,9 @@ def concert_section_update_handler(cid, section):
                 flash(Markup(
                     '%s <a class="alert-link" href="%s">%s</a>.'
                     % (escape(_puerta["reason"]), _puerta["notify_url"],
-                       ('Avisar al artista o marcar que ya fue informado'
+                       ('Confirmarla o comunicarla'
+                        if _puerta.get("ack_reason") == "ANTIGUA" else
+                        'Avisar al artista o marcar que ya fue informado'
                         if _puerta.get("can_ack") else 'Avisar al artista ahora'))), "warning")
             else:
                 c.status = _nuevo_estado
@@ -55507,6 +55554,9 @@ def concert_section_update_handler(cid, section):
                 formation_label = _performance_formation_label(performance)
                 if formation_label or performance.get("sings") is not None:
                     payload["formation"] = formation_label
+                # Las canciones elegidas SON el repertorio: si la actividad todavía no tiene set
+                # list, se siembra con ellas (si ya lo tiene, no se pisa).
+                _seed_concert_setlist_from_performance(session, c, performance)
             # Meet & Greet (solo llega si el formulario lo incluye, para no pisar desde forms antiguos).
             if request.form.get("meet_greet_present"):
                 payload["meet_greet"] = {
@@ -56137,11 +56187,19 @@ def concert_quick_status(cid):
         # COMPUERTA: no se confirma una actividad sin habérsela comunicado al artista.
         puerta = _concert_notice_gate(session, c, _norm_status(new_status))
         if puerta:
-            # `can_ack`/`ack_url` solo vienen si la actividad YA HA PASADO: entonces el cliente ofrece
-            # además «el artista ya fue informado», que apunta el aviso y sigue con el estado.
+            # `can_ack`/`ack_url` vienen cuando NO hace falta mandar nada (`ack_reason`): la
+            # actividad ya ha pasado, o se creó antes de que la app comunicara al artista. El cliente
+            # ofrece entonces las dos opciones con los textos de su motivo («Confirmar» / «Confirmar y
+            # comunicar»), que apuntan el aviso y siguen con el estado.
             return jsonify({"ok": False, "error": puerta["reason"],
                             "needs_artist_notice": True,
                             "can_ack": bool(puerta.get("can_ack")),
+                            "ack_reason": puerta.get("ack_reason") or "",
+                            "ack_note": puerta.get("ack_note") or "",
+                            "ack_label": puerta.get("ack_label") or "",
+                            "ack_icon": puerta.get("ack_icon") or "",
+                            "ack_title": puerta.get("ack_title") or "",
+                            "notify_label": puerta.get("notify_label") or "",
                             "ack_url": puerta.get("ack_url") or "",
                             "status": _norm_status(new_status),
                             "notify_url": puerta["notify_url"]}), 409
@@ -62242,6 +62300,41 @@ def _wizard_performance_payload(session, form, is_promo: bool) -> dict:
     return perf
 
 
+def _seed_concert_setlist_from_performance(session_db, concert, perf: dict | None) -> None:
+    """LAS CANCIONES QUE SE ELIGEN EN EL ASISTENTE **SON EL REPERTORIO** de la actividad.
+
+    Se siembran en su set list (`RepertoireTemplate` con owner CONCERT, el mismo que pinta la
+    pestaña «Repertorio»), **en el orden en el que se dejaron** (el asistente se arrastra para
+    ordenarlas y el formulario manda `performance_song_ids[]` en ese orden).
+    ⚠️ Solo SIEMBRA: si la actividad ya tiene set list —se ha tocado a mano o se cargó una
+    plantilla— no se pisa nada. Es *best-effort*: un fallo aquí no puede tumbar el alta."""
+    canciones = [x for x in ((perf or {}).get("songs") or []) if isinstance(x, dict) and x.get("id")]
+    if not canciones or concert is None or not getattr(concert, "id", None):
+        return
+    try:
+        t = _get_setlist(session_db, "CONCERT", concert.id, create=True)
+        if t is None or (t.items or []):
+            return
+        ids = [to_uuid(x.get("id")) for x in canciones]
+        duraciones = {}
+        try:
+            for sg in session_db.query(Song).filter(Song.id.in_([i for i in ids if i])).all():
+                duraciones[str(sg.id)] = int(getattr(sg, "duration_seconds", 0) or 0)
+        except Exception:
+            duraciones = {}
+        for i, fila in enumerate(canciones):
+            sid = to_uuid(fila.get("id"))
+            if not sid:
+                continue
+            session_db.add(RepertoireTemplateItem(
+                template_id=t.id, kind="SONG", song_id=sid,
+                title=(fila.get("title") or "").strip(),
+                duration_seconds=(duraciones.get(str(sid)) or None),
+                sort_order=i))
+    except Exception:
+        app.logger.exception("[asistente] no se pudo sembrar el repertorio de la actividad")
+
+
 def _performance_formation_label(perf: dict | None) -> str:
     perf = perf or {}
     fk = (perf.get('formation_kind') or '').strip().upper()
@@ -62841,6 +62934,8 @@ def concert_wizard_create():
         manual_municipality = (request.form.get('manual_municipality') or '').strip() or None
         manual_province = (request.form.get('manual_province') or '').strip() or None
         manual_postal_code = (request.form.get('manual_postal_code') or '').strip() or None
+        # El PAÍS de una fecha sin recinto (de él sale la bandera de lo que es de FUERA).
+        manual_country = (request.form.get('manual_country') or '').strip() or None
         if not (venue_id or manual_municipality or manual_province):
             raise ValueError('Debes indicar recinto o al menos municipio y provincia.')
 
@@ -62933,10 +63028,13 @@ def concert_wizard_create():
                 manual_municipality=manual_municipality,
                 manual_province=manual_province,
                 manual_postal_code=manual_postal_code,
+                manual_country=manual_country,
             )
             session.add(concert)
             session.flush()
             _wizard_link_peticion(session, concert)
+            # Las canciones elegidas en el asistente SON el repertorio de la actividad.
+            _seed_concert_setlist_from_performance(session, concert, performance)
             artist = session.get(Artist, artist_id)
             sheet = ConcertContractSheet(
                 concert_id=concert.id,
@@ -63099,6 +63197,7 @@ def concert_wizard_create():
             manual_municipality=manual_municipality,
             manual_province=manual_province,
             manual_postal_code=manual_postal_code,
+            manual_country=manual_country,
             show_time=(request.form.get('show_time') or '').strip() or None,
             doors_time=(request.form.get('doors_time') or '').strip() or None,
             show_time_tbc=show_time_tbc,
@@ -63112,6 +63211,8 @@ def concert_wizard_create():
         session.flush()
         # ¿Venía de configurar una PETICIÓN APROBADA? Se enlaza con ella (cierra la fase 1).
         _de_peticion = _wizard_link_peticion(session, concert)
+        # Las canciones elegidas en el asistente SON el repertorio de la actividad (en su orden).
+        _seed_concert_setlist_from_performance(session, concert, performance)
 
         # COMPUERTA del aviso al artista: una actividad NUEVA no puede nacer confirmada sin habérselo
         # comunicado al artista. ⚠️ Aquí no se aborta el alta (se le cuelgan entradas, cachés,
@@ -63122,7 +63223,10 @@ def concert_wizard_create():
             # algo que ya ocurrió, así que no tiene sentido dejarla en RESERVADA por eso (se estaba
             # apuntando algo del mes pasado y salía como reserva, con su 403 detrás). El aviso queda
             # marcado como hecho A MANO, que es lo que corresponde.
-            if _puerta_alta and _puerta_alta.get("can_ack"):
+            # ⚠️ Solo con el motivo PASADA. Lo de «creada antes del corte» no vale aquí: una
+            # actividad que se está dando de alta AHORA no es antigua, y darlo por hecho en silencio
+            # sería confirmar sin avisar sin que nadie lo haya decidido.
+            if _puerta_alta and _puerta_alta.get("ack_reason") == "PASADA":
                 _concert_notice_mark_manual(
                     session, concert,
                     nota="Alta de una actividad ya pasada: se da el aviso por hecho.")
@@ -71875,18 +71979,11 @@ def tour_detail_view(slug):
         session_db.commit()
         available = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(Concert.artist_id.in_(_as_uuid_list(artist_ids))).filter(~Concert.id.in_([c.id for c in concerts])).order_by(Concert.date.asc().nullslast()).limit(200).all() if artist_ids else []
         onesheet = _onesheet_context(session_db, tour=tour, concerts=concerts, public=False)
-        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
-        promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
-        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
-        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
-        all_concert_tags = _collect_all_concert_tags(session_db)
-        promoters_payload = [{
-            "id": str(p.id),
-            "nick": (p.nick or "").strip(),
-            "logo_url": (p.logo_url or "").strip(),
-            "companies": [_serialize_promoter_company(x) for x in (p.companies or [])],
-        } for p in promoters]
-        return render_template('tour_detail.html', slug=slug_key, title=title, tab=tab, concerts=concerts, available_concerts=available, tour=tour, onesheet=onesheet, artists=artists, promoters=promoters, promoters_payload=promoters_payload, companies=companies, type_choices=type_choices, all_concert_tags=all_concert_tags, CAN_EDIT_CONCERTS=can_edit_concerts())
+        # ⚠️ Lo del ASISTENTE lo da el punto único: aquí se montaba a mano y se quedaba sin los
+        # eventos, sin las giras y ciclos, sin las discográficas y sin la gente de producción.
+        return render_template('tour_detail.html', **_with_concert_wizard(session_db, dict(
+            slug=slug_key, title=title, tab=tab, concerts=concerts, available_concerts=available,
+            tour=tour, onesheet=onesheet, CAN_EDIT_CONCERTS=can_edit_concerts())))
     finally:
         session_db.close()
 
@@ -72079,6 +72176,15 @@ def _bag_expense_display_cat(cat: str | None) -> str:
     return k if k in BAG_EXPENSE_CATEGORY_LABELS else "OTROS"
 BAG_DOCUMENT_TYPES = [("FACTURA", "Factura"), ("TICKET", "Ticket"), ("SIN_DOCUMENTO", "Sin factura/ticket")]
 BAG_PAYMENT_METHODS = ["Tarjeta", "Pleo", "Banco", "PayPal", "Efectivo"]
+# Cada método con su ICONO: en el formulario se eligen pinchando, que es más rápido y menos
+# equivocable que un desplegable.
+BAG_PAYMENT_METHOD_ICONS = {
+    "Tarjeta": "fa-credit-card", "Pleo": "fa-wallet", "Banco": "fa-building-columns",
+    "PayPal": "fa-paypal", "Efectivo": "fa-money-bill-wave",
+}
+# El IVA con el que se calcula un gasto cuando el importe se escribe SIN IVA. Se puede cambiar en
+# cada gasto (sus tres puntitos → «IVA %», que se guarda en `BagExpense.vat_pct`).
+BAG_VAT_PCT_DEFAULT = Decimal("21")
 BAG_PAYMENT_STATUS_LABELS = {
     "NO_PAGADO": "No pagado",
     "PENDIENTE": "Pendiente de pago",
@@ -74695,7 +74801,7 @@ CONTRACTING_TASK_META = {
     # Activar la venta NO es activar la producción: son dos funciones separadas y dos tareas.
     "SALE": ("Sin activar la venta", "fa-ticket", "text-bg-primary", 4),
     # El CONTACTO DE TICKETING del promotor de fuera: sin él no hay a quién pedirle las ventas.
-    "TICKETING_CONTACT": ("Sin contacto de ticketing", "fa-address-book",
+    "TICKETING_CONTACT": ("Sin responsable de ticketing", "fa-address-book",
                           "text-bg-info text-dark", 4),
     "INVOICE":    ("Pendiente de facturar", "fa-file-circle-plus", "text-bg-secondary", 5),
     "COLLECT":    ("Pendiente de cobrar", "fa-hourglass-half", "text-bg-warning text-dark", 6),
@@ -74885,10 +74991,11 @@ def _contracting_tasks_data() -> dict:
                 # Vende entradas nuestras y todavía nadie le ha dicho a Ticketing que la saque.
                 if _concert_sale_state(session_db, c)["needs_activation"]:
                     kinds.append("SALE")
-                # Vende entradas y las vende un TERCERO: hace falta saber a quién se le piden las
-                # ventas. Solo se reclama si NO hay ningún correo al que escribir.
-                if _concert_ticketing_contact_missing(session_db, c,
-                                                     group_promoted=grupo_promueve.get(c.id)):
+                # Vende entradas y las vende un TERCERO: hace falta decir a quién se le piden
+                # las ventas. Se reclama mientras no se haya configurado (el correo del promotor es
+                # el respaldo, no una decisión) y no bloquea el envío de las comunicaciones.
+                if _concert_ticketing_contact_unset(session_db, c,
+                                                   group_promoted=grupo_promueve.get(c.id)):
                     kinds.append("TICKETING_CONTACT")
             if not kinds:
                 continue
@@ -76303,6 +76410,9 @@ SUPPORT_ACTION_ENDPOINTS = {
     # (o previsualizar) la solicitud es trabajo de TICKETING. Mismo motivo que arriba.
     "concert_ticketing_contact_save", "concert_sales_request_preview",
     "concert_sales_request_send",
+    # LEER la factura o el ticket que se arrastra al formulario de un gasto: es una herramienta del
+    # propio formulario (lo hace quien apunta el gasto, que puede no tener la sección de bolsas).
+    "api_bag_document_detect",
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
     "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
@@ -76383,6 +76493,9 @@ SUPPORT_READ_ENDPOINTS = {
     # Quién manda una maqueta: busca en terceros, personal y artistas de una sola vez.
     "api_demo_sender_search",
     "api_city_search",
+    # El PROVEEDOR de un gasto de bolsa (terceros, medios, artistas y personal) y la lectura del
+    # documento que se arrastra: son apoyo del formulario del gasto.
+    "api_bag_provider_search",
     # Asistente de actividad: repertorio + # del artista (para eventos promocionales y sugerencias).
     "api_artist_wizard_meta",
     # Hoja de ruta: exportaciones de rooming y listado de personal (PDF/Excel).
@@ -89719,6 +89832,24 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
     amount_net = _bag_money(form.get("amount_net"))
     amount_tax = _bag_money(form.get("amount_tax"))
     amount_gross = _bag_money(form.get("amount_gross"))
+    # ⚠️⚠️ EL IMPORTE SE ESCRIBE UNA VEZ Y SE DICE SI LLEVA IVA. El formulario nuevo manda
+    # `amount_value` + `amount_mode` (GROSS = lo incluye · NET = no lo incluye) y el % (`vat_pct`,
+    # 21 por defecto): el desglose lo hace AQUÍ, no el navegador, así que sale igual desde donde sea.
+    # El formulario viejo (que manda las tres cifras) sigue funcionando igual.
+    if "vat_pct" in form:
+        expense.vat_pct = _bag_money(form.get("vat_pct")) or None
+    pct = expense.vat_pct if expense.vat_pct is not None else BAG_VAT_PCT_DEFAULT
+    modo = (form.get("amount_mode") or "").strip().upper()
+    if modo in ("GROSS", "NET") and ("amount_value" in form):
+        valor = _bag_money(form.get("amount_value"))
+        if modo == "NET":
+            amount_net = valor
+            amount_tax = (valor * Decimal(pct) / Decimal("100")).quantize(Decimal("0.01"))
+            amount_gross = amount_net + amount_tax
+        else:
+            amount_gross = valor
+            amount_net = (valor / (Decimal("1") + Decimal(pct) / Decimal("100"))).quantize(Decimal("0.01")) if pct else valor
+            amount_tax = amount_gross - amount_net
     if expense.document_type == "TICKET":
         if amount_gross <= 0 and amount_net > 0:
             amount_gross = amount_net
@@ -89737,7 +89868,13 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
     expense.retention_amount = _bag_money(form.get("retention_amount"))
 
     paid_amount = _bag_money(form.get("paid_amount"))
-    expense.payment_status = _bag_normalize_payment_status(form.get("payment_status"), paid_amount, amount_gross)
+    estado_pedido = (form.get("payment_status") or "").strip().upper()
+    # ⚠️ EL FORMULARIO PREGUNTA «¿pagado?» y, si sí, «¿completo o parcial?» (`paid_kind`): el ESTADO
+    # lo decide aquí, no el navegador. Así no hacen falta dos campos con el mismo nombre (que además
+    # se pisarían al leerlos).
+    if estado_pedido == "PAGADO" and (form.get("paid_kind") or "").strip().upper() == "PARTIAL":
+        estado_pedido = "PARCIAL"
+    expense.payment_status = _bag_normalize_payment_status(estado_pedido, paid_amount, amount_gross)
     if expense.payment_status == "PAGADO" and paid_amount <= 0:
         paid_amount = amount_gross
     expense.paid_amount = paid_amount
@@ -89776,6 +89913,135 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
     return expense
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# EL PROVEEDOR DE UN GASTO · se busca escribiendo, en TODA la base
+#
+# ⚠️⚠️ `BagExpense.provider_id` apunta a **promoters**, pero quien nos factura puede ser un MEDIO, un
+# ARTISTA o alguien de la CASA (un trabajador que factura como autónomo). Esos no son terceros, así
+# que se ESPEJAN a un tercero al elegirlos —el mismo patrón que `_ensure_promoter_for_media` con el
+# promotor de una actividad—, y el espejo se reutiliza la próxima vez (se busca por nombre).
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+
+def _promoter_mirror_by_name(session_db, nombre: str, *, logo: str = "", kind: str = "empresa",
+                             tax_id: str = "") -> Promoter | None:
+    """El tercero que se llama así (o uno nuevo con ese nombre). Punto único de los espejos."""
+    nombre = (nombre or "").strip()
+    if not nombre:
+        return None
+    fila = (session_db.query(Promoter)
+            .filter(func.lower(Promoter.nick) == nombre.lower()).first())
+    if fila is None and tax_id:
+        fila = (session_db.query(Promoter)
+                .filter(func.upper(func.coalesce(Promoter.tax_id, "")) == tax_id.strip().upper())
+                .first())
+    if fila is not None:
+        if logo and not (fila.logo_url or "").strip():
+            fila.logo_url = logo
+        if tax_id and not (fila.tax_id or "").strip():
+            fila.tax_id = tax_id.strip()
+        return fila
+    fila = Promoter(nick=_intake_unique_nick(session_db, nombre), logo_url=(logo or None),
+                    kind=kind, tax_id=(tax_id.strip() or None) if tax_id else None)
+    session_db.add(fila)
+    session_db.flush()
+    return fila
+
+
+def _bag_provider_from_form(session_db, form) -> str:
+    """El proveedor elegido → el id de un TERCERO (creando el espejo si hace falta).
+
+    Devuelve "" si no se ha elegido nada y None-safe: lo que el formulario manda es
+    `provider_kind` (promoter · media · artist · user) + `provider_ref`. Con `provider_id` a secas
+    (el formulario de siempre) no se toca nada."""
+    kind = (form.get("provider_kind") or "").strip().lower()
+    ref = (form.get("provider_ref") or "").strip()
+    if not kind or not ref or kind == "promoter":
+        return ""
+    try:
+        if kind == "media":
+            fila = _ensure_promoter_for_media(session_db, to_uuid(ref))
+        elif kind == "artist":
+            art = session_db.get(Artist, to_uuid(ref))
+            fila = _promoter_mirror_by_name(session_db, getattr(art, "name", ""),
+                                            logo=(getattr(art, "photo_url", "") or ""))
+        elif kind == "user":
+            perfil = session_db.get(UserProfile, to_uuid(ref))
+            usuario = session_db.get(User, to_uuid(ref))
+            nombre = " ".join([x for x in [getattr(perfil, "first_name", ""),
+                                           getattr(perfil, "last_name", "")] if x]).strip() \
+                     or (getattr(usuario, "nick", "") or "")
+            fila = _promoter_mirror_by_name(session_db, nombre, kind="particular",
+                                            logo=(getattr(perfil, "photo_url", "") or ""),
+                                            tax_id=(getattr(perfil, "dni", "") or ""))
+        else:
+            fila = None
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo resolver el proveedor elegido (%s/%s)", kind, ref)
+        return ""
+    return str(fila.id) if fila is not None else ""
+
+
+def _bag_billing_provider_from_form(session_db, expense: BagExpense, form) -> None:
+    """QUIÉN EMITE LA FACTURA cuando no es el propio proveedor: una **sociedad vinculada**.
+
+    El proveedor puede no facturar él (una empresa suya, o la sociedad de otro que le factura por
+    él). Si se elige una, pasa a ser el proveedor del gasto —es quien emite la factura, que es lo
+    que importa para pagarla y para contabilizarla— y, si se pide, se **VINCULA** con el original
+    (`ThirdPartyLink`) para que la próxima vez se sugiera sola."""
+    destino = _safe_uuid(form.get("provider_billing_id"))
+    if not destino:
+        return
+    original = getattr(expense, "provider_id", None)
+    fila = session_db.get(Promoter, destino)
+    if fila is None:
+        return
+    if original and str(original) != str(destino) and _truthy(form.get("provider_billing_link")):
+        try:
+            ya = (session_db.query(ThirdPartyLink)
+                  .filter(ThirdPartyLink.source_type == "promoter",
+                          ThirdPartyLink.target_type == "promoter",
+                          or_(and_(ThirdPartyLink.source_id == original, ThirdPartyLink.target_id == destino),
+                              and_(ThirdPartyLink.source_id == destino, ThirdPartyLink.target_id == original)))
+                  .first())
+            if ya is None:
+                audit = _bag_current_user_audit()
+                session_db.add(ThirdPartyLink(
+                    source_type="promoter", source_id=original,
+                    target_type="promoter", target_id=destino,
+                    relation_title="Le factura", created_by_user_id=audit["user_id"],
+                    created_by_nick=audit["nick"]))
+        except Exception:
+            app.logger.exception("[bolsas] no se pudo vincular la sociedad que factura")
+    expense.provider_id = fila.id
+    empresa = _safe_uuid(form.get("provider_billing_company_id"))
+    fila_empresa = session_db.get(PromoterCompany, empresa) if empresa else None
+    if fila_empresa is not None and fila_empresa.promoter_id == fila.id:
+        expense.provider_company_id = fila_empresa.id
+    else:
+        expense.provider_company_id = None
+    expense.provider_snapshot = _bag_provider_snapshot(fila, fila_empresa)
+
+
+def _bag_expense_extras_from_form(session_db, expense: BagExpense, form) -> None:
+    """La NOTA y el AVISO que se escriben en el propio formulario del gasto.
+
+    Ya existían como acciones sueltas del gasto creado (`bag_expense_note_create` /
+    `bag_expense_alert_create`); esto es lo mismo desde el alta, para no tener que volver a entrar."""
+    audit = _bag_current_user_audit()
+    nota = (form.get("note") or form.get("expense_note") or "").strip()
+    if nota:
+        session_db.add(BagExpenseNote(expense_id=expense.id, body=nota,
+                                      created_by_user_id=audit["user_id"],
+                                      created_by_nick=audit["nick"]))
+    dia = _bag_date(form.get("alert_date"))
+    if dia:
+        session_db.add(BagExpenseAlert(
+            expense_id=expense.id, alert_date=dia,
+            alert_time=_agenda_clean_time(form.get("alert_time")),
+            body=(form.get("alert_body") or nota or "").strip() or None,
+            created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
+
+
 def _bag_create_expense(session_db, bag: WorkflowBag, form, *, file_storage=None, category: str | None = None, is_proration: bool = False) -> BagExpense:
     audit = _bag_current_user_audit()
     cat = _bag_normalize_category(category or form.get("category"))
@@ -89791,6 +90057,15 @@ def _bag_create_expense(session_db, bag: WorkflowBag, form, *, file_storage=None
     session_db.add(expense)
     session_db.flush()
     _bag_update_expense_from_form(session_db, expense, form, file_storage=file_storage, append_history=False)
+    # El buscador de proveedor ofrece MEDIOS, ARTISTAS y PERSONAL: se espejan a tercero al guardar.
+    espejo = _bag_provider_from_form(session_db, form)
+    if espejo:
+        expense.provider_id = to_uuid(espejo)
+        expense.provider_snapshot = _bag_provider_snapshot(
+            session_db.get(Promoter, expense.provider_id), None)
+    # ¿Factura otra sociedad por él? Entonces es ELLA la que emite la factura.
+    _bag_billing_provider_from_form(session_db, expense, form)
+    _bag_expense_extras_from_form(session_db, expense, form)
     return expense
 
 
@@ -90148,6 +90423,9 @@ def _bag_panel_context(session_db, bag) -> dict:
         bag_expense_category_icons=BAG_EXPENSE_CATEGORY_ICONS,
         bag_document_types=BAG_DOCUMENT_TYPES,
         bag_payment_methods=BAG_PAYMENT_METHODS,
+        # Cada método con su icono y el IVA por defecto: los usa el formulario del gasto.
+        bag_payment_method_icons=BAG_PAYMENT_METHOD_ICONS,
+        bag_vat_pct_default=BAG_VAT_PCT_DEFAULT,
         bag_payment_status_labels=BAG_PAYMENT_STATUS_LABELS,
         bag_covered_by_labels=BAG_COVERED_BY_LABELS,
         bag_consolidated_statuses=BAG_CONSOLIDATED_STATUSES,
@@ -90217,6 +90495,118 @@ def bag_note_create(bag_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
+
+
+@app.get("/api/bolsas/proveedores", endpoint="api_bag_provider_search")
+@admin_required
+def api_bag_provider_search():
+    """QUIÉN NOS FACTURA un gasto: se busca en TODA la base con una sola barra —**terceros, MEDIOS,
+    ARTISTAS y personal de la casa**— y sale con su foto o su logo.
+
+    Es una LECTURA (`SUPPORT_READ_ENDPOINTS`): la usa cualquiera con sesión.
+    ⚠️ Lo que no es un tercero se ESPEJA a tercero al guardar el gasto (`_bag_provider_from_form`),
+    porque `BagExpense.provider_id` apunta a promoters. Aquí solo se dice qué es (`kind`)."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"ok": True, "rows": []})
+    session_db = db()
+    try:
+        salida = []
+        consulta = session_db.query(Promoter).options(selectinload(Promoter.companies))
+        clausula = _promoter_search_clause(session_db, q)
+        if clausula is not None:
+            consulta = consulta.filter(clausula)
+        for p in consulta.order_by(Promoter.nick.asc()).limit(10).all():
+            salida.append({
+                "kind": "promoter", "kind_label": "Tercero", "id": str(p.id),
+                "name": _promoter_display_name(p) or (p.nick or "—"),
+                "photo_url": (p.logo_url or ""),
+                "tax_id": (p.tax_id or ""),
+                # Sus SOCIEDADES: con más de una se elige con cuál factura (con su logo).
+                "companies": [{"id": str(c.id), "name": (c.legal_name or c.tax_id or "Sociedad"),
+                               "tax_id": (c.tax_id or ""), "logo_url": (getattr(c, "logo_url", "") or "")}
+                              for c in (p.companies or [])],
+            })
+        # MEDIOS de comunicación (una radio, una tele: también facturan).
+        try:
+            for m in (session_db.query(MediaOutlet)
+                      .filter(_sa_contains_text(MediaOutlet.name, q))
+                      .order_by(MediaOutlet.name.asc()).limit(8).all()):
+                salida.append({"kind": "media", "kind_label": "Medio", "id": str(m.id),
+                               "name": (m.name or "—"), "photo_url": (m.logo_url or ""),
+                               "tax_id": "", "companies": []})
+        except Exception:
+            app.logger.exception("[bolsas] no se pudieron buscar medios")
+        # ARTISTAS (los espejos de EVENTO no son artistas de verdad).
+        for a in (session_db.query(Artist).filter(Artist.event_id.is_(None))
+                  .filter(_sa_contains_text(Artist.name, q))
+                  .order_by(Artist.name.asc()).limit(8).all()):
+            salida.append({"kind": "artist", "kind_label": "Artista", "id": str(a.id),
+                           "name": a.name, "photo_url": (a.photo_url or ""),
+                           "tax_id": "", "companies": []})
+        # PERSONAL de la casa (alguien que factura como autónomo). Sin bloqueados ni eliminados.
+        fuera = _inactive_user_ids(session_db)
+        for u, prof in (session_db.query(User, UserProfile)
+                        .outerjoin(UserProfile, UserProfile.user_id == User.id)
+                        .filter(or_(_sa_contains_text(UserProfile.nick, q),
+                                    _sa_contains_text(UserProfile.first_name, q),
+                                    _sa_contains_text(UserProfile.last_name, q),
+                                    _sa_contains_text(User.email, q)))
+                        .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc())
+                        .limit(8).all()):
+            if u.id in fuera:
+                continue
+            salida.append({"kind": "user", "kind_label": "Personal", "id": str(u.id),
+                           "name": ((getattr(prof, "nick", None) or u.email or "—").strip()),
+                           "photo_url": (getattr(prof, "photo_url", "") or ""),
+                           "tax_id": (getattr(prof, "dni", "") or ""), "companies": []})
+        return jsonify({"ok": True, "rows": salida})
+    finally:
+        session_db.close()
+
+
+@app.post("/api/bolsas/documento", endpoint="api_bag_document_detect")
+@admin_required
+def api_bag_document_detect():
+    """LEE una factura o un ticket recién arrastrado y dice QUÉ ES y qué pone.
+
+    Es el MISMO lector que la base de facturas (`invoice_read` vía `_detect_invoice_meta`), así que
+    no hay dos formas de leer un documento.
+    ⚠️ **Una FACTURA desglosa el IVA y un TICKET no** (el IVA de un ticket no es deducible): eso se
+    decide aquí (`kind`) mirando si el documento trae número de factura o base imponible."""
+    doc = request.files.get("document")
+    if not doc or not getattr(doc, "filename", ""):
+        return jsonify({"ok": False, "error": "No ha llegado ningún archivo."}), 400
+    try:
+        datos = doc.read()
+        doc.seek(0)
+    except Exception:
+        return jsonify({"ok": False, "error": "No se ha podido leer el archivo."}), 400
+    meta = {}
+    try:
+        es_pdf = (getattr(doc, "filename", "") or "").lower().endswith(".pdf") or datos[:5] == b"%PDF-"
+        meta = _detect_invoice_meta(datos, es_pdf) or {}
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo leer el documento del gasto")
+        meta = {}
+    numero = (meta.get("invoice_number") or "").strip()
+    base = meta.get("amount_net")
+    iva = meta.get("amount_vat")
+    total = meta.get("amount_gross")
+    # FACTURA si trae número o desglose de IVA; si no, es un ticket (y ahí el IVA no se desglosa).
+    es_factura = bool(numero) or bool(base and iva)
+    return jsonify({
+        "ok": True,
+        "kind": "FACTURA" if es_factura else "TICKET",
+        "invoice_number": numero,
+        "issue_date": (meta.get("issue_date") or ""),
+        "concept": (meta.get("concept") or ""),
+        "amount_net": (str(base) if base is not None else ""),
+        "amount_vat": (str(iva) if iva is not None else ""),
+        "amount_gross": (str(total) if total is not None else ""),
+        "retention_amount": (str(meta.get("retention_amount")) if meta.get("retention_amount") is not None else ""),
+        "vat_pct": (str(meta.get("vat_pct")) if meta.get("vat_pct") is not None else ""),
+    })
 
 
 @app.post("/bolsas/<bag_id>/expenses", endpoint="bag_expense_create")
@@ -90619,7 +91009,12 @@ def bag_expense_alert_create(bag_id, expense_id):
         alert_date = _bag_date(request.form.get("alert_date"))
         if expense and alert_date:
             audit = _bag_current_user_audit()
-            session_db.add(BagExpenseAlert(expense_id=expense.id, alert_date=alert_date, body=(request.form.get("body") or "").strip() or None, created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
+            session_db.add(BagExpenseAlert(
+                expense_id=expense.id, alert_date=alert_date,
+                # La HORA («HH:MM») con el punto único de la casa: lo que no lo sea se descarta.
+                alert_time=_agenda_clean_time(request.form.get("alert_time")),
+                body=(request.form.get("body") or "").strip() or None,
+                created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
             session_db.commit()
             flash("Alerta añadida al gasto.", "success")
         else:
@@ -94311,20 +94706,95 @@ def _concert_last_day(concert):
     return getattr(concert, "end_date", None) or getattr(concert, "date", None)
 
 
-def _concert_notice_can_ack(concert) -> bool:
-    """¿Se puede dar el aviso por hecho SIN mandar nada («el artista ya fue informado»)?
+# ⚠️⚠️ LO CREADO ANTES DE ESTA FECHA SE CONFIRMA SIN COMUNICAR.
+# La comunicación al artista desde la app es de septiembre de 2026: lo que se dio de alta ANTES ya se
+# habló en su día por teléfono o por correo, así que mandar ahora un aviso de algo ya hablado solo
+# haría ruido. Es la FECHA DE CREACIÓN de la actividad (`Concert.created_at`), no la de la actividad:
+# una fecha de dentro de seis meses que se apuntó en agosto también entra.
+ARTIST_NOTICE_LEGACY_CREATED_BEFORE = date(2026, 9, 2)
 
-    Solo en las actividades que YA HAN PASADO: si su último día es anterior a hoy, mandarle ahora
-    un aviso de algo que ya ocurrió no tiene sentido —lo normal es que se le dijera en su día por
-    teléfono— y lo único que falta es dejarlo apuntado para poder cerrar el estado. En una actividad
-    que está por venir NO se ofrece: ahí el aviso hay que mandarlo."""
-    ultimo = _concert_last_day(concert)
-    if not ultimo:
-        return False
+
+def _artist_notice_legacy_date_label() -> str:
+    """«2 de septiembre de 2026» — el texto sale del propio corte, así que cambiar la fecha cambia
+    todos los avisos (nada de escribirla a mano en cada pantalla)."""
+    d = ARTIST_NOTICE_LEGACY_CREATED_BEFORE
+    return f"{d.day} de {MONTHS_ES[d.month - 1].lower()} de {d.year}"
+
+
+def _concert_created_day(concert):
+    """El día en que se dio de alta la actividad (en hora de España)."""
+    valor = getattr(concert, "created_at", None)
+    if not valor:
+        return None
     try:
-        return ultimo < _now_madrid().date()
+        return valor.astimezone(TZ_MADRID).date() if getattr(valor, "tzinfo", None) else valor.date()
     except Exception:
-        return False
+        try:
+            return valor.date()
+        except Exception:
+            return None
+
+
+def _concert_notice_ack_reason(concert) -> str:
+    """POR QUÉ se puede dar el aviso por hecho SIN mandar nada. Punto único, dos motivos:
+
+    · **PASADA** — su último día es anterior a hoy: mandarle ahora un aviso de algo que ya ocurrió no
+      tiene sentido (lo normal es que se le dijera en su día), y lo único que falta es dejarlo
+      apuntado para poder cerrar el estado.
+    · **ANTIGUA** — se creó antes de `ARTIST_NOTICE_LEGACY_CREATED_BEFORE`: se comunicó fuera de la
+      app, así que se puede confirmar sin comunicar (con la opción de comunicarla igualmente).
+
+    Devuelve "" cuando el aviso hay que mandarlo de verdad."""
+    hoy = _now_madrid().date()
+    ultimo = _concert_last_day(concert)
+    try:
+        if ultimo and ultimo < hoy:
+            return "PASADA"
+    except Exception:
+        pass
+    creado = _concert_created_day(concert)
+    if creado and creado < ARTIST_NOTICE_LEGACY_CREATED_BEFORE:
+        return "ANTIGUA"
+    return ""
+
+
+def _artist_notice_ack_texts(reason: str) -> dict:
+    """Los textos de cada motivo (la NOTA que se ve, y cómo se llaman los dos botones).
+
+    En una actividad ANTIGUA lo que se ofrece es **Confirmar** / **Confirmar y comunicar**: no se le
+    está diciendo a nadie que «ya fue informado» en una fecha que quizá esté por venir, solo que ese
+    aviso no lo lleva la app."""
+    if reason == "ANTIGUA":
+        cuando = _artist_notice_legacy_date_label()
+        return {
+            "reason": reason,
+            "title": "Confirmar sin comunicar",
+            "note": (f"Esta actividad se creó antes del {cuando}, por lo que la puedes confirmar sin "
+                     "necesidad de comunicársela al artista."),
+            "ack_label": "Confirmar",
+            "ack_icon": "fa-circle-check",
+            "notify_label": "Confirmar y comunicar",
+            "gate": (f" Se creó antes del {cuando}, así que la puedes confirmar sin comunicarla."),
+            "manual_note": (f"Actividad creada antes del {cuando}: se confirma sin comunicar "
+                            "(se comunicó fuera de la app)."),
+        }
+    return {
+        "reason": "PASADA",
+        "title": "Falta avisar al artista",
+        "note": ("Esta actividad ya ha pasado: si se le comunicó en su día, déjalo apuntado y sigue "
+                 "con el cambio de estado."),
+        "ack_label": "El artista ya fue informado",
+        "ack_icon": "fa-user-check",
+        "notify_label": "Avisarle ahora",
+        "gate": (" La actividad ya ha pasado: si se le comunicó en su día, marca que el artista ya "
+                 "fue informado."),
+        "manual_note": "Marcado a mano: el artista ya estaba informado (actividad ya pasada).",
+    }
+
+
+def _concert_notice_can_ack(concert) -> bool:
+    """¿Se puede dar el aviso por hecho SIN mandar nada? (ver `_concert_notice_ack_reason`)."""
+    return bool(_concert_notice_ack_reason(concert))
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -94741,27 +95211,35 @@ def _concert_notice_gate(session_db, concert, new_status: str) -> dict | None:
         return None
     motivo = ("Han cambiado datos de la actividad desde el último aviso: hay que volver a avisar al artista."
               if estado["stale"] else "Todavía no se le ha comunicado la actividad al artista.")
-    # La actividad YA HA PASADO: en vez de mandar un aviso de algo que ya ocurrió, se puede marcar
-    # que el artista ya fue informado y seguir con el cambio de estado.
-    puede_ack = _concert_notice_can_ack(concert)
-    if puede_ack:
-        motivo += (" La actividad ya ha pasado: si se le comunicó en su día, marca que el artista ya "
-                   "fue informado.")
+    # Hay dos casos en los que NO hace falta mandar nada y se puede seguir con el estado: que la
+    # actividad ya haya pasado y que se creara antes de que la app comunicara al artista
+    # (`_concert_notice_ack_reason`). El motivo decide el texto y los botones.
+    motivo_ack = _concert_notice_ack_reason(concert)
+    textos = _artist_notice_ack_texts(motivo_ack) if motivo_ack else {}
+    if motivo_ack:
+        motivo += textos["gate"]
     return {
         "reason": motivo,
         "needs_kind": estado["needs_kind"],
-        "can_ack": puede_ack,
-        "ack_url": (url_for("concert_artist_notice_ack", cid=concert.id) if puede_ack else ""),
+        "can_ack": bool(motivo_ack),
+        "ack_reason": motivo_ack,
+        "ack_note": textos.get("note", ""),
+        "ack_label": textos.get("ack_label", ""),
+        "ack_icon": textos.get("ack_icon", ""),
+        "ack_title": textos.get("title", ""),
+        "notify_label": textos.get("notify_label", ""),
+        "ack_url": (url_for("concert_artist_notice_ack", cid=concert.id) if motivo_ack else ""),
         "notify_url": url_for("concert_artist_notice_view", cid=concert.id, confirmar=1),
     }
 
 
 def _concert_notice_mark_manual(session_db, concert, *, nota: str = "") -> None:
-    """Da el aviso al artista por HECHO sin mandar nada (solo para actividades ya pasadas).
+    """Da el aviso al artista por HECHO sin mandar nada.
 
-    Punto único: lo usan el botón «El artista ya fue informado» y el ALTA de una actividad cuya
-    fecha ya ha pasado (ahí no se va a mandar un aviso de algo que ya ocurrió, así que no tiene
-    sentido dejarla en RESERVADA por eso).
+    Punto único: lo usan el botón «El artista ya fue informado» (actividad ya pasada), el
+    **«Confirmar»** de una actividad creada antes de `ARTIST_NOTICE_LEGACY_CREATED_BEFORE` y el ALTA
+    de una actividad cuya fecha ya ha pasado (ahí no se va a mandar un aviso de algo que ya ocurrió,
+    así que no tiene sentido dejarla en RESERVADA por eso).
     Queda apuntado igual que un envío —en `ConcertArtistNotification` con canal MANUAL y con la misma
     FIRMA—, así que un cambio gordo posterior vuelve a pedir aviso como con cualquier otra."""
     estado_previo = _concert_notice_state(session_db, concert)
@@ -94774,7 +95252,8 @@ def _concert_notice_mark_manual(session_db, concert, *, nota: str = "") -> None:
         channel="MANUAL",
         kind=kind,
         recipients=[],
-        note=(nota or "Marcado a mano: el artista ya estaba informado (actividad ya pasada)."),
+        # Sin nota escrita, la de su MOTIVO: así en el historial se lee por qué no se mandó nada.
+        note=(nota or _artist_notice_ack_texts(_concert_notice_ack_reason(concert))["manual_note"]),
         hidden_modules=[],
         snapshot={"manual": True},
         signature=firma,
@@ -95375,8 +95854,10 @@ def concert_artist_notice_view(cid):
             # y quien avisa no tiene que volver a escribirlo (se puede retocar).
             default_note=_cancel_notice_note(session_db, concert, kind),
             confirm_after=bool((request.args.get("confirmar") or "").strip()),
-            # La actividad YA HA PASADO: se puede dar por informado sin mandar nada (botón propio).
+            # NO hace falta mandar nada (ya ha pasado, o se creó antes del corte): botón propio con
+            # los textos de su motivo (`_artist_notice_ack_texts`).
             can_ack=_concert_notice_can_ack(concert),
+            ack_texts=_artist_notice_ack_texts(_concert_notice_ack_reason(concert)),
             ack_url=url_for("concert_artist_notice_ack", cid=concert.id),
             artist_config_url=(url_for("artist_detail_view", artist_id=concert.artist_id, tab="datos")
                                if getattr(concert, "artist_id", None) else ""),
@@ -95408,12 +95889,12 @@ def concert_artist_notice_preview(cid):
 @app.post("/conciertos/<cid>/avisar-artista/ya-informado", endpoint="concert_artist_notice_ack")
 @admin_required
 def concert_artist_notice_ack(cid):
-    """«El artista ya fue informado»: da el aviso por hecho SIN mandar nada.
+    """«El artista ya fue informado» / «Confirmar»: da el aviso por hecho SIN mandar nada.
 
-    ⚠️ Solo vale para actividades cuyo último día YA HA PASADO (`_concert_notice_can_ack`): mandar
-    ahora un aviso de algo que ya ocurrió no tiene sentido, y lo único que falta es dejarlo apuntado
-    para poder cerrar el estado. En una actividad que está por venir el aviso hay que mandarlo, y el
-    servidor lo comprueba aquí (no vale solo el gate del navegador).
+    ⚠️ Solo vale en los dos casos de `_concert_notice_ack_reason`: la actividad **YA HA PASADO**
+    (mandar ahora un aviso de algo que ya ocurrió no tiene sentido) o **se creó antes** de
+    `ARTIST_NOTICE_LEGACY_CREATED_BEFORE` (se comunicó fuera de la app). En cualquier otra el aviso
+    hay que mandarlo, y el servidor lo comprueba aquí (no vale solo el gate del navegador).
 
     Queda apuntado igual que un envío —en `ConcertArtistNotification` con canal MANUAL, y en la
     actividad con la misma FIRMA— así que un cambio gordo posterior (fecha, hora, recinto o caché)
@@ -95427,7 +95908,8 @@ def concert_artist_notice_ack(cid):
         if not concert:
             return (jsonify({"ok": False, "error": "Actividad no encontrada."}), 404) if es_json else abort(404)
         if not _concert_notice_can_ack(concert):
-            msg = ("Esta actividad todavía no ha pasado: hay que avisar al artista de verdad, no se "
+            msg = ("Esta actividad todavía no ha pasado y se creó después del "
+                   f"{_artist_notice_legacy_date_label()}: hay que avisar al artista de verdad, no se "
                    "puede dar por informado.")
             return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
                 flash(msg, "warning") or redirect(url_for("concert_artist_notice_view", cid=cid)))
@@ -97562,6 +98044,9 @@ SALES_REQUEST_HOUR = 10
 SALES_REQUEST_MAX_PER_RUN = 120
 # Un correo que NO sale (dirección mal escrita, buzón lleno) no se reintenta cada hora todo el día.
 SALES_REQUEST_RETRY_HOURS = 4
+# Cuántas comunicaciones mandadas se guardan como «esperando respuesta» (tope de cordura: al
+# actualizar las ventas la lista se vacía, así que en la práctica son unas pocas).
+SALES_REQUEST_LOG_MAX = 40
 # La ticketera con la que se apunta lo que reporta el promotor cuando la actividad no tiene ninguna
 # propia: ese canal ES el reporte del promotor.
 SALES_PROMOTER_TICKETER_NAME = "Promotor"
@@ -97764,16 +98249,82 @@ def _concert_sales_request_on_sale(concert, *, today=None) -> bool:
     return bool(fecha and fecha <= (today or today_local()))
 
 
-def _concert_ticketing_contact_missing(session_db, concert, *, group_promoted=None) -> bool:
-    """¿Falta el CONTACTO DE TICKETING? = no tenemos a quién escribirle.
+def _concert_ticketing_contact_unset(session_db, concert, *, group_promoted=None) -> bool:
+    """¿Falta DECIR QUIÉN es el responsable de ticketing?
 
-    ⚠️ Si el promotor ya tiene correo en su ficha NO se reclama nada: ese es su contacto por
-    defecto y la solicitud ya puede salir. La tarea es «no hay a quién escribirle», no «hay un
-    campo sin rellenar», así que desaparece sola en cuanto haya un correo (la regla de
-    `_notify_resolve`: se mira el dato de verdad, no una marca)."""
+    ⚠️⚠️ Es la TAREA, y salta en **toda** actividad que vende entradas y promueve un TERCERO
+    mientras no se haya dicho a mano a quién se le piden las ventas — tenga o no correo el promotor
+    (antes solo se reclamaba si no había ningún correo, así que en la mayoría no se pedía nunca).
+    Configurado = hay contacto propio de la ACTIVIDAD o de por defecto del TERCERO
+    (`source` CONCERT / PROMOTER_DEFAULT); caer en el correo de la ficha del promotor es el
+    respaldo, no una decisión.
+    ⚠️ Y **no bloquea nada**: sin configurar, las comunicaciones para actualizar la venta siguen
+    saliendo igual por la cascada de `_concert_ticketing_contact`."""
     if not _concert_sales_request_applies(session_db, concert, group_promoted=group_promoted):
         return False
-    return not bool((_concert_ticketing_contact(session_db, concert) or {}).get("email"))
+    fuente = ((_concert_ticketing_contact(session_db, concert) or {}).get("source") or "").upper()
+    return fuente not in {"CONCERT", "PROMOTER_DEFAULT"}
+
+
+# ─── LAS COMUNICACIONES YA MANDADAS que siguen esperando respuesta ───────────────────────────────
+# ⚠️ En la pestaña de Ticketing se ve **cuándo** se le ha pedido la actualización y **a quién**,
+# hasta que la actualice: en cuanto actualiza las ventas, todas las anteriores desaparecen (lo que
+# se enseña es el trabajo que está esperando, no un archivo).
+
+def _sales_request_log_add(concert, contacto: dict, *, at=None) -> None:
+    """Apunta UNA comunicación mandada (a quién, por dónde y cuándo)."""
+    if concert is None:
+        return
+    ahora = at or _now_madrid()
+    fila = {"at": ahora.isoformat(),
+            "email": ((contacto or {}).get("email") or "").strip(),
+            "name": ((contacto or {}).get("name") or "").strip(),
+            "photo": ((contacto or {}).get("photo") or "").strip(),
+            "source": ((contacto or {}).get("source") or "").strip()}
+    log = [x for x in (getattr(concert, "sales_request_log", None) or []) if isinstance(x, dict)]
+    log.append(fila)
+    concert.sales_request_log = log[-SALES_REQUEST_LOG_MAX:]
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(concert, "sales_request_log")
+    except Exception:
+        pass
+
+
+def _sales_request_log_clear(concert, *, at=None) -> None:
+    """Las ventas SE HAN ACTUALIZADO: las comunicaciones anteriores dejan de estar esperando."""
+    if concert is None:
+        return
+    concert.sales_request_log = []
+    concert.sales_updated_at = at or _now_madrid()
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(concert, "sales_request_log")
+    except Exception:
+        pass
+
+
+def _sales_request_log_rows(concert) -> list[dict]:
+    """Las comunicaciones que siguen esperando, de la más reciente a la más antigua."""
+    filas = []
+    for x in (getattr(concert, "sales_request_log", None) or []):
+        if not isinstance(x, dict):
+            continue
+        cuando = x.get("at") or ""
+        etiqueta = ""
+        if cuando:
+            try:
+                etiqueta = (datetime.fromisoformat(cuando).astimezone(TZ_MADRID)
+                            .strftime("%d/%m/%Y %H:%M"))
+            except Exception:
+                etiqueta = ""
+        filas.append({"at_label": etiqueta,
+                      "name": (x.get("name") or x.get("email") or "").strip(),
+                      "email": (x.get("email") or "").strip(),
+                      "photo": (x.get("photo") or "").strip(),
+                      "source": (x.get("source") or "").strip()})
+    filas.reverse()
+    return filas
 
 
 def _ensure_concert_sales_request_token(session_db, concert) -> str:
@@ -98238,9 +98789,10 @@ def _concert_sales_request_ficha(session_db, concert, tab: str) -> dict:
     son consultas que no vienen a cuento en las demás."""
     vacio = {"ticketing_kinds": TICKETING_CONTACT_KINDS, "ticketing_contact": {},
              "ticketing_contact_raw": {}, "ticketing_applies": False,
+             "ticketing_unset": False,
              "sales_request": {"applies": False, "url": "", "derive_url": "", "subject": "",
                                "others": [], "last_label": "", "count": 0, "error": "",
-                               "error_label": ""}}
+                               "error_label": "", "log": [], "updated_label": ""}}
     if concert is None or tab not in ("inicio", "ticketing", "general"):
         return vacio
     try:
@@ -98272,8 +98824,15 @@ def _concert_sales_request_ficha(session_db, concert, tab: str) -> dict:
         datos["error"] = (getattr(concert, "sales_request_error", None) or "") if err_at else ""
         datos["error_label"] = (err_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
                                 if err_at else "")
+        # LAS COMUNICACIONES QUE SIGUEN ESPERANDO (y a quién se le mandaron): desaparecen solas en
+        # cuanto el promotor actualiza las ventas.
+        datos["log"] = _sales_request_log_rows(concert)
+        act = getattr(concert, "sales_updated_at", None)
+        datos["updated_label"] = (act.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if act else "")
         return {"ticketing_kinds": TICKETING_CONTACT_KINDS, "ticketing_contact": contacto,
                 "ticketing_contact_raw": crudo, "ticketing_applies": aplica,
+                "ticketing_unset": (aplica and (contacto.get("source") or "").upper()
+                                    not in ("CONCERT", "PROMOTER_DEFAULT")),
                 "sales_request": datos}
     except Exception:
         app.logger.exception("[ventas] no se pudo montar la actualización de ventas de la ficha")
@@ -98361,6 +98920,9 @@ def _sales_request_send(session_db, contacto: dict, concerts: list, *, note: str
             c.sales_request_count = int(getattr(c, "sales_request_count", 0) or 0) + 1
         except Exception:
             c.sales_request_count = 1
+        # Queda apuntado A QUIÉN se le ha mandado: es lo que se ve en la pestaña de Ticketing
+        # mientras no actualice las ventas.
+        _sales_request_log_add(c, contacto, at=ahora)
     return True, ""
 
 
@@ -98605,7 +99167,11 @@ def concert_sales_request_send(cid):
         if not correos:
             return jsonify({"ok": False, "error": "No hay a quién mandárselo: marca el contacto de "
                                                   "ticketing o escribe un correo."}), 400
-        ok, error = _sales_request_send(session_db, {"email": correos[0]}, elegidas,
+        # ⚠️ Al primero se le manda con SU ficha si es el contacto de ticketing (así en «pendientes
+        # de que actualice» sale con su nombre y su foto, no solo el correo).
+        primero = (contacto if (contacto.get("email") or "").lower() == correos[0].lower()
+                   else {"email": correos[0]})
+        ok, error = _sales_request_send(session_db, primero, elegidas,
                                         note=(datos.get("note") or ""))
         if not ok:
             session_db.rollback()
@@ -98618,6 +99184,10 @@ def concert_sales_request_send(cid):
             ok_otro, err_otro = _send_optional_email(otro, ctx["subject"], cuerpo)
             if not ok_otro:
                 fallidos.append("%s (%s)" % (otro, err_otro or "sin motivo"))
+                continue
+            # Cada destinatario al que SÍ le ha salido queda apuntado como pendiente de contestar.
+            for c in elegidas:
+                _sales_request_log_add(c, {"email": otro})
         session_db.commit()
         # ⚠️ No se dice «enviada a …» de un correo que no salió: `_send_optional_email` devuelve
         # `(ok, error)` y tratarla como un booleano da por enviado lo que el SMTP rechazó.
@@ -98761,6 +99331,9 @@ def public_sales_update_save(token, cid):
             session_db.rollback()
             return jsonify({"ok": False, "error": "Los tipos de entrada han cambiado. Recarga la "
                                                   "página y vuelve a enviarlo."}), 409
+        # YA ESTÁ ACTUALIZADA: las comunicaciones que estaban esperando dejan de estar pendientes
+        # («cuando se actualice, todas las anteriores desaparecen»).
+        _sales_request_log_clear(destino)
         session_db.commit()
         filas = _sales_request_ticket_rows(session_db, destino)
         return jsonify({"ok": True, "saved": res["saved"], "warnings": res["warnings"],
@@ -102624,6 +103197,42 @@ def _address_rate_ok(ip: str) -> bool:
     return True
 
 
+def _address_rows_fill_province(session_db, filas: list[dict]) -> list[dict]:
+    """La PROVINCIA que falta, con NUESTROS datos.
+
+    Un MUNICIPIO no tiene código postal, así que el buscador lo devuelve sin provincia (de `county`
+    no se puede fiar: a veces es la comarca). Aquí se completa con los pares municipio→provincia que
+    la casa ya escribe todos los días (recintos y actividades), que es lo mismo que hace
+    `api_city_search`. Si no lo tenemos, se queda vacía y se escribe a mano."""
+    faltan = {(f.get("city") or "").strip() for f in (filas or [])
+              if (f.get("city") or "").strip() and not (f.get("province") or "").strip()
+              and (f.get("country_code") or "ES") in ("", "ES")}
+    if not faltan:
+        return filas
+    mapa = {}
+    try:
+        for ciudad, provincia in (session_db.query(Venue.municipality, Venue.province)
+                                  .filter(Venue.municipality.in_(list(faltan)))
+                                  .filter(Venue.province.isnot(None)).all()):
+            if ciudad and provincia:
+                mapa.setdefault(_norm_text_key(ciudad), provincia.strip())
+        pendientes = [c for c in faltan if _norm_text_key(c) not in mapa]
+        if pendientes:
+            for ciudad, provincia in (session_db.query(Concert.manual_municipality,
+                                                       Concert.manual_province)
+                                      .filter(Concert.manual_municipality.in_(pendientes))
+                                      .filter(Concert.manual_province.isnot(None)).all()):
+                if ciudad and provincia:
+                    mapa.setdefault(_norm_text_key(ciudad), provincia.strip())
+    except Exception:
+        app.logger.exception("[direcciones] no se pudo completar la provincia con nuestros datos")
+        return filas
+    for f in filas:
+        if not (f.get("province") or "").strip():
+            f["province"] = mapa.get(_norm_text_key(f.get("city")), "")
+    return filas
+
+
 def _address_search_cached(session_db, query: str) -> list[dict]:
     """Sugerencias de dirección, mirando primero lo que ya se buscó otra vez."""
     import geo_utils
@@ -102638,7 +103247,7 @@ def _address_search_cached(session_db, query: str) -> list[dict]:
             session_db.commit()
         except Exception:
             session_db.rollback()
-        return list(fila.payload or [])
+        return _address_rows_fill_province(session_db, list(fila.payload or []))
     filas = geo_utils.search_addresses(query)
     try:
         if fila is None:
@@ -102650,7 +103259,7 @@ def _address_search_cached(session_db, query: str) -> list[dict]:
         session_db.commit()
     except Exception:
         session_db.rollback()
-    return filas
+    return _address_rows_fill_province(session_db, filas)
 
 
 @app.get("/api/direcciones", endpoint="api_address_search")
@@ -121800,6 +122409,27 @@ def _concert_visible_unconfirmed(concert, *, full_details: bool = False, user_id
         return True
     return (str(getattr(concert, "production_owner_user_id", "") or "") == uid
             and bool(getattr(concert, "production_activated_at", None)))
+
+
+def _concert_list_visible(concerts, *, full_details=None, user_id=None) -> list:
+    """Quita de un LISTADO las actividades sin confirmar que no le corresponden a quien mira.
+
+    Punto ÚNICO para las listas (el calendario, la ficha del artista, /actividades y la vista de
+    Contratación): usa el MISMO criterio que `_concert_visible_unconfirmed`, así que «lo que se ve en
+    el calendario» y «lo que se ve en los listados» no se pueden desparejar.
+    ⚠️ Quien la CREÓ la sigue viendo hasta que se confirme (y entonces la ve todo el mundo): alguien
+    que no es de contratación tiene que poder seguir la actividad que acaba de dar de alta."""
+    ve_todo = _user_sees_unconfirmed_activities() if full_details is None else bool(full_details)
+    if ve_todo:
+        return list(concerts or [])
+    uid = str(user_id or (_current_user_state() or {}).get("user_id") or "")
+    fuera = []
+    for c in (concerts or []):
+        if ((getattr(c, "status", "") or "").upper() in _CONCERT_PRIVATE_STATUSES
+                and not _concert_visible_unconfirmed(c, full_details=False, user_id=uid)):
+            continue
+        fuera.append(c)
+    return fuera
 
 
 def _user_sees_unconfirmed_activities() -> bool:

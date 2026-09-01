@@ -23,7 +23,9 @@
       {% include '_concert_announcement_badge.html' %}
       {% include '_concert_onsale_badge.html' %}
     </div>
-    {% if concert.artist %}{{ linked_mini('artist', concert.artist.id) }}{% endif %}
+    {# ⚠️ AQUÍ NO VAN LAS PERSONAS VINCULADAS AL ARTISTA (su hermano, su asistente…): eso es de la
+       ficha del ARTISTA, no de la actividad — en su cabecera solo hacía ruido. Misma regla que la
+       cabecera de una canción. Los contactos de ESTA actividad están en la ficha de contratación. #}
     <div class="ficha-hero__facts">
       {% if concert.date %}<span><i class="fa fa-calendar-day"></i>{{ concert.date.strftime('%d/%m/%Y') }}</span>{% endif %}
       {% if location_summary %}<span><i class="fa fa-location-dot"></i>{{ location_summary }}</span>{% endif %}
@@ -339,13 +341,42 @@
                 {% elif t.url %}
                   <a class="btn btn-sm btn-warning" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Hacerlo' }}</a>
                 {% endif %}
+              {% elif t.url and not t.generic %}
+                {# NO es tuya (la tiene otra persona), pero se puede ir a verla y hacerla: la tarea
+                   sigue siendo suya (por eso el botón va sin relleno y está la campanita). #}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>Ir</a>
               {% endif %}
-              {# Una tarea DEL DEPARTAMENTO que se resuelve en un pop-up: su botón NO cuelga de
-                 `t.mine` (no la tiene nadie asignada, la hace quien llegue). #}
-              {% if t.modal and t.state != 'done' and CAN_SET_ONSALE %}
-                <button class="btn btn-sm btn-warning" type="button"
-                        data-bs-toggle="modal" data-bs-target="{{ t.modal }}">
-                  <i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Configurarlo' }}</button>
+              {# ⚠️⚠️ TODO LO PENDIENTE SE PUEDE HACER DESDE AQUÍ. Una tarea DEL DEPARTAMENTO no la
+                 tiene nadie asignada (la hace quien llegue), así que su control no cuelga de
+                 `t.mine`. Según lo que sea: su pop-up, un enlace a donde se hace, o el MISMO control
+                 que la cabecera (la etiqueta de estado, la del anuncio, activar la venta). #}
+              {% set _t_puede = (CAN_SET_ONSALE if t.perm == 'onsale' else CAN_EDIT_CONCERTS) %}
+              {% if t.state != 'done' and _t_puede %}
+                {% if t.modal %}
+                  <button class="btn btn-sm btn-warning" type="button"
+                          data-bs-toggle="modal" data-bs-target="{{ t.modal }}">
+                    <i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Configurarlo' }}</button>
+                {% elif t.generic and t.url %}
+                  <a class="btn btn-sm btn-warning" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Hacerlo' }}</a>
+                {% elif t.do == 'confirmar' %}
+                  {# El MISMO camino que la etiqueta de estado (handler global `[data-status-option]`),
+                     así que pasa por su compuerta: si falta avisar al artista, sale su pop-up. #}
+                  <span data-status-menu data-status-url="{{ url_for('concert_quick_status', cid=concert.id) }}">
+                    <button class="btn btn-sm btn-warning" type="button" data-status-option="CONFIRMADO">
+                      <i class="fa fa-circle-check me-1"></i>{{ t.action_label or 'Confirmar' }}</button>
+                  </span>
+                {% elif t.do == 'anuncio' %}
+                  {# La MISMA etiqueta clicable de la cabecera: se marca «Anunciado» o se pone la
+                     fecha sin salir de aquí. #}
+                  {% include '_concert_announcement_badge.html' %}
+                {% elif t.do == 'venta' %}
+                  <form method="post" action="{{ url_for('concert_sale_activate', cid=concert.id) }}" class="d-inline">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn-sm btn-warning" type="submit"
+                            title="Avisa a Ticketing para que la saque a la venta">
+                      <i class="fa fa-ticket me-1"></i>{{ t.action_label or 'Activar la venta' }}</button>
+                  </form>
+                {% endif %}
               {% endif %}
               {# LA CAMPANITA: reclamársela a quien la tiene. #}
               {% if t.nudge_url %}
@@ -562,26 +593,50 @@
               </div>
               <div class="form-text">Si todavía no está dado de alta, déjalo en «sin recinto» y escríbelo abajo a mano.</div>
             </div>
-            {# El recinto A MANO: para cuando no hay ficha de recinto (una plaza, un pabellón de paso…). #}
-            <div class="col-md-6" data-address-autocomplete>
-              <label class="form-label">Nombre del recinto a mano</label>
-              <input name="manual_venue_name" class="form-control" value="{{ concert.manual_venue_name or '' }}" placeholder="Sala, plaza, pabellón…">
-              <label class="form-label mt-2">Dirección</label>
-              <input name="manual_venue_address" class="form-control" data-addr="address" value="{{ concert.manual_venue_address or '' }}">
-            </div>
-            <div class="col-md-6">
+            {# El recinto A MANO: para cuando no hay ficha de recinto (una plaza, un pabellón de paso…).
+               ⚠️⚠️ SE RELLENA EN DOS PASOS, igual que en el asistente: primero **solo la barra de
+               búsqueda** y, al elegir una sugerencia, aparecen los campos por separado ya rellenos
+               (`data-addr-reveal` + `[data-addr-parts]`). Si ya hay datos —se está editando— se ven
+               desde el principio.
+               ⚠️ Y TODO va dentro del MISMO bloque `data-address-autocomplete`: antes la zona
+               envolvía solo la columna de la izquierda, así que el código postal, el municipio y la
+               provincia se quedaban FUERA y no se rellenaban nunca (bug real). #}
+            <div class="col-12" data-address-autocomplete data-addr-reveal>
               <div class="row g-2">
-                <div class="col-4">
-                  <label class="form-label">C. postal</label>
-                  <input name="manual_postal_code" class="form-control" data-addr="postal_code" value="{{ concert.manual_postal_code or '' }}">
+                <div class="col-md-6">
+                  <label class="form-label">Nombre del recinto a mano</label>
+                  <input name="manual_venue_name" class="form-control" value="{{ concert.manual_venue_name or '' }}" placeholder="Sala, plaza, pabellón…">
                 </div>
-                <div class="col-8">
-                  <label class="form-label">Municipio</label>
-                  <input name="manual_municipality" class="form-control" data-addr="city" value="{{ concert.manual_municipality or '' }}">
+                <div class="col-md-6 position-relative">
+                  <label class="form-label">¿Dónde es?</label>
+                  <input class="form-control" data-addr="search" autocomplete="off"
+                         placeholder="Escribe dirección, municipio, provincia…">
+                  <div class="form-text">Elige una sugerencia y se rellena todo.
+                    <a href="#" data-addr-manual>Escribirla a mano</a>.</div>
                 </div>
-                <div class="col-12">
-                  <label class="form-label">Provincia</label>
-                  <input name="manual_province" class="form-control" data-addr="province" value="{{ concert.manual_province or '' }}">
+                <div class="col-12 d-none" data-addr-parts>
+                  <div class="row g-2">
+                    <div class="col-md-5">
+                      <label class="form-label">Dirección</label>
+                      <input name="manual_venue_address" class="form-control" data-addr="address" value="{{ concert.manual_venue_address or '' }}">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label">C. postal</label>
+                      <input name="manual_postal_code" class="form-control" data-addr="postal_code" value="{{ concert.manual_postal_code or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">Municipio</label>
+                      <input name="manual_municipality" class="form-control" data-addr="city" value="{{ concert.manual_municipality or '' }}">
+                    </div>
+                    <div class="col-md-5">
+                      <label class="form-label">Provincia</label>
+                      <input name="manual_province" class="form-control" data-addr="province" value="{{ concert.manual_province or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">País</label>
+                      <input name="manual_country" class="form-control" data-addr="country" value="{{ concert.manual_country or '' }}" placeholder="España">
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -871,14 +926,16 @@
             <div class="row g-3">
               <div class="col-md-3 col-6">
                 <label class="form-label">Nº de canciones</label>
-                <input type="number" min="1" class="form-control" name="performance_songs_count" value="{{ perf.get('songs_count') or '' }}">
+                <input type="number" min="1" class="form-control" name="performance_songs_count" id="actSongsCount" value="{{ perf.get('songs_count') or '' }}">
               </div>
               <div class="col-md-9">
-                <label class="form-label">Canciones del repertorio</label>
-                <select name="performance_song_ids[]" class="form-select" multiple>
-                  {% set chosen_ids = (perf.get('songs') or [])|map(attribute='id')|list %}
-                  {% for s in activity_songs %}<option value="{{ s.id }}" {% if s.id in chosen_ids %}selected{% endif %}>{{ s.title }}</option>{% endfor %}
-                </select>
+                <label class="form-label">Repertorio</label>
+                {# EL MISMO buscador del asistente (parcial único `_performance_songs.html`): se
+                   escribe para buscar y se ARRASTRA para ordenar — ese es el repertorio. #}
+                {% with ps_songs=activity_songs, ps_chosen=(perf.get('songs') or []), ps_count='actSongsCount' %}
+                  {% include '_performance_songs.html' %}
+                {% endwith %}
+                <div class="form-text">Arrastra para cambiar el orden: es el repertorio de la actividad.</div>
               </div>
               <div class="col-md-4">
                 <label class="form-label d-block">Formación</label>
@@ -970,6 +1027,7 @@
         {% else %}
           <div class="ficha-empty">Sin contactos. Pulsa <i class="fa fa-pen"></i> para asignar quién lleva producción, ticketing y comunicación.</div>
         {% endif %}
+        {% include '_concert_ticketing_owner.html' %}
       </div>
       {% if CAN_EDIT_CONCERTS %}
       <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='contactos') }}" data-inline data-inline-target="#concert-general-zone">
@@ -1189,26 +1247,8 @@
                  endpoint `concert_ticketing_contact_save`), que es el mismo que abre la tarea de
                  contratación. Dos escritores del mismo dato es justo lo que no se quiere. ── #}
               {% if ticketing_applies %}
-                <div class="col-md-4">
-                  <label class="form-label d-block">Responsable de ticketing</label>
-                  <div class="d-flex align-items-center gap-2 flex-wrap">
-                    {% if ticketing_contact and ticketing_contact.email %}
-                      <img src="{{ ticketing_contact.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
-                           style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
-                      <span class="small text-truncate" style="max-width:12rem;"
-                            title="{{ ticketing_contact.email }}">{{ ticketing_contact.name or ticketing_contact.email }}</span>
-                    {% else %}
-                      <span class="badge text-bg-warning text-dark"><i class="fa fa-triangle-exclamation me-1"></i>Sin configurar</span>
-                    {% endif %}
-                    {% if CAN_SET_ONSALE %}
-                      <button class="btn btn-sm btn-outline-secondary" type="button"
-                              data-bs-toggle="modal" data-bs-target="#ticketingContactModal">
-                        <i class="fa fa-address-book me-1"></i>Configurar
-                      </button>
-                    {% endif %}
-                  </div>
-                  <div class="form-text">Se le piden las ventas los lunes y los jueves.</div>
-                </div>
+                {# El MISMO hueco que en Contactos (parcial único): un solo sitio que mantener. #}
+                <div class="col-md-4">{% include '_concert_ticketing_owner.html' %}</div>
               {% endif %}
               <div class="col-md-4">
                 <label class="form-label">Salida a la venta</label>
@@ -1332,7 +1372,8 @@
 
     {# Contratos: confidenciales. Solo dirección, contratación y administración. #}
     {% if CAN_VIEW_CONCERT_CONTRACTS %}
-    <div class="ficha-section">
+    {# El id es el destino de la tarea «Sin contrato» del tablero de Inicio. #}
+    <div class="ficha-section" id="contratos-actividad">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-file-contract"></i>Contratos</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Añadir contrato"><i class="fa fa-plus"></i></button>{% endif %}</div>
       <div class="ficha-section__body" data-section-view>
         {% if concert.contracts %}
@@ -2774,8 +2815,13 @@
                 {% endif %}
               </span>
             {% else %}
-              <span class="badge text-bg-warning text-dark"><i class="fa fa-triangle-exclamation me-1"></i>Sin contacto de ticketing</span>
+              <span class="badge text-bg-warning text-dark"><i class="fa fa-triangle-exclamation me-1"></i>Sin responsable de ticketing</span>
               <span class="small text-muted">Sin un correo no se le puede pedir nada: configúralo.</span>
+            {% endif %}
+            {% if ticketing_unset and ticketing_contact and ticketing_contact.email %}
+              {# Está sin configurar, pero HAY a quién escribir (el correo de la ficha del promotor):
+                 se dice, y no se bloquea nada — las comunicaciones salen igual. #}
+              <span class="badge text-bg-light border text-muted"><i class="fa fa-circle-info me-1"></i>Sin configurar</span>
             {% endif %}
             {% if sales_request.error %}
               <span class="small text-danger ms-auto" title="{{ sales_request.error }}">
@@ -2791,6 +2837,40 @@
               <span class="small text-muted ms-auto"><i class="fa fa-circle-info me-1"></i>Todavía no se le ha pedido ninguna vez.</span>
             {% endif %}
           </div>
+
+          {# ── LAS COMUNICACIONES QUE SIGUEN ESPERANDO ────────────────────────────────────────
+             Cuándo se le ha pedido la actualización y a QUIÉN, hasta que la actualice: en cuanto
+             actualiza las ventas, todas las anteriores desaparecen (esto es el trabajo que está
+             esperando, no un archivo). #}
+          {% if sales_request.log %}
+            <div class="mt-3 pt-3 border-top">
+              <div class="small fw-semibold mb-2">
+                <i class="fa fa-clock-rotate-left me-1 text-muted"></i>Pendientes de que actualice
+                <span class="badge text-bg-warning text-dark ms-1">{{ sales_request.log|length }}</span>
+              </div>
+              <ul class="list-unstyled mb-0 d-flex flex-column gap-1">
+                {% for l in sales_request.log %}
+                  <li class="d-flex align-items-center gap-2 small">
+                    <i class="fa fa-paper-plane text-muted"></i>
+                    <span class="text-muted">{{ l.at_label }}</span>
+                    <img src="{{ l.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                         style="width:22px;height:22px;border-radius:50%;object-fit:cover;">
+                    <span><strong>{{ l.name }}</strong>{% if l.email and l.email != l.name %}
+                      <span class="text-muted">· {{ l.email }}</span>{% endif %}</span>
+                  </li>
+                {% endfor %}
+              </ul>
+              {% if sales_request.updated_label %}
+                <div class="small text-muted mt-2"><i class="fa fa-rotate me-1"></i>La última
+                  actualización que mandó fue el {{ sales_request.updated_label }}.</div>
+              {% endif %}
+            </div>
+          {% elif sales_request.updated_label %}
+            <div class="mt-3 pt-3 border-top small text-success">
+              <i class="fa fa-circle-check me-1"></i>Ventas actualizadas el
+              {{ sales_request.updated_label }}: no hay ninguna comunicación esperando respuesta.
+            </div>
+          {% endif %}
         </div>
       </div>
 

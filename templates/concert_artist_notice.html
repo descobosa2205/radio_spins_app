@@ -102,16 +102,16 @@
         <i class="fa fa-paper-plane me-1"></i>Enviar el aviso
         {% if confirm_after %}<span class="badge text-bg-light text-dark ms-1">y confirmar</span>{% endif %}
       </button>
-      {# LA ACTIVIDAD YA HA PASADO: mandar ahora un aviso de algo que ya ocurrió no tiene sentido, así
-         que se puede dejar apuntado que el artista ya estaba informado y seguir con el estado.
-         Solo sale en actividades pasadas (el servidor lo vuelve a comprobar). #}
+      {# NO HACE FALTA MANDAR NADA: la actividad ya ha pasado (un aviso de algo que ya ocurrió no
+         tiene sentido) o se creó antes de que la app comunicara al artista. Los textos los da
+         `_artist_notice_ack_texts` según el motivo, y el servidor lo vuelve a comprobar. #}
       {% if can_ack %}
         <button class="btn btn-outline-success" type="button" data-an-ack data-url="{{ ack_url }}">
-          <i class="fa fa-user-check me-1"></i>El artista ya fue informado
-          {% if confirm_after %}<span class="badge text-bg-light text-dark ms-1">y confirmar</span>{% endif %}
+          <i class="fa {{ ack_texts.ack_icon }} me-1"></i>{{ ack_texts.ack_label }}
+          {% if confirm_after and ack_texts.reason != 'ANTIGUA' %}<span class="badge text-bg-light text-dark ms-1">y confirmar</span>{% endif %}
         </button>
-        <div class="small text-muted">La actividad ya ha pasado: si se le comunicó en su día, queda
-          apuntado (con tu nombre y la fecha) y no se manda nada.</div>
+        <div class="small text-muted">{{ ack_texts.note }} Queda apuntado (con tu nombre y la fecha) y
+          no se manda nada.</div>
       {% endif %}
       <a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Cancelar</a>
     </div>
@@ -214,7 +214,7 @@
   // «El artista ya fue informado»: no manda nada, solo lo apunta (y confirma si se venía de ahí).
   var ack = root.querySelector('[data-an-ack]');
   if (ack) ack.addEventListener('click', function () {
-    if (!confirm('¿Confirmas que el artista ya estaba informado de esta actividad?\n\nQueda apuntado con tu nombre y la fecha, y no se le manda nada.')) return;
+    if (!confirm({{ (ack_texts.note ~ '\n\nQueda apuntado con tu nombre y la fecha, y no se le manda nada. ¿Seguimos?')|tojson }})) return;
     var btn = ack;
     var previo = btn.innerHTML;
     btn.disabled = true;

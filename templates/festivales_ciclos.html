@@ -12,7 +12,13 @@
       <a class="btn btn-outline-secondary" href="{{ url_for('contracting_view', section='eventos') }}"><i class="fa fa-calendar-day me-1"></i>Ver actividades</a>
     {% endif %}
     {% if CAN_EDIT_CONCERTS %}
-    <button class="btn btn-primary" type="button" data-cf-new><i class="fa fa-plus me-1"></i> {{ 'Nueva gira / ciclo' if only_events else 'Nuevo ciclo / festival' }}</button>
+    <div class="d-flex gap-2 flex-wrap">
+      {# EL MISMO «+ Actividad» que el resto de Contratación (asistente único, aquí mismo). #}
+      {% if wizard_available %}
+        <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Actividad</button>
+      {% endif %}
+      <button class="btn btn-primary" type="button" data-cf-new><i class="fa fa-plus me-1"></i> {{ 'Nueva gira / ciclo' if only_events else 'Nuevo ciclo / festival' }}</button>
+    </div>
     {% endif %}
   </div>
 </div>
@@ -183,6 +189,8 @@
 
 {% include "_quick_create_modals.html" %}
 <script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
+{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}
+
 <script>
   document.addEventListener('click', function(ev){
     if(ev.target.closest('[data-cf-new]')){ var m=document.getElementById('cfModal'); if(m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show(); }

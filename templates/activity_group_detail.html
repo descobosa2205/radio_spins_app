@@ -192,11 +192,10 @@
           <button class="btn btn-outline-primary" type="submit"><i class="fa fa-link me-1"></i>Vincular</button>
         </form>
         {% set _gref = ('tour:' ~ group.id) if is_tour else ('cycle:' ~ group.id) %}
-        {% if is_tour and group.artist %}
-        <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista', open_wizard=1, wizard_activity_type='CONCIERTO', wizard_group=_gref, wizard_artist=group.artist_id) }}"><i class="fa fa-plus me-1"></i>Crear concierto</a>
-        {% else %}
-        <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista', open_wizard=1, wizard_activity_type='CONCIERTO', wizard_group=_gref) }}"><i class="fa fa-plus me-1"></i>Crear concierto</a>
-        {% endif %}
+        {# ⚠️ El asistente es el MISMO de toda la app y se abre EN ESTA PANTALLA (antes te llevaba a
+           /conciertos y perdías el contexto de la gira). Los parámetros van a la propia URL: los lee
+           la auto-apertura del propio asistente, que ya vive en su parcial. #}
+        <a class="btn btn-primary" href="{{ url_for(request.endpoint, open_wizard=1, wizard_activity_type='CONCIERTO', wizard_group=_gref, wizard_artist=(group.artist_id if (is_tour and group.artist) else None), **request.view_args) }}"><i class="fa fa-plus me-1"></i>Crear concierto</a>
       </div>
     </div>
     {% endif %}
@@ -387,4 +386,7 @@
   });
 })();
 </script>
+{# El asistente de actividad, el mismo de todas las pantallas (aquí se abre con la gira o el
+   ciclo ya vinculado). #}
+{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}
 {% endblock %}

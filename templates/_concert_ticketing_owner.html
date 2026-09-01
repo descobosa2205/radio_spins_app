@@ -1,0 +1,41 @@
+{# EL RESPONSABLE DE TICKETING de una actividad · el hueco que se ve y el botón que lo configura.
+   Se incluye en CONTACTOS de la ficha de contratación y en la pestaña de Entradas y venta: es el
+   MISMO dato y el MISMO pop-up (`#ticketingContactModal`, endpoint `concert_ticketing_contact_save`),
+   así que no hay dos sitios donde configurarlo.
+   Solo se pinta cuando la actividad VENDE ENTRADAS y las vende un TERCERO (`ticketing_applies`):
+   lo que promueve el grupo se actualiza en /ventas y no se le pide a nadie.
+   Del contexto necesita: `ticketing_applies`, `ticketing_contact`, `ticketing_unset` y
+   `CAN_SET_ONSALE`. #}
+{% if ticketing_applies %}
+  <div class="cc-tkt mt-3 pt-3 border-top">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="cc-tag"><i class="fa fa-ticket"></i>Responsable de ticketing</span>
+      {% if ticketing_contact and ticketing_contact.email %}
+        <img src="{{ ticketing_contact.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+             style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
+        <span class="small">
+          <strong>{{ ticketing_contact.name or ticketing_contact.email }}</strong>
+          <span class="text-muted">· {{ ticketing_contact.email }}</span>
+          {% if ticketing_contact.phone %}<span class="text-muted">· {{ ticketing_contact.phone }}</span>{% endif %}
+        </span>
+        {# ⚠️ Caer en el correo de la ficha del promotor es el RESPALDO, no una decisión: se dice,
+           y la tarea de configurarlo sigue en pie. Aun así, las comunicaciones salen igual. #}
+        {% if ticketing_unset %}
+          <span class="badge text-bg-warning text-dark" title="Mientras no se diga quién es, las ventas se le piden al correo de la ficha del promotor">
+            <i class="fa fa-triangle-exclamation me-1"></i>Sin configurar</span>
+        {% endif %}
+      {% else %}
+        <span class="badge text-bg-warning text-dark"><i class="fa fa-triangle-exclamation me-1"></i>Sin configurar</span>
+        <span class="small text-muted">No hay a quién pedirle las ventas.</span>
+      {% endif %}
+      {% if CAN_SET_ONSALE %}
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                data-bs-toggle="modal" data-bs-target="#ticketingContactModal">
+          <i class="fa fa-address-book me-1"></i>{{ 'Cambiarlo' if (ticketing_contact and ticketing_contact.email and not ticketing_unset) else 'Configurar' }}
+        </button>
+      {% endif %}
+    </div>
+    <div class="form-text">Es a quien se le piden las ventas los lunes y los jueves desde el día
+      siguiente a la salida a la venta.</div>
+  </div>
+{% endif %}

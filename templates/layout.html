@@ -427,6 +427,15 @@
 <script src="{{ url_for('static', filename='js/home_order.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/float_list.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/typeahead.js', v=ASSET_V) }}"></script>
+{# EL REPERTORIO de una actividad: buscar escribiendo y ordenar arrastrando. GLOBAL porque su
+   parcial se usa en el asistente y en la ficha (y esa zona se repinta por AJAX). #}
+<script src="{{ url_for('static', filename='js/performance_songs.js', v=ASSET_V) }}"></script>
+{# EL FORMULARIO DE UN GASTO DE BOLSA (por módulos). GLOBAL: la bolsa se pinta en su pantalla y
+   embebida en fichas cuyas zonas se repintan por AJAX. #}
+<script src="{{ url_for('static', filename='js/bag_expense_form.js', v=ASSET_V) }}"></script>
+{# LO QUE FALTA O ESTÁ MAL SE VE Y NO SE DEJA PASAR (amarillo/rojo). Va ANTES que los motores
+   que envían formularios (`ajax_inline.js`): comprueba en fase de captura y los para. #}
+<script src="{{ url_for('static', filename='js/form_check.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/quick_create.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/entity_links.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/ajax_inline.js', v=ASSET_V) }}"></script>

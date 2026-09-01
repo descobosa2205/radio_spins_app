@@ -55,7 +55,12 @@
       });
     }
 
+    /* ⚠️ NO SE PASA DE PASO CON ALGO SIN RELLENAR O MAL, y se VE cuál: lo comprueba el motor de la
+       casa (`form_check.js`), que marca en AMARILLO lo obligatorio que falta y en ROJO lo que está
+       mal y lleva el foco al primero. Antes se usaba `reportValidity()` (el bocadillo del
+       navegador), que solo enseña uno y desaparece al mover el ratón. */
     function stepValid(i) {
+      if (window.app33FormCheck) return window.app33FormCheck.check(steps[i]);
       var reqs = steps[i].querySelectorAll('input[required], select[required], textarea[required]');
       for (var k = 0; k < reqs.length; k++) {
         if (!reqs[k].checkValidity()) {

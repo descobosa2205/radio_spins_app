@@ -52,6 +52,11 @@
 
   function campos(zona) {
     return {
+      /* `search` = LA BARRA DE BÚSQUEDA de un bloque que se rellena EN DOS PASOS: primero solo se
+         ve la barra («escribe dirección, municipio, provincia…») y, al elegir una sugerencia,
+         aparecen los campos por separado ya rellenos. ⚠️ Es lo que evita el error de ponerse a
+         escribir el municipio a mano mientras la barra está buscando (`data-addr-reveal`). */
+      buscador: zona.querySelector('[data-addr="search"]'),
       // `full` = la dirección en UN SOLO campo (un domicilio, la de un recinto, la de un medio…).
       // Los demás son el bloque de la dirección fiscal, que va en piezas porque Holded las exige
       // sueltas para dar de alta al proveedor.
@@ -71,6 +76,44 @@
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  /* ---------------------------------------------------------------- revelado en DOS PASOS
+     ⚠️⚠️ EN UN BLOQUE `data-addr-reveal` SOLO SE VE LA BARRA DE BÚSQUEDA. Los campos por separado
+     (dirección, código postal, municipio, provincia y país) viven dentro de `[data-addr-parts]` y
+     aparecen al ELEGIR una sugerencia — o al pulsar «escribirla a mano», que es la salida para un
+     sitio que el buscador no conoce. Con cuatro campos a la vista, la gente escribía el municipio
+     mientras la barra buscaba y la dirección acababa a medias (bug real). */
+  function partes(zona) { return zona.querySelector('[data-addr-parts]'); }
+
+  function revelar(zona) {
+    var caja = partes(zona);
+    if (caja) caja.classList.remove('d-none');
+    // Con los campos a la vista, la explicación de la barra y el «escribirla a mano» ya no dicen
+    // nada: se quita la línea entera (dejando solo el enlace, quedaba un punto suelto).
+    zona.querySelectorAll('[data-addr-manual]').forEach(function (a) {
+      var linea = a.closest('.form-text');
+      (linea || a).classList.add('d-none');
+    });
+  }
+
+  function tieneDatos(zona) {
+    var c = campos(zona);
+    return [c.calle, c.cp, c.municipio, c.provincia].some(function (x) {
+      return x && (x.value || '').trim();
+    });
+  }
+
+  /* Al pintar la pantalla (y cada vez que se repinta una zona por AJAX o se abre un modal): si el
+     bloque YA trae datos —se está editando algo—, las piezas se ven desde el principio. */
+  function repasar(raiz) {
+    (raiz || document).querySelectorAll('[data-address-autocomplete][data-addr-reveal]')
+      .forEach(function (zona) { if (tieneDatos(zona)) revelar(zona); });
+  }
+  if (document.readyState !== 'loading') repasar(document);
+  else document.addEventListener('DOMContentLoaded', function () { repasar(document); });
+  ['shown.bs.modal', 'ficha:shown', 'inline:updated'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) { repasar(e.target || document); });
+  });
+
   // ---------------------------------------------------------------- lista de sugerencias
   function lista(zona) {
     var caja = zona.querySelector('[data-addr-list]');
@@ -79,7 +122,7 @@
       caja.className = 'addr-suggest d-none';
       caja.setAttribute('data-addr-list', '');
       var c0 = campos(zona);
-      var padre = (c0.completa || c0.calle || zona).parentElement || zona;
+      var padre = (c0.buscador || c0.completa || c0.calle || zona).parentElement || zona;
       padre.style.position = padre.style.position || 'relative';
       padre.appendChild(caja);
     }
@@ -108,6 +151,19 @@
   function elegir(zona, fila) {
     if (!fila) return;
     var c = campos(zona);
+    if (c.buscador) {
+      // DOS PASOS: se rellenan las piezas con lo elegido y AHÍ es cuando se ven.
+      poner(c.calle, fila.address, false);
+      poner(c.cp, fila.postal_code, false);
+      poner(c.municipio, fila.city, false);
+      poner(c.provincia, provinciaDeCp(fila.postal_code) || fila.province, false);
+      poner(c.pais, fila.country || 'España', false);
+      // En la barra se queda la dirección tal como la escribe la casa, para saber qué se eligió.
+      c.buscador.value = fila.full || [fila.address, fila.postal_code, fila.city].filter(Boolean).join(', ');
+      revelar(zona);
+      cerrar(zona);
+      return;
+    }
     if (c.completa) {
       // Un solo campo: se escribe la dirección ENTERA tal como la compone el servidor («Calle, CP
       // Municipio, Provincia, País»), que es el mismo formato con el que se guarda.
@@ -129,7 +185,7 @@
 
   function buscar(zona) {
     var c = campos(zona);
-    var entrada = c.completa || c.calle;
+    var entrada = c.buscador || c.completa || c.calle;
     if (!entrada) return;
     var q = (entrada.value || '').trim();
     // Con el municipio ya escrito, la búsqueda acierta mucho más.
@@ -173,11 +229,18 @@
     if (!input || !input.matches) return;
     var zona = input.closest('[data-address-autocomplete]');
     if (!zona) return;
-    if (input.matches('[data-addr="address"], [data-addr="full"]')) programar(zona);
+    if (input.matches('[data-addr="search"], [data-addr="address"], [data-addr="full"]')) programar(zona);
     if (input.matches('[data-addr="postal_code"]')) alEscribirCp(zona, input);
   });
 
   document.addEventListener('click', function (e) {
+    var mano = e.target.closest ? e.target.closest('[data-addr-manual]') : null;
+    if (mano) {
+      // El buscador es una AYUDA: un sitio que no conozca se escribe a mano.
+      e.preventDefault();
+      revelar(mano.closest('[data-address-autocomplete]'));
+      return;
+    }
     var pick = e.target.closest ? e.target.closest('[data-addr-pick]') : null;
     if (pick) {
       e.preventDefault();
@@ -209,7 +272,7 @@
       items[Math.min(actual + 1, items.length - 1)].focus();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (actual <= 0) { (campos(zona).completa || campos(zona).calle || items[0]).focus(); } else { items[actual - 1].focus(); }
+      if (actual <= 0) { (campos(zona).buscador || campos(zona).completa || campos(zona).calle || items[0]).focus(); } else { items[actual - 1].focus(); }
     } else if (e.key === 'Enter' && actual >= 0) {
       e.preventDefault();
       items[actual].click();

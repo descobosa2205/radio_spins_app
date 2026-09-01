@@ -760,6 +760,72 @@ img.img-error-pending{ visibility: hidden; }
 .wizard-card__title i{ color: var(--brand-primary); }
 .wizard-card__hint{ color:#6c757d; font-size:.85rem; margin-bottom:.75rem; }
 
+/* ══════════ EL FORMULARIO DE UN GASTO DE BOLSA ══════════
+   La zona de arrastrar el documento, el proveedor elegido y las opciones de facturación. */
+.be-drop{
+  display:flex; align-items:center; justify-content:center; gap:.6rem;
+  border:2px dashed #e2c9cc; border-radius:14px; padding:1rem; text-align:center;
+  background:#fffafa; color:#6c757d; cursor:pointer;
+}
+.be-drop:hover, .be-drop.is-dragover{ border-color:var(--brand-primary); color:var(--brand-primary); background:#fff4f4; }
+.be-drop i{ font-size:1.4rem; }
+.be-chip{
+  display:inline-flex; align-items:center; gap:.5rem;
+  border:1px solid #e2e6ec; border-radius:999px; padding:.2rem .6rem .2rem .25rem; background:#fff;
+}
+.be-chip img{ width:26px; height:26px; border-radius:50%; object-fit:cover; }
+.be-chip i{ width:26px; text-align:center; color:#adb5bd; }
+/* Las opciones de facturación: se eligen pinchando (con su logo o su icono). */
+.be-opt{
+  display:inline-flex; align-items:center; gap:.45rem; cursor:pointer;
+  border:1px solid #e2e6ec; border-radius:12px; padding:.35rem .6rem; background:#fff;
+}
+.be-opt input{ display:none; }
+.be-opt img{ width:22px; height:22px; object-fit:contain; }
+.be-opt i{ color:#adb5bd; }
+.be-opt:has(input:checked){ border-color:var(--brand-primary); background:#fff4f4; color:var(--brand-primary); }
+.be-opt:has(input:checked) i{ color:var(--brand-primary); }
+
+/* ══════════ LO QUE FALTA, EN AMARILLO; LO QUE ESTÁ MAL, EN ROJO ══════════
+   Marcas de `form_check.js` (global). ⚠️ AMARILLO = obligatorio y sin rellenar (no es un error, es
+   que falta); ROJO = relleno pero mal. Se ven igual en un campo, en un `<select>` y en una tarjeta
+   de las que se eligen pinchando. */
+.is-check-missing,
+.is-check-missing.form-control,
+.is-check-missing.form-select{
+  border-color:#e0a800 !important;
+  background-color:#fff9e6;
+  box-shadow:0 0 0 .18rem rgba(255,193,7,.28);
+}
+.is-check-bad,
+.is-check-bad.form-control,
+.is-check-bad.form-select{
+  border-color:#dc3545 !important;
+  background-color:#fdecee;
+  box-shadow:0 0 0 .18rem rgba(220,53,69,.22);
+}
+/* Un SELECT2 se pinta él solo: la marca va en el recuadro que se ve. */
+.select2-selection.is-check-missing{ border-color:#e0a800 !important; background:#fff9e6 !important; }
+.select2-selection.is-check-bad{ border-color:#dc3545 !important; background:#fdecee !important; }
+/* En una tarjeta de elección (radio escondido) la marca va en el borde de la tarjeta. */
+label.is-check-missing, .activity-choice-card.is-check-missing{ border-color:#e0a800 !important; background:#fff9e6; }
+label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !important; background:#fdecee; }
+.check-msg{ border-left:.28rem solid #e0a800; }
+
+/* ── EL REPERTORIO del asistente: lo elegido, en filas que se ARRASTRAN para ordenarlas ──────
+   El ORDEN DE LAS FILAS es el del repertorio (cada una lleva dentro su oculto), así que la fila
+   tiene que verse agarrable: su asa a la izquierda y el número delante del título. */
+.wz-songs{ display:flex; flex-direction:column; gap:.3rem; margin-top:.5rem; }
+.wz-song{
+  display:flex; align-items:center; gap:.5rem;
+  background:#fff; border:1px solid #e2e6ec; border-radius:.5rem;
+  padding:.3rem .5rem; cursor:grab;
+}
+.wz-song.is-drag{ opacity:.45; }
+.wz-song__grip{ color:#adb5bd; cursor:grab; }
+.wz-song__n{ color:#6c757d; font-size:.8rem; min-width:1.4rem; text-align:right; }
+.wz-song__t{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
 /* Formatos de cartelería: representación gráfica de la proporción de cada formato. */
 .artfmt-box{
   display:flex; align-items:center; justify-content:center;

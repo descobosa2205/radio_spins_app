@@ -114,9 +114,11 @@
           '</span></button>';
       }).join('');
     }
-    if (window.app33FloatList) window.app33FloatList.ensureRoom(input);
+    // ⚠️ SIEMPRE HACIA ABAJO (un desplegable que se abre hacia arriba despista): si no hay hueco,
+    // el campo se acerca antes.
+    if (window.app33FloatList) window.app33FloatList.ensureRoom(input, { abajo: true });
     b.style.display = 'block';
-    if (window.app33FloatList) window.app33FloatList.place(input, b);
+    if (window.app33FloatList) window.app33FloatList.place(input, b, { abajo: true });
   }
 
   var timers = new WeakMap();

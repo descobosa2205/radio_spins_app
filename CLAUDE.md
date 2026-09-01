@@ -8646,6 +8646,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   aviso sin hora se ve cuando ya no sirve.
   ⚠️ El motor es **GLOBAL y por delegación**: este formulario se pinta en la pantalla de la bolsa y
   también **embebido** en una ficha (proyecto, actividad, promoción), cuyas zonas se repintan por AJAX.
+  ⚠️ **El desplegable del buscador sale SIEMPRE HACIA ABAJO**: `app33FloatList` lo abre por el lado en
+  el que quepa entero, y en un modal se iba hacia arriba, que despista. Con **`{abajo: true}`**
+  (`place` y `ensureRoom`) sale abajo y, si no hay hueco, el campo se acerca antes.
+  ⚠️ Los dos botones del IVA son **pequeños y al lado del rótulo** («Con IVA» / «+ IVA»): grandes y a
+  todo el ancho pesaban más que el propio importe.
 
 - ⚠️ **QUIEN CREA UNA ACTIVIDAD LA SIGUE VIENDO HASTA QUE SE CONFIRMA** (sep 2026): alguien que no es
   de contratación da de alta una actividad y **la ve en el calendario, en /actividades y en la vista

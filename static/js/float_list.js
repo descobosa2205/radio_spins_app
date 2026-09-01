@@ -26,9 +26,13 @@
     },
 
     /* La pega al campo, con su ancho, por el lado en el que QUEPA ENTERA. Si no cabe por ninguno,
-       por el que tenga más sitio: así se ve lo máximo posible en vez de quedarse a medias. */
-    place: function (input, box) {
+       por el que tenga más sitio: así se ve lo máximo posible en vez de quedarse a medias.
+       ⚠️ Con `{abajo: true}` sale SIEMPRE hacia abajo: un desplegable que se abre hacia arriba
+       despista (lo pidió así Dani en el buscador de proveedor del gasto). Para que quepa, el campo
+       se acerca antes con `ensureRoom(input, {abajo: true})`. */
+    place: function (input, box, opciones) {
       if (!input || !box) return;
+      var forzarAbajo = !!(opciones && opciones.abajo);
       var r = input.getBoundingClientRect();
       // El alto NATURAL del contenido: `offsetHeight` ya viene recortado por el `max-height` que
       // le pusimos la vez anterior, así que mirándolo la lista nunca volvería a crecer.
@@ -39,7 +43,8 @@
 
       var abajo = window.innerHeight - r.bottom - 12;
       var arriba = r.top - 12;
-      var poner = (alto <= abajo) ? 'abajo'
+      var poner = forzarAbajo ? 'abajo'
+                : (alto <= abajo) ? 'abajo'
                 : (alto <= arriba) ? 'arriba'
                 : (arriba > abajo) ? 'arriba' : 'abajo';
 
@@ -59,11 +64,14 @@
     /* Antes de abrirla: si al campo no le queda sitio ni arriba ni abajo (está en el borde de un
        modal con scroll), se ACERCA para que la lista quepa. Sin esto salían cinco resultados de
        doce y el resto había que buscarlos con el scroll de la propia lista. */
-    ensureRoom: function (input) {
+    ensureRoom: function (input, opciones) {
       if (!input) return;
       try {
         var r = input.getBoundingClientRect();
-        var hueco = Math.max(window.innerHeight - r.bottom, r.top) - 12;
+        // Con `{abajo: true}` solo cuenta el hueco de ABAJO: la lista va a salir por ahí sí o sí.
+        var hueco = (opciones && opciones.abajo)
+          ? (window.innerHeight - r.bottom - 12)
+          : (Math.max(window.innerHeight - r.bottom, r.top) - 12);
         if (hueco >= MIN_HUECO) return;
         input.scrollIntoView({ block: 'center' });
       } catch (e) {}

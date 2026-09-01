@@ -37,20 +37,20 @@
                   <input type="text" name="concept" class="form-control" required
                          placeholder="Qué es el gasto (lo único obligatorio)">
                 </div>
-                <div class="col-md-5">
-                  <label class="form-label">Importe</label>
+                <div class="col-md-6">
+                  {# El importe se escribe UNA vez y se dice si lleva IVA: dos botones pequeños al
+                     lado del rótulo. «+ IVA» = no lo lleva, así que se le suma el {{ bag_vat_pct_default }}%. #}
+                  <div class="d-flex align-items-center justify-content-between gap-2">
+                    <label class="form-label mb-1">Importe</label>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="¿El importe lleva IVA?">
+                      <input type="radio" class="btn-check" name="amount_mode" value="GROSS" id="beVatIn" checked>
+                      <label class="btn btn-outline-secondary" for="beVatIn">Con IVA</label>
+                      <input type="radio" class="btn-check" name="amount_mode" value="NET" id="beVatOut">
+                      <label class="btn btn-outline-secondary" for="beVatOut">+ IVA</label>
+                    </div>
+                  </div>
                   <input type="text" name="amount_value" class="form-control" data-money
                          placeholder="0,00" inputmode="decimal">
-                </div>
-                <div class="col-md-7">
-                  <label class="form-label d-block">¿El importe lleva IVA?</label>
-                  {# Dos botones, uno de los dos siempre marcado. Sin IVA, se calcula al {{ bag_vat_pct_default }}%. #}
-                  <div class="btn-group w-100" role="group">
-                    <input type="radio" class="btn-check" name="amount_mode" value="GROSS" id="beVatIn" checked>
-                    <label class="btn btn-outline-secondary" for="beVatIn"><i class="fa fa-check me-1"></i>Lo incluye</label>
-                    <input type="radio" class="btn-check" name="amount_mode" value="NET" id="beVatOut">
-                    <label class="btn btn-outline-secondary" for="beVatOut"><i class="fa fa-plus me-1"></i>Sin IVA</label>
-                  </div>
                   <div class="form-text" data-be-vat-hint></div>
                   <input type="hidden" name="vat_pct" value="{{ bag_vat_pct_default }}" data-be-vat-pct>
                 </div>

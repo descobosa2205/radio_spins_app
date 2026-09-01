@@ -452,6 +452,12 @@ def ensure_artist_notifications_schema():
             ADD COLUMN IF NOT EXISTS sale_notice_by_nick text,
             ADD COLUMN IF NOT EXISTS sale_notice_to jsonb NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS sale_notice_signature text,
+            -- ACTUALIZACIÓN DE VENTAS: lo que se le pide al promotor de fuera (ver el modelo).
+            ADD COLUMN IF NOT EXISTS sales_request_last_at timestamptz,
+            ADD COLUMN IF NOT EXISTS sales_request_count integer NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS sales_request_token text,
+            ADD COLUMN IF NOT EXISTS sales_request_error_at timestamptz,
+            ADD COLUMN IF NOT EXISTS sales_request_error text,
             -- Enlace PÚBLICO de la cartelería (para que el artista y el promotor la vean y la
             -- descarguen sin entrar en la app). Es un token OPACO y distinto del de la solicitud a
             -- diseño: con ese se SUBEN carteles, con este solo se descargan.
@@ -462,6 +468,8 @@ def ensure_artist_notifications_schema():
         """,
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_artwork_share_token "
         "ON concerts(artwork_share_token) WHERE artwork_share_token IS NOT NULL;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_sales_request_token "
+        "ON concerts(sales_request_token) WHERE sales_request_token IS NOT NULL;",
         """
         CREATE TABLE IF NOT EXISTS concert_artist_notifications (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -1789,6 +1797,11 @@ class Promoter(Base):
     # Enlace público (token OPACO) con el que una compañía externa nos sube sus liquidaciones de
     # royalties «A FAVOR». Uno por compañía y para todos los semestres: no caduca.
     afavor_token = Column(Text, unique=True)
+    # CONTACTO DE TICKETING por defecto de este tercero: a quién se le piden las actualizaciones de
+    # ventas de TODAS sus actividades. Misma forma que el de una actividad
+    # (`ticketing_payload['ticketing_contact']`), que manda sobre este cuando está puesto:
+    #   {kind: 'PROMOTER'|'THIRD'|'EMAIL', promoter_id?, name, email, phone, set_at, set_by}
+    ticketing_contact = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     publishing_company_id = Column(
         PGUUID(as_uuid=True),
@@ -2588,6 +2601,20 @@ class Concert(Base):
     # Huella de LO QUE SE COMUNICÓ (día y hora de salida a la venta): si Ticketing la reprograma, el
     # aviso deja de valer y hay que volver a comunicarlo.
     sale_notice_signature = Column(Text)
+    # ── ACTUALIZACIÓN DE VENTAS · lo que se le pide al promotor de FUERA ──────────────────────
+    # Cuando las entradas las vende un TERCERO, la casa no ve las ventas: hay que pedírselas. Desde
+    # el día siguiente a la salida a la venta se le manda la solicitud los LUNES y los JUEVES.
+    #  · `sales_request_last_at` = cuándo se le pidió la última vez (de aquí sale el «no insistir»:
+    #    hacen falta al menos SALES_REQUEST_MIN_DAYS días entre dos peticiones).
+    #  · `sales_request_token`   = su enlace público para actualizar las ventas (token OPACO).
+    #  · `ticketing_payload['ticketing_contact']` = a quién se le escribe (ver `_concert_ticketing_contact`).
+    sales_request_last_at = Column(DateTime(timezone=True))
+    sales_request_count = Column(Integer, nullable=False, server_default=text("0"))
+    sales_request_token = Column(Text)
+    #  · `sales_request_error*` = el último intento que NO salió, para no reintentar cada hora todo
+    #    el día con un correo que está mal y para poder DECIRLO en la ficha.
+    sales_request_error_at = Column(DateTime(timezone=True))
+    sales_request_error = Column(Text)
     # Enlace PÚBLICO de la cartelería (token opaco; ⚠️ NO es el de la solicitud a diseño, que sirve
     # para SUBIR carteles: aquí solo se ven y se descargan).
     artwork_share_token = Column(Text)
@@ -12721,6 +12748,8 @@ def ensure_afavor_schema():
         # --- EL TERCERO: su compañía matriz y su enlace público de liquidaciones ---
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS parent_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS afavor_token text;",
+        # El CONTACTO DE TICKETING por defecto del tercero (las actualizaciones de ventas).
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS ticketing_contact jsonb NOT NULL DEFAULT '{}'::jsonb;",
         # Una persona de contacto puede no colgar de ningún tercero (actividad sin promotor).
         "ALTER TABLE IF EXISTS promoter_contacts ALTER COLUMN promoter_id DROP NOT NULL;",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_promoters_afavor_token ON promoters(afavor_token) WHERE afavor_token IS NOT NULL;",

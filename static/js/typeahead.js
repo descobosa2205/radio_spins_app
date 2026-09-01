@@ -161,4 +161,16 @@ function initTypeahead(inputId, hiddenId, endpoint, opciones){
 
   input.addEventListener('change', resolveSelection);
   input.addEventListener('blur', resolveSelection);
+
+  /* ⚠️⚠️ SEMBRAR LO ELEGIDO DESDE FUERA. Lo usa el «+» de alta rápida (`quick_create.js`): al crear
+     una entidad rellena el texto y el oculto y avisa del cambio, y ese `change` disparaba
+     `resolveSelection`, que busca el texto en el DATALIST —vacío a propósito en los buscadores con
+     imagen—, no lo encuentra y BORRA el oculto: se creaba el tercero y su id se perdía, así que no
+     se guardaba nada (bug real, y afecta a TODOS los buscadores con un «+» al lado). */
+  input.app33TaPick = function (id, label) {
+    elegido = String(id == null ? '' : id);
+    elegidoLabel = String(label == null ? '' : label) || input.value;
+    input.value = elegidoLabel;
+    if (hidden) hidden.value = elegido;
+  };
 }

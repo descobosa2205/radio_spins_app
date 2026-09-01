@@ -167,7 +167,15 @@
                   {% endif %}
                 </div>
                 <div class="invitation-counts">
-                  <div><span>{{ item.counts.configured }}</span><small>Disponibles</small></div>
+                  {# ⚠️ Con entradas SUBIDAS, lo que hay para repartir son ESAS y la galleta se
+                     llama «Disponibles». Si no se ha subido nada, lo único que se sabe es lo
+                     PACTADO POR CONTRATO y así se dice; y si no consta nada configurado se pinta
+                     «?» en vez de un 0, que parecería un dato. Un 0 configurado sí es un 0. #}
+                  {% if item.counts.uploaded and item.counts.uploaded > 0 %}
+                    <div title="Entradas subidas al back office"><span>{{ item.counts.uploaded }}</span><small>Disponibles</small></div>
+                  {% else %}
+                    <div title="Lo pactado en la ficha de contratación (todavía no se ha subido ninguna entrada)"><span>{{ item.counts.contract if item.counts.contract_known else '?' }}</span><small>Por contrato</small></div>
+                  {% endif %}
                   <div><span>{{ item.counts.committed }}</span><small>Compromisos</small></div>
                   <div><span>{{ item.counts.requested_all if item.counts.requested_all is defined else item.counts.requested }}</span><small>Invitaciones solicitadas</small></div>
                   <div class="{% if item.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ item.counts.result }}</span><small>Resultado</small></div>

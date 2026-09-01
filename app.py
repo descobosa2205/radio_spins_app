@@ -462,6 +462,9 @@ if CALDAV_ONLY:
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
 _CSRF_EXEMPT_ENDPOINTS = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
     "concert_artwork_public_upload",
+    # ACTUALIZAR VENTAS: el promotor de fuera no tiene sesión (su enlace es el token).
+    "public_sales_update", "public_sales_update_save", "public_sales_derive",
+    "public_sales_update_og_image",
     "public_prl_upload_post",
     "public_bag_invoice_upload_post",
     "public_invoice_identify",
@@ -46739,12 +46742,13 @@ def _concert_task_board(session_db, concert) -> dict:
     hechas = {f["key"] for f in filas}
     extra = []
 
-    def suelta(key, n, label, icon, url=""):
+    def suelta(key, n, label, icon, url="", modal="", action_label="", hint=""):
         if key in hechas:
             return
         extra.append({"key": key, "phase": n, "label": label, "icon": icon, "state": "todo",
                       "mine": False, "blocked": False, "blocked_reason": "", "owner_nick": "",
-                      "owner_user_id": "", "nudge_url": "", "url": url, "generic": True})
+                      "owner_user_id": "", "nudge_url": "", "url": url, "modal": modal,
+                      "action_label": action_label, "hint": hint, "generic": True})
 
     try:
         _estado_actual = (getattr(concert, "status", None) or "BORRADOR").upper()
@@ -46764,6 +46768,12 @@ def _concert_task_board(session_db, concert) -> dict:
                 suelta("anuncio", 7, "Pendiente de anunciar", "fa-bullhorn")
             if _concert_sale_state(session_db, concert)["needs_activation"]:
                 suelta("venta", 8, "Sin activar la venta", "fa-ticket")
+            # Las entradas las vende un TERCERO: hay que decir a quién se le piden las ventas.
+            if _concert_ticketing_contact_missing(session_db, concert):
+                suelta("contacto_ticketing", 9, "Configurar el contacto de ticketing",
+                       "fa-address-book", modal="#ticketingContactModal",
+                       action_label="Configurarlo",
+                       hint="Sin él no se le puede pedir la actualización de ventas")
         # Si la actividad NO viene de una petición, sus dos tareas de siempre también salen aquí.
         if not pendientes and (r is None or not getattr(r, "accepted_at", None)):
             if _concert_production_pending(concert):
@@ -53454,6 +53464,10 @@ def concert_detail_view(cid):
             # SALIDA A LA VENTA: activar la venta (contratación) y comunicarla (ticketing) son dos
             # funciones distintas de la producción, cada una con su botón.
             sale_state=_concert_sale_state(session, c),
+            # ACTUALIZACIÓN DE VENTAS del promotor de fuera: a quién se le pide, su enlace y las
+            # demás actividades de ese promotor (para el pop-up de compartir y para el de
+            # configurar el contacto).
+            **_concert_sales_request_ficha(session, c, tab),
             # ELIMINAR LA ACTIVIDAD (rueda de la cabecera): a quién se le había comunicado ya, para
             # poder avisar de la cancelación antes de borrarla.
             notified_parties=_notified,
@@ -72313,7 +72327,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -74666,6 +74680,9 @@ CONTRACTING_TASK_META = {
     "PRODUCTION": ("Sin mandar a producción", "fa-people-carry-box", "text-bg-dark", 4),
     # Activar la venta NO es activar la producción: son dos funciones separadas y dos tareas.
     "SALE": ("Sin activar la venta", "fa-ticket", "text-bg-primary", 4),
+    # El CONTACTO DE TICKETING del promotor de fuera: sin él no hay a quién pedirle las ventas.
+    "TICKETING_CONTACT": ("Sin contacto de ticketing", "fa-address-book",
+                          "text-bg-info text-dark", 4),
     "INVOICE":    ("Pendiente de facturar", "fa-file-circle-plus", "text-bg-secondary", 5),
     "COLLECT":    ("Pendiente de cobrar", "fa-hourglass-half", "text-bg-warning text-dark", 6),
 }
@@ -74730,6 +74747,9 @@ def _contracting_task_row(c, kind: str, payment: dict | None = None, event=None)
     es_evento = bool(event)
     if kind == "PRODUCTION":
         url = url_for("concert_detail_view", cid=c.id, tab="produccion")
+    elif kind == "TICKETING_CONTACT":
+        # Lleva a la pestaña «Inicio», que es donde está el pop-up del contacto de ticketing.
+        url = url_for("concert_detail_view", cid=c.id, tab="inicio")
     elif kind in ("INVOICE", "COLLECT"):
         # ⚠️ LLEVA A LA FICHA, que es donde se hace: al plan de facturación y cobro de ESA actividad
         # (antes iba al listado de Facturación con un ancla, así que había que volver a buscarla).
@@ -74807,13 +74827,18 @@ def _contracting_tasks_data() -> dict:
         # ⚠️ Una actividad CANCELADA no es trabajo de contratación: lo que queda de ella (avisar a
         # los proveedores, cerrar la bolsa) es de producción y sale en su propia ficha.
         vivas = (session_db.query(Concert)
-                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                          joinedload(Concert.promoter))
                  .filter(or_(Concert.date.is_(None), Concert.date >= hoy))
                  .filter(func.upper(func.coalesce(Concert.status, "")) != "CANCELADO")
                  .order_by(Concert.date.asc().nullslast())
                  .all())
         vivas = [c for c in vivas if _visible(c)]
         ids = [c.id for c in vivas]
+        # ⚠️ La participación del grupo, EN BLOQUE: `_concert_is_group_promoted` hace una consulta
+        # por actividad cuando no hay `group_company_id`, y este motor se llama en cada carga de
+        # Contratación (y desde Inicio y el cuadro de dirección).
+        grupo_promueve = _concerts_group_promoted_map(session_db, vivas)
         # Los EVENTOS de golpe: en la fila manda el evento, no el artista espejo.
         eventos = {}
         _ev_ids = {c.event_id for c in vivas if getattr(c, "event_id", None)}
@@ -74846,6 +74871,11 @@ def _contracting_tasks_data() -> dict:
                 # Vende entradas nuestras y todavía nadie le ha dicho a Ticketing que la saque.
                 if _concert_sale_state(session_db, c)["needs_activation"]:
                     kinds.append("SALE")
+                # Vende entradas y las vende un TERCERO: hace falta saber a quién se le piden las
+                # ventas. Solo se reclama si NO hay ningún correo al que escribir.
+                if _concert_ticketing_contact_missing(session_db, c,
+                                                     group_promoted=grupo_promueve.get(c.id)):
+                    kinds.append("TICKETING_CONTACT")
             if not kinds:
                 continue
             tabs = _contracting_activity_tabs(c)
@@ -76255,6 +76285,10 @@ SUPPORT_ACTION_ENDPOINTS = {
     # contratación. El permiso fino lo comprueba cada endpoint (`can_set_concert_onsale`).
     "concert_onsale_set", "concert_sale_activate", "concert_sale_notice_send",
     "concert_sale_notice_preview",
+    # ACTUALIZACIÓN DE VENTAS del promotor de fuera: configurar su contacto de ticketing y mandarle
+    # (o previsualizar) la solicitud es trabajo de TICKETING. Mismo motivo que arriba.
+    "concert_ticketing_contact_save", "concert_sales_request_preview",
+    "concert_sales_request_send",
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
     "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
@@ -76421,6 +76455,11 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
 # edición en ninguna sección: no está haciendo nada, está pidiéndoselo al departamento que decide.
 # (Se comprueba antes que `SUPPORT_ACTION_ENDPOINTS`, que sí exige ser «actor».)
 REQUEST_ANY_ENDPOINTS = {
+    # ACTUALIZAR VENTAS y DERIVAR el ticketing: son enlaces PÚBLICOS (los autoriza su token), pero
+    # también los abre gente de la casa desde «Ver la página que reciben» —y entonces el gate de
+    # permisos los resolvía a ninguna sección y en un POST solo pasaba dirección: 403 y en pantalla
+    # un «No se pudo guardar» sin explicación—.
+    "public_sales_update", "public_sales_update_save", "public_sales_derive",
     "promo_peticion_create",
     # ⚠️ REVISAR una liquidación de royalties A FAVOR la hace REGISTROS+SELLO, que no tiene por qué
     # tener la pestaña de Royalties concedida: sin esto se comería un 403 en su propia tarea. Los
@@ -92541,6 +92580,18 @@ def _concert_contracting_general_rows(session_db, concert):
         add("Saca las entradas a la venta", f"{kind_label} · {label_txt}".strip(" ·") if label_txt else kind_label)
     elif ticketing.get("sale_owner"):
         add("Saca las entradas a la venta", ticketing.get("sale_owner"))
+    # El CONTACTO DE TICKETING (a quién se le piden las ventas), legible: si no, el volcado genérico
+    # del final lo pintaba como el JSON en crudo, con su id dentro.
+    _tc = _ticketing_contact_clean(ticketing.get("ticketing_contact"))
+    if _tc:
+        try:
+            _tcr = _ticketing_contact_resolve(session_db, _tc, getattr(concert, "promoter", None))
+        except Exception:
+            _tcr = {}
+        add("Responsable de ticketing",
+            " · ".join([x for x in [(_tcr.get("name") or _tc.get("name") or ""),
+                                    (_tcr.get("email") or _tc.get("email") or ""),
+                                    TICKETING_CONTACT_LABELS.get(_tc.get("kind"), "")] if x]))
     tt_rows = [x for x in (ticketing.get("ticket_types") or []) if isinstance(x, dict)]
     if tt_rows:
         parts = []
@@ -92581,6 +92632,8 @@ def _concert_contracting_general_rows(session_db, concert):
         ("Ticketing", "ticket_types"), ("Ticketing", "invitations_mode"), ("Ticketing", "invitations_total"),
         ("Ticketing", "free_capacity_unlimited"), ("Ticketing", "invitations"), ("Ticketing", "channels"),
         ("Ticketing", "total_capacity"), ("Ticketing", "sale_capacity"),
+        # El contacto de ticketing ya se pinta arriba como «Responsable de ticketing».
+        ("Ticketing", "ticketing_contact"),
         ("Gastos cubiertos por promotor", "enabled"), ("Gastos cubiertos por promotor", "items"),
     }
     payloads = [
@@ -97252,6 +97305,1454 @@ def concert_sale_notice_send(cid):
     except Exception as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ACTUALIZACIÓN DE VENTAS · LO QUE SE LE PIDE AL PROMOTOR DE FUERA
+#
+# Cuando las entradas las vende un TERCERO (no una empresa del grupo), la casa NO ve las ventas:
+# hay que pedírselas. Desde el día siguiente a la salida a la venta se le manda la solicitud los
+# LUNES y los JUEVES, con un enlace en el que escribe el total vendido de cada categoría; de ahí
+# sale, calculado, lo vendido desde el último reporte, que es lo que se apunta como venta del día.
+#
+# Tres piezas:
+#   1) EL CONTACTO DE TICKETING (a quién se le escribe): el de la actividad, el de por defecto del
+#      tercero, o el propio tercero. Si no hay a quién escribirle, es una tarea de CONTRATACIÓN.
+#   2) EL ENVÍO: `_sales_request_sweep`, agrupado por destinatario (un correo con todas sus
+#      actividades, de la más próxima a la más lejana).
+#   3) EL ENLACE PÚBLICO: actualizar las ventas y derivar el ticketing a otra persona.
+#
+# ⚠️ El día lo decide LA APP (`today_local().weekday()`), no el planificador: el cron de Render va
+#    en UTC y «los lunes a las 10:00» se desplazaría una hora al cambiar la hora.
+# ═════════════════════════════════════════════════════════════════════════════
+
+SALES_REQUEST_TITLE = "Actualización de ventas"
+# Los días que se pide (0 = lunes … 3 = jueves) y el respiro mínimo entre dos peticiones.
+SALES_REQUEST_WEEKDAYS = (0, 3)
+SALES_REQUEST_MIN_DAYS = 2
+# La hora (de MADRID) a partir de la cual sale la solicitud.
+SALES_REQUEST_HOUR = 10
+# Cuántos correos como mucho por pasada: un barrido sin tope puede no terminar nunca (cada correo es
+# una salida a la red). Lo que quede se manda en la pasada siguiente y se DICE cuánto falta.
+SALES_REQUEST_MAX_PER_RUN = 120
+# Un correo que NO sale (dirección mal escrita, buzón lleno) no se reintenta cada hora todo el día.
+SALES_REQUEST_RETRY_HOURS = 4
+# La ticketera con la que se apunta lo que reporta el promotor cuando la actividad no tiene ninguna
+# propia: ese canal ES el reporte del promotor.
+SALES_PROMOTER_TICKETER_NAME = "Promotor"
+
+# Las tres formas de decir a quién se le pide el ticketing. Cada una con su icono, y solo se piden
+# los campos de la que se elige.
+TICKETING_CONTACT_KINDS = (
+    ("PROMOTER", "El mismo contacto del promotor", "fa-user-tie",
+     "Se le escribe al correo que consta en la ficha del promotor."),
+    ("THIRD", "Una persona de la base", "fa-user-plus",
+     "Se busca (o se crea) su ficha de tercero, y de ahí salen su correo y su teléfono."),
+    ("EMAIL", "Solo un correo de ticketing", "fa-envelope",
+     "Sin ficha: el nombre y el correo al que se le escribe."),
+)
+TICKETING_CONTACT_LABELS = {k: l for k, l, _i, _h in TICKETING_CONTACT_KINDS}
+
+
+def _ticketing_contact_clean(raw) -> dict:
+    """Normaliza un contacto de ticketing, venga de un formulario o de la BD."""
+    if not isinstance(raw, dict):
+        return {}
+    kind = (raw.get("kind") or "").strip().upper()
+    if kind not in TICKETING_CONTACT_LABELS:
+        return {}
+    fila = {
+        "kind": kind,
+        "name": (raw.get("name") or "").strip(),
+        "email": (raw.get("email") or "").strip(),
+        "phone": (raw.get("phone") or "").strip(),
+        "promoter_id": str(raw.get("promoter_id") or "").strip(),
+        "set_at": str(raw.get("set_at") or ""),
+        "set_by": str(raw.get("set_by") or ""),
+    }
+    if kind != "THIRD":
+        fila["promoter_id"] = ""
+    if kind == "PROMOTER":
+        # No se congela nada: el nombre y el correo se leen EN VIVO de la ficha del promotor.
+        fila["name"] = fila["email"] = fila["phone"] = ""
+    return fila
+
+
+def _ticketing_contact_from_form(form, *, prefix: str = "tc_") -> dict:
+    """Lee del formulario el contacto de ticketing. Devuelve {} si no se ha elegido nada."""
+    dato = lambda k: (form.get(prefix + k) or "").strip()
+    fila = _ticketing_contact_clean({
+        "kind": dato("kind").upper(), "name": dato("name"), "email": dato("email"),
+        "phone": dato("phone"), "promoter_id": dato("promoter_id"),
+    })
+    if not fila:
+        return {}
+    if fila["kind"] == "THIRD" and not fila["promoter_id"]:
+        raise ValueError("Elige a la persona que lleva el ticketing (búscala o créala).")
+    if fila["kind"] == "EMAIL" and "@" not in fila["email"]:
+        raise ValueError("Escribe el correo de ticketing.")
+    yo = _current_user_state() or {}
+    fila["set_at"] = _now_madrid().isoformat()
+    fila["set_by"] = (yo.get("nick") or "")
+    return fila
+
+
+def _ticketing_contact_resolve(session_db, fila, promoter) -> dict:
+    """De lo guardado a lo que hace falta para escribirle: nombre, correo y teléfono.
+
+    ⚠️ El correo NO se congela: en `PROMOTER` y en `THIRD` se lee EN VIVO de la ficha, así que
+    corregirlo en el tercero vale para todas sus actividades sin tocar nada más."""
+    fila = _ticketing_contact_clean(fila)
+    if not fila:
+        return {}
+    kind = fila["kind"]
+    if kind == "PROMOTER":
+        if promoter is None:
+            return {}
+        correo, tel = _promoter_email_phone(promoter)
+        return {"kind": kind, "label": TICKETING_CONTACT_LABELS[kind],
+                "name": _promoter_display_name(promoter), "email": correo, "phone": tel,
+                "promoter_id": str(getattr(promoter, "id", "") or ""),
+                "photo": (getattr(promoter, "logo_url", None) or "").strip(),
+                "set_by": fila.get("set_by") or "", "set_at": fila.get("set_at") or ""}
+    if kind == "THIRD":
+        pid = _safe_uuid(fila.get("promoter_id"))
+        persona = session_db.get(Promoter, pid) if pid else None
+        if persona is None:
+            return {}
+        correo, tel = _promoter_email_phone(persona)
+        return {"kind": kind, "label": TICKETING_CONTACT_LABELS[kind],
+                "name": _promoter_display_name(persona),
+                "email": correo or fila.get("email") or "",
+                "phone": tel or fila.get("phone") or "",
+                "promoter_id": str(persona.id),
+                "photo": (getattr(persona, "logo_url", None) or "").strip(),
+                "set_by": fila.get("set_by") or "", "set_at": fila.get("set_at") or ""}
+    return {"kind": kind, "label": TICKETING_CONTACT_LABELS[kind],
+            "name": fila.get("name") or "", "email": fila.get("email") or "",
+            "phone": fila.get("phone") or "", "promoter_id": "", "photo": "",
+            "set_by": fila.get("set_by") or "", "set_at": fila.get("set_at") or ""}
+
+
+def _concert_promoter(session_db, concert):
+    """El tercero que promueve la actividad (sin reventar si no viene precargado)."""
+    if concert is None:
+        return None
+    promoter = getattr(concert, "promoter", None)
+    if promoter is None and getattr(concert, "promoter_id", None):
+        try:
+            promoter = session_db.get(Promoter, concert.promoter_id)
+        except Exception:
+            promoter = None
+    return promoter
+
+
+def _concert_ticketing_contact(session_db, concert) -> dict:
+    """A QUIÉN se le piden las ventas de esta actividad. Punto ÚNICO.
+
+    En cascada: el contacto de LA ACTIVIDAD → el de por defecto DEL TERCERO → el propio tercero
+    (el correo de su ficha). Devuelve {} si no hay a quién escribirle.
+    ⚠️ Un contacto configurado SIN correo no bloquea la cascada: lo que manda es que haya alguien a
+    quien de verdad se pueda escribir. Si no lo hay, salta la tarea de configurarlo."""
+    if concert is None:
+        return {}
+    promoter = _concert_promoter(session_db, concert)
+    pay = getattr(concert, "ticketing_payload", None) or {}
+    propio = _ticketing_contact_resolve(
+        session_db, (pay.get("ticketing_contact") if isinstance(pay, dict) else None), promoter)
+    if propio.get("email") or propio.get("phone"):
+        return dict(propio, source="CONCERT")
+    del_tercero = _ticketing_contact_resolve(
+        session_db, getattr(promoter, "ticketing_contact", None), promoter)
+    if del_tercero.get("email") or del_tercero.get("phone"):
+        return dict(del_tercero, source="PROMOTER_DEFAULT")
+    if promoter is not None:
+        correo, tel = _promoter_email_phone(promoter)
+        if correo or tel:
+            return {"kind": "PROMOTER", "label": TICKETING_CONTACT_LABELS["PROMOTER"],
+                    "name": _promoter_display_name(promoter), "email": correo, "phone": tel,
+                    "promoter_id": str(promoter.id), "source": "PROMOTER",
+                    "photo": (getattr(promoter, "logo_url", None) or "").strip(),
+                    "set_by": "", "set_at": ""}
+    return {}
+
+
+def _concerts_group_promoted_map(session_db, concerts) -> dict:
+    """¿Cuáles de estas actividades las promueve una empresa del GRUPO? EN BLOQUE.
+
+    Mismo criterio que `_concert_is_group_promoted`: su `group_company_id` **o** una participación
+    en `ConcertCompanyShare`.
+    ⚠️⚠️ Las DOS cosas: mirando solo las participaciones, una fecha con empresa del grupo puesta
+    saldría como «de un tercero» y se le pedirían las ventas al promotor (bug real que sacó la
+    prueba). Y por eso recibe las ACTIVIDADES, no sus ids: el `group_company_id` está en la fila.
+    ⚠️ `_concert_is_group_promoted` hace una consulta por actividad cuando no hay `group_company_id`:
+    con cientos de fechas vivas eso son cientos de consultas en cada carga de Contratación."""
+    filas = [c for c in (concerts or []) if c is not None and getattr(c, "id", None)]
+    if not filas:
+        return {}
+    ids = [c.id for c in filas]
+    con_share = set()
+    try:
+        con_share = {r[0] for r in session_db.query(ConcertCompanyShare.concert_id)
+                     .filter(ConcertCompanyShare.concert_id.in_(ids)).all()}
+    except Exception:
+        app.logger.exception("[ventas] no se pudieron leer las participaciones del grupo")
+    return {c.id: bool(getattr(c, "group_company_id", None)) or (c.id in con_share) for c in filas}
+
+
+def _concert_sales_request_applies(session_db, concert, *, group_promoted=None) -> bool:
+    """¿A esta actividad hay que pedirle la actualización de ventas?
+
+    VENDE ENTRADAS y la promueve un TERCERO (`not _concert_is_group_promoted`, el mismo criterio
+    que cartelería, invitaciones y producción): de esas ventas no tenemos el dato. Lo que promueve
+    el grupo se actualiza en `/ventas` y no se le pide a nadie."""
+    if concert is None:
+        return False
+    try:
+        if not _concert_sells_tickets(concert):
+            return False
+        if (getattr(concert, "status", None) or "").strip().upper() != "CONFIRMADO":
+            return False
+        if _concert_is_legacy(concert):
+            return False                      # el histórico no genera trabajo
+        ultimo = _concert_last_day(concert)
+        if ultimo and ultimo < today_local():
+            return False                      # ya se celebró: no hay ventas que actualizar
+        if not getattr(concert, "promoter_id", None):
+            return False                      # todavía no se sabe quién promueve: nada que pedir
+        promovido = (_concert_is_group_promoted(session_db, concert)
+                     if group_promoted is None else bool(group_promoted))
+        return not promovido
+    except Exception:
+        app.logger.exception("[ventas] no se pudo mirar si hay que pedir la actualización")
+        return False
+
+
+def _concert_sales_request_on_sale(concert, *, today=None) -> bool:
+    """¿Esta actividad está YA a la venta?
+
+    ⚠️ Es distinto de `_concert_sales_request_applies`: el CONTACTO de ticketing se configura antes
+    de que salga a la venta (para eso está la tarea), pero lo que se le PIDE y lo que se comparte es
+    solo de lo que ya se está vendiendo — pedirle las ventas de algo que no ha salido no tiene
+    sentido (bug real: en el enlace salía una fecha que aún no estaba a la venta)."""
+    fecha = getattr(concert, "sale_start_date", None)
+    return bool(fecha and fecha <= (today or today_local()))
+
+
+def _concert_ticketing_contact_missing(session_db, concert, *, group_promoted=None) -> bool:
+    """¿Falta el CONTACTO DE TICKETING? = no tenemos a quién escribirle.
+
+    ⚠️ Si el promotor ya tiene correo en su ficha NO se reclama nada: ese es su contacto por
+    defecto y la solicitud ya puede salir. La tarea es «no hay a quién escribirle», no «hay un
+    campo sin rellenar», así que desaparece sola en cuanto haya un correo (la regla de
+    `_notify_resolve`: se mira el dato de verdad, no una marca)."""
+    if not _concert_sales_request_applies(session_db, concert, group_promoted=group_promoted):
+        return False
+    return not bool((_concert_ticketing_contact(session_db, concert) or {}).get("email"))
+
+
+def _ensure_concert_sales_request_token(session_db, concert) -> str:
+    """El token OPACO del enlace de actualizar ventas. Se crea CON COMMIT.
+
+    ⚠️ Con un `flush` sin commit el token se perdería al cerrar la sesión y en la carga siguiente
+    saldría otro: un enlace ya mandado dejaría de valer (bug real de las demos)."""
+    tok = (getattr(concert, "sales_request_token", None) or "").strip()
+    if tok:
+        return tok
+    try:
+        concert.sales_request_token = _uuid_token()
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[ventas] no se pudo crear el enlace de actualizar ventas")
+        return ""
+    return (getattr(concert, "sales_request_token", None) or "")
+
+
+# La ruta del enlace público, escrita también a mano para poder componerla SIN `url_for`.
+SALES_REQUEST_PATH = "/actualizar-ventas/%s"
+
+
+def _sales_request_link(token: str, *, derive: bool = False) -> str:
+    """El enlace público (absoluto, con host canónico) de un token.
+
+    ⚠️ `url_for` REVIENTA fuera de una petición («Working outside of application context») y esto se
+    compone también desde un barrido o un hilo: sin el respaldo, el correo saldría sin el botón de
+    «Actualizar ventas» y sin el de derivar SIN DAR NINGÚN ERROR. Por eso, si `url_for` no puede,
+    la ruta se compone a mano (es fija) sobre `_public_base_url`."""
+    tok = (token or "").strip()
+    if not tok:
+        return ""
+    destino = "public_sales_derive" if derive else "public_sales_update"
+    try:
+        return _external_url_for(destino, token=tok)
+    except Exception:
+        base = (_public_base_url() or "").rstrip("/")
+        if not base:
+            return ""
+        return base + (SALES_REQUEST_PATH % tok) + ("/derivar" if derive else "")
+
+
+def _sales_request_url(concert, *, only=None) -> str:
+    """El enlace público de actualizar ventas. `only` restringe qué actividades se ven."""
+    url = _sales_request_link(getattr(concert, "sales_request_token", None))
+    if not url:
+        return ""
+    ids = [str(x) for x in (only or []) if str(x or "").strip()]
+    if ids:
+        url += ("&" if "?" in url else "?") + "only=" + ",".join(ids)
+    return url
+
+
+def _sales_request_derive_url(concert) -> str:
+    """El enlace para DERIVAR el ticketing a otra persona."""
+    return _sales_request_link(getattr(concert, "sales_request_token", None), derive=True)
+
+
+# Tope de cordura de un total reportado: un número absurdo (un dedazo, un pegado) no puede acabar
+# en la BD ni reventar con un error de Postgres a la cara de quien lo escribe.
+SALES_REQUEST_MAX_QTY = 2000000
+
+
+def _sales_request_parse_qty(texto: str):
+    """El número de entradas que escribe el promotor. `None` si no se entiende.
+
+    ⚠️ Son ENTRADAS: no admite decimales. Y el punto solo se quita cuando de verdad es un separador
+    de MILES («1.250» → 1250): con un `replace('.','')` a secas, «10.5» se guardaba como **105**
+    (bug real que sacó la revisión)."""
+    t = str(texto or "").strip().replace(" ", "").replace("\u00a0", "")
+    if not t:
+        return None
+    if re.fullmatch(r"\d{1,3}(\.\d{3})+", t):
+        t = t.replace(".", "")                 # 1.250.000 → 1250000
+    if not re.fullmatch(r"\d+", t):
+        return None                            # decimales, letras, signos: no es un nº de entradas
+    try:
+        n = int(t)
+    except Exception:
+        return None
+    if n < 0 or n > SALES_REQUEST_MAX_QTY:
+        return None
+    return n
+
+
+def _sales_request_ticketer(session_db, concert):
+    """La ticketera contra la que se apunta lo que reporta el promotor.
+
+    Si la actividad ya tiene UNA ticketera manual, esa. Si no, la ticketera «Promotor» de la casa,
+    que es lo que de verdad es ese canal: el reporte del promotor. Se le crea su `ConcertTicketer`
+    para que el apunte se vea y se pueda corregir también desde `/ventas`.
+    ⚠️ La ticketera de ENTERTICKET se descarta SIEMPRE: su rejilla la recalcula el espejo
+    (`_et_mirror_to_sales`, que borra lo que no cuadra) y un apunte a mano ahí se perdería en el
+    siguiente sync."""
+    filas = list(getattr(concert, "ticketers", None) or [])
+    manuales = []
+    for ct in filas:
+        tk = getattr(ct, "ticketer", None) or (session_db.get(Ticketer, ct.ticketer_id)
+                                               if getattr(ct, "ticketer_id", None) else None)
+        if tk is None:
+            continue
+        if (getattr(tk, "name", None) or "").strip().lower() == "enterticket":
+            continue
+        manuales.append(tk)
+    if len(manuales) == 1:
+        return manuales[0]
+    if manuales:
+        # Con varias no se puede repartir un total por categoría sin inventárselo: se usa la del
+        # reporte del promotor, que es un canal más y no pisa las demás.
+        pass
+    tk = _ensure_ticketer_by_name(session_db, SALES_PROMOTER_TICKETER_NAME)
+    if tk is None:
+        return None
+    ya = (session_db.query(ConcertTicketer)
+          .filter(ConcertTicketer.concert_id == concert.id,
+                  ConcertTicketer.ticketer_id == tk.id).first())
+    if ya is None:
+        session_db.add(ConcertTicketer(concert_id=concert.id, ticketer_id=tk.id))
+        session_db.flush()
+    return tk
+
+
+def _sales_request_ticket_rows(session_db, concert) -> dict:
+    """Los TIPOS de entrada de la actividad con lo que ya consta vendido.
+
+    Devuelve `{mode, base_day, base_label, rows, base_total, today_total}` con:
+      · `base`  = lo vendido ACUMULADO hasta el último reporte, o sea TODO lo anterior a HOY. Es la
+        cifra contra la que el promotor escribe su total, y de la que sale la diferencia.
+      · `today` = lo que ya se apuntó HOY (así reescribir el reporte del día es idempotente y el
+        campo sale con el total que él mismo puso antes).
+    ⚠️ `TicketSaleDetail.qty` es el DELTA de SU día: el acumulado es `SUM(qty) WHERE day <= X` y lo
+    que se guarda hoy es «el total de hoy − el acumulado anterior a hoy».
+    ⚠️ Si la actividad no tiene tipos de entrada se cae al modo TOTAL (la tabla `ticket_sales` de
+    siempre, la misma que usa `/ventas` en su «modo básico»): una sola línea con el total."""
+    hoy = today_local()
+    vacio = {"mode": "TOTAL", "base_day": None, "base_label": "", "rows": [],
+             "base_total": 0, "today_total": 0}
+    if concert is None:
+        return vacio
+    tipos = sorted(list(getattr(concert, "ticket_types", None) or []),
+                   key=lambda t: (getattr(t, "created_at", None) or datetime.min, str(t.id)))
+    # ⚠️⚠️ SI LA ACTIVIDAD LLEVA SUS VENTAS EN EL MODO BÁSICO, SE SIGUE EN EL MODO BÁSICO aunque
+    # tenga tipos de entrada. Una actividad de un promotor de fuera casi siempre tiene tipos (los
+    # crea el asistente) y NO tiene ticketera nuestra, y en ese caso `/ventas` guarda en la tabla
+    # LEGACY (`ticket_sales`, su «modo básico»). Si aquí escribiéramos en `TicketSaleDetail`:
+    #   · `sales_maps_unified` DESCARTA el legacy en cuanto hay una fila V2, así que el total del
+    #     concierto pasaría de golpe a lo que traiga el reporte y se perdería lo ya vendido, y
+    #   · la base saldría a 0, así que el primer reporte contaría el histórico entero como «vendidas
+    #     hoy» (y su recaudación como recaudación del día).
+    # Un total global no se puede repartir por tipos sin inventárselo, así que se respeta cómo lleva
+    # sus ventas la casa. En cuanto alguien la configure por tipos en `/ventas` (lo que exige una
+    # ticketera), habrá filas V2 y esta pantalla pasa sola al desglose.
+    if tipos and _et_concert_has_legacy_sales(session_db, concert.id):
+        tipos = []
+    if tipos:
+        base_day = (session_db.query(func.max(TicketSaleDetail.day))
+                    .filter(TicketSaleDetail.concert_id == concert.id,
+                            TicketSaleDetail.day < hoy).scalar())
+        base = dict(session_db.query(TicketSaleDetail.ticket_type_id, func.sum(TicketSaleDetail.qty))
+                    .filter(TicketSaleDetail.concert_id == concert.id,
+                            TicketSaleDetail.day < hoy)
+                    .group_by(TicketSaleDetail.ticket_type_id).all())
+        hoy_map = dict(session_db.query(TicketSaleDetail.ticket_type_id, func.sum(TicketSaleDetail.qty))
+                       .filter(TicketSaleDetail.concert_id == concert.id,
+                               TicketSaleDetail.day == hoy)
+                       .group_by(TicketSaleDetail.ticket_type_id).all())
+        filas = []
+        for tt in tipos:
+            b = int(base.get(tt.id, 0) or 0)
+            h = int(hoy_map.get(tt.id, 0) or 0)
+            filas.append({"id": str(tt.id), "name": (getattr(tt, "name", None) or "Entradas"),
+                          "capacity": int(getattr(tt, "qty_for_sale", 0) or 0),
+                          "price": float(getattr(tt, "price", 0) or 0),
+                          "base": b, "today": h, "total": b + h})
+        return {"mode": "TYPES", "base_day": base_day,
+                "base_label": (base_day.strftime("%d/%m/%Y") if base_day else ""),
+                "rows": filas,
+                "base_total": sum(f["base"] for f in filas),
+                "today_total": sum(f["today"] for f in filas)}
+    # ---- Modo básico: sin tipos de entrada, un único total ----
+    base_day = (session_db.query(func.max(TicketSale.day))
+                .filter(TicketSale.concert_id == concert.id, TicketSale.day < hoy).scalar())
+    b = int((session_db.query(func.coalesce(func.sum(TicketSale.sold_today), 0))
+             .filter(TicketSale.concert_id == concert.id, TicketSale.day < hoy).scalar()) or 0)
+    h = int((session_db.query(func.coalesce(func.sum(TicketSale.sold_today), 0))
+             .filter(TicketSale.concert_id == concert.id, TicketSale.day == hoy).scalar()) or 0)
+    return {"mode": "TOTAL", "base_day": base_day,
+            "base_label": (base_day.strftime("%d/%m/%Y") if base_day else ""),
+            "rows": [{"id": "total", "name": "Entradas", "capacity": int(getattr(concert, "capacity", 0) or 0),
+                      "price": 0.0, "base": b, "today": h, "total": b + h}],
+            "base_total": b, "today_total": h}
+
+
+def _sales_request_apply(session_db, concert, totales: dict) -> dict:
+    """Apunta el reporte del promotor: el TOTAL de cada categoría → la venta de HOY.
+
+    ⚠️ Lo que se guarda es la DIFERENCIA con lo que YA consta vendido, y se REEMPLAZA el apunte de
+    hoy de ESA ticketera: reportar dos veces el mismo día no suma dos veces.
+    ⚠️⚠️ La diferencia se calcula contra TODO lo que consta menos el apunte que se va a pisar
+    (`base` + lo de hoy de las OTRAS ticketeras): el acumulado del concierto es la suma de todas
+    (`sales_maps_v2`), así que restando solo `base` se contaría dos veces lo que administración
+    hubiera apuntado hoy en otra ticketera (o lo que haya espejado Enterticket) — entradas y
+    recaudación duplicadas. Tras guardar, el acumulado es EXACTAMENTE el total que ha reportado.
+    ⚠️ Un total menor que lo que consta no resta ventas: se guarda 0 y se dice."""
+    datos = _sales_request_ticket_rows(session_db, concert)
+    hoy = today_local()
+    avisos = []
+    guardadas = 0
+    nuevo_total = 0
+    if datos["mode"] == "TYPES":
+        ticketera = _sales_request_ticketer(session_db, concert)
+        if ticketera is None:
+            raise ValueError("No se pudo resolver la ticketera del reporte.")
+        precios = dict(session_db.query(ConcertTicketerTicketType.ticket_type_id,
+                                        ConcertTicketerTicketType.price_gross)
+                       .filter(ConcertTicketerTicketType.concert_id == concert.id,
+                               ConcertTicketerTicketType.ticketer_id == ticketera.id).all())
+        # Lo que YA hay apuntado HOY en ESTA ticketera (lo único que se va a reemplazar).
+        mio_hoy = dict(session_db.query(TicketSaleDetail.ticket_type_id, func.sum(TicketSaleDetail.qty))
+                       .filter(TicketSaleDetail.concert_id == concert.id,
+                               TicketSaleDetail.day == hoy,
+                               TicketSaleDetail.ticketer_id == ticketera.id)
+                       .group_by(TicketSaleDetail.ticket_type_id).all())
+        for fila in datos["rows"]:
+            if fila["id"] not in totales:
+                continue                      # esa categoría no venía en el formulario: no se toca
+            ttid = to_uuid(fila["id"])
+            total = max(0, int(totales[fila["id"]] or 0))
+            # Lo que va a seguir constando aparte de este apunte: los días anteriores + lo de HOY de
+            # las OTRAS ticketeras.
+            ajeno = int(fila["base"]) + max(int(fila.get("today") or 0) - int(mio_hoy.get(ttid, 0) or 0), 0)
+            delta = total - ajeno
+            if delta < 0:
+                avisos.append("%s: el total (%d) es menor que lo que ya constaba vendido (%d)."
+                              % (fila["name"], total, ajeno))
+                delta = 0
+            precio = float(precios.get(ttid, 0) or 0.0) or float(fila.get("price") or 0.0)
+            apunte = (session_db.query(TicketSaleDetail)
+                      .filter_by(concert_id=concert.id, day=hoy, ticketer_id=ticketera.id,
+                                 ticket_type_id=ttid).first())
+            if apunte is not None:
+                apunte.qty = delta
+                apunte.unit_price_gross = precio
+                apunte.updated_at = func.now()
+            elif delta > 0:
+                session_db.add(TicketSaleDetail(concert_id=concert.id, day=hoy,
+                                                ticketer_id=ticketera.id, ticket_type_id=ttid,
+                                                qty=delta, unit_price_gross=precio))
+            # ⚠️ Con `delta == 0` y sin apunte previo NO se crea la fila: una fila a cero no aporta
+            # nada y basta UNA fila V2 para que `sales_maps_unified` descarte el legacy de ese
+            # concierto (o sea, para borrar de los totales lo que llevara el modo básico).
+            guardadas += 1
+            nuevo_total += ajeno + delta
+    else:
+        fila = datos["rows"][0]
+        if "total" in totales:
+            total = max(0, int(totales["total"] or 0))
+            # En el modo básico hay UNA fila por día (`ticket_sales` no tiene ticketera), así que lo
+            # que consta aparte de la de hoy es exactamente la base.
+            delta = total - int(fila["base"])
+            if delta < 0:
+                avisos.append("El total (%d) es menor que lo que ya constaba vendido (%d)."
+                              % (total, fila["base"]))
+                delta = 0
+            apunte = (session_db.query(TicketSale)
+                      .filter_by(concert_id=concert.id, day=hoy).first())
+            if apunte is not None:
+                apunte.sold_today = delta
+                apunte.updated_at = func.now()
+            else:
+                session_db.add(TicketSale(concert_id=concert.id, day=hoy, sold_today=delta))
+            guardadas += 1
+            nuevo_total = int(fila["base"]) + delta
+    return {"saved": guardadas, "total": nuevo_total, "warnings": avisos}
+
+
+def _sales_request_card(session_db, concert) -> dict:
+    """La GALLETA de una actividad en la solicitud: su imagen, su cabecera y su botón.
+
+    ⚠️ La imagen es el CARTEL y, si no hay, la foto del artista (o el logo del evento) — el mismo
+    criterio que la previsualización del enlace. El cartel no va en círculo: es un cartel."""
+    artist = getattr(concert, "artist", None)
+    evento = None
+    if getattr(concert, "event_id", None):
+        try:
+            evento = session_db.get(AppEvent, concert.event_id)
+        except Exception:
+            evento = None
+    nombre = ((getattr(evento, "name", None) or "").strip()
+              or (getattr(artist, "name", None) or "").strip() or "Actividad")
+    cartel = ""
+    try:
+        cartel = (_concert_poster_url(concert) or "").strip()
+    except Exception:
+        cartel = ""
+    foto = ((getattr(evento, "logo_url", None) or "").strip()
+            or (getattr(artist, "photo_url", None) or "").strip())
+    try:
+        eyebrow = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+    except Exception:
+        eyebrow = ""
+    lugar = ((getattr(concert, "festival_name", None) or "").strip()
+             or (_concert_city(concert) or "").strip())
+    return {
+        "id": str(getattr(concert, "id", "") or ""),
+        "heading": nombre,
+        "eyebrow": eyebrow,
+        "image_url": (cartel or foto),
+        "image_round": bool(not cartel and foto),
+        "place_name": lugar,
+        "date": getattr(concert, "date", None),
+        "date_label": (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else ""),
+        "hero_rows": [{"icon": i, "label": l, "value": str(v)}
+                      for i, l, v in _contract_sheet_hero_rows(concert)],
+        "url": _sales_request_url(concert),
+    }
+
+
+def _sales_request_subject(concert, *, name: str = "") -> str:
+    """«Actualización ventas, <tipo>, <artista o evento>, <actividad o municipio>, <fecha>».
+
+    ⚠️ El TIPO es lo que ES la actividad (Concierto, Festival, Evento promocional…), no su tipo de
+    venta: `_activity_kind_label`, no `_sale_type_label`.
+    ⚠️ `name` es el nombre del EVENTO cuando la actividad es de uno: su `artist_id` apunta al
+    artista ESPEJO, que es un apaño interno y no debe verse."""
+    if concert is None:
+        return "Actualización ventas"
+    try:
+        tipo = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+    except Exception:
+        tipo = ""
+    nombre = (name or "").strip() or (getattr(getattr(concert, "artist", None), "name", None) or "").strip()
+    lugar = ((getattr(concert, "festival_name", None) or "").strip()
+             or (_concert_city(concert) or "").strip())
+    fecha = (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else "")
+    partes = ["Actualización ventas", tipo, nombre, lugar, fecha]
+    return ", ".join([str(p).strip() for p in partes if str(p or "").strip()])
+
+
+def _sales_request_context(session_db, concerts) -> dict:
+    """Lo que necesitan el correo, la vista previa, el enlace y el asunto.
+
+    La PRIMERA de la lista es la principal (de ella salen el asunto, el logo y el enlace de
+    derivar); las actividades se ordenan de la más PRÓXIMA a la más lejana."""
+    filas = [c for c in (concerts or []) if c is not None]
+    filas.sort(key=lambda c: (getattr(c, "date", None) or date.max, str(getattr(c, "id", ""))))
+    # ⚠️ El TOKEN se crea AQUÍ, no en cada sitio que compone el correo: sin él no hay enlace, así que
+    # el botón «Actualizar ventas» y el de derivar desaparecerían del correo SIN DAR NINGÚN ERROR.
+    for c in filas:
+        _ensure_concert_sales_request_token(session_db, c)
+    principal = filas[0] if filas else None
+    company = (getattr(principal, "billing_company", None)
+               or getattr(principal, "group_company", None)) if principal is not None else None
+    logo_url = (getattr(company, "logo_url", None) or "").strip()
+    if not logo_url:
+        try:
+            logo_url = url_for("static", filename="img/logo_33_producciones.png")
+        except Exception:
+            logo_url = ""
+    contacto = _concert_ticketing_contact(session_db, principal) if principal is not None else {}
+    tarjetas = [_sales_request_card(session_db, c) for c in filas]
+    return {
+        "title": SALES_REQUEST_TITLE,
+        "company_name": (getattr(company, "name", None) or "").strip(),
+        "logo_url": logo_url,
+        "cards": tarjetas,
+        "derive_url": (_sales_request_derive_url(principal) if principal is not None else ""),
+        "contact": contacto,
+        "subject": _sales_request_subject(
+            principal, name=((tarjetas[0].get("heading") or "") if tarjetas else "")),
+        "concert_ids": [str(c.id) for c in filas],
+    }
+
+
+def _sales_request_html(ctx: dict, *, note: str = "", preview: bool = False) -> str:
+    """EL motor de la solicitud: el MISMO HTML para el correo y para la vista previa.
+
+    Maqueta de la casa: logo de la empresa del grupo arriba a la DERECHA, el título centrado, la
+    nota si la hay, el botón SIN RELLENO de «Derivar a otro responsable de ticketing» ENCIMA de
+    todo, y debajo una galleta por actividad con su cabecera y su botón «Actualizar ventas» dentro,
+    abajo a la derecha.
+    ⚠️ Estilos EN LÍNEA (los clientes de correo se comen las hojas de estilo) y los iconos como PNG
+    (`_notice_icon_img`): en un correo no se puede usar la fuente de iconos.
+    ⚠️ `escape()` devuelve Markup y `'<div>' + Markup(...)` escaparía el trozo de la izquierda: aquí
+    se escapa SIEMPRE a `str`."""
+    def esc(valor) -> str:
+        return str(escape("" if valor is None else valor))
+
+    logo = _absolute_media_url(ctx.get("logo_url") or "") if (ctx.get("logo_url") or "") else ""
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                  + (f'<img src="{esc(logo)}" alt="{esc(ctx.get("company_name") or "")}" '
+                     'style="max-height:54px;max-width:190px;">' if logo else "")
+                  + '</div>')
+    partes.append(f'<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">{esc(ctx.get("title") or "")}</h2>')
+    if (note or "").strip():
+        partes.append('<div style="margin:0 0 16px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;white-space:pre-line;">'
+                      + esc(note.strip()) + '</div>')
+    varias = len(ctx.get("cards") or []) > 1
+    partes.append('<p style="margin:0 0 14px;font-size:14px;line-height:1.7;">'
+                  + ('Necesitamos que nos actualices los datos de venta de estas actividades. '
+                     'Entra en cada una y dinos cuántas entradas van vendidas.' if varias else
+                     'Necesitamos que nos actualices los datos de venta de esta actividad: '
+                     'dinos cuántas entradas van vendidas.')
+                  + '</p>')
+
+    # ---- DERIVAR A OTRO RESPONSABLE: encima de todas las actividades, sin relleno ----
+    derivar = (ctx.get("derive_url") or "").strip()
+    if derivar:
+        icono = _notice_icon_img("user-gear", 14)
+        partes.append(
+            '<div style="margin:0 0 16px;">'
+            f'<a href="{esc(derivar)}" style="display:inline-block;padding:10px 16px;'
+            'border:1px solid #d7dbe0;border-radius:9px;color:#212529;text-decoration:none;'
+            'font-weight:700;font-size:13px;background:#fff;">'
+            + (f'<span style="vertical-align:middle;margin-right:6px;">{icono}</span>' if icono else "")
+            + 'Derivar a otro responsable de ticketing</a></div>')
+
+    # ---- UNA GALLETA POR ACTIVIDAD, de la más próxima a la más lejana ----
+    for card in (ctx.get("cards") or []):
+        foto = _absolute_media_url(card.get("image_url") or "") if (card.get("image_url") or "") else ""
+        radio = "50%" if card.get("image_round") else "12px"
+        datos = "".join(
+            '<tr>'
+            f'<td style="padding:2px 8px 2px 0;">{_notice_icon_img(r.get("icon"), 14)}</td>'
+            f'<td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">{esc(r.get("label"))}</td>'
+            f'<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">{esc(r.get("value"))}</td>'
+            '</tr>' for r in (card.get("hero_rows") or [])
+        )
+        boton = ("" if not (card.get("url") or "") else
+                 '<div style="margin-top:14px;text-align:right;">'
+                 f'<a href="{esc(card.get("url"))}" style="display:inline-block;padding:11px 18px;'
+                 'background:#E33D48;color:#fff;text-decoration:none;border-radius:9px;'
+                 'font-weight:700;font-size:14px;">Actualizar ventas</a></div>')
+        partes.append(
+            '<div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;margin-bottom:12px;">'
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>'
+            + (f'<td style="width:76px;vertical-align:top;"><img src="{esc(foto)}" alt="" '
+               f'style="width:64px;height:64px;border-radius:{radio};object-fit:cover;'
+               'border:1px solid #e6e8eb;"></td>' if foto else "")
+            + '<td style="vertical-align:top;">'
+            + (f'<div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;'
+               f'color:#8b95a1;">{esc(card.get("eyebrow") or "")}</div>' if (card.get("eyebrow") or "") else "")
+            + f'<div style="font-size:19px;font-weight:800;margin:1px 0 6px;">{esc(card.get("heading") or "")}</div>'
+            + f'<table role="presentation" style="border-collapse:collapse;">{datos}</table>'
+            + '</td></tr></table>'
+            + boton
+            + '</div>')
+    partes.append('<p style="margin:16px 0 0;font-size:12px;color:#8b95a1;">Gracias.</p>')
+    partes.append("</div>")
+    return "".join(partes)
+
+
+def _concert_sales_request_ficha(session_db, concert, tab: str) -> dict:
+    """Lo que la FICHA necesita de la actualización de ventas.
+
+    Se calcula solo en las pestañas donde se usa («inicio» para el pop-up de configurar el contacto
+    y «ticketing» para el de compartir): resolver el contacto y buscar las hermanas del promotor
+    son consultas que no vienen a cuento en las demás."""
+    vacio = {"ticketing_kinds": TICKETING_CONTACT_KINDS, "ticketing_contact": {},
+             "ticketing_contact_raw": {}, "ticketing_applies": False,
+             "sales_request": {"applies": False, "url": "", "derive_url": "", "subject": "",
+                               "others": [], "last_label": "", "count": 0, "error": "",
+                               "error_label": ""}}
+    if concert is None or tab not in ("inicio", "ticketing", "general"):
+        return vacio
+    try:
+        aplica = _concert_sales_request_applies(session_db, concert)
+        pay = getattr(concert, "ticketing_payload", None) or {}
+        crudo = _ticketing_contact_clean(pay.get("ticketing_contact")
+                                         if isinstance(pay, dict) else None)
+        contacto = _concert_ticketing_contact(session_db, concert)
+        datos = dict(vacio["sales_request"])
+        datos["applies"] = aplica
+        if aplica and tab == "ticketing":     # el enlace y el compartir solo hacen falta ahí
+            _ensure_concert_sales_request_token(session_db, concert)
+            hermanas = _sales_request_siblings(session_db, concert)
+            datos["url"] = _sales_request_url(concert)
+            datos["derive_url"] = _sales_request_derive_url(concert)
+            datos["subject"] = _sales_request_subject(concert)
+            datos["others"] = [
+                {"id": str(x.id), "name": (getattr(getattr(x, "artist", None), "name", None) or ""),
+                 "date_label": (x.date.strftime("%d/%m/%Y") if getattr(x, "date", None) else ""),
+                 "place": ((getattr(x, "festival_name", None) or "").strip()
+                           or (_concert_city(x) or "").strip()),
+                 "is_this": str(x.id) == str(concert.id)}
+                for x in hermanas]
+        ultimo = getattr(concert, "sales_request_last_at", None)
+        datos["last_label"] = (ultimo.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                               if ultimo else "")
+        datos["count"] = int(getattr(concert, "sales_request_count", 0) or 0)
+        err_at = getattr(concert, "sales_request_error_at", None)
+        datos["error"] = (getattr(concert, "sales_request_error", None) or "") if err_at else ""
+        datos["error_label"] = (err_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                                if err_at else "")
+        return {"ticketing_kinds": TICKETING_CONTACT_KINDS, "ticketing_contact": contacto,
+                "ticketing_contact_raw": crudo, "ticketing_applies": aplica,
+                "sales_request": datos}
+    except Exception:
+        app.logger.exception("[ventas] no se pudo montar la actualización de ventas de la ficha")
+        return vacio
+
+
+def _sales_request_due(concert, *, today=None) -> bool:
+    """¿Le toca HOY la solicitud de actualización de ventas?
+
+    · La PRIMERA va el día SIGUIENTE a la salida a la venta, sea el día que sea.
+    · Las siguientes, los LUNES y los JUEVES, y solo si han pasado al menos
+      `SALES_REQUEST_MIN_DAYS` días desde la última: si no, se salta esa comunicación para no ser
+      tan insistentes (lunes → jueves son 3 días y jueves → lunes 4, así que la regla solo actúa
+      justo después de la primera)."""
+    hoy = today or today_local()
+    fecha = getattr(concert, "sale_start_date", None)
+    if not fecha or fecha >= hoy:
+        return False                          # todavía no ha salido a la venta (o sale hoy)
+    ultimo = getattr(concert, "sales_request_last_at", None)
+    if not ultimo:
+        return True                           # la primera: el día siguiente a la salida
+    if hoy.weekday() not in SALES_REQUEST_WEEKDAYS:
+        return False
+    try:
+        dias = (hoy - ultimo.astimezone(TZ_MADRID).date()).days
+    except Exception:
+        dias = SALES_REQUEST_MIN_DAYS
+    return dias >= SALES_REQUEST_MIN_DAYS
+
+
+def _sales_request_candidates(session_db, *, hoy=None) -> list:
+    """Las actividades a las que HAY QUE pedirles las ventas (estén o no de plazo hoy).
+
+    Son las que venden entradas, ya están a la venta, las promueve un TERCERO y no se han
+    celebrado. La participación del grupo se resuelve EN BLOQUE."""
+    hoy = hoy or today_local()
+    filas = (session_db.query(Concert)
+             .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                      joinedload(Concert.promoter),
+                      joinedload(Concert.billing_company), joinedload(Concert.group_company),
+                      selectinload(Concert.ticket_types),
+                      selectinload(Concert.ticketers).joinedload(ConcertTicketer.ticketer))
+             .filter(Concert.sale_start_date.isnot(None))
+             .filter(Concert.sale_start_date < hoy)
+             .filter(func.upper(func.coalesce(Concert.status, "")) == "CONFIRMADO")
+             .filter(Concert.promoter_id.isnot(None))
+             # ⚠️ Lo que ya se sabe descartar, en la SQL: sin esto el barrido se traía TODO el
+             # histórico de actividades vendidas en cada pasada (y corre cada hora).
+             .filter(or_(and_(Concert.date.is_(None), Concert.end_date.is_(None)),
+                         func.coalesce(Concert.end_date, Concert.date) >= hoy))
+             .filter(or_(Concert.date.is_(None), Concert.date >= LEGACY_ACTIVITY_CUTOFF))
+             .order_by(Concert.date.asc().nullslast())
+             .all())
+    grupo = _concerts_group_promoted_map(session_db, filas)
+    return [c for c in filas
+            if _concert_sales_request_applies(session_db, c, group_promoted=grupo.get(c.id))]
+
+
+def _sales_request_send(session_db, contacto: dict, concerts: list, *, note: str = "",
+                        reply_to=None) -> tuple[bool, str]:
+    """Manda UNA solicitud con todas las actividades de ese destinatario.
+
+    ⚠️ Solo se apunta como pedida si el correo SALIÓ: `_send_optional_email` devuelve `(ok, error)`
+    y tratarla como un booleano daría por enviado lo que el SMTP rechazó."""
+    correo = (contacto or {}).get("email") or ""
+    if not correo or "@" not in correo:
+        return False, "Sin correo de ticketing."
+    filas = [c for c in (concerts or []) if c is not None]
+    if not filas:
+        return False, "Sin actividades que pedir."
+    ctx = _sales_request_context(session_db, filas)
+    cuerpo = _sales_request_html(ctx, note=note)
+    enlace = next((t.get("url") for t in (ctx.get("cards") or []) if (t.get("url") or "")), "")
+    ok, error = _send_optional_email(correo, ctx["subject"], cuerpo,
+                                     text_body=("%s\n\n%s" % (ctx["subject"], enlace)),
+                                     reply_to=reply_to)
+    if not ok:
+        return False, (error or "No se pudo enviar el correo.")
+    ahora = _now_madrid()
+    for c in filas:
+        c.sales_request_last_at = ahora
+        c.sales_request_error_at = None
+        c.sales_request_error = None
+        try:
+            c.sales_request_count = int(getattr(c, "sales_request_count", 0) or 0) + 1
+        except Exception:
+            c.sales_request_count = 1
+    return True, ""
+
+
+def _sales_request_sweep(*, force: bool = False) -> dict:
+    """Manda las solicitudes de actualización de ventas que tocan hoy.
+
+    Agrupa por DESTINATARIO: si un promotor tiene varias actividades a la venta le llega UN correo
+    con todas, de la más próxima a la más lejana. Las de ese destinatario que hoy no tocaban van
+    también (es el mismo trabajo, y así no se le escribe dos veces la misma semana) y se apuntan
+    con la misma fecha, con lo que quedan sincronizadas.
+
+    ⚠️ EL DÍA Y LA HORA LOS DECIDE LA APP, no el planificador: los lunes y los jueves
+    (`_sales_request_due`) y **a partir de las 10:00 de Madrid** (`SALES_REQUEST_HOUR`). El cron de
+    Render va en UTC, así que un «0 8 * * 1,4» se desplazaría una hora al cambiar la hora. Lo suyo
+    es que el planificador pegue CADA HORA (o una vez al día pasadas las 10:00 de Madrid).
+    Con `force=True` se salta el suelo horario (el `?ahora=1` de su ruta, para probarlo)."""
+    salida = {"mirados": 0, "correos": 0, "actividades": 0, "sin_contacto": 0, "errores": 0,
+              "hora": 0, "antes_de_la_hora": False, "pendientes": 0}
+    session_db = db()
+    try:
+        ahora = _now_madrid()
+        salida["hora"] = ahora.hour
+        if not force and ahora.hour < SALES_REQUEST_HOUR:
+            # Todavía no son las 10:00 de Madrid: no se manda nada (y se DICE, para que una prueba
+            # con 0 correos no parezca que la función no va).
+            salida["antes_de_la_hora"] = True
+            return salida
+        hoy = today_local()
+        candidatas = _sales_request_candidates(session_db, hoy=hoy)
+        salida["mirados"] = len(candidatas)
+        grupos = {}
+        for c in candidatas:
+            contacto = _concert_ticketing_contact(session_db, c)
+            correo = (contacto.get("email") or "").strip().lower()
+            if not correo:
+                salida["sin_contacto"] += 1
+                continue
+            # ⚠️ Lo que YA se le pidió HOY no se repite: si a media mañana entra una actividad nueva
+            # de ese mismo promotor, le llega un correo con LO QUE FALTA, no otra vez todo.
+            ultimo = getattr(c, "sales_request_last_at", None)
+            try:
+                pedida_hoy = bool(ultimo and ultimo.astimezone(TZ_MADRID).date() == hoy)
+            except Exception:
+                pedida_hoy = False
+            if pedida_hoy:
+                continue
+            grupos.setdefault(correo, {"contacto": contacto, "filas": []})["filas"].append(c)
+        def _en_espera(grupo) -> bool:
+            """¿Se le acaba de intentar y falló? No se reintenta hasta pasadas unas horas."""
+            corte = _now_madrid() - timedelta(hours=SALES_REQUEST_RETRY_HOURS)
+            for c in grupo["filas"]:
+                err = getattr(c, "sales_request_error_at", None)
+                if not err or err < corte:
+                    return False
+            return True
+
+        pendientes = [(correo, grupo) for correo, grupo in grupos.items()
+                      if any(_sales_request_due(c, today=hoy) for c in grupo["filas"])
+                      and not _en_espera(grupo)]
+        # ⚠️ Tope por pasada: lo que no entre se manda en la siguiente (el planificador pega cada
+        # hora) y se dice cuánto queda, para que no parezca que se ha mandado todo.
+        salida["pendientes"] = max(len(pendientes) - SALES_REQUEST_MAX_PER_RUN, 0)
+        for correo, grupo in pendientes[:SALES_REQUEST_MAX_PER_RUN]:
+            try:
+                ok, error = _sales_request_send(session_db, grupo["contacto"], grupo["filas"])
+                if ok:
+                    session_db.commit()
+                    salida["correos"] += 1
+                    salida["actividades"] += len(grupo["filas"])
+                else:
+                    session_db.rollback()
+                    salida["errores"] += 1
+                    # ⚠️ El fallo se APUNTA: así no se reintenta cada hora todo el día y, sobre todo,
+                    # se puede DECIR en la ficha que a ese contacto no se le ha podido escribir (un
+                    # correo que no sale no puede ser invisible).
+                    ahora_err = _now_madrid()
+                    for c in grupo["filas"]:
+                        c.sales_request_error_at = ahora_err
+                        c.sales_request_error = (error or "No se pudo enviar el correo.")[:400]
+                    session_db.commit()
+                    app.logger.warning("[ventas] no se pudo pedir la actualización a %s: %s",
+                                       correo, error)
+            except Exception:
+                session_db.rollback()
+                salida["errores"] += 1
+                app.logger.exception("[ventas] fallo pidiendo la actualización a %s", correo)
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[ventas] el barrido de actualización de ventas falló")
+    finally:
+        session_db.close()
+    return salida
+
+
+@app.get("/cron/actualizar-ventas", endpoint="cron_sales_requests")
+def cron_sales_requests():
+    """Pide a los promotores de fuera que actualicen sus ventas.
+
+    El planificador externo pega CADA HORA (o una vez al día pasadas las 10:00 de Madrid); el DÍA y
+    la HORA los decide la app: `_sales_request_due` (la primera el día siguiente a la salida a la
+    venta y después los lunes y los jueves) y `SALES_REQUEST_HOUR` (a partir de las 10:00). Así «los
+    lunes y los jueves a las 10:00» no se desplaza una hora al cambiar la hora, que es lo que le
+    pasaría a un cron escrito en UTC. Con `?ahora=1` se manda sin esperar a las 10:00."""
+    clave = request.args.get("key")
+    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
+                or os.getenv("CHARTMETRIC_CRON_KEY"))
+    if not esperada or clave != esperada:
+        abort(404)
+    return jsonify({"ok": True, **_sales_request_sweep(force=_truthy(request.args.get("ahora")))})
+
+
+# ─── EL CONTACTO DE TICKETING: configurarlo desde la app ─────────────────────────────────────────
+
+def _concert_ticketing_contact_apply(session_db, concert, fila: dict, *, scope: str = "ONE") -> None:
+    """Guarda el contacto de ticketing de la actividad y, con `scope='ALL'`, el del TERCERO.
+
+    ⚠️ «Para todos mis eventos» escribe el de por defecto del tercero **y limpia los propios** de
+    sus actividades vivas: si no, el contacto viejo de cada una seguiría ganando y «todos» no sería
+    todos."""
+    from sqlalchemy.orm.attributes import flag_modified
+    pay = dict(getattr(concert, "ticketing_payload", None) or {})
+    if (scope or "ONE").strip().upper() == "ALL":
+        promoter = _concert_promoter(session_db, concert)
+        if promoter is not None:
+            promoter.ticketing_contact = fila or {}
+            flag_modified(promoter, "ticketing_contact")
+            hoy = today_local()
+            hermanas = (session_db.query(Concert)
+                        .filter(Concert.promoter_id == promoter.id)
+                        .filter(or_(Concert.date.is_(None), Concert.date >= hoy)).all())
+            for c in hermanas:
+                p = dict(getattr(c, "ticketing_payload", None) or {})
+                if p.get("ticketing_contact"):
+                    p.pop("ticketing_contact", None)
+                    c.ticketing_payload = p
+                    flag_modified(c, "ticketing_payload")
+        pay.pop("ticketing_contact", None)
+    else:
+        pay["ticketing_contact"] = fila or {}
+    concert.ticketing_payload = pay
+    flag_modified(concert, "ticketing_payload")
+    concert.updated_at = _now_madrid()
+
+
+@app.post("/conciertos/<cid>/contacto-ticketing", endpoint="concert_ticketing_contact_save")
+@admin_required
+def concert_ticketing_contact_save(cid):
+    """Configura A QUIÉN se le piden las ventas de esta actividad.
+
+    ⚠️ Lo puede hacer TICKETING, que no tiene por qué poder editar contratación: por eso el
+    endpoint va en `SUPPORT_ACTION_ENDPOINTS` y el permiso se comprueba aquí dentro."""
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos para configurar el contacto de ticketing.")
+    next_url = safe_next_or(request.form.get("next")
+                            or url_for("concert_detail_view", cid=cid, tab="inicio"))
+    session_db = db()
+    try:
+        concert = _concert_for_sale_notice(session_db, cid)
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(next_url)
+        try:
+            fila = _ticketing_contact_from_form(request.form)
+        except ValueError as exc:
+            flash(str(exc), "warning")
+            return redirect(next_url)
+        if not fila:
+            flash("Elige cómo se le pide el ticketing.", "warning")
+            return redirect(next_url)
+        _concert_ticketing_contact_apply(session_db, concert, fila,
+                                        scope=(request.form.get("scope") or "ONE"))
+        session_db.commit()
+        resuelto = _concert_ticketing_contact(session_db, concert)
+        if resuelto.get("email"):
+            flash("Contacto de ticketing guardado: %s." % (resuelto.get("email") or ""), "success")
+        else:
+            flash("Contacto de ticketing guardado, pero todavía no consta ningún correo: "
+                  "sin correo no se le puede pedir la actualización de ventas.", "warning")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo guardar el contacto de ticketing: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+# ─── COMPARTIR EL ENLACE POR CORREO (con vista previa, como el resto de la casa) ─────────────────
+
+def _sales_request_pick(session_db, concert, ids) -> list:
+    """Las actividades elegidas para compartir: las del MISMO promotor que se hayan marcado.
+
+    ⚠️ Se valida contra el promotor: los ids viajan en el formulario y no pueden colar la actividad
+    de otro."""
+    validos = {str(c.id): c for c in _sales_request_siblings(session_db, concert)}
+    elegidas = [validos[str(x)] for x in (ids or []) if str(x) in validos]
+    if not elegidas:
+        elegidas = [concert]
+    if str(concert.id) not in {str(c.id) for c in elegidas}:
+        elegidas.insert(0, concert)
+    return elegidas
+
+
+@app.post("/conciertos/<cid>/actualizar-ventas/vista-previa", endpoint="concert_sales_request_preview")
+@admin_required
+def concert_sales_request_preview(cid):
+    """La vista previa del correo de actualización de ventas: EL MISMO HTML que se manda."""
+    if not can_set_concert_onsale():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    datos = request.get_json(silent=True) or {}
+    session_db = db()
+    try:
+        concert = _concert_for_sale_notice(session_db, cid)
+        if concert is None:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        elegidas = _sales_request_pick(session_db, concert, datos.get("activities") or [])
+        ctx = _sales_request_context(session_db, elegidas)
+        return jsonify({"ok": True, "subject": ctx["subject"],
+                        "html": _sales_request_html(ctx, note=(datos.get("note") or ""),
+                                                    preview=True)})
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/actualizar-ventas/enviar", endpoint="concert_sales_request_send")
+@admin_required
+def concert_sales_request_send(cid):
+    """Manda a mano la solicitud de actualización de ventas (el mismo correo que el automático)."""
+    if not can_set_concert_onsale():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    datos = request.get_json(silent=True) or {}
+    session_db = db()
+    try:
+        concert = _concert_for_sale_notice(session_db, cid)
+        if concert is None:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        elegidas = _sales_request_pick(session_db, concert, datos.get("activities") or [])
+        contacto = dict(_concert_ticketing_contact(session_db, concert) or {})
+        extras = [x.strip() for x in re.split(r"[;,\n]+", str(datos.get("emails") or "")) if x.strip()]
+        correos = _dedupe_valid_email_addresses(
+            ([contacto.get("email")] if datos.get("to_contact") and contacto.get("email") else [])
+            + extras)
+        if not correos:
+            return jsonify({"ok": False, "error": "No hay a quién mandárselo: marca el contacto de "
+                                                  "ticketing o escribe un correo."}), 400
+        ok, error = _sales_request_send(session_db, {"email": correos[0]}, elegidas,
+                                        note=(datos.get("note") or ""))
+        if not ok:
+            session_db.rollback()
+            return jsonify({"ok": False, "error": error}), 400
+        # Los demás destinatarios, con el mismo cuerpo (el apunte ya lo hizo el primero).
+        ctx = _sales_request_context(session_db, elegidas)
+        cuerpo = _sales_request_html(ctx, note=(datos.get("note") or ""))
+        fallidos = []
+        for otro in correos[1:]:
+            ok_otro, err_otro = _send_optional_email(otro, ctx["subject"], cuerpo)
+            if not ok_otro:
+                fallidos.append("%s (%s)" % (otro, err_otro or "sin motivo"))
+        session_db.commit()
+        # ⚠️ No se dice «enviada a …» de un correo que no salió: `_send_optional_email` devuelve
+        # `(ok, error)` y tratarla como un booleano da por enviado lo que el SMTP rechazó.
+        salieron = [c for c in correos if not any(c in f for f in fallidos)]
+        return jsonify({"ok": True, "recipients": salieron,
+                        "warning": ("No salió para: " + "; ".join(fallidos)) if fallidos else ""})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+# ─── EL ENLACE PÚBLICO · actualizar las ventas y derivar el ticketing ────────────────────────────
+
+def _sales_request_siblings(session_db, concert) -> list:
+    """Las actividades del MISMO promotor a las que hay que pedirles las ventas, con esta incluida.
+
+    De la más próxima a la más lejana. La actividad del enlace va SIEMPRE, aunque ya no cumpla el
+    criterio (si no, un enlace ya mandado dejaría de abrirse)."""
+    if concert is None:
+        return []
+    pid = getattr(concert, "promoter_id", None)
+    filas = []
+    if pid:
+        filas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                          joinedload(Concert.promoter),
+                          joinedload(Concert.billing_company), joinedload(Concert.group_company),
+                          selectinload(Concert.ticket_types),
+                          selectinload(Concert.ticketers).joinedload(ConcertTicketer.ticketer))
+                 .filter(Concert.promoter_id == pid).all())
+        grupo = _concerts_group_promoted_map(session_db, filas)
+        filas = [c for c in filas
+                 if _concert_sales_request_applies(session_db, c, group_promoted=grupo.get(c.id))
+                 and _concert_sales_request_on_sale(c)]
+    if str(concert.id) not in {str(c.id) for c in filas}:
+        filas.append(concert)
+    filas.sort(key=lambda c: (getattr(c, "date", None) or date.max, str(c.id)))
+    return filas
+
+
+def _sales_request_by_token(session_db, token: str):
+    """La actividad de un enlace de actualizar ventas (token OPACO)."""
+    tok = (token or "").strip()
+    if not tok:
+        return None
+    return (session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                     joinedload(Concert.promoter),
+                     joinedload(Concert.billing_company), joinedload(Concert.group_company),
+                     selectinload(Concert.ticket_types),
+                     selectinload(Concert.ticketers).joinedload(ConcertTicketer.ticketer))
+            .filter(Concert.sales_request_token == tok).first())
+
+
+def _sales_request_page(session_db, concert, *, only=None) -> dict:
+    """El contexto de la página pública: las actividades con su tabla de entradas."""
+    hermanas = _sales_request_siblings(session_db, concert)
+    if only:
+        pedidas = {str(x).strip() for x in only if str(x or "").strip()}
+        elegidas = [c for c in hermanas if str(c.id) in pedidas]
+        if elegidas:
+            hermanas = elegidas
+    ctx = _sales_request_context(session_db, hermanas)
+    por_id = {str(c.id): c for c in hermanas}
+    bloques = []
+    for card in ctx["cards"]:
+        c = por_id.get(card["id"])
+        if c is None:
+            continue
+        datos = _sales_request_ticket_rows(session_db, c)
+        bloques.append({**card, **{"tickets": datos,
+                                   "save_url": url_for("public_sales_update_save",
+                                                       token=(concert.sales_request_token or ""),
+                                                       cid=str(c.id)),
+                                   "capacity": int(getattr(c, "capacity", 0) or 0)}})
+    ctx["blocks"] = bloques
+    # ⚠️ El botón de DERIVAR tiene que apuntar a la actividad DEL ENLACE: `_sales_request_context`
+    # usa la más PRÓXIMA como principal, así que con varias actividades «Solo para este» acabaría
+    # configurando otra.
+    ctx["derive_url"] = _sales_request_derive_url(concert)
+    return ctx
+
+
+@app.get("/actualizar-ventas/<token>", endpoint="public_sales_update")
+def public_sales_update(token):
+    """ACTUALIZAR VENTAS: la página que abre el promotor desde el correo.
+
+    Cada actividad con sus datos y su tabla de entradas: lo que ya constaba vendido en el último
+    reporte, el TOTAL vendido hoy (que es lo que escribe él) y, calculado, lo vendido desde el
+    último reporte. Cada una se envía por su cuenta y SIN salir de la página."""
+    session_db = db()
+    try:
+        concert = _sales_request_by_token(session_db, token)
+        if concert is None:
+            abort(404)
+        only = [x for x in re.split(r"[,\s]+", (request.args.get("only") or "")) if x]
+        ctx = _sales_request_page(session_db, concert, only=only)
+        return render_template("public_sales_update.html", ctx=ctx, concert=concert,
+                               token=token,
+                               og_title=_sales_request_og_title(concert),
+                               og_description=_sales_request_og_description(concert),
+                               og_image_url=_external_url_for("public_sales_update_og_image",
+                                                              token=token))
+    finally:
+        session_db.close()
+
+
+@app.post("/actualizar-ventas/<token>/guardar/<cid>", endpoint="public_sales_update_save")
+def public_sales_update_save(token, cid):
+    """Guarda el reporte de UNA actividad. Responde JSON: la página no se mueve ni se recarga."""
+    session_db = db()
+    try:
+        concert = _sales_request_by_token(session_db, token)
+        if concert is None:
+            return jsonify({"ok": False, "error": "Enlace no válido."}), 404
+        # ⚠️ El id viaja en la URL: se valida contra las actividades de ESE promotor.
+        destino = next((c for c in _sales_request_siblings(session_db, concert)
+                        if str(c.id) == str(cid)), None)
+        if destino is None:
+            return jsonify({"ok": False, "error": "Esa actividad no es de este enlace."}), 404
+        datos = request.get_json(silent=True) or {}
+        crudos = datos.get("totals") if isinstance(datos.get("totals"), dict) else {}
+        totales = {}
+        for k, v in crudos.items():
+            texto = str(v if v is not None else "").strip()
+            if texto == "":
+                continue                       # sin escribir nada, esa categoría no se toca
+            n = _sales_request_parse_qty(texto)
+            if n is None:
+                return jsonify({"ok": False, "error": "«%s» no es un número de entradas. Escríbelo "
+                                                     "sin decimales." % texto[:20]}), 400
+            totales[str(k)] = n
+        if not totales:
+            return jsonify({"ok": False, "error": "Escribe cuántas entradas van vendidas."}), 400
+        res = _sales_request_apply(session_db, destino, totales)
+        if not res.get("saved"):
+            # ⚠️ Ninguna categoría del formulario existe ya: la pantalla está vieja. Decirlo, en vez
+            # de responder «¡Gracias!» sin haber guardado nada.
+            session_db.rollback()
+            return jsonify({"ok": False, "error": "Los tipos de entrada han cambiado. Recarga la "
+                                                  "página y vuelve a enviarlo."}), 409
+        session_db.commit()
+        filas = _sales_request_ticket_rows(session_db, destino)
+        return jsonify({"ok": True, "saved": res["saved"], "warnings": res["warnings"],
+                        "total": filas["base_total"] + filas["today_total"],
+                        "rows": [{"id": r["id"], "base": r["base"], "today": r["today"],
+                                  "total": r["total"]} for r in filas["rows"]],
+                        "base_label": filas["base_label"]})
+    except Exception:
+        session_db.rollback()
+        # ⚠️ El texto de la excepción de Postgres (con el SQL y sus parámetros) NO sale a la cara de
+        # nadie, y menos en una página pública: el detalle queda en el log.
+        app.logger.exception("[ventas] no se pudo guardar el reporte del promotor")
+        return jsonify({"ok": False, "error": "No se pudo guardar el reporte. Inténtalo otra vez."}), 400
+    finally:
+        session_db.close()
+
+
+def _sales_request_og_title(concert) -> str:
+    """«Actualizar ventas, <tipo de actividad>, <nombre del artista o del evento>»."""
+    try:
+        tipo = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+    except Exception:
+        tipo = ""
+    nombre = (getattr(getattr(concert, "artist", None), "name", None) or "").strip()
+    if getattr(concert, "event_id", None):
+        try:
+            ses = object_session(concert)
+            ev = ses.get(AppEvent, concert.event_id) if ses is not None else None
+            nombre = (getattr(ev, "name", None) or nombre)
+        except Exception:
+            pass
+    return ", ".join([x for x in ["Actualizar ventas", tipo, nombre] if str(x or "").strip()])
+
+
+def _sales_request_og_description(concert) -> str:
+    """«<nombre de la actividad, si no el municipio>, <fecha>»."""
+    lugar = ((getattr(concert, "festival_name", None) or "").strip()
+             or (_concert_city(concert) or "").strip())
+    fecha = (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else "")
+    return ", ".join([x for x in [lugar, fecha] if x])
+
+
+@app.get("/actualizar-ventas/<token>/preview.jpg", endpoint="public_sales_update_og_image")
+def public_sales_update_og_image(token):
+    """La miniatura del enlace: el CARTEL y, si no hay, la foto del artista (y el logo de último).
+
+    ⚠️ Se sirve por NUESTRO dominio a 1200×630: una URL de Storage grande o sin dimensiones no se
+    previsualiza. Y NUNCA da 404 (en WhatsApp un 404 se ve como un enlace pelado)."""
+    session_db = db()
+    try:
+        concert = _sales_request_by_token(session_db, token)
+        if concert is None:
+            return redirect(url_for("og_default_image"))
+        fuentes = []
+        try:
+            fuentes.append((_concert_poster_url(concert) or "").strip())
+        except Exception:
+            pass
+        artist = getattr(concert, "artist", None)
+        fuentes.append((getattr(artist, "photo_url", None) or "").strip())
+        if getattr(concert, "event_id", None):
+            try:
+                ev = session_db.get(AppEvent, concert.event_id)
+                # ⚠️ DETRÁS del cartel: la cascada es cartel → foto → logo (el mismo orden que
+                # `_sales_request_card`), no el logo del evento por delante del cartel.
+                fuentes.append((getattr(ev, "logo_url", None) or "").strip())
+            except Exception:
+                pass
+        return _share_og_image_response([f for f in fuentes if f])
+    finally:
+        session_db.close()
+
+
+def _sales_derive_promoter(session_db, promoter, nombre: str, correo: str, telefono: str):
+    """El tercero al que se deriva el ticketing, VINCULADO al promotor.
+
+    ⚠️⚠️ SOLO se reutiliza una ficha que YA sea del propio promotor o que YA esté vinculada con él:
+    es un formulario PÚBLICO, y buscar por correo en toda la base y devolver lo que se encuentre lo
+    convertía en un oráculo «dame un correo → te digo de quién es» (y además le escribía en su ficha
+    los huecos que tuviera vacíos). Si el correo es de un tercero ajeno, se crea una ficha nueva y a
+    la suya NO se le toca nada.
+    ⚠️ Con el correo de alguien ya vinculado sí se reutiliza —quien deriva ya tiene esa relación— y
+    aun así solo se le completa lo que tenga vacío."""
+    correo = (correo or "").strip()
+    persona = None
+    if correo and promoter is not None:
+        candidatas = (session_db.query(Promoter)
+                      .filter(func.lower(func.coalesce(Promoter.contact_email, "")) == correo.lower())
+                      .all())
+        conocidos = {str(promoter.id)}
+        try:
+            for fila in (session_db.query(ThirdPartyLink)
+                         .filter(ThirdPartyLink.is_active.is_(True))
+                         .filter(or_(and_(ThirdPartyLink.source_type == "promoter",
+                                          ThirdPartyLink.source_id == promoter.id),
+                                     and_(ThirdPartyLink.target_type == "promoter",
+                                          ThirdPartyLink.target_id == promoter.id))).all()):
+                if (fila.source_type or "") == "promoter":
+                    conocidos.add(str(fila.source_id))
+                if (fila.target_type or "") == "promoter":
+                    conocidos.add(str(fila.target_id))
+        except Exception:
+            app.logger.exception("[ventas] no se pudieron leer las vinculaciones del promotor")
+        persona = next((p for p in candidatas if str(p.id) in conocidos), None)
+    partes = [x for x in (nombre or "").strip().split() if x]
+    if persona is None:
+        persona = Promoter(
+            nick=_intake_unique_nick(session_db, (nombre or "").strip() or correo or "Ticketing"),
+            first_name=(partes[0] if partes else ""),
+            last_name=(" ".join(partes[1:]) if len(partes) > 1 else ""),
+            contact_email=correo or None,
+            contact_phone=(telefono or "").strip() or None,
+        )
+        session_db.add(persona)
+        session_db.flush()
+    else:
+        if not (getattr(persona, "first_name", None) or "").strip() and partes:
+            persona.first_name = partes[0]
+            if len(partes) > 1 and not (getattr(persona, "last_name", None) or "").strip():
+                persona.last_name = " ".join(partes[1:])
+        if not (getattr(persona, "contact_phone", None) or "").strip() and (telefono or "").strip():
+            persona.contact_phone = telefono.strip()
+    if promoter is not None and str(persona.id) != str(promoter.id):
+        ya = (session_db.query(ThirdPartyLink.id)
+              .filter(ThirdPartyLink.is_active.is_(True))
+              .filter(or_(and_(ThirdPartyLink.source_type == "promoter",
+                               ThirdPartyLink.source_id == promoter.id,
+                               ThirdPartyLink.target_type == "promoter",
+                               ThirdPartyLink.target_id == persona.id),
+                          and_(ThirdPartyLink.source_type == "promoter",
+                               ThirdPartyLink.source_id == persona.id,
+                               ThirdPartyLink.target_type == "promoter",
+                               ThirdPartyLink.target_id == promoter.id))).first())
+        if ya is None:
+            session_db.add(ThirdPartyLink(
+                source_type="promoter", source_id=promoter.id,
+                target_type="promoter", target_id=persona.id,
+                relation_title="Responsable de ticketing",
+                created_by_nick="Derivado por el promotor"))
+    return persona
+
+
+@app.route("/actualizar-ventas/<token>/derivar", methods=["GET", "POST"],
+           endpoint="public_sales_derive")
+def public_sales_derive(token):
+    """DERIVAR EL TICKETING a otra persona, desde el propio correo.
+
+    Se le pide el nombre, el correo y el teléfono; al guardar se crea (o se reutiliza) su ficha de
+    tercero VINCULADA al promotor, se configura como contacto de ticketing y se le REENVÍA la misma
+    solicitud. Se pregunta con dos opciones si vale para TODOS sus eventos o solo para este:
+    · para todos → se guarda como contacto por defecto del tercero;
+    · solo para este → se guarda en la actividad y la configuración del tercero NO se toca."""
+    session_db = db()
+    try:
+        concert = _sales_request_by_token(session_db, token)
+        if concert is None:
+            abort(404)
+        promoter = _concert_promoter(session_db, concert)
+        actual = _concert_ticketing_contact(session_db, concert)
+        hermanas = _sales_request_siblings(session_db, concert)
+        ctx = _sales_request_context(session_db, hermanas)
+        # ⚠️ El enlace es de UNA actividad concreta: con varias a la venta, «solo para este» tiene
+        # que decir cuál.
+        _esta = ((getattr(concert, "festival_name", None) or "").strip()
+                 or (_concert_city(concert) or "").strip())
+        this_label = " · ".join([x for x in [_esta,
+                                             (concert.date.strftime("%d/%m/%Y")
+                                              if getattr(concert, "date", None) else "")] if x])
+        if request.method == "GET":
+            return render_template("public_sales_derive.html", ctx=ctx, concert=concert,
+                                   token=token, current=actual, promoter=promoter,
+                                   activities=ctx["cards"], done=False, sent_to="",
+                                   this_label=this_label)
+        nombre = (request.form.get("name") or "").strip()
+        correo = (request.form.get("email") or "").strip()
+        telefono = (request.form.get("phone") or "").strip()
+        scope = (request.form.get("scope") or "ONE").strip().upper()
+        if scope not in ("ONE", "ALL"):
+            scope = "ONE"
+        error = ""
+        if not nombre:
+            error = "Escribe el nombre completo de la persona."
+        elif "@" not in correo:
+            error = "Escribe su correo."
+        if error:
+            return render_template("public_sales_derive.html", ctx=ctx, concert=concert,
+                                   token=token, current=actual, promoter=promoter,
+                                   activities=ctx["cards"], done=False, sent_to="",
+                                   error=error, form=request.form, this_label=this_label)
+        persona = _sales_derive_promoter(session_db, promoter, nombre, correo, telefono)
+        fila = _ticketing_contact_clean({"kind": "THIRD", "promoter_id": str(persona.id),
+                                         "name": nombre, "email": correo, "phone": telefono,
+                                         "set_at": _now_madrid().isoformat(),
+                                         "set_by": "Derivado por el promotor"})
+        _concert_ticketing_contact_apply(session_db, concert, fila, scope=scope)
+        session_db.commit()
+        # Y se le REENVÍA la misma solicitud: para todos sus eventos, todas; solo para este, esta.
+        destino = hermanas if scope == "ALL" else [concert]
+        ok, err = _sales_request_send(session_db, {"email": correo}, destino)
+        if ok:
+            session_db.commit()
+        else:
+            session_db.rollback()
+            app.logger.warning("[ventas] no se pudo reenviar la solicitud a %s: %s", correo, err)
+        return render_template("public_sales_derive.html", ctx=ctx, concert=concert,
+                               token=token,
+                               current=_concert_ticketing_contact(session_db, concert),
+                               promoter=promoter, activities=ctx["cards"], done=True,
+                               sent_to=(correo if ok else ""), scope=scope,
+                               this_label=this_label,
+                               send_error=("" if ok else (err or "")))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[ventas] no se pudo derivar el ticketing")
+        abort(400, description=str(exc))
     finally:
         session_db.close()
 
@@ -104290,7 +105791,11 @@ def cron_expired_documents():
                     "materiales_proyecto": _disco_materials_reminder_sweep(),
                     # Y las liquidaciones de royalties A FAVOR que ya toca pedir (un mes después de
                     # que cierre el semestre): así no depende de otra tarea en el servidor.
-                    "afavor": _afavor_request_sweep()})
+                    "afavor": _afavor_request_sweep(),
+                    # Y la ACTUALIZACIÓN DE VENTAS que se le pide al promotor de fuera (el día lo
+                    # decide `_sales_request_due`: la primera el día siguiente a la salida a la
+                    # venta y después los lunes y los jueves).
+                    "ventas": _sales_request_sweep()})
 
 
 @app.post("/documentos/pedir", endpoint="person_doc_request_send")
@@ -112523,9 +114028,24 @@ def _invitation_event_counts(session_db, concert: Concert) -> dict:
         )
         # Entradas subidas sin categoría conocida (sin asignar / categorías legacy) también suman.
         category_total += sum(n for k, n in uploaded_by_cat.items() if k not in known_ids)
+        contract_total = sum(_safe_int(c.qty_contract) for c in categories)
+        # ⚠️ Tener CATEGORÍAS no es tenerlo configurado: `_invitation_get_categories(...,
+        # ensure_defaults=True)` materializa la fila de relleno «General» con `source='DEFAULT'` y 0,
+        # así que dando eso por configurado el «?» no aparecía NUNCA en cuanto alguien hubiera
+        # abierto la pantalla de esa actividad (bug real que sacó la revisión).
+        contract_known = any(((getattr(c, "source", None) or "") != "DEFAULT")
+                             or _safe_int(c.qty_contract) or _safe_int(c.qty_extra)
+                             for c in categories)
     else:
-        legacy_total = sum(_safe_int(row.get("qty_contract")) for row in _invitation_category_legacy_rows(concert))
+        legacy = _invitation_category_legacy_rows(concert)
+        legacy_total = sum(_safe_int(row.get("qty_contract")) for row in legacy)
         category_total = max(legacy_total, total_uploaded)
+        contract_total = legacy_total
+        # ⚠️ «No configurado» NO es «configurado a 0»: `_invitation_category_legacy_rows` siempre
+        # devuelve al menos una fila «General» a 0 (la de relleno), y con ella todo saldría como un
+        # cero pactado. Solo cuenta como configurado lo que viene de un sitio de verdad: una
+        # categoría en la BD, el contrato de la actividad o los tipos de entrada.
+        contract_known = any((row.get("source") or "") != "DEFAULT" for row in legacy)
     commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).filter(InvitationCommitment.status != "ANULADAS").all()
     requests = session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).all()
     committed = sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in commitments)
@@ -112535,6 +114055,13 @@ def _invitation_event_counts(session_db, concert: Concert) -> dict:
     requested_all = sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in requests if (x.status or "") in INVITATION_ACTIVE_REQUEST_STATUSES)
     return {
         "configured": category_total,
+        # LO QUE SE ENSEÑA EN EL LISTADO: si hay entradas SUBIDAS, esas son las que hay para
+        # repartir y la galleta se llama «Disponibles»; si todavía no se ha subido nada, lo único
+        # que se sabe es lo PACTADO POR CONTRATO, y así se dice. Y si no consta nada configurado se
+        # pinta «?» en vez de un 0 que parecería un dato (`contract_known`).
+        "uploaded": total_uploaded,
+        "contract": contract_total,
+        "contract_known": bool(contract_known),
         "committed": committed,
         "requested": requested,
         "requested_all": requested_all,

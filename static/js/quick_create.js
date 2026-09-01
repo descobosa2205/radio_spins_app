@@ -47,6 +47,10 @@
         (currentTargetHiddenId || sel.getAttribute('data-ta-hidden') || ''));
       if (hid) hid.value = id;
       if (logo) sel.setAttribute('data-photo', logo);
+      /* ⚠️ Se le DICE al buscador que esto es lo elegido: si no, el `change` de abajo dispara su
+         `resolveSelection`, que no encuentra el texto en el datalist y BORRA el oculto — el tercero
+         quedaba creado y su id perdido (ver `input.app33TaPick` en typeahead.js). */
+      if (typeof sel.app33TaPick === 'function') sel.app33TaPick(id, label);
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }

@@ -1,0 +1,300 @@
+{# ACTUALIZAR VENTAS · la página que abre el promotor de FUERA desde su correo.
+   Standalone a propósito: hace falta el juego de og: para que la miniatura del enlace sea el CARTEL
+   (layout.html no tiene bloque en el <head>).
+   Estilo de casa: el logo de la empresa del grupo arriba a la DERECHA, el título CENTRADO, y debajo
+   una actividad por bloque con su cabecera y su tabla de entradas.
+   ⚠️ Cada actividad se envía POR SU CUENTA y sin salir de la página: al guardar no se recarga ni se
+   mueve el scroll, solo se apuntan los datos, así se puede seguir con la siguiente. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ og_title }}</title>
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="{{ og_title }}">
+  <meta property="og:description" content="{{ og_description }}">
+  <meta name="description" content="{{ og_description }}">
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}">
+    <meta property="og:image:secure_url" content="{{ og_image_url }}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:image" content="{{ og_image_url }}">
+    <meta name="twitter:card" content="summary_large_image">
+  {% endif %}
+  <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+  <style>
+    :root{ --brand:#E33D48; --accent:#007CA2; --line:#e5e7eb; --muted:#6b7280; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; background:#f5f7fb; color:#111827; font-family:Arial,Helvetica,sans-serif; }
+    .page{ max-width:1000px; margin:28px auto; padding:0 16px; }
+    .sheet{ background:#fff; border:1px solid var(--line); border-radius:22px;
+            box-shadow:0 18px 42px rgba(15,23,42,.08); padding:26px 28px 34px; }
+    .brand-row{ display:flex; justify-content:flex-end; min-height:34px; }
+    .brand{ max-height:56px; max-width:190px; object-fit:contain; }
+    h1{ font-size:30px; margin:10px 0 10px; text-align:center; }
+    .lead{ text-align:center; color:var(--muted); font-size:15px; margin:0 0 20px; }
+
+    /* DERIVAR: sin relleno y ENCIMA de todas las actividades. */
+    .derivar{ display:inline-flex; align-items:center; gap:8px; padding:10px 16px;
+              border:1px solid #d7dbe0; border-radius:10px; background:#fff; color:#111827;
+              text-decoration:none; font-weight:700; font-size:14px; }
+    .derivar:hover{ border-color:var(--brand); color:var(--brand); }
+    .derivar i{ color:var(--accent); }
+
+    /* UNA ACTIVIDAD: su cabecera y su tabla. */
+    .act{ border:1px solid var(--line); border-radius:18px; background:#fff; padding:18px 20px;
+          margin-top:18px; }
+    .galleta{ display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+    .galleta__foto{ flex:0 0 auto; width:76px; height:76px; object-fit:cover;
+                    border:1px solid var(--line); background:#fff; border-radius:14px; }
+    .galleta__foto.is-round{ border-radius:50%; }
+    .galleta__body{ flex:1 1 260px; min-width:0; }
+    .eyebrow{ font-size:11px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:#8b95a1; }
+    .galleta__name{ font-size:22px; font-weight:800; margin:2px 0 8px; }
+    .facts{ display:flex; flex-wrap:wrap; gap:6px 18px; color:#4b5563; font-size:14px; }
+    .facts i{ color:var(--accent); width:16px; text-align:center; margin-right:6px; }
+
+    .tabla-wrap{ overflow-x:auto; margin-top:16px; }
+    table.ventas{ width:100%; border-collapse:collapse; min-width:32rem; }
+    table.ventas th, table.ventas td{ padding:10px 12px; border-bottom:1px solid var(--line);
+                                      text-align:right; font-size:14px; white-space:nowrap; }
+    table.ventas th{ font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase;
+                     letter-spacing:.3px; border-bottom:2px solid var(--line); }
+    table.ventas th:first-child, table.ventas td:first-child{ text-align:left; white-space:normal; }
+    table.ventas tfoot td{ font-weight:800; border-bottom:0; }
+    .tot{ width:7.5rem; padding:8px 10px; border:1px solid #d7dbe0; border-radius:9px;
+          font-size:15px; text-align:right; font-weight:700; }
+    .tot:focus{ outline:2px solid rgba(227,61,72,.25); border-color:var(--brand); }
+    .tot.is-mal{ border-color:var(--brand); background:#fdecee; }
+    .delta{ font-weight:800; color:var(--accent); }
+    .delta.is-cero{ color:var(--muted); font-weight:600; }
+    .pie{ display:flex; justify-content:space-between; align-items:center; gap:12px;
+          flex-wrap:wrap; margin-top:14px; }
+    .enviar{ padding:11px 20px; background:var(--brand); color:#fff; border:0; border-radius:10px;
+             font-weight:700; font-size:15px; cursor:pointer; }
+    .enviar:disabled{ opacity:.6; cursor:default; }
+    .aviso{ font-size:13px; border-radius:10px; padding:9px 12px; margin-top:10px; }
+    .aviso.ok{ background:#e8f7ee; color:#146c43; }
+    .aviso.err{ background:#fdecee; color:#b3242e; }
+    .aviso.warn{ background:#fff8e1; color:#8a6100; }
+    .base{ color:var(--muted); font-size:13px; }
+    /* ⚠️⚠️ EN EL MÓVIL LA TABLA SE LEE COMO TARJETAS, no se desliza: esta pantalla la rellena el
+       promotor DESDE EL TELÉFONO, y con la tabla a lo ancho el campo del total se queda fuera de
+       la pantalla y hay que buscarlo arrastrando. Cada tipo de entrada pasa a ser un bloque con su
+       nombre arriba y sus tres datos etiquetados. */
+    @media (max-width:575.98px){
+      .sheet{ padding:18px 14px 26px; border-radius:16px; }
+      h1{ font-size:24px; }
+      .galleta__foto{ width:60px; height:60px; }
+      .pie{ flex-direction:column; align-items:stretch; }
+      .enviar{ width:100%; }
+      .tabla-wrap{ overflow-x:visible; }
+      table.ventas{ min-width:0; display:block; }
+      table.ventas thead{ display:none; }
+      table.ventas tbody, table.ventas tfoot{ display:block; }
+      table.ventas tr{ display:block; border:1px solid var(--line); border-radius:12px;
+                       padding:10px 12px; margin-bottom:10px; }
+      table.ventas tfoot tr{ background:#fcfcfd; }
+      table.ventas td{ display:flex; justify-content:space-between; align-items:center; gap:12px;
+                       border-bottom:0; padding:5px 0; text-align:right; white-space:normal; }
+      table.ventas td[data-cel="nombre"]{ display:block; text-align:left; font-weight:800;
+                                          font-size:16px; padding-bottom:8px; }
+      table.ventas td[data-label]::before{ content:attr(data-label); flex:1 1 auto; text-align:left;
+                                           font-size:12px; color:var(--muted); font-weight:700; }
+      .tot{ width:8rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="sheet">
+    <div class="brand-row">
+      {% if ctx.logo_url %}<img class="brand" src="{{ ctx.logo_url }}" alt="{{ ctx.company_name }}">{% endif %}
+    </div>
+    <h1>Actualizar ventas</h1>
+    <p class="lead">
+      {% if ctx.blocks|length > 1 %}
+        Dinos cuántas entradas van vendidas de cada actividad. Cada una se envía por separado.
+      {% else %}
+        Dinos cuántas entradas van vendidas.
+      {% endif %}
+    </p>
+
+    {% if ctx.derive_url %}
+      <div>
+        <a class="derivar" href="{{ ctx.derive_url }}">
+          <i class="fa-solid fa-user-gear"></i>Derivar a otro responsable de ticketing
+        </a>
+      </div>
+    {% endif %}
+
+    {% for b in ctx.blocks %}
+      <div class="act" id="a-{{ b.id }}" data-act data-save="{{ b.save_url }}">
+        <div class="galleta">
+          {% if b.image_url %}
+            <img class="galleta__foto {% if b.image_round %}is-round{% endif %}" src="{{ b.image_url }}" alt="">
+          {% endif %}
+          <div class="galleta__body">
+            {% if b.eyebrow %}<div class="eyebrow">{{ b.eyebrow }}</div>{% endif %}
+            <div class="galleta__name">{{ b.heading }}</div>
+            <div class="facts">
+              {% for r in b.hero_rows %}
+                <span><i class="fa-solid {{ r.icon }}"></i>{{ r.value }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <div class="tabla-wrap">
+          <table class="ventas">
+            <thead>
+              <tr>
+                <th>{% if b.tickets.mode == 'TYPES' %}Tipo de entrada{% else %}Entradas{% endif %}</th>
+                <th>Vendidas en el último reporte</th>
+                <th>Total vendidas hoy</th>
+                <th>Vendidas desde el último reporte</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in b.tickets.rows %}
+                <tr data-fila data-base="{{ r.base }}">
+                  <td data-cel="nombre">
+                    {{ r.name }}
+                    {% if r.capacity %}<div class="base">Aforo: {{ r.capacity }}</div>{% endif %}
+                  </td>
+                  <td data-base-cel data-label="Vendidas en el último reporte">{{ r.base }}</td>
+                  <td data-label="Total vendidas hoy"><input class="tot" type="number" min="0" step="1" inputmode="numeric"
+                             data-total data-id="{{ r.id }}" value="{{ r.total }}"></td>
+                  <td data-label="Vendidas desde el último reporte"><span class="delta {% if not r.today %}is-cero{% endif %}" data-delta>{{ r.today }}</span></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td data-cel="nombre">Total</td>
+                <td data-base-total data-label="Vendidas en el último reporte">{{ b.tickets.base_total }}</td>
+                <td data-total-total data-label="Total vendidas hoy">{{ b.tickets.base_total + b.tickets.today_total }}</td>
+                <td data-label="Vendidas desde el último reporte"><span class="delta" data-delta-total>{{ b.tickets.today_total }}</span></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="pie">
+          <span class="base">
+            {% if b.tickets.base_label %}
+              Último reporte: {{ b.tickets.base_label }}.
+            {% else %}
+              Todavía no consta ningún reporte de ventas.
+            {% endif %}
+          </span>
+          <button class="enviar" type="button" data-enviar>
+            <i class="fa-solid fa-paper-plane"></i> Enviar actualización
+          </button>
+        </div>
+        <div data-aviso></div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+(function () {
+  /* El MISMO criterio que el servidor (`_sales_request_parse_qty`): son ENTRADAS, así que no hay
+     decimales, y el punto solo se quita cuando de verdad separa MILES. Devuelve null si no se
+     entiende, para no pintar una diferencia inventada. */
+  function num(v){
+    var t = String(v == null ? '' : v).trim().replace(/[\s\u00a0]/g, '');
+    if (!t) return null;
+    if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+    if (!/^\d+$/.test(t)) return null;
+    var n = parseInt(t, 10);
+    return isNaN(n) ? null : n;
+  }
+
+  // La DIFERENCIA se calcula sola: el total que escribe el promotor menos lo que ya constaba.
+  function recalcula(act){
+    var deltaTotal = 0, total = 0, dudoso = false;
+    act.querySelectorAll('[data-fila]').forEach(function (fila) {
+      var b = num(fila.getAttribute('data-base')) || 0;
+      var input = fila.querySelector('[data-total]');
+      var t = num(input ? input.value : '');
+      var cel = fila.querySelector('[data-delta]');
+      if (t === null) {
+        // Lo que no se entiende no se convierte en un número: se dice.
+        if (input) input.classList.add('is-mal');
+        if (cel) { cel.textContent = '—'; cel.classList.add('is-cero'); }
+        if ((input ? input.value : '').trim() !== '') dudoso = true;
+        return;
+      }
+      if (input) input.classList.remove('is-mal');
+      var d = t - b;
+      if (d < 0) d = 0;
+      if (cel) { cel.textContent = String(d); cel.classList.toggle('is-cero', d === 0); }
+      deltaTotal += d; total += t;
+    });
+    var tt = act.querySelector('[data-total-total]'); if (tt) tt.textContent = String(total);
+    var dt = act.querySelector('[data-delta-total]'); if (dt) dt.textContent = String(deltaTotal);
+    var btn = act.querySelector('[data-enviar]');
+    if (btn) btn.disabled = dudoso;
+  }
+
+  function aviso(act, clase, texto){
+    var caja = act.querySelector('[data-aviso]');
+    if (!caja) return;
+    caja.textContent = '';
+    if (!texto) return;
+    // ⚠️ Con `innerHTML` se colaría el nombre de un tipo de entrada (lo escribe una persona) como
+    // HTML: el texto se pone SIEMPRE con `textContent`.
+    var d = document.createElement('div');
+    d.className = 'aviso ' + clase;
+    d.textContent = texto;
+    caja.appendChild(d);
+  }
+
+  document.querySelectorAll('[data-act]').forEach(function (act) {
+    recalcula(act);
+    act.addEventListener('input', function (ev) {
+      if (ev.target && ev.target.matches('[data-total]')) recalcula(act);
+    });
+    var btn = act.querySelector('[data-enviar]');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var totals = {};
+      act.querySelectorAll('[data-total]').forEach(function (i) {
+        totals[i.getAttribute('data-id')] = i.value;
+      });
+      var previo = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = 'Guardando…';
+      aviso(act, '', '');
+      fetch(act.getAttribute('data-save'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ totals: totals })
+      }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {
+        btn.disabled = false; btn.innerHTML = previo;
+        if (!d || !d.ok) { aviso(act, 'err', (d && d.error) || 'No se pudo guardar.'); return; }
+        // Se apuntan los datos y NO se recarga: la base pasa a ser la nueva y se sigue igual.
+        (d.rows || []).forEach(function (r) {
+          var input = act.querySelector('[data-total][data-id="' + r.id + '"]');
+          var fila = input ? input.closest('[data-fila]') : null;
+          if (!fila) return;
+          input.value = r.total;
+        });
+        recalcula(act);
+        if (d.warnings && d.warnings.length) aviso(act, 'warn', d.warnings.join(' '));
+        else aviso(act, 'ok', '¡Gracias! Los datos de venta se han actualizado.');
+      }).catch(function () {
+        btn.disabled = false; btn.innerHTML = previo;
+        aviso(act, 'err', 'No se pudo guardar. Inténtalo otra vez.');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

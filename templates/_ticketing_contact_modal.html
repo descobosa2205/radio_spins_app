@@ -1,0 +1,154 @@
+{# CONTACTO DE TICKETING de una actividad · pop-up ÚNICO.
+   Se incluye en la pestaña «Inicio» (donde está la tarea pendiente) y en la de «Ticketing» (donde
+   se comparte y se manda la solicitud): es el MISMO pop-up y el MISMO endpoint, no hay dos sitios
+   donde configurar el mismo dato.
+   Del contexto necesita: `ticketing_applies`, `ticketing_kinds`, `ticketing_contact`,
+   `ticketing_contact_raw` y `CAN_SET_ONSALE`. #}
+{# ── EL CONTACTO DE TICKETING ────────────────────────────────────────────────────────────
+   Las entradas las vende un TERCERO, así que hay que decir A QUIÉN se le piden las ventas.
+   Tres opciones con su icono, y de cada una solo se piden SUS campos.
+   ⚠️ Los paneles que se esconden DESHABILITAN sus campos: un campo oculto se envía igual. ── #}
+{% if CAN_SET_ONSALE and ticketing_applies %}
+<div class="modal fade" id="ticketingContactModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('concert_ticketing_contact_save', cid=concert.id) }}"
+            data-tc-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-address-book me-2 text-danger"></i>Contacto de ticketing</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">
+            Las entradas las vende
+            <strong>{{ concert.promoter.nick if concert.promoter else 'el promotor' }}</strong>:
+            desde el día siguiente a la salida a la venta le pedimos <strong>los lunes y los
+            jueves</strong> que nos actualice las ventas. Di a quién se le escribe.
+          </p>
+          {% if ticketing_contact and ticketing_contact.email %}
+            <div class="alert alert-light border py-2 px-3 small">
+              <i class="fa fa-circle-info me-1"></i>Ahora se le manda a
+              <strong>{{ ticketing_contact.name or ticketing_contact.email }}</strong>
+              ({{ ticketing_contact.email }}){% if ticketing_contact.source == 'PROMOTER' %}
+              — el correo de la ficha del promotor{% elif ticketing_contact.source == 'PROMOTER_DEFAULT' %}
+              — el contacto de ticketing del tercero{% endif %}.
+            </div>
+          {% endif %}
+          <div class="row g-2">
+            {% for k, label, icon, hint in ticketing_kinds %}
+              <div class="col-12 col-md-4">
+                <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white{% if (ticketing_contact_raw.kind or 'PROMOTER') == k %} is-selected{% endif %}">
+                  <input class="form-check-input visually-hidden" type="radio" name="tc_kind" value="{{ k }}"
+                         {% if (ticketing_contact_raw.kind or 'PROMOTER') == k %}checked{% endif %}>
+                  <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                  <span class="fw-semibold small d-block">{{ label }}</span>
+                  <span class="small text-muted d-block mt-1">{{ hint }}</span>
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+
+          {# Una PERSONA de la base: se busca (con su foto) o se crea con el «+». #}
+          <div class="row g-2 mt-3{% if ticketing_contact_raw.kind != 'THIRD' %} d-none{% endif %}"
+               data-tc-when="tc_kind=THIRD">
+            <div class="col-12">
+              <label class="form-label small mb-1">¿Quién lleva el ticketing?</label>
+              <div class="input-group">
+                <input class="form-control" id="tcThirdSearch" data-ta-hidden="tcThirdId"
+                       placeholder="Escribe su nombre…" autocomplete="off"
+                       value="{{ ticketing_contact.name if ticketing_contact_raw.kind == 'THIRD' else '' }}">
+                <button class="btn btn-outline-secondary" type="button" data-quick-create="promoter"
+                        data-target-hidden="tcThirdId" data-target="tcThirdSearch"
+                        title="Crear el tercero"><i class="fa fa-plus"></i></button>
+              </div>
+              <input type="hidden" name="tc_promoter_id" id="tcThirdId"
+                     value="{{ ticketing_contact_raw.promoter_id or '' }}">
+              <div class="form-text">Su correo y su teléfono salen de su ficha, así que
+                corregirlos ahí vale para todas sus actividades.</div>
+            </div>
+          </div>
+
+          {# Solo un correo: sin ficha. #}
+          <div class="row g-2 mt-3{% if ticketing_contact_raw.kind != 'EMAIL' %} d-none{% endif %}"
+               data-tc-when="tc_kind=EMAIL">
+            <div class="col-12 col-md-5">
+              <label class="form-label small mb-1">Nombre <span class="text-muted">(opcional)</span></label>
+              <input class="form-control" name="tc_name"
+                     value="{{ ticketing_contact_raw.name if ticketing_contact_raw.kind == 'EMAIL' else '' }}">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label small mb-1">Correo de ticketing</label>
+              <input class="form-control" type="email" name="tc_email"
+                     value="{{ ticketing_contact_raw.email if ticketing_contact_raw.kind == 'EMAIL' else '' }}">
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label small mb-1">Teléfono <span class="text-muted">(opcional)</span></label>
+              <input class="form-control" name="tc_phone"
+                     value="{{ ticketing_contact_raw.phone if ticketing_contact_raw.kind == 'EMAIL' else '' }}">
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <label class="form-label small mb-1">¿Para qué actividades?</label>
+            <div class="row g-2">
+              <div class="col-12 col-md-6">
+                <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white is-selected">
+                  <input class="form-check-input visually-hidden" type="radio" name="scope" value="ONE" checked>
+                  <i class="fa fa-calendar-day d-block fs-5 mb-1 text-dark"></i>
+                  <span class="fw-semibold small d-block">Solo para esta</span>
+                </label>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white">
+                  <input class="form-check-input visually-hidden" type="radio" name="scope" value="ALL">
+                  <i class="fa fa-calendar-days d-block fs-5 mb-1 text-dark"></i>
+                  <span class="fw-semibold small d-block">Para todas las de {{ concert.promoter.nick if concert.promoter else 'este promotor' }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  /* Los paneles del contacto de ticketing: solo se ven (y solo se ENVÍAN) los campos de la
+     opción elegida. ⚠️ Esconder no basta: un campo oculto se envía igual, así que se
+     deshabilita. Va por DELEGACIÓN sobre el formulario, así da igual cuándo se abra el modal. */
+  var form = document.querySelector('[data-tc-form]');
+  if (!form) return;
+  function sincroniza(){
+    var elegido = form.querySelector('input[name="tc_kind"]:checked');
+    var valor = elegido ? elegido.value : '';
+    form.querySelectorAll('[data-tc-when]').forEach(function(panel){
+      var partes = (panel.getAttribute('data-tc-when') || '').split('=');
+      var quiere = (partes[1] || '').split(',').map(function(x){ return x.trim(); });
+      var visible = quiere.indexOf(valor) >= 0;
+      panel.classList.toggle('d-none', !visible);
+      panel.querySelectorAll('input,select,textarea').forEach(function(i){ i.disabled = !visible; });
+    });
+  }
+  form.addEventListener('change', function(ev){
+    if (ev.target && ev.target.name === 'tc_kind') sincroniza();
+  });
+  document.addEventListener('DOMContentLoaded', sincroniza);
+  if (document.readyState !== 'loading') sincroniza();
+  /* El buscador del tercero (con su foto), el mismo de toda la app. */
+  function cablea(){
+    if (window.initTypeahead) {
+      initTypeahead('tcThirdSearch', 'tcThirdId', "{{ url_for('api_search_promoters') }}",
+                    { alwaysList: true });
+    } else { setTimeout(cablea, 120); }
+  }
+  cablea();
+})();
+</script>
+{% endif %}

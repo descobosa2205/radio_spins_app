@@ -8168,3 +8168,195 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Van **FUERA de las compuertas de departamento** de `home.html`: los ven contratación **y**
   dirección, y los módulos ya se calculan solo para ellos — dentro de la compuerta
   (`HOME_DIRECCION_BOARD is none`) a dirección no le salían.
+
+- ⚠️⚠️ **ACTUALIZACIÓN DE VENTAS · LO QUE SE LE PIDE AL PROMOTOR DE FUERA** (sep 2026). Cuando las
+  entradas las vende un **TERCERO**, la casa NO ve las ventas: hay que pedírselas. Desde el **día
+  siguiente a la salida a la venta** se le manda la solicitud **los LUNES y los JUEVES a las
+  10:00**, con un enlace en el que escribe el total vendido de cada categoría.
+  · **A QUIÉN se le escribe: punto único `_concert_ticketing_contact`**, en cascada — el contacto de
+  **LA ACTIVIDAD** (`ticketing_payload['ticketing_contact']`) → el de por defecto **DEL TERCERO**
+  (`Promoter.ticketing_contact`) → **el propio tercero** (el correo de su ficha).
+  Tres formas (`TICKETING_CONTACT_KINDS`, cada una con su icono y solo sus campos): **PROMOTER** (el
+  mismo contacto del promotor) · **THIRD** (una persona de la base, con su buscador con foto y su
+  «+» para crearla) · **EMAIL** (solo un correo, sin ficha).
+  ⚠️ En PROMOTER y en THIRD el correo **NO se congela**: se lee EN VIVO de la ficha, así que
+  corregirlo ahí vale para todas sus actividades. Un contacto configurado **sin correo** no bloquea
+  la cascada: lo que manda es que haya alguien a quien de verdad se pueda escribir.
+  · **LA TAREA de contratación** (`TICKETING_CONTACT` en `CONTRACTING_TASK_META` + la subtarea
+  **«9. Configurar el contacto de ticketing»** de la pestaña «Inicio», con su pop-up
+  `_ticketing_contact_modal.html`) sale cuando **no hay a quién escribirle**
+  (`_concert_ticketing_contact_missing`).
+  ⚠️ **Si el promotor ya tiene correo en su ficha NO se reclama nada**: ese es su contacto por
+  defecto y la solicitud ya puede salir (lo pidió así Dani). Se mira **el dato de verdad**, así que
+  la tarea **entra sola en todas las actividades que ya existen** y desaparece sola en cuanto haya
+  un correo: no hay ningún relleno retroactivo que ejecutar (la regla de `_notify_resolve`).
+  ⚠️⚠️ La tarea del tablero de la ficha se declara con `suelta(..., modal="#…")` y su botón va en la
+  plantilla **FUERA del `{% if t.mine %}`**: una tarea del DEPARTAMENTO nace con `mine=False` y sin
+  eso se pinta «Pendiente» pero **sin ningún botón**.
+  · **LA CADENCIA** (`_sales_request_due`): la PRIMERA el día siguiente a la salida a la venta, sea
+  el día que sea; las siguientes los **lunes y jueves** y solo si han pasado al menos
+  `SALES_REQUEST_MIN_DAYS` (2) días desde la última — si no, **se salta esa comunicación** para no
+  ser tan insistentes (lunes→jueves son 3 días y jueves→lunes 4, así que la regla solo actúa justo
+  después de la primera).
+  ⚠️⚠️ **EL DÍA Y LA HORA LOS DECIDE LA APP**, no el planificador: `today_local().weekday()` y
+  `SALES_REQUEST_HOUR` (10:00 de Madrid). El cron de Render va en **UTC**, así que un
+  `0 8 * * 1,4` se desplazaría una hora al cambiar la hora. El planificador tiene que pegar a
+  **`/cron/actualizar-ventas?key=…` CADA HORA** (o una vez al día pasadas las 10:00 de Madrid);
+  `?ahora=1` se salta el suelo horario para poder probarlo. El barrido va colgado también del cron
+  diario de documentos, para no depender de otra tarea en el servidor.
+  ⚠️ Antes de las 10:00 el barrido **lo DICE** (`antes_de_la_hora: true`): si no, una prueba con 0
+  correos parecería que la función no va. Y lleva **tope por pasada**
+  (`SALES_REQUEST_MAX_PER_RUN` = 120 correos) diciendo cuántos quedan (`pendientes`): un barrido sin
+  límite puede no terminar nunca, y lo que no entra sale en la pasada siguiente.
+  · **UN CORREO POR DESTINATARIO** (`_sales_request_sweep`): si un promotor tiene varias actividades
+  a la venta le llega **UNO con todas**, de la más próxima a la más lejana, y se apuntan todas con
+  la misma fecha (así no se le escribe dos veces la misma semana). Solo se apunta si el correo
+  **SALIÓ** (`_send_optional_email` devuelve `(ok, error)`).
+  · **EL CORREO** (motor único `_sales_request_html`, el MISMO para el correo y la vista previa):
+  logo de la empresa del grupo arriba a la **derecha**, «Actualización de ventas» centrado, el botón
+  **SIN RELLENO «Derivar a otro responsable de ticketing» ENCIMA de todas las actividades**, y una
+  **galleta por actividad** con su imagen (**el CARTEL** y, si no hay, la foto del artista o el logo
+  del evento), su cabecera (`_contract_sheet_hero_rows`) y **el botón «Actualizar ventas» dentro,
+  abajo a la derecha**. Asunto: **`Actualización ventas, <tipo de actividad>, <artista o evento>,
+  <nombre de la actividad o el municipio>, <fecha>`** (`_sales_request_subject`; el TIPO es
+  `_activity_kind_label`, lo que ES la actividad, no su tipo de venta).
+  · **EL ENLACE PÚBLICO** `public_sales_update` (`/actualizar-ventas/<token>`, token **OPACO** en
+  `Concert.sales_request_token`): cada actividad con su cabecera y su tabla — **el tipo de entrada ·
+  lo vendido en el ÚLTIMO REPORTE · el TOTAL vendido hoy (lo que escribe él) · y, calculado, lo
+  vendido desde el último reporte**. Cada una se envía **por su cuenta y SIN salir de la página**
+  (`public_sales_update_save`, JSON: no se recarga, no se mueve el scroll, solo se guardan los
+  datos). `?only=<id>,<id>` restringe qué actividades se ven (lo usa el compartir).
+  ⚠️⚠️ **`TicketSaleDetail.qty` es el DELTA DE SU DÍA**: lo que se guarda es
+  **«el total de hoy − el acumulado anterior a hoy»**, y **se REEMPLAZA el apunte de hoy** (reportar
+  dos veces el mismo día no suma dos veces). Un total MENOR que lo ya vendido **no resta**: se
+  guarda 0 y se avisa. Una categoría que no venga en el formulario **no se toca**.
+  ⚠️ La ticketera del apunte la decide `_sales_request_ticketer`: la única manual de la actividad y,
+  si no hay, la ticketera **«Promotor»** de la casa (ese canal ES el reporte del promotor), a la que
+  se le crea su `ConcertTicketer` para poder corregirlo también desde `/ventas`. **La de
+  ENTERTICKET se descarta siempre**: su rejilla la recalcula el espejo y un apunte a mano se
+  perdería en el siguiente sync.
+  ⚠️ Sin tipos de entrada se cae al **modo básico** (un único total en la tabla legacy
+  `ticket_sales`), el mismo que usa `/ventas`.
+  · **DERIVAR** (`public_sales_derive`, `/actualizar-ventas/<token>/derivar`): se le piden **nombre,
+  email y teléfono** y al guardar se crea (o se **reutiliza por correo**, sin duplicar) su ficha de
+  tercero **VINCULADA al promotor** (`ThirdPartyLink`, «Responsable de ticketing»), se configura
+  como contacto de ticketing y **se le REENVÍA la misma solicitud**. Con dos tarjetas con icono:
+  **«Actualizar para todos mis eventos»** (escribe el de por defecto del tercero **y limpia los
+  propios** de sus actividades vivas — si no, el contacto viejo de cada una seguiría ganando y
+  «todos» no sería todos) o **«Solo para este»** (solo la actividad; la configuración del tercero
+  **no se toca**).
+  · **COMPARTIR** (pestaña **Ticketing** de la ficha): copiar el enlace · WhatsApp · SMS · **Email
+  con vista previa** (la compone el SERVIDOR con el MISMO `_sales_request_html`, así que no hay una
+  segunda versión que se desparejen). ⚠️ **Solo cuando el promotor tiene MÁS DE UNA actividad ya a
+  la venta** se pregunta cuáles, con la de esa ficha **premarcada**; con una sola, copiar/WhatsApp/
+  SMS actúan directamente. La `og:` de la página es **el cartel → la foto del artista → el logo**,
+  con «Actualizar ventas, \<tipo\>, \<artista\>» y debajo «\<actividad o municipio\>, \<fecha\>».
+  · **A QUÉ ACTIVIDADES aplica**: `_concert_sales_request_applies` (vende entradas, CONFIRMADA, no
+  histórica, sin celebrar, con promotor y **que NO la promueva el grupo**).
+  ⚠️ Distinto de **`_concert_sales_request_on_sale`**: el CONTACTO se configura antes de que salga a
+  la venta (para eso está la tarea), pero **lo que se pide y lo que se comparte es solo de lo que ya
+  está a la venta** (bug real: en el enlace salía una fecha que aún no había salido).
+  ⚠️⚠️ **`_concerts_group_promoted_map` mira LAS DOS cosas** (`group_company_id` **y**
+  `ConcertCompanyShare`) y por eso recibe **las ACTIVIDADES, no sus ids**: mirando solo las
+  participaciones, una fecha con empresa del grupo puesta salía como «de un tercero» y se le pedían
+  las ventas al promotor (bug real que sacó la prueba). Existe para no hacer una consulta por
+  actividad en cada carga de Contratación.
+  ⚠️ **El TOKEN se crea dentro de `_sales_request_context`**, no en cada sitio que compone el
+  correo: sin él no hay enlace y el botón «Actualizar ventas» desaparecería **sin dar ningún
+  error**. Y `_sales_request_link` **compone la ruta a mano si `url_for` no puede** («Working
+  outside of application context»: esto se monta también desde un barrido o un hilo).
+  ⚠️ Los tres endpoints de dentro (`concert_ticketing_contact_save`, `concert_sales_request_preview`
+  y `_send`) van en **`SUPPORT_ACTION_ENDPOINTS`**: esto lo hace **TICKETING**, que no tiene por qué
+  poder editar contratación, y el permiso (`can_set_concert_onsale`) se comprueba DENTRO. Los cuatro
+  públicos, en sus listas.
+  ⚠️ **En el MÓVIL la tabla se lee como TARJETAS**, no se desliza: esta pantalla la rellena el
+  promotor **desde el teléfono** y con la tabla a lo ancho el campo del total se queda fuera de la
+  pantalla (comprobado a 375 px: sin desbordes y con el campo entero a la vista).
+  · **DÓNDE SE CONFIGURA**: junto a **«¿Quién saca las entradas a la venta?»** (la sección «Entradas
+  y venta» de la ficha de contratación), en la pestaña **Ticketing** y en la **tarea** de la pestaña
+  «Inicio». Los tres abren el MISMO pop-up (`_ticketing_contact_modal.html`) y el mismo endpoint:
+  ⚠️ el formulario de «entradas» **no lo guarda**, para no tener dos escritores del mismo dato.
+  ⚠️ El pop-up va **FUERA de `#concert-general-zone`**: esa zona se reemplaza por AJAX al guardar
+  una sección y se llevaría el modal por delante.
+
+- ⚠️⚠️ **ACTUALIZACIÓN DE VENTAS · LAS TRAMPAS QUE SACÓ LA REVISIÓN** (sep 2026). Todas de dinero o
+  de privacidad, y ninguna daba error:
+  ⚠️⚠️ **SI LA ACTIVIDAD LLEVA SUS VENTAS EN EL MODO BÁSICO, SE SIGUE EN EL MODO BÁSICO** aunque
+  tenga tipos de entrada (`_et_concert_has_legacy_sales` en `_sales_request_ticket_rows`). Una
+  actividad de un promotor de fuera casi siempre tiene tipos (los crea el asistente) y **no tiene
+  ticketera nuestra**, y en ese caso `/ventas` guarda en la tabla LEGACY (`ticket_sales`). Si el
+  reporte escribiera en `TicketSaleDetail`: (a) `sales_maps_unified` **descarta el legacy en cuanto
+  hay UNA fila V2**, así que el total del concierto pasaría de 300 a lo que trajera el reporte, y
+  (b) la base saldría a 0 y el primer reporte contaría **el histórico entero como «vendidas hoy»**
+  (y su recaudación como recaudación del día). Un total global no se puede repartir por tipos sin
+  inventárselo. Por lo mismo, **un reporte de ceros NO crea filas V2** (una fila a cero no aporta
+  nada y basta una para matar el legacy).
+  ⚠️⚠️ **EL DELTA SE CALCULA CONTRA TODO LO QUE CONSTA MENOS EL APUNTE QUE SE PISA**: `base` + lo de
+  HOY de las **OTRAS** ticketeras. El acumulado del concierto es la suma de todas
+  (`sales_maps_v2`), así que restando solo la base se contaba dos veces lo que administración
+  hubiera apuntado hoy en otra ticketera (o lo que hubiera espejado Enterticket): entradas y
+  recaudación **duplicadas**. Tras guardar, el acumulado es EXACTAMENTE el total reportado.
+  ⚠️⚠️ **UN TOTAL CON PUNTO NO SE MULTIPLICA**: con un `replace('.','')` a secas, «10.5» se guardaba
+  como **105**. Punto único **`_sales_request_parse_qty`** (espejado en el `num()` del JS de la
+  página): son ENTRADAS, así que **no admite decimales**, el punto solo se quita cuando de verdad
+  separa miles (`1.250` → 1250) y hay tope de cordura (`SALES_REQUEST_MAX_QTY`), para que un número
+  absurdo se rechace con un aviso en vez de con un error de Postgres.
+  ⚠️ **Si no se guarda NADA no se dice «¡Gracias!»**: con `saved == 0` (la pantalla está vieja y sus
+  tipos ya no existen) se responde 409 diciéndolo. Y el texto de la excepción **no sale a la cara de
+  nadie**: el detalle va al log.
+  ⚠️⚠️ **EL FORMULARIO PÚBLICO DE DERIVAR NO ES UN ORÁCULO**: buscar el correo en TODA la base y
+  reutilizar lo que se encontrara lo convertía en un «dame un correo → te digo de quién es» (y
+  encima le escribía los huecos vacíos de su ficha). Solo se reutiliza una ficha que **ya sea del
+  propio promotor o esté YA vinculada con él**; con el correo de un tercero ajeno se crea una ficha
+  nueva y a la suya **no se le toca nada**.
+  ⚠️⚠️ **EL MENÚ DE COMPARTIR SE DELEGA EN `document`, NO EN LA TARJETA**: el ayudante global de
+  desplegables (`scripts.js`) **teletransporta el `<ul class="dropdown-menu">` al `<body>`** al
+  abrirlo, así que un listener colgado de la tarjeta no vuelve a ver esos botones y las cuatro
+  opciones **no hacían nada** (comprobado en el navegador: el menú abierto ya no está dentro de
+  `[data-sales-share]`). Es el mismo patrón que `[data-lc-share]`.
+  ⚠️⚠️ **EL «+» DE ALTA RÁPIDA PERDÍA EL ID en TODOS los buscadores de la casa** (no solo aquí):
+  `quick_create.js` rellena el texto y el oculto y avisa del cambio, y ese `change` disparaba el
+  `resolveSelection` de `typeahead.js`, que busca el texto en el DATALIST —vacío a propósito en los
+  buscadores con imagen—, no lo encuentra y **BORRA el oculto**: se creaba el tercero y su id se
+  perdía. Arreglado en el punto único: `input.app33TaPick(id, label)` siembra lo elegido y
+  `quick_create.js` la llama si está (comprobado en el navegador: sin sembrar, el oculto se queda
+  vacío).
+  ⚠️ **El enlace lleva el token con el que se ESCRIBEN las ventas**: «Ver la página que reciben» y
+  el `data-url-public` van dentro de `{% if CAN_SET_ONSALE %}`, como el resto de los enlaces con
+  token.
+  ⚠️ **El «Derivar» del ENLACE es de la actividad del enlace**, no de la más próxima (que es la
+  principal del contexto): con varias a la venta, «Solo para este» configuraba otra. Y la opción
+  **dice cuál** (`this_label`).
+  ⚠️ **Un correo que no sale se APUNTA** (`Concert.sales_request_error*`): no se reintenta antes de
+  `SALES_REQUEST_RETRY_HOURS` (4) y la pestaña Ticketing lo DICE («el último correo no salió»). Y en
+  el envío a mano, los destinatarios que fallaron no se cuentan como enviados.
+  ⚠️ **Lo que ya se le pidió HOY no se repite**: si a media mañana entra una actividad nueva de ese
+  promotor, le llega un correo con LO QUE FALTA, no otra vez todo.
+  ⚠️ **La consulta de candidatas se acota en SQL** (fecha y `LEGACY_ACTIVITY_CUTOFF`): sin eso el
+  barrido se traía todo el histórico de actividades vendidas en cada pasada horaria.
+  ⚠️ **`ticketing_contact` se pinta legible en «Más información»** («Responsable de ticketing») y
+  queda **fuera del volcado genérico** de `_concert_contracting_general_rows`: si no, la ficha
+  enseñaba el JSON en crudo con el id dentro (visto en pantalla).
+  ⚠️ **`public_sales_update*` y `public_sales_derive` van en `REQUEST_ANY_ENDPOINTS`**: son enlaces
+  públicos (los autoriza su token) pero también los abre gente de la casa desde «Ver la página que
+  reciben», y ahí el gate de permisos no les resolvía sección y en un POST **solo pasaba dirección**
+  (403, y en pantalla un «No se pudo guardar» sin explicación).
+  ⚠️ El aviso de la página se pinta con **`textContent`**, no con `innerHTML`: lleva el nombre de un
+  tipo de entrada, que lo escribe una persona.
+
+- ⚠️ **INVITACIONES · «Por contrato» / «Disponibles» / «?»** (sep 2026). En el listado de
+  actividades de **Gestionar invitaciones** la galleta decía «Disponibles» y pintaba **lo pactado
+  por contrato**. Ahora lo dice el dato (`_invitation_event_counts` devuelve `uploaded`, `contract`
+  y `contract_known`): con entradas **SUBIDAS**, lo que hay para repartir son ESAS y se llama
+  **«Disponibles»**; sin nada subido, lo único que se sabe es lo **PACTADO POR CONTRATO** y así se
+  dice; y si **no consta nada configurado** se pinta **«?»** en vez de un 0, que parecería un dato.
+  Un 0 configurado sí es un 0.
+  ⚠️⚠️ «No configurado» NO es «configurado a 0», y **tener CATEGORÍAS tampoco es tenerlo
+  configurado**: `_invitation_category_legacy_rows` siempre devuelve al menos una fila «General» a 0
+  (la de relleno) y `_invitation_get_categories(..., ensure_defaults=True)` la MATERIALIZA en la BD
+  con `source='DEFAULT'` en cuanto alguien abre la pantalla de esa actividad — dando eso por
+  configurado, el «?» no aparecía NUNCA (bug real que sacó la revisión). `contract_known` solo
+  cuenta lo que viene de un sitio de verdad: una categoría con `source != 'DEFAULT'` o con alguna
+  cantidad, el contrato de la actividad o los tipos de entrada.
+  ⚠️ `configured` y `result` **no se han tocado**: son la puerta de negocio de «cuántas se pueden
+  pedir/comprometer» (`_invitation_event_counts(...)['result']`) y cambiarlos movería ese límite.

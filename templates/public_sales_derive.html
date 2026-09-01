@@ -1,0 +1,170 @@
+{# DERIVAR EL TICKETING · la página que abre el promotor desde el correo.
+   Standalone (como el resto de las públicas). Estilo de casa: el logo de la empresa del grupo
+   arriba a la DERECHA y el título CENTRADO. Enseña quién recibe hoy las solicitudes y pide los
+   datos de la persona que las va a recibir a partir de ahora.
+   ⚠️ Al guardar se pregunta CON DOS OPCIONES (con su icono) si vale para todos sus eventos o solo
+   para este: si es solo para este, la configuración del tercero NO se toca. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Actualizar responsable de ticketing</title>
+  <meta name="robots" content="noindex">
+  <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+  <style>
+    :root{ --brand:#E33D48; --accent:#007CA2; --line:#e5e7eb; --muted:#6b7280; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; background:#f5f7fb; color:#111827; font-family:Arial,Helvetica,sans-serif; }
+    .page{ max-width:760px; margin:28px auto; padding:0 16px; }
+    .sheet{ background:#fff; border:1px solid var(--line); border-radius:22px;
+            box-shadow:0 18px 42px rgba(15,23,42,.08); padding:26px 28px 34px; }
+    .brand-row{ display:flex; justify-content:flex-end; min-height:34px; }
+    .brand{ max-height:56px; max-width:190px; object-fit:contain; }
+    h1{ font-size:28px; margin:10px 0 20px; text-align:center; }
+    .actual{ border:1px solid var(--line); border-radius:16px; background:#fcfcfd; padding:14px 16px;
+             display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+    .actual__foto{ flex:0 0 auto; width:56px; height:56px; border-radius:50%; object-fit:cover;
+                   border:1px solid var(--line); background:#fff; }
+    .eyebrow{ font-size:11px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:#8b95a1; }
+    .actual__name{ font-size:18px; font-weight:800; margin:2px 0 2px; }
+    .actual__meta{ color:#4b5563; font-size:14px; }
+    .actual__meta i{ color:var(--accent); width:16px; text-align:center; margin-right:6px; }
+    p.lead{ font-size:15px; line-height:1.7; margin:22px 0 14px; }
+    label.campo{ display:block; margin-bottom:12px; }
+    label.campo span{ display:block; font-size:13px; color:var(--muted); font-weight:700; margin-bottom:4px; }
+    input.txt{ width:100%; padding:11px 12px; border:1px solid #d7dbe0; border-radius:10px; font-size:15px; }
+    input.txt:focus{ outline:2px solid rgba(227,61,72,.25); border-color:var(--brand); }
+    /* LAS DOS OPCIONES, con su icono (el patrón de tarjetas de la app). */
+    .opciones{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin:6px 0 18px; }
+    .op{ position:relative; }
+    .op input{ position:absolute; opacity:0; pointer-events:none; }
+    .op__box{ display:block; border:1px solid var(--line); border-radius:14px; background:#fff;
+              padding:14px; text-align:center; cursor:pointer; height:100%; }
+    .op input:checked + .op__box{ border-color:var(--brand); box-shadow:0 0 0 3px rgba(227,61,72,.12);
+                                  background:#fffafa; }
+    .op__box i{ display:block; font-size:24px; margin-bottom:8px; color:#111827; }
+    .op__box strong{ display:block; font-size:14px; }
+    .op__box small{ display:block; color:var(--muted); font-size:12px; margin-top:4px; }
+    .guardar{ padding:12px 22px; background:var(--brand); color:#fff; border:0; border-radius:10px;
+              font-weight:700; font-size:15px; cursor:pointer; }
+    .aviso{ font-size:14px; border-radius:12px; padding:12px 14px; margin:0 0 16px; }
+    .aviso.err{ background:#fdecee; color:#b3242e; }
+    .aviso.ok{ background:#e8f7ee; color:#146c43; }
+    .aviso.warn{ background:#fff8e1; color:#8a6100; }
+    .volver{ display:inline-block; margin-top:18px; color:var(--accent); font-size:14px; }
+    ul.acts{ margin:8px 0 0; padding-left:20px; color:#4b5563; font-size:14px; }
+    @media (max-width:575.98px){
+      .sheet{ padding:18px 14px 26px; border-radius:16px; }
+      h1{ font-size:23px; }
+      .guardar{ width:100%; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="sheet">
+    <div class="brand-row">
+      {% if ctx.logo_url %}<img class="brand" src="{{ ctx.logo_url }}" alt="{{ ctx.company_name }}">{% endif %}
+    </div>
+    <h1>Actualizar responsable de ticketing</h1>
+
+    {% if done %}
+      {% if sent_to %}
+        <div class="aviso ok">
+          <i class="fa-solid fa-circle-check"></i> Listo. A partir de ahora las solicitudes de
+          actualización de ventas se le mandan a <strong>{{ current.name or sent_to }}</strong>
+          ({{ sent_to }}){% if scope == 'ALL' %} para <strong>todos tus eventos</strong>{% else %}
+          para <strong>esta actividad</strong>{% endif %}. Ya le hemos reenviado esta misma
+          solicitud.
+        </div>
+      {% else %}
+        <div class="aviso warn">
+          <i class="fa-solid fa-triangle-exclamation"></i> Hemos guardado el nuevo responsable de
+          ticketing, pero <strong>no hemos podido enviarle el correo</strong>. Avísale tú, por favor.
+          {% if send_error %}<div style="margin-top:6px;font-size:13px;">{{ send_error }}</div>{% endif %}
+        </div>
+      {% endif %}
+      <a class="volver" href="{{ url_for('public_sales_update', token=token) }}">← Volver a actualizar ventas</a>
+    {% else %}
+      {% if error %}<div class="aviso err"><i class="fa-solid fa-circle-exclamation"></i> {{ error }}</div>{% endif %}
+
+      <div class="actual">
+        {% if current and current.photo %}
+          <img class="actual__foto" src="{{ current.photo }}" alt="">
+        {% else %}
+          <img class="actual__foto" src="{{ url_for('static', filename='img/avatar_placeholder.png') }}" alt="">
+        {% endif %}
+        <div>
+          <div class="eyebrow">Recibe hoy las solicitudes</div>
+          <div class="actual__name">{{ (current.name if current else '') or 'Sin responsable configurado' }}</div>
+          <div class="actual__meta">
+            {% if current and current.email %}<span><i class="fa-solid fa-envelope"></i>{{ current.email }}</span>{% endif %}
+            {% if current and current.phone %}<span style="margin-left:14px;"><i class="fa-solid fa-phone"></i>{{ current.phone }}</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <p class="lead">
+        Añade la persona que quieres que a partir de ahora reciba las solicitudes para actualizar
+        las ventas.
+      </p>
+
+      <form method="post" action="{{ url_for('public_sales_derive', token=token) }}">
+        <label class="campo">
+          <span>Nombre completo</span>
+          <input class="txt" type="text" name="name" required autocomplete="name"
+                 value="{{ (form.name if form else '') or '' }}">
+        </label>
+        <label class="campo">
+          <span>Email</span>
+          <input class="txt" type="email" name="email" required autocomplete="email"
+                 value="{{ (form.email if form else '') or '' }}">
+        </label>
+        <label class="campo">
+          <span>Teléfono</span>
+          <input class="txt" type="text" name="phone" autocomplete="tel"
+                 value="{{ (form.phone if form else '') or '' }}">
+        </label>
+
+        <div class="eyebrow" style="margin-top:18px;">¿Para qué eventos?</div>
+        <div class="opciones">
+          <label class="op">
+            <input type="radio" name="scope" value="ALL" checked>
+            <span class="op__box">
+              <i class="fa-solid fa-calendar-days"></i>
+              <strong>Actualizar para todos mis eventos</strong>
+              <small>Recibirá las solicitudes de todas tus actividades.</small>
+            </span>
+          </label>
+          <label class="op">
+            <input type="radio" name="scope" value="ONE">
+            <span class="op__box">
+              <i class="fa-solid fa-calendar-day"></i>
+              <strong>Solo para este</strong>
+              {# Se DICE cuál, que con varias actividades a la venta «este» no identifica nada. #}
+              <small>Solo para
+                {%- if this_label %} <strong>{{ this_label }}</strong>{% else %} esta actividad{% endif -%}
+                ; el resto sigue como está.</small>
+            </span>
+          </label>
+        </div>
+
+        {% if activities and activities|length > 1 %}
+          <div class="eyebrow">Tus actividades a la venta</div>
+          <ul class="acts">
+            {% for a in activities %}
+              <li>{{ a.heading }}{% if a.place_name %} · {{ a.place_name }}{% endif %}{% if a.date_label %} · {{ a.date_label }}{% endif %}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+
+        <div style="margin-top:20px;">
+          <button class="guardar" type="submit"><i class="fa-solid fa-check"></i> Guardar</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+</div>
+</body>
+</html>

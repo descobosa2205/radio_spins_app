@@ -299,7 +299,7 @@
                   {{ t.blocked_reason }}
                 {% elif t.generic %}
                   {# No es de una persona: es del departamento (contratación / ticketing). #}
-                  Del departamento
+                  {% if t.hint %}{{ t.hint }} · {% endif %}Del departamento
                 {% else %}
                   {% if t.hint %}{{ t.hint }} · {% endif %}{{ 'Es tuya' if t.mine else 'La tiene ' ~ (t.owner_nick or '—') }}{% if t.contact %} · {{ t.contact }}{% endif %}
                 {% endif %}
@@ -339,6 +339,13 @@
                 {% elif t.url %}
                   <a class="btn btn-sm btn-warning" href="{{ t.url }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Hacerlo' }}</a>
                 {% endif %}
+              {% endif %}
+              {# Una tarea DEL DEPARTAMENTO que se resuelve en un pop-up: su botón NO cuelga de
+                 `t.mine` (no la tiene nadie asignada, la hace quien llegue). #}
+              {% if t.modal and t.state != 'done' and CAN_SET_ONSALE %}
+                <button class="btn btn-sm btn-warning" type="button"
+                        data-bs-toggle="modal" data-bs-target="{{ t.modal }}">
+                  <i class="fa {{ t.icon }} me-1"></i>{{ t.action_label or 'Configurarlo' }}</button>
               {% endif %}
               {# LA CAMPANITA: reclamársela a quien la tiene. #}
               {% if t.nudge_url %}
@@ -411,6 +418,8 @@
       </div>
     </div>
 
+    {% include '_ticketing_contact_modal.html' %}
+
     {# Informar al PERSONAL de que la actividad se cae o se mueve. ⚠️ Al ARTISTA no: a él se le
        avisa por su canal, y no es personal de la casa. #}
     <div class="modal fade" id="cancelStaffModal" tabindex="-1" aria-hidden="true">
@@ -444,6 +453,9 @@
     </div>
 
   {% elif tab == 'general' %}
+    {# El pop-up del contacto de ticketing, FUERA de `#concert-general-zone`: esa zona se reemplaza
+       por AJAX al guardar una sección y se llevaría el modal por delante. #}
+    {% include '_ticketing_contact_modal.html' %}
     <div id="concert-general-zone" data-inline-zone>
 
     {% if CAN_EDIT_CONCERTS %}
@@ -1091,6 +1103,19 @@
             {% if tseller.get('label') %}
               {% set seller_kind_labels = {'US': 'Nosotros', 'PROMOTER': 'El promotor', 'VENUE': 'El recinto', 'THIRD': 'Un tercero'} %}
               <div><div class="ficha-field__label">Saca las entradas a la venta</div><div class="ficha-field__value">{{ seller_kind_labels.get(tseller.get('kind'), '') }}{% if tseller.get('label') %} · {{ tseller.get('label') }}{% endif %}</div></div>
+              {% if ticketing_applies %}
+                <div>
+                  <div class="ficha-field__label">Responsable de ticketing</div>
+                  <div class="ficha-field__value">
+                    {% if ticketing_contact and ticketing_contact.email %}
+                      {{ ticketing_contact.name or ticketing_contact.email }}
+                      <span class="text-muted small">· {{ ticketing_contact.email }}</span>
+                    {% else %}
+                      <span class="text-danger">Sin configurar</span>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endif %}
             {% elif tpay.get('sale_owner') %}
               <div><div class="ficha-field__label">Saca las entradas a la venta</div><div class="ficha-field__value">{{ tpay.get('sale_owner') }}</div></div>
             {% endif %}
@@ -1158,6 +1183,33 @@
                 </select>
                 <input type="hidden" name="sale_seller_third_kind" value="promoter">
               </div>
+              {# ── EL RESPONSABLE DE TICKETING, junto a quién vende las entradas ────────────────
+                 Es lo que se pidió: al decir quién vende, decir a QUIÉN se le piden las ventas.
+                 ⚠️ No se guarda en ESTE formulario: se toca en su propio pop-up (`#ticketingContactModal`,
+                 endpoint `concert_ticketing_contact_save`), que es el mismo que abre la tarea de
+                 contratación. Dos escritores del mismo dato es justo lo que no se quiere. ── #}
+              {% if ticketing_applies %}
+                <div class="col-md-4">
+                  <label class="form-label d-block">Responsable de ticketing</label>
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    {% if ticketing_contact and ticketing_contact.email %}
+                      <img src="{{ ticketing_contact.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                           style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
+                      <span class="small text-truncate" style="max-width:12rem;"
+                            title="{{ ticketing_contact.email }}">{{ ticketing_contact.name or ticketing_contact.email }}</span>
+                    {% else %}
+                      <span class="badge text-bg-warning text-dark"><i class="fa fa-triangle-exclamation me-1"></i>Sin configurar</span>
+                    {% endif %}
+                    {% if CAN_SET_ONSALE %}
+                      <button class="btn btn-sm btn-outline-secondary" type="button"
+                              data-bs-toggle="modal" data-bs-target="#ticketingContactModal">
+                        <i class="fa fa-address-book me-1"></i>Configurar
+                      </button>
+                    {% endif %}
+                  </div>
+                  <div class="form-text">Se le piden las ventas los lunes y los jueves.</div>
+                </div>
+              {% endif %}
               <div class="col-md-4">
                 <label class="form-label">Salida a la venta</label>
                 <div class="input-group">
@@ -2649,6 +2701,287 @@
     </div>
 
   {% elif tab == 'ticketing' %}
+    {# ---------- ACTUALIZACIÓN DE VENTAS (las vende un TERCERO: hay que pedírselas) ---------- #}
+    {% if sales_request and sales_request.applies %}
+      {% include '_ticketing_contact_modal.html' %}
+      <div class="card mb-3" data-sales-share
+           data-url-preview="{{ url_for('concert_sales_request_preview', cid=concert.id) }}"
+           data-url-send="{{ url_for('concert_sales_request_send', cid=concert.id) }}"
+           data-url-public="{{ sales_request.url if CAN_SET_ONSALE else '' }}"
+           data-subject="{{ sales_request.subject }}">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+            <div>
+              <h6 class="mb-0"><i class="fa fa-rotate me-1 text-danger"></i>Actualización de ventas</h6>
+              <div class="small text-muted">
+                Las entradas las vende <strong>{{ concert.promoter.nick if concert.promoter else 'un tercero' }}</strong>:
+                desde el día siguiente a la salida a la venta se le pide <strong>los lunes y los jueves</strong>
+                que las actualice.
+              </div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              {% if CAN_SET_ONSALE %}
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="fa fa-share-alt me-1"></i>Compartir
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><button class="dropdown-item" type="button" data-sales-act="copy"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                    <li><button class="dropdown-item" type="button" data-sales-act="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+                    <li><button class="dropdown-item" type="button" data-sales-act="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>SMS</button></li>
+                    <li><button class="dropdown-item" type="button" data-sales-act="mail"><i class="fa fa-envelope fa-fw me-1"></i>Email…</button></li>
+                  </ul>
+                </div>
+                <button class="btn btn-sm btn-outline-primary" type="button"
+                        data-bs-toggle="modal" data-bs-target="#ticketingContactModal">
+                  <i class="fa fa-address-book me-1"></i>Contacto de ticketing
+                </button>
+              {% endif %}
+              {# ⚠️ El enlace lleva el TOKEN con el que se ESCRIBEN las ventas: solo se le pinta a
+                 quien puede tocar el ticketing, igual que el resto de los enlaces con token. #}
+              {% if CAN_SET_ONSALE and sales_request.url %}
+                <a class="btn btn-sm btn-outline-dark" href="{{ sales_request.url }}" target="_blank" rel="noopener">
+                  <i class="fa fa-arrow-up-right-from-square me-1"></i>Ver la página que reciben
+                </a>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if ticketing_contact and ticketing_contact.email %}
+              <img src="{{ ticketing_contact.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                   style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+              <span class="small">
+                <strong>{{ ticketing_contact.name or ticketing_contact.email }}</strong>
+                <span class="text-muted">· {{ ticketing_contact.email }}</span>
+                {% if ticketing_contact.source == 'PROMOTER' %}
+                  <span class="badge text-bg-light border ms-1">El correo del promotor</span>
+                {% elif ticketing_contact.source == 'PROMOTER_DEFAULT' %}
+                  <span class="badge text-bg-light border ms-1">Contacto del tercero</span>
+                {% endif %}
+              </span>
+            {% else %}
+              <span class="badge text-bg-warning text-dark"><i class="fa fa-triangle-exclamation me-1"></i>Sin contacto de ticketing</span>
+              <span class="small text-muted">Sin un correo no se le puede pedir nada: configúralo.</span>
+            {% endif %}
+            {% if sales_request.error %}
+              <span class="small text-danger ms-auto" title="{{ sales_request.error }}">
+                <i class="fa fa-triangle-exclamation me-1"></i>El último correo no salió
+                {% if sales_request.error_label %}({{ sales_request.error_label }}){% endif %}
+              </span>
+            {% elif sales_request.last_label %}
+              <span class="small text-muted ms-auto">
+                <i class="fa fa-paper-plane me-1"></i>Última solicitud: {{ sales_request.last_label }}
+                {% if sales_request.count %}· {{ sales_request.count }} en total{% endif %}
+              </span>
+            {% else %}
+              <span class="small text-muted ms-auto"><i class="fa fa-circle-info me-1"></i>Todavía no se le ha pedido ninguna vez.</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {# El pop-up de COMPARTIR: si el promotor tiene más de una actividad a la venta se ofrecen
+         todas con la de esta ficha ya marcada; y por correo, la vista previa de siempre. #}
+      {% if CAN_SET_ONSALE %}
+      <div class="modal fade" id="salesShareModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fa fa-share-alt me-2 text-danger"></i>Pedir la actualización de ventas</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row g-3">
+                <div class="col-12 col-lg-5">
+                  {% if sales_request.others|length > 1 %}
+                    <h6 class="mb-2"><i class="fa fa-list-check me-1 text-muted"></i>¿Qué actividades?</h6>
+                    <div class="text-muted small mb-2">Este promotor tiene más de una a la venta. Va marcada la de esta ficha.</div>
+                    <div class="d-flex flex-column gap-1 mb-3">
+                      {% for a in sales_request.others %}
+                        <label class="d-flex align-items-center gap-2 small">
+                          <input class="form-check-input m-0" type="checkbox" data-sales-pick
+                                 value="{{ a.id }}" {% if a.is_this %}checked{% endif %}>
+                          <span>{{ a.place or a.name or 'Actividad' }}{% if a.date_label %} · {{ a.date_label }}{% endif %}</span>
+                        </label>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                  <div data-sales-mailbox class="d-none">
+                    <label class="form-label small mb-1">A quién</label>
+                    {% if ticketing_contact and ticketing_contact.email %}
+                      <label class="d-flex align-items-center gap-2 small mb-1">
+                        <input class="form-check-input m-0" type="checkbox" data-sales-to-contact checked>
+                        <span>{{ ticketing_contact.name or ticketing_contact.email }} <span class="text-muted">({{ ticketing_contact.email }})</span></span>
+                      </label>
+                    {% endif %}
+                    <input class="form-control form-control-sm" data-sales-emails
+                           placeholder="Otros correos: uno@ejemplo.com, otro@ejemplo.com">
+                    <label class="form-label small mb-1 mt-3">Nota <span class="text-muted">(sale bajo el título)</span></label>
+                    <textarea class="form-control form-control-sm" rows="3" data-sales-note
+                              placeholder="Lo que quieras añadir."></textarea>
+                    <div class="text-muted small mt-2">Asunto: <strong data-sales-subject>{{ sales_request.subject }}</strong></div>
+                  </div>
+                  <div data-sales-linkbox class="d-none">
+                    <label class="form-label small mb-1">El enlace que se comparte</label>
+                    <div class="input-group input-group-sm">
+                      <input class="form-control" data-sales-link readonly>
+                      <button class="btn btn-outline-secondary" type="button" data-sales-copy><i class="fa fa-copy"></i></button>
+                    </div>
+                    <div class="form-text">Al pinchar «Compartir» se abre WhatsApp, el SMS o el correo con este enlace.</div>
+                  </div>
+                </div>
+                <div class="col-12 col-lg-7">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="m-0"><i class="fa fa-envelope-open-text me-1 text-muted"></i>Vista previa</h6>
+                    <span class="text-muted small">Es exactamente lo que se manda</span>
+                  </div>
+                  <div class="an-preview" data-sales-preview></div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary" type="button" data-sales-do>
+                <i class="fa fa-paper-plane me-1"></i><span data-sales-do-label>Enviar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+      <script>
+      (function(){
+        /* COMPARTIR la solicitud de actualización de ventas.
+           · Copiar / WhatsApp / SMS comparten el ENLACE público (nunca la pestaña de la app: quien
+             lo recibe no tiene usuario).
+           · Por correo lo compone el SERVIDOR, con la vista previa de siempre y el MISMO asunto y
+             cuerpo que la solicitud automática.
+           ⚠️ Solo se pregunta qué actividades cuando el promotor tiene MÁS DE UNA a la venta. */
+        var root = document.querySelector('[data-sales-share]');
+        if (!root) return;
+        var modalEl = document.getElementById('salesShareModal');
+        var base = root.getAttribute('data-url-public') || '';
+        var asunto = root.getAttribute('data-subject') || '';
+        var modo = 'copy';
+        var timer = null;
+
+        function picks(){
+          var todos = Array.prototype.slice.call(document.querySelectorAll('[data-sales-pick]'));
+          if (!todos.length) return [];
+          return todos.filter(function(c){ return c.checked; }).map(function(c){ return c.value; });
+        }
+        function totalPicks(){ return document.querySelectorAll('[data-sales-pick]').length; }
+        function enlace(){
+          var ids = picks();
+          if (!ids.length || ids.length === totalPicks()) return base;
+          return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'only=' + ids.join(',');
+        }
+        function copia(url){
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(function(){ alert('Enlace copiado.'); })
+              .catch(function(){ window.prompt('Copia este enlace:', url); });
+          } else { window.prompt('Copia este enlace:', url); }
+        }
+        function ejecuta(){
+          var url = enlace();
+          if (modo === 'copy') copia(url);
+          else if (modo === 'whatsapp' && window.shareByWhatsapp) shareByWhatsapp(asunto, url);
+          else if (modo === 'sms' && window.shareBySms) shareBySms(asunto, url);
+          else if (modo === 'mail') return manda();
+          if (modalEl && window.bootstrap) {
+            var m = bootstrap.Modal.getInstance(modalEl); if (m) m.hide();
+          }
+        }
+        function previa(){
+          var caja = modalEl && modalEl.querySelector('[data-sales-preview]');
+          if (!caja) return;
+          var nota = (modalEl.querySelector('[data-sales-note]') || {}).value || '';
+          fetch(root.getAttribute('data-url-preview'), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ note: nota, activities: picks() })
+          }).then(function(r){ return r.json(); }).then(function(d){
+            if (d && d.ok) {
+              caja.innerHTML = d.html || '';
+              var su = modalEl.querySelector('[data-sales-subject]');
+              if (su) su.textContent = d.subject || '';
+            }
+          }).catch(function(){});
+        }
+        function previaPronto(){ clearTimeout(timer); timer = setTimeout(previa, 350); }
+        function manda(){
+          var btn = modalEl.querySelector('[data-sales-do]');
+          var previo = btn.innerHTML;
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+          var conContacto = modalEl.querySelector('[data-sales-to-contact]');
+          fetch(root.getAttribute('data-url-send'), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              note: (modalEl.querySelector('[data-sales-note]') || {}).value || '',
+              activities: picks(),
+              to_contact: !conContacto || conContacto.checked,
+              emails: (modalEl.querySelector('[data-sales-emails]') || {}).value || ''
+            })
+          }).then(function(r){ return r.json().catch(function(){ return null; }); }).then(function(d){
+            btn.disabled = false; btn.innerHTML = previo;
+            if (!d || !d.ok) { alert((d && d.error) || 'No se pudo enviar.'); return; }
+            var texto = (d.recipients || []).length
+              ? 'Solicitud enviada a: ' + (d.recipients || []).join(', ')
+              : 'No salió ningún correo.';
+            if (d.warning) texto += '\n\n' + d.warning;
+            alert(texto);
+            window.location.reload();
+          }).catch(function(){
+            btn.disabled = false; btn.innerHTML = previo;
+            alert('No se pudo enviar.');
+          });
+        }
+
+        /* ⚠️⚠️ La delegación va en `document`, NO en la tarjeta: el ayudante global de
+           desplegables (`scripts.js`) TELETRANSPORTA el `<ul class="dropdown-menu">` al `<body>`
+           al abrirlo, así que un listener colgado de la tarjeta no vuelve a ver esos botones y
+           las cuatro opciones de «Compartir» no harían nada (es el mismo patrón que
+           `[data-lc-share]`). */
+        document.addEventListener('click', function(ev){
+          var b = ev.target.closest && ev.target.closest('[data-sales-act]');
+          if (!b) return;
+          modo = b.getAttribute('data-sales-act') || 'copy';
+          // Con una sola actividad y sin correo no hay nada que preguntar: se hace y ya.
+          if (modo !== 'mail' && totalPicks() <= 1) { ejecuta(); return; }
+          if (!modalEl || !window.bootstrap) { ejecuta(); return; }
+          var esCorreo = modo === 'mail';
+          modalEl.querySelector('[data-sales-mailbox]').classList.toggle('d-none', !esCorreo);
+          modalEl.querySelector('[data-sales-linkbox]').classList.toggle('d-none', esCorreo);
+          var etiqueta = modalEl.querySelector('[data-sales-do-label]');
+          if (etiqueta) etiqueta.textContent = esCorreo ? 'Enviar el correo'
+            : (modo === 'copy' ? 'Copiar el enlace' : 'Compartir');
+          var campo = modalEl.querySelector('[data-sales-link]');
+          if (campo) campo.value = enlace();
+          new bootstrap.Modal(modalEl).show();
+          if (esCorreo) previa();
+        });
+
+        if (modalEl) {
+          modalEl.addEventListener('change', function(ev){
+            if (ev.target.matches('[data-sales-pick]')) {
+              var campo = modalEl.querySelector('[data-sales-link]');
+              if (campo) campo.value = enlace();
+              if (modo === 'mail') previa();
+            }
+          });
+          modalEl.addEventListener('input', function(ev){
+            if (ev.target.matches('[data-sales-note]')) previaPronto();
+          });
+          modalEl.addEventListener('click', function(ev){
+            if (ev.target.closest('[data-sales-copy]')) { copia(enlace()); return; }
+            if (ev.target.closest('[data-sales-do]')) ejecuta();
+          });
+        }
+      })();
+      </script>
+    {% endif %}
+
     {# ---------- CANALES DE VENTA (cuando vende un promotor externo / recinto / tercero) ---------- #}
     {% set seller_kind = (sale_seller.get('kind') or '')|upper %}
     {% set external_seller = seller_kind in ['PROMOTER', 'VENUE', 'THIRD'] or (not seller_kind and (concert.sale_type or '')|upper == 'VENDIDO') %}

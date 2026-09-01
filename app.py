@@ -50266,12 +50266,15 @@ def _repertoire_songs_for_artists(s, artist_ids):
     """Canciones del repertorio de esos artistas (para el selector de 'añadir del repertorio').
 
     ⚠️ Con su **PORTADA**: es como se reconoce un tema de un golpe, y es lo que enseña el buscador
-    del repertorio de una actividad (`_performance_songs.html`)."""
+    del repertorio de una actividad (`_performance_songs.html`).
+    ⚠️ **DE LA MÁS RECIENTE A LA MÁS ANTIGUA** (por fecha de publicación): lo que se busca al montar
+    un repertorio es lo último que ha salido, no la «A» del abecedario. Lo que no tenga fecha va al
+    final, y a igualdad de fecha manda el título."""
     artist_ids = [a for a in (artist_ids or []) if a]
     if not artist_ids:
         return []
     rows = (s.query(Song).join(Song.artists).filter(Artist.id.in_(artist_ids))
-            .order_by(Song.title.asc()).all())
+            .order_by(Song.release_date.desc().nullslast(), Song.title.asc()).all())
     seen, out = set(), []
     for sg in rows:
         if sg.id in seen:

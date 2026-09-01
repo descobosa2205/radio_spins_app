@@ -8558,6 +8558,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   se pisa nada. Es *best-effort*: un fallo ahí no puede tumbar el alta.
   ⚠️ El repertorio que se ofrece es el de **TODOS los artistas** de la actividad
   (`_setlist_concert_artist_ids`), no solo el del primero.
+  ⚠️ **De la MÁS RECIENTE a la MÁS ANTIGUA** (`Song.release_date` desc, y a igualdad el título):
+  al montar un repertorio se busca lo último que ha salido, no la «A» del abecedario. Va en el punto
+  único, así que lo heredan el buscador de la ficha, el del asistente (`api_artist_wizard_meta`) y el
+  del set list. Como la lista de sugerencias se corta en 12, ese orden es lo que hace que se ofrezcan
+  **los 12 últimos lanzamientos**.
 
 - ⚠️⚠️ **UNA LISTA DE SUGERENCIAS TIENE QUE SEGUIR A SU CAMPO, Y NO TAPAR MEDIA PANTALLA** (sep 2026,
   bug real con captura en el selector de canciones). La lista de la casa se saca al `<body>` en

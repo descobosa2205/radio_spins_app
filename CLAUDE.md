@@ -8559,6 +8559,32 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ El repertorio que se ofrece es el de **TODOS los artistas** de la actividad
   (`_setlist_concert_artist_ids`), no solo el del primero.
 
+- ⚠️⚠️ **UNA LISTA DE SUGERENCIAS TIENE QUE SEGUIR A SU CAMPO, Y NO TAPAR MEDIA PANTALLA** (sep 2026,
+  bug real con captura en el selector de canciones). La lista de la casa se saca al `<body>` en
+  **`position:fixed`** para que no la recorte ningún `overflow`… y por eso **NO se movía con el
+  scroll**: al bajar por la página el campo se iba y las opciones se quedaban flotando en medio de
+  otra cosa. Tres cosas, todas en el punto único **`static/js/float_list.js`**:
+  · **`follow(input, box, opciones, onClose)`** la vuelve a colocar mientras está abierta (`scroll`
+    **en CAPTURA** —los eventos de scroll de un elemento no burbujean, pero la fase de captura de
+    `window` sí los ve, así que vale también para el cuerpo de un modal— y `resize`) y **la CIERRA**
+    cuando el campo se sale de la vista. Devuelve la función para dejar de seguirla, que hay que
+    llamar al cerrar (si no, quedan dos seguidores peleándose).
+  · **`{max: N}`** en `place`: doce resultados tapaban media pantalla. Con tope, la lista **se
+    desliza por dentro** (que es lo que se espera al mover la rueda encima de ella).
+  · ⚠️⚠️ **`ensureRoom` acerca el campo con `behavior: 'instant'`**: la app tiene
+    `scroll-behavior: smooth`, así que un `scrollIntoView` normal **ANIMA** y quien mide justo
+    después (el `place` de la línea siguiente) lee la posición **VIEJA** — la lista salía pegada a
+    donde ESTABA el campo y con el alto mínimo (120 px en vez de 320).
+  Ya enganchado en el selector de **canciones** (`performance_songs.js`) y en el buscador de
+  **proveedor** de un gasto (`bag_expense_form.js`). Medido: 12 resultados, alto 320, pegada a 2 px
+  del campo antes y después de moverse, y cerrada al irse el campo.
+  · **Y CADA CANCIÓN CON SU PORTADA** (`.wz-song__cover`), en las sugerencias y en las filas ya
+  elegidas: el catálogo (`api_artist_wizard_meta` y `_repertoire_songs_for_artists`) devuelve
+  `cover_url` y la fila del servidor la pinta igual que el JS.
+  ⚠️ Sin portada se cae a la de **«sin portada»** (`DEFAULT_COVER_URL`, que el JS lee de
+  `data-default-cover-url` del `<body>`), y si el archivo no se puede leer **el hueco se quita**
+  (`onerror="this.remove()"`) en vez de dejar un cuadro roto.
+
 - ⚠️⚠️ **LA DIRECCIÓN SE RELLENA EN DOS PASOS: primero la BARRA, luego los campos** (sep 2026). Sin
   recinto había cuatro campos a la vista (dirección, CP, municipio, provincia) y la barra buscando a
   la vez: la gente escribía el municipio a mano mientras la barra buscaba y la dirección se quedaba a

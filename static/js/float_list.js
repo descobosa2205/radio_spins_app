@@ -50,15 +50,48 @@
 
       box.style.left = Math.max(4, Math.min(r.left, window.innerWidth - r.width - 4)) + 'px';
       box.style.width = r.width + 'px';
+      // ⚠️ Con `{max: N}` la lista no pasa de ese alto: doce resultados tapaban media pantalla, y una
+      // lista que no puede crecer más SE DESLIZA por dentro (que es lo que se espera al mover la
+      // rueda encima de ella).
+      var tope = (opciones && opciones.max) ? opciones.max : Infinity;
       if (poner === 'arriba') {
         box.style.top = 'auto';
         box.style.bottom = (window.innerHeight - r.top + 2) + 'px';
-        box.style.maxHeight = Math.max(120, arriba) + 'px';
+        box.style.maxHeight = Math.min(tope, Math.max(120, arriba)) + 'px';
       } else {
         box.style.bottom = 'auto';
         box.style.top = (r.bottom + 2) + 'px';
-        box.style.maxHeight = Math.max(120, abajo) + 'px';
+        box.style.maxHeight = Math.min(tope, Math.max(120, abajo)) + 'px';
       }
+    },
+
+    /* ⚠️⚠️ UNA LISTA `position:fixed` NO SIGUE AL SCROLL: al mover la página (o el cuerpo de un
+       modal) se quedaba QUIETA mientras el campo se iba, con las opciones flotando en medio de otra
+       cosa (bug real, con captura). `follow` la vuelve a colocar mientras está abierta y la CIERRA
+       si el campo se sale de la vista. Devuelve la función para dejar de seguirla.
+       Es el mismo remedio que ya usaba el buscador de la casa; aquí es el punto único. */
+    follow: function (input, box, opciones, onClose) {
+      if (!input || !box) return function () {};
+      var self = this;
+      var vivo = true;
+      var recolocar = function () {
+        if (!vivo) return;
+        if (box.style.display === 'none') return;
+        var r = input.getBoundingClientRect();
+        // El campo ya no se ve (se ha ido con el scroll): la lista se cierra.
+        if (r.bottom < 0 || r.top > window.innerHeight) {
+          if (typeof onClose === 'function') onClose();
+          return;
+        }
+        self.place(input, box, opciones);
+      };
+      window.addEventListener('scroll', recolocar, true);
+      window.addEventListener('resize', recolocar);
+      return function () {
+        vivo = false;
+        window.removeEventListener('scroll', recolocar, true);
+        window.removeEventListener('resize', recolocar);
+      };
     },
 
     /* Antes de abrirla: si al campo no le queda sitio ni arriba ni abajo (está en el borde de un
@@ -73,7 +106,11 @@
           ? (window.innerHeight - r.bottom - 12)
           : (Math.max(window.innerHeight - r.bottom, r.top) - 12);
         if (hueco >= MIN_HUECO) return;
-        input.scrollIntoView({ block: 'center' });
+        /* ⚠️⚠️ `behavior: 'instant'` A PROPÓSITO: la app tiene `scroll-behavior: smooth`, así que un
+           `scrollIntoView` normal ANIMA y quien mide justo después (el `place` de la línea siguiente)
+           lee la posición VIEJA — la lista salía pegada a donde estaba el campo y con el alto mínimo
+           (bug real, con captura). */
+        input.scrollIntoView({ block: 'center', behavior: 'instant' });
       } catch (e) {}
     },
   };

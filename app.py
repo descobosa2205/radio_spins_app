@@ -49684,7 +49684,9 @@ def api_artist_wizard_meta(aid):
                     seen.add(key)
                     tags.append(tag)
         return jsonify({
-            "songs": [{"id": row["id"], "title": row["title"]} for row in songs],
+            # Con la PORTADA: el buscador del repertorio la enseña al lado del título.
+            "songs": [{"id": row["id"], "title": row["title"],
+                       "cover_url": row.get("cover_url") or ""} for row in songs],
             "tags": tags,
         })
     finally:
@@ -50261,7 +50263,10 @@ def _setlist_concert_artist_ids(c):
 
 
 def _repertoire_songs_for_artists(s, artist_ids):
-    """Canciones del repertorio de esos artistas (para el selector de 'añadir del repertorio')."""
+    """Canciones del repertorio de esos artistas (para el selector de 'añadir del repertorio').
+
+    ⚠️ Con su **PORTADA**: es como se reconoce un tema de un golpe, y es lo que enseña el buscador
+    del repertorio de una actividad (`_performance_songs.html`)."""
     artist_ids = [a for a in (artist_ids or []) if a]
     if not artist_ids:
         return []
@@ -50273,6 +50278,7 @@ def _repertoire_songs_for_artists(s, artist_ids):
             continue
         seen.add(sg.id)
         out.append({"id": str(sg.id), "title": sg.title or "—",
+                    "cover_url": (getattr(sg, "cover_url", None) or "").strip(),
                     "duration_seconds": int(getattr(sg, "duration_seconds", 0) or 0)})
     return out
 

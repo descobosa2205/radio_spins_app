@@ -21,6 +21,8 @@
 
   var caja = null;            // la lista de sugerencias (una sola para toda la página)
   var activo = null;          // el bloque que la está usando
+  var dejarDeSeguir = null;   // para dejar de recolocarla al cerrarla
+  var ALTO_MAX = 320;         // una lista más alta tapa media pantalla y no se deja deslizar
 
   function norm(t) {
     return String(t == null ? '' : t).toLowerCase()
@@ -45,7 +47,8 @@
       var datos = [];
       try { datos = JSON.parse((js && js.textContent) || '[]') || []; } catch (e) { datos = []; }
       root.__catalogo = datos.map(function (x) {
-        return { id: String((x && (x.id != null ? x.id : x.song_id)) || ''), title: (x && x.title) || '' };
+        return { id: String((x && (x.id != null ? x.id : x.song_id)) || ''),
+                 title: (x && x.title) || '', cover_url: (x && x.cover_url) || '' };
       }).filter(function (x) { return !!x.id; });
     }
     return root.__catalogo;
@@ -64,7 +67,16 @@
       cuenta.value = n ? String(n) : '';
     }
   }
-  function añade(root, id, title) {
+  /* La PORTADA de la canción (con la de «sin portada» de la casa como respaldo): es como se
+     reconoce un tema de un golpe, y sale igual en la lista y en las filas ya elegidas. */
+  function portada(url) {
+    var src = (url || '').trim() || (document.body.getAttribute('data-default-cover-url') || '');
+    if (!src) return '<span class="wz-song__cover"><i class="fa fa-music text-muted"></i></span>';
+    // Si la portada no se puede leer se queda el hueco (no un cuadro roto): la nota la pone el CSS.
+    return '<img class="wz-song__cover" src="' + esc(src) + '" alt="" onerror="this.remove()">';
+  }
+
+  function añade(root, id, title, cover) {
     var cont = root.querySelector('[data-perf-rows]');
     if (!cont || !id) return;
     if (filas(root).some(function (f) { return f.getAttribute('data-perf-row') === String(id); })) return;
@@ -75,6 +87,7 @@
     f.innerHTML =
       '<span class="wz-song__grip" title="Arrastra para cambiar el orden"><i class="fa fa-grip-vertical"></i></span>' +
       '<span class="wz-song__n" data-perf-n></span>' +
+      portada(cover) +
       '<span class="wz-song__t">' + esc(title) + '</span>' +
       '<button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto" data-perf-del title="Quitar"><i class="fa fa-xmark"></i></button>' +
       '<input type="hidden" name="performance_song_ids[]" value="' + esc(id) + '">';
@@ -93,14 +106,18 @@
       var it = ev.target.closest('[data-perf-pick]');
       if (!it || !activo) return;
       ev.preventDefault();
-      añade(activo, it.getAttribute('data-perf-pick'), it.getAttribute('data-perf-title'));
+      añade(activo, it.getAttribute('data-perf-pick'), it.getAttribute('data-perf-title'),
+            it.getAttribute('data-perf-cover'));
       var input = activo.querySelector('[data-perf-input]');
       if (input) { input.value = ''; input.focus(); }
       pinta(activo);
     });
     return caja;
   }
-  function cierra() { if (caja) caja.style.display = 'none'; }
+  function cierra() {
+    if (caja) caja.style.display = 'none';
+    if (dejarDeSeguir) { dejarDeSeguir(); dejarDeSeguir = null; }
+  }
   function resultados(root) {
     var input = root.querySelector('[data-perf-input]');
     var q = norm(input ? input.value : '');
@@ -118,8 +135,9 @@
     var b = laCaja();
     if (lista.length) {
       b.innerHTML = lista.map(function (x) {
-        return '<button type="button" class="ta-item" data-perf-pick="' + esc(x.id) + '" data-perf-title="' + esc(x.title) + '">' +
-          '<span class="ta-item__noimg d-flex align-items-center justify-content-center"><i class="fa fa-music text-muted"></i></span>' +
+        return '<button type="button" class="ta-item" data-perf-pick="' + esc(x.id) + '"' +
+          ' data-perf-title="' + esc(x.title) + '" data-perf-cover="' + esc(x.cover_url || '') + '">' +
+          portada(x.cover_url) +
           '<span class="ta-item__t">' + esc(x.title) + '</span></button>';
       }).join('');
     } else if (!catalogo(root).length) {
@@ -129,9 +147,19 @@
       cierra();
       return;
     }
-    if (window.app33FloatList) window.app33FloatList.ensureRoom(input);
-    b.style.display = 'block';
-    if (window.app33FloatList) window.app33FloatList.place(input, b);
+    /* ⚠️⚠️ La lista SIGUE AL CAMPO: es `position:fixed`, así que sin esto se quedaba QUIETA al mover
+       la página (o el cuerpo del modal) y las opciones acababan flotando sobre otra cosa. Y sale
+       SIEMPRE hacia abajo, con tope de alto para que se pueda deslizar por dentro. */
+    var opts = { abajo: true, max: ALTO_MAX };
+    if (window.app33FloatList) {
+      window.app33FloatList.ensureRoom(input, opts);
+      b.style.display = 'block';
+      window.app33FloatList.place(input, b, opts);
+      if (dejarDeSeguir) dejarDeSeguir();
+      dejarDeSeguir = window.app33FloatList.follow(input, b, opts, cierra);
+    } else {
+      b.style.display = 'block';
+    }
   }
 
   // ── El buscador ────────────────────────────────────────────────────────────────────────────
@@ -203,7 +231,8 @@
     setCatalog: function (root, songs) {
       if (!root) return;
       root.__catalogo = (songs || []).map(function (x) {
-        return { id: String((x && (x.id != null ? x.id : x.song_id)) || ''), title: (x && x.title) || '' };
+        return { id: String((x && (x.id != null ? x.id : x.song_id)) || ''),
+                 title: (x && x.title) || '', cover_url: (x && x.cover_url) || '' };
       }).filter(function (x) { return !!x.id; });
       if (activo === root) pinta(root);
     },

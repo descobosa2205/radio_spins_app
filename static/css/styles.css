@@ -823,6 +823,13 @@ label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !im
 }
 .wz-song.is-drag{ opacity:.45; }
 .wz-song__grip{ color:#adb5bd; cursor:grab; }
+/* La PORTADA de la canción, en la fila elegida y en la lista de sugerencias (cuadrada, como en el
+   repertorio: una portada no se recorta en círculo). */
+.wz-song__cover{
+  width:28px; height:28px; flex:0 0 auto; border-radius:.25rem; object-fit:cover; background:#f4f6f8;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.ta-item .wz-song__cover{ width:30px; height:30px; }
 .wz-song__n{ color:#6c757d; font-size:.8rem; min-width:1.4rem; text-align:right; }
 .wz-song__t{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 

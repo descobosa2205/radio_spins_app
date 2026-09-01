@@ -77,7 +77,8 @@
   }
 
   /* ---------------------------------------------------------------- 2 · EL PROVEEDOR */
-  var caja = null, activo = null;
+  var caja = null, activo = null, dejarDeSeguir = null;
+  var ALTO_MAX = 320;         // una lista más alta tapa media pantalla y no se deja deslizar
   function lista() {
     if (caja) return caja;
     caja = document.createElement('div');
@@ -96,7 +97,10 @@
     });
     return caja;
   }
-  function cierra() { if (caja) caja.style.display = 'none'; }
+  function cierra() {
+    if (caja) caja.style.display = 'none';
+    if (dejarDeSeguir) { dejarDeSeguir(); dejarDeSeguir = null; }
+  }
 
   function pinta(root, input, filas, campo) {
     activo = { root: root, campo: campo };
@@ -114,11 +118,18 @@
           '</span></button>';
       }).join('');
     }
-    // ⚠️ SIEMPRE HACIA ABAJO (un desplegable que se abre hacia arriba despista): si no hay hueco,
-    // el campo se acerca antes.
-    if (window.app33FloatList) window.app33FloatList.ensureRoom(input, { abajo: true });
-    b.style.display = 'block';
-    if (window.app33FloatList) window.app33FloatList.place(input, b, { abajo: true });
+    /* ⚠️ SIEMPRE HACIA ABAJO (un desplegable que se abre hacia arriba despista) y SIGUIENDO al
+       campo: es `position:fixed`, así que sin `follow` se quedaba quieta al mover la página. */
+    var opts = { abajo: true, max: ALTO_MAX };
+    if (window.app33FloatList) {
+      window.app33FloatList.ensureRoom(input, opts);
+      b.style.display = 'block';
+      window.app33FloatList.place(input, b, opts);
+      if (dejarDeSeguir) dejarDeSeguir();
+      dejarDeSeguir = window.app33FloatList.follow(input, b, opts, cierra);
+    } else {
+      b.style.display = 'block';
+    }
   }
 
   var timers = new WeakMap();

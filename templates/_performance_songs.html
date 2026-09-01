@@ -21,6 +21,8 @@
       <div class="wz-song" draggable="true" data-perf-row="{{ c.id }}">
         <span class="wz-song__grip" title="Arrastra para cambiar el orden"><i class="fa fa-grip-vertical"></i></span>
         <span class="wz-song__n" data-perf-n>{{ loop.index }}.</span>
+        {# La PORTADA de la canción (la de «sin portada» si no tiene). #}
+        <img class="wz-song__cover" src="{{ c.cover_url or DEFAULT_COVER_URL }}" alt="" onerror="this.remove()">
         <span class="wz-song__t">{{ c.title }}</span>
         <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto" data-perf-del title="Quitar"><i class="fa fa-xmark"></i></button>
         <input type="hidden" name="performance_song_ids[]" value="{{ c.id }}">

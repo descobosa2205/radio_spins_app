@@ -1909,7 +1909,8 @@
       const p = subjectPicked();
       return (p.events.length && !p.artists.length) ? 'EVENT' : 'ARTIST';
     }
-    function syncSubjectPick(){
+    // `avisar` = viene de un cambio del selector (entonces sí toca comprobar el solape del día).
+    function syncSubjectPick(avisar){
       const p = subjectPicked();
       const selA = document.getElementById('wizard_artist_id');
       const selE = document.getElementById('wizard_event_id');
@@ -1919,9 +1920,14 @@
       }
       if(selE) selE.value = p.events[0] || '';
       if(kind) kind.value = subjectKind();
-      // Lo que depende del artista: sus etiquetas, sus giras y su repertorio.
+      // Lo que depende del artista: sus etiquetas, sus giras, su repertorio y el aviso de que ese
+      // día ya tiene algo. ⚠️ Va aquí porque al oculto se le cambia la selección por código y eso
+      // NO dispara su `change`.
       try { filterTourCards(); } catch(e) {}
       try { fetchArtistMeta(); } catch(e) {}
+      // ⚠️ Solo al CAMBIAR el selector: `checkArtistConflict` pregunta con un `confirm`, y llamarlo
+      // también al validar un paso lo sacaría dos veces.
+      if (avisar) { try { checkArtistConflict(); } catch(e) {} }
     }
     function syncSubject(){ syncSubjectPick(); }
     // ⚠️ El evento ya NO tiene su propio buscador: se elige en el MISMO selector que los artistas.
@@ -1953,8 +1959,24 @@
     (function(){
       const sel = document.getElementById('wizard_subject_ids');
       if (!sel) return;
-      sel.addEventListener('change', syncSubjectPick);
-      try { if (window.jQuery) jQuery(sel).on('change', syncSubjectPick); } catch(e) {}
+      const alCambiar = function(){ syncSubjectPick(true); };
+      sel.addEventListener('change', alCambiar);
+      /* ⚠️⚠️ SELECT2 AVISA CON `jQuery.trigger('change')`, QUE **NO** DISPARA LOS LISTENERS
+         NATIVOS (comprobado en el navegador): con solo el `addEventListener` de arriba, elegir un
+         artista no rellenaba el campo oculto `wizard_artist_id` y el asistente decía «Debes
+         seleccionar un artista» teniéndolo elegido (bug real).
+         ⚠️ Y este `<script>` está EN LÍNEA en la plantilla, así que corre ANTES que jQuery (los
+         scripts de verdad van al final del `<body>`): con un `if (window.jQuery)` a secas el
+         enganche se saltaba en silencio. Se REINTENTA hasta que jQuery esté, como se hace con
+         Bootstrap en el resto de la casa. */
+      (function engancha(intentos){
+        if (window.jQuery) {
+          try { jQuery(sel).on('change', alCambiar); } catch (e) {}
+          return;
+        }
+        if ((intentos || 0) > 100) return;          // ~12 s: si no está, no está
+        setTimeout(function(){ engancha((intentos || 0) + 1); }, 120);
+      })(0);
     })();
     syncSubjectPick();
 
@@ -2654,6 +2676,9 @@
     }
 
     function validateStep(step){
+      // ⚠️ El espejo de «artistas / evento» a los campos del servidor se refresca AQUÍ: así lo que
+      // se valida es lo que de verdad está elegido, aunque el evento de cambio no haya llegado.
+      try { syncSubjectPick(); } catch(e) {}
       if(step === 12){
         if(subjectKind() === 'EVENT'){
           const ev = document.getElementById('wizard_event_id');

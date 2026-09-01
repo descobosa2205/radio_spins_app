@@ -8360,3 +8360,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   cantidad, el contrato de la actividad o los tipos de entrada.
   ⚠️ `configured` y `result` **no se han tocado**: son la puerta de negocio de «cuántas se pueden
   pedir/comprometer» (`_invitation_event_counts(...)['result']`) y cambiarlos movería ese límite.
+
+- ⚠️⚠️ **SELECT2 AVISA CON `jQuery.trigger('change')`, QUE NO DISPARA LOS LISTENERS NATIVOS** (bug
+  real con captura, sep 2026). En el asistente «+ Actividad» el selector de **«¿De quién es la
+  actividad?»** es un Select2 que ESPEJA lo elegido a los campos que espera el servidor
+  (`wizard_artist_id` / `wizard_event_id`, ocultos), y ese espejo colgaba de un
+  `sel.addEventListener('change', …)`: al elegir un artista **no se rellenaba nada** y el asistente
+  decía **«Debes seleccionar un artista»** teniéndolo elegido y a la vista.
+  ⚠️ `jQuery.trigger('change')` ejecuta **solo los manejadores de jQuery** (comprobado en el
+  navegador: un `addEventListener` nativo no se entera). Con un Select2, el enganche tiene que ser
+  **`jQuery(sel).on('change', …)`**.
+  ⚠️⚠️ Y el `<script>` del parcial está **EN LÍNEA**, así que corre **ANTES que jQuery** (los scripts
+  de verdad van al final del `<body>`): el `try { if (window.jQuery) … }` se saltaba **en silencio**.
+  Se **REINTENTA** hasta que jQuery esté, como ya se hace con Bootstrap y con `initTypeahead`.
+  ⚠️ **RED DE SEGURIDAD**: el espejo se refresca además **al validar cada paso**
+  (`validateStep` llama a `syncSubjectPick()`), así que lo que se valida y lo que se envía es lo que
+  de verdad está elegido aunque un día un evento no llegue.
+  ⚠️ Al oculto se le cambia la selección **por código**, y eso **no dispara su `change`**: lo que
+  dependía de él (las giras del artista, su repertorio y el aviso de «ese día ya tiene algo») se
+  llama desde el propio espejo. El aviso de solape, **solo cuando el selector CAMBIA de verdad**
+  (`syncSubjectPick(true)`): al validar un paso sacaría su `confirm` por segunda vez.
+  ⚠️ Comprobado que no queda ningún otro sitio así (barrido de los 33 selects con clase de Select2:
+  ninguno lleva un `addEventListener('change')` nativo).

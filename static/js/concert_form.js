@@ -253,12 +253,17 @@
 
   // ------------------------------------------------------------- "datos" (sale_type + tags)
   function applySaleType(form) {
+    /* ⚠️ EL PROMOTOR Y EL PUNTO DE EMPATE SE VEN SIEMPRE. Antes se escondían según el tipo de venta
+       y, además, el guardado los BORRABA: quien tenía un concierto «a empresa» o «participado» no
+       podía ni ver ni corregir quién lo promueve, y al guardar perdía el promotor que ya había.
+       Quién promueve es un dato de la actividad, no del tipo de venta. */
     var sel = form.querySelector('[data-sale-type]');
     var v = sel ? sel.value : '';
     var prom = form.querySelector('[data-promoter-wrap]');
     var be = form.querySelector('[data-breakeven-wrap]');
-    setShown(prom, ['VENDIDO', 'GRATUITO', 'GIRAS_COMPRADAS'].indexOf(v) >= 0);
-    setShown(be, !(v === 'VENDIDO' || v === 'GRATUITO'));
+    setShown(prom, true);
+    setShown(be, true);
+    if (v) { /* el tipo de venta se sigue usando para lo demás del formulario */ }
   }
 
   function initDatosForm(form) {

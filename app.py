@@ -38212,19 +38212,40 @@ def _concert_contacts_selected_map(concert) -> dict:
 
 
 def _parse_concert_contacts_form(form) -> dict:
-    """Del formulario (asistente o ficha) al mapa persona → roles.
+    """Del formulario (asistente o ficha) al mapa persona → funciones.
 
-    Llega un campo por función (`contact_<rol>_id`); si se repite la misma persona en varias, se
-    acumulan sus etiquetas en una sola entrada."""
+    Formato actual: `cc_contact_ids[]` con las personas que se han añadido a la actividad y, por cada
+    una, `cc_roles_<id>[]` con sus funciones. Una persona puede llevar VARIAS funciones y una función
+    puede ser de VARIAS personas (`ConcertContact.roles` es una lista).
+    ⚠️ Se sigue aceptando el formato antiguo (`contact_<rol>_id`, una persona por función) por si
+    queda una pantalla vieja abierta en algún navegador."""
     by_contact: dict = {}
-    for key in CONCERT_CONTACT_ROLE_KEYS:
-        raw = (form.get(f"contact_{key.lower()}_id") or "").strip()
-        cid = to_uuid(raw) if raw else None
+
+    def _anota(cid, roles):
+        if not cid:
+            return
+        actual = by_contact.setdefault(cid, [])
+        for r in roles:
+            if r in CONCERT_CONTACT_ROLE_KEYS and r not in actual:
+                actual.append(r)
+
+    ids = form.getlist("cc_contact_ids[]") if hasattr(form, "getlist") else (form.get("cc_contact_ids[]") or [])
+    for raw in ids:
+        cid = to_uuid(str(raw).strip()) if str(raw or "").strip() else None
         if not cid:
             continue
-        by_contact.setdefault(cid, [])
-        if key not in by_contact[cid]:
-            by_contact[cid].append(key)
+        campo = "cc_roles_%s[]" % str(cid)
+        roles = (form.getlist(campo) if hasattr(form, "getlist") else (form.get(campo) or []))
+        _anota(cid, [str(x).strip().upper() for x in roles])
+        # Una persona añadida SIN función se guarda igual: está en la actividad aunque no se le haya
+        # puesto etiqueta (si no, desaparecería al guardar y parecería que no se ha añadido).
+        if not by_contact.get(cid):
+            by_contact[cid] = []
+    if not ids:
+        for key in CONCERT_CONTACT_ROLE_KEYS:
+            raw = (form.get(f"contact_{key.lower()}_id") or "").strip()
+            cid = to_uuid(raw) if raw else None
+            _anota(cid, [key])
     return by_contact
 
 
@@ -38232,9 +38253,8 @@ def _replace_concert_contacts(session_db, concert_id, by_contact: dict) -> None:
     session_db.query(ConcertContact).filter_by(concert_id=concert_id).delete(synchronize_session=False)
     session_db.flush()
     for cid, roles in by_contact.items():
-        if not roles:
-            continue
-        session_db.add(ConcertContact(concert_id=concert_id, contact_id=cid, roles=list(roles)))
+        # Una persona sin función se guarda igual: está en la actividad.
+        session_db.add(ConcertContact(concert_id=concert_id, contact_id=cid, roles=list(roles or [])))
 
 
 @app.get("/api/promoters/<promoter_id>/contactos", endpoint="api_promoter_contacts")
@@ -38245,6 +38265,192 @@ def api_promoter_contacts(promoter_id):
     try:
         pid = to_uuid(promoter_id) if promoter_id else None
         return jsonify({"contacts": _promoter_contacts_for(session_db, pid) if pid else []})
+    finally:
+        session_db.close()
+
+
+def _promoter_self_contact_option(promoter) -> dict | None:
+    """El PROPIO tercero como persona de contacto: sus datos de contacto de la ficha.
+
+    Es lo primero que se busca («llamo a la empresa»), y hasta ahora no se podía elegir: solo salían
+    las personas que alguien hubiera dado de alta a mano."""
+    if promoter is None:
+        return None
+    correo, telefono = _promoter_email_phone(promoter)
+    if not (correo or telefono):
+        return None
+    return {"id": "", "self_promoter_id": str(promoter.id),
+            "name": _promoter_display_name(promoter) or (promoter.nick or ""),
+            "title": "Contacto de la ficha", "email": correo, "phone": telefono,
+            "promoter_id": str(promoter.id),
+            "promoter_name": (promoter.nick or ""), "kind": "self"}
+
+
+def _concert_contact_options(session_db, concert) -> list[dict]:
+    """Las personas que se pueden AÑADIR a la actividad, agrupadas por de dónde salen.
+
+    En este orden: las del PROMOTOR (incluido el propio tercero con los datos de su ficha), las de los
+    terceros VINCULADOS a él (las vinculaciones de la casa: el director de la sala, su representante…),
+    y las que ya están en la actividad aunque vengan de otro sitio. Lo demás se busca a mano.
+    ⚠️ Sin promotor NO se queda vacío: se pueden añadir contactos igualmente (una actividad puede no
+    tener promotor, o el contacto puede ser de un medio que todavía no tiene ficha)."""
+    grupos, vistos = [], set()
+
+    def _grupo(titulo, personas):
+        limpio = []
+        for p in personas:
+            clave = (p.get("id") or ("self:" + p.get("self_promoter_id", "")))
+            if not clave or clave in vistos:
+                continue
+            vistos.add(clave)
+            limpio.append(p)
+        if limpio:
+            grupos.append({"title": titulo, "people": limpio})
+
+    promoter = getattr(concert, "promoter", None)
+    if promoter is None and getattr(concert, "promoter_id", None):
+        promoter = session_db.get(Promoter, concert.promoter_id)
+    if promoter is not None:
+        propias = _promoter_contacts_for(session_db, promoter.id)
+        propio = _promoter_self_contact_option(promoter)
+        _grupo("Del promotor · %s" % (_promoter_display_name(promoter) or promoter.nick or ""),
+               ([propio] if propio else []) + propias)
+        # Los VINCULADOS con el promotor (vinculaciones de la casa, en las dos orientaciones).
+        try:
+            enlazados = []
+            for fila in (_entity_link_rows(session_db, "promoter", str(promoter.id)) or []):
+                # ⚠️ La vinculación devuelve el otro lado en `linked` (y su tipo en `linked.type`):
+                # aquí solo valen los que son un TERCERO (una empresa o una institución comparten fila).
+                otro_pl = fila.get("linked") or {}
+                if _entity_link_type(otro_pl.get("type")) not in ("promoter", "empresa", "institucion"):
+                    continue
+                otro_id = to_uuid(str(otro_pl.get("id") or ""))
+                if not otro_id or str(otro_id) == str(promoter.id):
+                    continue
+                otro = session_db.get(Promoter, otro_id)
+                if otro is None:
+                    continue
+                propio_otro = _promoter_self_contact_option(otro)
+                if propio_otro:
+                    propio_otro["title"] = (fila.get("relation_title") or "Vinculado")
+                    enlazados.append(propio_otro)
+                enlazados.extend(_promoter_contacts_for(session_db, otro.id))
+            _grupo("Vinculados con el promotor", enlazados)
+        except Exception:
+            app.logger.exception("[contactos] no se pudieron leer los vinculados del promotor")
+    # Las que ya están en la actividad (de otro tercero, o sueltas): para no perderlas de vista.
+    try:
+        ya = []
+        for link in (getattr(concert, "contacts", None) or []):
+            contacto = getattr(link, "contact", None) or session_db.get(PromoterContact, link.contact_id)
+            if contacto is None:
+                continue
+            ya.append(_promoter_contact_payload(contacto))
+        _grupo("Ya en la actividad", ya)
+    except Exception:
+        app.logger.exception("[contactos] no se pudieron leer los contactos de la actividad")
+    return grupos
+
+
+@app.get("/api/actividades/<cid>/contactos", endpoint="api_concert_contact_options")
+@admin_required
+def api_concert_contact_options(cid):
+    """Las personas que se pueden añadir a la actividad, y las que ya están con sus funciones.
+
+    Acepta `?promoter_id=` para recalcularlo cuando en la ficha (o en el asistente) se cambia el
+    promotor SIN haber guardado todavía: así los contactos que se ofrecen son los del promotor que se
+    está eligiendo, no los del que estaba."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid)) if cid and cid != "nuevo" else None
+        pedido = (request.args.get("promoter_id") or "").strip()
+        if pedido or concert is None:
+            # Un objeto de mentira con el promotor que se está eligiendo (y los contactos que ya tenga
+            # la actividad, si existe): el helper solo lee `promoter`, `promoter_id` y `contacts`.
+            fingido = SimpleNamespace(
+                promoter=(session_db.get(Promoter, to_uuid(pedido)) if to_uuid(pedido) else None),
+                promoter_id=(to_uuid(pedido) if to_uuid(pedido) else None),
+                contacts=(getattr(concert, "contacts", None) or [] if concert is not None else []))
+            grupos = _concert_contact_options(session_db, fingido)
+        else:
+            grupos = _concert_contact_options(session_db, concert)
+        return jsonify({"ok": True, "groups": grupos,
+                        "selected": (_concert_contacts_roles_map(concert) if concert is not None else {}),
+                        "roles": [list(r) for r in CONCERT_CONTACT_ROLES]})
+    finally:
+        session_db.close()
+
+
+def _concert_contacts_roles_map(concert) -> dict:
+    """{contact_id: [funciones]} de lo que YA tiene la actividad."""
+    out = {}
+    for link in (getattr(concert, "contacts", None) or []):
+        out[str(link.contact_id)] = [r for r in (link.roles if isinstance(link.roles, list) else [])
+                                     if r in CONCERT_CONTACT_ROLE_KEYS]
+    return out
+
+
+@app.post("/api/contactos/del-tercero", endpoint="api_promoter_self_contact")
+@admin_required
+def api_promoter_self_contact():
+    """Convierte los DATOS DE CONTACTO DE LA FICHA de un tercero en una persona de contacto usable.
+
+    Es lo que pasa cuando se elige «el propio X» en la lista: hace falta una fila de contacto para
+    poder colgarla de la actividad. ⚠️ Es un **get-or-create**: si ya se hizo antes se reutiliza, o
+    cada vez que se eligiera se crearía otra copia de la misma persona."""
+    data = request.get_json(silent=True) or request.form
+    pid = to_uuid((data.get("promoter_id") or "").strip() or None)
+    if not pid:
+        return jsonify({"ok": False, "error": "Falta el tercero."}), 400
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, pid)
+        if promoter is None:
+            return jsonify({"ok": False, "error": "Ese tercero ya no existe."}), 404
+        nombre = _promoter_display_name(promoter) or (promoter.nick or "Contacto")
+        correo, telefono = _promoter_email_phone(promoter)
+        clave = _norm_text_key(nombre)
+        for c in _promoter_contacts_for(session_db, promoter.id):
+            if _norm_text_key(c.get("name") or "") == clave:
+                return jsonify({"ok": True, "contact": c})
+        partes = nombre.split()
+        contacto = PromoterContact(
+            promoter_id=promoter.id, title="Contacto de la ficha",
+            first_name=partes[0], last_name=(" ".join(partes[1:]) or None),
+            email=(correo or None), phone=(telefono or None))
+        session_db.add(contacto)
+        session_db.commit()
+        return jsonify({"ok": True, "contact": _promoter_contact_payload(contacto, promoter)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[contactos] no se pudo usar el contacto de la ficha del tercero")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.get("/api/contactos/buscar", endpoint="api_contact_search")
+@admin_required
+def api_contact_search():
+    """Busca una persona de contacto en TODOS los terceros (un medio, una sala, cualquiera).
+
+    Es lo que resuelve «o si es un medio o algo similar»: la persona puede estar ya dada de alta
+    colgando de otra ficha y lo que interesa es reutilizarla, no duplicarla."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"ok": True, "results": []})
+    session_db = db()
+    try:
+        patron = "%%%s%%" % q.lower()
+        filas = (session_db.query(PromoterContact)
+                 .options(joinedload(PromoterContact.promoter))
+                 .filter(or_(
+                     func.lower(func.coalesce(PromoterContact.first_name, "")).like(patron),
+                     func.lower(func.coalesce(PromoterContact.last_name, "")).like(patron),
+                     func.lower(func.coalesce(PromoterContact.email, "")).like(patron),
+                     func.lower(func.coalesce(PromoterContact.title, "")).like(patron),
+                 )).order_by(PromoterContact.first_name.asc()).limit(20).all())
+        return jsonify({"ok": True, "results": [_promoter_contact_payload(c) for c in filas]})
     finally:
         session_db.close()
 
@@ -38263,14 +38469,17 @@ def api_promoter_contact_create():
     phone = (data.get("phone") or "").strip()
     promoter_id = to_uuid((data.get("promoter_id") or "").strip() or None)
     force = _truthy(data.get("force"))
+    # ⚠️ VINCULARLA AL PROMOTOR SE PREGUNTA: una persona que se apunta en una actividad no siempre
+    # tiene que quedarse en la ficha del tercero. Sin promotor, la persona queda SUELTA (una actividad
+    # puede no tener promotor, o el contacto ser de un medio que aún no tiene ficha).
+    vincular = _truthy(data.get("link_to_promoter")) if ("link_to_promoter" in (data or {})) else True
+    titulo = (data.get("title") or "").strip() or "Contacto"
     if not name:
         return jsonify({"ok": False, "error": "Indica al menos el nombre de la persona."}), 400
-    if not promoter_id:
-        return jsonify({"ok": False, "error": "Elige antes el promotor: la persona queda vinculada a él."}), 400
     session_db = db()
     try:
-        promoter = session_db.get(Promoter, promoter_id)
-        if not promoter:
+        promoter = session_db.get(Promoter, promoter_id) if promoter_id else None
+        if promoter_id and not promoter:
             return jsonify({"ok": False, "error": "El promotor ya no existe."}), 404
         if not force:
             dups = _similar_promoter_contacts(session_db, name, email, phone)
@@ -38278,8 +38487,8 @@ def api_promoter_contact_create():
                 return jsonify({"ok": False, "duplicates": dups})
         parts = name.split()
         contact = PromoterContact(
-            promoter_id=promoter.id,
-            title="Contacto",
+            promoter_id=(promoter.id if (promoter is not None and vincular) else None),
+            title=titulo,
             first_name=parts[0],
             last_name=(" ".join(parts[1:]) or None),
             email=(email or None),
@@ -38287,7 +38496,7 @@ def api_promoter_contact_create():
         )
         session_db.add(contact)
         session_db.commit()
-        return jsonify({"ok": True, "contact": _promoter_contact_payload(contact, promoter)})
+        return jsonify({"ok": True, "contact": _promoter_contact_payload(contact, promoter if vincular else None)})
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("[contactos] no se pudo crear la persona")
@@ -53195,6 +53404,16 @@ def concert_detail_view(cid):
             payment_total_configured=payment_total_configured,
             concert_contacts=_concert_contact_rows(c),
             concert_contacts_selected=_concert_contacts_selected_map(c),
+            # Lo que YA tiene la actividad, con TODAS las funciones de cada persona (una persona
+            # puede llevar varias, y una función puede ser de varias personas).
+            concert_contacts_roles=_concert_contacts_roles_map(c),
+            # Para poder editar TODOS los campos de la actividad desde su ficha.
+            activity_type_choices=QUAD_ACTIVITY_CHOICES,
+            purchased_tours=session.query(PurchasedTour).order_by(PurchasedTour.name.asc()).all(),
+            cycle_festivals=session.query(CycleFestival).order_by(CycleFestival.name.asc()).all(),
+            promoter_companies=(session.query(PromoterCompany)
+                                .filter(PromoterCompany.promoter_id == c.promoter_id)
+                                .order_by(PromoterCompany.legal_name.asc()).all() if c.promoter_id else []),
             artwork_request=artwork_request,
             artwork_badge=_artwork_request_badge(artwork_request, c),
             artwork_assets=artwork_assets,
@@ -55062,19 +55281,51 @@ def concert_section_update_handler(cid, section):
             if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
                 sale_type = "EMPRESA"
             venue_raw = (request.form.get("venue_id") or "").strip()
-            if not venue_raw:
-                raise ValueError("Debes seleccionar un recinto de la lista (o crearlo desde el botón +).")
+            manual_name = (request.form.get("manual_venue_name") or "").strip()
+            # ⚠️ El recinto puede no estar dado de alta: entonces vale con escribirlo a mano (es lo que
+            # ya hace el asistente). Lo que no se admite es dejar los DOS vacíos.
+            if not venue_raw and not manual_name:
+                raise ValueError("Elige un recinto de la lista (o crea uno con el botón +), o escribe su nombre a mano.")
             c.date = parse_date(request.form["date"])
+            # FECHA DE FIN: una actividad puede durar varios días (ensayos, rodajes, ferias).
+            _fin = parse_optional_date(request.form.get("end_date"))
+            c.end_date = _fin if (_fin and c.date and _fin >= c.date) else None
             c.festival_name = (request.form.get("festival_name") or "").strip() or None
-            c.venue_id = to_uuid(venue_raw)
+            c.venue_id = to_uuid(venue_raw) if venue_raw else None
+            # EL RECINTO A MANO (y su dirección), para cuando no hay ficha de recinto.
+            c.manual_venue_name = manual_name or None
+            c.manual_venue_address = (request.form.get("manual_venue_address") or "").strip() or None
+            c.manual_municipality = (request.form.get("manual_municipality") or "").strip() or None
+            c.manual_province = (request.form.get("manual_province") or "").strip() or None
+            c.manual_postal_code = (request.form.get("manual_postal_code") or "").strip() or None
+            # HORARIOS (con su «por confirmar»): son de esta pantalla, no de otra.
+            c.show_time_tbc = _truthy(request.form.get("show_time_tbc"))
+            c.doors_time_tbc = _truthy(request.form.get("doors_time_tbc"))
+            c.show_time = None if c.show_time_tbc else ((request.form.get("show_time") or "").strip() or None)
+            c.doors_time = None if c.doors_time_tbc else ((request.form.get("doors_time") or "").strip() or None)
             c.sale_type = sale_type
             c.artist_id = to_uuid(request.form["artist_id"])
             c.billing_company_id = to_uuid(request.form.get("billing_company_id") or None)
-            requested_capacity = max(0, int(request.form.get("capacity") or 0))
+            # AFORO: «aforo libre» manda (una actividad sin aforo cerrado no tiene número).
+            c.no_capacity = _truthy(request.form.get("no_capacity"))
+            requested_capacity = 0 if c.no_capacity else max(0, int(request.form.get("capacity") or 0))
             previous_effective_capacity = _concert_capacity_from_ticket_types(c)
             c.capacity = requested_capacity
-            c.sale_start_date = parse_concert_sale_start_date(request.form.get("sale_start_date"), sale_type)
-            c.break_even_ticket = None if sale_type in ("VENDIDO", "GRATUITO") else _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
+            c.sold_out = _truthy(request.form.get("sold_out"))
+            # SALIDA A LA VENTA, con su «por confirmar».
+            # ⚠️ Sin fecha NO se bloquea el guardado: se apunta como «por confirmar». Antes reventaba
+            # con «la fecha de salida a la venta es obligatoria» y no se guardaba NADA del resto del
+            # formulario, así que una actividad que todavía no tiene fecha de venta no se podía editar.
+            c.sale_start_tbc = _truthy(request.form.get("sale_start_tbc"))
+            _venta = (request.form.get("sale_start_date") or "").strip()
+            if not _venta:
+                c.sale_start_tbc = True
+                c.sale_start_date = None
+            else:
+                c.sale_start_date = parse_concert_sale_start_date(_venta, sale_type)
+            # ⚠️ EL PUNTO DE EMPATE se guarda SIEMPRE: antes se BORRABA en los conciertos vendidos y
+            # gratuitos, así que escribirlo no servía de nada.
+            c.break_even_ticket = _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
             # COMPUERTA: confirmar exige haber avisado al artista. Si falta el aviso NO se tira todo
             # el guardado: se queda el resto de cambios y el estado se deja como estaba, con el
             # enlace para avisar en ese momento.
@@ -55088,8 +55339,31 @@ def concert_section_update_handler(cid, section):
                         if _puerta.get("can_ack") else 'Avisar al artista ahora'))), "warning")
             else:
                 c.status = _nuevo_estado
-            c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type in ("VENDIDO", "GRATUITO", "GIRAS_COMPRADAS") else None
+            # ⚠️⚠️ EL PROMOTOR SE GUARDA SIEMPRE. Antes solo se leía en tres tipos de venta y en los
+            # demás se ponía a None: el campo desaparecía de la pantalla y, al guardar, se BORRABA el
+            # promotor que ya había (bug real). Quién promueve es un dato de la actividad, no del tipo
+            # de venta.
+            if "promoter_id" in request.form:
+                c.promoter_id = to_uuid(request.form.get("promoter_id") or None)
+                # Y con qué SOCIEDAD del promotor se factura (solo si es una suya).
+                _soc = to_uuid((request.form.get("promoter_company_id") or "").strip() or None)
+                if _soc and c.promoter_id:
+                    _fila_soc = session.get(PromoterCompany, _soc)
+                    if _fila_soc is None or str(getattr(_fila_soc, "promoter_id", "")) != str(c.promoter_id):
+                        _soc = None
+                c.promoter_company_id = _soc if c.promoter_id else None
             c.hashtags = _dedupe_concert_tags(request.form.getlist("concert_tags[]"))
+            # A QUÉ PERTENECE: su gira comprada o su ciclo/festival (solo si el formulario lo trae, para
+            # no soltar el vínculo desde una pantalla que no pregunta por él).
+            if "purchased_tour_id" in request.form:
+                c.purchased_tour_id = to_uuid((request.form.get("purchased_tour_id") or "").strip() or None)
+            if "cycle_festival_id" in request.form:
+                c.cycle_festival_id = to_uuid((request.form.get("cycle_festival_id") or "").strip() or None)
+            # EL TIPO DE ACTIVIDAD también se puede corregir aquí (un concierto que era una promo…).
+            if "activity_type" in request.form:
+                _tipo = (request.form.get("activity_type") or "").strip().upper()
+                if _tipo in {k for k, _l, _i in QUAD_ACTIVITY_CHOICES}:
+                    c.activity_type = _tipo
             # Anuncio (solo si el formulario lo incluye, para no pisar datos desde forms antiguos).
             if request.form.get("announcement_present"):
                 c.do_not_announce = _truthy(request.form.get("do_not_announce"))
@@ -75994,6 +76268,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "setlist_save", "setlist_save_template",
     # Contactos de la actividad: crear una persona nueva colgando del promotor.
     "api_promoter_contact_create",
+    "api_promoter_self_contact",
     # Vinculaciones entre entidades (entity_links.js; usadas también al pedir invitaciones)
     "entity_link_create", "entity_link_update", "entity_link_delete",
     # Hoja de ruta v2 (conciertos / acciones / promociones)
@@ -76073,6 +76348,10 @@ SUPPORT_READ_ENDPOINTS = {
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
     # Contactos de la actividad: personas ya vinculadas al promotor (asistente y ficha).
     "api_promoter_contacts",
+    # Las personas que se pueden añadir a una actividad (del promotor, de los vinculados y las que
+    # ya están) y la búsqueda en todos los terceros: son BÚSQUEDAS, las usa cualquier sesión.
+    "api_concert_contact_options",
+    "api_contact_search",
     # Aviso del límite de facturación anual por empresa del grupo (asistente de actividad).
     "api_company_billing_limit",
     "api_concert_meta", "api_song_meta", "api_album_song_search",

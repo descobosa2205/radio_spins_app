@@ -619,6 +619,58 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   sin salir, p. ej. en invitaciones).
 - **Loader global**: `#globalLoader` en `layout.html`; aparece al navegar, enviar formularios o en
   `fetch` >300 ms. Excluir con clase/atributo `no-loader`/`data-no-loader`.
+- ⚠️⚠️ **FICHA DE ACTIVIDAD · EDITAR «DATOS» SALEN TODOS LOS CAMPOS** (sep 2026). El formulario
+  inline de «Datos» se quedaba corto y —lo grave— **borraba lo que no preguntaba**:
+  ⚠️⚠️ **EL PROMOTOR SE BORRABA AL GUARDAR** en cualquier venta que no fuera VENDIDO, GRATUITO o
+  GIRAS_COMPRADAS: el campo se ESCONDÍA (`applySaleType` en `concert_form.js`) y el guardado hacía
+  `c.promoter_id = … if sale_type in (…) else None`. O sea: en un concierto «a empresa» o
+  «participado» no se podía ni ver quién lo promueve, y al guardar cualquier otra cosa se perdía.
+  **Quién promueve es un dato de la ACTIVIDAD, no del tipo de venta**: ahora se ve y se guarda
+  siempre (y solo se quita si el campo llega vacío a propósito). Lo mismo con el **punto de empate**,
+  que se borraba en los conciertos vendidos y gratuitos.
+  · **El formulario va por MÓDULOS** (`.ed-block`, con su rótulo e icono): **qué es y de quién**
+  (estado · tipo de actividad · artista · festival · gira comprada · ciclo/festival · #) ·
+  **cuándo y dónde** (fecha · **hasta**, para lo que dura varios días · **hora de comienzo** y
+  **apertura de puertas**, las dos con su «por confirmar» · recinto · **el recinto A MANO** con su
+  dirección, CP, municipio y provincia) · **entradas y venta** (aforo · **aforo libre** · salida a
+  la venta con su TBC · **sold out** · tipo o «¿tiene caché?» · punto de empate) · **quién promueve
+  y quién factura** (promotor · **con qué sociedad suya factura** · nuestra empresa) · **anuncio**.
+  ⚠️ **El RECINTO ya no es obligatorio**: vale con escribirlo a mano (es lo que ya hacía el
+  asistente). Lo que no se admite es dejar los dos vacíos.
+  ⚠️ **Sin fecha de salida a la venta NO se bloquea el guardado**: se apunta como «por confirmar».
+  Antes reventaba con «la fecha de salida a la venta es obligatoria» y **no se guardaba nada del
+  resto del formulario**, así que una actividad sin fecha de venta no se podía editar.
+  ⚠️ Los campos que se guardan **solo si el formulario los trae** (`if "x" in request.form`) son los
+  que también se tocan desde otra pantalla (la gira, el ciclo, el tipo de actividad, el promotor):
+  así un guardado parcial de otra sección no los borra.
+
+- ⚠️⚠️ **CONTACTOS DE UNA ACTIVIDAD · se ponen SIN TOCAR EL PROMOTOR** (sep 2026, rediseño de
+  `_concert_contacts_picker.html` + `static/js/concert_contacts.js`). Antes solo se podía elegir UNA
+  persona por función de entre las que ya colgaban del promotor, y **sin promotor no se podía poner
+  nada** («Elige antes el promotor»).
+  · **Al elegir el promotor se cargan SUS personas** para marcar las que van a la actividad
+  (`api_concert_contact_options`, que acepta `?promoter_id=` para recalcularlo **sin haber guardado**:
+  el selector escucha el `change` del promotor, también el de Select2). Se ofrecen, en este orden:
+  las **personas del promotor**, **el PROPIO tercero con los datos de contacto de su ficha**
+  (`_promoter_self_contact_option`), los **terceros VINCULADOS con él** (las vinculaciones de la casa:
+  el director de la sala, su representante…) y las que **ya están** en la actividad.
+  · **Se busca en TODA la base** (`api_contact_search`): un medio, una sala, cualquiera — la persona
+  puede estar ya dada de alta colgando de otra ficha y lo que interesa es reutilizarla.
+  · **Al crear una persona nueva se PREGUNTA si se vincula al promotor** (`link_to_promoter`, marcado
+  por defecto): apuntar a alguien en una actividad no siempre significa que tenga que quedarse en la
+  ficha del tercero. Y sigue avisando de las que se le parecen para no duplicarla.
+  · ⚠️ **SIN PROMOTOR también se pueden poner contactos**: `PromoterContact.promoter_id` pasa a ser
+  **NULL-able** y esas personas quedan colgadas solo de la actividad.
+  · ⚠️ **Una persona puede llevar VARIAS funciones y una función puede ser de VARIAS personas**
+  (`ConcertContact.roles` ya era una lista). El formulario manda `cc_contact_ids[]` y, por cada una,
+  `cc_roles_<id>[]`; `_parse_concert_contacts_form` sigue aceptando el formato antiguo
+  (`contact_<rol>_id`) por si queda una pantalla vieja en caché. Una persona **sin función se guarda
+  igual**: está en la actividad aunque no se le haya puesto etiqueta.
+  · «El propio X» necesita una fila de contacto para poder colgarse: la crea
+  `api_promoter_self_contact`, que es un **get-or-create** (si no, cada vez que se eligiera se
+  duplicaría la misma persona).
+  ⚠️ El selector se recablea con `inline:updated` y `ficha:shown`: la ficha reemplaza zonas por AJAX.
+
 - **Fichas (concierto/canción/álbum/artista) — estructura común** (en curso): **cabecera visual**
   (`.ficha-hero`) + **pestañas** (`.ficha-tabs`/`.ficha-tabpane`) + contenido **consolidado** (solo
   campos rellenos, sin textos explicativos) con **edición inline por sección** (`.ficha-section`):

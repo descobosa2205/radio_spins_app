@@ -450,108 +450,228 @@
     <form id="concert-datos-edit" class="ficha-section d-none mb-3" method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='datos') }}" data-inline data-inline-target="#concert-general-zone" data-concert-datos-form data-view="[data-datos-view]">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-circle-info"></i>Editar datos de la actividad</h6></div>
       <div class="ficha-section__body">
-        <div class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Estado</label>
-            <select name="status" class="form-select" required>
-              <option value="BORRADOR" {% if concert.status=='BORRADOR' %}selected{% endif %}>Borrador</option>
-              <option value="HABLADO" {% if concert.status=='HABLADO' %}selected{% endif %}>Hablado</option>
-              <option value="RESERVADO" {% if concert.status=='RESERVADO' %}selected{% endif %}>Reservado</option>
-              <option value="CONFIRMADO" {% if concert.status=='CONFIRMADO' %}selected{% endif %}>Confirmado</option>
-            </select>
-          </div>
-          <div class="col-md-5">
-            <label class="form-label">Artista</label>
-            <div class="input-group">
-              <select name="artist_id" id="concertDatosArtist" class="form-select select-artists" required>
-                {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}" {% if concert.artist_id == a.id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+        {% set cpay = concert.contracting_payload or {} %}
+
+        {# ══════════ QUÉ ES Y DE QUIÉN ══════════ #}
+        <div class="ed-block">
+          <div class="ed-block__head"><i class="fa fa-id-card"></i>Qué es y de quién</div>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Estado</label>
+              <select name="status" class="form-select" required>
+                <option value="BORRADOR" {% if concert.status=='BORRADOR' %}selected{% endif %}>Borrador</option>
+                <option value="HABLADO" {% if concert.status=='HABLADO' %}selected{% endif %}>Hablado</option>
+                <option value="RESERVADO" {% if concert.status=='RESERVADO' %}selected{% endif %}>Reservado</option>
+                <option value="CONFIRMADO" {% if concert.status=='CONFIRMADO' %}selected{% endif %}>Confirmado</option>
               </select>
-              <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="concertDatosArtist"><i class="fa fa-plus"></i></button>
             </div>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Fecha</label>
-            <input type="date" name="date" class="form-control" required value="{{ concert.date.isoformat() if concert.date else '' }}">
-          </div>
-          <div class="col-md-7">
-            <label class="form-label">Recinto</label>
-            <div class="input-group">
-              <select name="venue_id" id="concertDatosVenue" class="form-select select-venues" required>
-                {% for v in venues %}<option value="{{ v.id }}" data-photo="{{ (v.logo_url or v.photo_url) or '' }}" {% if concert.venue_id == v.id %}selected{% endif %}>{{ v.name }} — {{ v.municipality }} ({{ v.province }})</option>{% endfor %}
+            <div class="col-md-4">
+              <label class="form-label">Tipo de actividad</label>
+              <select name="activity_type" class="form-select">
+                {% for value, label, icon in activity_type_choices %}
+                  <option value="{{ value }}" {% if (concert.activity_type or 'CONCIERTO') == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
               </select>
-              <button type="button" class="btn btn-outline-secondary" data-quick-create="venue" data-target="concertDatosVenue"><i class="fa fa-plus"></i></button>
+              <div class="form-text">Cambiarlo cambia qué se te pregunta en el resto de la ficha.</div>
             </div>
-          </div>
-          <div class="col-md-5">
-            <label class="form-label">Festival / evento <span class="text-muted fw-normal">(opcional)</span></label>
-            <input name="festival_name" class="form-control" value="{{ concert.festival_name or '' }}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Aforo a la venta</label>
-            <input type="number" name="capacity" class="form-control" min="0" value="{{ concert.capacity or 0 }}">
-          </div>
-          <div class="col-md-3" data-sale-start-wrap>
-            <label class="form-label">Salida a la venta</label>
-            <input type="date" name="sale_start_date" class="form-control" value="{{ concert.sale_start_date.isoformat() if concert.sale_start_date else '' }}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Empresa que factura</label>
-            <select name="billing_company_id" class="form-select"><option value="">—</option>{% for co in companies %}<option value="{{ co.id }}" {% if concert.billing_company_id == co.id %}selected{% endif %}>{{ co.name }}</option>{% endfor %}</select>
-          </div>
-          <div class="col-md-4">
-            {# El TIPO DE VENTA describe conciertos. En un evento promocional (o TV, o marca) lo que
-               se decide es si lleva caché, así que se pregunta eso y no se ofrecen tipos de
-               concierto: si no, un evento promocional acababa siendo «Conciertos — Gratuitos». #}
-            {% if is_concert_like %}
-              <label class="form-label">Tipo</label>
-              <select name="sale_type" class="form-select" data-sale-type>{% for value, label in type_choices %}<option value="{{ value }}" {% if concert.sale_type==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-            {% else %}
-              <label class="form-label">¿Tiene caché?</label>
-              <select name="sale_type" class="form-select" data-sale-type>
-                <option value="VENDIDO" {% if (concert.sale_type or '')|upper != 'GRATUITO' %}selected{% endif %}>Sí, con caché</option>
-                <option value="GRATUITO" {% if (concert.sale_type or '')|upper == 'GRATUITO' %}selected{% endif %}>No, sin caché</option>
-              </select>
-              <div class="form-text">{{ activity_type_label }}: no es un concierto, así que no lleva tipo de venta.</div>
-            {% endif %}
-          </div>
-          <div class="col-md-5" data-promoter-wrap>
-            <label class="form-label">Promotor</label>
-            <div class="input-group">
-              <select name="promoter_id" id="concertDatosPromoter" class="form-select select-providers"><option value="">—</option>{% for p in promoters %}<option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}" {% if concert.promoter_id == p.id %}selected{% endif %}>{{ p.nick }}</option>{% endfor %}</select>
-              <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="concertDatosPromoter"><i class="fa fa-plus"></i></button>
-            </div>
-          </div>
-          <div class="col-md-3" data-breakeven-wrap>
-            <label class="form-label">Punto de empate <span class="text-muted fw-normal">(opcional)</span></label>
-            <input type="number" name="break_even_ticket" class="form-control" min="0" value="{{ concert.break_even_ticket or '' }}">
-          </div>
-          <div class="col-12">
-            <label class="form-label"># / gira / concepto</label>
-            <input class="form-control" id="concertTagInputDetail" list="concertTagOptionsDetail" placeholder="Escribe un # y pulsa Añadir">
-            <datalist id="concertTagOptionsDetail">{% for tag in all_concert_tags %}<option value="#{{ tag }}"></option><option value="{{ tag }}"></option>{% endfor %}</datalist>
-            <div id="concertTagChipsDetail" class="d-flex flex-wrap gap-2 mt-2"></div>
-            <div id="concertTagHiddenDetail"></div>
-          </div>
-          {% set cpay = concert.contracting_payload or {} %}
-          <div class="col-12">
-            <input type="hidden" name="announcement_present" value="1">
-            <label class="form-label d-block">Anuncio</label>
-            <div class="d-flex flex-wrap gap-3 align-items-end">
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="do_not_announce" id="concertDatosNoAnnounce" value="1" {% if concert.do_not_announce %}checked{% endif %}>
-                <label class="form-check-label" for="concertDatosNoAnnounce">No anunciar</label>
+            <div class="col-md-4">
+              <label class="form-label">Artista</label>
+              <div class="input-group">
+                <select name="artist_id" id="concertDatosArtist" class="form-select select-artists" required>
+                  {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}" {% if concert.artist_id == a.id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+                </select>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="concertDatosArtist"><i class="fa fa-plus"></i></button>
               </div>
-              <div>
-                <label class="form-label mb-1 small">Fecha de anuncio <span class="text-muted">(vacía = TBC)</span></label>
-                <input type="date" class="form-control" name="announcement_date" value="{{ concert.announcement_date.isoformat() if concert.announcement_date else '' }}">
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">Festival / evento <span class="text-muted fw-normal">(opcional)</span></label>
+              <input name="festival_name" class="form-control" value="{{ concert.festival_name or '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Gira comprada <span class="text-muted fw-normal">(opcional)</span></label>
+              <select name="purchased_tour_id" class="form-select">
+                <option value="">—</option>
+                {% for t in purchased_tours %}<option value="{{ t.id }}" {% if concert.purchased_tour_id == t.id %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Ciclo / festival propio <span class="text-muted fw-normal">(opcional)</span></label>
+              <select name="cycle_festival_id" class="form-select">
+                <option value="">—</option>
+                {% for cf in cycle_festivals %}<option value="{{ cf.id }}" {% if concert.cycle_festival_id == cf.id %}selected{% endif %}>{{ cf.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label"># / gira / concepto</label>
+              <input class="form-control" id="concertTagInputDetail" list="concertTagOptionsDetail" placeholder="Escribe un # y pulsa Añadir">
+              <datalist id="concertTagOptionsDetail">{% for tag in all_concert_tags %}<option value="#{{ tag }}"></option><option value="{{ tag }}"></option>{% endfor %}</datalist>
+              <div id="concertTagChipsDetail" class="d-flex flex-wrap gap-2 mt-2"></div>
+              <div id="concertTagHiddenDetail"></div>
+            </div>
+          </div>
+        </div>
+
+        {# ══════════ CUÁNDO Y DÓNDE ══════════ #}
+        <div class="ed-block">
+          <div class="ed-block__head"><i class="fa fa-location-dot"></i>Cuándo y dónde</div>
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label">Fecha</label>
+              <input type="date" name="date" class="form-control" required value="{{ concert.date.isoformat() if concert.date else '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Hasta <span class="text-muted fw-normal">(si dura varios días)</span></label>
+              <input type="date" name="end_date" class="form-control" value="{{ concert.end_date.isoformat() if concert.end_date else '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Hora de comienzo</label>
+              <input type="time" name="show_time" class="form-control" value="{{ concert.show_time or '' }}">
+              <label class="d-inline-flex align-items-center gap-2 small mt-1">
+                <input class="form-check-input m-0" type="checkbox" name="show_time_tbc" value="1" {% if concert.show_time_tbc %}checked{% endif %}>
+                <span>Por confirmar</span>
+              </label>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Apertura de puertas</label>
+              <input type="time" name="doors_time" class="form-control" value="{{ concert.doors_time or '' }}">
+              <label class="d-inline-flex align-items-center gap-2 small mt-1">
+                <input class="form-check-input m-0" type="checkbox" name="doors_time_tbc" value="1" {% if concert.doors_time_tbc %}checked{% endif %}>
+                <span>Por confirmar</span>
+              </label>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Recinto</label>
+              <div class="input-group">
+                <select name="venue_id" id="concertDatosVenue" class="form-select select-venues">
+                  <option value="">— sin recinto de la base —</option>
+                  {% for v in venues %}<option value="{{ v.id }}" data-photo="{{ (v.logo_url or v.photo_url) or '' }}" {% if concert.venue_id == v.id %}selected{% endif %}>{{ v.name }} — {{ v.municipality }} ({{ v.province }})</option>{% endfor %}
+                </select>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="venue" data-target="concertDatosVenue"><i class="fa fa-plus"></i></button>
               </div>
-              <div class="flex-grow-1" style="min-width:220px;">
-                <label class="form-label mb-1 small">Nota sobre el anuncio</label>
-                <input class="form-control" name="announcement_note" value="{{ cpay.get('announcement_note') or '' }}" placeholder="Cómo se anuncia, embargos…">
+              <div class="form-text">Si todavía no está dado de alta, déjalo en «sin recinto» y escríbelo abajo a mano.</div>
+            </div>
+            {# El recinto A MANO: para cuando no hay ficha de recinto (una plaza, un pabellón de paso…). #}
+            <div class="col-md-6" data-address-autocomplete>
+              <label class="form-label">Nombre del recinto a mano</label>
+              <input name="manual_venue_name" class="form-control" value="{{ concert.manual_venue_name or '' }}" placeholder="Sala, plaza, pabellón…">
+              <label class="form-label mt-2">Dirección</label>
+              <input name="manual_venue_address" class="form-control" data-addr="address" value="{{ concert.manual_venue_address or '' }}">
+            </div>
+            <div class="col-md-6">
+              <div class="row g-2">
+                <div class="col-4">
+                  <label class="form-label">C. postal</label>
+                  <input name="manual_postal_code" class="form-control" data-addr="postal_code" value="{{ concert.manual_postal_code or '' }}">
+                </div>
+                <div class="col-8">
+                  <label class="form-label">Municipio</label>
+                  <input name="manual_municipality" class="form-control" data-addr="city" value="{{ concert.manual_municipality or '' }}">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Provincia</label>
+                  <input name="manual_province" class="form-control" data-addr="province" value="{{ concert.manual_province or '' }}">
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        {# ══════════ ENTRADAS Y VENTA ══════════ #}
+        <div class="ed-block">
+          <div class="ed-block__head"><i class="fa fa-ticket"></i>Entradas y venta</div>
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label">Aforo a la venta</label>
+              <input type="number" name="capacity" class="form-control" min="0" value="{{ concert.capacity or 0 }}">
+              <label class="d-inline-flex align-items-center gap-2 small mt-1">
+                <input class="form-check-input m-0" type="checkbox" name="no_capacity" value="1" {% if concert.no_capacity %}checked{% endif %}>
+                <span>Aforo libre</span>
+              </label>
+            </div>
+            <div class="col-md-3" data-sale-start-wrap>
+              <label class="form-label">Salida a la venta</label>
+              <input type="date" name="sale_start_date" class="form-control" value="{{ concert.sale_start_date.isoformat() if concert.sale_start_date else '' }}">
+              <label class="d-inline-flex align-items-center gap-2 small mt-1">
+                <input class="form-check-input m-0" type="checkbox" name="sale_start_tbc" value="1" {% if concert.sale_start_tbc %}checked{% endif %}>
+                <span>Por confirmar</span>
+              </label>
+            </div>
+            <div class="col-md-3">
+              {# El TIPO DE VENTA describe conciertos. En un evento promocional (o TV, o marca) lo que
+                 se decide es si lleva caché, así que se pregunta eso y no se ofrecen tipos de
+                 concierto: si no, un evento promocional acababa siendo «Conciertos — Gratuitos». #}
+              {% if is_concert_like %}
+                <label class="form-label">Tipo</label>
+                <select name="sale_type" class="form-select" data-sale-type>{% for value, label in type_choices %}<option value="{{ value }}" {% if concert.sale_type==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+              {% else %}
+                <label class="form-label">¿Tiene caché?</label>
+                <select name="sale_type" class="form-select" data-sale-type>
+                  <option value="VENDIDO" {% if (concert.sale_type or '')|upper != 'GRATUITO' %}selected{% endif %}>Sí, con caché</option>
+                  <option value="GRATUITO" {% if (concert.sale_type or '')|upper == 'GRATUITO' %}selected{% endif %}>No, sin caché</option>
+                </select>
+                <div class="form-text">{{ activity_type_label }}: no es un concierto, así que no lleva tipo de venta.</div>
+              {% endif %}
+            </div>
+            <div class="col-md-3" data-breakeven-wrap>
+              <label class="form-label">Punto de empate <span class="text-muted fw-normal">(opcional)</span></label>
+              <input type="number" name="break_even_ticket" class="form-control" min="0" value="{{ concert.break_even_ticket or '' }}">
+            </div>
+            <div class="col-12">
+              <label class="d-inline-flex align-items-center gap-2">
+                <input class="form-check-input m-0" type="checkbox" name="sold_out" value="1" {% if concert.sold_out %}checked{% endif %}>
+                <span>Sold out (agotadas)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {# ══════════ QUIÉN PROMUEVE Y QUIÉN FACTURA ══════════ #}
+        <div class="ed-block">
+          <div class="ed-block__head"><i class="fa fa-handshake"></i>Quién promueve y quién factura</div>
+          <div class="row g-3">
+            <div class="col-md-6" data-promoter-wrap>
+              <label class="form-label">Promotor</label>
+              <div class="input-group">
+                <select name="promoter_id" id="concertDatosPromoter" class="form-select select-providers"><option value="">—</option>{% for p in promoters %}<option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}" {% if concert.promoter_id == p.id %}selected{% endif %}>{{ p.nick }}</option>{% endfor %}</select>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="concertDatosPromoter"><i class="fa fa-plus"></i></button>
+              </div>
+              <div class="form-text">Quién promueve la actividad, sea cual sea el tipo de venta.</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Con qué sociedad factura <span class="text-muted fw-normal">(opcional)</span></label>
+              <select name="promoter_company_id" class="form-select">
+                <option value="">—</option>
+                {% for pc in promoter_companies %}<option value="{{ pc.id }}" {% if concert.promoter_company_id == pc.id %}selected{% endif %}>{{ pc.legal_name }}{% if pc.tax_id %} · {{ pc.tax_id }}{% endif %}</option>{% endfor %}
+              </select>
+              {% if not promoter_companies %}<div class="form-text">Las sociedades se dan de alta en la ficha del tercero.</div>{% endif %}
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Empresa que factura <span class="text-muted fw-normal">(la nuestra)</span></label>
+              <select name="billing_company_id" class="form-select"><option value="">—</option>{% for co in companies %}<option value="{{ co.id }}" {% if concert.billing_company_id == co.id %}selected{% endif %}>{{ co.name }}</option>{% endfor %}</select>
+            </div>
+          </div>
+        </div>
+
+        {# ══════════ ANUNCIO ══════════ #}
+        <div class="ed-block">
+          <div class="ed-block__head"><i class="fa fa-bullhorn"></i>Anuncio</div>
+          <input type="hidden" name="announcement_present" value="1">
+          <div class="d-flex flex-wrap gap-3 align-items-end">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="do_not_announce" id="concertDatosNoAnnounce" value="1" {% if concert.do_not_announce %}checked{% endif %}>
+              <label class="form-check-label" for="concertDatosNoAnnounce">No anunciar</label>
+            </div>
+            <div>
+              <label class="form-label mb-1 small">Fecha de anuncio <span class="text-muted">(vacía = TBC)</span></label>
+              <input type="date" class="form-control" name="announcement_date" value="{{ concert.announcement_date.isoformat() if concert.announcement_date else '' }}">
+            </div>
+            <div class="flex-grow-1" style="min-width:220px;">
+              <label class="form-label mb-1 small">Nota sobre el anuncio</label>
+              <input class="form-control" name="announcement_note" value="{{ cpay.get('announcement_note') or '' }}" placeholder="Cómo se anuncia, embargos…">
+            </div>
+          </div>
+        </div>
+
         <div class="d-flex justify-content-end gap-2 mt-3">
           <button type="button" class="btn btn-outline-secondary" data-edit-cancel="#concert-datos-edit">Cancelar</button>
           <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
@@ -841,7 +961,7 @@
       </div>
       {% if CAN_EDIT_CONCERTS %}
       <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='contactos') }}" data-inline data-inline-target="#concert-general-zone">
-        {% with cc_id='fichaContacts', cc_promoter_id=(concert.promoter_id|string if concert.promoter_id else ''), cc_selected=concert_contacts_selected %}
+        {% with cc_id='fichaContacts', cc_concert_id=concert.id, cc_promoter_input='#concertDatosPromoter', cc_promoter_id=(concert.promoter_id|string if concert.promoter_id else ''), cc_selected=concert_contacts_roles %}
           {% include '_concert_contacts_picker.html' %}
         {% endwith %}
         <div class="d-flex justify-content-end gap-2 mt-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>

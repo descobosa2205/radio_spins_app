@@ -1,13 +1,15 @@
 /* ============================================================================
  * Contactos de la actividad (Producción / Ticketing / Comunicación).
  *
- * Pinta un selector por función con las personas que ya cuelgan del promotor y permite crear una
- * nueva sin salir de la pantalla, avisando de las que se le parecen para no duplicarla. La misma
- * persona puede cubrir varias funciones: se elige en cada selector y el backend la guarda una sola
- * vez con varias etiquetas.
+ * Los contactos se ponen SIN TENER QUE TOCAR EL PROMOTOR: al elegirlo se cargan sus personas (y los
+ * datos de contacto de su propia ficha, y los de los terceros VINCULADOS con él) para marcar las que
+ * van a la actividad. Se puede buscar a cualquiera en toda la base y reutilizarlo, o crear una
+ * persona nueva —y entonces se PREGUNTA si se vincula al promotor—. Sin promotor también se pueden
+ * poner contactos: quedan colgados de la actividad.
  *
- * Es GLOBAL y no hace nada si la página no tiene [data-concert-contacts], así que puede ir en el
- * layout junto al resto de utilidades.
+ * Una persona puede llevar VARIAS funciones y una función puede ser de VARIAS personas.
+ *
+ * Es GLOBAL y no hace nada si la página no tiene [data-concert-contacts].
  * ========================================================================== */
 (function () {
   'use strict';
@@ -17,17 +19,20 @@
     return m ? m.getAttribute('content') : '';
   }
 
-  function el(tag, cls, html) {
-    var n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (html != null) n.innerHTML = html;
-    return n;
-  }
-
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
+  }
+
+  function pedir(url, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ 'X-Requested-With': 'XMLHttpRequest' }, opts.headers || {});
+    if ((opts.method || 'GET').toUpperCase() !== 'GET') {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.headers['X-CSRFToken'] = csrf();
+    }
+    return fetch(url, opts).then(function (r) { return r.json().catch(function () { return null; }); });
   }
 
   function setup(root) {
@@ -36,246 +41,324 @@
 
     var roles = [];
     try { roles = JSON.parse(root.getAttribute('data-roles') || '[]'); } catch (e) { roles = []; }
-    var selected = {};
-    try { selected = JSON.parse(root.getAttribute('data-selected') || '{}') || {}; } catch (e) { selected = {}; }
+    var elegidos = {};          // { contact_id: {datos de la persona, roles: [] } }
+    var yaTenia = {};
+    try { yaTenia = JSON.parse(root.getAttribute('data-selected') || '{}') || {}; } catch (e) { yaTenia = {}; }
 
-    var contactsUrl = root.getAttribute('data-contacts-url') || '';
-    var createUrl = root.getAttribute('data-create-url') || '';
-    var promoterInputSel = root.getAttribute('data-promoter-input') || '';
-    var fixedPromoter = root.getAttribute('data-promoter-id') || '';
+    var cajaElegidos = root.querySelector('[data-cc-chosen]');
+    var cajaDisponibles = root.querySelector('[data-cc-available]');
+    var cajaResultados = root.querySelector('[data-cc-results]');
+    var cajaInputs = root.querySelector('[data-cc-inputs]');
+    var avisoSinPromotor = root.querySelector('[data-cc-nopromoter]');
+    var formNueva = root.querySelector('[data-cc-new]');
+    var grupos = [];
 
-    var body = root.querySelector('[data-cc-body]');
-    var noPromoter = root.querySelector('[data-cc-nopromoter]');
-    var rolesWrap = root.querySelector('[data-cc-roles]');
-    var sameChk = root.querySelector('[data-cc-same]');
-    var newBox = root.querySelector('[data-cc-new]');
-    var newRoleLbl = root.querySelector('[data-cc-new-role]');
-    var newName = root.querySelector('[data-cc-new-name]');
-    var newEmail = root.querySelector('[data-cc-new-email]');
-    var newPhone = root.querySelector('[data-cc-new-phone]');
-    var dupsBox = root.querySelector('[data-cc-dups]');
-    var errBox = root.querySelector('[data-cc-new-error]');
-
-    var contacts = [];      // personas del promotor
-    var extra = [];         // personas de OTROS terceros que se han vinculado a mano
-    var creatingFor = null; // rol para el que se está creando
-
-    function promoterId() {
-      if (fixedPromoter) return fixedPromoter;
-      var inp = promoterInputSel ? document.querySelector(promoterInputSel) : null;
-      return inp ? (inp.value || '').trim() : '';
+    // ------------------------------------------------------------------ el promotor
+    function inputPromotor() {
+      var sel = root.getAttribute('data-promoter-input');
+      return sel ? document.querySelector(sel) : null;
+    }
+    function promotorId() {
+      var el = inputPromotor();
+      if (el && (el.value || '').trim()) return (el.value || '').trim();
+      return (root.getAttribute('data-promoter-id') || '').trim();
+    }
+    function nombrePromotor() {
+      var el = inputPromotor();
+      if (el && el.tagName === 'SELECT' && el.selectedIndex >= 0) {
+        var t = (el.options[el.selectedIndex].textContent || '').trim();
+        if (t && t !== '—') return t;
+      }
+      var g = (grupos[0] || {}).title || '';
+      return g.indexOf('·') >= 0 ? g.split('·').slice(1).join('·').trim() : '';
     }
 
-    function all() {
-      var seen = {};
-      return contacts.concat(extra).filter(function (c) {
-        if (seen[c.id]) return false;
-        seen[c.id] = 1;
-        return true;
-      });
-    }
-
-    function hiddenFor(role) { return root.querySelector('[data-cc-input="' + role + '"]'); }
-
-    function renderRoles() {
-      rolesWrap.innerHTML = '';
-      roles.forEach(function (r) {
-        var key = r[0], label = r[1], icon = r[2];
-        var row = el('div', 'cc-role');
-        row.innerHTML =
-          '<div class="cc-role__label"><i class="fa ' + esc(icon) + '"></i>' + esc(label) + '</div>';
-        var sel = el('select', 'form-select form-select-sm');
-        sel.setAttribute('data-cc-role', key);
-        row.appendChild(sel);
-        rolesWrap.appendChild(row);
-        fillSelect(sel, key);
-        sel.addEventListener('change', function () { onRoleChange(key, sel); });
-      });
-    }
-
-    function fillSelect(sel, key) {
-      var cur = (hiddenFor(key) || {}).value || '';
-      sel.innerHTML = '';
-      sel.appendChild(new Option('Sin asignar', ''));
-      all().forEach(function (c) {
-        var bits = [c.name];
-        if (c.email) bits.push(c.email);
-        else if (c.phone) bits.push(c.phone);
-        var o = new Option(bits.join(' · '), c.id);
-        sel.appendChild(o);
-      });
-      sel.appendChild(new Option('➕ Crear nueva persona…', '__new__'));
-      sel.value = cur && all().some(function (c) { return c.id === cur; }) ? cur : '';
-      if (!sel.value) { var h = hiddenFor(key); if (h && h.value && !cur) h.value = ''; }
-    }
-
-    function refreshSelects() {
-      roles.forEach(function (r) {
-        var sel = rolesWrap.querySelector('[data-cc-role="' + r[0] + '"]');
-        if (sel) fillSelect(sel, r[0]);
-      });
-    }
-
-    function onRoleChange(key, sel) {
-      if (sel.value === '__new__') {
-        sel.value = (hiddenFor(key) || {}).value || '';
-        openNew(key);
+    // ------------------------------------------------------------------ pintar
+    function pintaElegidos() {
+      var ids = Object.keys(elegidos);
+      if (!ids.length) {
+        cajaElegidos.innerHTML = '<div class="cc-empty small text-muted">Todavía no hay nadie. ' +
+          'Añádelo de la lista de abajo o crea una persona nueva.</div>';
+        pintaInputs();
         return;
       }
-      var h = hiddenFor(key);
-      if (h) h.value = sel.value || '';
-      if (sameChk && sameChk.checked && sel.value) applyToAll(sel.value);
+      cajaElegidos.innerHTML = ids.map(function (id) {
+        var p = elegidos[id];
+        var chips = roles.map(function (r) {
+          var on = (p.roles || []).indexOf(r[0]) >= 0;
+          return '<button type="button" class="cc-role' + (on ? ' is-on' : '') + '"' +
+                 ' data-cc-role="' + esc(r[0]) + '" data-cc-for="' + esc(id) + '"' +
+                 ' title="' + (on ? 'Quitarle' : 'Ponerle') + ' ' + esc(r[1]) + '">' +
+                 '<i class="fa ' + esc(r[2]) + '"></i>' + esc(r[1]) + '</button>';
+        }).join('');
+        var meta = [];
+        if (p.email) meta.push(esc(p.email));
+        if (p.phone) meta.push(esc(p.phone));
+        if (p.promoter_name) meta.push(esc(p.promoter_name));
+        else if (!p.promoter_id) meta.push('sin tercero');
+        return '<div class="cc-card" data-cc-chosen-row="' + esc(id) + '">' +
+          '<div class="cc-card__avatar"><i class="fa fa-user"></i></div>' +
+          '<div style="min-width:0;flex:1 1 auto;">' +
+            '<div class="cc-card__name">' + esc(p.name) + (p.title ? ' <span class="text-muted fw-normal">· ' + esc(p.title) + '</span>' : '') + '</div>' +
+            (meta.length ? '<div class="cc-card__meta">' + meta.join(' · ') + '</div>' : '') +
+            '<div class="cc-roles-row">' + chips + '</div>' +
+          '</div>' +
+          '<button type="button" class="btn btn-sm btn-link text-danger p-0 ms-2" data-cc-drop="' + esc(id) + '"' +
+          ' title="Quitarlo de la actividad"><i class="fa fa-xmark"></i></button>' +
+        '</div>';
+      }).join('');
+      pintaInputs();
     }
 
-    function applyToAll(contactId) {
-      roles.forEach(function (r) {
-        var h = hiddenFor(r[0]);
-        if (h) h.value = contactId;
-        var s = rolesWrap.querySelector('[data-cc-role="' + r[0] + '"]');
-        if (s) s.value = contactId;
-      });
+    function tarjetaDisponible(p) {
+      var meta = [];
+      if (p.title) meta.push(esc(p.title));
+      if (p.email) meta.push(esc(p.email));
+      if (p.phone) meta.push(esc(p.phone));
+      if (p.promoter_name) meta.push(esc(p.promoter_name));
+      var datos = ' data-cc-add=\'' + esc(JSON.stringify(p)) + '\'';
+      return '<button type="button" class="cc-opt"' + datos + '>' +
+        '<i class="fa fa-plus"></i>' +
+        '<span class="cc-opt__body"><span class="cc-opt__name">' + esc(p.name) + '</span>' +
+        (meta.length ? '<span class="cc-opt__meta">' + meta.join(' · ') + '</span>' : '') + '</span></button>';
     }
 
-    function openNew(key) {
-      creatingFor = key;
-      var meta = roles.filter(function (r) { return r[0] === key; })[0];
-      if (newRoleLbl) newRoleLbl.textContent = meta ? meta[1] : '';
-      newBox.classList.remove('d-none');
-      dupsBox.classList.add('d-none');
-      dupsBox.innerHTML = '';
-      errBox.classList.add('d-none');
-      newName.value = ''; newEmail.value = ''; newPhone.value = '';
-      newName.focus();
-    }
-
-    function closeNew() {
-      creatingFor = null;
-      newBox.classList.add('d-none');
-      dupsBox.innerHTML = '';
-      dupsBox.classList.add('d-none');
-    }
-
-    function assign(contact) {
-      // Una persona de otro tercero también vale: se añade a la lista para poder elegirla.
-      if (!all().some(function (c) { return c.id === contact.id; })) extra.push(contact);
-      var key = creatingFor;
-      refreshSelects();
-      if (sameChk && sameChk.checked) applyToAll(contact.id);
-      else if (key) {
-        var h = hiddenFor(key);
-        if (h) h.value = contact.id;
-        var s = rolesWrap.querySelector('[data-cc-role="' + key + '"]');
-        if (s) s.value = contact.id;
-      }
-      closeNew();
-    }
-
-    function showDuplicates(list) {
-      dupsBox.innerHTML = '';
-      var head = el('div', 'small fw-semibold mb-1',
-        '<i class="fa fa-triangle-exclamation me-1 text-warning"></i>Ya hay ' +
-        (list.length === 1 ? 'una persona parecida' : 'personas parecidas') +
-        '. Si es la misma, vincúlala en vez de crearla otra vez:');
-      dupsBox.appendChild(head);
-      list.forEach(function (d) {
-        var row = el('div', 'cc-dup');
-        var bits = [];
-        if (d.email) bits.push(esc(d.email));
-        if (d.phone) bits.push(esc(d.phone));
-        if (d.promoter_name) bits.push('de ' + esc(d.promoter_name));
-        row.innerHTML =
-          '<div class="cc-dup__info"><span class="fw-semibold">' + esc(d.name) + '</span>' +
-          (bits.length ? '<span class="text-muted small"> · ' + bits.join(' · ') + '</span>' : '') +
-          '<span class="badge text-bg-light border ms-1">' + esc(d.why || '') + '</span></div>';
-        var btn = el('button', 'btn btn-sm btn-outline-primary', 'Vincular esta');
-        btn.type = 'button';
-        btn.addEventListener('click', function () { assign(d); });
-        row.appendChild(btn);
-        dupsBox.appendChild(row);
-      });
-      var force = el('button', 'btn btn-sm btn-link p-0 mt-1', 'No es ninguna de estas, crear igualmente');
-      force.type = 'button';
-      force.addEventListener('click', function () { save(true); });
-      dupsBox.appendChild(force);
-      dupsBox.classList.remove('d-none');
-    }
-
-    function save(force) {
-      var name = (newName.value || '').trim();
-      errBox.classList.add('d-none');
-      if (!name) { errBox.textContent = 'Indica al menos el nombre.'; errBox.classList.remove('d-none'); return; }
-      fetch(createUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
-        body: JSON.stringify({
-          promoter_id: promoterId(), name: name,
-          email: (newEmail.value || '').trim(), phone: (newPhone.value || '').trim(),
-          force: force ? 1 : 0
-        })
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data && data.duplicates && data.duplicates.length) { showDuplicates(data.duplicates); return; }
-          if (data && data.ok && data.contact) { contacts.push(data.contact); assign(data.contact); return; }
-          errBox.textContent = (data && data.error) || 'No se pudo crear la persona.';
-          errBox.classList.remove('d-none');
-        })
-        .catch(function () {
-          errBox.textContent = 'No se pudo crear la persona.';
-          errBox.classList.remove('d-none');
+    function pintaDisponibles() {
+      var html = '';
+      (grupos || []).forEach(function (g) {
+        var libres = (g.people || []).filter(function (p) {
+          return !(p.id && elegidos[p.id]);
         });
-    }
-
-    var lastPromoter = null;
-    function loadContacts() {
-      var pid = promoterId();
-      if (pid === lastPromoter) return;
-      lastPromoter = pid;
-      closeNew();
-      if (!pid) {
-        contacts = [];
-        body.classList.add('d-none');
-        if (noPromoter) noPromoter.classList.remove('d-none');
-        return;
+        if (!libres.length) return;
+        html += '<div class="cc-group"><div class="cc-group__head">' + esc(g.title) + '</div>' +
+                libres.map(tarjetaDisponible).join('') + '</div>';
+      });
+      cajaDisponibles.innerHTML = html || '<div class="cc-empty small text-muted">' +
+        (promotorId() ? 'Este promotor no tiene ninguna persona de contacto dada de alta.'
+                      : 'Busca a la persona abajo o créala.') + '</div>';
+      if (avisoSinPromotor) avisoSinPromotor.classList.toggle('d-none', !!promotorId());
+      var w = root.querySelector('[data-cc-link-wrap]');
+      if (w) {
+        w.classList.toggle('d-none', !promotorId());
+        var n = root.querySelector('[data-cc-link-name]');
+        if (n) n.textContent = nombrePromotor();
       }
-      if (noPromoter) noPromoter.classList.add('d-none');
-      body.classList.remove('d-none');
-      fetch(contactsUrl.replace('__PID__', encodeURIComponent(pid)), { headers: { 'Accept': 'application/json' } })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          contacts = (data && data.contacts) || [];
-          refreshSelects();
-        })
-        .catch(function () { contacts = []; refreshSelects(); });
     }
 
-    renderRoles();
-    if (sameChk) {
-      sameChk.addEventListener('change', function () {
-        if (!sameChk.checked) return;
-        var first = '';
-        for (var i = 0; i < roles.length && !first; i++) first = (hiddenFor(roles[i][0]) || {}).value || '';
-        if (first) applyToAll(first);
+    function pintaInputs() {
+      var html = '';
+      Object.keys(elegidos).forEach(function (id) {
+        html += '<input type="hidden" name="cc_contact_ids[]" value="' + esc(id) + '">';
+        (elegidos[id].roles || []).forEach(function (r) {
+          html += '<input type="hidden" name="cc_roles_' + esc(id) + '[]" value="' + esc(r) + '">';
+        });
+      });
+      cajaInputs.innerHTML = html;
+    }
+
+    // ------------------------------------------------------------------ cargar opciones
+    function cargaOpciones(mantener) {
+      var url = root.getAttribute('data-options-url');
+      var pid = promotorId();
+      if (pid) url += (url.indexOf('?') >= 0 ? '&' : '?') + 'promoter_id=' + encodeURIComponent(pid);
+      return pedir(url).then(function (d) {
+        if (!d || !d.ok) { grupos = []; pintaDisponibles(); return; }
+        grupos = d.groups || [];
+        if (Array.isArray(d.roles) && d.roles.length) roles = d.roles;
+        if (!mantener) {
+          // Lo que YA tenía la actividad: se rellena con los datos que traen los grupos.
+          var porId = {};
+          grupos.forEach(function (g) {
+            (g.people || []).forEach(function (p) { if (p.id) porId[p.id] = p; });
+          });
+          Object.keys(yaTenia).forEach(function (id) {
+            var p = porId[id] || { id: id, name: 'Contacto', title: '', email: '', phone: '' };
+            elegidos[id] = Object.assign({}, p, { roles: (yaTenia[id] || []).slice() });
+          });
+        }
+        pintaElegidos();
+        pintaDisponibles();
       });
     }
-    root.querySelector('[data-cc-new-save]').addEventListener('click', function () { save(false); });
-    root.querySelector('[data-cc-new-cancel]').addEventListener('click', closeNew);
 
-    if (fixedPromoter) {
-      loadContacts();
-    } else if (promoterInputSel) {
-      // El promotor se elige en otro paso del asistente: no hay evento fiable, se sondea.
-      loadContacts();
-      setInterval(loadContacts, 600);
+    // ------------------------------------------------------------------ acciones
+    function anade(p) {
+      if (!p) return;
+      if (!p.id && p.self_promoter_id) {
+        // «El propio X»: hace falta una fila de contacto para poder colgarla de la actividad.
+        pedir(root.getAttribute('data-self-url'), {
+          method: 'POST', body: JSON.stringify({ promoter_id: p.self_promoter_id })
+        }).then(function (d) {
+          if (d && d.ok && d.contact) anade(Object.assign({}, d.contact, { title: p.title || d.contact.title }));
+          else alert((d && d.error) || 'No se ha podido usar ese contacto.');
+        });
+        return;
+      }
+      if (!p.id || elegidos[p.id]) return;
+      elegidos[p.id] = Object.assign({}, p, { roles: [] });
+      pintaElegidos();
+      pintaDisponibles();
     }
+
+    root.addEventListener('click', function (ev) {
+      var add = ev.target.closest('[data-cc-add]');
+      if (add) {
+        ev.preventDefault();
+        var p = null;
+        try { p = JSON.parse(add.getAttribute('data-cc-add')); } catch (e) { p = null; }
+        anade(p);
+        return;
+      }
+      var drop = ev.target.closest('[data-cc-drop]');
+      if (drop) {
+        ev.preventDefault();
+        delete elegidos[drop.getAttribute('data-cc-drop')];
+        pintaElegidos();
+        pintaDisponibles();
+        return;
+      }
+      var rol = ev.target.closest('[data-cc-role]');
+      if (rol) {
+        ev.preventDefault();
+        var id = rol.getAttribute('data-cc-for');
+        var clave = rol.getAttribute('data-cc-role');
+        var p = elegidos[id];
+        if (!p) return;
+        p.roles = p.roles || [];
+        var i = p.roles.indexOf(clave);
+        if (i >= 0) p.roles.splice(i, 1); else p.roles.push(clave);
+        pintaElegidos();
+        return;
+      }
+      if (ev.target.closest('[data-cc-new-open]')) {
+        ev.preventDefault();
+        formNueva.classList.remove('d-none');
+        var n = root.querySelector('[data-cc-new-name]');
+        if (n) n.focus();
+        return;
+      }
+      if (ev.target.closest('[data-cc-new-cancel]')) {
+        ev.preventDefault();
+        cierraNueva();
+        return;
+      }
+      if (ev.target.closest('[data-cc-new-save]')) {
+        ev.preventDefault();
+        creaNueva(false);
+        return;
+      }
+      var usar = ev.target.closest('[data-cc-usedup]');
+      if (usar) {
+        ev.preventDefault();
+        var d = null;
+        try { d = JSON.parse(usar.getAttribute('data-cc-usedup')); } catch (e) { d = null; }
+        anade(d);
+        cierraNueva();
+        return;
+      }
+      if (ev.target.closest('[data-cc-forcenew]')) {
+        ev.preventDefault();
+        creaNueva(true);
+        return;
+      }
+    });
+
+    function cierraNueva() {
+      formNueva.classList.add('d-none');
+      ['[data-cc-new-name]', '[data-cc-new-title]', '[data-cc-new-email]', '[data-cc-new-phone]']
+        .forEach(function (sel) { var el = root.querySelector(sel); if (el) el.value = ''; });
+      var dups = root.querySelector('[data-cc-dups]');
+      if (dups) { dups.innerHTML = ''; dups.classList.add('d-none'); }
+      var err = root.querySelector('[data-cc-new-error]');
+      if (err) { err.textContent = ''; err.classList.add('d-none'); }
+    }
+
+    function creaNueva(forzar) {
+      var nombre = (root.querySelector('[data-cc-new-name]') || {}).value || '';
+      var cargo = (root.querySelector('[data-cc-new-title]') || {}).value || '';
+      var correo = (root.querySelector('[data-cc-new-email]') || {}).value || '';
+      var tel = (root.querySelector('[data-cc-new-phone]') || {}).value || '';
+      var err = root.querySelector('[data-cc-new-error]');
+      var dups = root.querySelector('[data-cc-dups]');
+      if (!nombre.trim()) {
+        if (err) { err.textContent = 'Indica al menos el nombre.'; err.classList.remove('d-none'); }
+        return;
+      }
+      var vincular = true;
+      var chk = root.querySelector('[data-cc-link]');
+      if (promotorId() && chk) vincular = !!chk.checked;
+      pedir(root.getAttribute('data-create-url'), {
+        method: 'POST',
+        body: JSON.stringify({
+          name: nombre, title: cargo, email: correo, phone: tel,
+          promoter_id: promotorId(), link_to_promoter: vincular ? 1 : 0,
+          force: forzar ? 1 : 0
+        })
+      }).then(function (d) {
+        if (d && d.duplicates && d.duplicates.length) {
+          if (dups) {
+            dups.innerHTML = '<div class="small mb-1">Puede que ya esté dada de alta:</div>' +
+              d.duplicates.map(function (p) {
+                var meta = [p.title, p.email, p.phone, p.promoter_name].filter(Boolean).map(esc).join(' · ');
+                return '<button type="button" class="cc-opt" data-cc-usedup=\'' + esc(JSON.stringify(p)) + '\'>' +
+                  '<i class="fa fa-user-check"></i><span class="cc-opt__body">' +
+                  '<span class="cc-opt__name">' + esc(p.name) + '</span>' +
+                  (meta ? '<span class="cc-opt__meta">' + meta + '</span>' : '') + '</span></button>';
+              }).join('') +
+              '<button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-cc-forcenew>' +
+              'No es ninguna: crearla igualmente</button>';
+            dups.classList.remove('d-none');
+          }
+          return;
+        }
+        if (!d || !d.ok) {
+          if (err) { err.textContent = (d && d.error) || 'No se ha podido crear.'; err.classList.remove('d-none'); }
+          return;
+        }
+        anade(d.contact);
+        cierraNueva();
+      });
+    }
+
+    // ------------------------------------------------------------------ buscar
+    var espera = null;
+    var buscador = root.querySelector('[data-cc-search]');
+    if (buscador) {
+      buscador.addEventListener('input', function () {
+        clearTimeout(espera);
+        var q = (buscador.value || '').trim();
+        if (q.length < 2) { cajaResultados.innerHTML = ''; return; }
+        espera = setTimeout(function () {
+          pedir(root.getAttribute('data-search-url') + '?q=' + encodeURIComponent(q)).then(function (d) {
+            var libres = ((d && d.results) || []).filter(function (p) { return !elegidos[p.id]; });
+            cajaResultados.innerHTML = libres.length
+              ? '<div class="cc-group"><div class="cc-group__head">Resultados</div>' +
+                libres.map(tarjetaDisponible).join('') + '</div>'
+              : '<div class="cc-empty small text-muted">Nadie con ese nombre. Créala con el botón de abajo.</div>';
+          });
+        }, 300);
+      });
+    }
+
+    // Al cambiar el PROMOTOR se recargan sus personas (sin perder lo ya elegido).
+    var pin = inputPromotor();
+    if (pin) {
+      pin.addEventListener('change', function () { cargaOpciones(true); });
+      if (window.jQuery) {
+        try { window.jQuery(pin).on('select2:select select2:clear', function () { cargaOpciones(true); }); }
+        catch (e) {}
+      }
+    }
+
+    cargaOpciones(false);
   }
 
-  function init(scope) {
-    (scope || document).querySelectorAll('[data-concert-contacts]').forEach(setup);
+  function init() {
+    document.querySelectorAll('[data-concert-contacts]').forEach(setup);
   }
-
-  document.addEventListener('DOMContentLoaded', function () { init(document); });
-  // La ficha muestra el formulario al pulsar «Editar» (ficha_inline.js emite este evento).
-  document.addEventListener('ficha:shown', function (ev) { init(ev.target || document); });
-  window.initConcertContacts = init;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  // La ficha reemplaza zonas por AJAX: al repintarse hay que volver a cablear el selector.
+  document.addEventListener('inline:updated', init);
+  document.addEventListener('ficha:shown', init);
 })();

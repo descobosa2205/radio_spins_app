@@ -5803,3 +5803,43 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   .home-order-bar{ border-radius:16px; left:.5rem; right:.5rem; transform:none; max-width:none; }
   .home-order-bar__t{ flex-basis:100%; text-align:center; }
 }
+
+
+/* ---- FICHA DE ACTIVIDAD · los MÓDULOS del formulario de «Datos» ----
+   El formulario trae TODOS los campos, así que van agrupados por bloques con su rótulo: sin eso es
+   una parrilla de veinte campos en la que no se encuentra nada. */
+.ed-block{
+  border:1px solid rgba(0,0,0,.08); border-radius:14px; background:#fff;
+  padding:.9rem 1rem; margin-bottom:1rem;
+}
+.ed-block__head{
+  display:flex; align-items:center; gap:.5rem; font-weight:700; font-size:.92rem; color:#374151;
+  margin:0 0 .8rem; padding-bottom:.5rem; border-bottom:1px solid rgba(0,0,0,.06);
+}
+.ed-block__head i{ color:var(--brand-accent, #007CA2); }
+
+
+/* ---- CONTACTOS de una actividad · el selector ---- */
+.cc-sub{ border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:.7rem .8rem; margin-bottom:.7rem; background:#fff; }
+.cc-sub__head{ display:flex; align-items:center; gap:.45rem; font-weight:700; font-size:.85rem; color:#374151; margin-bottom:.5rem; }
+.cc-sub__head i{ color:var(--brand-accent, #007CA2); }
+.cc-groups{ display:flex; flex-direction:column; gap:.5rem; }
+.cc-group__head{ font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:#6b7280; font-weight:700; margin:.2rem 0 .3rem; }
+.cc-opt{
+  display:flex; align-items:center; gap:.55rem; width:100%; text-align:left;
+  border:1px solid rgba(0,0,0,.1); border-radius:10px; background:#fbfcfe; padding:.4rem .6rem;
+  font-size:.86rem; color:#212529; margin-bottom:.3rem;
+}
+.cc-opt:hover{ border-color:var(--brand-primary, #E33D48); background:#fff5f6; }
+.cc-opt > i{ color:var(--brand-primary, #E33D48); }
+.cc-opt__body{ min-width:0; display:flex; flex-direction:column; }
+.cc-opt__name{ font-weight:600; }
+.cc-opt__meta{ font-size:.76rem; color:#6b7280; }
+.cc-roles-row{ display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.35rem; }
+.cc-role{
+  display:inline-flex; align-items:center; gap:.3rem; border:1px solid rgba(0,0,0,.12);
+  border-radius:999px; background:#fff; color:#6b7280; font-size:.74rem; font-weight:600;
+  padding:.18rem .55rem;
+}
+.cc-role.is-on{ background:var(--brand-primary, #E33D48); border-color:var(--brand-primary, #E33D48); color:#fff; }
+.cc-new{ border:1px dashed rgba(0,0,0,.18); border-radius:12px; padding:.7rem .8rem; margin-top:.6rem; background:#fbfcfe; }

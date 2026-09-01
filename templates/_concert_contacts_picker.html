@@ -1,65 +1,94 @@
 {# ============================================================================
    Selector de CONTACTOS de la actividad (Producción / Ticketing / Comunicación).
 
-   Se usa igual en el asistente de alta y en la ficha. Muestra las personas que ya cuelgan del
-   promotor para elegirlas, y deja crear una nueva (nombre + email + teléfono, todo opcional salvo
-   el nombre) avisando de las que se le parecen para no duplicar. La misma persona puede cubrir
-   varias funciones.
+   Se usa igual en el asistente de alta y en la ficha.
+
+   ⚠️ Lo que cambió (sep 2026): los contactos se ponen SIN NECESIDAD DE TOCAR EL PROMOTOR.
+   · Al elegir promotor se cargan SUS personas para marcar las que van a la actividad, y también
+     los datos de contacto de su propia ficha y los de los terceros VINCULADOS con él.
+   · Se puede buscar a cualquiera en TODA la base (un medio, una sala…) y reutilizarlo.
+   · Se puede añadir una persona nueva, y entonces se PREGUNTA si se vincula al promotor.
+   · SIN PROMOTOR también se pueden poner contactos: quedan sueltos, colgados de la actividad.
+   · Una persona puede llevar VARIAS funciones y una función puede ser de VARIAS personas.
 
    Parámetros:
-     cc_promoter_input : selector CSS del <input hidden> con el promotor (asistente, cambia en vivo)
-     cc_promoter_id    : id fijo del promotor (ficha)
-     cc_selected       : dict {ROL: contact_id} ya asignado
+     cc_promoter_input : selector CSS del <select>/<input> del promotor (para recargar en vivo)
+     cc_promoter_id    : id del promotor guardado
+     cc_concert_id     : id de la actividad («nuevo» en el asistente)
+     cc_selected       : {contact_id: [funciones]} ya asignado
      cc_id             : sufijo único por si hay más de uno en la página
    ============================================================================ #}
 {% set _ccid = cc_id | default('cc') %}
 <div class="cc-picker"
      data-concert-contacts
      id="{{ _ccid }}"
-     data-contacts-url="{{ url_for('api_promoter_contacts', promoter_id='__PID__') }}"
+     data-options-url="{{ url_for('api_concert_contact_options', cid=(cc_concert_id or 'nuevo')) }}"
      data-create-url="{{ url_for('api_promoter_contact_create') }}"
+     data-self-url="{{ url_for('api_promoter_self_contact') }}"
+     data-search-url="{{ url_for('api_contact_search') }}"
      {% if cc_promoter_input %}data-promoter-input="{{ cc_promoter_input }}"{% endif %}
      {% if cc_promoter_id %}data-promoter-id="{{ cc_promoter_id }}"{% endif %}
      data-roles='{{ CONCERT_CONTACT_ROLES | map("list") | list | tojson }}'
      data-selected='{{ (cc_selected or {}) | tojson }}'>
 
-  <div class="cc-empty small text-muted" data-cc-nopromoter>
-    <i class="fa fa-circle-info me-1"></i>Elige antes el promotor: las personas de contacto quedan vinculadas a él.
+  {# ---- LOS QUE YA ESTÁN EN LA ACTIVIDAD ---- #}
+  <div class="cc-sub">
+    <div class="cc-sub__head"><i class="fa fa-address-book"></i>En esta actividad</div>
+    <div data-cc-chosen>
+      <div class="cc-empty small text-muted">Todavía no hay nadie. Añádelo de la lista de abajo o crea una persona nueva.</div>
+    </div>
   </div>
 
-  <div data-cc-body class="d-none">
-    <label class="d-inline-flex align-items-center gap-2 mb-2 small">
-      <input type="checkbox" class="form-check-input m-0" data-cc-same>
-      <span>La misma persona para las tres funciones</span>
-    </label>
+  {# ---- LOS QUE SE PUEDEN AÑADIR ---- #}
+  <div class="cc-sub">
+    <div class="cc-sub__head"><i class="fa fa-user-plus"></i>Añadir a alguien</div>
+    <div class="cc-hint small text-muted" data-cc-nopromoter>
+      <i class="fa fa-circle-info me-1"></i>Esta actividad no tiene promotor: puedes poner los contactos
+      igualmente (quedan colgados de la actividad) o buscarlos en toda la base.
+    </div>
+    <div data-cc-available class="cc-groups"></div>
 
-    <div class="cc-roles" data-cc-roles></div>
+    <label class="form-label small mb-1 mt-2">Buscar en toda la base <span class="text-muted fw-normal">(un medio, una sala, cualquiera)</span></label>
+    <input type="search" class="form-control form-control-sm" data-cc-search placeholder="Nombre, correo o cargo…" autocomplete="off">
+    <div data-cc-results class="cc-groups"></div>
 
+    <div class="mt-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-cc-new-open>
+        <i class="fa fa-plus me-1"></i>Añadir una persona nueva
+      </button>
+    </div>
+
+    {# ---- ALTA DE UNA PERSONA NUEVA ---- #}
     <div class="cc-new d-none" data-cc-new>
-      <div class="fw-semibold small mb-2"><i class="fa fa-user-plus me-1"></i>Nueva persona para <span data-cc-new-role></span></div>
       <div class="row g-2">
         <div class="col-12 col-md-4">
           <input type="text" class="form-control form-control-sm" data-cc-new-name placeholder="Nombre y apellidos">
         </div>
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-3">
+          <input type="text" class="form-control form-control-sm" data-cc-new-title placeholder="Cargo (opcional)">
+        </div>
+        <div class="col-12 col-md-3">
           <input type="email" class="form-control form-control-sm" data-cc-new-email placeholder="Email (opcional)">
         </div>
-        <div class="col-12 col-md-4">
-          <input type="text" class="form-control form-control-sm" data-cc-new-phone placeholder="Teléfono (opcional)">
+        <div class="col-12 col-md-2">
+          <input type="text" class="form-control form-control-sm" data-cc-new-phone placeholder="Teléfono">
         </div>
       </div>
+      {# ⚠️ Vincularla al promotor SE PREGUNTA: apuntar a alguien en una actividad no siempre significa
+         que tenga que quedarse en la ficha del tercero. #}
+      <label class="d-inline-flex align-items-center gap-2 small mt-2 d-none" data-cc-link-wrap>
+        <input type="checkbox" class="form-check-input m-0" data-cc-link checked>
+        <span>Vincularla también al promotor <strong data-cc-link-name></strong> como persona de contacto suya</span>
+      </label>
       <div class="cc-dups d-none" data-cc-dups></div>
       <div class="d-flex gap-2 mt-2">
-        <button type="button" class="btn btn-sm btn-primary" data-cc-new-save><i class="fa fa-check me-1"></i>Crear y asignar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-cc-new-save><i class="fa fa-check me-1"></i>Añadir</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-cc-new-cancel>Cancelar</button>
       </div>
       <div class="small text-danger mt-1 d-none" data-cc-new-error></div>
     </div>
   </div>
 
-  {# Un campo por función: el backend lo lee con _parse_concert_contacts_form. #}
-  {% for key, label, icon in CONCERT_CONTACT_ROLES %}
-    <input type="hidden" name="contact_{{ key|lower }}_id" data-cc-input="{{ key }}"
-           value="{{ (cc_selected or {}).get(key, '') }}">
-  {% endfor %}
+  {# Los campos que lee `_parse_concert_contacts_form`: las personas y, por cada una, sus funciones. #}
+  <div data-cc-inputs></div>
 </div>

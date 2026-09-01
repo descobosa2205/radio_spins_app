@@ -479,8 +479,8 @@
             {# Personas de contacto del promotor: producción, ticketing y comunicación. #}
             <div class="wizard-card" id="wizardContactsWrap">
               <div class="wizard-card__title"><i class="fa fa-address-book"></i>Contactos</div>
-              <div class="wizard-card__hint">¿Con quién se habla para cada cosa? Elige entre las personas que ya tiene el promotor o crea una nueva. Puede ser la misma para todo.</div>
-              {% with cc_id='wizardContacts', cc_promoter_input='#wizard_promoter_id' %}
+              <div class="wizard-card__hint">¿Con quién se habla para cada cosa? Elige entre las personas del promotor (o de los terceros vinculados con él), búscalas en toda la base o crea una nueva. Una persona puede llevar varias funciones, y no hace falta tener promotor para poner contactos.</div>
+              {% with cc_id='wizardContacts', cc_concert_id='nuevo', cc_promoter_input='#wizard_promoter_id' %}
                 {% include '_concert_contacts_picker.html' %}
               {% endwith %}
             </div>

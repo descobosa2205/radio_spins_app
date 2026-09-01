@@ -1857,10 +1857,12 @@ class PromoterContact(Base):
     __tablename__ = "promoter_contacts"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    # ⚠️ SIN TERCERO: una persona de contacto puede no colgar de ninguno (una actividad sin promotor,
+    # o alguien de un medio que todavía no tiene ficha). Antes era obligatorio y por eso no se podían
+    # poner contactos hasta elegir el promotor.
     promoter_id = Column(
         PGUUID(as_uuid=True),
         ForeignKey("promoters.id", ondelete="CASCADE"),
-        nullable=False,
     )
     title = Column(Text, nullable=False)
     first_name = Column(Text, nullable=False)
@@ -12719,6 +12721,8 @@ def ensure_afavor_schema():
         # --- EL TERCERO: su compañía matriz y su enlace público de liquidaciones ---
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS parent_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS afavor_token text;",
+        # Una persona de contacto puede no colgar de ningún tercero (actividad sin promotor).
+        "ALTER TABLE IF EXISTS promoter_contacts ALTER COLUMN promoter_id DROP NOT NULL;",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_promoters_afavor_token ON promoters(afavor_token) WHERE afavor_token IS NOT NULL;",
         "CREATE INDEX IF NOT EXISTS idx_promoters_parent ON promoters(parent_promoter_id) WHERE parent_promoter_id IS NOT NULL;",
         # --- LA LIQUIDACIÓN A FAVOR: lo que sube la compañía, la revisión y la factura ---

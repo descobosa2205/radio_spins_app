@@ -7562,10 +7562,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`_afavor_catalog_index` + `_afavor_statement_match`, **sumando** las líneas del mismo tema), enseña
   las coincidencias y **lo que NO casa con su motivo**, y al aceptarlas carga los ingresos y deja los
   temas **pendientes de revisar**. ⚠️ **Lo ya VALIDADO no se pisa** (y se dice).
-  ⚠️⚠️ **`csv.Sniffer` se queda con la COMA en un CSV español**, donde la coma es el separador
-  DECIMAL: «…;Tema;120;45,10» se partía y el importe salía **10**. El motor lo arregla por su cuenta
-  (`_resplit_csv`); **el mismo lector lo usan las importaciones de TERCEROS y de COMPRADORES**, así que
-  ahí el bug sigue vivo (pendiente de arreglar en el punto único, `promoter_import.read_rows`).
+  ⚠️⚠️ **`csv.Sniffer` SE QUEDA CON LA COMA EN UN CSV ESPAÑOL**, donde la coma es el separador
+  DECIMAL: «…;Tema;120;45,10» se partía en «…;Tema;120;45» y «10», así que el importe salía **10** y
+  el título arrastraba media fila. Arreglado en el **punto único** (`promoter_import._resplit_csv`,
+  llamado desde `_rows_from_csv`): si con el separador elegido quedan celdas que TODAVÍA traen dos o
+  más de otro candidato, ese otro es el de verdad y se relee con él (y solo se acepta si de verdad
+  parte en MÁS columnas). Como el lector es el mismo, se benefician también las importaciones de
+  TERCEROS, de COMPRADORES y de SUPERVISORS.
   ⚠️ Los tres endpoints públicos van en las **tres** listas y los de la revisión
   (`afavor_review_view`/`_save`, `afavor_invoice_mark_sent`) en **`REQUEST_ANY_ENDPOINTS`**: los hace
   registros+sello, que no tiene por qué tener la pestaña de Royalties concedida.

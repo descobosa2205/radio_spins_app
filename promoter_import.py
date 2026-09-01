@@ -222,7 +222,36 @@ def _rows_from_csv(data: bytes) -> list[list]:
     except Exception:
         dialect = csv.excel
         dialect.delimiter = ";" if muestra.count(";") > muestra.count(",") else ","
-    return [list(r) for r in csv.reader(io.StringIO(text), dialect)]
+    filas = [list(r) for r in csv.reader(io.StringIO(text), dialect)]
+    return _resplit_csv(text, filas, getattr(dialect, "delimiter", ","))
+
+
+def _resplit_csv(text: str, filas: list, usado: str) -> list:
+    """⚠️⚠️ `csv.Sniffer` SE QUEDA CON LA COMA EN UN CSV ESPAÑOL, y ahí la coma es el separador
+    DECIMAL: «…;Tema Cinco;120;45,10» se partía en «…;Tema Cinco;120;45» y «10», así que el importe
+    salía **10** y el título arrastraba media fila (bug real).
+
+    Si con el separador elegido quedan celdas que TODAVÍA traen dos o más de otro candidato, ese otro
+    es el separador de verdad y se relee con él."""
+    if not filas:
+        return filas
+    for otro in (";", "\t", "|", ","):
+        if otro == usado:
+            continue
+        sospechosas = sum(1 for fila in filas[:30] for celda in (fila or [])
+                          if isinstance(celda, str) and celda.count(otro) >= 2)
+        if not sospechosas:
+            continue
+        try:
+            d = csv.excel()
+            d.delimiter = otro
+            nuevas = [list(r) for r in csv.reader(io.StringIO(text), d)]
+        except Exception:
+            continue
+        # Solo vale si de verdad parte en MÁS columnas (si no, se deja lo que había).
+        if nuevas and max((len(x) for x in nuevas[:30]), default=0) > max((len(x) for x in filas[:30]), default=0):
+            return nuevas
+    return filas
 
 
 def _header_index(rows: list[list], guesser=None) -> int:

@@ -238,10 +238,10 @@
 (function () {
   /* El total de cada tema se calcula EN VIVO: importe × el % a favor. */
   function num(v) {
-    if (window.numv) return window.numv(v);
-    var t = String(v || '').replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.');
-    var n = parseFloat(t);
-    return isNaN(n) ? 0 : n;
+    /* ⚠️ `window.numv` devuelve NaN con el campo vacío: sin este guardián el total salía «NaN €». */
+    var n = window.numv ? window.numv(v) : parseFloat(
+      String(v || '').replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.'));
+    return (typeof n === 'number' && !isNaN(n)) ? n : 0;
   }
   function eur(n) {
     try { return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }

@@ -1042,6 +1042,55 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+
+{# CARTELES DE SOLD OUT: se piden SOLOS cuando una actividad llega al 90% de venta. Es de DISEÑO y
+   desaparece solo en cuanto sube los carteles (mira el dato, no una marca). #}
+{% if HOME_SOLDOUT_ARTWORK %}
+<div class="card mb-4 border-danger" data-home-module="soldout-carteles">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-fire text-danger me-2"></i>Carteles de Sold Out
+      <span class="badge text-bg-danger ms-1">{{ HOME_SOLDOUT_ARTWORK|length }}</span>
+    </span>
+    <span class="text-muted small">Actividades que han llegado al 90% de venta.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_SOLDOUT_ARTWORK %}
+      <div class="ctask{% if r.late %} border-danger{% endif %}">
+        <div class="ctask__head">
+          {% if r.artist_photo or r.artist %}
+            {{ artist_avatar(r.artist_photo, r.artist) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-fire text-muted"></i></span>
+          {% endif %}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}"
+             title="Abrir la cartelería de la actividad">{{ r.title }}</a>
+          <span class="ctask__facts">
+            {% if r.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ r.date_label }}</span>{% endif %}
+            {% if r.place %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ r.place }}</span>{% endif %}
+            {% if r.pct_label %}<span class="ctask__fact"><i class="fa fa-ticket"></i>{{ r.pct_label }} vendido</span>{% endif %}
+          </span>
+          <span class="ms-auto ctask__actions">
+            <a class="btn btn-sm btn-danger" href="{{ r.url }}"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</a>
+          </span>
+        </div>
+        <div class="ctask__tasks">
+          {% for f in r.formats %}
+            <span class="badge text-bg-warning text-dark"><i class="fa fa-image me-1"></i>{{ f }}</span>
+          {% endfor %}
+          {% if r.pending %}<span class="badge text-bg-light border"><i class="fa fa-clock me-1"></i>{{ r.pending }} pendiente(s) de validar</span>{% endif %}
+          {% if r.deadline_label %}
+            <span class="badge {{ 'text-bg-danger' if r.late else 'text-bg-light border' }}">
+              <i class="fa fa-calendar-check me-1"></i>para el {{ r.deadline_label }}
+              {%- if r.days_left is not none %}{% if r.days_left < 0 %} · se pasó{% elif r.days_left == 0 %} · hoy{% else %} · quedan {{ r.days_left }} día(s){% endif %}{% endif %}</span>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# LO DE DISEÑO, agrupado POR PROYECTO: la portada y las creatividades de cada lanzamiento juntas,
    cada una con los días que faltan para entregarla. #}
 {% if HOME_DESIGN_TASKS %}

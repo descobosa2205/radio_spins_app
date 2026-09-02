@@ -42,6 +42,7 @@ from flask import (
     send_file,
     Response,
     make_response,
+    has_request_context,
 )
 from sqlalchemy import func, text, or_, and_, case, bindparam, event as sa_event
 from sqlalchemy import inspect as sa_inspect
@@ -4015,6 +4016,10 @@ def _archive_current_artwork_assets(row: ConcertArtworkRequest | None):
     for asset in list(getattr(row, 'assets', None) or []):
         if bool(getattr(asset, 'is_archived', False)):
             continue
+        # ⚠️ El SOLD OUT es OTRA petición: reenviar la cartelería (o cambiar los datos del evento) no
+        # puede llevarse por delante los carteles de Sold Out ya entregados.
+        if _artwork_asset_category(asset) == 'SOLDOUT':
+            continue
         asset.is_archived = True
         asset.archived_at = now
         archived += 1
@@ -4229,10 +4234,15 @@ def _artwork_notify_resolve_if_done(session_db, row) -> None:
     try:
         if row is None:
             return
-        hay = any((not a.is_archived) and (a.validation_status or "APPROVED") == "APPROVED"
-                  for a in (row.assets or []))
-        if hay:
+        def _hay(cat):
+            return any((not a.is_archived) and (a.validation_status or "APPROVED") == "APPROVED"
+                       and _artwork_asset_category(a) == cat for a in (row.assets or []))
+        # ⚠️ Cada petición cierra SU aviso: la cartelería con sus carteles y el Sold Out con los
+        # suyos (si no, subir uno cerraría el aviso del otro).
+        if _hay("POSTER") or _hay("LOGO"):
             _notify_resolve(session_db, "ARTWORK", str(row.id))
+        if _hay("SOLDOUT"):
+            _notify_resolve(session_db, "SOLDOUT", str(row.id))
     except Exception:
         app.logger.exception("[avisos] no se pudo cerrar el aviso de la solicitud de diseño")
 
@@ -53304,13 +53314,23 @@ def concert_detail_view(cid):
         payment_pending = _concert_payment_total(c, pending_only=True)
         payment_total_configured = _concert_payment_total(c, pending_only=False)
 
+        # CARTEL DE SOLD OUT · RED DE SEGURIDAD: se comprueba el 90% al abrir la pestaña, así se pide
+        # también cuando la venta entró por un camino que no pasa por los apuntes. Va ANTES de leer la
+        # solicitud: si la comprobación la crea, la ficha tiene que verla.
+        if tab in ('carteleria', 'ticketing'):
+            _soldout_artwork_check(session, [c.id])
         artwork_request = getattr(c, 'artwork_request', None)
         artwork_needs_refresh = _artwork_request_has_event_changes(artwork_request, c) if artwork_request else False
         if artwork_request:
             artwork_request.needs_refresh = bool(artwork_needs_refresh or getattr(artwork_request, 'needs_refresh', False))
         artwork_assets = list(getattr(artwork_request, 'assets', None) or []) if artwork_request else []
+        # ⚠️ Los carteles de SOLD OUT viven en la misma solicitud pero tienen su propia sección y NO
+        # se mezclan con los normales (ni aquí, ni en el ZIP, ni en el enlace público, ni como cartel
+        # principal): se sacan de estas dos listas y van por `soldout`.
+        artwork_assets = [x for x in artwork_assets if _artwork_asset_category(x) != 'SOLDOUT']
         current_artwork_assets = sorted([x for x in artwork_assets if not bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'created_at', None) or datetime.min, reverse=True)
         archived_artwork_assets = sorted([x for x in artwork_assets if bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'archived_at', None) or getattr(x, 'created_at', None) or datetime.min, reverse=True)
+        soldout = _soldout_artwork_state(session, c)
         artwork_company_ids = set(str(x) for x in ((artwork_request.group_company_ids if artwork_request else None) or []))
         artwork_ticketer_ids = set(str(x) for x in ((artwork_request.ticketer_ids if artwork_request else None) or []))
         artwork_companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
@@ -53486,6 +53506,8 @@ def concert_detail_view(cid):
             artwork_assets=artwork_assets,
             current_artwork_assets=current_artwork_assets,
             archived_artwork_assets=archived_artwork_assets,
+            soldout=soldout,
+            soldout_trigger_pct=SOLDOUT_TRIGGER_PCT,
             artwork_companies=artwork_companies,
             artwork_ticketers=artwork_ticketers,
             artwork_company_ids=artwork_company_ids,
@@ -53941,7 +53963,8 @@ ARTWORK_GROUP_KINDS = {"TOUR": "gira", "CYCLE": "ciclo", "EVENT": "evento"}
 # subida, la aprobación de diseño, las miniaturas de vídeo y el compartir) pero **no se mezclan**:
 # cada una tiene su sección en el panel y todo lo que SALE de casa (el ZIP, el enlace público de
 # cartelería, el aviso de salida a la venta) es solo `POSTER`.
-ARTWORK_ASSET_CATEGORIES = {"POSTER": "Cartel", "LOGO": "Logotipo / imagen de marca"}
+ARTWORK_ASSET_CATEGORIES = {"POSTER": "Cartel", "LOGO": "Logotipo / imagen de marca",
+                            "SOLDOUT": "Cartel de Sold Out"}
 
 # Formatos que se sugieren al subir una pieza de marca (se puede escribir cualquier otro).
 ARTWORK_BRAND_FORMATS = [
@@ -54480,6 +54503,10 @@ def concert_artwork_upload_direct(cid):
             return jsonify({"ok": False, "error": "Sin permiso para subir carteles."}), 403
         row = _artwork_ensure_request(session_db, concert)
         estado = _current_user_state()
+        # QUÉ se está subiendo: un cartel normal o el de SOLD OUT (su propia sección).
+        cat = _artwork_category_arg(request.form.get("category"))
+        if cat == "LOGO":
+            cat = "POSTER"          # una actividad no tiene imagen de marca: eso es de la gira
         ficheros = request.files.getlist("files") or request.files.getlist("file")
         etiquetas = request.form.getlist("labels")
         anchos = request.form.getlist("widths")
@@ -54510,6 +54537,7 @@ def concert_artwork_upload_direct(cid):
                 original_name=nombre[:200],
                 mime_type=mime_type,
                 kind=kind,
+                category=cat,
                 width=_parse_optional_positive_int((anchos[i] if i < len(anchos) else "") or ""),
                 height=_parse_optional_positive_int((altos[i] if i < len(altos) else "") or ""),
                 # Lo que sube DISEÑO (o dirección) ya está aprobado; lo que sube cualquier otro
@@ -54528,14 +54556,21 @@ def concert_artwork_upload_direct(cid):
             return jsonify({"ok": False,
                             "error": ("No se pudo subir ningún archivo."
                                       + (" Se han quedado fuera: " + ", ".join(fallidos[:5]) if fallidos else ""))}), 400
-        # Solo se marca «en revisión» si de verdad queda algo pendiente de aprobar.
-        hay_pendientes = any((a.validation_status or 'APPROVED') == 'PENDING'
-                             for a in (row.assets or []) if not a.is_archived)
-        if hay_pendientes and (row.status or 'DRAFT').upper() in ('DRAFT', 'PROMOTER', 'REQUESTED', 'CORRECTIONS', 'UPLOADED'):
-            row.status = 'REVIEW'
-        elif not hay_pendientes and (row.status or 'DRAFT').upper() in ('DRAFT', 'REVIEW'):
-            row.status = 'UPLOADED'
-            _artwork_pick_primary_by_squareness(row)
+        # ⚠️ El estado de la SOLICITUD es el de la cartelería normal: subir un cartel de Sold Out no
+        # la mueve (son dos peticiones distintas). Lo que se apunta es cuándo se entregó el Sold Out.
+        if cat == 'SOLDOUT':
+            row.soldout_uploaded_at = datetime.now(ZoneInfo('Europe/Madrid'))
+            _artwork_pick_primary_by_squareness(row, 'SOLDOUT')
+        else:
+            # Solo se marca «en revisión» si de verdad queda algo pendiente de aprobar.
+            hay_pendientes = any((a.validation_status or 'APPROVED') == 'PENDING'
+                                 for a in (row.assets or [])
+                                 if not a.is_archived and _artwork_asset_category(a) == 'POSTER')
+            if hay_pendientes and (row.status or 'DRAFT').upper() in ('DRAFT', 'PROMOTER', 'REQUESTED', 'CORRECTIONS', 'UPLOADED'):
+                row.status = 'REVIEW'
+            elif not hay_pendientes and (row.status or 'DRAFT').upper() in ('DRAFT', 'REVIEW'):
+                row.status = 'UPLOADED'
+                _artwork_pick_primary_by_squareness(row)
         row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
         _artwork_notify_resolve_if_done(session_db, row)
         session_db.commit()
@@ -54585,15 +54620,19 @@ def concert_artwork_asset_review(cid, asset_id):
         asset.reviewed_at = ahora
         asset.reviewed_by_nick = (estado.get("nick") or "").strip() or None
         # Cuando ya no queda ninguno pendiente, la solicitud deja de estar «en revisión».
+        # ⚠️ El estado de la SOLICITUD lo marcan los carteles normales: un Sold Out pendiente (o
+        # rechazado) no puede dejar la cartelería «en revisión» ni al revés.
         pendientes = [a for a in (row.assets or [])
-                      if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING']
+                      if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING'
+                      and _artwork_asset_category(a) != 'SOLDOUT']
         aprobados = [a for a in (row.assets or [])
-                     if not a.is_archived and (a.validation_status or 'APPROVED') == 'APPROVED']
+                     if not a.is_archived and (a.validation_status or 'APPROVED') == 'APPROVED'
+                     and _artwork_asset_category(a) != 'SOLDOUT']
         if not pendientes:
             row.status = 'UPLOADED' if aprobados else 'CORRECTIONS'
         row.updated_at = ahora
-        if aprobados:
-            _artwork_pick_primary_by_squareness(row)
+        for _cat in ('POSTER', 'SOLDOUT'):
+            _artwork_pick_primary_by_squareness(row, _cat)
         _artwork_notify_resolve_if_done(session_db, row)
         session_db.commit()
         return jsonify({"ok": True, "status": asset.validation_status,
@@ -55122,8 +55161,11 @@ def concert_artwork_download_all(cid):
         concert = (session_db.query(Concert).options(joinedload(Concert.artist))
                    .filter(Concert.id == to_uuid(cid)).first())
         row = getattr(concert, 'artwork_request', None) if concert else None
+        # ⚠️ Solo los CARTELES: los de Sold Out tienen su propia sección y su propia descarga.
+        cat = _artwork_category_arg(request.args.get('cat'))
         assets = [a for a in ((row.assets if row else None) or [])
-                  if not a.is_archived and (a.validation_status or 'APPROVED') == 'APPROVED']
+                  if not a.is_archived and (a.validation_status or 'APPROVED') == 'APPROVED'
+                  and _artwork_asset_category(a) == cat]
         if not assets:
             flash('No hay carteles aprobados que descargar.', 'warning')
             return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
@@ -57662,6 +57704,8 @@ def sales_save():
         else:
             session.add(TicketSale(concert_id=cid, day=day, sold_today=qty_int))
         session.commit()
+        # ¿Ha llegado al 90%? Entonces se le pide sola la cartelería de Sold Out (best-effort).
+        _soldout_artwork_check(session, [cid])
         flash("Ventas guardadas.", "success")
     except Exception as e:
         session.rollback()
@@ -58258,6 +58302,7 @@ def sales_ticketer_day_save(cid, tid):
                 )
 
         session_db.commit()
+        _soldout_artwork_check(session_db, [concert_id])
         flash("Ventas por ticketera guardadas.", "success")
     except Exception as e:
         session_db.rollback()
@@ -76198,6 +76243,9 @@ def inject_personnel_globals():
         # LO DE DISEÑO, agrupado por proyecto (la portada y las creatividades de cada lanzamiento).
         "HOME_DESIGN_TASKS": (_home_design_tasks()
                               if _home and "_home_design_tasks" in globals() else []),
+        # CARTELES DE SOLD OUT pendientes (se piden solos al 90% de venta).
+        "HOME_SOLDOUT_ARTWORK": (_home_soldout_artwork()
+                                 if _home and "_home_soldout_artwork" in globals() else []),
         # CONTRATOS DE PRODUCTOR por mandar (quien es Registros y Sello a la vez).
         "HOME_PRODUCER_CONTRACTS": (_home_producer_contracts()
                                     if _home and "_home_producer_contracts" in globals() else []),
@@ -76419,6 +76467,9 @@ SUPPORT_ACTION_ENDPOINTS = {
     # (o previsualizar) la solicitud es trabajo de TICKETING. Mismo motivo que arriba.
     "concert_ticketing_contact_save", "concert_sales_request_preview",
     "concert_sales_request_send",
+    # CARTEL DE SOLD OUT: se pide solo al 90%, y a mano lo puede pedir (o retirar) contratación,
+    # ticketing o el propio diseño. El permiso fino lo comprueba el endpoint.
+    "concert_soldout_request",
     # LEER la factura o el ticket que se arrastra al formulario de un gasto: es una herramienta del
     # propio formulario (lo hace quien apunta el gasto, que puede no tener la sección de bolsas).
     "api_bag_document_detect",
@@ -96530,6 +96581,352 @@ def _concert_sale_state(session_db, concert) -> dict:
     }
 
 
+# ═══════════════════════ EL CARTEL DE SOLD OUT ═══════════════════════
+# ⚠️⚠️ CUANDO UNA ACTIVIDAD LLEGA AL 90% DE VENTA SE LE PIDE SOLA LA CARTELERÍA DE SOLD OUT a
+# diseño (sep 2026): Historia de Instagram (9:16), publicación de Instagram (1:1) y el cartel
+# normal. Nadie tiene que acordarse de pedirlo, que es justo cuando hay que publicarlo.
+#
+# ⚠️ NO es la cartelería de siempre: es OTRA petición, con sus propias columnas en la misma
+# solicitud (`soldout_*`) y con sus carteles en `category='SOLDOUT'`, que viven en su propia
+# sección de la pestaña Cartelería y **no se mezclan** con los normales — ni en el ZIP, ni en el
+# enlace público que se comparte, ni como cartel principal de la actividad.
+SOLDOUT_TRIGGER_PCT = 90
+# Los tres formatos que se piden (claves de ARTWORK_FORMAT_CHOICES).
+SOLDOUT_ARTWORK_FORMATS = ["STORY", "CUADRADO", "CARTEL"]
+# Un sold out se publica el mismo día: el plazo es corto a propósito.
+SOLDOUT_DEADLINE_DAYS = 2
+
+
+def _concert_sold_pct(concert, sold_total, capacity=None):
+    """% de venta de una actividad, o **None si no se puede saber** (sin aforo).
+
+    ⚠️ El aforo es el de VENTA (`_concert_capacity_from_ticket_types`: la suma de los cupos por
+    categoría y, si no hay, el del concierto), el mismo con el que el reporte calcula el % y el
+    sold out — así el 90% de aquí y el que se ve en Ventas no se pueden desparejar."""
+    try:
+        cap = int(capacity if capacity is not None else _concert_capacity_from_ticket_types(concert))
+    except Exception:
+        cap = 0
+    if cap <= 0 or bool(getattr(concert, "no_capacity", False)):
+        return None
+    try:
+        vendidas = int(sold_total or 0)
+    except Exception:
+        vendidas = 0
+    return round(vendidas * 100.0 / cap, 1)
+
+
+def _soldout_artwork_applies(concert) -> bool:
+    """¿A esta actividad le toca cartel de Sold Out?
+
+    Vende entradas, no está cancelada, no es del histórico y todavía no se ha celebrado. El aforo
+    lo comprueba `_concert_sold_pct` (sin aforo no hay % que calcular y no se pide nada)."""
+    if concert is None:
+        return False
+    if not _concert_sells_tickets(concert):
+        return False
+    estado = (getattr(concert, "status", None) or "").strip().upper()
+    if estado in ("CANCELADO", "APLAZADO", "BORRADOR"):
+        return False
+    try:
+        if _concert_is_legacy(concert):
+            return False
+    except Exception:
+        pass
+    ultimo = _concert_last_day(concert)
+    if ultimo and ultimo < today_local():
+        return False
+    return True
+
+
+def _soldout_artwork_assets(row) -> list:
+    """Los carteles de SOLD OUT vigentes de una solicitud (la principal primero)."""
+    filas = [a for a in ((getattr(row, "assets", None) or []) if row else [])
+             if not bool(getattr(a, "is_archived", False))
+             and _artwork_asset_category(a) == "SOLDOUT"]
+    return sorted(filas, key=lambda x: (not bool(getattr(x, "is_primary", False)),
+                                        getattr(x, "created_at", None) or datetime.min))
+
+
+def _soldout_artwork_state(session_db, concert, sold_total=None) -> dict:
+    """Punto ÚNICO de cómo va el cartel de Sold Out (la sección de la ficha y el módulo de diseño).
+
+    ⚠️ Lo que se mira es el DATO (hay carteles subidos = está entregado), no una marca aparte: así
+    no se puede desparejar y la tarea desaparece sola en cuanto diseño lo sube."""
+    vacio = {"applies": False, "auto": False, "requested": False, "delivered": False, "pct": None,
+             "pct_label": "", "requested_at_label": "", "requested_by": "", "deadline": None,
+             "deadline_label": "", "days_left": None, "late": False, "formats": [],
+             "format_labels": [], "assets": [], "pending": [], "rejected": []}
+    if concert is None:
+        return vacio
+    row = getattr(concert, "artwork_request", None)
+    todos = _soldout_artwork_assets(row)
+    aprobados = [a for a in todos if (getattr(a, "validation_status", None) or "APPROVED") == "APPROVED"]
+    pendientes = [a for a in todos if (getattr(a, "validation_status", None) or "APPROVED") == "PENDING"]
+    rechazados = [a for a in todos if (getattr(a, "validation_status", None) or "APPROVED") == "REJECTED"]
+    pedido = bool(getattr(row, "soldout_requested_at", None)) if row else False
+    if not pedido and not todos and not _soldout_artwork_applies(concert):
+        return vacio
+    pct = None
+    if sold_total is not None:
+        pct = _concert_sold_pct(concert, sold_total)
+    elif row is not None and getattr(row, "soldout_requested_pct", None) is not None:
+        try:
+            pct = float(row.soldout_requested_pct)
+        except Exception:
+            pct = None
+    claves = [str(x).upper() for x in ((getattr(row, "soldout_formats", None) or []) if row else [])]
+    if not claves:
+        claves = list(SOLDOUT_ARTWORK_FORMATS)
+    plazo = getattr(row, "soldout_deadline", None) if row else None
+    dias = (plazo - today_local()).days if plazo else None
+    pedido_en = getattr(row, "soldout_requested_at", None) if row else None
+    return {
+        "applies": True,
+        # ¿Se puede pedir SOLO? Hace falta aforo para calcular el %; sin él (aforo libre, o sin
+        # ponerlo) el cartel hay que pedirlo a mano, y la ficha lo DICE en vez de prometer un
+        # automatismo que no va a saltar.
+        "auto": bool(_concert_capacity_from_ticket_types(concert) > 0
+                     and not getattr(concert, "no_capacity", False)),
+        "requested": pedido,
+        "delivered": bool(aprobados),
+        "pct": pct,
+        "pct_label": (("%s%%" % _fmt_pct_es(pct)) if pct is not None else ""),
+        "requested_at_label": (pedido_en.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                               if pedido_en else ""),
+        # Vacío = lo pidió la app sola al llegar al 90%.
+        "requested_by": ((getattr(row, "soldout_requested_by_nick", None) or "").strip() if row else ""),
+        "deadline": plazo,
+        "deadline_label": (plazo.strftime("%d/%m/%Y") if plazo else ""),
+        "days_left": dias,
+        "late": bool(dias is not None and dias < 0 and not aprobados),
+        "formats": claves,
+        "format_labels": [ARTWORK_FORMAT_LABELS.get(k, k) for k in claves],
+        "assets": aprobados,
+        "pending": pendientes,
+        "rejected": rechazados,
+    }
+
+
+def _notice_email_design_soldout(concert, row, enlace: str) -> dict:
+    """El encargo del cartel de SOLD OUT (el correo que le llega a diseño)."""
+    plazo = (row.soldout_deadline.strftime("%d/%m/%Y")
+             if getattr(row, "soldout_deadline", None) else "")
+    medidas = {k: a for k, _l, a in ARTWORK_FORMAT_CHOICES}
+    claves = [str(x).upper() for x in (getattr(row, "soldout_formats", None) or [])] or list(SOLDOUT_ARTWORK_FORMATS)
+    piezas = [{"icon": "fa-image",
+               "title": "Sold Out · %s" % ARTWORK_FORMAT_LABELS.get(k, k),
+               "meta": (("Proporción %s" % medidas[k]) if k in medidas else ""),
+               "due": plazo}
+              for k in claves]
+    pct = getattr(row, "soldout_requested_pct", None)
+    return _notice_email_activity(
+        concert, title=DESIGN_NOTICE_TITLE,
+        subject="Cartel de Sold Out · %s" % ((getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+                                             or (getattr(concert, "festival_name", "") or "").strip() or "actividad"),
+        intro=("Esta actividad va por el %s%% de venta: hace falta la cartelería de Sold Out."
+               % _fmt_pct_es(pct) if pct is not None
+               else "Hace falta la cartelería de Sold Out de esta actividad."),
+        button_label="Subir los carteles", button_url=enlace,
+        sections=_notice_design_section(piezas))
+
+
+def _soldout_artwork_link(concert) -> str:
+    """El enlace a la pestaña Cartelería de la actividad (absoluto, con host canónico).
+
+    ⚠️⚠️ `url_for` REVIENTA fuera de una petición («Working outside of application context») y esto
+    se compone también desde el sync de Enterticket EN SEGUNDO PLANO y desde el cron — que es
+    justamente el camino por el que más veces se va a pedir el cartel. Sin el respaldo, el correo
+    salía sin botón y el aviso sin enlace… y la petición entera se caía (bug real, lo sacó la
+    prueba). Si `url_for` no puede, la ruta se compone a mano (es fija)."""
+    cid = str(getattr(concert, "id", "") or "")
+    if not cid:
+        return ""
+    try:
+        return _external_url_for("concert_detail_view", cid=cid, tab="carteleria")
+    except Exception:
+        base = (_public_base_url() or "").rstrip("/")
+        return (base + "/conciertos/%s?tab=carteleria" % cid) if base else ""
+
+
+@contextmanager
+def _soldout_app_context():
+    """Un contexto de PETICIÓN **si hace falta** (para lo que compone correos y avisos).
+
+    Desde una petición no se toca nada; desde un hilo o un cron se abre uno.
+    ⚠️⚠️ Tiene que ser de PETICIÓN, no solo de aplicación: `_notify_user` mira quién hace la acción
+    con `_current_user_state()` → `current_role()` → `session`, que revienta con «Working outside of
+    request context». Con solo un `app_context` el correo salía pero **el aviso de la campanita no
+    llegaba a nadie** — y el `except` se lo tragaba (bug real, lo sacó la prueba)."""
+    if has_request_context():
+        yield
+        return
+    with app.test_request_context("/"):
+        yield
+
+
+def _soldout_artwork_request(session_db, concert, pct=None, by_nick: str = "") -> bool:
+    """Le PIDE a diseño el cartel de Sold Out (aviso en la app + correo al buzón de diseño).
+
+    Devuelve True si se ha pedido. ⚠️ Es idempotente: una actividad a la que ya se le pidió no
+    vuelve a pedirlo sola (si hay que rehacerlo, se pide a mano desde la ficha)."""
+    row = _artwork_ensure_request(session_db, concert)
+    ahora = datetime.now(TZ_MADRID)
+    row.soldout_requested_at = ahora
+    row.soldout_requested_pct = (int(round(float(pct))) if pct is not None else None)
+    row.soldout_requested_by_nick = (by_nick or "").strip() or None
+    row.soldout_formats = list(SOLDOUT_ARTWORK_FORMATS)
+    row.soldout_deadline = today_local() + timedelta(days=SOLDOUT_DEADLINE_DAYS)
+    row.updated_at = ahora
+    session_db.commit()
+    # ⚠️ La sesión es `expire_on_commit=False`: si la solicitud se acaba de CREAR, `concert
+    # .artwork_request` seguiría valiendo None en memoria y la ficha se pintaría sin ella.
+    try:
+        session_db.expire(concert, ["artwork_request"])
+    except Exception:
+        pass
+
+    enlace = _soldout_artwork_link(concert)
+    titulo = ((getattr(concert, "festival_name", None) or "").strip()
+              or (getattr(getattr(concert, "artist", None), "name", "") or "").strip()
+              or "Actividad")
+    cuerpo = "%s%s" % (titulo,
+                       (" · " + concert.date.strftime("%d/%m/%Y")) if getattr(concert, "date", None) else "")
+    if pct is not None:
+        cuerpo += " · va por el %s%% de venta" % _fmt_pct_es(pct)
+    try:
+        with _soldout_app_context():
+            _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                          "Cartel de Sold Out", cuerpo, enlace,
+                          ref_type="SOLDOUT", ref_id=str(row.id), commit=True,
+                          email=_notice_email_design_soldout(concert, row, enlace))
+    except Exception:
+        app.logger.exception("[soldout] no se pudo avisar a Diseño del cartel de Sold Out")
+    # El buzón del departamento, igual que la cartelería de siempre.
+    try:
+        cuerpo_html = (
+            '<div style="font-family:Arial,sans-serif;color:#1f2937;max-width:640px;">'
+            + _concert_email_header_html(concert, "Cartel de Sold Out")
+            + "<p>Esta actividad va por el <strong>%s%%</strong> de venta. Hacen falta los carteles de "
+              "<strong>Sold Out</strong>:</p>" % _fmt_pct_es(pct if pct is not None else SOLDOUT_TRIGGER_PCT)
+            + "<ul>" + "".join("<li>%s</li>" % escape(ARTWORK_FORMAT_LABELS.get(k, k))
+                               for k in SOLDOUT_ARTWORK_FORMATS) + "</ul>"
+            + ("<p>Fecha máxima de entrega: <strong>%s</strong></p>" % row.soldout_deadline.strftime("%d/%m/%Y")
+               if row.soldout_deadline else "")
+            + '<p><a href="%s" style="display:inline-block;background:#E33D48;color:#fff;padding:12px 18px;'
+              'border-radius:8px;text-decoration:none;font-weight:700;">Subir los carteles</a></p></div>' % enlace
+        )
+        with _soldout_app_context():
+            _send_optional_email("grafico@33producciones.es",
+                                 "Cartel de Sold Out · %s" % titulo, cuerpo_html, text_body=enlace)
+    except Exception:
+        app.logger.exception("[soldout] no se pudo enviar el correo del cartel de Sold Out")
+    return True
+
+
+def _soldout_artwork_check(session_db, concert_ids) -> int:
+    """EL DISPARO: mira si alguna de esas actividades ha llegado al 90% y, si sí, pide el cartel.
+
+    Lo llaman los CUATRO caminos por los que cambia una venta (el apunte manual, el de la rejilla
+    por ticketera, el reporte del promotor y el espejo de Enterticket) y, como red de seguridad, la
+    pestaña Ticketing de la ficha. Es **best-effort**: un fallo aquí no puede tumbar el guardado de
+    una venta, que es lo importante.
+
+    ⚠️ Es idempotente (`soldout_requested_at`): por muchas veces que se llame, se pide UNA vez."""
+    ids = [x for x in (to_uuid(str(i)) for i in (concert_ids or []) if i) if x]
+    if not ids:
+        return 0
+    pedidos = 0
+    try:
+        filas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                          joinedload(Concert.billing_company),
+                          selectinload(Concert.ticket_types),
+                          selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
+                 .filter(Concert.id.in_(ids)).all())
+        candidatos = []
+        for c in filas:
+            req = getattr(c, "artwork_request", None)
+            if req is not None and getattr(req, "soldout_requested_at", None):
+                continue                      # ya se pidió: no se vuelve a pedir solo
+            if not _soldout_artwork_applies(c):
+                continue
+            candidatos.append(c)
+        if not candidatos:
+            return 0
+        totales, _hoy, _last, _g, _gh = sales_maps_unified(session_db, today_local(),
+                                                           [c.id for c in candidatos])
+        for c in candidatos:
+            pct = _concert_sold_pct(c, totales.get(c.id, 0))
+            # ⚠️ Una actividad marcada SOLD OUT a mano también lo necesita, aunque no haya aforo con
+            # el que calcular el %: declarar el sold out es decir que está agotada.
+            agotada = bool(getattr(c, "sold_out", False))
+            if not agotada and (pct is None or pct < SOLDOUT_TRIGGER_PCT):
+                continue
+            try:
+                if _soldout_artwork_request(session_db, c, pct=pct):
+                    pedidos += 1
+            except Exception:
+                session_db.rollback()
+                app.logger.exception("[soldout] no se pudo pedir el cartel de Sold Out")
+    except Exception:
+        app.logger.exception("[soldout] no se pudo comprobar el 90%% de venta")
+    return pedidos
+
+
+def _home_soldout_artwork(limit: int = 20) -> list[dict]:
+    """CARTELES DE SOLD OUT pendientes (módulo de Inicio de DISEÑO).
+
+    Una fila por actividad, con los formatos que se piden y los días que faltan. Desaparece sola en
+    cuanto diseño sube el cartel (mira el DATO, no una marca)."""
+    estado = _current_user_state() or {}
+    yo = str(estado.get("user_id") or "")
+    if not yo:
+        return []
+    session_db = db()
+    try:
+        de_diseno = yo in [str(x) for x in _department_user_ids(session_db, "Diseño")]
+        if not (de_diseno or int(estado.get("role") or 0) == 10):
+            return []
+        filas = (session_db.query(Concert)
+                 .join(ConcertArtworkRequest, ConcertArtworkRequest.concert_id == Concert.id)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                          selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
+                 .filter(ConcertArtworkRequest.soldout_requested_at.isnot(None))
+                 .filter(or_(Concert.end_date >= today_local(), and_(Concert.end_date.is_(None),
+                                                                     Concert.date >= today_local())))
+                 .order_by(Concert.date.asc()).limit(120).all())
+        salida = []
+        for c in filas:
+            st = _soldout_artwork_state(session_db, c)
+            if not st["requested"] or st["delivered"]:
+                continue
+            salida.append({
+                "concert_id": str(c.id),
+                "title": ((getattr(c, "festival_name", None) or "").strip()
+                          or (getattr(getattr(c, "artist", None), "name", "") or "").strip() or "Actividad"),
+                "artist": (getattr(getattr(c, "artist", None), "name", "") or ""),
+                "artist_photo": (getattr(getattr(c, "artist", None), "photo_url", "") or ""),
+                "date_label": (c.date.strftime("%d/%m/%Y") if c.date else ""),
+                "place": _place_label(_concert_city(c), _concert_province_value(c)),
+                "formats": st["format_labels"],
+                "deadline_label": st["deadline_label"],
+                "days_left": st["days_left"],
+                "late": st["late"],
+                "pct_label": st["pct_label"],
+                "pending": len(st["pending"]),
+                "url": url_for("concert_detail_view", cid=str(c.id), tab="carteleria"),
+            })
+            if len(salida) >= limit:
+                break
+        return salida
+    except Exception:
+        app.logger.exception("[soldout] no se pudo montar el módulo de Sold Out")
+        return []
+    finally:
+        session_db.close()
+
+
 def _sale_sello_user_ids(session_db, artist_id) -> list[str]:
     """Quién del SELLO tiene asignado ese artista (faceta sello).
 
@@ -97805,6 +98202,56 @@ def _concert_for_sale_notice(session_db, cid):
                      joinedload(Concert.billing_company), joinedload(Concert.group_company),
                      selectinload(Concert.ticketers).joinedload(ConcertTicketer.ticketer))
             .filter(Concert.id == to_uuid(cid)).first())
+
+
+@app.post("/conciertos/<cid>/carteleria/sold-out", endpoint="concert_soldout_request")
+@admin_required
+def concert_soldout_request(cid):
+    """Pide (o vuelve a pedir) a mano el cartel de SOLD OUT, y lo deshace con `undo=1`.
+
+    Lo normal es que se pida SOLO al llegar al 90%; esto es para cuando hay que adelantarlo, para
+    rehacerlo, o para retirar una petición que no tocaba.
+    ⚠️ Lo puede hacer contratación, ticketing o el propio diseño: no es una edición de la actividad
+    (por eso va en `SUPPORT_ACTION_ENDPOINTS` y el permiso fino se comprueba aquí)."""
+    if not (is_master() or can_edit_concerts() or can_set_concert_onsale() or _can_validate_artwork()):
+        return forbid("No tienes permisos para pedir el cartel de Sold Out.")
+    next_url = safe_next_or(request.form.get("next")
+                            or url_for("concert_detail_view", cid=cid, tab="carteleria"))
+    session_db = db()
+    try:
+        concert = (session_db.query(Concert)
+                   .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                            joinedload(Concert.billing_company),
+                            selectinload(Concert.ticket_types),
+                            selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
+                   .filter(Concert.id == to_uuid(cid)).first())
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(next_url)
+        row = getattr(concert, "artwork_request", None)
+        if _flag_arg("undo"):
+            if row is not None:
+                row.soldout_requested_at = None
+                row.soldout_requested_pct = None
+                row.soldout_requested_by_nick = None
+                row.soldout_deadline = None
+                row.soldout_formats = []
+                row.updated_at = datetime.now(TZ_MADRID)
+                _notify_resolve(session_db, "SOLDOUT", str(row.id))
+                session_db.commit()
+            flash("Retirada la petición del cartel de Sold Out.", "success")
+            return redirect(next_url)
+        totales, _h, _l, _g, _gh = sales_maps_unified(session_db, today_local(), [concert.id])
+        pct = _concert_sold_pct(concert, totales.get(concert.id, 0))
+        yo = _current_user_state() or {}
+        _soldout_artwork_request(session_db, concert, pct=pct, by_nick=(yo.get("nick") or ""))
+        flash("Pedido a diseño el cartel de Sold Out.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo pedir el cartel de Sold Out: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
 
 
 @app.post("/conciertos/<cid>/activar-venta", endpoint="concert_sale_activate")
@@ -99344,6 +99791,7 @@ def public_sales_update_save(token, cid):
         # («cuando se actualice, todas las anteriores desaparecen»).
         _sales_request_log_clear(destino)
         session_db.commit()
+        _soldout_artwork_check(session_db, [destino.id])
         filas = _sales_request_ticket_rows(session_db, destino)
         return jsonify({"ok": True, "saved": res["saved"], "warnings": res["warnings"],
                         "total": filas["base_total"] + filas["today_total"],
@@ -111141,7 +111589,11 @@ def _concert_poster_url(concert) -> str:
     if not concert:
         return ""
     req = getattr(concert, "artwork_request", None)
-    assets = [a for a in (getattr(req, "assets", None) or []) if not bool(getattr(a, "is_archived", False))]
+    # ⚠️ Solo CARTELES: el de Sold Out vive en la misma solicitud y no puede acabar de cabecera de
+    # las invitaciones ni de miniatura de un enlace.
+    assets = [a for a in (getattr(req, "assets", None) or [])
+              if not bool(getattr(a, "is_archived", False))
+              and _artwork_asset_category(a) == "POSTER"]
 
     # ⚠️ Aquí hace falta una IMAGEN de verdad (es la cabecera de las invitaciones y de los enlaces):
     # un cartel en VÍDEO no vale, ni siquiera con su miniatura. De qué es cada cartel lo dice el
@@ -128898,6 +129350,9 @@ def _et_sync_event_locked(s, ev: EnterticketEvent, full: bool = False) -> None:
     if ev.concert_id:
         _et_mirror_to_sales(s, ev)
         s.commit()
+        # La venta de ET se actualiza sola: aquí es donde se detecta el 90% de un concierto
+        # vinculado, sin que nadie tenga que apuntar nada a mano.
+        _soldout_artwork_check(s, [ev.concert_id])
 
 
 def _et_sync_event_bg(event_pk: str, full: bool = False) -> None:

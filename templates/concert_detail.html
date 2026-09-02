@@ -1437,7 +1437,7 @@
           <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-paper-plane me-1"></i>{{ 'Reenviar solicitud' if art_status != 'PROMOTER' else 'Solicitar carteles al promotor' }}</button>
         {% endif %}
         {% if CAN_EDIT_CONCERTS %}
-          <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
+          <button class="btn btn-outline-danger btn-sm" type="button" data-art-open="POSTER" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
         {% endif %}
         {% if gk_assets %}
           {# Con carteles de la gira hay dos módulos: aquí se comparte TODO junto (los de la fecha y
@@ -1494,7 +1494,7 @@
           {% else %}
             <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-handshake me-1"></i>Solicitar al promotor</button>
           {% endif %}
-          <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
+          <button class="btn btn-outline-danger btn-sm" type="button" data-art-open="POSTER" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
         </div>
       </div>
     {% endif %}
@@ -1785,6 +1785,159 @@
         </div>
       {% endif %}
 
+      {# ═══════════════ SOLD OUT ═══════════════
+         ⚠️ Es OTRA petición, no la cartelería de siempre: se pide SOLA al llegar al 90% de venta y
+         sus carteles viven aquí, en su propia sección. No se mezclan con los normales (ni en el ZIP,
+         ni en el enlace que se comparte, ni como cartel principal de la actividad). #}
+      {% if soldout.applies %}
+        {% set so_pend = soldout.pending %}
+        <div class="card mt-3 {% if soldout.late %}border-danger{% elif soldout.requested and not soldout.delivered %}border-warning{% endif %}">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+              <h6 class="mb-0"><i class="fa fa-fire me-1 text-danger"></i>Sold Out</h6>
+              <div class="d-flex gap-2 align-items-center flex-wrap">
+                {% if soldout.delivered %}
+                  <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Carteles subidos</span>
+                {% elif soldout.requested %}
+                  <span class="badge {{ 'text-bg-danger' if soldout.late else 'text-bg-warning text-dark' }}">
+                    <i class="fa fa-clock me-1"></i>Pedido a diseño{% if soldout.deadline_label %} · para el {{ soldout.deadline_label }}{% endif %}
+                  </span>
+                {% endif %}
+                {% if soldout.pct_label %}<span class="badge text-bg-light border" title="Venta en el momento de pedirlo">{{ soldout.pct_label }} de venta</span>{% endif %}
+                {% if soldout.requested and CAN_EDIT_CONCERTS %}
+                  <button class="btn btn-outline-danger btn-sm" type="button" data-art-open="SOLDOUT"
+                          data-bs-toggle="modal" data-bs-target="#artworkUploadModal">
+                    <i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles de Sold Out</button>
+                {% endif %}
+                {% if soldout.assets %}
+                  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_artwork_download_all', cid=concert.id, cat='SOLDOUT') }}"><i class="fa fa-file-zipper me-1"></i>Descargar todos</a>
+                {% endif %}
+              </div>
+            </div>
+
+            {% if not soldout.requested %}
+              <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div class="flex-grow-1 small text-muted">
+                  {% if soldout.auto %}
+                    Cuando esta actividad llegue al <strong>{{ soldout_trigger_pct }}%</strong> de venta se le pide
+                    <strong>sola</strong> a diseño la cartelería de Sold Out (Historia de Instagram, publicación de
+                    Instagram y el cartel normal). Si hace falta antes, se pide aquí.
+                  {% else %}
+                    Esta actividad <strong>no tiene aforo</strong>, así que no se puede calcular el % de venta y la
+                    cartelería de Sold Out <strong>no se va a pedir sola</strong>: si hace falta, se pide aquí.
+                  {% endif %}
+                </div>
+                {% if CAN_EDIT_CONCERTS or CAN_SET_ONSALE or can_validate_artwork %}
+                  <form method="post" action="{{ url_for('concert_soldout_request', cid=concert.id) }}">
+                    <button class="btn btn-danger btn-sm"><i class="fa fa-paper-plane me-1"></i>Pedir el cartel de Sold Out</button>
+                  </form>
+                {% endif %}
+              </div>
+            {% else %}
+              <div class="d-flex flex-wrap gap-3 align-items-start">
+                <div class="flex-grow-1">
+                  <div class="small text-muted mb-2">
+                    Pedido a diseño{% if soldout.requested_at_label %} el {{ soldout.requested_at_label }}{% endif %}
+                    {% if soldout.requested_by %}por {{ soldout.requested_by }}{% else %}<span title="Se pidió solo al llegar al {{ soldout_trigger_pct }}% de venta">automáticamente</span>{% endif %}.
+                    {% if soldout.days_left is not none and not soldout.delivered %}
+                      {% if soldout.days_left < 0 %}<span class="text-danger fw-semibold">Se pasó el plazo hace {{ -soldout.days_left }} día(s).</span>
+                      {% elif soldout.days_left == 0 %}<span class="text-danger fw-semibold">Es para hoy.</span>
+                      {% else %}Quedan {{ soldout.days_left }} día(s).{% endif %}
+                    {% endif %}
+                  </div>
+                  <div class="row g-2">
+                    {% for key, label, aspect in ARTWORK_FORMAT_CHOICES if key in soldout.formats %}
+                      <div class="col-6 col-md-4 col-xl-3">
+                        <div class="border rounded p-2 text-center h-100">
+                          <span class="artfmt-box"><span class="artfmt-shape" style="aspect-ratio: {{ aspect }};"></span></span>
+                          <span class="fw-semibold small d-block">{{ label }}</span>
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+
+              {# Los que ya están subidos y aprobados. #}
+              {% if soldout.assets %}
+                <hr>
+                <div class="row g-3">
+                  {% set so_title = (artwork_share_title or ('Sold Out · ' ~ (concert.artist.name if concert.artist else 'actividad'))) %}
+                  {% for asset in soldout.assets %}
+                    <div class="col-6 col-md-4 col-xl-3">
+                      <div class="border rounded p-2 h-100 text-center">
+                        <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;') }}</span>
+                        <div class="fw-semibold small mt-2 text-truncate" title="{{ asset.format_label }}">{{ asset.format_label }}</div>
+                        {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
+                        <div class="d-flex justify-content-center gap-2 mt-2 flex-wrap">
+                          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}" title="Descargar"><i class="fa fa-download"></i></a>
+                          <a class="btn btn-sm btn-outline-secondary" href="https://wa.me/?text={{ (so_title ~ ' · ' ~ asset.format_label ~ '\n\n' ~ asset.file_url)|urlencode }}" target="_blank" rel="noopener" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i></a>
+                          {% if CAN_EDIT_CONCERTS %}
+                            <form method="post" action="{{ url_for('concert_artwork_asset_delete', cid=concert.id, asset_id=asset.id) }}" onsubmit="return confirm('¿Eliminar este cartel de Sold Out?');">
+                              <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                            </form>
+                          {% endif %}
+                        </div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              {# Pendientes de que diseño les dé el OK (uno a uno, como el resto de la cartelería). #}
+              {% if so_pend %}
+                <hr>
+                <h6 class="mb-2"><i class="fa fa-clock me-1 text-warning"></i>Pendientes de aprobación por diseño</h6>
+                <div class="row g-3">
+                  {% for asset in so_pend %}
+                    <div class="col-6 col-md-4 col-xl-3">
+                      <div class="border rounded p-2 h-100 text-center" data-art-asset="{{ asset.id }}">
+                        <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
+                        <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
+                        {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
+                        {% if can_validate_artwork %}
+                          <div class="d-flex justify-content-center gap-2 mt-2">
+                            <button type="button" class="btn btn-success btn-sm" data-art-ok="{{ asset.id }}" title="Aprobar"><i class="fa fa-check"></i></button>
+                            <button type="button" class="btn btn-outline-danger btn-sm" data-art-no="{{ asset.id }}" title="Rechazar y pedir cambios"><i class="fa fa-xmark"></i></button>
+                          </div>
+                        {% else %}
+                          <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              {% if soldout.rejected %}
+                <hr>
+                <h6 class="mb-2 text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Rechazados por diseño</h6>
+                <div class="row g-3">
+                  {% for asset in soldout.rejected %}
+                    <div class="col-6 col-md-4 col-xl-3">
+                      <div class="border border-danger rounded p-2 h-100 text-center">
+                        <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
+                        <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
+                        {% if asset.rejection_note %}<div class="small text-danger mt-1">{{ asset.rejection_note }}</div>{% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              {% if CAN_EDIT_CONCERTS %}
+                <div class="mt-3 text-end">
+                  <form method="post" action="{{ url_for('concert_soldout_request', cid=concert.id) }}" onsubmit="return confirm('¿Retirar la petición del cartel de Sold Out?');">
+                    <input type="hidden" name="undo" value="1">
+                    <button class="btn btn-link btn-sm text-muted p-0"><i class="fa fa-rotate-left me-1"></i>Retirar la petición</button>
+                  </form>
+                </div>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
       {# ---------- FORMATOS SUBIDOS ----------
          Solo aparece cuando hay carteles (aprobados, rechazados o antiguos). Usables = los APROBADOS;
          los pendientes esperan el OK de diseño y los rechazados salen en su bloque con el aviso. #}
@@ -1941,7 +2094,7 @@
                         </div>
                         {% if CAN_EDIT_CONCERTS %}
                           <div class="d-flex gap-2 mt-2 flex-wrap">
-                            <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir la versión corregida</button>
+                            <button class="btn btn-sm btn-outline-danger" type="button" data-art-open="POSTER" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir la versión corregida</button>
                             <form method="post" action="{{ url_for('concert_artwork_asset_delete', cid=concert.id, asset_id=asset.id) }}" onsubmit="return confirm('¿Eliminar este cartel rechazado?');">
                               <button class="btn btn-sm btn-outline-secondary"><i class="fa fa-trash me-1"></i>Quitar</button>
                             </form>
@@ -2258,10 +2411,14 @@
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title"><i class="fa fa-cloud-arrow-up me-2"></i>Subir carteles</h5>
+            <h5 class="modal-title"><i class="fa fa-cloud-arrow-up me-2"></i>Subir <span data-art-cat-label>carteles</span></h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
+            {# ⚠️ QUÉ se está subiendo (cartel normal o de SOLD OUT) se fija EN EL CLIC del botón que
+               abre el modal, no en `shown.bs.modal`: con `modal_stack.js` por medio ese evento no
+               siempre llega (regla de la casa). #}
+            <input type="hidden" id="artworkCategory" value="POSTER">
             <div class="alert alert-warning small">
               <i class="fa fa-clock me-1"></i>Los carteles que subas quedan <strong>pendientes de aprobación por diseño</strong>:
               se verán aquí, pero no se pueden usar hasta que les dé el visto bueno (uno a uno).
@@ -2396,6 +2553,8 @@
         btn.addEventListener('click', function () {
           if (!cola.length) return;
           var fd = new FormData();
+          var catEl = document.getElementById('artworkCategory');
+          fd.append('category', (catEl && catEl.value) || 'POSTER');
           cola.forEach(function (f) { fd.append('files', f, f.name); fd.append('labels', f.name); });
           btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
           var barra = document.getElementById('artworkProgress');
@@ -2421,6 +2580,15 @@
           xhr.send(fd);
         });
       }
+
+      /* ---------- ¿Cartel normal o de SOLD OUT? Se decide en el CLIC que abre el modal ---------- */
+      document.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-art-open]'); if (!b) return;
+        var cat = (b.getAttribute('data-art-open') || 'POSTER').toUpperCase();
+        var el = document.getElementById('artworkCategory'); if (el) el.value = cat;
+        var rot = document.querySelector('[data-art-cat-label]');
+        if (rot) rot.textContent = (cat === 'SOLDOUT') ? 'carteles de Sold Out' : 'carteles';
+      }, true);
 
       /* ---------- Aprobar / rechazar UNO A UNO ---------- */
       function revisar(id, decision, nota) {

@@ -6597,6 +6597,58 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ El número de la BARRA de pestañas es otra cosa: son las TAREAS pendientes, que ya solo miran
   actividades vivas.
 
+- ⚠️⚠️ **AL 90% DE VENTA SE PIDE SOLO EL CARTEL DE SOLD OUT** (sep 2026). Cuando una actividad que
+  vende entradas llega al **90%** (`SOLDOUT_TRIGGER_PCT`) se le pide **sola** a **DISEÑO** la
+  cartelería de Sold Out en **Historia de Instagram (9:16) · publicación de Instagram (1:1) · el
+  cartel normal (A3)** (`SOLDOUT_ARTWORK_FORMATS`), con plazo de `SOLDOUT_DEADLINE_DAYS` (2) días.
+  Nadie tiene que acordarse de pedirlo, que es justo cuando hay que publicarlo.
+  · **NO es la cartelería de siempre: es OTRA petición.** Vive en la MISMA
+  `ConcertArtworkRequest` (que es una por actividad) pero con sus **propias columnas**
+  (`soldout_requested_at` · `_pct` · `_by_nick` · `soldout_deadline` · `soldout_formats` ·
+  `soldout_uploaded_at`), y sus carteles son **`ConcertArtworkAsset.category = 'SOLDOUT'`**, en su
+  **propia sección** de la pestaña Cartelería.
+  ⚠️⚠️ **NO SE MEZCLAN con los carteles normales**: se sacan de `current_artwork_assets` /
+  `archived_artwork_assets`, del ZIP (`concert_artwork_download_all`, que acepta `?cat=`), del
+  enlace público que se comparte (`_concert_artwork_share_assets`, que ya filtraba POSTER) y de
+  **`_concert_poster_url`** —o un Sold Out podría acabar de cabecera de las invitaciones o de
+  miniatura de un enlace—. Y **reenviar la cartelería NO los archiva**
+  (`_archive_current_artwork_assets` se los salta): es otra petición.
+  ⚠️ El **estado de la solicitud** (`status`) lo marcan solo los carteles normales: subir (o
+  rechazar) un Sold Out no la deja «en revisión» ni al revés. Cada petición cierra **su** aviso
+  (`_artwork_notify_resolve_if_done`: `ARTWORK` con los carteles, `SOLDOUT` con los suyos).
+  · **EL DISPARO** es el punto único **`_soldout_artwork_check(session_db, ids)`**, enganchado en los
+  CUATRO caminos por los que cambia una venta —el apunte manual (`sales_save`), la rejilla por
+  ticketera (`sales_ticketer_day_save`), el **reporte del promotor** (`public_sales_update_save`) y
+  el **espejo de Enterticket** (tras `_et_mirror_to_sales`)— más, como **red de seguridad**, al abrir
+  las pestañas **Cartelería y Ticketing** de la ficha. Es **idempotente** (`soldout_requested_at`) y
+  **best-effort**: un fallo aquí no puede tumbar el guardado de una venta.
+  ⚠️ El **aforo** es el de VENTA (`_concert_capacity_from_ticket_types`), el mismo con el que el
+  reporte calcula el % — así el 90% de aquí y el que se ve en Ventas no se pueden desparejar. **Sin
+  aforo no hay % que calcular y no se pide nada**, y la ficha lo DICE (`soldout.auto`) en vez de
+  prometer un automatismo que no va a saltar. Una actividad marcada **SOLD OUT a mano** sí lo pide
+  aunque no haya aforo: declararlo es decir que está agotada.
+  ⚠️ No se pide de lo que **no vende entradas** (`_concert_sells_tickets`), lo **cancelado/aplazado**,
+  el **histórico** (`_concert_is_legacy`) ni lo **ya celebrado**.
+  · **QUIÉN LO VE**: la sección **«Sold Out»** de la pestaña Cartelería (con los formatos dibujados,
+  el plazo, los días que quedan, subir, descargar y retirar la petición) y el módulo de Inicio
+  **`HOME_SOLDOUT_ARTWORK`** (`_home_soldout_artwork`) de **Diseño**, que **desaparece solo** en
+  cuanto sube el cartel (mira el DATO, no una marca — la regla de `_notify_resolve`).
+  · **Se sube por el modal de siempre**, con la categoría fijada **EN EL CLIC**
+  (`data-art-open="SOLDOUT|POSTER"`, no en `shown.bs.modal`, que con `modal_stack.js` no siempre
+  llega) y mandada en el formulario (`category`). ⚠️ Los botones de subir carteles NORMALES llevan
+  `data-art-open="POSTER"`: si no, tras abrir el de Sold Out la categoría se quedaría pegada.
+  · A mano se pide (o se retira) con **`concert_soldout_request`**, en `SUPPORT_ACTION_ENDPOINTS`:
+  lo hacen contratación, ticketing o el propio diseño, y el permiso fino lo comprueba el endpoint.
+  ⚠️⚠️ **ESTO SE EJECUTA FUERA DE UNA PETICIÓN** (el sync de Enterticket va en un HILO y hay cron):
+  `url_for` revienta ahí, así que el enlace lo compone **`_soldout_artwork_link`** con su respaldo a
+  mano. Y **`_notify_user` mira `session`**, así que hace falta un contexto de **PETICIÓN**, no solo
+  de aplicación: lo abre **`_soldout_app_context()`**. Con solo `app_context` el correo salía pero
+  **el aviso de la campanita no llegaba a nadie** y el `except` se lo tragaba (bug real, lo sacó la
+  prueba). Probado con la app real: al 89% no se pide, al 90% sí (una sola vez), sin aforo no, en
+  gratuitas/canceladas/pasadas no, el Sold Out no se cuela en lo que se comparte ni como cartel
+  principal, sobrevive a reenviar la cartelería, y el aviso + el correo salen desde un hilo.
+
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

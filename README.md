@@ -189,6 +189,29 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-09-02 — Al 90% de venta se pide solo el cartel de Sold Out
+
+- **Cuando una actividad que vende entradas llega al 90% de venta, se le pide SOLA a diseño la
+  cartelería de Sold Out**: **Historia de Instagram (9:16)**, **publicación de Instagram (1:1)** y el
+  **cartel normal (A3)**, con dos días de plazo. Nadie tiene que acordarse de pedirlo, que es justo
+  cuando hay que publicarlo.
+- A diseño le llega **el aviso de la campanita y el correo** (con la cabecera de la actividad, los
+  tres formatos y el botón para subirlos), y le sale en su **Inicio** como *Carteles de Sold Out*,
+  con el % de venta, el plazo y los días que quedan. **Desaparece solo** en cuanto sube el cartel.
+- Los carteles se suben desde la ficha y aparecen en su **sección «Sold Out»** de la pestaña
+  Cartelería, con su descarga y su compartir. **No se mezclan con los carteles normales**: no entran
+  en el ZIP de la cartelería, ni en el enlace público que se comparte con el artista o el promotor,
+  ni pueden acabar de cartel principal de la actividad; y **reenviar la cartelería no los borra**.
+- Se puede **pedir a mano** (para adelantarlo o rehacerlo) y **retirar la petición**, desde la propia
+  sección. Lo hacen contratación, ticketing o diseño.
+- **Dónde se detecta el 90%**: en los cuatro sitios por los que cambia una venta (el apunte a mano,
+  la rejilla por ticketera, el reporte que manda el promotor por su enlace y la actualización
+  automática de Enterticket) y, como red de seguridad, al abrir las pestañas Cartelería o Ticketing.
+- **Sin aforo no se pide nada** (no hay % que calcular) y la ficha lo dice; una actividad marcada
+  **SOLD OUT a mano** sí lo pide. Tampoco se pide de lo gratuito, lo cancelado, lo histórico ni lo
+  ya celebrado.
+
+
 ### 2026-07-26 — Empresas del grupo en modo lista, logos, y «Mis gastos» visible
 
 - **Empresas del grupo**: el listado pasa a ser una **lista simple**, una empresa debajo de otra, **sin

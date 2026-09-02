@@ -3310,6 +3310,17 @@ class ConcertArtworkRequest(Base):
     # cartel lo hacemos nosotros y el promotor NO es empresa del grupo, también con el promotor.
     shared_with_artist_at = Column(DateTime(timezone=True))
     shared_with_promoter_at = Column(DateTime(timezone=True))
+    # ⚠️⚠️ EL CARTEL DE SOLD OUT es OTRA petición, no la cartelería de siempre: se pide SOLA cuando
+    # la actividad llega al 90% de venta y sus carteles viven en la MISMA solicitud con
+    # `category='SOLDOUT'`, en su propia sección (no se mezclan con los carteles normales: ni en el
+    # ZIP, ni en el enlace público, ni como cartel principal). Por eso la petición lleva sus propias
+    # columnas en vez de reutilizar `status`/`requested_at`, que son las de la cartelería.
+    soldout_requested_at = Column(DateTime(timezone=True))
+    soldout_requested_pct = Column(Integer)      # el % de venta con el que saltó (para poder decirlo)
+    soldout_requested_by_nick = Column(Text)     # vacío = lo pidió la app sola
+    soldout_deadline = Column(Date)
+    soldout_formats = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    soldout_uploaded_at = Column(DateTime(timezone=True))
     requested_at = Column(DateTime(timezone=True))
     uploaded_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -9202,6 +9213,17 @@ def ensure_concert_artwork_schema():
             ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'POSTER';
         """,
         'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_category ON concert_artwork_assets(artwork_request_id, category);',
+        # CARTEL DE SOLD OUT: se pide solo al llegar al 90% de venta. Es una petición aparte de la
+        # cartelería (por eso sus propias columnas) y sus carteles son `category='SOLDOUT'`.
+        """
+        ALTER TABLE IF EXISTS concert_artwork_requests
+            ADD COLUMN IF NOT EXISTS soldout_requested_at timestamptz,
+            ADD COLUMN IF NOT EXISTS soldout_requested_pct integer,
+            ADD COLUMN IF NOT EXISTS soldout_requested_by_nick text,
+            ADD COLUMN IF NOT EXISTS soldout_deadline date,
+            ADD COLUMN IF NOT EXISTS soldout_formats jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS soldout_uploaded_at timestamptz;
+        """,
         # Estados nuevos del flujo de validación (REVIEW/CORRECTIONS): rehacer el CHECK.
         """
         DO $$

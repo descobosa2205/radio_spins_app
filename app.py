@@ -3770,6 +3770,9 @@ def _parse_uuid_list(values) -> list[str]:
 ARTWORK_VIDEO_EXTS = {'.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv', '.mpeg', '.mpg'}
 # Piezas que NO se pintan y solo se descargan: el vectorial de imprenta de un logo y los paquetes.
 ARTWORK_FILE_EXTS = {'.ai', '.eps', '.zip', '.psd', '.indd'}
+# Y puede ser AUDIO: una cuña de radio es cartelería como cualquier otra pieza (se escucha en el
+# visor, con su reproductor, igual que un vídeo se ve).
+ARTWORK_AUDIO_EXTS = {'.mp3', '.wav', '.m4a', '.aac', '.ogg', '.oga', '.flac', '.aiff', '.aif'}
 
 
 def _artwork_asset_kind(filename: str, mime: str = '') -> str:
@@ -3787,6 +3790,8 @@ def _artwork_asset_kind(filename: str, mime: str = '') -> str:
         return 'PDF'
     if ext in ARTWORK_VIDEO_EXTS or (mime or '').strip().lower().startswith('video/'):
         return 'VIDEO'
+    if ext in ARTWORK_AUDIO_EXTS or (mime or '').strip().lower().startswith('audio/'):
+        return 'AUDIO'
     if ext in ARTWORK_FILE_EXTS:
         return 'FILE'
     return 'IMAGE'
@@ -3807,6 +3812,9 @@ def _upload_artwork_file(file_storage):
     if kind == 'VIDEO':
         return (upload_file(file_storage, 'concert_artwork',
                             allowed_extensions=ARTWORK_VIDEO_EXTS), mime, 'VIDEO')
+    if kind == 'AUDIO':
+        return (upload_file(file_storage, 'concert_artwork',
+                            allowed_extensions=ARTWORK_AUDIO_EXTS), mime, 'AUDIO')
     if kind == 'FILE':
         # Un logo vectorial (.ai/.eps) o un paquete (.zip): se guarda tal cual para descargarlo.
         return (upload_file(file_storage, 'concert_artwork',
@@ -3985,7 +3993,8 @@ def _artwork_image_src(asset) -> str:
     kind = _artwork_kind_of(asset)
     if kind == 'VIDEO':
         return (getattr(asset, 'poster_url', None) or '').strip()
-    if kind == 'PDF':
+    # De un PDF, de una cuña de radio o de un vectorial de imprenta NO sale una imagen.
+    if kind in ('PDF', 'AUDIO', 'FILE'):
         return ''
     return (getattr(asset, 'file_url', None) or '').strip()
 
@@ -7274,6 +7283,129 @@ def _save_contract_royalty_rows(session_db, media_kind: str, item_id, rows_paylo
         session_db.add(rec)
         created.append(rec)
     return created
+
+# ---------------------------------------------------------------------------
+# LA DURACIÓN DE UNA CANCIÓN SALE DE SU MASTER, NO SE PREGUNTA
+# ---------------------------------------------------------------------------
+# ⚠️ En la entrega de masters se pedía la «Duración (Timing)» a mano teniendo el archivo delante.
+# Se lee de la CABECERA del .wav —los bytes del principio—, así que no hace falta ffmpeg ni bajarse
+# un master de 300 MB: con el `data` y el `fmt ` del RIFF sale la duración exacta.
+WAV_HEADER_BYTES = 512 * 1024          # con esto entra la cabecera de cualquier master real
+_SONG_DURATION_SLOT_ORDER = ["MASTER_16", "MASTER_48", "MASTER_24"]
+
+
+def _wav_duration_from_header(datos: bytes, tamano_total: int | None = None) -> int | None:
+    """Segundos de un .wav a partir de sus primeros bytes. None si eso no es un wav legible.
+
+    ⚠️ Se recorren los TROZOS del RIFF (un master trae `bext`, `iXML`… antes del audio), no se
+    supone que el `data` esté en el byte 36. Si el trozo `data` declara 0 —lo hace un wav escrito
+    «en directo»— se calcula con el tamaño real del archivo."""
+    try:
+        if not datos or len(datos) < 44 or datos[:4] != b"RIFF" or datos[8:12] != b"WAVE":
+            return None
+        pos, bytes_por_seg, tam_datos, ini_datos = 12, 0, 0, 0
+        while pos + 8 <= len(datos):
+            tipo = datos[pos:pos + 4]
+            tam = int.from_bytes(datos[pos + 4:pos + 8], "little")
+            cuerpo = pos + 8
+            if tipo == b"fmt " and cuerpo + 16 <= len(datos):
+                canales = int.from_bytes(datos[cuerpo + 2:cuerpo + 4], "little")
+                frecuencia = int.from_bytes(datos[cuerpo + 4:cuerpo + 8], "little")
+                bytes_por_seg = int.from_bytes(datos[cuerpo + 8:cuerpo + 12], "little")
+                if not bytes_por_seg and canales and frecuencia and cuerpo + 16 <= len(datos):
+                    bits = int.from_bytes(datos[cuerpo + 14:cuerpo + 16], "little")
+                    bytes_por_seg = frecuencia * canales * max(1, bits // 8)
+            elif tipo == b"data":
+                tam_datos, ini_datos = tam, cuerpo
+                break
+            if tam <= 0:
+                break
+            pos = cuerpo + tam + (tam % 2)      # los trozos van a bytes pares
+        if not bytes_por_seg:
+            return None
+        if (not tam_datos or tam_datos >= 0xFFFFFFF0) and tamano_total and ini_datos:
+            tam_datos = max(0, int(tamano_total) - ini_datos)
+        if not tam_datos:
+            return None
+        segundos = int(round(tam_datos / float(bytes_por_seg)))
+        # Cordura: ni 0 ni tres horas (ahí lo que hay es una cabecera mal leída).
+        return segundos if 1 <= segundos <= 3 * 3600 else None
+    except Exception:
+        return None
+
+
+def _wav_duration_from_stream(fs) -> int | None:
+    """Duración de un .wav que llega en el propio formulario (sin consumir el archivo)."""
+    try:
+        stream = getattr(fs, "stream", None) or fs
+        pos = stream.tell()
+        stream.seek(0)
+        cabeza = stream.read(WAV_HEADER_BYTES)
+        try:
+            stream.seek(0, 2)
+            total = stream.tell()
+        except Exception:
+            total = None
+        stream.seek(pos if pos is not None else 0)
+        return _wav_duration_from_header(cabeza, total)
+    except Exception:
+        app.logger.exception("[duracion] no se pudo leer la cabecera del wav subido")
+        return None
+
+
+def _wav_duration_from_url(url: str) -> int | None:
+    """Duración de un .wav que YA está en Storage: se piden solo sus primeros bytes (Range)."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    # ⚠️ `requests` NO es un nombre global en app.py: se importa AQUÍ (regla de la casa).
+    import requests as _rq
+    try:
+        r = _rq.get(url, headers={"Range": "bytes=0-%d" % (WAV_HEADER_BYTES - 1)}, timeout=20)
+        if r.status_code not in (200, 206) or not r.content:
+            return None
+        total = None
+        rango = (r.headers.get("Content-Range") or "")
+        if "/" in rango:
+            try:
+                total = int(rango.rsplit("/", 1)[1])
+            except Exception:
+                total = None
+        if total is None:
+            try:
+                total = int(r.headers.get("Content-Length") or 0) or None
+            except Exception:
+                total = None
+        return _wav_duration_from_header(r.content, total)
+    except Exception:
+        app.logger.exception("[duracion] no se pudo leer la cabecera del wav en Storage")
+        return None
+
+
+def _song_apply_master_duration(session_db, song, candidatos) -> int | None:
+    """Le pone a la canción la duración de su MASTER si todavía no la tiene.
+
+    `candidatos` = [(slot, url_o_fichero)]. Manda el master de **16 bits** (es el que pidió Dani) y,
+    si no se ha entregado, sirve cualquiera de los otros: la duración es la misma y es mejor tenerla
+    que dejar el campo vacío. Es *best-effort*: si no se puede leer, no pasa nada."""
+    try:
+        if song is None or int(getattr(song, "duration_seconds", 0) or 0) > 0:
+            return None
+        orden = {s: i for i, s in enumerate(_SONG_DURATION_SLOT_ORDER)}
+        filas = sorted(
+            [(slot, fuente) for slot, fuente in (candidatos or []) if fuente is not None],
+            key=lambda f: orden.get((f[0] or "").upper(), 99))
+        for _slot, fuente in filas:
+            secs = (_wav_duration_from_url(fuente) if isinstance(fuente, str)
+                    else _wav_duration_from_stream(fuente))
+            if secs:
+                song.duration_seconds = secs
+                session_db.add(song)
+                return secs
+    except Exception:
+        app.logger.exception("[duracion] no se pudo aplicar la duración del master")
+    return None
+
 
 def _song_material_slot_label(category: str | None, slot_key: str | None, display_name: str | None = None) -> str:
     cat = (category or "").strip().upper()
@@ -22979,6 +23111,10 @@ def discografica_song_material_upload(song_id):
                     mime_type=(getattr(file_storage, "mimetype", "") or "").strip() or None,
                 )
             )
+            # LA DURACIÓN DE LA CANCIÓN SALE DE SU MASTER (el mismo punto único que la entrega): se
+            # lee de la cabecera del .wav y solo si la ficha todavía no la tiene.
+            if category == "MASTER":
+                _song_apply_master_duration(session_db, song, [(slot_key, file_storage)])
 
         else:  # STEMS
             bundle_key = uuid.uuid4().hex
@@ -31561,7 +31697,11 @@ def public_song_platform_ids(token):
         artista = _song_primary_artist(session_db, cancion)
         estado = _song_platform_ids(session_db, cancion.id)
         pedidas = [p for p in (peticion.platforms or [])]
-        filas = [f for f in estado["rows"] if f["platform"] in pedidas] or estado["rows"]
+        filas_pedidas = [f for f in estado["rows"] if f["platform"] in pedidas] or estado["rows"]
+        # ⚠️ NO SE PIDE LO QUE YA ESTÁ SUBIDO (ni lo marcado «no necesario»): al artista solo se le
+        # enseñan los huecos que faltan. Mismo criterio que la entrega de masters.
+        filas = [f for f in filas_pedidas if not f.get("done")]
+        ya_filas = [f for f in filas_pedidas if f.get("done")]
         if request.method == "POST":
             subidas = 0
             for clave in pedidas:
@@ -31610,7 +31750,8 @@ def public_song_platform_ids(token):
             flash("Subidos %d ID(s). ¡Gracias!" % subidas, "success")
             return redirect(url_for("public_song_platform_ids", token=token))
         return render_template("public_song_platform_ids.html", song=cancion, artist=artista,
-                               rows=filas, req=peticion, brand=_pies_brand_assets(session_db))
+                               rows=filas, already=ya_filas, req=peticion,
+                               brand=_pies_brand_assets(session_db))
     finally:
         session_db.close()
 
@@ -37425,7 +37566,9 @@ SONG_DELIVERY_SECTION_KEYS = {k for k, _ in SONG_DELIVERY_SECTIONS}
 SONG_DELIVERY_AUTHOR_ROLES = [("AUTHOR", "Autor"), ("COMPOSER", "Compositor"), ("AUTHOR_COMPOSER", "Autor y compositor")]
 # Campos de producción: (clave, etiqueta, obligatorio)
 SONG_DELIVERY_PRODUCTION_FIELDS = [
-    ("duration", "Duración (Timing)", True),
+    # ⚠️ LA DURACIÓN NO SE PREGUNTA: sale de la cabecera del master que se sube
+    # (`_song_apply_master_duration`, con el de 16 bits por delante). Pedir un dato que está en el
+    # archivo que se acaba de adjuntar es hacer trabajar a quien lo recibe para nada.
     ("bpm", "BPM", True),
     ("recording_date", "Fecha de grabación", True),
     ("studio", "Estudio de grabación", True),
@@ -37512,9 +37655,6 @@ def _song_delivery_prefill(session_db, song, conf) -> tuple[dict, dict]:
         return bool(v)
 
     # ---- Producción: lo que ya tiene la canción en su ficha ----
-    if pide("prod.duration"):
-        hecho["prod.duration"] = pon("prod_duration",
-                                     _seconds_to_timecode(getattr(song, "duration_seconds", None)))
     if pide("prod.bpm"):
         hecho["prod.bpm"] = pon("prod_bpm", getattr(song, "bpm", None) or "")
     if pide("prod.recording_date"):
@@ -37624,6 +37764,63 @@ def _song_delivery_config(link) -> dict:
             conf["required"] = bool(conf["required"]) and conf["ask"]
         out[fila["key"]] = conf
     return out
+
+
+def _song_delivery_already(session_db, song, link=None) -> dict:
+    """Qué de lo que se puede pedir ESTÁ YA: {clave: valor o True}.
+
+    ⚠️ Se calcula con el MISMO código que rellena el formulario (`_song_delivery_prefill`), pidiéndole
+    TODO: así «lo que ya está» y «lo que sale relleno» no pueden desparejarse.
+    ⚠️⚠️ Cuenta también lo **YA ENTREGADO en otra entrega** aunque todavía no se haya consolidado en
+    la ficha: pedirle dos veces la letra a quien ya la mandó es justo lo que se quiere evitar. Si
+    dentro se DESCARTA una sección (o se rechaza un material), desaparece de la entrega y se vuelve a
+    pedir sola."""
+    ya = {}
+    try:
+        conf_todo = {f["key"]: {"ask": True} for f in _song_delivery_askable()}
+        _form, hecho = _song_delivery_prefill(session_db, song, conf_todo)
+        ya.update({k: v for k, v in (hecho or {}).items() if v})
+    except Exception:
+        app.logger.exception("[entrega] no se pudo mirar qué está ya cumplimentado")
+    try:
+        q = (session_db.query(SongMasterDeliveryLink)
+             .filter(SongMasterDeliveryLink.song_id == song.id)
+             .filter(func.upper(func.coalesce(SongMasterDeliveryLink.status, "")) == "SUBMITTED"))
+        if link is not None and getattr(link, "id", None):
+            q = q.filter(SongMasterDeliveryLink.id != link.id)
+        for otra in q.all():
+            data = otra.data if isinstance(otra.data, dict) else {}
+            for clave, campo in (("lyrics", "lyrics"), ("pitch", "pitch")):
+                if str((data.get(campo) or "")).strip():
+                    ya.setdefault(clave, "Ya entregada")
+            if data.get("authoral"):
+                ya.setdefault("authoral", "Ya entregado")
+            prod = data.get("production") or {}
+            for campo, _lbl, _req in SONG_DELIVERY_PRODUCTION_FIELDS:
+                if str((prod.get(campo) or "")).strip():
+                    ya.setdefault("prod." + campo, "Ya entregado")
+    except Exception:
+        app.logger.exception("[entrega] no se pudo mirar lo ya entregado en otra entrega")
+    return ya
+
+
+def _song_delivery_effective_config(session_db, song, link) -> dict:
+    """Lo que de verdad se le pide a quien abre el enlace.
+
+    ⚠️⚠️ **LO QUE YA ESTÁ EN LA APP NO SE PIDE**, aunque el enlace lo pidiera: si el reparto autoral
+    ya está registrado, si la letra ya está subida o si un material ya está entregado, ese hueco
+    desaparece del formulario. Lo pidió así Dani: quien lo recibe solo tiene que ver lo que falta.
+    Corregir un dato que ya está se hace DENTRO de la app, no por el enlace.
+    Es el punto único: lo usan la pantalla (lo que se pinta), la validación del envío (lo que se
+    exige) y el estado de la revisión (lo que queda pendiente), así que los tres dicen lo mismo."""
+    conf = _song_delivery_config(link)
+    ya = _song_delivery_already(session_db, song, link)
+    for clave, fila in conf.items():
+        if fila.get("ask") and ya.get(clave):
+            fila["ask"] = False
+            fila["required"] = False
+            fila["already"] = ya.get(clave)
+    return conf
 
 
 def _song_delivery_config_from_form(form) -> tuple[dict, list, list]:
@@ -38777,14 +38974,19 @@ def public_song_master_delivery(token):
         req_materials = list(link.materials_json or [])
         if "MASTERS" in sections and not req_materials:
             req_materials = list(SONG_DELIVERY_LEGACY_MATERIALS)   # compat enlaces antiguos
-        # Qué se pide y qué es obligatorio en ESTE enlace (campo a campo).
-        conf = _song_delivery_config(link)
+        # Qué se pide y qué es obligatorio en ESTE enlace (campo a campo), YA SIN lo que la app
+        # tiene: un dato que está no se vuelve a pedir (ver `_song_delivery_effective_config`).
+        conf = _song_delivery_effective_config(session_db, song, link)
         pedido = {k: v for k, v in conf.items() if v.get("ask")}
+        # LO QUE YA TENEMOS: se le dice, para que sepa por qué no se le pide (y no lo mande aparte).
+        ya_tenemos = {k: v for k, v in conf.items() if v.get("already")}
+        ya_etiquetas = [str(v.get("label") or k).lower() for k, v in ya_tenemos.items()]
         sections = [k for k, _ in SONG_DELIVERY_SECTIONS if any(v["section"] == k for v in pedido.values())]
         req_materials = [k[4:] for k in pedido if k.startswith("mat.")]
         base_ctx = dict(
             link=link, song=song, sections=sections, conf=conf,
             section_labels=dict(SONG_DELIVERY_SECTIONS),
+            already=ya_tenemos, already_labels=ya_etiquetas,
             # Solo los campos de producción que se piden, con su obligatoriedad de este enlace.
             production_fields=[(k[5:], v["label"], v["required"]) for k, v in conf.items()
                                if k.startswith("prod.") and v.get("ask")],
@@ -38927,6 +39129,7 @@ def public_song_master_delivery(token):
                 return render_template("public_song_master_delivery.html", state="form", errors=errors, form=request.form, **base_ctx)
 
             stems_bundle = uuid.uuid4().hex
+            duracion_candidatos = []
             def _url_de_subido(fs):
                 try:
                     return public_url_for_key((fs.get("key") or "").strip())
@@ -38955,6 +39158,11 @@ def public_song_master_delivery(token):
                     file_name=nombre, file_url=file_url, mime_type=tipo,
                     validation_status="PENDING", delivery_link_id=link.id,
                 ))
+                # LA DURACIÓN SALE DE AQUÍ: del master que se acaba de entregar (ya no se pregunta).
+                # Con el archivo en la mano se lee de su cabecera; si vino subido directamente a
+                # Storage, se piden solo sus primeros bytes.
+                if (cat or "").upper() == "MASTER":
+                    duracion_candidatos.append((slot, fs if not isinstance(fs, dict) else file_url))
             for fs in stems:
                 if isinstance(fs, dict):
                     # Stem ya subido directamente a Storage: se apunta tal cual (un ZIP subido así no
@@ -39007,6 +39215,12 @@ def public_song_master_delivery(token):
                 session_db.rollback()
                 return render_template("public_song_master_delivery.html", state="form",
                                        errors=errors, form=request.form, **base_ctx)
+            # LA DURACIÓN de la canción sale del MASTER entregado (el de 16 bits por delante):
+            # es un dato del archivo, así que no se le pregunta a nadie.
+            _dur = _song_apply_master_duration(session_db, song, duracion_candidatos)
+            if _dur:
+                data.setdefault("production", {})["duration"] = _seconds_to_timecode(_dur)
+                data["duration_from_master"] = True
             # QUIÉN la ha entregado se apunta AHORA en la propia entrega: los datos de producción
             # se van al consolidarlos y con ellos se perdía el nombre y la foto de quien la subió.
             data["submitted_by"] = _song_delivery_submitter(session_db, link, data)

@@ -8616,6 +8616,38 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   del set list. Como la lista de sugerencias se corta en 12, ese orden es lo que hace que se ofrezcan
   **los 12 últimos lanzamientos**.
 
+- ⚠️⚠️ **ENTREGA DE MASTERS · NO SE PIDE LO QUE YA TENEMOS, Y LA DURACIÓN LA DA EL MASTER**
+  (sep 2026). El formulario que le llega a un tercero preguntaba cosas que ya estaban en la app y un
+  dato que estaba dentro del archivo que él mismo adjuntaba.
+  · **LA DURACIÓN NO SE PREGUNTA**: se lee de la **cabecera del .wav** (punto único
+  **`_wav_duration_from_header`** + `_wav_duration_from_stream` / `_wav_duration_from_url` +
+  **`_song_apply_master_duration`**), con el master de **16 bits** por delante y los otros como
+  respaldo. Se aplica **en los dos caminos**: la entrega pública y la subida de un master **desde la
+  ficha**, y solo si la canción todavía no tiene duración. El campo «Duración (Timing)» se retiró de
+  `SONG_DELIVERY_PRODUCTION_FIELDS`.
+  ⚠️ Se leen **los primeros bytes**, no el archivo: un master pesa 300 MB. Se recorren los TROZOS
+  del RIFF (`fmt `/`data`), porque un master real trae `bext`/`iXML` delante del audio; si el `data`
+  declara 0 se calcula con el tamaño real. Y **no consume el archivo** (se devuelve el stream a su
+  sitio), que después lo sube `upload_file`. Nada de ffmpeg.
+  · **LO QUE YA ESTÁ NO SE PIDE**: punto único **`_song_delivery_effective_config`** (= la
+  configuración del enlace **menos** lo que ya tenemos, `_song_delivery_already`), que usan **la
+  pantalla y la validación del envío**, así que no se puede pedir algo que no se enseña. Si el
+  reparto autoral ya está registrado, si la letra ya está subida o si un material ya está entregado,
+  ese hueco **desaparece** —aunque el enlace lo pidiera— y arriba se dice qué ya tenemos.
+  ⚠️ Cuenta también lo **YA ENTREGADO en otra entrega** aunque no se haya consolidado en la ficha:
+  pedirle dos veces la letra a quien ya la mandó es justo lo que se quiere evitar. Y como al
+  **rechazar** un material se BORRA y al **descartar** una sección se quita de la entrega, lo que de
+  verdad falta se vuelve a pedir solo (la regla de `_notify_resolve`).
+  ⚠️ Si no queda NADA por pedir no se enseña un formulario vacío: la página dice **«No hace falta
+  nada más»** (`{% elif not sections %}`).
+  · **IDs DE PLATAFORMA, igual**: la página pública solo enseña los huecos que faltan y dice de
+  cuáles ya tenemos el gráfico; con todos subidos, «No hace falta nada más».
+  ⚠️ `_song_delivery_config` se queda **sin filtrar** a propósito: es la que pinta la pantalla de
+  CONFIGURACIÓN del enlace, donde se elige qué pedir.
+  Probado con la app real: un enlace que lo pide todo sobre una canción con letra, autores y master
+  48 ya puestos solo pide el resto; una entrega con un master de 16 bits deja la canción en **3:27**
+  sin preguntar nada; y un enlace que solo pide lo que ya está dice que no hace falta nada.
+
 - ⚠️⚠️⚠️ **EL PUNTO ES DE MILES, NO DECIMAL: MODELO DE EUROS, NO EL DE ESTADOS UNIDOS** (sep 2026,
   bug real de DINERO con captura). Un caché de **40.000 €** se veía como **4,00 €** y un «40.000»
   que llegara al servidor se guardaba como **40 €**. Ahora la regla está escrita UNA vez y es la

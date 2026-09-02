@@ -14814,18 +14814,28 @@ def _parse_money_decimal(val: str | None) -> Decimal:
         s = s.replace(ch, "")
     s = s.replace(" ", "")
 
-    # Detect thousands/decimal separators
+    # ⚠️⚠️ AQUÍ EL PUNTO ES DE MILES, NO DECIMAL (modelo de euros, no el de Estados Unidos): un
+    # «40.000» son CUARENTA MIL, y este parser devolvía **40** (bug real de dinero: un caché de
+    # 40.000 € se guardaba como 40 €). La regla es la MISMA que en `money_input.js` (`toCanonical`)
+    # y en `invoice_read.py`, y este es el punto ÚNICO por el que pasan todos los importes del
+    # servidor (`_money_or_zero`, `_bag_money`, `_parse_money`, `_inv_money`…):
+    #   · COMA y punto → manda el ÚLTIMO: «1.234,56» es de aquí, «1,234.56» es de allí;
+    #   · solo COMA → decimal (varias comas: son de miles);
+    #   · solo PUNTO → manda CUÁNTOS DÍGITOS lo siguen: 1 o 2 son DECIMALES (así se sigue leyendo
+    #     lo canónico que manda el navegador, «1234.56»), y 3 o más —o ninguno— son MILES.
+    # ⚠️ Los PORCENTAJES no se leen con este parser (un «33.333» sería 33333): para eso está
+    # `_parse_pct_decimal`, donde el punto es siempre decimal.
     if "," in s and "." in s:
-        # If dot appears before comma => ES (1.234,56)
-        if s.find(".") < s.find(","):
-            s = s.replace(".", "")
-            s = s.replace(",", ".")
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")     # ES: 1.234,56
         else:
-            # EN (1,234.56)
-            s = s.replace(",", "")
-    elif "," in s and "." not in s:
-        # ES decimal comma
-        s = s.replace(",", ".")
+            s = s.replace(",", "")                        # EN: 1,234.56
+    elif "," in s:
+        s = s.replace(",", "") if s.count(",") > 1 else s.replace(",", ".")
+    elif "." in s:
+        trozos = s.split(".")
+        if len(trozos) > 2 or len(trozos[-1]) not in (1, 2):
+            s = "".join(trozos)
 
     # Any remaining thousands separators
     # (keep last dot as decimal)
@@ -14837,6 +14847,28 @@ def _parse_money_decimal(val: str | None) -> Decimal:
         cleaned = "".join(ch for ch in s if ch.isdigit() or ch == "." or ch == "-")
         dec = Decimal(cleaned or "0")
         return dec if dec.is_finite() else Decimal("0")
+
+
+def _parse_pct_decimal(val) -> Decimal:
+    """Un PORCENTAJE → Decimal. Aquí el punto es SIEMPRE decimal.
+
+    ⚠️ Un porcentaje no es un importe: «33.333» es treinta y tres coma tres tres tres, no treinta y
+    tres mil. Por eso no se lee con `_parse_money_decimal` (que en el modelo de euros trata el punto
+    de tres dígitos como separador de MILES). La coma también vale como decimal, que es como se
+    escribe aquí."""
+    s = str(val if val is not None else "").strip()
+    if not s:
+        return Decimal("0")
+    s = s.replace("%", "").replace(" ", "").replace(",", ".")
+    s = "".join(ch for ch in s if ch.isdigit() or ch in ".-")
+    if s.count(".") > 1:                     # «33.333.3»: se queda el primer punto como decimal
+        entero, _, resto = s.partition(".")
+        s = entero + "." + resto.replace(".", "")
+    try:
+        dec = Decimal(s or "0")
+    except Exception:
+        return Decimal("0")
+    return dec if dec.is_finite() else Decimal("0")
 
 
 def _money_norm(val) -> Decimal:
@@ -41186,7 +41218,7 @@ def discografica_album_create():
     is_external_collab = ownership_type == "external_collab"
     is_catalog = (bool(request.form.get("is_catalog"))
                   if not (is_distribution or is_external_collab) else False)
-    our_pct = _money_or_zero(request.form.get("our_pct")) if is_external_collab else Decimal("0")
+    our_pct = _parse_pct_decimal(request.form.get("our_pct")) if is_external_collab else Decimal("0")
     our_pct_base = ("NET" if (request.form.get("our_pct_base") or "").upper() == "NET" else "GROSS")
     external_company_id = (to_uuid((request.form.get("external_company_id") or "").strip())
                            if is_external_collab else None)
@@ -41645,7 +41677,7 @@ def discografica_album_info_update(album_id):
         album.is_catalog = (bool(request.form.get("is_catalog"))
                             if not (album.is_distribution or album.is_external_collab) else False)
         if album.is_external_collab:
-            album.our_pct = _money_or_zero(request.form.get("our_pct"))
+            album.our_pct = _parse_pct_decimal(request.form.get("our_pct"))
             album.our_pct_base = ("NET" if (request.form.get("our_pct_base") or "").upper() == "NET" else "GROSS")
             album.external_company_id = to_uuid((request.form.get("external_company_id") or "").strip()) or None
         else:
@@ -49966,7 +49998,7 @@ def expense_template_save(tid):
                 template_id=tpl.id, category=cat, concept=concepto[:200],
                 amount_net=importe,
                 quantity=(_money_or_zero(fila.get("quantity")) or 1),
-                iva_pct=_money_or_zero(fila.get("iva_pct") if fila.get("iva_pct") is not None else 21),
+                iva_pct=_parse_pct_decimal(fila.get("iva_pct") if fila.get("iva_pct") is not None else 21),
                 includes_iva=bool(fila.get("includes_iva")),
                 iva_exempt=bool(fila.get("iva_exempt")),
                 is_variable=bool(fila.get("is_variable")),
@@ -50063,7 +50095,7 @@ def _expense_template_replace_items(session_db, tpl) -> int:
             template_id=tpl.id, category=cat, concept=concepto[:200],
             amount_net=importe,
             quantity=(_money_or_zero(cantidades[i]) if i < len(cantidades) and (cantidades[i] or "").strip() else 1) or 1,
-            iva_pct=(_money_or_zero(ivas[i]) if i < len(ivas) and (ivas[i] or "").strip() else 21),
+            iva_pct=(_parse_pct_decimal(ivas[i]) if i < len(ivas) and (ivas[i] or "").strip() else 21),
         ))
         n += 1
     return n
@@ -89897,7 +89929,7 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
     # 21 por defecto): el desglose lo hace AQUÍ, no el navegador, así que sale igual desde donde sea.
     # El formulario viejo (que manda las tres cifras) sigue funcionando igual.
     if "vat_pct" in form:
-        expense.vat_pct = _bag_money(form.get("vat_pct")) or None
+        expense.vat_pct = _parse_pct_decimal(form.get("vat_pct")) or None
     pct = expense.vat_pct if expense.vat_pct is not None else BAG_VAT_PCT_DEFAULT
     modo = (form.get("amount_mode") or "").strip().upper()
     if modo in ("GROSS", "NET") and ("amount_value" in form):

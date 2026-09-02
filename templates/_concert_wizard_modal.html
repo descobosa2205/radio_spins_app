@@ -2518,19 +2518,25 @@
       try{ return n.toLocaleString('es-ES', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €'; }
       catch(e){ return (Math.round(n * 100) / 100) + ' €'; }
     }
+    /* ⚠️⚠️ UN IMPORTE NO SE LEE CON `parseFloat`: los campos con € se escriben formateados a la
+       española («40.000») y ahí el punto es de MILES, así que `parseFloat` devolvía 40 —y con el
+       valor a medio formatear («4.0000»), 4—: de ahí el «Caché fijo: 4,00 €» con 40.000 escrito
+       (bug real, con captura). El lector de la casa es `window.numv` (money_input.js). */
+    function importe(v){
+      var n = window.numv ? window.numv(v) : parseFloat(String(v == null ? '' : v).replace(/\./g, '').replace(',', '.'));
+      return isNaN(n) ? 0 : n;
+    }
     function recalcCacheTotals(){
       let total = 0;
       document.querySelectorAll('#wizardCaches .cache-fixed input[name="cache_amount[]"]').forEach(inp => {
         const row = inp.closest('.border');
         const kind = row?.querySelector('select[name="cache_kind[]"]')?.value || 'FIXED';
         if(kind === 'VARIABLE') return;
-        const v = parseFloat(inp.value);
-        if(!isNaN(v)) total += v;
+        total += importe(inp.value);
       });
       let paid = 0;
       document.querySelectorAll('#wizardPaymentRows input[name="payment_amount[]"]').forEach(inp => {
-        const v = parseFloat(inp.value);
-        if(!isNaN(v)) paid += v;
+        paid += importe(inp.value);
       });
       const pending = Math.round((total - paid) * 100) / 100;
       const totalEl = document.getElementById('wzCacheTotal');
@@ -2581,7 +2587,7 @@
         // («con este caché sumaría X») no cuadraría con el que decide si se avisa o no.
         let total = 0;
         document.querySelectorAll('#wizardCaches input[name="cache_amount[]"]').forEach(inp => {
-          const v = parseFloat(inp.value); if(!isNaN(v)) total += v;
+          total += importe(inp.value);
         });
         return total;
       }

@@ -8616,6 +8616,39 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   del set list. Como la lista de sugerencias se corta en 12, ese orden es lo que hace que se ofrezcan
   **los 12 últimos lanzamientos**.
 
+- ⚠️⚠️⚠️ **EL PUNTO ES DE MILES, NO DECIMAL: MODELO DE EUROS, NO EL DE ESTADOS UNIDOS** (sep 2026,
+  bug real de DINERO con captura). Un caché de **40.000 €** se veía como **4,00 €** y un «40.000»
+  que llegara al servidor se guardaba como **40 €**. Ahora la regla está escrita UNA vez y es la
+  misma en los cuatro sitios que leen un importe:
+  · **`_parse_money_decimal`** (app.py) — el punto único por el que pasan `_money_or_zero`,
+    `_bag_money`, `_parse_money` y `_inv_money`;
+  · **`toCanonical`** de `money_input.js` (de él viven `numv`, `display` y el valor canónico que
+    viaja al servidor);
+  · **`invoice_read.parse_amount`** (ya la tenía) y **`buyer_import.clean_money`**.
+  **La regla**: hay COMA y punto → manda el ÚLTIMO («1.234,56» es de aquí, «1,234.56» de allí) ·
+  solo COMA → decimal (varias comas: miles) · solo PUNTO → manda **cuántos dígitos lo siguen**: 1 o
+  2 son DECIMALES (así se sigue leyendo lo canónico, «1234.56») y **3 o más —o ninguno— son MILES**
+  («40.000», y el «4.0000» que deja un importe a medio escribir).
+  ⚠️⚠️ **UN IMPORTE NO SE LEE CON `parseFloat`**: los campos con € se escriben FORMATEADOS, así que
+  `parseFloat('40.000')` da 40. El lector de la casa es **`window.numv`**. El asistente de actividad
+  leía así los cachés y los pagos (de ahí la captura).
+  ⚠️⚠️ **Y EL FORMATEO VA EN FASE DE CAPTURA** (`money_input.js`): escuchando en burbujeo, un
+  contenedor más cercano —el paso del caché del asistente— se ejecutaba ANTES y leía el valor **a
+  medio escribir**: con «40000» tecleado, el campo tenía «4.0000» y el badge decía 4,00 €. Ahora se
+  formatea antes de que lo vea cualquier otro manejador de la app.
+  ⚠️⚠️ **LOS PORCENTAJES NO SON IMPORTES**: «33.333» es treinta y tres coma tres, no treinta y tres
+  mil, así que se leen con **`_parse_pct_decimal`** (el punto siempre decimal). Se cambiaron las
+  cinco lecturas de `*_pct` que venían de un FORMULARIO (`our_pct`, `iva_pct`, `vat_pct`); las que
+  leen de la BD reciben ya un `Decimal` y no pasan por ningún parser.
+  ⚠️⚠️ **Y LA LIMPIEZA DE DECIMALES DE EXCEL SE COMÍA LOS MILES** (`promoter_import._cell_text`, el
+  lector que comparten TODAS las importaciones: terceros, compradores, supervisors, liquidaciones):
+  `re.fullmatch(r"-?\d+\.0+")` —puesta para que un teléfono no llegara como «638123456.0»— dejaba
+  «40.000» en «40» y «1.000» en «1». Ahora solo quita **uno o dos** decimales (lo que mete Excel);
+  tres ceros detrás del punto son un grupo de MILES.
+  Probado: 23 casos en el servidor, 13 en el navegador, 10 en la importación y las dos pruebas de
+  regresión de la casa en verde; y en la app real, teclear «40000» en el asistente deja
+  «Caché fijo: 40.000,00 €» con 40.000 en el campo y manda «40000» al servidor.
+
 - ⚠️⚠️ **UNA LISTA DE SUGERENCIAS TIENE QUE SEGUIR A SU CAMPO, Y NO TAPAR MEDIA PANTALLA** (sep 2026,
   bug real con captura en el selector de canciones). La lista de la casa se saca al `<body>` en
   **`position:fixed`** para que no la recorte ningún `overflow`… y por eso **NO se movía con el

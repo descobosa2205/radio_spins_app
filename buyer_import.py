@@ -122,9 +122,15 @@ def clean_money(value) -> str:
     elif "," in txt:
         txt = txt.replace(",", ".")
     txt = re.sub(r"[^0-9.]", "", txt)
-    if txt.count(".") > 1:                      # «1.234.567» son miles, no decimales
-        entero, _sep, resto = txt.rpartition(".")
-        txt = entero.replace(".", "") + "." + resto
+    # ⚠️⚠️ SOLO PUNTOS: aquí el punto es de MILES (modelo de euros), así que manda cuántos dígitos
+    # sigue al último: 1 o 2 son DECIMALES («1234.56», lo canónico) y 3 o más —o varios puntos— son
+    # MILES («1.234» son mil doscientos treinta y cuatro, y «1.234.567» un millón). Es la misma regla
+    # que `_parse_money_decimal` (app.py) e `invoice_read.parse_amount`; antes «1.234» se importaba
+    # como 1,234 € y «1.234.567» como 1234,567 € (bug real de dinero en la importación).
+    if "." in txt:
+        trozos = txt.split(".")
+        if len(trozos) > 2 or len(trozos[-1]) not in (1, 2):
+            txt = "".join(trozos)
     if not txt or txt == ".":
         return ""
     return ("-" if negativo else "") + txt

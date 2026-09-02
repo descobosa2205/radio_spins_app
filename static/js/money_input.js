@@ -67,17 +67,35 @@
     return true;
   }
 
-  // «1.234,56» / «1.234» / «1234.56» / «1234» → «1234.56» (canónico para el servidor).
+  /* «1.234,56» / «1.234» / «1234.56» / «1234» → «1234.56» (canónico para el servidor).
+
+     ⚠️⚠️ AQUÍ EL PUNTO ES DE MILES, NO DECIMAL (modelo de euros, no el de Estados Unidos). Un
+     «40.000» son CUARENTA MIL. Bug real con captura: el asistente leía el caché con `parseFloat` y
+     un caché de 40.000 € salía como 4,00 € —el `4.0000` a medio formatear que deja el teclear—, y
+     el servidor guardaba 40 € de un «40.000». La regla, que es la MISMA en `_parse_money_decimal`
+     (app.py) y en `invoice_read.py`:
+       · hay COMA y punto → manda el ÚLTIMO: «1.234,56» es de aquí, «1,234.56» es de allí;
+       · solo COMA → decimal (varias comas: son de miles);
+       · solo PUNTO → manda CUÁNTOS DÍGITOS lo siguen: 1 o 2 son DECIMALES (así se sigue leyendo lo
+         canónico que viaja al servidor, «1234.56»), y 3 o más —o ninguno— son MILES («40.000» y el
+         «4.0000» de un importe a medio escribir). */
   function toCanonical(v) {
     v = String(v == null ? '' : v).trim();
     if (!v) return '';
     v = v.replace(/[€$£\s]/g, '');
     var neg = v.charAt(0) === '-';
     if (neg) v = v.slice(1);
-    if (v.indexOf(',') !== -1) {
-      v = v.replace(/\./g, '').replace(/,/, '.');
-    } else if (/^\d{1,3}(\.\d{3})+$/.test(v)) {
-      v = v.replace(/\./g, '');   // solo puntos con grupos de 3 = separadores de miles
+    v = v.replace(/[^\d.,]/g, '');
+    var coma = v.lastIndexOf(','), punto = v.lastIndexOf('.');
+    if (coma !== -1 && punto !== -1) {
+      if (coma > punto) v = v.replace(/\./g, '').replace(/,/g, '.');
+      else v = v.replace(/,/g, '');
+    } else if (coma !== -1) {
+      v = (v.split(',').length > 2) ? v.replace(/,/g, '') : v.replace(/,/g, '.');
+    } else if (punto !== -1) {
+      var t = v.split('.');
+      var dec = t[t.length - 1].length;
+      if (t.length > 2 || dec < 1 || dec > 2) v = t.join('');
     }
     v = v.replace(/[^\d.]/g, '');
     return v ? (neg ? '-' : '') + v : '';
@@ -147,10 +165,15 @@
     }
   }
 
+  /* ⚠️⚠️ EN FASE DE CAPTURA, A PROPÓSITO: el formateo tiene que pasar ANTES de que lo vea cualquier
+     otro manejador de la app, porque casi todos leen `el.value` para sumar. Escuchando en burbujeo,
+     un contenedor más cercano (el paso del caché del asistente) se ejecutaba PRIMERO y leía el valor
+     a MEDIO ESCRIBIR («4.0000», que es lo que hay en el campo justo antes de reformatearlo): de ahí
+     el «Caché fijo: 4,00 €» con 40.000 escrito (bug real, con captura). */
   document.addEventListener('input', function (e) {
     var el = e.target;
     if (el && el.tagName === 'INPUT' && isMoney(el)) { upgrade(el); formatLive(el); }
-  });
+  }, true);
   document.addEventListener('focusin', function (e) {
     var el = e.target;
     if (el && el.tagName === 'INPUT' && isMoney(el)) upgrade(el);

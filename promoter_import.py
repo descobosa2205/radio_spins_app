@@ -156,7 +156,12 @@ def _cell_text(value) -> str:
         text = value.strip()
         # ⚠️ Un CSV exportado de Excel trae los números con decimales: un teléfono salía
         # «638123456.0» y un código postal «41001.0» (bug real de la primera prueba).
-        if re.fullmatch(r"-?\d+\.0+", text):
+        # ⚠️⚠️ SOLO UNO O DOS DECIMALES: con `\.0+` esta limpieza se comía los MILES del modelo de
+        # euros —«40.000» se quedaba en «40», «1.000» en «1»— y con ello el importe de cualquier
+        # fichero que se importara (compradores, terceros, liquidaciones): cuarenta mil euros
+        # entraban como cuarenta (bug real de dinero). Tres ceros detrás del punto son un grupo de
+        # MILES, no la coma decimal que mete Excel.
+        if re.fullmatch(r"-?\d+\.0{1,2}", text):
             text = text.split(".", 1)[0]
         return text
     if hasattr(value, "strftime"):

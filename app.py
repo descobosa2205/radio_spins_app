@@ -461,7 +461,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
     "concert_artwork_public_upload",
     # ACTUALIZAR VENTAS: el promotor de fuera no tiene sesión (su enlace es el token).
     "public_sales_update", "public_sales_update_save", "public_sales_derive",
@@ -869,7 +869,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -72952,7 +72952,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -76876,7 +76876,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -98002,6 +98002,24 @@ def _artwork_ratio_label(w, h) -> str:
     return f"{a}:{b}" if max(a, b) <= 20 else ""
 
 
+# El HUECO en el que se dibuja la miniatura de un formato en la página pública (px). Está aquí, en
+# un solo sitio, porque lo usan el servidor (al calcular `frame_w`/`frame_h`) y el JS de la propia
+# página, que corrige el marco en cuanto el navegador sabe el tamaño real del vídeo.
+ARTWORK_PUBLIC_FRAME_BOX = (180, 164)
+
+
+def _artwork_public_frame(aspect: float) -> tuple[int, int]:
+    """El marco (ancho, alto) con el que se dibuja una pieza de proporción `aspect` en su hueco.
+
+    ⚠️ Se calcula en PÍXELES a propósito: dejándolo a `aspect-ratio` + `max-width` en el CSS, un
+    banner 4:1 se quedaba casi cuadrado (el navegador recortaba el ancho pero no bajaba el alto)."""
+    caja_w, caja_h = ARTWORK_PUBLIC_FRAME_BOX
+    a = aspect if aspect and aspect > 0 else 1.0
+    if a >= (caja_w / caja_h):
+        return caja_w, max(18, int(round(caja_w / a)))
+    return max(18, int(round(caja_h * a))), caja_h
+
+
 def _artwork_asset_public_row(session_db, subject, asset, token: str) -> dict:
     """Un formato de la página pública: su proporción DIBUJADA, su tamaño y por dónde se descarga."""
     w, h = getattr(asset, "width", None), getattr(asset, "height", None)
@@ -98030,15 +98048,8 @@ def _artwork_asset_public_row(session_db, subject, asset, token: str) -> dict:
     nombre = (getattr(asset, "original_name", None) or "").strip()
     _base, ext = os.path.splitext(nombre)
     # La MINIATURA se dibuja con la proporción real dentro de un hueco fijo (todas las tarjetas del
-    # mismo alto). ⚠️ El tamaño se calcula AQUÍ, en píxeles: dejándolo a `aspect-ratio` + `max-width`
-    # en el CSS, un banner 4:1 se quedaba casi cuadrado (el navegador recortaba el ancho pero no
-    # bajaba el alto).
-    caja_w, caja_h = 180, 164
-    a = aspect if aspect > 0 else 1.0
-    if a >= (caja_w / caja_h):
-        marco_w, marco_h = caja_w, max(18, int(round(caja_w / a)))
-    else:
-        marco_h, marco_w = caja_h, max(18, int(round(caja_h * a)))
+    # mismo alto): punto único `_artwork_public_frame`.
+    marco_w, marco_h = _artwork_public_frame(aspect)
     return {
         "frame_w": marco_w,
         "frame_h": marco_h,
@@ -98064,6 +98075,11 @@ def _artwork_asset_public_row(session_db, subject, asset, token: str) -> dict:
         # con un vídeo o un audio sirve por trozos respetando el `Range`, así que se puede reproducir
         # y mover la barra sin bajar el archivo entero.
         "view_url": url_for("public_artwork_file", token=token, asset_id=asset.id),
+        # ⚠️ REPRODUCIR va por su propia URL (`?play=1`), que salta a Storage: un vídeo servido por el
+        # puente se ve a trompicones. La de arriba (mismo origen) es la que usa la MINIATURA.
+        "play_url": (url_for("public_artwork_file", token=token, asset_id=asset.id, play=1)
+                     if kind in ("VIDEO", "AUDIO") else
+                     url_for("public_artwork_file", token=token, asset_id=asset.id)),
         # Lo que NO se puede previsualizar (un vectorial de imprenta, un paquete): se dice y se
         # descarga, que es lo honesto.
         "can_view": kind in ("IMAGE", "VIDEO", "AUDIO", "PDF"),
@@ -98130,6 +98146,11 @@ def _artwork_public_context(session_db, target: dict, token: str, *,
         "og_title": meta["title"],
         "og_description": meta["description"],
         "zip_url": url_for("public_artwork_download_all", token=token, cat=category),
+        # El hueco de la miniatura (px): el JS de la página corrige el marco con estos mismos
+        # números cuando el navegador descubre el tamaño real de un vídeo.
+        "frame_box_w": ARTWORK_PUBLIC_FRAME_BOX[0],
+        "frame_box_h": ARTWORK_PUBLIC_FRAME_BOX[1],
+        "dims_url": url_for("public_artwork_dims", token=token, asset_id="__ID__"),
         "og_image_url": _external_url_for("public_artwork_og_image", token=token,
                                           **({"f": foco} if foco else {})),
         "date_label": subject["date_label"],
@@ -98345,12 +98366,37 @@ def public_artwork_file(token, asset_id):
         if quiere_poster:
             src = (getattr(asset, "poster_url", None) or "").strip() or src
         kind = _artwork_kind_of(asset)
-        # ⚠️⚠️ UN VÍDEO (o un audio) NO SE PUEDE SERVIR ENTERO EN MEMORIA: `_download_remote_content`
-        # lo lee de una vez y no reenvía el `Range`, así que cada salto de la barra volvería a
-        # bajarlo completo a la RAM del worker (el 502 por OOM de las subidas de vídeo ya pasó aquí).
-        # Se usa el MISMO puente que la playlist: por trozos, con `Range` y `Accept-Ranges`.
-        if not quiere_poster and kind in ("VIDEO", "AUDIO"):
-            return _playlist_audio_response(src)
+        quiere_reproducir = (request.args.get("play") or "").strip() in ("1", "true", "si", "sí")
+        # ⚠️⚠️ REPRODUCIR UN VÍDEO **NO PASA POR EL SERVIDOR**: se manda al navegador a por él con un
+        # 302 (bug real: «se ve a trompicones y se para todo el rato, no se puede ver seguido»).
+        # Por el puente, el vídeo entra por nuestro Render trozo a trozo (64 KB, un hilo de gunicorn
+        # ocupado toda la reproducción) y con `Cache-Control: no-store`, así que el navegador **no
+        # puede guardar nada**: cada rebuffer y cada salto de la barra vuelven a pedirlo entero y el
+        # reproductor se queda sin colchón. Dentro de la app el MISMO vídeo va fino justo porque su
+        # `<video src>` apunta directo a Storage (`_artwork_media.html`), y hay dos páginas públicas
+        # que ya lo hacen así (las fotos compartidas y el cronograma de un plan).
+        # ⚠️ Esto NO rompe la regla de la casa, que habla de la MINIATURA y de la DESCARGA: lo que se
+        # comparte sigue siendo esta página (nunca la URL del archivo) y la descarga sigue yendo por
+        # nuestro dominio —tiene que ir, porque el `download` de un `<a>` se ignora en otro dominio—.
+        # ⚠️⚠️ Y la MINIATURA de la tarjeta sigue por el puente A PROPÓSITO (mismo origen): así
+        # `video_thumb.js` puede medir el brillo del fotograma en un lienzo y no dejar uno NEGRO
+        # (con un vídeo de otro dominio el lienzo se «mancha» y no se puede medir).
+        if quiere_reproducir and kind in ("VIDEO", "AUDIO") and _is_own_media_url(src):
+            resp = redirect(src, code=302)
+            # Para que el navegador reutilice el destino en las siguientes peticiones de rango (si no,
+            # cada trozo repetiría el salto).
+            resp.headers["Cache-Control"] = "private, max-age=300"
+            return resp
+        if kind in ("VIDEO", "AUDIO"):
+            # Miniatura (o un archivo que no es nuestro): por el puente, con `Range` y por trozos —
+            # nunca entero en memoria.
+            resp = _playlist_audio_response(src)
+            # ⚠️ El puente pone `no-store` porque viene de las PLAYLISTS, donde hay un interruptor de
+            # descarga que lo justifica. En la cartelería TODO es descargable a propósito, así que ahí
+            # no protege nada y solo hace que el navegador vuelva a pedir cada trozo. Se cambia aquí,
+            # NO en el puente: es un punto único con seis consumidores (playlists, demos, syncros…).
+            resp.headers["Cache-Control"] = "private, max-age=600"
+            return resp
         try:
             datos, ctype = _download_remote_content(src, timeout=25)
         except Exception:
@@ -98360,6 +98406,61 @@ def public_artwork_file(token, asset_id):
         # `inline` a propósito: esto es para VERLO en la página (un PDF se abre en su marco).
         resp.headers["Content-Disposition"] = "inline"
         return resp
+
+
+@app.post("/carteles/<token>/medidas/<asset_id>", endpoint="public_artwork_dims")
+def public_artwork_dims(token, asset_id):
+    """El TAMAÑO REAL de un cartel, medido por el navegador que está viendo la página.
+
+    ⚠️⚠️ De las medidas sale la PROPORCIÓN con la que se dibuja su miniatura y su silueta, y sin ellas
+    el marco cae a 16:9: **un vídeo vertical salía apaisado** (bug real en la cartelería general).
+    El servidor las saca con ffmpeg en 2º plano, pero eso puede no llegar (que no pueda leer el
+    archivo, que la caché negativa esté frenando el reintento…), mientras que **el navegador YA sabe
+    el tamaño**: carga los metadatos del vídeo para pintar la miniatura. Así, quien abre la página lo
+    arregla para todos.
+    ⚠️ Solo RELLENA lo que está vacío: nunca pisa una medida que ya consta (lo que se midió al subir
+    es lo bueno), así que dos personas midiendo a la vez no se pelean.
+    Devuelve el marco y las etiquetas YA CALCULADAS por el servidor: así el cliente no tiene que
+    repetir la tabla de proporciones (`_artwork_ratio_label`) ni el cálculo del marco."""
+    with get_db() as session_db:
+        _target, asset = _artwork_public_asset_or_404(session_db, token, asset_id)
+        try:
+            ancho = int(float(request.form.get("width") or 0))
+            alto = int(float(request.form.get("height") or 0))
+        except (TypeError, ValueError):
+            ancho = alto = 0
+        # Tope de cordura: nada de 0 ni de valores absurdos (un dato de fuera no se guarda a ciegas).
+        if not (0 < ancho <= 20000 and 0 < alto <= 20000):
+            return jsonify({"ok": False, "error": "Medidas no válidas."}), 400
+        guardado = False
+        w0 = _safe_int(getattr(asset, "width", 0))
+        h0 = _safe_int(getattr(asset, "height", 0))
+        if not (w0 and h0):
+            asset.width, asset.height = ancho, alto
+            session_db.commit()
+            guardado = True
+        elif (_artwork_kind_of(asset) == "VIDEO" and w0 == VIDEO_POSTER_MAX_SIDE
+              and ancho * alto > w0 * h0):
+            # ⚠️ El navegador da el tamaño EXACTO del archivo; la miniatura que saca ffmpeg va
+            # ESCALADA por el ANCHO (`scale='min(VIDEO_POSTER_MAX_SIDE,iw)'`), así que sus medidas
+            # son proporcionalmente buenas pero más pequeñas: un 1080×1920 quedaba apuntado como
+            # **960×1706**, y eso es lo que se leía en la tarjeta.
+            # ⚠️ Se reconoce por el ANCHO EXACTO del escalado (960): es la huella del póster de un
+            # vídeo más ancho que eso. Con `max(w0,h0)` no valía —en un vídeo VERTICAL el lado mayor
+            # es el alto (1706), no 960— y justo el caso a corregir se quedaba fuera.
+            # Y **solo si la PROPORCIÓN es la misma**: así se corrige la resolución sin que un dato de
+            # fuera pueda cambiar la forma de la pieza ni inflar un tamaño medido de verdad al subirla.
+            try:
+                if abs((ancho / alto) - (w0 / h0)) <= (w0 / h0) * 0.02:
+                    asset.width, asset.height = ancho, alto
+                    session_db.commit()
+                    guardado = True
+            except ZeroDivisionError:
+                pass
+        fila = _artwork_asset_public_row(session_db, _target, asset, (token or "").strip())
+        return jsonify({"ok": True, "saved": guardado, "frame_w": fila["frame_w"],
+                        "frame_h": fila["frame_h"], "aspect": fila["aspect"],
+                        "ratio_label": fila["ratio_label"], "size_label": fila["size_label"]})
 
 
 @app.get("/carteles/<token>/descargar/<asset_id>", endpoint="public_artwork_download")
@@ -109088,6 +109189,12 @@ def _video_probe_duration(exe, url):
         return None
 
 
+# A cuánto se escala el fotograma de la miniatura (px de ancho como máximo). ⚠️ De aquí sale que las
+# medidas sacadas del póster sean proporcionalmente buenas pero MÁS PEQUEÑAS que el archivo: es lo que
+# permite reconocerlas y afinarlas con el tamaño exacto que da el navegador.
+VIDEO_POSTER_MAX_SIDE = 960
+
+
 def _video_frame_bytes_at(exe, url, t):
     """UN fotograma del vídeo en el segundo `t`, como JPEG.
 
@@ -109097,7 +109204,8 @@ def _video_frame_bytes_at(exe, url, t):
     try:
         r = subprocess.run(
             [exe, "-hide_banner", "-loglevel", "error", "-ss", ("%.2f" % max(0.0, float(t or 0))),
-             "-i", url, "-frames:v", "1", "-vf", "scale='min(960,iw)':-2", "-q:v", "4",
+             "-i", url, "-frames:v", "1",
+             "-vf", "scale='min(%d,iw)':-2" % VIDEO_POSTER_MAX_SIDE, "-q:v", "4",
              "-f", "image2", "-"],
             capture_output=True, timeout=60,
         )

@@ -34,9 +34,27 @@
     }
   }
 
+  /* El TAMAÑO REAL del vídeo, en cuanto el navegador lo sabe. Quien lo necesite lo escucha:
+     la página de cartelería corrige con él el marco de la miniatura, la silueta del formato y la
+     etiqueta del tamaño —y lo guarda—, porque sin medidas el marco cae a 16:9 y un vídeo VERTICAL
+     salía apaisado. El motor no sabe nada de esas pantallas: solo avisa (el mismo patrón que
+     `agenda:external-drop`). */
+  function avisaTamano(v) {
+    var w = v.videoWidth || 0, h = v.videoHeight || 0;
+    if (!w || !h || v.__thumbAvisado) return;
+    v.__thumbAvisado = true;
+    try {
+      v.dispatchEvent(new CustomEvent('videothumb:size', {
+        bubbles: true, detail: { width: w, height: h }
+      }));
+    } catch (e) { /* navegador sin CustomEvent: no pasa nada */ }
+  }
+
   function seekThumb(v) {
     if (v.__thumbSeek) return; v.__thumbSeek = true;
     var intento = 0;
+    if (v.readyState >= 1) avisaTamano(v);
+    else v.addEventListener('loadedmetadata', function () { avisaTamano(v); }, { once: true });
 
     function listo() {
       try { v.pause(); } catch (e) {}

@@ -188,10 +188,14 @@
                <a> dentro de otro <a> no es HTML válido** — el navegador cierra el de fuera donde
                empieza el de dentro y la tarjeta se parte (es la misma trampa que un </div> de más). #}
             <div class="fmt{% if f.is_focus %} is-focus{% endif %}{% if f.can_view %} is-clickable{% endif %}"
+                 data-fmt-id="{{ f.id }}" data-fmt-ext="{{ f.ext }}"
                  {% if f.can_view %}
                    role="button" tabindex="0"
                    title="Ver {{ f.format_label }}"
-                   data-viewer-src="{{ f.view_url }}"
+                   {# ⚠️ El visor REPRODUCE por `play_url` (salta a Storage: por el puente el vídeo
+                      se ve a trompicones). La miniatura de abajo sigue con `view_url`, que es del
+                      mismo origen y deja medir el brillo del fotograma. #}
+                   data-viewer-src="{{ f.play_url or f.view_url }}"
                    data-viewer-kind="{{ f.kind }}"
                    data-viewer-name="{{ f.format_label }}"
                    data-viewer-download="{{ f.download_url }}"
@@ -266,6 +270,67 @@
      · media_viewer.js  → al pinchar una pieza se VE (con flechas para pasar a la siguiente).
      · download_bar.js  → la barra de progreso de las descargas, sin bloquear la pantalla.
      · video_thumb.js   → mientras un vídeo no tenga miniatura, salta a un fotograma intermedio. #}
+  {# ⚠️⚠️ LA PROPORCIÓN, CORREGIDA CON LO QUE EL NAVEGADOR YA SABE.
+     El marco de la miniatura y la silueta del formato salen de las medidas del archivo
+     (`ConcertArtworkAsset.width/height`) y, sin ellas, caen a 16:9: un vídeo VERTICAL salía
+     APAISADO (bug real en la cartelería general). Las medidas las pone el subidor y, en lo ya
+     subido, un hilo con ffmpeg — que puede no llegar. Pero el navegador **carga los metadatos del
+     vídeo** para pintar la miniatura, así que ya sabe el tamaño: se corrige aquí al momento y se
+     GUARDA (`public_artwork_dims`), de modo que quien abre la página lo arregla para todos. #}
+  <script>
+  (function () {
+    var CAJA_W = {{ frame_box_w|int }}, CAJA_H = {{ frame_box_h|int }};
+    var URL_MEDIDAS = {{ dims_url|tojson }};
+
+    /* Espejo de `_artwork_public_frame` (app.py): el marco dentro del hueco fijo. */
+    function marco(a) {
+      if (!(a > 0)) a = 1;
+      if (a >= (CAJA_W / CAJA_H)) return [CAJA_W, Math.max(18, Math.round(CAJA_W / a))];
+      return [Math.max(18, Math.round(CAJA_H * a)), CAJA_H];
+    }
+
+    function pinta(tarjeta, w, h, etiquetas) {
+      var a = w / h;
+      var f = tarjeta.querySelector('.fmt__frame');
+      if (f) {
+        var m = (etiquetas && etiquetas.frame_w) ? [etiquetas.frame_w, etiquetas.frame_h] : marco(a);
+        f.style.width = m[0] + 'px';
+        f.style.height = m[1] + 'px';
+      }
+      var ico = tarjeta.querySelector('.fmt__ico span');
+      if (ico) {
+        if (a >= 1) { ico.style.width = '30px'; ico.style.height = Math.ceil(30 / a) + 'px'; }
+        else { ico.style.height = '30px'; ico.style.width = Math.ceil(30 * a) + 'px'; }
+      }
+      var meta = tarjeta.querySelector('.fmt__meta');
+      if (meta && etiquetas) {
+        var trozos = [etiquetas.ratio_label, etiquetas.size_label, tarjeta.getAttribute('data-fmt-ext')];
+        var texto = trozos.filter(function (x) { return !!x; }).join(' · ');
+        if (texto) meta.textContent = texto;
+      }
+    }
+
+    document.addEventListener('videothumb:size', function (ev) {
+      var tarjeta = ev.target && ev.target.closest ? ev.target.closest('.fmt') : null;
+      if (!tarjeta || tarjeta.__medido) return;
+      tarjeta.__medido = true;
+      var w = (ev.detail || {}).width, h = (ev.detail || {}).height;
+      if (!w || !h) return;
+      pinta(tarjeta, w, h, null);                 // lo que se VE, ya corregido
+      var id = tarjeta.getAttribute('data-fmt-id');
+      if (!id || !URL_MEDIDAS) return;
+      // Y se guarda, para que la próxima vez venga bien del servidor (y con ello el ZIP, la
+      // etiqueta del tamaño y la previsualización del enlace). Si falla, no pasa nada.
+      var datos = new FormData();
+      datos.append('width', w);
+      datos.append('height', h);
+      fetch(URL_MEDIDAS.replace('__ID__', id), { method: 'POST', body: datos })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (d && d.ok) pinta(tarjeta, w, h, d); })
+        .catch(function () { /* la corrección de arriba ya está aplicada */ });
+    });
+  })();
+  </script>
   <script src="{{ url_for('static', filename='js/media_viewer.js', v=ASSET_V) }}"></script>
   <script src="{{ url_for('static', filename='js/download_bar.js', v=ASSET_V) }}"></script>
   <script src="{{ url_for('static', filename='js/video_thumb.js', v=ASSET_V) }}"></script>

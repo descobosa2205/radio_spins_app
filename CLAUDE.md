@@ -8982,3 +8982,54 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ **NO se ha tocado el CUPO** (`_invitation_event_available_by_category`, que es `max(configurado,
   subidas)`): eso es otra cosa —la puerta de «no aceptar peticiones por encima del cupo» y el «solo
   con aforo» del enlace público—, y ceñirla a lo subido bloquearía pedir antes de recibirlas.
+
+- ⚠️⚠️ **REPRODUCIR UN VÍDEO NO PASA POR EL SERVIDOR** (sep 2026, bug real: «el vídeo se ve a
+  trompicones y se para todo el rato, no se puede ver seguido»). En la cartelería pública el vídeo se
+  servía por el puente (`_playlist_audio_response`), y eso lo hace inviable por tres razones que se
+  suman: entra por nuestro Render **en trozos de 64 KB** (urlopen → generador de Python → gunicorn),
+  **ocupa un hilo** de los 16 que tiene toda la app mientras dura la reproducción, y sobre todo va con
+  **`Cache-Control: no-store`**, así que el navegador **no puede guardar nada**: cada rebuffer y cada
+  salto de la barra lo vuelven a pedir entero y el reproductor se queda sin colchón.
+  · **REPRODUCIR es su propia URL**: `public_artwork_file?play=1` responde un **302** al archivo
+  (`play_url` en la fila pública), así que el navegador lo baja de Storage con su CDN, su `Range` y su
+  caché. Medido: el buffer llega al final del vídeo en la primera pasada.
+  ⚠️ El `no-store` **no es una decisión de la cartelería**: viene de las PLAYLISTS, donde hay un
+  interruptor de descarga que lo justifica. En la cartelería todo es descargable a propósito, así que
+  ahí no protege nada. Se cambia **en la rama de cartelería**, nunca en el puente: es un punto único
+  con seis consumidores (playlists dentro y fuera, demos compartidas, syncros).
+  ⚠️ Esto **no rompe** la regla de no enseñar la URL de Storage, que habla de la **miniatura** y de la
+  **descarga**: lo que se comparte sigue siendo la página, la descarga sigue yendo por nuestro dominio
+  —tiene que ir: el `download` de un `<a>` lo ignoran los navegadores en otro dominio— y la puerta
+  sigue siendo `_artwork_public_asset_or_404`. Dos páginas públicas de la casa ya reproducían así (las
+  fotos compartidas y el cronograma de un plan) y **dentro de la app el mismo vídeo iba fino justo por
+  eso** (`_artwork_media.html` apunta a Storage).
+  ⚠️⚠️ **La MINIATURA sigue por el puente A PROPÓSITO** (mismo origen): es lo que permite a
+  `video_thumb.js` medir el brillo del fotograma en un `<canvas>` y no dejar uno NEGRO. Con un vídeo
+  de otro dominio el lienzo se «mancha» y `getImageData` lanza excepción, así que se aceptaría el
+  primer fotograma —el del fundido—. Por eso hay DOS URLs: `view_url` (puente, miniatura) y `play_url`
+  (302, reproducir).
+
+- ⚠️⚠️ **LA PROPORCIÓN LA ARREGLA EL NAVEGADOR, QUE YA SABE EL TAMAÑO** (sep 2026, bug real: «los
+  vídeos son tamaño historia en vertical y la miniatura y el icono del tamaño son horizontales»).
+  El marco de la miniatura y la silueta del formato salen de `ConcertArtworkAsset.width/height` y, sin
+  ellas, caen a **16:9**. Las pone el subidor (`media_dims.js`) y, en lo ya subido, el hilo de ffmpeg —
+  que puede no llegar (que no lea el archivo, que la caché negativa frene el reintento, que Storage
+  falle). Pero **el navegador carga los metadatos del vídeo** para pintar la miniatura, así que el dato
+  está delante: `video_thumb.js` avisa con el evento **`videothumb:size`** (el motor no sabe nada de
+  esas pantallas: solo avisa, como `agenda:external-drop`) y la página de cartelería corrige **al
+  momento** el marco, la silueta y la etiqueta, y lo **GUARDA** (`public_artwork_dims`, POST público
+  con el token). Así, quien abre la página lo arregla para todos: la siguiente carga ya viene bien del
+  servidor, y con ella el ZIP, la etiqueta del tamaño y la previsualización del enlace.
+  · El hueco de la miniatura es un punto único (**`ARTWORK_PUBLIC_FRAME_BOX`** + `_artwork_public_frame`)
+  y viaja al contexto de la página (`frame_box_w/h`) para que su JS use los MISMOS números; las
+  etiquetas (`ratio_label`, `size_label`) las devuelve el propio endpoint, así que la tabla de
+  proporciones no se duplica en JS.
+  ⚠️ El endpoint **solo RELLENA lo vacío**: nunca pisa una medida que ya consta (lo que se midió al
+  subir es lo bueno), así que dos personas midiendo a la vez no se pelean.
+  ⚠️⚠️ **Un caso que sí se AFINA**: las medidas sacadas del póster son proporcionalmente buenas pero
+  **más pequeñas**, porque el fotograma se escala por el ANCHO (`VIDEO_POSTER_MAX_SIDE` = 960): un
+  1080×1920 quedaba apuntado como **960×1706** y eso es lo que se leía en la tarjeta. Se reconoce por
+  el **ancho EXACTO 960** (la huella del póster) y se afina **solo si la proporción es la misma**.
+  ⚠️ Con `max(w0,h0) <= 960` no valía: en un vídeo VERTICAL el lado mayor es el ALTO (1706), así que
+  justo el caso a corregir se quedaba fuera. Y con la condición floja, cualquiera con el enlace podía
+  inflar el tamaño que se enseña; con esta, no (comprobado).

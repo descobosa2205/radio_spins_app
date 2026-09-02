@@ -8616,6 +8616,76 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   del set list. Como la lista de sugerencias se corta en 12, ese orden es lo que hace que se ofrezcan
   **los 12 últimos lanzamientos**.
 
+- ⚠️⚠️⚠️ **LO QUE SE ESCRIBE NO SE PIERDE · guardado en vivo de lo tecleado** (sep 2026,
+  `static/js/form_autosave.js`, GLOBAL). Casi todos los endpoints guardan con **POST → `flash` →
+  `redirect`**, así que cuando algo falla el navegador acaba en un GET limpio y **el formulario sale
+  VACÍO**: había que teclearlo todo otra vez. En el asistente de actividad era peor, porque el
+  redirect va a **OTRA pantalla y con el modal cerrado**.
+  · Mientras se escribe, lo tecleado se guarda en `sessionStorage`; al **enviar se BORRA por
+  defecto**; y **solo se conserva si el SERVIDOR dice que ha rechazado el envío**, y entonces se
+  repone solo, **se reabre el sitio donde se estaba** y se marca en rojo lo que hay que arreglar.
+  · Si queda algo sin enviar de antes, **no se pisa nada a la callada**: sale una línea ámbar
+  «Tienes lo que escribiste a las 12:40 en \<qué\> sin enviar · **Seguir con eso** / **Empezar de
+  cero**». Recuperar es un ACTO, no algo que ya ha pasado cuando llegas.
+  ⚠️⚠️ **NO SE MIRA EL COLOR DEL AVISO, MANDA EL SERVIDOR**: en esta app hay decenas de flashes
+  ÁMBAR que significan ÉXITO («Usuario creado. No se pudo enviar el correo de bienvenida», «ITA
+  subido, pero no se pudo leer la fecha», «Guardado, pero el desglose no cuadra»…). Dándolos por
+  rechazados, el formulario volvería relleno **después de haber creado la ficha** y se acabarían
+  duplicando terceros y personas — que aquí rompe el cruce por DNI de facturación y el reparto
+  editorial. El punto único es **`_flash_form_error(mensaje, campos=[...], abrir='idDelModal')`**
+  (app.py): deja en la sesión —de un solo uso, como `session['ficha_nav']`— el mensaje **en español y
+  para una persona** (nunca `str(exc)`: eso al log), los **nombres** de los campos que se pintan en
+  rojo y **qué modal reabrir**; `layout.html` lo emite en el `<body>` (`data-form-rechazado`) y
+  `ajax_inline.js` lo mira en la respuesta para decir en su evento si el guardado ENTRÓ (`ok`).
+  ⚠️⚠️ **LISTA BLANCA de formularios**: solo se guarda el que se puede identificar sin ambigüedad —
+  un `data-autosave` propio, un `id` ÚNICO en la página, o una acción que lleve el id del registro—.
+  De los 373 formularios de la app, **294 están dentro de un `{% for %}`** y 65 comparten acción con
+  otro del mismo fichero: que un campo no se recupere es tolerable, que **se recupere en la fila de
+  al lado** no lo es (un importe apareciendo escrito en el gasto siguiente se firma sin sospechar).
+  Para meter un formulario nuevo: `data-autosave="clave"` + `data-autosave-title="Lo que es"`.
+  ⚠️ **NUNCA se fusiona campo a campo en silencio**: si el formulario **venía con datos** (una ficha
+  de edición o un alta precumplimentada) no se toca nada y solo se ofrece; si estaba vacío, se repone
+  y se dice de cuándo es. Y un radio marcado **por defecto** no cuenta como «venía con datos» (el
+  asistente trae una docena: con eso, todo formulario parecía relleno y no se reponía nunca).
+  ⚠️ **Un ARCHIVO no se puede reponer**: los `input[type=file]` vuelven marcados en ÁMBAR con «Vuelve
+  a adjuntarlo», o el formulario tendría aspecto de completo y se mandaría la factura **sin** la
+  factura.
+  ⚠️ **NO se guarda**: contraseñas, credenciales de integraciones, el token CSRF, consentimientos y
+  firmas, la foto del DNI del escáner (`_b64`), ni ficheros. Y **solo con sesión** (`data-autosave` en
+  el `<body>` con `CURRENT_USER`): en las páginas PÚBLICAS —facturación, entrega de masters, PRL,
+  autorizaciones de MENORES con su DNI y su firma— no se deja **nada** escrito en el disco de un
+  tercero (y esas páginas ya vuelven rellenas del servidor: `render_template(..., form=request.form)`,
+  el precedente de la entrega de masters). Caduca a las 6 h y se borra al llegar a la pantalla de
+  acceso.
+  ⚠️⚠️ **NADA SE OFRECE ANTES DEL PRIMER REPASO** (bug real, con captura): tras el rechazo el redirect
+  lleva `open_wizard=1` y el asistente **se abre solo** —su propio script, con reintentos— ANTES del
+  `DOMContentLoaded` de este motor, así que el repaso general se adelantaba y sacaba la línea de
+  «tienes algo sin enviar» **encima** de lo que un instante después se reponía solo: salían las dos
+  cosas a la vez. Hay un cerrojo (`arrancado`) y el `MutationObserver` **se instala al final** del
+  primer repaso, no al cargar el fichero.
+  ⚠️ El aviso del rechazo va **DENTRO del formulario** (`.modal-body`): el flash de arriba queda
+  detrás del modal, y en una ficha larga fuera de pantalla. Y **no puede ser hijo directo de
+  `<main>`**, porque `showFlashes` borra y reinserta todos los `.alert` de ahí en cada guardado
+  inline.
+  ⚠️ **VOCABULARIO**: aquí no se dice «borrador» (en esta app BORRADOR es el ESTADO de una actividad y
+  nadie sabría de qué se habla), ni «autoguardado», ni «restaurar»: se dice «lo que escribiste» y
+  «seguir con eso».
+  · **LO QUE FALTA VA EN ROJO** (`form_check.js`, sep 2026): lo pidió así Dani y sustituye al criterio
+  anterior (ámbar = falta) — «los que están incompletos y son obligatorios o los que están mal, con
+  fondo rojo hasta que estén cumplimentados o estén bien». **Solo al intentar guardar o pasar de
+  paso**, nunca al abrir el formulario. El ámbar se queda para lo que **no bloquea** (`missing()`, el
+  archivo que hay que readjuntar).
+  · **Enganchado ya**: el **asistente de actividad** (`concert_wizard_create` → mensaje + campos +
+  reabrir, con `_wizard_error_fields` casando el texto del `ValueError` con sus campos) y, con clave
+  propia, el alta de **terceros**, el alta de **personal**, los **datos de una persona**, el alta de
+  un **ciclo/festival** y el de un **adelanto**. Los demás endpoints ganan lo suyo en cuanto se les
+  cambie el `flash(...)` por `_flash_form_error(...)`; hasta entonces su formulario ya no pierde lo
+  tecleado (sale la línea para recuperarlo).
+  Probado con la app real: se teclea en el asistente, el servidor lo rechaza, el redirect va a
+  `/conciertos` y el asistente **se reabre solo** con la fecha, el festival y el aforo puestos, el
+  aviso rojo dentro y el campo del artista en rojo; un guardado que ENTRA no deja nada; un formulario
+  abandonado ofrece «Seguir con eso» sin pisar nada; y en `/facturacion` no se guarda nada.
+
 - ⚠️⚠️ **ENTREGA DE MASTERS · NO SE PIDE LO QUE YA TENEMOS, Y LA DURACIÓN LA DA EL MASTER**
   (sep 2026). El formulario que le llega a un tercero preguntaba cosas que ya estaban en la app y un
   dato que estaba dentro del archivo que él mismo adjuntaba.

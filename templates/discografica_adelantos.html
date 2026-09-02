@@ -457,7 +457,8 @@
 {% if CAN_EDIT_DISCOGRAFICA and adelantos_ctx.distributors %}
 <div class="modal fade" id="advanceWizardModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
-    <form class="modal-content" method="post" action="{{ url_for('discografica_advance_create') }}" enctype="multipart/form-data" data-step-wizard>
+    <form class="modal-content" method="post" action="{{ url_for('discografica_advance_create') }}" enctype="multipart/form-data" data-step-wizard
+          data-autosave="alta-adelanto" data-autosave-title="Nuevo adelanto">
       <div class="modal-header">
         <h5 class="modal-title"><i class="fa fa-hand-holding-dollar me-2"></i>Nuevo adelanto</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

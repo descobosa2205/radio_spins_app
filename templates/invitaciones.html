@@ -2048,7 +2048,13 @@
       var avail = catModalEl.querySelector('[data-cmt-cat-avail]');
       var setAvail = function(cid){
         var c = (_cmtCats || []).find(function(x){ return String(x.id) === String(cid); });
-        avail.textContent = c ? ('Disponibles: ' + (c.available_real != null ? c.available_real : (c.configured || 0))) : '';
+        // Igual que en el asistente: lo disponible es lo subido y libre; lo pactado, referencia.
+        avail.textContent = c
+          ? ('Disponibles: ' + (c.available_real || 0)
+             + ((c.pending_upload || 0) > 0
+                 ? ' · Por contrato: ' + (c.configured || 0) + ' (faltan por subir ' + c.pending_upload + ')'
+                 : ''))
+          : '';
       };
       catModalEl.__setAvail = setAvail;   // el handler de Select2 (initCmtCatSelect2) lo usa al cambiar
       var fill = function(cats){
@@ -2346,7 +2352,14 @@
       var _title = `<div class="d-flex align-items-center gap-2 flex-wrap"><span class="inv-cat-swatch" style="background:${_color}"></span><span class="fw-semibold">${_esc(c.name)}${_af}</span>${c.requests_blocked ? '<span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span>' : ''}</div>`;
       var _input = (c.requests_blocked && opts.blockDisabled)
         ? `<input class="form-control mt-1" type="number" value="0" disabled>`
-        : `<input class="form-control mt-1" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${(c.available_real != null ? c.available_real : (c.configured || 0))}</div>`;
+        : `<input class="form-control mt-1" type="number" min="0" name="qty_${c.id}" value="0">`
+          // ⚠️⚠️ «Disponibles» es lo SUBIDO y libre, nunca el cupo del contrato: antes, sin
+          // caer en `c.configured`, una categoría sin una sola entrada subida salía con
+          // «Disponibles 20» (lo pactado). Lo pactado se dice aparte, como referencia.
+          + `<div class="small ${(c.available_real || 0) > 0 ? 'text-muted' : 'text-danger'}">Disponibles ${(c.available_real || 0)}</div>`
+          + ((c.pending_upload || 0) > 0
+              ? `<div class="small text-muted" title="Lo pactado por contrato: es una referencia de cuántas nos tienen que mandar, no entradas que ya se puedan repartir">Por contrato ${(c.configured || 0)} · faltan por subir ${c.pending_upload}</div>`
+              : '');
       // Categoría con SOMBREADO del color + borde de color (como en "configurar disponibles").
       return `<div class="col-md-4"><div class="inv-qty-cell" style="border-left:5px solid ${_color};background:color-mix(in srgb, ${_color} 12%, white);">${_title}${_input}</div></div>`;
     };

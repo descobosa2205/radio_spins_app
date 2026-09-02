@@ -59,7 +59,8 @@
 {# ===== Modal nuevo ciclo / festival ===== #}
 <div class="modal fade" id="cfModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
-    <form class="modal-content" method="post" action="{{ url_for('cycle_festival_create') }}" data-step-wizard>
+    <form class="modal-content" method="post" action="{{ url_for('cycle_festival_create') }}" data-step-wizard
+          data-autosave="alta-ciclo" data-autosave-title="Nuevo ciclo o festival">
       <div class="modal-header">
         <h5 class="modal-title"><i class="fa {{ 'fa-masks-theater' if only_events else 'fa-star' }} me-2"></i>{{ 'Nueva gira o ciclo de un evento' if only_events else 'Nuevo ciclo / festival' }}</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

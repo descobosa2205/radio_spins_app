@@ -598,6 +598,9 @@ def _country_payload_from_form(form) -> tuple[str, str]:
 @app.context_processor
 def inject_country_helpers():
     return {
+        # Lo que el servidor dice de un envío RECHAZADO (de un solo uso): lo emite `layout.html` en
+        # el `<body>` y lo lee `form_autosave.js` para reponer lo escrito y marcar los campos.
+        "FORM_ERROR_PAYLOAD": _form_error_payload(),
         "country_options_es": country_options_es,
         "country_flag_emoji": _country_flag_emoji,
         "country_name_es": _country_name_es,
@@ -3978,7 +3981,7 @@ def _artwork_kind_of(asset) -> str:
     ⚠️ Manda la columna `kind`, pero los carteles ANTERIORES a esa columna salen todos como IMAGE
     (es su valor por defecto), así que si el nombre o el mimetype dicen otra cosa, mandan ellos."""
     kind = (getattr(asset, 'kind', '') or '').strip().upper()
-    if kind in ('VIDEO', 'PDF', 'FILE'):
+    if kind in ('VIDEO', 'AUDIO', 'PDF', 'FILE'):
         return kind
     return _artwork_asset_kind((getattr(asset, 'original_name', None) or getattr(asset, 'file_url', None) or ''),
                                getattr(asset, 'mime_type', None) or '')
@@ -7593,28 +7596,63 @@ def _song_video_poster_schedule(material_id, url) -> None:
 
 
 def _artwork_poster_schedule(asset_id, url) -> None:
-    """La MINIATURA de un cartel en VÍDEO, en 2º plano, guardada en `ConcertArtworkAsset.poster_url`.
+    """La MINIATURA de un cartel en VÍDEO **y sus medidas**, en 2º plano.
 
     ⚠️ Mismo motor que el póster de un videoclip o de un vídeo de la galería
-    (`_video_generate_poster_bytes`, que lee por RANGO y no se baja el vídeo entero). Best-effort: si
-    no sale, el hueco se queda con el icono de vídeo."""
+    (`_video_generate_poster_bytes`, que lee por RANGO, no se baja el vídeo entero y **no deja un
+    fotograma en negro**). Best-effort: si no sale, el hueco se queda con el icono de vídeo.
+    ⚠️⚠️ Se guardan también el ANCHO y el ALTO (`_image_size_from_bytes` sobre el propio fotograma,
+    que conserva la proporción): sin ellos un vídeo VERTICAL se dibujaba APAISADO, porque el marco
+    de la miniatura cae a 16:9 cuando no hay medidas y **el subidor de carteles no las medía**.
+    ⚠️ Va con el MISMO cerrojo, tope de concurrencia y caché negativa que el póster de una foto
+    (claves `art:<id>`): esto se re-programa al pintar cada pantalla (auto-relleno), así que sin
+    deduplicar se arrancaría un hilo por render."""
     if not asset_id or not url or not _ffmpeg_exe():
+        return
+    clave = "art:%s" % str(asset_id)
+    ahora = time.time()
+    with _VIDEO_POSTER_LOCK:
+        if clave in _VIDEO_POSTER_INFLIGHT:
+            return
+        exp = _VIDEO_POSTER_FAILED.get(clave)
+        if exp is not None:
+            if exp > ahora:
+                return                          # falló hace poco: no reintentar todavía
+            _VIDEO_POSTER_FAILED.pop(clave, None)
+        _VIDEO_POSTER_INFLIGHT.add(clave)
+    if not _VIDEO_POSTER_SEM.acquire(blocking=False):
+        with _VIDEO_POSTER_LOCK:
+            _VIDEO_POSTER_INFLIGHT.discard(clave)
         return
 
     def _trabajo():
+        ok = False
         try:
             data = _video_generate_poster_bytes(url)
             if not data:
                 return
-            poster = _upload_bytes(data, "concert_artwork/posters/%s.jpg" % str(asset_id),
-                                   "image/jpeg", upsert=True)
-            if not poster:
+            # ⚠️ LAS MEDIDAS SE GUARDAN AUNQUE STORAGE FALLE: la proporción es lo que se VE (un
+            # vídeo vertical dibujado apaisado) y no depende de que la miniatura se pueda subir.
+            # Subiendo primero y saliendo si falla, se perdían las dos cosas.
+            ancho, alto = _image_size_from_bytes(data)
+            poster = None
+            try:
+                poster = _upload_bytes(data, "concert_artwork/posters/%s.jpg" % str(asset_id),
+                                       "image/jpeg", upsert=True)
+            except Exception:
+                app.logger.exception("[carteleria] no se pudo subir la miniatura del vídeo")
+            ok = bool(poster)
+            if not poster and not (ancho and alto):
                 return
             s2 = db()
             try:
                 row = s2.get(ConcertArtworkAsset, to_uuid(asset_id))
-                if row is not None and not (getattr(row, "poster_url", None) or "").strip():
-                    row.poster_url = poster
+                if row is not None:
+                    if poster and not (getattr(row, "poster_url", None) or "").strip():
+                        row.poster_url = poster
+                    if ancho and alto and not (getattr(row, "width", None)
+                                               and getattr(row, "height", None)):
+                        row.width, row.height = ancho, alto
                     s2.commit()
             except Exception:
                 s2.rollback()
@@ -7622,11 +7660,44 @@ def _artwork_poster_schedule(asset_id, url) -> None:
                 s2.close()
         except Exception:
             app.logger.exception("[carteleria] no se pudo sacar la miniatura del vídeo")
+        finally:
+            with _VIDEO_POSTER_LOCK:
+                _VIDEO_POSTER_INFLIGHT.discard(clave)
+                if not ok:
+                    _VIDEO_POSTER_FAILED[clave] = time.time() + _VIDEO_POSTER_FAIL_TTL
+            _VIDEO_POSTER_SEM.release()
 
     try:
         threading.Thread(target=_trabajo, daemon=True).start()
     except Exception:
-        pass
+        with _VIDEO_POSTER_LOCK:
+            _VIDEO_POSTER_INFLIGHT.discard(clave)
+        _VIDEO_POSTER_SEM.release()
+
+
+def _artwork_posters_backfill(assets, limit: int = 4) -> None:
+    """Auto-relleno: programa la miniatura (y las medidas) de los carteles en VÍDEO que aún no la
+    tengan, al pintar la pantalla.
+
+    ⚠️ Hace falta porque `_artwork_poster_schedule` solo se llamaba AL SUBIR: un vídeo subido antes
+    de que existiera la miniatura —o cuyo hilo se quedó a medias en un despliegue— no la conseguía
+    NUNCA (y se quedaba con el rectángulo negro). Es el mismo patrón que `_video_posters_backfill`
+    de la galería de fotos, y es idempotente (cerrojo + caché negativa)."""
+    n = 0
+    for a in (assets or []):
+        if n >= limit:
+            break
+        try:
+            if _artwork_kind_of(a) != "VIDEO":
+                continue
+            tiene_poster = bool((getattr(a, "poster_url", None) or "").strip())
+            tiene_medidas = bool(getattr(a, "width", None) and getattr(a, "height", None))
+            if tiene_poster and tiene_medidas:
+                continue
+            _artwork_poster_schedule(a.id, a.file_url)
+            n += 1
+        except Exception:
+            continue
 
 
 def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]) -> dict:
@@ -14979,6 +15050,67 @@ def _parse_money_decimal(val: str | None) -> Decimal:
         cleaned = "".join(ch for ch in s if ch.isdigit() or ch == "." or ch == "-")
         dec = Decimal(cleaned or "0")
         return dec if dec.is_finite() else Decimal("0")
+
+
+# ---------------------------------------------------------------------------
+# UN ENVÍO RECHAZADO NO PUEDE PERDER LO ESCRITO
+# ---------------------------------------------------------------------------
+# ⚠️⚠️ Casi todos los endpoints guardan con POST → flash → redirect, así que cuando la validación
+# falla el navegador acaba en un GET limpio y **el formulario sale VACÍO**. `_flash_form_error` es
+# el ÚNICO sitio que dice «este envío SE HA RECHAZADO»: con eso, `form_autosave.js` repone lo que se
+# había escrito, reabre el modal donde se estaba y pinta en rojo los campos que hay que arreglar.
+# ⚠️ El cliente NO mira el color del aviso a propósito: en esta app hay decenas de flashes ÁMBAR que
+# significan ÉXITO («Usuario creado. No se pudo enviar el correo de bienvenida»), y darlos por
+# rechazados devolvería el formulario relleno después de crear la ficha → terceros duplicados.
+FORM_ERROR_SESSION_KEY = "form_rechazado"
+FORM_ERROR_MAX_CAMPOS = 20
+
+
+def _flash_form_error(mensaje, campos=None, abrir=None, categoria="danger"):
+    """Rechaza un envío diciendo QUÉ falta y DÓNDE se estaba.
+
+    · `mensaje`  → en español y para una persona («No se ha guardado: falta el recinto»), NUNCA
+      `str(exc)`: eso al log.
+    · `campos`   → los `name` de los campos que se marcan en rojo hasta que se arreglen.
+    · `abrir`    → el id del modal que hay que reabrir (p. ej. «concertWizardModal»), porque el
+      redirect lo ha cerrado y sin eso la persona no ve sus datos.
+    Se guarda en la sesión de un solo uso (el mismo patrón que `session['ficha_nav']`) y lo emite
+    `layout.html` en el `<body>`. Solo viajan NOMBRES: la cookie de sesión son 4 KB."""
+    if mensaje:
+        flash(mensaje, categoria)
+    try:
+        nombres, vistos = [], set()
+        for c in (campos or []):
+            nombre = str(c or "").strip()
+            if not nombre or nombre in vistos:
+                continue
+            vistos.add(nombre)
+            nombres.append(nombre[:60])
+            if len(nombres) >= FORM_ERROR_MAX_CAMPOS:
+                break
+        session[FORM_ERROR_SESSION_KEY] = {
+            "mensaje": (str(mensaje or "").strip()[:300] or None),
+            "campos": nombres,
+            "abrir": (str(abrir or "").strip().lstrip("#")[:60] or None),
+        }
+    except Exception:
+        app.logger.exception("[formulario] no se pudo apuntar el rechazo del envío")
+
+
+def _form_error_payload():
+    """Lo que se le dice al navegador (de un solo uso). Vacío = el envío no se rechazó."""
+    try:
+        datos = session.pop(FORM_ERROR_SESSION_KEY, None)
+    except Exception:
+        datos = None
+    if not isinstance(datos, dict):
+        return ""
+    if not (datos.get("campos") or datos.get("mensaje") or datos.get("abrir")):
+        return ""
+    try:
+        return json.dumps({k: v for k, v in datos.items() if v}, ensure_ascii=False)
+    except Exception:
+        return ""
 
 
 def _parse_pct_decimal(val) -> Decimal:
@@ -53577,6 +53709,11 @@ def concert_detail_view(cid):
         current_artwork_assets = sorted([x for x in artwork_assets if not bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'created_at', None) or datetime.min, reverse=True)
         archived_artwork_assets = sorted([x for x in artwork_assets if bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'archived_at', None) or getattr(x, 'created_at', None) or datetime.min, reverse=True)
         soldout = _soldout_artwork_state(session, c)
+        if tab == 'carteleria':
+            # Auto-relleno de miniaturas de los carteles en VÍDEO (y de sus medidas, que es lo que
+            # hace que un vídeo vertical se dibuje vertical). Best-effort y en 2º plano.
+            _artwork_posters_backfill(list(current_artwork_assets)
+                                      + list((soldout or {}).get('assets') or []))
         artwork_company_ids = set(str(x) for x in ((artwork_request.group_company_ids if artwork_request else None) or []))
         artwork_ticketer_ids = set(str(x) for x in ((artwork_request.ticketer_ids if artwork_request else None) or []))
         artwork_companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
@@ -54390,6 +54527,8 @@ def _artwork_group_context(session_db, kind: str, gid) -> dict:
                  and (a.validation_status or "APPROVED") == estado]
         return sorted(filas, key=lambda x: (not bool(x.is_primary), x.created_at or datetime.min))
 
+    _artwork_posters_backfill(todos)      # miniaturas y medidas de los vídeos que aún no las tienen
+
     return {
         "gk_kind": (kind or "").upper(),
         "gk_id": str(gid) if gid else "",
@@ -54703,29 +54842,52 @@ def group_artwork_download_all(gkind, gid):
         categoria = _artwork_category_arg(request.args.get('category'))
         assets = _artwork_group_assets(session_db, gkind, gid, only_approved=True, category=categoria)
         if not assets:
-            flash('No hay %s aprobados que descargar.'
-                  % ('logotipos' if categoria == 'LOGO' else 'carteles'), 'warning')
+            # ⚠️ Con XHR (la barra de descarga) se contesta el MOTIVO: un flash + redirect se
+            # consume dentro de la petición y en pantalla salía «no se pudo generar el documento».
+            aviso = ('No hay %s aprobados que descargar.'
+                     % ('logotipos' if categoria == 'LOGO' else 'carteles'))
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": aviso}), 409
+            flash(aviso, 'warning')
             return redirect(request.referrer or url_for('home'))
-        buf, usados = BytesIO(), set()
-        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for a in assets:
-                fichero = (a.original_name or a.format_label or 'cartel').strip()
-                base, ext = os.path.splitext(fichero)
-                n = 1
-                while fichero.lower() in usados:
-                    n += 1
-                    fichero = f"{base} ({n}){ext}"
-                usados.add(fichero.lower())
-                try:
-                    req = Request(a.file_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urlopen(req, timeout=25) as resp:
-                        zf.writestr(fichero, resp.read())
-                except Exception:
-                    continue
-        buf.seek(0)
-        etiqueta = re.sub(r"[\\/:*?\"<>|]+", " ", (nombre or "Carteleria")).strip() or "Carteleria"
-        return send_file(buf, mimetype="application/zip", as_attachment=True,
-                         download_name=f"Carteles {etiqueta}.zip")
+        # ⚠️ El ZIP es el PUNTO ÚNICO (`_artwork_zip_response`): antes esto tenía su propia copia,
+        # así que cualquier mejora del ZIP (el tope de memoria, la compresión) se quedaba fuera.
+        return _artwork_zip_response(assets, nombre or "Carteleria")
+    finally:
+        session_db.close()
+
+
+@app.get('/carteleria-grupo/<gkind>/<gid>/pieza/<asset_id>/download',
+         endpoint='group_artwork_asset_download')
+@admin_required
+def group_artwork_asset_download(gkind, gid, asset_id):
+    """Descarga UNA pieza de la cartelería de un grupo (un cartel o una versión del logo).
+
+    ⚠️⚠️ Antes no existía: el botón de descargar del panel apuntaba **a Storage** con el atributo
+    `download`, que **los navegadores ignoran en otro dominio** (y Supabase no manda
+    `Content-Disposition`), así que abría el archivo en una pestaña en vez de guardarlo. Va por
+    nuestro dominio, con el nombre de archivo que se entiende y con su barra de progreso."""
+    session_db = db()
+    try:
+        _grupo, _nombre = _artwork_group_owner(session_db, gkind, gid)
+        asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
+        row = _artwork_group_request(session_db, gkind, gid)
+        if not asset or not row or str(asset.artwork_request_id) != str(row.id):
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "Esa pieza no es de esta gira."}), 404
+            abort(404)
+        nombre = (asset.original_name or asset.format_label or 'carteleria').strip()
+        try:
+            datos, ctype = _download_remote_content(asset.file_url, timeout=30)
+        except Exception:
+            app.logger.exception("[carteleria] no se pudo descargar la pieza de un grupo")
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "No se pudo leer el archivo."}), 502
+            abort(404)
+        return send_file(BytesIO(datos),
+                         mimetype=(ctype or asset.mime_type or 'application/octet-stream'),
+                         as_attachment=True,
+                         download_name=_safe_download_filename(nombre))
     finally:
         session_db.close()
 
@@ -63673,10 +63835,53 @@ def concert_wizard_create():
         return redirect(url_for('concert_detail_view', cid=concert.id, tab='general'))
     except Exception as exc:
         session.rollback()
-        flash(f'Error creando concierto: {exc}', 'danger')
-        return redirect(url_for('concerts_view', tab='vista'))
+        # ⚠️⚠️ AQUÍ SE PERDÍA TODO: un `flash` + `redirect` a OTRA pantalla y con el asistente
+        # cerrado, así que había que teclear los 100 campos otra vez. Con `_flash_form_error` el
+        # motor repone lo escrito, REABRE el asistente y marca en rojo lo que falta.
+        # ⚠️ El texto es el del `ValueError` (los levanta este mismo endpoint y están escritos para
+        # una persona: «Debes seleccionar al menos un artista»); lo que no es un ValueError no se
+        # le enseña en crudo a nadie —eso al log— y se dice en general.
+        if isinstance(exc, ValueError):
+            aviso = 'No se ha creado la actividad: %s' % str(exc)
+        else:
+            app.logger.exception('[asistente] no se pudo crear la actividad')
+            aviso = ('No se ha creado la actividad. Repasa los datos marcados; si sigue sin '
+                     'guardarse, avisa a dirección.')
+        _flash_form_error(aviso, campos=_wizard_error_fields(exc), abrir='concertWizardModal')
+        return redirect(url_for('concerts_view', tab='vista', open_wizard=1))
     finally:
         session.close()
+
+
+WIZARD_ERROR_FIELDS = [
+    # (trozo del mensaje, campos del formulario que se marcan en rojo)
+    ("artista", ["artist_id", "wizard_artist_pick"]),
+    ("evento", ["event_id", "new_event_name"]),
+    ("recinto", ["venue_id", "manual_venue_name", "manual_city", "manual_province"]),
+    ("municipio", ["manual_city", "manual_province"]),
+    ("fecha", ["date"]),
+    ("email del promotor", ["promoter_email"]),
+    ("promotor", ["promoter_id", "promoter_email"]),
+    ("aforo", ["capacity"]),
+    ("caché", ["cache_amount[]"]),
+    ("gira", ["purchased_tour_id"]),
+    ("empresa", ["group_company_id"]),
+]
+
+
+def _wizard_error_fields(exc) -> list:
+    """Qué campos del asistente señala este error (para pintarlos en rojo).
+
+    ⚠️ Se casa por el TEXTO del `ValueError` porque los mensajes del asistente los escribe él mismo
+    y son estables («Debes seleccionar al menos un artista.»). Si no casa ninguno no se inventa
+    nada: se marca lo que falte con la comprobación del navegador."""
+    texto = _norm_text_key(str(exc or ""))
+    if not texto:
+        return []
+    for trozo, campos in WIZARD_ERROR_FIELDS:
+        if _norm_text_key(trozo) in texto:
+            return list(campos)
+    return []
 
 
 def _contract_sheet_form_context(session_db, concert, sheet, data, *, public_mode: bool) -> dict:
@@ -97817,7 +98022,11 @@ def _artwork_asset_public_row(session_db, subject, asset, token: str) -> dict:
                 break
     kind = _artwork_kind_of(asset)
     if aspect <= 0 and kind == "VIDEO":
-        aspect = 16 / 9                 # un vídeo sin medidas se dibuja apaisado, no cuadrado
+        # ⚠️ Solo como ÚLTIMO recurso: un vídeo VERTICAL dibujado en 16:9 es justo lo que se veía mal
+        # (y de ahí que el subidor mida ya el vídeo y que la miniatura guarde sus medidas).
+        aspect = 16 / 9
+    if aspect <= 0 and kind in ("AUDIO", "FILE"):
+        aspect = 1.0                    # no hay nada que encuadrar: el hueco es cuadrado
     nombre = (getattr(asset, "original_name", None) or "").strip()
     _base, ext = os.path.splitext(nombre)
     # La MINIATURA se dibuja con la proporción real dentro de un hueco fijo (todas las tarjetas del
@@ -97850,6 +98059,14 @@ def _artwork_asset_public_row(session_db, subject, asset, token: str) -> dict:
         # puente sería bajárselo a memoria en cada carga.
         "kind": kind,
         "is_video": kind == "VIDEO",
+        "is_audio": kind == "AUDIO",
+        # ⚠️ SE VE AL PINCHARLO, no se descarga: `view_url` es el MISMO endpoint (nuestro dominio) y
+        # con un vídeo o un audio sirve por trozos respetando el `Range`, así que se puede reproducir
+        # y mover la barra sin bajar el archivo entero.
+        "view_url": url_for("public_artwork_file", token=token, asset_id=asset.id),
+        # Lo que NO se puede previsualizar (un vectorial de imprenta, un paquete): se dice y se
+        # descarga, que es lo honesto.
+        "can_view": kind in ("IMAGE", "VIDEO", "AUDIO", "PDF"),
         "poster_url": (url_for("public_artwork_file", token=token, asset_id=asset.id, poster=1)
                        if (kind == "VIDEO" and (getattr(asset, "poster_url", None) or "").strip()) else ""),
     }
@@ -97877,6 +98094,9 @@ def _artwork_public_context(session_db, target: dict, token: str, *,
     subject = _artwork_share_subject(session_db, target)
     category = category if category in ARTWORK_SHARE_CATEGORIES else "POSTER"
     assets = _artwork_share_assets_for(session_db, target, category)
+    # Auto-relleno: los vídeos que todavía no tienen miniatura (ni medidas) la piden aquí, en 2º
+    # plano. Es donde más se nota: sin ella la tarjeta era un rectángulo negro y apaisado.
+    _artwork_posters_backfill(assets)
     # El principal primero (es el que representa la actividad) y el resto detrás.
     assets = sorted(assets, key=lambda a: (0 if bool(getattr(a, "is_primary", False)) else 1,
                                            (getattr(a, "format_label", None) or "")))
@@ -98121,14 +98341,25 @@ def public_artwork_file(token, asset_id):
     with get_db() as session_db:
         _target, asset = _artwork_public_asset_or_404(session_db, token, asset_id)
         src = (asset.file_url or "")
-        if (request.args.get("poster") or "").strip() in ("1", "true", "si", "sí"):
+        quiere_poster = (request.args.get("poster") or "").strip() in ("1", "true", "si", "sí")
+        if quiere_poster:
             src = (getattr(asset, "poster_url", None) or "").strip() or src
+        kind = _artwork_kind_of(asset)
+        # ⚠️⚠️ UN VÍDEO (o un audio) NO SE PUEDE SERVIR ENTERO EN MEMORIA: `_download_remote_content`
+        # lo lee de una vez y no reenvía el `Range`, así que cada salto de la barra volvería a
+        # bajarlo completo a la RAM del worker (el 502 por OOM de las subidas de vídeo ya pasó aquí).
+        # Se usa el MISMO puente que la playlist: por trozos, con `Range` y `Accept-Ranges`.
+        if not quiere_poster and kind in ("VIDEO", "AUDIO"):
+            return _playlist_audio_response(src)
         try:
             datos, ctype = _download_remote_content(src, timeout=25)
         except Exception:
             app.logger.exception("[carteleria] no se pudo leer el cartel")
             abort(404)
-        return send_file(BytesIO(datos), mimetype=(ctype or asset.mime_type or "image/jpeg"))
+        resp = send_file(BytesIO(datos), mimetype=(ctype or asset.mime_type or "image/jpeg"))
+        # `inline` a propósito: esto es para VERLO en la página (un PDF se abre en su marco).
+        resp.headers["Content-Disposition"] = "inline"
+        return resp
 
 
 @app.get("/carteles/<token>/descargar/<asset_id>", endpoint="public_artwork_download")
@@ -108857,21 +109088,18 @@ def _video_probe_duration(exe, url):
         return None
 
 
-def _video_generate_poster_bytes(url):
-    """Extrae UN fotograma intermedio (~25% de la duración; tope 5 s) como JPEG. Usa input-seek
-    (-ss antes de -i) → lectura por rango HTTP, sin descargar el vídeo entero. None si falla."""
-    exe = _ffmpeg_exe()
-    if not exe or not url:
-        return None
+def _video_frame_bytes_at(exe, url, t):
+    """UN fotograma del vídeo en el segundo `t`, como JPEG.
+
+    Usa input-seek (`-ss` ANTES de `-i`) → lectura por RANGO HTTP, sin descargar el vídeo entero.
+    El `scale='min(960,iw)':-2` conserva la PROPORCIÓN (y respeta la rotación del iPhone), así que
+    de este JPEG se pueden sacar las medidas reales del vídeo."""
     try:
-        dur = _video_probe_duration(exe, url)
-        # dur*0.25 SIEMPRE cae dentro del vídeo (evita el fallo con clips cortos si se forzara t>=1s);
-        # si no se conoce la duración, 1 s (la mayoría de vídeos > 1 s; si falla, cae a la caché negativa).
-        t = min(dur * 0.25, 5.0) if (dur and dur > 0) else 1.0
         r = subprocess.run(
-            [exe, "-hide_banner", "-loglevel", "error", "-ss", ("%.2f" % t), "-i", url,
-             "-frames:v", "1", "-vf", "scale='min(960,iw)':-2", "-q:v", "4", "-f", "image2", "-"],
-            capture_output=True, timeout=90,
+            [exe, "-hide_banner", "-loglevel", "error", "-ss", ("%.2f" % max(0.0, float(t or 0))),
+             "-i", url, "-frames:v", "1", "-vf", "scale='min(960,iw)':-2", "-q:v", "4",
+             "-f", "image2", "-"],
+            capture_output=True, timeout=60,
         )
         data = r.stdout or b""
         if r.returncode == 0 and data[:3] == b"\xff\xd8\xff":
@@ -108879,6 +109107,65 @@ def _video_generate_poster_bytes(url):
     except Exception:
         pass
     return None
+
+
+def _image_brightness(data):
+    """(brillo medio 0-255, desviación) de una imagen en memoria. (None, None) si no se puede leer."""
+    try:
+        from PIL import Image, ImageStat
+        with Image.open(BytesIO(data)) as img:
+            st = ImageStat.Stat(img.convert("L"))
+            return float(st.mean[0]), float(st.stddev[0] if st.stddev else 0.0)
+    except Exception:
+        return None, None
+
+
+def _image_size_from_bytes(data):
+    """(ancho, alto) de una imagen en memoria. (None, None) si no se puede leer."""
+    try:
+        from PIL import Image
+        with Image.open(BytesIO(data)) as img:
+            w, h = img.size
+        return (int(w) or None), (int(h) or None)
+    except Exception:
+        return None, None
+
+
+# Un fotograma con menos brillo que esto (o completamente plano) es «negro»: no vale de miniatura.
+VIDEO_POSTER_MIN_BRIGHT = 22.0
+VIDEO_POSTER_MIN_SPREAD = 3.0
+
+
+def _video_generate_poster_bytes(url):
+    """La MINIATURA de un vídeo: un fotograma QUE SE VEA, **nunca en negro**.
+
+    ⚠️ Casi todos los vídeos empiezan con un fundido o con una cabecera oscura, así que coger UN
+    fotograma fijo (el primero, o el 25%) deja de miniatura un rectángulo negro que no dice nada
+    (bug real: los anuncios de una gira salían todos en negro). Se prueban VARIOS momentos y se
+    mide el brillo de cada uno (`_image_brightness`): vale el primero que se ve de verdad y, si el
+    vídeo es oscuro de principio a fin, el MENOS oscuro de los probados (que es lo honesto).
+    Cada intento es una lectura por rango, así que no se baja el vídeo entero ni una sola vez."""
+    exe = _ffmpeg_exe()
+    if not exe or not url:
+        return None
+    dur = _video_probe_duration(exe, url)
+    if dur and dur > 0:
+        momentos = [dur * f for f in (0.25, 0.5, 0.12, 0.7)]
+    else:
+        momentos = [1.0, 3.0, 6.0, 0.5]
+    mejor, mejor_luz = None, -1.0
+    for t in momentos:
+        data = _video_frame_bytes_at(exe, url, t)
+        if not data:
+            continue
+        luz, desv = _image_brightness(data)
+        if luz is None:
+            return data                     # sin Pillow no se puede juzgar: vale el que hay
+        if luz >= VIDEO_POSTER_MIN_BRIGHT and desv >= VIDEO_POSTER_MIN_SPREAD:
+            return data
+        if luz > mejor_luz:
+            mejor, mejor_luz = data, luz
+    return mejor
 
 
 def _video_poster_worker(photo_id, url):
@@ -113608,14 +113895,50 @@ def _invitation_ticket_counts_by_category(session_db, concert) -> dict:
     return counts
 
 
+# Categorías que se crean SOLAS a partir del contrato o del ticketing (`_invitation_get_categories`
+# con `ensure_defaults`): no las ha configurado nadie, son el número pactado puesto en una fila.
+INVITATION_REFERENCE_SOURCES = {"CONTRATO", "TICKETING", "DEFAULT"}
+
+
+def _invitation_reference_only_ids(categories, counts: dict | None = None) -> set:
+    """Las categorías que hoy son SOLO UNA REFERENCIA del contrato: no se ofrecen para pedir.
+
+    ⚠️⚠️ Una fila creada sola desde el contrato (o desde los tipos de entrada) en la que no se ha
+    subido NADA es el número pactado, no una categoría de la que se pueda repartir. Mientras no haya
+    entradas subidas en ninguna parte se ofrece igual (es lo único que hay y así se puede pedir antes
+    de que las manden), pero en cuanto el evento tiene sus categorías de verdad con entradas subidas,
+    ofrecerla es lo que hacía salir en el asistente **«Pista · Invitaciones por contrato ·
+    Disponibles 20»** de una categoría en la que no había ni una entrada —y en Pista no había ninguna
+    categoría creada— (bug real).
+    ⚠️ Solo se aparta la que NO tiene NADA: ni subidas, ni asignadas. Si alguna vez tuvo entradas,
+    sigue estando (es una categoría de verdad)."""
+    cuentas = counts or {}
+
+    def _subidas(c):
+        d = cuentas.get(str(c.id)) or {}
+        return _safe_int(d.get("uploaded")) + _safe_int(d.get("assigned"))
+
+    if not any(_subidas(c) > 0 for c in categories):
+        return set()
+    return {str(c.id) for c in categories
+            if (getattr(c, "source", None) or "MANUAL").strip().upper() in INVITATION_REFERENCE_SOURCES
+            and _subidas(c) <= 0}
+
+
 def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = None) -> dict:
     qty_contract = _safe_int(getattr(cat, "qty_contract", 0))
     qty_extra = _safe_int(getattr(cat, "qty_extra", 0))
     uploaded = _safe_int((counts or {}).get("uploaded", 0))
     assigned = _safe_int((counts or {}).get("assigned", 0))
     total_configured = qty_contract + qty_extra
-    # El disponible efectivo nunca es menor que las entradas subidas: al subir, se actualiza.
-    effective_configured = max(total_configured, uploaded)
+    # ⚠️⚠️ «DISPONIBLES» ES LO QUE HAY SUBIDO Y LIBRE (subidas − asignadas/enviadas), **NUNCA el
+    # número del contrato**: lo pactado por contrato es una REFERENCIA —cuántas nos tienen que
+    # mandar— y hasta que no se suben no hay nada que repartir.
+    # Antes, sin subidas, se enseñaba el cupo como disponible: en el asistente de pedir salía
+    # «Pista · Invitaciones por contrato · Disponibles 20» de una categoría en la que no había ni
+    # una entrada subida (bug real). Lo pactado sigue a la vista como `configured` (y lo que falta
+    # por recibir, en `pending_upload`), que es para lo que sirve.
+    disponibles = max(uploaded - assigned, 0)
     return {
         "id": str(cat.id),
         "name": cat.name,
@@ -113626,10 +113949,11 @@ def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = 
         "configured": total_configured,
         "uploaded": uploaded,
         "assigned": assigned,
-        "available_configured": max(effective_configured - assigned, 0),
-        # Disponible REAL para pedir/comprometer: si hay entradas SUBIDAS manda eso (subidas menos
-        # asignadas/enviadas); si aún no se subió nada, lo configurado.
-        "available_real": max(uploaded - assigned, 0) if uploaded > 0 else max(total_configured, 0),
+        "available_configured": disponibles,
+        # Disponible REAL para pedir/comprometer: SIEMPRE lo subido y libre.
+        "available_real": disponibles,
+        # Lo que falta por recibir de lo pactado: solo referencia (no es «disponible»).
+        "pending_upload": max(total_configured - uploaded, 0),
         "source": cat.source or "MANUAL",
         "is_active": bool(cat.is_active),
         "requests_blocked": bool(getattr(cat, "requests_blocked", False)),
@@ -117659,9 +117983,12 @@ def api_invitation_event_categories(concert_id):
         # Color por CATEGORÍA (mismo criterio que en el listado de invitados: por orden de la
         # categoría en el evento), para que la franja de color sea idéntica en todas partes.
         _tk_counts = _invitation_ticket_counts_by_category(session_db, concert)
+        # Las filas que solo son la REFERENCIA del contrato (sin una entrada subida, con el evento
+        # ya teniendo sus categorías de verdad) no se ofrecen para pedir: no hay nada que repartir.
+        _solo_referencia = _invitation_reference_only_ids(categories, _tk_counts)
         cat_payloads = []
         for i, c in enumerate(categories):
-            if str(c.id) in committed_palco:
+            if str(c.id) in committed_palco or str(c.id) in _solo_referencia:
                 continue
             p = _invitation_category_payload(c, _tk_counts.get(str(c.id)))
             p['color'] = INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)]
@@ -119325,8 +119652,13 @@ def invitation_request_edit_form(request_id):
                 # Mismo color por orden y aforo del palco que en el asistente de crear (estética común).
                 'color': INVITATION_ASSIGNEE_COLORS[_i % len(INVITATION_ASSIGNEE_COLORS)],
                 'configured': _safe_int(getattr(cat, 'qty_contract', 0)) + _safe_int(getattr(cat, 'qty_extra', 0)),
-                # Disponible REAL: con entradas subidas manda eso; sin subidas, lo configurado.
-                'available_real': int(available) if uploaded_by_cat.get(cid, 0) > 0 else (_safe_int(getattr(cat, 'qty_contract', 0)) + _safe_int(getattr(cat, 'qty_extra', 0))),
+                # ⚠️ Disponible = lo SUBIDO y libre. Lo pactado por contrato es una referencia, no
+                # entradas que se puedan repartir (ver `_invitation_category_payload`).
+                'available_real': int(available),
+                'uploaded': _safe_int(uploaded_by_cat.get(cid, 0)),
+                'pending_upload': max(_safe_int(getattr(cat, 'qty_contract', 0))
+                                      + _safe_int(getattr(cat, 'qty_extra', 0))
+                                      - _safe_int(uploaded_by_cat.get(cid, 0)), 0),
             })
         # Para poder CAMBIAR de receptor sin salir del formulario: la lista de personal (con foto) y
         # el tercero que ya estuviera puesto, para que la barra de búsqueda nazca con él elegido.

@@ -58,7 +58,11 @@
     })();
   </script>
 </head>
-<body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}" data-default-cover-url="{{ DEFAULT_COVER_URL }}" data-default-avatar-url="{{ DEFAULT_AVATAR_URL }}">
+<body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}" data-default-cover-url="{{ DEFAULT_COVER_URL }}" data-default-avatar-url="{{ DEFAULT_AVATAR_URL }}"
+      {# LO QUE SE ESCRIBE NO SE PIERDE: `data-autosave` enciende `form_autosave.js`, y solo
+         aquí — en las páginas PÚBLICAS no se deja nada escrito en el disco de un tercero. #}
+      {% if CURRENT_USER %}data-autosave="1"{% endif %}
+      {% if FORM_ERROR_PAYLOAD %}data-form-rechazado='{{ FORM_ERROR_PAYLOAD|forceescape }}'{% endif %}>
 {# Loader global: iconos musicales animados (colores corporativos) + barra de carga. La barra va
    en modo «barrido» continuo mientras se piensa y pasa a PORCENTAJE REAL en las subidas de
    archivos (formularios multipart nativos, interceptados más abajo con XHR + progreso). #}
@@ -436,6 +440,8 @@
 {# LO QUE FALTA O ESTÁ MAL SE VE Y NO SE DEJA PASAR (amarillo/rojo). Va ANTES que los motores
    que envían formularios (`ajax_inline.js`): comprueba en fase de captura y los para. #}
 <script src="{{ url_for('static', filename='js/form_check.js', v=ASSET_V) }}"></script>
+{# LO QUE SE ESCRIBE NO SE PIERDE (va DESPUÉS de form_check.js: usa su `bad()` para marcar). #}
+<script src="{{ url_for('static', filename='js/form_autosave.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/quick_create.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/entity_links.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/ajax_inline.js', v=ASSET_V) }}"></script>
@@ -577,6 +583,15 @@
 {# Escáner de documentos CON LA CÁMARA (window.DocCamera): lee el MRZ en vivo, como un lector de QR,
    y dice a quién corresponde. Usa DocScan, así que va DESPUÉS. #}
 <script src="{{ url_for('static', filename='js/doc_camera.js', v=ASSET_V) }}"></script>
+{# MEDIR un archivo antes de subirlo (window.app33Dims): de sus medidas sale la proporción con la
+   que se dibuja su miniatura (un vídeo vertical tiene que verse vertical). #}
+<script src="{{ url_for('static', filename='js/media_dims.js', v=ASSET_V) }}"></script>
+{# BARRA DE DESCARGA (window.app33Download): una tarjeta abajo a la derecha con el progreso, que
+   NO bloquea la pantalla. La usa `doc_download.js` y cualquier enlace con `data-dl-bar`. #}
+<script src="{{ url_for('static', filename='js/download_bar.js', v=ASSET_V) }}"></script>
+{# VISOR de piezas (window.app33Viewer): al pinchar un cartel, un logo o un material SE VE aquí
+   (imagen, vídeo, audio o PDF) y se pasa a la siguiente con las flechas. #}
+<script src="{{ url_for('static', filename='js/media_viewer.js', v=ASSET_V) }}"></script>
 {# Descarga de documentos generados (PDF/Excel/ZIP) con aviso «Generando documento» y barra: evita
    la pestaña en blanco mientras el servidor lo prepara. Debe ir ANTES del loader de abajo. #}
 <script src="{{ url_for('static', filename='js/doc_download.js', v=ASSET_V) }}"></script>

@@ -27,6 +27,10 @@
     </span>
   {%- elif k == 'PDF' -%}
     <i class="fa fa-file-pdf {{ pdf_cls }} text-danger"></i>
+  {%- elif k == 'AUDIO' -%}
+    {#- Una CUÑA DE RADIO: no hay nada que pintar, así que se ve con su icono y se ESCUCHA en el
+        visor (que trae su reproductor). -#}
+    <i class="fa fa-music {{ pdf_cls }} text-secondary"></i>
   {%- elif k == 'FILE' -%}
     {#- El vectorial de imprenta de un logo (.ai/.eps) o un paquete (.zip): no se puede pintar,
         así que se ve con su icono y se descarga. -#}
@@ -36,10 +40,21 @@
   {%- endif -%}
 {% endmacro %}
 
-{# Un cartel en VÍDEO se ABRE para verlo (pop-up con el reproductor, `#artVideoModal`). Lo demás se
-   sigue abriendo en una pestaña, como siempre. #}
-{% macro art_open_attrs(asset) %}
-  {%- if artwork_kind(asset) == 'VIDEO' -%}
-    data-art-video="{{ asset.file_url }}" data-art-video-name="{{ asset.format_label or 'Cartel' }}"
-  {%- endif -%}
+{# AL PINCHAR UNA PIEZA SE VE, sea lo que sea: imagen, vídeo, audio o PDF se abren en el VISOR de
+   la casa (`static/js/media_viewer.js`, `window.app33Viewer`), que además tiene flechas para pasar
+   a la siguiente pieza. Lo que no se puede previsualizar (un vectorial de imprenta, un paquete) se
+   abre igual y el visor lo dice, con su botón de descargar.
+   · `set`: el CONJUNTO que recorren las flechas (las piezas de esa sección). Si no se pasa, se
+     recorren todas las de la pantalla.
+   · `dl`: por dónde se descarga (si no se dice, el propio archivo).
+   ⚠️ Antes solo se abría el VÍDEO (`data-art-video` → `#artVideoModal`) y el resto navegaba a una
+   pestaña o se descargaba: no se veía nada en el sitio, que es de lo que se quejaba la casa. #}
+{% macro art_open_attrs(asset, set='', dl='') %}
+  data-viewer-src="{{ asset.file_url }}"
+  data-viewer-kind="{{ artwork_kind(asset) }}"
+  data-viewer-name="{{ asset.format_label or asset.original_name or 'Cartel' }}"
+  data-viewer-download="{{ dl or asset.file_url }}"
+  {%- if set %} data-viewer-set="{{ set }}"{% endif %}
+  {%- if asset.poster_url %} data-viewer-poster="{{ asset.poster_url }}"{% endif %}
+  style="cursor:zoom-in"
 {% endmacro %}

@@ -25,11 +25,17 @@
 
   // Extensiones de documento y rutas de la app que GENERAN ficheros al vuelo.
   var DOC_EXT_RE = /\.(pdf|zip|csv|xlsx?|docx?|pptx?|ics)(\?|$)/i;
-  var DOC_PATH_RE = /\/(pdf|xlsx|excel|csv|zip|descargar|descargar-todas|export|exportar)(\/|\?|$)/i;
-  var OK_TYPES_RE = /(application\/pdf|spreadsheet|excel|zip|csv|octet-stream|calendar|msword|officedocument)/i;
+  // ⚠️ `descargar(-…)` con guion: las rutas de ZIP son `/descargar-todo` y `/descargar-todos` y
+  // no llevan extensión, así que con la lista cerrada de antes NO se interceptaban (y el clic
+  // acababa en el overlay de navegación del layout: pantalla bloqueada 15 s y ninguna barra).
+  var DOC_PATH_RE = /\/(pdf|xlsx|excel|csv|zip|descargar(-[a-z]+)*|download|export|exportar)(\/|\?|$)/i;
+  var OK_TYPES_RE = /(application\/pdf|spreadsheet|excel|zip|csv|octet-stream|calendar|msword|officedocument|^image\/|^video\/|^audio\/)/i;
 
   function isDocLink(a) {
     if (!a || a.hasAttribute('data-no-doc-loader')) return false;
+    // Los enlaces marcados para la BARRA los atiende `download_bar.js`: aquí se dejan pasar para
+    // que no se descarguen dos veces.
+    if (a.hasAttribute('data-dl-bar')) return false;
     var href = a.getAttribute('href') || '';
     if (!href || href.charAt(0) === '#') return false;
     if (/^(javascript:|mailto:|tel:|blob:|data:)/i.test(href)) return false;
@@ -154,7 +160,14 @@
       return;
     }
 
-    // Descarga normal: loader global de la app con su barra.
+    // Descarga normal: la BARRA NO BLOQUEANTE de la casa (una tarjeta abajo a la derecha con su
+    // progreso). ⚠️ Antes se usaba `window.appLoader`, que es un velo a PANTALLA COMPLETA: mientras
+    // el servidor generaba el documento no se podía hacer nada, y eso es justo lo que sobra.
+    if (window.app33Download && window.app33Download.get) {
+      window.app33Download.get(url, { name: a.getAttribute('data-dl-name') || '' });
+      return;
+    }
+    // Respaldo (por si la barra no está cargada): el loader de siempre.
     var loader = window.appLoader;
     if (loader && loader.progress) loader.progress(4, 'Generando documento…');
     fetchDoc(url,

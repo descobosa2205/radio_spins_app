@@ -64,6 +64,8 @@
           display:flex; flex-direction:column; text-decoration:none; color:inherit;
           transition:box-shadow .15s, transform .15s, border-color .15s; }
     .fmt:hover{ box-shadow:0 10px 26px rgba(15,23,42,.12); transform:translateY(-2px); border-color:#d7dbe0; }
+    .fmt.is-clickable{ cursor:pointer; }
+    .fmt:focus-visible{ outline:3px solid rgba(0,124,162,.45); outline-offset:2px; }
     /* ⚠️ El hueco es SIEMPRE del mismo alto (si no, con un A3 al lado de un banner las tarjetas
        salían de alturas dispares y la rejilla se veía descuadrada) y dentro se dibuja el cartel
        CON LA PROPORCIÓN DE SU FORMATO: así se ve de un golpe si es un story, un cuadrado o un
@@ -74,16 +76,27 @@
     .fmt__frame{ display:block; max-width:100%; border-radius:6px; overflow:hidden; background:#fff;
                  box-shadow:0 2px 10px rgba(15,23,42,.14); }
     .fmt__frame img{ width:100%; height:100%; object-fit:cover; display:block; }
-    /* ⚠️ Un cartel puede ser un VÍDEO: aquí se ve su MINIATURA con una chapa de play (esta página es
-       de descarga, no un reproductor). Sin miniatura todavía, el icono de película. */
+    /* ⚠️ Un cartel puede ser un VÍDEO, un AUDIO (una cuña) o un PDF: **al pinchar se VE aquí**
+       (visor con flechas), no se descarga. La miniatura de un vídeo la saca ffmpeg al subirlo. */
     .fmt__frame{ position:relative; }
-    .fmt__vid{ position:absolute; inset:0; display:grid; place-items:center; color:#fff;
-               background:rgba(0,0,0,.35); font-size:20px; }
-    .fmt__frame--vid{ background:#111; color:#fff; }
-    /* El icono de película va DEBAJO de la miniatura: si la miniatura no carga (o todavía no la hay)
-       el hueco no se queda vacío. */
+    .fmt__vid{ position:absolute; inset:0; display:grid; place-items:center; font-size:20px; }
+    .fmt__vid i{ width:42px; height:42px; border-radius:50%; display:grid; place-items:center;
+                 background:rgba(255,255,255,.92); color:#111827; font-size:15px;
+                 box-shadow:0 4px 14px rgba(15,23,42,.28); }
+    /* ⚠️ NUNCA EN NEGRO: mientras no hay miniatura el hueco es gris claro con su icono, no un
+       rectángulo negro (que es lo que se veía). En cuanto llega la miniatura, la tapa. */
+    .fmt__frame--vid{ background:#eef1f5; color:#6b7280; }
     .fmt__film{ position:absolute; top:6px; left:8px; font-size:13px; opacity:.75; }
     .fmt__frame--vid img{ position:absolute; inset:0; }
+    /* Respaldo mientras el servidor no tenga la miniatura: el propio vídeo salta a un fotograma
+       intermedio (video_thumb.js) y solo se enseña cuando ese fotograma ya está pintado. */
+    .fmt__frame video.video-thumb{ position:absolute; inset:0; width:100%; height:100%;
+                                   object-fit:cover; opacity:0; transition:opacity .25s; }
+    .fmt__frame video.video-thumb.is-ready{ opacity:1; }
+    .fmt__acts{ margin-top:8px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .fmt__ver{ display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:700;
+               color:#111827; }
+    .fmt__ver i{ color:var(--brand); }
     .fmt__body{ padding:12px 14px 14px; display:flex; gap:10px; align-items:flex-start;
                 flex:1 1 auto; }
     /* La INFOGRAFÍA del formato: la silueta con su misma proporción, para leerla de un vistazo. */
@@ -148,7 +161,7 @@
       <p class="sub">
         {% if formats %}
           {{ formats|length }} formato{{ 's' if formats|length != 1 }} disponible{{ 's' if formats|length != 1 }}.
-          Pincha el que necesites para descargarlo.
+          Pincha uno para <strong>verlo</strong> (y pasar al siguiente con las flechas) o descárgalo.
         {% else %}
           Todavía no hay nada subido.
         {% endif %}
@@ -157,23 +170,52 @@
       {% if formats %}
         {% if formats|length > 1 %}
           <div class="allzip">
-            <a class="btn btn--ghost" href="{{ zip_url }}">
+            {# ⚠️ `data-dl-bar`: el ZIP lo GENERA el servidor (baja cada cartel de Storage y lo
+               comprime), así que tarda unos segundos. Con la barra se ve que está pasando algo
+               —y sin bloquear la pantalla—; antes no pasaba nada visible y de pronto se abría el
+               diálogo de guardar. #}
+            <a class="btn btn--ghost" href="{{ zip_url }}" data-dl-bar
+               data-dl-name="Carteles {{ subject_name }}.zip">
               <i class="fa fa-file-zipper" style="margin-right:6px;"></i>Descargar todos en un ZIP</a>
           </div>
         {% endif %}
-        <div class="fmts">
+        {# ⚠️ `data-viewer-group`: las flechas del visor recorren LAS PIEZAS DE ESTA REJILLA. #}
+        <div class="fmts" data-viewer-group="carteles">
           {% for f in formats %}
-            {# Toda la tarjeta es el enlace de descarga: se pincha donde sea. #}
-            <a class="fmt{% if f.is_focus %} is-focus{% endif %}" href="{{ f.download_url }}" title="Descargar {{ f.format_label }}">
+            {# La tarjeta se pincha para VERLO en el visor (imagen, vídeo, audio o PDF); el chip
+               «Descargar» de abajo va aparte, con su barra de progreso.
+               ⚠️⚠️ La tarjeta es un <div>, NO un <a>: dentro lleva el enlace de descargar y **un
+               <a> dentro de otro <a> no es HTML válido** — el navegador cierra el de fuera donde
+               empieza el de dentro y la tarjeta se parte (es la misma trampa que un </div> de más). #}
+            <div class="fmt{% if f.is_focus %} is-focus{% endif %}{% if f.can_view %} is-clickable{% endif %}"
+                 {% if f.can_view %}
+                   role="button" tabindex="0"
+                   title="Ver {{ f.format_label }}"
+                   data-viewer-src="{{ f.view_url }}"
+                   data-viewer-kind="{{ f.kind }}"
+                   data-viewer-name="{{ f.format_label }}"
+                   data-viewer-download="{{ f.download_url }}"
+                   {% if f.poster_url %}data-viewer-poster="{{ f.poster_url }}"{% endif %}
+                 {% endif %}>
               <span class="fmt__shot">
                 <span class="fmt__frame{% if f.is_video %} fmt__frame--vid{% endif %}" style="width:{{ f.frame_w }}px;height:{{ f.frame_h }}px;">
                   {% if f.is_video %}
                     <i class="fa fa-film fmt__film"></i>
-                    {% if f.poster_url %}<img src="{{ f.poster_url }}" alt="" loading="lazy"
-                         onerror="this.style.display='none';">{% endif %}
+                    {% if f.poster_url %}
+                      <img src="{{ f.poster_url }}" alt="" loading="lazy" onerror="this.style.display='none';">
+                    {% else %}
+                      {# Todavía sin miniatura del servidor: el propio vídeo salta a un fotograma
+                         intermedio (nunca el primero, que suele ser negro). #}
+                      <video class="video-thumb" src="{{ f.view_url }}" preload="metadata" muted
+                             playsinline tabindex="-1"></video>
+                    {% endif %}
                     <span class="fmt__vid"><i class="fa fa-play"></i></span>
                   {% elif f.kind == 'PDF' %}
-                    <span class="fmt__vid" style="background:#fff;color:#dc3545;"><i class="fa fa-file-pdf"></i></span>
+                    <span class="fmt__vid" style="background:#fff;"><i class="fa fa-file-pdf" style="color:#dc3545;"></i></span>
+                  {% elif f.is_audio %}
+                    <span class="fmt__vid"><i class="fa fa-music"></i></span>
+                  {% elif f.kind == 'FILE' %}
+                    <span class="fmt__vid"><i class="fa fa-file-zipper"></i></span>
                   {% else %}
                     <img src="{{ f.file_url }}" alt="{{ f.format_label }}" loading="lazy">
                   {% endif %}
@@ -197,10 +239,19 @@
                     {% if f.ext %}{% set _ = trozos.append(f.ext) %}{% endif %}
                     {{ trozos|join(' · ') }}
                   </span>
-                  <span class="fmt__dl"><i class="fa fa-download"></i>Descargar</span>
+                  <span class="fmt__acts">
+                    {% if f.can_view %}
+                      <span class="fmt__ver"><i class="fa fa-eye"></i>Ver</span>
+                    {% endif %}
+                    {# El chip de descargar es su propia acción: no abre el visor (`data-viewer-ignore`)
+                       y baja el fichero con la barra de progreso. #}
+                    <a class="fmt__dl" href="{{ f.download_url }}" data-dl-bar data-viewer-ignore
+                       data-dl-name="{{ f.format_label }}{{ ('.' ~ f.ext|lower) if f.ext }}"
+                       title="Descargar {{ f.format_label }}"><i class="fa fa-download"></i>Descargar</a>
+                  </span>
                 </span>
               </span>
-            </a>
+            </div>
           {% endfor %}
         </div>
       {% else %}
@@ -211,5 +262,12 @@
       <div class="foot">{{ company_name }}</div>
     </div>
   </div>
+  {# ⚠️ Esta página es STANDALONE: cada motor que se use hay que cargarlo aquí a mano.
+     · media_viewer.js  → al pinchar una pieza se VE (con flechas para pasar a la siguiente).
+     · download_bar.js  → la barra de progreso de las descargas, sin bloquear la pantalla.
+     · video_thumb.js   → mientras un vídeo no tenga miniatura, salta a un fotograma intermedio. #}
+  <script src="{{ url_for('static', filename='js/media_viewer.js', v=ASSET_V) }}"></script>
+  <script src="{{ url_for('static', filename='js/download_bar.js', v=ASSET_V) }}"></script>
+  <script src="{{ url_for('static', filename='js/video_thumb.js', v=ASSET_V) }}"></script>
 </body>
 </html>

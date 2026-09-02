@@ -105,7 +105,8 @@
     </div>
 
     {# ---------- Formulario de edición (oculto hasta pulsar «Editar») ---------- #}
-    <form id="personDatosForm" class="d-none" method="post" enctype="multipart/form-data" data-view="#personDatosView">
+    <form id="personDatosForm" class="d-none" method="post" enctype="multipart/form-data" data-view="#personDatosView"
+          data-autosave="personal-datos" data-autosave-title="Datos de la persona">
       <input type="hidden" name="mode" value="datos">
       <div class="row g-3">
         <div class="col-md-6"><label class="form-label">Nick</label><input type="text" name="nick" class="form-control" value="{{ profile.nick }}" required></div>

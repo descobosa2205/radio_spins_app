@@ -102,12 +102,12 @@
         <div class="card shadow-sm mb-4" id="artworkUploadCard">
           <div class="card-body">
             <h5 class="mb-2">Subir carteles</h5>
-            <p class="text-muted small mb-3">Arrastra los archivos aquí o pulsa para seleccionarlos (imágenes, <strong>vídeos</strong> o PDF). El nombre del archivo se usa como formato; puedes editarlo antes de subir.</p>
+            <p class="text-muted small mb-3">Arrastra los archivos aquí o pulsa para seleccionarlos (imágenes, <strong>vídeos</strong>, audios o PDF). El nombre del archivo se usa como formato; puedes editarlo antes de subir.</p>
             <div id="artworkDropzone" class="border rounded-3 p-4 text-center" style="border-style:dashed !important; cursor:pointer; background:#fafbfc;">
               <i class="fa fa-cloud-arrow-up fs-1 text-danger d-block mb-2"></i>
               <div class="fw-semibold">Arrastra los carteles aquí</div>
               <div class="text-muted small">o haz clic para seleccionarlos</div>
-              <input type="file" id="artworkFileInput" class="d-none" multiple accept="image/*,video/*,application/pdf">
+              <input type="file" id="artworkFileInput" class="d-none" multiple accept="image/*,video/*,audio/*,application/pdf">
             </div>
             <div id="artworkQueue" class="mt-3"></div>
             {% if is_promoter_flow %}
@@ -127,27 +127,11 @@
 
           function fmtName(file){ return (file.name || 'Cartel').replace(/\.[^.]+$/, ''); }
 
+          // Las medidas del archivo (de ellas sale la proporción de su miniatura) las lee el motor
+          // ÚNICO de la casa, `window.app33Dims` (static/js/media_dims.js).
           function readDims(file){
-            return new Promise(function(resolve){
-              var tipo = file.type || '';
-              // Un VÍDEO también tiene medidas: se leen con un <video> (de ellas sale la proporción
-              // con la que se dibuja su miniatura en la página que se comparte).
-              if(/^video\//.test(tipo)){
-                var vurl = URL.createObjectURL(file);
-                var v = document.createElement('video');
-                v.preload = 'metadata'; v.muted = true;
-                v.onloadedmetadata = function(){ resolve({w: v.videoWidth || '', h: v.videoHeight || ''}); URL.revokeObjectURL(vurl); };
-                v.onerror = function(){ resolve({w:'', h:''}); URL.revokeObjectURL(vurl); };
-                v.src = vurl;
-                return;
-              }
-              if(!/^image\//.test(tipo)){ resolve({w:'', h:''}); return; }
-              var url = URL.createObjectURL(file);
-              var img = new Image();
-              img.onload = function(){ resolve({w: img.naturalWidth || '', h: img.naturalHeight || ''}); URL.revokeObjectURL(url); };
-              img.onerror = function(){ resolve({w:'', h:''}); URL.revokeObjectURL(url); };
-              img.src = url;
-            });
+            if (window.app33Dims && window.app33Dims.file) return window.app33Dims.file(file);
+            return Promise.resolve({w:'', h:''});
           }
 
           function row(file){

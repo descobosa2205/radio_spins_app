@@ -10,15 +10,22 @@
 (function () {
   'use strict';
 
-  function reinit(scope) {
+  function reinit(scope, ok) {
     try { if (window.initSelect2) window.initSelect2(); } catch (e) {}
     try {
       if (window.bootstrap && bootstrap.Tooltip && scope && scope.querySelectorAll) {
         scope.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) { bootstrap.Tooltip.getOrCreateInstance(el); });
       }
     } catch (e) {}
-    // Avisar a otros scripts por si necesitan re-enganchar algo dentro de la zona nueva.
-    try { document.dispatchEvent(new CustomEvent('inline:updated', { detail: { scope: scope } })); } catch (e) {}
+    /* Avisar a otros scripts por si necesitan re-enganchar algo dentro de la zona nueva.
+       ⚠️ `ok` dice si el guardado ENTRÓ: lo necesita `form_autosave.js` para saber si lo tecleado
+       ya no vale (entró) o hay que conservarlo (el servidor lo rechazó). Lo decide el propio
+       servidor —el `data-form-rechazado` de la respuesta—, nunca el color del aviso. */
+    try {
+      document.dispatchEvent(new CustomEvent('inline:updated', {
+        detail: { scope: scope, ok: (ok !== false) },
+      }));
+    } catch (e) {}
   }
 
   function showFlashes(doc) {
@@ -92,7 +99,9 @@
         if (!fresh) { window.location.reload(); return; }
         zone.replaceWith(fresh);
         showFlashes(doc);
-        reinit(fresh);
+        // ¿El servidor ha RECHAZADO el envío? Lo dice él (`_flash_form_error`), no el color.
+        var rechazado = !!(doc.body && doc.body.getAttribute('data-form-rechazado'));
+        reinit(fresh, !rechazado);
       })
       .catch(function () { window.location.reload(); })
       .finally(function () { if (window.appLoader) window.appLoader.hide(); });

@@ -1744,7 +1744,7 @@
               {% for asset in current_artwork_assets if asset.validation_status == 'PENDING' %}
                 <div class="col-6 col-md-4 col-xl-3">
                   <div class="border rounded p-2 h-100 text-center" data-art-asset="{{ asset.id }}">
-                    <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;') }}</span>
+                    <span {{ artm.art_open_attrs(asset, set='cart-val', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;') }}</span>
                     <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
                     {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
                     {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
@@ -1773,7 +1773,7 @@
               {% for asset in pendientes %}
                 <div class="col-6 col-md-4 col-xl-3">
                   <div class="border rounded p-2 h-100 text-center">
-                    <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
+                    <span {{ artm.art_open_attrs(asset, set='cart-pend', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
                     <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
                     <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
                     {% if asset.uploaded_by_nick %}<div class="small text-muted mt-1">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
@@ -1866,7 +1866,7 @@
                   {% for asset in soldout.assets %}
                     <div class="col-6 col-md-4 col-xl-3">
                       <div class="border rounded p-2 h-100 text-center">
-                        <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;') }}</span>
+                        <span {{ artm.art_open_attrs(asset, set='soldout', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;') }}</span>
                         <div class="fw-semibold small mt-2 text-truncate" title="{{ asset.format_label }}">{{ asset.format_label }}</div>
                         {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
                         <div class="d-flex justify-content-center gap-2 mt-2 flex-wrap">
@@ -1892,7 +1892,7 @@
                   {% for asset in so_pend %}
                     <div class="col-6 col-md-4 col-xl-3">
                       <div class="border rounded p-2 h-100 text-center" data-art-asset="{{ asset.id }}">
-                        <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
+                        <span {{ artm.art_open_attrs(asset, set='soldout-pend', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
                         <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
                         {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
                         {% if can_validate_artwork %}
@@ -1916,7 +1916,7 @@
                   {% for asset in soldout.rejected %}
                     <div class="col-6 col-md-4 col-xl-3">
                       <div class="border border-danger rounded p-2 h-100 text-center">
-                        <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
+                        <span {{ artm.art_open_attrs(asset, set='soldout-rech', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
                         <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
                         {% if asset.rejection_note %}<div class="small text-danger mt-1">{{ asset.rejection_note }}</div>{% endif %}
                       </div>
@@ -2025,7 +2025,7 @@
                   <div class="border rounded p-3 h-100">
                     <div class="d-flex justify-content-between align-items-start gap-2">
                       <div class="d-flex gap-2 align-items-start">
-                        {% if artwork_kind(asset) == 'PDF' %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% else %}<span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;') }}</span>{% endif %}
+                        {% if artwork_kind(asset) == 'PDF' %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;" {{ artm.art_open_attrs(asset, set='cart', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% else %}<span {{ artm.art_open_attrs(asset, set='cart', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;') }}</span>{% endif %}
                         <div>
                           <div class="fw-semibold">{{ asset.format_label }}{% if (visible_assets|length == 1) or asset.is_primary %}<span class="badge text-bg-warning text-dark ms-2" title="Se muestra en las cabeceras (invitaciones, enlaces)"><i class="fa fa-star me-1"></i>Principal</span>{% endif %}</div>
                           <div class="text-muted small text-break">{{ asset.original_name or asset.format_label }}</div>
@@ -2084,7 +2084,7 @@
                 <div class="col-12 col-xl-6">
                   <div class="border border-danger rounded p-3 h-100">
                     <div class="d-flex gap-2 align-items-start">
-                      {% if artwork_kind(asset) == 'PDF' %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% else %}<span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;') }}</span>{% endif %}
+                      {% if artwork_kind(asset) == 'PDF' %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;" {{ artm.art_open_attrs(asset, set='cart-rech', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% else %}<span {{ artm.art_open_attrs(asset, set='cart-rech', dl=url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;') }}</span>{% endif %}
                       <div class="min-w-0">
                         <div class="fw-semibold text-truncate">{{ asset.format_label }}</div>
                         <div class="small text-danger">{{ asset.rejection_note or 'Hay que cambiarlo.' }}</div>
@@ -2428,7 +2428,7 @@
               <div>Arrastra aquí los carteles <span class="text-muted">(o carpetas enteras)</span>, o
                 <span class="text-primary text-decoration-underline" data-art-pick>pincha para elegirlos</span></div>
               <div class="small text-muted mt-1">Se sube cada archivo que haya dentro de la carpeta, no la carpeta.</div>
-              <input type="file" class="d-none" id="artworkFiles" multiple accept="image/*,video/*,application/pdf">
+              <input type="file" class="d-none" id="artworkFiles" multiple accept="image/*,video/*,audio/*,application/pdf">
               <input type="file" class="d-none" id="artworkFolder" webkitdirectory directory multiple>
             </div>
             <div class="d-flex justify-content-center gap-2 mt-2">
@@ -2482,6 +2482,7 @@
         function icono(f) {
           var t = (f && f.type) || '';
           if (/^video\//.test(t)) return 'fa-film';
+          if (/^audio\//.test(t)) return 'fa-music';
           if (t === 'application/pdf') return 'fa-file-pdf';
           return 'fa-image';
         }
@@ -2497,9 +2498,10 @@
         function añadir(files) {
           Array.prototype.forEach.call(files || [], function (f) {
             if (!f || !f.name || f.name.charAt(0) === '.') return;          // .DS_Store y compañía
-            // ⚠️ Un cartel puede ser un VÍDEO: si no se admite aquí, el archivo se descartaba en
-            // silencio y parecía que el arrastre «no cogía» nada.
-            if (f.type && !/^image\//.test(f.type) && !/^video\//.test(f.type) && f.type !== 'application/pdf') return;
+            // ⚠️ Un cartel puede ser un VÍDEO (o un AUDIO, una cuña de radio): si no se admite
+            // aquí, el archivo se descartaba en silencio y parecía que el arrastre «no cogía» nada.
+            if (f.type && !/^image\//.test(f.type) && !/^video\//.test(f.type)
+                && !/^audio\//.test(f.type) && f.type !== 'application/pdf') return;
             cola.push(f);
           });
           pintar();
@@ -2552,11 +2554,26 @@
         });
         btn.addEventListener('click', function () {
           if (!cola.length) return;
+          btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Midiendo…';
+          // ⚠️ Se MIDE cada archivo antes de subirlo: de sus medidas sale la proporción con la que
+          // se dibuja su miniatura (sin ellas un vídeo vertical salía apaisado).
+          var midiendo = (window.app33Dims && window.app33Dims.all)
+            ? window.app33Dims.all(cola)
+            : Promise.resolve(cola.map(function () { return { w: '', h: '' }; }));
+          midiendo.then(function (medidas) { subir(medidas); });
+        });
+
+        function subir(medidas) {
           var fd = new FormData();
           var catEl = document.getElementById('artworkCategory');
           fd.append('category', (catEl && catEl.value) || 'POSTER');
-          cola.forEach(function (f) { fd.append('files', f, f.name); fd.append('labels', f.name); });
-          btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
+          cola.forEach(function (f, i) {
+            fd.append('files', f, f.name);
+            fd.append('labels', f.name);
+            fd.append('widths', (medidas[i] || {}).w || '');
+            fd.append('heights', (medidas[i] || {}).h || '');
+          });
+          btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
           var barra = document.getElementById('artworkProgress');
           barra.classList.remove('d-none');
           var xhr = new XMLHttpRequest();
@@ -2578,7 +2595,7 @@
           };
           xhr.onerror = function () { btn.disabled = false; btn.innerHTML = 'Subir'; msg.textContent = 'No se pudieron subir.'; };
           xhr.send(fd);
-        });
+        }
       }
 
       /* ---------- ¿Cartel normal o de SOLD OUT? Se decide en el CLIC que abre el modal ---------- */

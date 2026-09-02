@@ -41,7 +41,9 @@
 <div class="modal fade" id="newPromoterModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <form method="post" enctype="multipart/form-data" data-doc-intake>
+      {# `data-autosave` = clave estable para que lo tecleado no se pierda si el alta se rechaza. #}
+      <form method="post" enctype="multipart/form-data" data-doc-intake data-autosave="alta-tercero"
+            data-autosave-title="Nuevo tercero">
         <div class="modal-header">
           <h5 class="modal-title">Nuevo tercero</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

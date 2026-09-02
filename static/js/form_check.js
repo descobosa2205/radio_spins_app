@@ -3,8 +3,13 @@
 
    ⚠️⚠️ Antes se podía recorrer un asistente entero y el fallo aparecía AL FINAL, sin decir dónde:
    había que volver a buscar el campo. Ahora, al intentar pasar de pantalla (o al enviar), lo que
-   falta se marca **EN AMARILLO** y lo que está **MAL en ROJO**, se lleva el foco al primero y no se
-   avanza hasta arreglarlo.
+   **falta o está mal se marca EN ROJO**, se lleva el foco al primero y no se avanza hasta
+   arreglarlo.
+   ⚠️ El ROJO es lo que pidió Dani (sep 2026) y sustituye al criterio anterior (ámbar = falta):
+   «los que están incompletos y son obligatorios o los que están mal, con fondo rojo hasta que estén
+   cumplimentados o estén bien». Solo se marca **al intentar guardar o pasar de paso**, nunca al
+   abrir el formulario: nadie ha hecho nada mal todavía. El ÁMBAR se conserva para avisar de algo
+   que no bloquea (`missing()`), como el archivo que hay que volver a adjuntar.
 
    Cómo se usa (nada que declarar: va por delegación en TODA la app):
      · `submit` de cualquier formulario → se comprueba solo. Opt-out: `[data-no-check]`.
@@ -15,8 +20,9 @@
        `window.app33FormCheck.bad(campo, 'por qué')` y limpiarlo con `clear(campo)`.
 
    Reglas:
-     · **Obligatorio y vacío → AMARILLO** (`.is-check-missing`): no es un error, es que falta.
+     · **Obligatorio y vacío → ROJO** (`.is-check-bad`): es lo que impide guardar.
      · **Relleno pero mal → ROJO** (`.is-check-bad`): un correo sin arroba, un número fuera de rango.
+     · **Ámbar** (`.is-check-missing`): un aviso que NO bloquea (el archivo que hay que readjuntar).
      · Un campo **oculto o deshabilitado NO se comprueba**: los pasos que no tocan y los paneles
        cerrados no pueden bloquear un envío (la casa ya los deshabilita, y aquí se mira además si se
        ven).
@@ -99,17 +105,16 @@
     if (previo) previo.remove();
     var partes = [];
     if (falta.length) {
-      partes.push(falta.length === 1 ? 'falta 1 dato obligatorio (en amarillo)'
-                                     : ('faltan ' + falta.length + ' datos obligatorios (en amarillo)'));
+      partes.push(falta.length === 1 ? 'falta 1 dato obligatorio'
+                                     : ('faltan ' + falta.length + ' datos obligatorios'));
     }
-    if (mal.length) partes.push(mal.length === 1 ? 'hay 1 dato mal (en rojo)'
-                                                 : ('hay ' + mal.length + ' datos mal (en rojo)'));
+    if (mal.length) partes.push(mal.length === 1 ? 'hay 1 dato mal' : ('hay ' + mal.length + ' datos mal'));
     if (!partes.length) return;
     var caja0 = document.createElement('div');
-    caja0.className = 'check-msg alert alert-warning py-2 px-3 mb-2';
+    caja0.className = 'check-msg alert alert-danger py-2 px-3 mb-2';
     caja0.setAttribute('data-check-msg', '');
     caja0.innerHTML = '<i class="fa fa-triangle-exclamation me-2"></i>' +
-      'Antes de seguir, ' + partes.join(' y ') + '.';
+      'Antes de seguir, ' + partes.join(' y ') + ' (en rojo).';
     var host = donde(ambito);
     host.insertBefore(caja0, host.firstChild);
   }
@@ -128,7 +133,8 @@
       }
       var obligatorio = esObligatorio(el);
       var estaVacio = (el.type === 'radio') ? grupoVacio(el, ambito) : vacio(el);
-      if (obligatorio && estaVacio) { caja(el).classList.add(CLS_FALTA); falta.push(el); return; }
+      // ⚠️ Obligatorio y vacío va en ROJO (lo pidió Dani): es lo que impide guardar.
+      if (obligatorio && estaVacio) { caja(el).classList.add(CLS_MAL); falta.push(el); return; }
       // Marcado a mano por la pantalla (una regla que el navegador no puede saber).
       if (el.getAttribute('data-check-bad') === '1') { caja(el).classList.add(CLS_MAL); mal.push(el); return; }
       if (estaVacio) return;                       // vacío y no obligatorio: no se dice nada
@@ -218,13 +224,14 @@
      para poder escribir `return app33FormCheck.fail(...)`. */
   function fail(ambito, el, motivo, opciones) {
     opciones = opciones || {};
-    var rojo = !!opciones.bad;
-    if (el) caja(el).classList.add(rojo ? CLS_MAL : CLS_FALTA);
+    // Una regla propia de la pantalla también va en ROJO (impide guardar); con `soft`, en ámbar.
+    var suave = !!opciones.soft;
+    if (el) caja(el).classList.add(suave ? CLS_FALTA : CLS_MAL);
     if (ambito) {
       var previo = ambito.querySelector('[data-check-msg]');
       if (previo) previo.remove();
       var box = document.createElement('div');
-      box.className = 'check-msg alert alert-warning py-2 px-3 mb-2';
+      box.className = 'check-msg alert alert-danger py-2 px-3 mb-2';
       box.setAttribute('data-check-msg', '');
       box.textContent = motivo || 'Falta un dato obligatorio.';
       box.insertAdjacentHTML('afterbegin', '<i class="fa fa-triangle-exclamation me-2"></i>');

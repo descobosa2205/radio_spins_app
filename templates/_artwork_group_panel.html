@@ -69,14 +69,15 @@
           {% set _pieza_logo = (gk_brand_share_url ~ '&f=' ~ asset.id) if gk_brand_share_url else asset.file_url %}
           <div class="col-6 col-md-4 col-xl-3">
             <div class="border rounded p-2 h-100 text-center {{ 'border-warning' if asset.is_primary else '' }}">
-              <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:110px;object-fit:contain;', pdf_cls='fs-1') }}</span>
+              <span {{ artm.art_open_attrs(asset, set='gk-brand', dl=url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:110px;object-fit:contain;', pdf_cls='fs-1') }}</span>
               <div class="fw-semibold small mt-2 text-truncate" title="{{ asset.format_label }}">{{ asset.format_label }}</div>
               {% if asset.is_primary %}
                 <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-star me-1"></i>{{ _img_label }}</span>
               {% endif %}
               {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
               <div class="d-flex justify-content-center gap-1 mt-2 flex-wrap">
-                <a class="btn btn-sm btn-outline-secondary" href="{{ asset.file_url }}" target="_blank" rel="noopener" download title="Descargar"><i class="fa fa-download"></i></a>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id) }}" data-dl-bar
+                   data-dl-name="{{ asset.original_name or asset.format_label }}" title="Descargar"><i class="fa fa-download"></i></a>
                 <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ _pieza_logo }}" title="Copiar el enlace"><i class="fa fa-link"></i></button>
                 {% if _puede_editar %}
                   {% if not asset.is_primary and artwork_kind(asset) == 'IMAGE' %}
@@ -102,7 +103,7 @@
         {% for asset in gk_brand_pending %}
           <div class="col-6 col-md-4 col-xl-3">
             <div class="border rounded p-2 h-100 text-center">
-              <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:110px;object-fit:contain;', dim=True) }}</span>
+              <span {{ artm.art_open_attrs(asset, set='gk-brand-pend', dl=url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:110px;object-fit:contain;', dim=True) }}</span>
               <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
               {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
               {% if can_validate_artwork and not gk_readonly %}
@@ -126,7 +127,7 @@
         {% for asset in gk_brand_rejected %}
           <div class="col-12 col-xl-6">
             <div class="border border-danger rounded p-3 h-100 d-flex gap-2 align-items-start">
-              <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:contain;', pdf_cls='fs-3') }}</span>
+              <span {{ artm.art_open_attrs(asset, set='gk-brand-rech', dl=url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:contain;', pdf_cls='fs-3') }}</span>
               <div class="min-w-0">
                 <div class="fw-semibold text-truncate">{{ asset.format_label }}</div>
                 <div class="small text-danger">{{ asset.rejection_note or 'Hay que cambiarlo.' }}</div>
@@ -188,15 +189,18 @@
             <div class="border rounded p-3 h-100">
               <div class="d-flex gap-2 align-items-start">
                 {% if artwork_kind(asset) == 'PDF' %}
-                  <span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>
+                  {# El PDF también se PINCHA para verlo (se abre en el visor, en su marco). #}
+                  <span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"
+                        {{ artm.art_open_attrs(asset, set='gk', dl=url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id)) }}><i class="fa fa-file-pdf fs-3 text-danger"></i></span>
                 {% else %}
-                  <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;') }}</span>
+                  <span {{ artm.art_open_attrs(asset, set='gk', dl=url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;') }}</span>
                 {% endif %}
                 <div class="min-w-0 flex-grow-1">
                   <div class="fw-semibold text-truncate">{{ asset.format_label }}{% if asset.is_primary %} <span class="badge text-bg-warning text-dark"><i class="fa fa-star me-1"></i>Principal</span>{% endif %}</div>
                   {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
                   <div class="d-flex gap-2 mt-2 flex-wrap">
-                    <a class="btn btn-sm btn-outline-secondary" href="{{ asset.file_url }}" target="_blank" rel="noopener" download><i class="fa fa-download fa-fw me-1"></i>Descargar</a>
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id) }}" data-dl-bar
+                       data-dl-name="{{ asset.original_name or asset.format_label }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a>
                     <a class="btn btn-sm btn-outline-secondary" href="https://wa.me/?text={{ ((_titulo ~ ' · ' ~ asset.format_label) ~ '\n\n' ~ _pieza)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</a>
                     <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ _pieza }}"><i class="fa fa-link fa-fw me-1"></i>Copiar el enlace</button>
                   </div>
@@ -228,7 +232,7 @@
         {% for asset in gk_pending %}
           <div class="col-6 col-md-4 col-xl-3">
             <div class="border rounded p-2 h-100 text-center">
-              <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:130px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
+              <span {{ artm.art_open_attrs(asset, set='gk-pend', dl=url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='max-width:100%;max-height:130px;object-fit:contain;border-radius:8px;', dim=True) }}</span>
               <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
               {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
               {% if can_validate_artwork and not gk_readonly %}
@@ -252,7 +256,7 @@
         {% for asset in gk_rejected %}
           <div class="col-12 col-xl-6">
             <div class="border border-danger rounded p-3 h-100 d-flex gap-2 align-items-start">
-              <span {{ artm.art_open_attrs(asset) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;', pdf_cls='fs-3') }}</span>
+              <span {{ artm.art_open_attrs(asset, set='gk-rech', dl=url_for('group_artwork_asset_download', gkind=gk_kind, gid=gk_id, asset_id=asset.id)) }}>{{ artm.art_media(asset, style='width:64px;height:64px;object-fit:cover;border-radius:10px;', pdf_cls='fs-3') }}</span>
               <div class="min-w-0">
                 <div class="fw-semibold text-truncate">{{ asset.format_label }}</div>
                 <div class="small text-danger">{{ asset.rejection_note or 'Hay que cambiarlo.' }}</div>
@@ -295,7 +299,7 @@
           <div class="fotos-dropzone" id="gartDropzone" data-file-drop="off">
             <i class="fa fa-cloud-arrow-up fa-2x mb-2"></i>
             <div>Arrastra aquí los carteles <span class="text-muted">(o carpetas enteras)</span>, o <span class="text-primary text-decoration-underline" data-gart-pick>pincha para elegirlos</span></div>
-            <input type="file" class="d-none" id="gartFiles" multiple accept="image/*,video/*,application/pdf,.ai,.eps,.zip,.psd,.indd">
+            <input type="file" class="d-none" id="gartFiles" multiple accept="image/*,video/*,audio/*,application/pdf,.ai,.eps,.zip,.psd,.indd">
             <input type="file" class="d-none" id="gartFolder" webkitdirectory directory multiple>
           </div>
           <div class="d-flex justify-content-center gap-2 mt-2">
@@ -418,14 +422,26 @@
       });
       btn.addEventListener('click', function () {
         if (!cola.length) return;
+        btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Midiendo…';
+        // ⚠️ Se MIDE cada archivo antes de subirlo: de sus medidas sale la proporción de su
+        // miniatura (sin ellas un vídeo vertical se dibujaba apaisado).
+        ((window.app33Dims && window.app33Dims.all)
+          ? window.app33Dims.all(cola)
+          : Promise.resolve(cola.map(function () { return { w: '', h: '' }; }))
+        ).then(function (medidas) { subirGrupo(medidas); });
+      });
+
+      function subirGrupo(medidas) {
         var fd = new FormData();
         fd.append('category', categoria);
         cola.forEach(function (f, i) {
           fd.append('files', f, f.name);
           var campo = lista.querySelector('[data-gart-label="' + i + '"]');
           fd.append('labels', (campo && campo.value.trim()) || f.name);
+          fd.append('widths', (medidas[i] || {}).w || '');
+          fd.append('heights', (medidas[i] || {}).h || '');
         });
-        btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
         fetch(URL_SUBIR, { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd })
           .then(function (r) { return r.json().catch(function () { return {}; }); })
           .then(function (j) {
@@ -437,7 +453,7 @@
             else { btn.disabled = false; btn.innerHTML = 'Subir'; msg.className = 'small mt-2 text-danger'; msg.textContent = (j && j.error) || 'No se pudieron subir.'; }
           })
           .catch(function () { btn.disabled = false; btn.innerHTML = 'Subir'; msg.textContent = 'No se pudieron subir.'; });
-      });
+      }
 
       // ⚠️ La categoría se fija EN EL CLIC, no en `shown.bs.modal`: con `modal_stack.js` por medio
       // ese evento no siempre llega, y el modal se abriría sin saber qué se está subiendo.

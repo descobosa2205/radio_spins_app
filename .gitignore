@@ -34,3 +34,7 @@ migracion_frankfurt.env
 
 # Sitio estático de la página de mantenimiento: se genera en el build de Render.
 tools/pagina_mantenimiento/_site/
+
+# Los medios de PRUEBA del entorno local nunca van al repo (se copian a /static para poder
+# servirlos y se borran al terminar).
+static/pruebas/

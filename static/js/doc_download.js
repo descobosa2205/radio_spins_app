@@ -143,7 +143,13 @@
     var url = a.href;
     var newTab = a.target === '_blank';
     e.preventDefault();
-    e.stopPropagation();     // que no salte también el iframe/loader de navegación del layout
+    // ⚠️⚠️ `stopImmediatePropagation`, no `stopPropagation`: los dos manejadores del layout (el de
+    // descarga por iframe y el LOADER de navegación) escuchan el clic en captura sobre el MISMO
+    // nodo (`document`), y `stopPropagation` no detiene a otro listener del mismo nodo. Por eso el
+    // ZIP de cartelería encendía además el velo a pantalla completa —con su apagado de seguridad a
+    // los 15 s—: exactamente el «no pasa nada y un rato después se abre para guardar» (bug real).
+    e.stopImmediatePropagation();
+    e.stopPropagation();
 
     if (newTab) {
       // La pestaña se abre YA (si no, el navegador la bloquea) y muestra el aviso.

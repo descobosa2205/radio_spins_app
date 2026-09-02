@@ -8878,3 +8878,107 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   las listas ricas de la ficha del artista, en **`/actividades`** —que antes las enseñaba TODAS, así
   que una reserva que se estaba hablando salía para toda la oficina— y en la vista de conciertos, a la
   que llega también quien trabaja en producción.
+
+- ⚠️⚠️ **UNA PIEZA SE PINCHA Y SE VE, con flechas para pasar a la siguiente** (sep 2026). Al pinchar
+  un cartel —da igual que sea imagen, vídeo, **audio** (una cuña de radio), PDF o un archivo que solo
+  se descarga— o el navegador se lo bajaba o abría otra pestaña: **nunca se veía en el sitio**. Motor
+  ÚNICO **`static/js/media_viewer.js`** (`window.app33Viewer`), autocontenido (se pinta su propio CSS
+  y no depende de Bootstrap, porque lo usa también una página pública standalone).
+  · **Cómo se marca lo que se pincha**: `data-viewer-src` (la URL para VERLO) · `data-viewer-kind`
+  (IMAGE|VIDEO|AUDIO|PDF|FILE) · `data-viewer-name` · `data-viewer-download` · `data-viewer-poster`.
+  Dentro de la app lo emite el macro **`art_open_attrs(asset, set=, dl=)`** de `_artwork_media.html`,
+  así que el arreglo entra a la vez en la pestaña Cartelería, en el panel de la cartelería GENERAL y
+  en el Sold Out.
+  ⚠️ **`data-viewer-set` = el CONJUNTO que recorren las flechas** (los carteles de ESA sección). Sin
+  él el ámbito es el `[data-viewer-group]` más cercano y, si no hay ninguno, TODA la pantalla — y
+  entonces las flechas mezclan carteles + Sold Out + rechazados + logos, que son categorías que
+  `ARTWORK_ASSET_CATEGORIES` mantiene separadas a propósito. Cada sección pasa el suyo (`cart`,
+  `cart-rech`, `soldout`, `gk`, `gk-brand`…).
+  ⚠️ Un control de dentro de la tarjeta no abre el visor: `data-viewer-ignore` (lo lleva el chip de
+  «Descargar»). Y un **PDF también se pincha**: su icono llevaba el visor solo en el `{% else %}`.
+  ⚠️ **Un `<a>` DENTRO DE OTRO `<a>` no es HTML válido**: el navegador cierra el de fuera donde
+  empieza el de dentro y la tarjeta se parte (la misma trampa que un `</div>` de más). Por eso la
+  tarjeta de la página pública es un **`<div role="button" tabindex="0">`** (con Enter y Espacio) y el
+  enlace de descargar va dentro.
+  ⚠️ **Un vídeo NO se puede servir entero en memoria**: `public_artwork_file` sirve VIDEO y AUDIO por
+  el puente de siempre (**`_playlist_audio_response`**, con `Range`, `Accept-Ranges` e `inline`), así
+  que se puede reproducir y arrastrar la barra sin bajar el archivo (comprobado: 206 con
+  `Content-Range`). Sin eso, cada salto volvía a bajarlo a la RAM del worker.
+  ⚠️ Lo que **no se puede previsualizar** (un vectorial de imprenta, un paquete) se dice en el visor
+  con su icono y su botón de descarga, en vez de dejar un hueco vacío.
+
+- ⚠️⚠️ **LA BARRA DE DESCARGA NO BLOQUEA LA PANTALLA** (sep 2026, `static/js/download_bar.js` ·
+  `window.app33Download.get(url, {name})` · enlaces marcados con **`data-dl-bar`**). Un documento que
+  el servidor GENERA al vuelo (el ZIP de la cartelería, un PDF, un Excel) tarda unos segundos, y eso
+  se tapaba con el **velo a pantalla completa** (`#globalLoader`, que es `inset:0` con
+  `pointer-events:auto`) o con NADA: se pinchaba «Descargar todos», no pasaba nada visible y un rato
+  después se abría el diálogo de guardar. Ahora es una **tarjeta abajo a la derecha** con el nombre,
+  su barra, el porcentaje y una ✕ que aborta, y **se puede seguir trabajando**.
+  · **DOS FASES honestas**: «Preparándolo…» en barrido mientras el servidor genera (ahí no hay
+  porcentaje posible: `_artwork_zip_response` baja cada pieza de Storage ANTES de emitir el primer
+  byte) y «Descargando… N%» con el tamaño en cuanto llegan bytes (o los KB recibidos si la respuesta
+  va por trozos y no trae `Content-Length`).
+  ⚠️⚠️ **`stopImmediatePropagation`, no `stopPropagation`**: el layout tiene DOS manejadores de clic
+  en captura sobre `document` (la descarga por iframe y el LOADER de navegación) y `stopPropagation`
+  **no** detiene a otro listener del MISMO nodo. Por eso el ZIP encendía además el velo —con su
+  apagado de seguridad a los 15 s— que es literalmente lo que se veía. Lo usan las DOS capas
+  (`download_bar.js` y `doc_download.js`), y `doc_download` se salta los enlaces `data-dl-bar` para
+  que no se descarguen dos veces.
+  ⚠️ `DOC_PATH_RE` de `doc_download.js` no casaba con **`/descargar-todo`** ni **`/descargar-todos`**
+  (llevaba `descargar-todas`, en femenino) ni con `/download`: cuatro rutas de cartelería se quedaban
+  fuera. Ahora es `descargar(-[a-z]+)*|download`.
+  ⚠️ El **nombre** de la tarjeta lo dice el servidor (`Content-Disposition`) en cuanto se conoce; y si
+  el servidor contesta un **motivo** (`{ok:false, error}` con XHR) se enseña ESE — antes esos
+  endpoints hacían `flash` + redirect y el motivo se consumía dentro del XHR («No hay carteles
+  aprobados que descargar» no se veía nunca).
+  ⚠️ Va por **encima del visor** (z-index 2147482800): mirando un cartel a tamaño se tiene que seguir
+  viendo cómo va la descarga.
+
+- ⚠️⚠️ **UNA MINIATURA DE VÍDEO NUNCA SALE EN NEGRO, Y UN VÍDEO VERTICAL SE VE VERTICAL** (sep 2026).
+  Los anuncios de una gira son verticales y salían en un **rectángulo negro apaisado**. Dos causas
+  distintas:
+  · **LA PROPORCIÓN**: el marco de la miniatura se calcula con las medidas del archivo y, sin ellas,
+  cae a 16:9. **El subidor de la ficha no medía nada** (el del enlace público sí), así que a todo lo
+  subido desde dentro le pasaba. Motor único **`static/js/media_dims.js`**
+  (`window.app33Dims.file/all`, imágenes con `<img>` y vídeos con `<video>`), usado por los tres
+  subidores, que mandan `widths`/`heights` — que el servidor ya leía.
+  · **EL FOTOGRAMA**: casi todos los vídeos empiezan con un fundido, así que coger uno fijo (el 25%)
+  deja un negro. **`_video_generate_poster_bytes`** prueba VARIOS momentos y mide el brillo de cada
+  uno (`_image_brightness`, Pillow): vale el primero que se ve y, si el vídeo es oscuro de principio
+  a fin, el menos oscuro. Medido con un vídeo real (3 s en negro + 4 s de color): antes brillo **0,0**,
+  ahora **171**. El MISMO criterio está en `static/js/video_thumb.js` para la miniatura que saca el
+  navegador mientras no hay póster (con `<canvas>`; ⚠️ un vídeo de otro dominio «mancha» el lienzo y
+  medirlo lanza excepción → ahí se acepta el primer fotograma). **Si se cambia uno, se cambia el otro.**
+  ⚠️ **Las MEDIDAS se guardan aunque Storage falle**: la proporción es lo que se VE y no depende de
+  que la miniatura se pueda subir (subiendo primero y saliendo si falla se perdían las dos).
+  ⚠️ **AUTO-RELLENO**: `_artwork_poster_schedule` solo se llamaba AL SUBIR, así que un vídeo de antes
+  —o uno cuyo hilo se quedó a medias en un despliegue— no conseguía miniatura NUNCA.
+  **`_artwork_posters_backfill`** la programa al pintar la pestaña Cartelería, el panel del grupo y la
+  página pública (el mismo patrón que `_video_posters_backfill` de la galería), con el MISMO cerrojo,
+  tope de concurrencia y caché negativa que el póster de una foto (claves `art:<id>`): sin deduplicar
+  se arrancaría un hilo por render.
+  · Y un cartel puede ser **AUDIO** (`ARTWORK_AUDIO_EXTS`): se ve con su icono, se escucha en el visor
+  y no puede ser el cartel principal ni la miniatura de un enlace (`_artwork_image_src` devuelve ''
+  para PDF, AUDIO y FILE). ⚠️ `_artwork_kind_of` tiene que aceptar `'AUDIO'` en la columna `kind`: sin
+  eso se recalculaba por el nombre y una cuña podía salir como IMAGE → `<img src="cuña.mp3">`.
+
+- ⚠️⚠️ **INVITACIONES · «DISPONIBLES» ES LO QUE HAY SUBIDO Y LIBRE, NO EL CUPO DEL CONTRATO**
+  (bug real y grave, sep 2026). Al pedir invitaciones (y al comprometerlas) salía **«Pista ·
+  Invitaciones por contrato · Disponibles 20»** de una categoría en la que **no había ni una entrada
+  subida** —y en Pista no había ninguna categoría creada—. Lo pactado por contrato es una
+  **REFERENCIA** (cuántas nos tienen que mandar): hasta que no se suben, no hay nada que repartir.
+  · Punto único **`_invitation_category_payload`**: `available_real` y `available_configured` son
+  **subidas − asignadas**, SIEMPRE (antes, sin subidas, devolvían `total_configured`), y se añade
+  **`pending_upload`** (lo que falta por recibir) para poder decirlo como lo que es. Igual en
+  `_invitation_edit_payload`. En el asistente se lee «Disponibles 0 · Por contrato 20 · faltan por
+  subir 20».
+  ⚠️ **Y la fila que solo es la referencia del contrato no se ofrece**: `_invitation_get_categories`
+  con `ensure_defaults` MATERIALIZA una categoría desde el contrato (o desde los tipos de entrada)
+  con `source` CONTRATO/TICKETING/DEFAULT. **`_invitation_reference_only_ids`** las aparta del
+  asistente y del pop-up de compromisos (`api_invitation_event_categories`, que alimenta a los dos)
+  **cuando el evento ya tiene entradas subidas en sus categorías de verdad**. Mientras no hay nada
+  subido en ninguna parte se siguen ofreciendo: se puede pedir antes de que las manden (no hay
+  regresión — comprobado con la app real).
+  ⚠️ **NO se ha tocado el CUPO** (`_invitation_event_available_by_category`, que es `max(configurado,
+  subidas)`): eso es otra cosa —la puerta de «no aceptar peticiones por encima del cupo» y el «solo
+  con aforo» del enlace público—, y ceñirla a lo subido bloquearía pedir antes de recibirlas.

@@ -1,24 +1,76 @@
-/* Miniatura de vídeo GLOBAL: los <video class="video-thumb"> muestran un fotograma INTERMEDIO
-   (no el primero, que a menudo sale en negro). Al cargar los metadatos se hace un seek a ~25% de la
-   duración (tope 5 s, mínimo ~1,5 s) y se pausa; el elemento pinta ese fotograma como "póster".
-   Funciona con contenido dinámico (galería que se re-renderiza) vía MutationObserver. */
+/* Miniatura de vídeo GLOBAL: los <video class="video-thumb"> muestran un fotograma QUE SE VEA
+   (nunca el primero, que casi siempre sale en NEGRO por el fundido de entrada).
+
+   Al cargar los metadatos se salta a ~25% de la duración y, si ese fotograma está oscuro, se PRUEBA
+   MÁS ADELANTE (50%, 12%, 70%): el brillo se mide dibujando el fotograma en un lienzo pequeño.
+   ⚠️ Un vídeo de OTRO dominio (Storage) «mancha» el lienzo y medirlo lanza excepción: en ese caso se
+   acepta el primer fotograma (comportamiento de siempre), que es mejor que no enseñar nada.
+   Es el MISMO criterio que usa el servidor al sacar la miniatura con ffmpeg
+   (`_video_generate_poster_bytes`): si se cambia uno, se cambia el otro.
+   Funciona con contenido dinámico (galerías que se re-renderizan) vía MutationObserver. */
 (function () {
   'use strict';
+
+  var MIN_BRILLO = 22;          // por debajo de esto, el fotograma es «negro» y no vale
+  var FRACCIONES = [0.25, 0.5, 0.12, 0.7];
+
+  /* Brillo medio (0-255) del fotograma que se está viendo. null si no se puede medir. */
+  function brillo(v) {
+    try {
+      var c = document.createElement('canvas');
+      c.width = 24; c.height = 24;
+      var ctx = c.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(v, 0, 0, 24, 24);
+      var d = ctx.getImageData(0, 0, 24, 24).data;   // ⚠️ lanza si el vídeo es de otro dominio
+      var suma = 0, n = 0;
+      for (var i = 0; i < d.length; i += 4) {
+        suma += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+        n++;
+      }
+      return n ? (suma / n) : null;
+    } catch (e) {
+      return null;                                   // lienzo manchado: no se puede juzgar
+    }
+  }
+
   function seekThumb(v) {
     if (v.__thumbSeek) return; v.__thumbSeek = true;
-    function doSeek() {
-      var d = v.duration, t = 1.5;
-      if (isFinite(d) && d > 0) t = Math.min(d * 0.25, 5);
-      if (!isFinite(t) || t <= 0) t = 1.5;
-      try { v.currentTime = t; } catch (e) {}
+    var intento = 0;
+
+    function listo() {
+      try { v.pause(); } catch (e) {}
+      v.classList.add('is-ready');
     }
-    // Solo queremos el fotograma: al terminar el seek, pausar y marcar el vídeo como LISTO (en las
-    // portadas el CSS lo revela solo entonces; si el seek nunca ocurre —iOS con preload degradado—
-    // se queda oculto y se ve el icono de película de respaldo, no un rectángulo negro).
-    v.addEventListener('seeked', function () { try { v.pause(); } catch (e) {} v.classList.add('is-ready'); }, { once: true });
-    if (v.readyState >= 1 && isFinite(v.duration) && v.duration > 0) doSeek();
-    else v.addEventListener('loadedmetadata', doSeek, { once: true });
+
+    function momento() {
+      var d = v.duration;
+      var f = FRACCIONES[Math.min(intento, FRACCIONES.length - 1)];
+      if (isFinite(d) && d > 0) return Math.min(Math.max(d * f, 0.05), Math.max(d - 0.05, 0.05));
+      return [1.5, 3, 6, 0.5][Math.min(intento, 3)];
+    }
+
+    function saltar() {
+      var t = momento();
+      if (!isFinite(t) || t <= 0) t = 1.5;
+      try { v.currentTime = t; } catch (e) { listo(); }
+    }
+
+    // Solo queremos el fotograma: al terminar el seek se mide y, si está oscuro, se prueba otro.
+    v.addEventListener('seeked', function () {
+      var luz = brillo(v);
+      intento += 1;
+      if (luz !== null && luz < MIN_BRILLO && intento < FRACCIONES.length) {
+        saltar();
+        return;
+      }
+      listo();
+    });
+
+    if (v.readyState >= 1 && isFinite(v.duration) && v.duration > 0) saltar();
+    else v.addEventListener('loadedmetadata', saltar, { once: true });
   }
+
   function isThumb(n) { return n.nodeType === 1 && n.tagName === 'VIDEO' && n.classList && n.classList.contains('video-thumb'); }
   function scan(root) {
     if (!root || !root.querySelectorAll) return;

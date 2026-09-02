@@ -25,7 +25,9 @@
   if (window.app33Download) return;
 
   var CSS = ''
-    + '.dlbar{position:fixed;right:16px;bottom:16px;z-index:2147482000;display:flex;'
+    // ⚠️ Por ENCIMA del visor de piezas (2147482500): mirando un cartel a tamaño se tiene que
+    // seguir viendo cómo va la descarga.
+    + '.dlbar{position:fixed;right:16px;bottom:16px;z-index:2147482800;display:flex;'
     + 'flex-direction:column;gap:10px;pointer-events:none;max-width:min(360px,calc(100vw - 32px))}'
     + '.dlbar__item{pointer-events:auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;'
     + 'box-shadow:0 12px 34px rgba(15,23,42,.18);padding:11px 13px;display:flex;gap:11px;'
@@ -36,11 +38,14 @@
     + '.dlbar__ico{flex:0 0 30px;height:30px;border-radius:9px;display:grid;place-items:center;'
     + 'background:rgba(0,124,162,.10);color:#007CA2;font-size:14px}'
     + '.dlbar__item.is-err .dlbar__ico{background:rgba(227,61,72,.10);color:#E33D48}'
-    + '.dlbar__b{min-width:0;flex:1 1 auto}'
-    + '.dlbar__name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
-    + '.dlbar__st{color:#6b7280;font-size:12px;margin-top:1px}'
+    + '.dlbar__b{min-width:0;flex:1 1 auto;display:block}'
+    // ⚠️ `display:block` en cada línea: son <span> y en línea se pintaban una PEGADA a la otra
+    // («Carteles.zipListo · 100 KB» en la misma fila).
+    + '.dlbar__name{display:block;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+    + '.dlbar__st{display:block;color:#6b7280;font-size:12px;margin-top:1px}'
     + '.dlbar__item.is-err .dlbar__st{color:#b02a37}'
-    + '.dlbar__bar{margin-top:7px;height:6px;border-radius:99px;background:#e7ecf2;overflow:hidden;position:relative}'
+    + '.dlbar__bar{display:block;margin-top:7px;height:6px;border-radius:99px;background:#e7ecf2;overflow:hidden;position:relative}'
+    + '.dlbar__fill{display:block}'
     + '.dlbar__fill{position:absolute;top:0;bottom:0;left:0;width:38%;border-radius:99px;'
     + 'background:linear-gradient(90deg,#E33D48,#007CA2);animation:dlbarSweep 1.15s ease-in-out infinite}'
     + '.dlbar__bar.is-det .dlbar__fill{animation:none;transition:width .18s ease}'
@@ -49,6 +54,7 @@
     + 'padding:2px 4px;line-height:1}'
     + '.dlbar__x:hover{color:#111827}'
     + '.dlbar__again{display:inline-block;margin-top:5px;font-size:12px;font-weight:700;color:#E33D48}'
+    + '.dlbar__item.is-err .dlbar__again{text-decoration:underline}'
     + '@media (max-width:600px){.dlbar{left:12px;right:12px;bottom:12px;max-width:none}}'
     + '@media (prefers-reduced-motion:reduce){.dlbar__fill{animation:none}}';
 
@@ -206,6 +212,10 @@
         return;
       }
       var fin = nombreDeCabecera(xhr.getResponseHeader('Content-Disposition'), nombre);
+      // El nombre de verdad lo dice el servidor: la tarjeta lo enseña (antes se quedaba con el
+      // último trozo de la URL, «descargar-todos», que no dice nada).
+      el.querySelector('.dlbar__name').textContent = fin;
+      el.querySelector('.dlbar__ico').innerHTML = '<i class="fa ' + icono(fin) + '"></i>';
       barra.classList.add('is-det');
       relleno.style.width = '100%';
       st.textContent = 'Listo · ' + humano(xhr.response.size);

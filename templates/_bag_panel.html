@@ -363,7 +363,15 @@
               <div class="d-flex align-items-center gap-2 flex-wrap">
                 <span class="drag-handle text-muted" title="Arrastrar para ordenar o mover"><i class="fa fa-grip-vertical"></i></span>
                 <span class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</span>
-                {% if expense.source_expense_id or expense.split_info %}<span class="badge text-bg-info" title="{% if expense.split_info and expense.split_info.get('rows') %}{% for row in expense.split_info.get('rows') %}{{ row.bag_title }}: {{ row.amount|eur }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}Gasto dividido{% endif %}"><i class="fa fa-code-branch me-1"></i>Dividido</span>{% endif %}
+                {% set esp = (expense_splits or {}).get(expense.id|string) %}
+                {% if esp and esp.active %}
+                  {# La etiqueta dice SU parte y, al pasar el ratón, entre qué bolsas va. #}
+                  <span class="badge text-bg-info" title="{% for r in esp.rows %}{{ r.bag_title }}: {{ r.amount|eur }}{% if r.titular %} (paga aquí){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}"><i class="fa fa-code-branch me-1"></i>Dividido · {{ esp.pct }}% de {{ esp.total|eur }}</span>
+                  {% if esp.is_part %}<span class="small text-muted"><i class="fa fa-circle-info me-1"></i>La factura y el pago se gestionan en <a href="{{ url_for('bag_detail_view', bag_id=esp.titular_bag_id) }}">{{ esp.titular_bag }}</a></span>{% endif %}
+                {% elif expense.source_expense_id or (expense.split_info and expense.split_info.get('rows')) %}
+                  {# Divisiones ANTIGUAS (antes de que el reparto fuera un grupo con titular). #}
+                  <span class="badge text-bg-info" title="{% if expense.split_info and expense.split_info.get('rows') %}{% for row in expense.split_info.get('rows') %}{{ row.bag_title }}: {{ row.amount|eur }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}Gasto dividido{% endif %}"><i class="fa fa-code-branch me-1"></i>Dividido</span>
+                {% endif %}
                 {% if not is_consolidated %}<span class="badge text-bg-secondary">Sin consolidar</span>{% endif %}
                 {% if expense.consolidation_status == 'SIN_FACTURA_RECHAZADO' %}<span class="text-danger" title="{{ expense.no_invoice_rejection_reason or 'Rechazado por administración' }}"><i class="fa fa-triangle-exclamation"></i></span>{% endif %}
                 {% if expense.covered_by != 'BOLSA' %}<span class="badge text-bg-warning">{{ bag_covered_by_labels.get(expense.covered_by, expense.covered_by) }}</span>{% endif %}
@@ -435,6 +443,19 @@
                       <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#replaceDocModal{{ expense.id }}">Reemplazar factura</button></li>
                     {% endif %}
                     <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#paymentRequestModal{{ expense.id }}">Solicitar pago inmediato</button></li>
+                    {# DIVIDIR el gasto entre varias bolsas. ⚠️ La factura y el pago se gestionan en
+                       la bolsa de ORIGEN (el titular): así no se paga ni se contabiliza dos veces. #}
+                    {% set esplit = (expense_splits or {}).get(expense.id|string) %}
+                    {# ⚠️ Un PRORRATEO no se divide: su dinero sale de otra bolsa y una parte sin ese
+                       vínculo lo liberaría para volver a prorratearlo. #}
+                    {% if not expense.is_proration %}
+                    <li><button class="dropdown-item" type="button"
+                            data-bag-split="{{ expense.id }}"
+                            data-split-state-url="{{ url_for('bag_expense_split_state', bag_id=expense.bag_id, expense_id=expense.id) }}"
+                            data-split-url="{{ url_for('bag_expense_split_save', bag_id=expense.bag_id, expense_id=expense.id) }}"
+                            data-split-undo-url="{{ url_for('bag_expense_split_undo', bag_id=expense.bag_id, expense_id=expense.id) }}">
+                      <i class="fa fa-code-branch fa-fw me-2"></i>{{ 'Editar la división' if (esplit and esplit.active) else 'Dividir gasto' }}</button></li>
+                    {% endif %}
                     <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#coverExpenseModal{{ expense.id }}" data-cover="ARTISTA">Gasto lo cubre el Artista</button></li>
                     <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#coverExpenseModal{{ expense.id }}" data-cover="PROMOTOR">Gasto lo cubre el Promotor</button></li>
                     <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#coverExpenseModal{{ expense.id }}" data-cover="OFICINA">Gasto lo cubre la Oficina</button></li>
@@ -614,30 +635,19 @@
    obligatorio. Vive en su propio parcial para que sea UNO solo. #}
 {% include '_bag_expense_form.html' %}
 
-{% for expense in expenses %}
-<div class="modal fade" id="editExpenseModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_edit', bag_id=bag.id, expense_id=expense.id) }}" enctype="multipart/form-data">
+{# DIVIDIR UN GASTO entre varias bolsas: UN solo pop-up por panel, configurado en el clic. #}
+{% include '_bag_expense_split_modal.html' %}
 
-  <input type="hidden" name="next" value="{{ bag_next }}">  <div class="modal-header"><h5 class="modal-title">Editar gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-  <div class="modal-body"><div class="row g-3">
-    <div class="col-md-6"><label class="form-label">Concepto</label><input type="text" name="concept" class="form-control" value="{{ expense.concept or '' }}"></div>
-    <div class="col-md-3"><label class="form-label">Módulo</label>{% set exp_cat_display = expense.category if expense.category in bag_expense_category_icons else ({'TRANSPORTE':'LOGISTICA','HOTELES':'ALOJAMIENTO'}.get(expense.category, 'OTROS')) %}<select name="category" class="form-select">{% for value,label in bag_expense_categories if value != 'PRORRATEOS' %}<option value="{{ value }}" {% if exp_cat_display == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-    <div class="col-md-3"><label class="form-label">Tipo</label><select name="document_type" class="form-select">{% for value,label in bag_document_types %}<option value="{{ value }}" {% if expense.document_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-    <div class="col-md-4"><label class="form-label">Proveedor</label><div class="input-group"><select id="editProvider{{ expense.id }}" name="provider_id" class="form-select provider-embargo-select select-providers"><option value="">Sin proveedor</option>{% for provider in providers %}{% set p_embargos = provider_embargo_map.get(provider.id|string, []) if provider_embargo_map is defined else [] %}<option value="{{ provider.id }}" data-has-embargo="{{ '1' if p_embargos else '' }}" data-embargo-label="{% if p_embargos %}{{ p_embargos[0]['reference'] }}{% endif %}" data-photo="{{ (provider.logo_url or provider.photo_url) or '' }}" {% if expense.provider_id == provider.id %}selected{% endif %}>{{ provider.nick }}</option>{% endfor %}</select><button type="button" class="btn btn-outline-secondary qc-open" data-quick-create="promoter" data-target="editProvider{{ expense.id }}" title="Crear"><i class="fa fa-plus"></i></button></div><div class="alert alert-warning small mt-2 mb-0 d-none embargo-provider-warning"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div></div>
-    <div class="col-md-4"><label class="form-label">Sociedad</label><select name="provider_company_id" class="form-select"><option value="">Sin sociedad</option>{% for provider in providers %}{% for company in provider.companies %}<option value="{{ company.id }}" {% if expense.provider_company_id == company.id %}selected{% endif %}>{{ provider.nick }} · {{ company.legal_name }}</option>{% endfor %}{% endfor %}</select></div>
-    <div class="col-md-4"><label class="form-label">Establecimiento</label><input type="text" name="ticket_establishment" class="form-control" value="{{ expense.ticket_establishment or '' }}"></div>
-    <div class="col-md-3"><label class="form-label">Nº factura</label><input type="text" name="invoice_number" class="form-control" value="{{ expense.invoice_number or '' }}"></div>
-    <div class="col-md-3"><label class="form-label">Fecha emisión</label><input type="date" name="issue_date" class="form-control" value="{{ expense.issue_date.isoformat() if expense.issue_date else '' }}"></div>
-    <div class="col-md-2"><label class="form-label">Sin IVA</label><input type="text" name="amount_net" class="form-control" value="{{ expense.amount_net }}"></div>
-    <div class="col-md-2"><label class="form-label">IVA</label><input type="text" name="amount_tax" class="form-control" value="{{ expense.amount_tax }}"></div>
-    <div class="col-md-2"><label class="form-label">Con IVA</label><input type="text" name="amount_gross" class="form-control" value="{{ expense.amount_gross }}"></div>
-    <div class="col-md-3"><label class="form-label">Retención</label><input type="text" name="retention_amount" class="form-control" value="{{ expense.retention_amount }}"></div>
-    <div class="col-md-3"><label class="form-label">Estado pago</label><select name="payment_status" class="form-select">{% for value,label in bag_payment_status_labels.items() %}<option value="{{ value }}" {% if expense.payment_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-    <div class="col-md-3"><label class="form-label">Importe pagado</label><input type="text" name="paid_amount" class="form-control" value="{{ expense.paid_amount }}"></div>
-    <div class="col-md-3"><label class="form-label">Método</label><select name="payment_method" class="form-select"><option value="">Sin método</option>{% for method in bag_payment_methods %}<option value="{{ method }}" {% if expense.payment_method == method %}selected{% endif %}>{{ method }}</option>{% endfor %}</select></div>
-    <div class="col-md-3"><label class="form-label">Nuevo documento</label><input type="file" name="document" class="form-control" accept=".pdf,image/*"></div>
-  </div></div>
-  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar</button></div>
-</form></div></div></div>
+{% for expense in expenses %}
+{# EDITAR un gasto: EL MISMO formulario que el de añadir (mismos campos, misma estética). Antes era
+   una rejilla plana de 17 campos escrita a mano aquí, con dos selects gigantes por cada gasto. #}
+{% with be_mode='edit', be_uid=expense.id, be_expense=expense,
+        be_prefill=(expense_form_prefill or {}).get(expense.id|string, {}),
+        be_modal_id='editExpenseModal' ~ expense.id,
+        be_action=url_for('bag_expense_edit', bag_id=bag.id, expense_id=expense.id),
+        be_doc_field='document', be_title='Editar gasto', be_submit='Guardar' %}
+  {% include '_bag_expense_form.html' %}
+{% endwith %}
 
 {# SUPLIDOS del gasto: conceptos que el tercero factura aparte de su trabajo. Si todavía no se sabe
    el importe se deja en blanco y se le pregunta al subir la factura. NO llevan IVA ni retención. #}
@@ -722,17 +732,15 @@
 
 <div class="modal fade" id="coverExpenseModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_cover', bag_id=bag.id, expense_id=expense.id) }}">
 
-  <input type="hidden" name="next" value="{{ bag_next }}">  <div class="modal-header"><h5 class="modal-title">Cobertura / división del gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <input type="hidden" name="next" value="{{ bag_next }}">  <div class="modal-header"><h5 class="modal-title">¿Quién cubre el gasto?</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
   <div class="modal-body">
+    {# ⚠️⚠️ Aquí había un SEGUNDO reparto entre bolsas (el antiguo), que creaba CLONES sueltos: cada
+       uno con su factura, su pendiente de pago y su línea en la remesa, o sea la misma factura
+       pagada y contabilizada N veces. Lo sustituye «Dividir gasto» de los tres puntitos, que es un
+       reparto de verdad (un titular que paga y partes que solo ven su trozo). #}
     <label class="form-label">Quién cubre el gasto</label><select name="covered_by" class="form-select mb-3 cover-select">{% for value,label in bag_covered_by_labels.items() %}<option value="{{ value }}" {% if expense.covered_by == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
     <label class="form-label">Detalle</label><textarea name="cover_detail" class="form-control mb-3" rows="2">{{ expense.cover_detail or '' }}</textarea>
-    <div class="border rounded-3 p-3 bg-light-subtle">
-      <div class="fw-semibold mb-2">Dividir entre otras bolsas/actividades</div>
-      <label class="d-block mb-2"><input type="checkbox" name="equal_split" value="1" class="form-check-input me-2">Repartir a partes iguales entre la bolsa actual y las seleccionadas</label>
-      {% for other in active_bags %}
-        <div class="row g-2 align-items-center mb-1"><div class="col-md-8"><label class="mb-0"><input type="checkbox" name="split_bag_ids" value="{{ other.id }}" class="form-check-input me-2">{{ other.title }}</label></div><div class="col-md-4"><input type="text" name="split_amount__{{ other.id }}" class="form-control form-control-sm" placeholder="Importe para esta bolsa"></div></div>
-      {% else %}<div class="small text-muted">No hay otras bolsas activas disponibles.</div>{% endfor %}
-    </div>
+    <div class="form-text"><i class="fa fa-circle-info me-1"></i>Para repartir este gasto entre varias bolsas usa <strong>«Dividir gasto»</strong> en los tres puntitos.</div>
   </div>
   <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Aplicar</button></div>
 </form></div></div></div>

@@ -192,6 +192,18 @@
         + '<div class="col-md-2 d-grid"><label class="form-label small">&nbsp;</label><button type="button" class="btn btn-outline-danger" data-remove-row><i class="fa fa-trash"></i></button></div>'
         + '</div>');
     }
+    if (type === 'payment') {
+      // FORMA DE PAGO del caché (Concert.payment_terms_json). `payment_idx[]` viaja oculto: es lo
+      // que permite guardar sin borrar la factura ya subida ni la marca de cobrado de ese pago.
+      return el('<div class="cf-row row g-2 align-items-end mb-2">'
+        + '<input type="hidden" name="payment_idx[]" value="">'
+        + '<div class="col-md-4"><label class="form-label small">Concepto</label><input name="payment_concept[]" class="form-control" placeholder="Ej: Señal, Resto el día del concierto"></div>'
+        + '<div class="col-md-3"><label class="form-label small">Importe</label><input name="payment_amount[]" class="form-control" data-money inputmode="decimal" placeholder="€"></div>'
+        + '<div class="col-md-3"><label class="form-label small">Fecha límite</label><input type="date" name="payment_due_date[]" class="form-control"></div>'
+        + '<input type="hidden" name="payment_cache_ref[]" value="">'
+        + '<div class="col-md-2 d-grid"><label class="form-label small">&nbsp;</label><button type="button" class="btn btn-outline-danger" data-remove-row><i class="fa fa-trash"></i></button></div>'
+        + '</div>');
+    }
     if (type === 'contract') {
       return el('<div class="cf-row row g-2 align-items-end mb-2">'
         + '<div class="col-md-4"><label class="form-label small">Concepto</label><input name="contract_concept[]" class="form-control" placeholder="Ej: Contrato principal"></div>'
@@ -245,6 +257,15 @@
         });
         if (type === 'cache') applyCacheKind(row, data.cache_var_option || '');
         if (type === 'zone') onZoneMode(row);
+        // Un pago que YA tiene factura o cobro no se toca desde aquí: se enseña bloqueado y sin
+        // papelera (para cambiarlo están sus tres puntitos del plan de facturación).
+        // ⚠️ `readonly` SÍ se envía; con `disabled` el pago desaparecería del POST y se perdería.
+        if (type === 'payment' && data.payment_locked === '1') {
+          row.querySelectorAll('input:not([type=hidden])').forEach(function (i) { i.readOnly = true; });
+          var papelera = row.querySelector('[data-remove-row]');
+          if (papelera) { papelera.remove(); }
+          row.classList.add('opacity-75');
+        }
         container.insertBefore(row, ph);
       }
       ph.remove();

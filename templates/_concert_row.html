@@ -1,0 +1,56 @@
+{# =================================================================================================
+   LA FILA DE UNA ACTIVIDAD EN UN LISTADO · PARCIAL ÚNICO
+   -------------------------------------------------------------------------------------------------
+   ⚠️ Se ve EXACTAMENTE IGUAL en Contratación → Conciertos, en la sección Actividades, en la pestaña
+   «Conciertos» de la ficha del ARTISTA y en las actividades de un EVENTO. Antes eran cuatro maquetas
+   distintas y ninguna decía lo mismo.
+
+   Lo que dice, en este orden: el DÍA · el TIPO DE ACTIVIDAD con su icono · quién es (foto, cuando
+   toca) · el título y el lugar · el TIPO DE VENTA · «Gratuito» si la entrada es gratis ·
+   «No anunciar» mientras no se pueda anunciar · y el ESTADO (clicable).
+
+   ⚠️⚠️ HAY QUE IMPORTARLA `with context`: `DEFAULT_AVATAR_URL` viene de un context processor, no es
+   un global del entorno de Jinja. Sin `with context` llega Undefined y la fila sale sin foto y sin
+   el desplegable de estado, SIN dar ningún error.
+   El dict `r` lo arma `_concert_row` (o `_action_row`) en app.py.
+   ================================================================================================= #}
+{% macro concert_row(r) %}
+<a href="{{ r.url }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
+  <div class="text-center flex-shrink-0" style="width:52px;">
+    {% if r.date %}
+      <div class="fw-bold" style="font-size:1.15rem;line-height:1;">{{ r.day }}</div>
+      <div class="small text-danger text-uppercase fw-semibold">{{ r.month }}</div>
+      <div class="small text-muted">{{ r.year }}</div>
+    {% else %}<i class="fa fa-calendar text-muted"></i>{% endif %}
+  </div>
+  {# QUÉ ES: el tipo de actividad con su icono (concierto, evento promocional, TV, marca…). #}
+  <span class="oa-row__icon flex-shrink-0" title="{{ r.type_label }}"><i class="fa {{ r.type_icon }}"></i></span>
+  {% if r.show_subject and r.subject_name %}
+    <img src="{{ r.subject_photo or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1"
+         class="flex-shrink-0" style="width:40px;height:40px;border-radius:{{ '10px' if r.is_event else '50%' }};object-fit:cover;">
+  {% endif %}
+  <div class="flex-grow-1" style="min-width:0;">
+    <div class="fw-semibold text-truncate">{{ r.title }}</div>
+    <div class="small text-muted text-truncate">
+      {% if r.show_subject and r.subject_name and r.title != r.subject_name %}{{ r.subject_name }} · {% endif %}
+      {{ r.place_label or r.venue or 'Sin recinto' }}
+    </div>
+  </div>
+  {# El tipo de actividad solo se ESCRIBE cuando no es un concierto (el icono ya lo dice y en un
+     listado de conciertos repetirlo sobra). #}
+  {% if r.type_key != 'CONCIERTO' and r.kind == 'concert' %}
+    <span class="badge text-bg-light border flex-shrink-0" title="{{ r.type_label }}"><i class="fa {{ r.type_icon }} me-1"></i>{{ r.type_label }}</span>
+  {% endif %}
+  {% if r.sale_label %}<span class="badge text-bg-light border flex-shrink-0">{{ r.sale_label }}</span>{% endif %}
+  {# ⚠️ «Gratuito» NO es un tipo de venta: es que la entrada es gratis. Va en su etiqueta. #}
+  {% if r.is_free %}<span class="badge-gratuito flex-shrink-0"><i class="fa fa-gift"></i>Gratuito</span>{% endif %}
+  {# ⚠️ «No anunciar» solo mientras NO se pueda anunciar: en cuanto se le pone fecha de anuncio (o se
+     anuncia) la etiqueta desaparece sola. #}
+  {% if r.no_announce %}<span class="badge text-bg-danger flex-shrink-0" title="Todavía no se puede anunciar"><i class="fa fa-eye-slash me-1"></i>No anunciar</span>{% endif %}
+  {% if r.kind == 'concert' %}
+    {% with cs_id=r.id, cs_status=r.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
+  {% elif r.status_label %}
+    <span class="badge {{ r.status_badge }} flex-shrink-0">{{ r.status_label }}</span>
+  {% endif %}
+</a>
+{% endmacro %}

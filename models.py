@@ -5162,6 +5162,18 @@ class BagExpense(Base):
     covered_by = Column(Text, nullable=False, server_default=text("'BOLSA'"))
     cover_detail = Column(Text)
     split_info = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # ══════════════ DIVIDIR UN GASTO ENTRE VARIAS BOLSAS ══════════════
+    # ⚠️⚠️ La misma factura NO se puede pagar ni contabilizar dos veces. El reparto son N filas
+    # hermanas (una por bolsa, para que cada una vea su trozo en sus totales sin tocar ni un lector)
+    # unidas por `split_group_id`, con UN ÚNICO **TITULAR**: es la única que sale en pendiente de
+    # pago, en la remesa SEPA y en contabilidad. Las **PARTES** reciben el estado ESPEJADO (factura,
+    # validación, pago) para que su bolsa lo vea, pero no se pagan ni se suben a Holded por su cuenta.
+    split_group_id = Column(PGUUID(as_uuid=True))
+    split_role = Column(Text)              # TITULAR | PARTE
+    split_mode = Column(Text)              # EQUAL | AMOUNT | PERCENT (para poder redistribuir)
+    split_share_pct = Column(Numeric)      # su parte en %, guardada SIEMPRE
+    split_created_at = Column(DateTime(timezone=True))
+    split_created_by_nick = Column(Text)
     # SUPLIDOS: gastos que el mismo tercero tiene que facturar ADEMÁS de su trabajo (la gasolina de
     # un músico, un taxi…). [{"concept": "...", "amount": 12.5|null}] — sin importe = todavía no se
     # sabe y se le pregunta al subir la factura. ⚠️ NO llevan IVA ni retención: `amount_gross` del
@@ -12784,6 +12796,26 @@ def ensure_syncros_schema():
         "ALTER TABLE IF EXISTS sync_submissions ALTER COLUMN supervisor_id DROP NOT NULL;",
         "ALTER TABLE IF EXISTS sync_submissions ALTER COLUMN promoter_id DROP NOT NULL;",
     ], "syncros_schema")
+
+
+def ensure_expense_split_schema():
+    """DIVIDIR UN GASTO ENTRE VARIAS BOLSAS (ver el comentario de `BagExpense.split_*`).
+
+    ⚠️ El índice único del TITULAR es el candado de la BD contra pagar la misma factura dos veces:
+    un grupo no puede tener dos titulares vivos."""
+    _create_all_once()
+    _exec_ddl_statements([
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS split_group_id uuid;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS split_role text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS split_mode text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS split_share_pct numeric;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS split_created_at timestamptz;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS split_created_by_nick text;",
+        "CREATE INDEX IF NOT EXISTS idx_bag_expenses_split_group ON bag_expenses(split_group_id) "
+        "WHERE split_group_id IS NOT NULL;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_bag_expenses_split_titular ON bag_expenses(split_group_id) "
+        "WHERE split_group_id IS NOT NULL AND split_role = 'TITULAR' AND status <> 'ELIMINADO';",
+    ])
 
 
 def ensure_afavor_schema():

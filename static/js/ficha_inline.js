@@ -43,11 +43,21 @@
     });
   }
 
+  // ⚠️ Una sección que AÑADE (contratos, notas, equipamiento) NO puede esconder lo que ya hay al
+  // abrir su formulario: al pulsar «+» desaparecían los contratos ya subidos y daba la sensación de
+  // que no se había subido nada. Con [data-keep-view] la vista consolidada se queda a la vista.
+  function keepsView(form) {
+    if (!form) return false;
+    if (form.hasAttribute('data-keep-view')) return true;
+    var s = form.closest('.ficha-section');
+    return !!(s && s.hasAttribute('data-keep-view'));
+  }
+
   function show(form) {
     if (!form) return;
     form.classList.remove('d-none');
     var v = viewFor(form);
-    if (v) v.classList.add('d-none');
+    if (v && !keepsView(form)) v.classList.add('d-none');
     setEditOnly(form, true);
     try { if (window.initSelect2) window.initSelect2(); } catch (e) {}
     // Aviso para inicializadores específicos de cada ficha (p. ej. concert_form.js: sale_type+tags,

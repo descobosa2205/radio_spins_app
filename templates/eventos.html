@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
+{% from '_concert_row.html' import concert_row with context %}
 {# ============================================================================
    Contratación · EVENTOS. Funciona como la pestaña de Conciertos, pero agrupado por EVENTO en vez
    de por artista (un evento no tiene artista). Las actividades de un evento salen SOLO aquí, no en
@@ -79,24 +80,7 @@
   {# ---------- Listado de actividades (mismo aspecto que Conciertos) ---------- #}
   {% if rows %}
     <div class="card"><div class="list-group list-group-flush">
-      {% for c in rows %}
-        <a href="{{ url_for('concert_detail_view', cid=c.id) }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
-          <div class="text-center flex-shrink-0" style="width:52px;">
-            {% if c.date %}
-              <div class="fw-bold" style="font-size:1.15rem;line-height:1;">{{ c.date.strftime('%d') }}</div>
-              <div class="small text-danger text-uppercase fw-semibold">{{ c.date.strftime('%b') }}</div>
-              <div class="small text-muted">{{ c.date.strftime('%Y') }}</div>
-            {% else %}<i class="fa fa-calendar text-muted"></i>{% endif %}
-          </div>
-          <div class="flex-grow-1" style="min-width:0;">
-            <div class="fw-semibold text-truncate">{{ c.festival_name or c.title_label }}</div>
-            <div class="small text-muted text-truncate">{{ c.location_summary or (c.venue.name if c.venue else 'Sin recinto') }}</div>
-          </div>
-          <span class="badge text-bg-light border flex-shrink-0">{{ c.sale_type_label }}</span>
-          {% if c.is_free %}<span class="badge-gratuito flex-shrink-0"><i class="fa fa-gift"></i>Gratuito</span>{% endif %}
-          {% with cs_id=c.id, cs_status=c.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
-        </a>
-      {% endfor %}
+      {% for r in rows %}{{ concert_row(r) }}{% endfor %}
     </div></div>
   {% else %}
     <div class="alert alert-light border">Este evento no tiene actividades {{ 'todavía' if show_past else 'activas' }}.</div>

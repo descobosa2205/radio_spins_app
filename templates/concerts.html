@@ -225,7 +225,7 @@
                       {% if c.no_capacity %}
                         <span class="badge text-bg-light border">Sin aforo</span>
                       {% elif c.capacity is not none %}
-                        <span class="badge text-bg-light border">Aforo a la venta: <strong>{{ c.capacity }}</strong></span>
+                        <span class="badge text-bg-light border">{{ capacity_label(c) }}: <strong>{{ c.capacity|k }}</strong></span>
                       {% endif %}
 
                       {% if c.break_even_ticket and c.sale_type not in ['VENDIDO','GRATUITO'] %}
@@ -916,7 +916,7 @@
         </div>
 
         <div class="col-12 col-md-2">
-          <label class="form-label">Aforo a la venta</label>
+          <label class="form-label">Aforo a la venta <span class="text-muted">(si vende entradas)</span></label>
           <input type="number" name="capacity" class="form-control" required min="0">
         </div>
 

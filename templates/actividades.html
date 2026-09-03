@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
+{% from '_concert_row.html' import concert_row with context %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
     <h4 class="mb-1"><i class="fa fa-calendar-check text-danger me-2"></i>Actividades</h4>
@@ -83,29 +84,10 @@
   </div>
 
   {% if items %}
-  {# El listado va SIN nombre ni foto de artista: empieza por el icono del tipo de actividad. #}
-  <div class="card"><div class="card-body p-0">
-    {% for it in items %}
-      {% set tag = 'a' if it.url else 'div' %}
-      <{{ tag }} {% if it.url %}href="{{ it.url }}"{% endif %} class="oa-row text-decoration-none text-reset">
-        <span class="oa-row__icon" title="{{ it.type_label }}"><i class="fa {{ it.type_icon }}"></i></span>
-        <span class="oa-row__body">
-          <span class="oa-row__top">
-            <span class="oa-row__title">{{ it.title }}</span>
-            {% if it.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ it.municipality }}</span>{% endif %}
-            {% if it.province and it.province != it.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ it.province }}</span>{% endif %}
-          </span>
-          <span class="oa-row__sub">{{ it.date_label }} · {{ it.venue }}</span>
-        </span>
-        {% if it.sale_label %}<span class="badge text-bg-light border">{{ it.sale_label }}</span>{% endif %}
-        {% if it.is_free %}<span class="badge-gratuito"><i class="fa fa-gift"></i>Gratuito</span>{% endif %}
-        {% if it.kind == 'concert' %}
-          {% with cs_id=it.id, cs_status=it.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
-        {% elif it.status_label %}
-          <span class="badge {{ it.status_badge }} flex-shrink-0">{{ it.status_label }}</span>
-        {% endif %}
-      </{{ tag }}>
-    {% endfor %}
+  {# La fila es la MISMA que en Conciertos y que en la ficha del artista (parcial único). Va SIN
+     nombre ni foto de artista: aquí ya se sabe de quién es. #}
+  <div class="card"><div class="list-group list-group-flush">
+    {% for it in items %}{{ concert_row(it) }}{% endfor %}
   </div></div>
   {% else %}
   <div class="alert alert-light border">No hay actividades con estos filtros.</div>

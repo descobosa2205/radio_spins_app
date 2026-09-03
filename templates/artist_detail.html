@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
+{% from '_concert_row.html' import concert_row with context %}
 
 <style>
   /* Reutilizamos estilos de conciertos para los pills de estado */
@@ -596,125 +597,18 @@
 {# ===================== TAB: CONCIERTOS ===================== #}
 {% elif tab == 'conciertos' %}
 
-  <form class="card card-body mb-3" method="get" action="{{ url_for('artist_detail_view', artist_id=artist.id) }}">
-    <input type="hidden" name="tab" value="conciertos">
-
-    <div class="row g-2 align-items-end">
-      <div class="col-md-6">
-        <label class="form-label">Fecha</label>
-        <div class="d-flex flex-wrap gap-2">
-          {% set W = f_when or [] %}
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="when" value="FUTURE" {% if 'FUTURE' in W %}checked{% endif %}>
-            Conciertos futuros
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="when" value="PAST" {% if 'PAST' in W %}checked{% endif %}>
-            Conciertos pasados
-          </label>
-        </div>
-      </div>
-
-      <div class="col-md-6">
-        <label class="form-label">Estado</label>
-        <div class="d-flex flex-wrap gap-2">
-          {% set S = f_statuses or [] %}
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="status" value="HABLADO" {% if 'HABLADO' in S %}checked{% endif %}>
-            Hablado
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="status" value="RESERVADO" {% if 'RESERVADO' in S %}checked{% endif %}>
-            Reservado
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="status" value="CONFIRMADO" {% if 'CONFIRMADO' in S %}checked{% endif %}>
-            Confirmado
-          </label>
-        </div>
-      </div>
-    </div>
-
-    <div class="d-flex justify-content-end gap-2 mt-3">
-      <button class="btn btn-danger" type="submit"><i class="fa-solid fa-filter"></i> Filtrar</button>
-      <a class="btn btn-outline-secondary" href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='conciertos') }}">Limpiar</a>
-    </div>
-  </form>
+  {# FILTROS: el parcial ÚNICO, el mismo que Contratación → Conciertos (con años y pasados/futuros). #}
+  {% with cf=concert_filters %}{% include '_concert_filters.html' %}{% endwith %}
 
   {% if concerts_total == 0 %}
-    <div class="text-muted">No hay conciertos para este artista con los filtros seleccionados.</div>
+    <div class="alert alert-light border">No hay conciertos de este artista con estos filtros.</div>
   {% else %}
-
-    {% for key in concerts_order %}
-      {% set group = concerts_sections.get(key, []) %}
-      {% if group and (group|length) > 0 %}
-        <details class="mb-3" open>
-          <summary class="h6 mb-2">{{ concerts_titles[key] }} <span class="text-muted">({{ group|length }})</span></summary>
-
-          {% for c in group %}
-            <div class="card mb-2 clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
-              <div class="card-body">
-
-                <div class="d-flex justify-content-between gap-3">
-                  <div class="d-flex gap-3 flex-grow-1">
-                    <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" class="artist-avatar" alt="" data-avatar="1">
-
-                    <div class="flex-grow-1">
-                      <div class="d-flex flex-wrap align-items-center gap-2">
-                        {% if c.date %}
-                          <span class="text-muted">{{ c.date.strftime('%d/%m/%Y') }}</span>
-                        {% endif %}
-
-                        {% if c.festival_name %}
-                          <span class="badge badge-festival">{{ c.festival_name }}</span>
-                        {% endif %}
-
-                        {% if c.venue %}
-                          <span class="text-muted">{{ c.venue.province }}</span>
-                          <span class="municipio-strong">{{ c.venue.municipality }}</span>
-                          <a class="badge badge-venue text-decoration-none" href="{{ url_for('venue_detail_view', vid=c.venue.id) }}" onclick="event.stopPropagation();">{{ c.venue.name }}</a>
-                        {% endif %}
-
-                        {% set st = (c.status or 'HABLADO')|upper %}
-                        <span class="badge status-pill {% if st=='BORRADOR' %}status-borrador{% elif st=='HABLADO' %}status-hablado{% elif st=='RESERVADO' %}status-reservado{% else %}status-confirmado{% endif %}">
-                          {{ st.title() }}
-                        </span>
-                      </div>
-
-                      <div class="d-flex flex-wrap gap-2 mt-1">
-                        <span class="badge text-bg-light border">Tipo: <strong>{{ concerts_titles.get(c.sale_type, c.sale_type) }}</strong></span>
-
-                        {% if c.hashtags %}
-                          {% for tag in c.hashtags %}
-                            <span class="badge text-bg-light border">#{{ tag }}</span>
-                          {% endfor %}
-                        {% endif %}
-
-                        {% if c.capacity is not none %}
-                          <span class="badge text-bg-light border">Aforo a la venta: <strong>{{ (c.capacity)|k }}</strong></span>
-                        {% endif %}
-
-                        {% if c.break_even_ticket and c.sale_type not in ['VENDIDO','GRATUITO'] %}
-                          <span class="badge text-bg-light border">Punto de empate: <strong>{{ c.break_even_ticket }}</strong></span>
-                        {% endif %}
-
-                        {% if c.sale_start_date %}
-                          <span class="badge text-bg-light border">Salida a la venta: <strong>{{ c.sale_start_date.strftime('%d/%m/%Y') }}</strong></span>
-                        {% endif %}
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-
-              </div>
-            </div>
-          {% endfor %}
-
-        </details>
-      {% endif %}
-    {% endfor %}
-
+    {# ⚠️ Ya NO se agrupa por tipo de venta («Conciertos — Gratuitos» era una agrupación por algo que
+       no es un tipo): la lista va plana y por fecha, y cada fila enseña el tipo real más la etiqueta
+       «Gratuito» cuando la entrada es gratis. Es la MISMA fila que en Conciertos y en Actividades. #}
+    <div class="card"><div class="list-group list-group-flush">
+      {% for r in concert_rows %}{{ concert_row(r) }}{% endfor %}
+    </div></div>
   {% endif %}
 
 {# ===================== TAB: DISCOGRÁFICA ===================== #}

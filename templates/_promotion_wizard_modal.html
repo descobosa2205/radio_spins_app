@@ -173,7 +173,8 @@
     empty.classList.toggle('d-none', rows.length > 0 || isGira);
     rows.forEach(item => {
       const col = document.createElement('div'); col.className = 'col-12 col-md-6';
-      col.innerHTML = '<button type="button" class="btn btn-outline-secondary w-100 text-start js-marketing-subject" data-id="' + item.id + '">'
+      col.innerHTML = '<button type="button" class="btn btn-outline-secondary w-100 text-start js-marketing-subject" data-id="' + item.id + '"'
+        + ' data-company-id="' + (item.default_company_id || '') + '" data-company-label="' + (item.default_company_label || '') + '">'
         + '<span class="d-flex gap-2 align-items-center"><img src="' + item.cover_url + '" style="width:40px;height:40px;object-fit:cover;border-radius:10px;">'
         + '<span><strong>' + (item.title || '') + '</strong><br><span class="small text-muted">' + (item.subtitle || '')
         + (item.meta ? ' · ' + item.meta : '') + '</span></span></span></button>';
@@ -183,7 +184,29 @@
       grid.querySelectorAll('.js-marketing-subject').forEach(x => x.classList.remove('active'));
       btn.classList.add('active');
       subjectId.value = btn.dataset.id || '';
+      syncCompany();
     }));
+    syncCompany();
+  }
+
+  /* ⚠️ La EMPRESA no se pregunta cuando la dicta lo que se promociona: en una actividad (o en una
+     gira o un ciclo) es la que la FACTURA, y la pone el servidor con el punto único
+     `_concert_billing_company_id`. Aquí solo se esconde el selector y se dice cuál es.
+     El `<select>` se DESHABILITA al esconderlo: un campo oculto se envía igual. */
+  function syncCompany(){
+    const wrap = modal.querySelector('[data-mk-company]');
+    const fixed = modal.querySelector('[data-mk-company-fixed]');
+    if (!wrap || !fixed) return;
+    const sel = wrap.querySelector('select[name="company_id"]');
+    const elegido = grid.querySelector('.js-marketing-subject.active');
+    const cid = elegido ? (elegido.dataset.companyId || '') : '';
+    const nombre = elegido ? (elegido.dataset.companyLabel || '') : '';
+    const manda = !!cid;
+    wrap.classList.toggle('d-none', manda);
+    fixed.classList.toggle('d-none', !manda);
+    if (sel) sel.disabled = manda;
+    const nm = fixed.querySelector('[data-mk-company-name]');
+    if (nm) nm.textContent = nombre || 'La empresa que factura la actividad';
   }
 
   // El paso 2 es de una sola elección: el radio alimenta el hidden que viaja al servidor.

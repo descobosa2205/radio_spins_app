@@ -336,6 +336,7 @@ from models import (
     ensure_vacations_schema,
     ensure_syncros_schema,
     ensure_afavor_schema,
+    ensure_expense_split_schema,
     ensure_song_demos_schema,
     ensure_song_genres_schema,
     ensure_playlists_schema,
@@ -655,7 +656,7 @@ CONCERT_SALE_TYPE_LABELS = {
 # promocional**, un programa de TV o una acción con marca no son conciertos de ningún tipo: en esas
 # actividades el `sale_type` solo apunta si hay caché o no (lo pone el asistente), así que nunca se
 # etiquetan con el tipo de venta. Punto único: `_sale_type_label` / `_activity_cache_label`.
-CONCERT_LIKE_ACTIVITY_TYPES = {"CONCIERTO", "FESTIVAL"}
+CONCERT_LIKE_ACTIVITY_TYPES = {"CONCIERTO", "FESTIVAL", "CICLO"}
 NON_CONCERT_CACHE_LABELS = {
     "VENDIDO": "Con caché", "EMPRESA": "Con caché", "PARTICIPADOS": "Con caché",
     "GIRAS_COMPRADAS": "Con caché", "CADIZ": "Con caché", "GRATUITO": "Sin caché",
@@ -683,14 +684,26 @@ SALES_TYPE_ICON = {
     "CADIZ": "fa-guitar", "VENDIDO": "fa-tag",
 }
 
+# ⚠️⚠️ «GRATUITO» NO ES UN TIPO DE VENTA: es que la entrada es GRATIS (ver `_concert_is_free`).
+# Se conserva en el catálogo porque hay actividades ANTIGUAS guardadas así, pero no se OFRECE.
+CONCERT_FREE_SALE_TYPE = "GRATUITO"
+CONCERT_FREE_LABEL = "Gratuito"
+
 # Tipos de concierto disponibles en la app.
 # NOTA: "GRATUITO" NO debe aparecer en actualización/reporte de ventas.
 CONCERT_SALE_TYPES_ALL = ["EMPRESA", "GRATUITO", "GIRAS_COMPRADAS", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 CONCERT_SALE_TYPES_ALL_SET = set(CONCERT_SALE_TYPES_ALL)
 
-# Secciones SOLO para la pantalla de Conciertos (incluye gratuitos).
+# Secciones SOLO para la pantalla de Conciertos.
 CONCERTS_SECTION_ORDER = list(CONCERT_SALE_TYPES_ALL)
 CONCERTS_SECTION_TITLE = {k: CONCERT_SALE_TYPE_LABELS[k] for k in CONCERTS_SECTION_ORDER}
+
+# ⚠️⚠️ «GRATUITO» YA NO SE OFRECE COMO TIPO en ningún selector ni en ningún filtro: no es una forma
+# de vender un concierto, es que la entrada es gratis (se marca en «Entradas», con el acceso
+# gratuito, y se ve con su etiqueta). Se queda en `CONCERT_SALE_TYPES_ALL` a propósito: hay
+# actividades ANTIGUAS guardadas con ese tipo y un enlace con `?type=GRATUITO` tiene que seguir
+# valiendo; lo que desaparece es la opción.
+CONCERT_TYPE_CHOICES_ORDER = [k for k in CONCERTS_SECTION_ORDER if k != CONCERT_FREE_SALE_TYPE]
 
 # Conceptos por defecto para compromisos de contratos a nivel artista.
 # Se muestran como sugerencias al añadir filas (no como catálogo editable).
@@ -1518,6 +1531,11 @@ def inject_globals():
         # CARTELERÍA: de qué es un cartel (IMAGE | VIDEO | PDF), para pintarlo como toca.
         artwork_kind=_artwork_kind_of,
         artwork_category=_artwork_asset_category,
+        # AFORO: «Aforo a la venta» o, en una actividad gratuita, «Aforo» a secas.
+        capacity_label=_concert_capacity_label,
+        # Un importe tal como se ESCRIBE en un formulario de la casa («1.234,56»; un 0 sale vacío).
+        money_text=_money_edit_text,
+        concert_is_free=_concert_is_free,
         linked_mini=linked_mini,
         # DIRECCIÓN FISCAL: se pide en piezas (Holded las necesita separadas) y se muestra junta.
         fiscal_parts=_fiscal_parts_for_form,
@@ -2032,49 +2050,48 @@ def artist_detail_view(artist_id):
                     "material_scope": getattr(commitment, "material_scope", None) or "ALL_MATERIALS",
                 })
 
-        # Conciertos del artista (solo lectura) + filtros
-        f_statuses_raw = request.args.getlist("status") or []
-        f_when_raw = request.args.getlist("when") or []
-
-        f_statuses = [(x or "").strip().upper() for x in f_statuses_raw if (x or "").strip()]
-        allowed_statuses = {"BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"}
-        f_statuses = [x for x in f_statuses if x in allowed_statuses]
-
-        f_when = {(x or "").strip().upper() for x in f_when_raw if (x or "").strip()}
-        allowed_when = {"PAST", "FUTURE"}
-        f_when = {x for x in f_when if x in allowed_when}
-        # Por defecto, mostrar FUTUROS (igual que la pantalla de conciertos)
-        if not f_when:
-            f_when = {"FUTURE"}
-
-        q = (
-            session_db.query(Concert)
-            .options(joinedload(Concert.venue))
-            .filter(Concert.artist_id == artist.id)
-        )
-
-        if f_statuses:
-            q = q.filter(Concert.status.in_(f_statuses))
-
-        today = today_local()
-        want_past = "PAST" in f_when
-        want_future = "FUTURE" in f_when
-        if want_past and not want_future:
-            q = q.filter(Concert.date < today)
-        elif want_future and not want_past:
-            q = q.filter(Concert.date >= today)
-
-        concerts = q.order_by(Concert.date.asc()).all()
-        # Fuera de Contratación/dirección, las actividades sin confirmar NO aparecen en las listas
-        # ricas de la ficha; vuelven a verse al pasar a CONFIRMADO. ⚠️ Salvo a QUIEN LA CREÓ (y a
-        # quien la produce): el punto único es `_concert_list_visible`.
-        concerts = _concert_list_visible(concerts)
-
-        concerts_sections = {k: [] for k in CONCERTS_SECTION_ORDER}
-        for c in concerts:
-            concerts_sections.setdefault(c.sale_type or "EMPRESA", []).append(c)
-        for k in concerts_sections:
-            concerts_sections[k].sort(key=lambda x: (x.date or date.max))
+        # CONCIERTOS del artista (solo lectura). ⚠️ Los filtros y la fila son los MISMOS que en
+        # Contratación → Conciertos: mismos puntos únicos, mismos parciales, misma estética.
+        # ⚠️ SOLO en su pestaña: este bloque hace su consulta y, con los filtros nuevos, además lee
+        # todas las etiquetas de concierto de la base. Corriéndolo en las 14 pestañas de la ficha
+        # sería trabajo tirado en las otras 13.
+        concerts = []
+        concert_rows_artist = []
+        concert_filters_artist = {}
+        _f = _concert_filters_from_request()
+        f_statuses = _f["statuses"]
+        f_when = _f["when"]
+        if tab == "conciertos":
+            q = (
+                session_db.query(Concert)
+                # ⚠️ `Concert.artist` hace falta para la foto del sujeto de la fila: sin el
+                # joinedload sería una consulta por fila.
+                .options(joinedload(Concert.venue), joinedload(Concert.artist))
+                .filter(Concert.artist_id == artist.id)
+            )
+            today = today_local()
+            q = _concert_filters_apply_sql(q, _f, today)
+            concerts = q.order_by(Concert.date.asc()).all()
+            # Fuera de Contratación/dirección, las actividades sin confirmar NO aparecen en las
+            # listas ricas de la ficha; vuelven a verse al pasar a CONFIRMADO. ⚠️ Salvo a QUIEN LA
+            # CREÓ (y a quien la produce): el punto único es `_concert_list_visible`.
+            concerts = _concert_list_visible(concerts)
+            concerts, _year_chips_artist, _type_counts_artist = _concert_filters_apply_list(concerts, _f, today)
+            # ⚠️ Ya NO se agrupa por tipo de venta: «Gratuito» no es un tipo (era el bloque
+            # «Conciertos — Gratuitos») y la fila enseña el tipo real más la etiqueta «Gratuito»
+            # cuando la entrada es gratis. La lista va plana y por fecha, como en Contratación.
+            concert_rows_artist = [_concert_row(c, show_subject=False, today=today) for c in concerts]
+            concert_filters_artist = _concert_filters_context(
+                _f,
+                action_url=url_for("artist_detail_view", artist_id=artist.id),
+                hidden=[("tab", "conciertos")],
+                reset_url=url_for("artist_detail_view", artist_id=artist.id, tab="conciertos"),
+                modal_id="artistConcertsFiltersModal",
+                type_choices=[(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERT_TYPE_CHOICES_ORDER],
+                type_counts=_type_counts_artist,
+                all_tags=_collect_all_concert_tags(session_db),
+                year_chips=_year_chips_artist,
+            )
 
         promotion_requests_display = []
         promotion_entries_display = []
@@ -2187,9 +2204,8 @@ def artist_detail_view(artist_id):
             albums=albums,
             default_concepts=ARTIST_CONTRACT_DEFAULT_CONCEPTS,
             contract_commitments_payload=contract_commitments_payload,
-            concerts_sections=concerts_sections,
-            concerts_order=CONCERTS_SECTION_ORDER,
-            concerts_titles=CONCERTS_SECTION_TITLE,
+            concert_rows=concert_rows_artist,
+            concert_filters=concert_filters_artist,
             concerts_total=len(concerts),
             f_statuses=f_statuses,
             f_when=sorted(list(f_when)),
@@ -3247,7 +3263,7 @@ def _concert_venue_name(concert: Concert | None) -> str:
 
 
 # Tipos de actividad en los que SIEMPRE se canta (no hace falta preguntarlo en el asistente).
-CONCERT_SINGING_ACTIVITY_TYPES = {'CONCIERTO', 'FESTIVAL'}
+CONCERT_SINGING_ACTIVITY_TYPES = {'CONCIERTO', 'FESTIVAL', 'CICLO'}
 
 
 def _concert_has_singing(concert: Concert | None) -> bool:
@@ -4509,6 +4525,8 @@ def _normalize_payment_term(row: dict | None, idx: int = 0) -> dict:
         'concept': (data.get('concept') or 'Pago').strip() if isinstance(data.get('concept'), str) else 'Pago',
         'amount': amount,
         'due_date': due_date or None,
+        # La fecha en ISO para rellenar un <input type="date"> del formulario de la ficha.
+        'due_date_iso': (due_date.isoformat() if hasattr(due_date, 'isoformat') else (due_date or '')),
         'cache_ref': data.get('cache_ref'),
         'invoice_url': data.get('invoice_url'),
         'invoice_name': data.get('invoice_name') or data.get('invoice_original_name') or 'Factura',
@@ -4741,6 +4759,90 @@ def _parse_payment_terms_rows(form) -> list[dict]:
             'collected_at': None,
         })
     return rows
+
+
+def _merge_payment_terms_rows(concert, form) -> list[dict]:
+    """La FORMA DE PAGO del caché editada desde la FICHA. Punto único del guardado.
+
+    ⚠️⚠️ NO se puede usar `_parse_payment_terms_rows` aquí: ese construye filas NUEVAS y deja
+    `invoice_url` / `invoiced_at` / `collected_at` a None, así que guardar la sección «Cachés»
+    BORRARÍA las facturas ya subidas y las marcas de cobrado de todos los pagos. Cada fila viaja con
+    su índice original (`payment_idx[]`) y de la vieja solo se pisan concepto, importe, fecha y a qué
+    caché corresponde; lo demás se conserva tal cual."""
+    viejas = list(getattr(concert, "payment_terms_json", None) or [])
+    conceptos = form.getlist("payment_concept[]")
+    importes = form.getlist("payment_amount[]")
+    fechas = form.getlist("payment_due_date[]")
+    refs = form.getlist("payment_cache_ref[]")
+    idxs = form.getlist("payment_idx[]")
+    filas = []
+    for i, concepto in enumerate(conceptos or []):
+        concepto = (concepto or "").strip()
+        importe = _parse_money_decimal(importes[i] if i < len(importes) else None)
+        fecha = parse_optional_date(fechas[i] if i < len(fechas) else None)
+        ref = (refs[i] if i < len(refs) else "").strip() or None
+        crudo = (idxs[i] if i < len(idxs) else "").strip()
+        base = {}
+        if crudo != "":
+            try:
+                base = dict(viejas[int(crudo)] or {})
+            except (ValueError, IndexError, TypeError):
+                base = {}
+        if not concepto and not importe and not fecha and not base.get("invoice_url"):
+            continue
+        base.update({
+            "concept": concepto or base.get("concept") or "Pago",
+            "amount": float(importe or 0),
+            "due_date": fecha.isoformat() if fecha else None,
+            "cache_ref": ref,
+        })
+        base.setdefault("invoice_url", None)
+        base.setdefault("invoice_name", None)
+        base.setdefault("invoiced_at", None)
+        base.setdefault("collected_at", None)
+        filas.append(base)
+    return filas
+
+
+def _concert_cache_payment_state(session_db, concert) -> dict:
+    """¿Está configurada la FORMA DE PAGO del caché? Punto único.
+
+    ⚠️ «Forma de pago del caché» NO es un campo de `ConcertCache`: es `Concert.payment_terms_json`
+    (el plan de pagos: concepto, importe y fecha límite de cada uno). Lo usan el aviso de la ficha y
+    la tarea del tablero de la pestaña «Inicio», así que no pueden decir cosas distintas.
+    El estado VACÍO trae las MISMAS claves que el lleno (leer algo que no aplica no puede reventar)."""
+    estado = {"applies": False, "rows": 0, "cache_total": Decimal("0"),
+              "configured_total": Decimal("0"), "pending": Decimal("0"),
+              "unset": False, "mismatch": False}
+    if concert is None:
+        return estado
+    if (getattr(concert, "status", None) or "").strip().upper() in CONCERT_PROCESS_STATUSES:
+        return estado                                     # cancelada o aplazada: no reclama nada
+    if _concert_is_legacy(concert):
+        return estado                                     # el histórico no genera trabajo
+    try:
+        if not _concert_has_cache(session_db, concert):
+            return estado
+    except Exception:
+        return estado
+    total = Decimal("0")
+    for ch in (getattr(concert, "caches", None) or []):
+        if (getattr(ch, "kind", None) or "").strip().upper() == "VARIABLE":
+            continue                                      # un % no se puede repartir en pagos fijos
+        total += _money_or_zero(getattr(ch, "amount", None))
+    filas = list(getattr(concert, "payment_terms_json", None) or [])
+    configurado = sum((_money_or_zero(x.get("amount")) for x in filas), Decimal("0"))
+    estado.update({
+        "applies": True,
+        "rows": len(filas),
+        "cache_total": total,
+        "configured_total": configurado,
+        "pending": (total - configurado),
+        "unset": len(filas) == 0,
+        # Solo se avisa del descuadre cuando hay un caché fijo con el que comparar.
+        "mismatch": bool(filas and total > 0 and abs(total - configurado) > Decimal("0.01")),
+    })
+    return estado
 
 
 def _dedupe_keep_order(valores) -> list:
@@ -5006,8 +5108,6 @@ def _sale_type_label(value: str | None, activity_type: str | None = None) -> str
 # estaban en el mismo campo, así que un concierto gratuito salía por toda la app como «Conciertos —
 # Gratuitos» y no se podía decir además CÓMO se vende (a empresa, participado, vendido…).
 # Ahora se enseña la ETIQUETA «Gratuito» y el TIPO es el que corresponda.
-CONCERT_FREE_SALE_TYPE = "GRATUITO"
-CONCERT_FREE_LABEL = "Gratuito"
 
 
 def _concert_is_free(concert) -> bool:
@@ -5024,6 +5124,57 @@ def _concert_is_free(concert) -> bool:
         return (payload.get("entry_mode") or "").strip().upper() == "FREE"
     except Exception:
         return False
+
+
+def _concert_billing_company_id(concert):
+    """La empresa del grupo que FACTURA esta actividad. Punto único.
+
+    Manda la que se haya dicho expresamente (`billing_company_id`) y, si no se ha dicho, la empresa
+    del grupo que la PROMUEVE (`group_company_id`) — el mismo criterio que la cabecera de la ficha y
+    que la bolsa de la actividad."""
+    if concert is None:
+        return None
+    return getattr(concert, "billing_company_id", None) or getattr(concert, "group_company_id", None)
+
+
+# =================================================================================================
+# ¿ESTA ACTIVIDAD LLEVA REPORTE DE VENTAS? · PUNTO ÚNICO
+# -------------------------------------------------------------------------------------------------
+# ⚠️ Fuera del reporte, del listado /ventas y de la solicitud al promotor:
+#   · lo GRATUITO (no se vende ninguna entrada, así que no hay nada que reportar), y
+#   · un FESTIVAL de un TERCERO: ese día tocan VARIOS artistas y la venta no es de nuestra fecha.
+# ⚠️⚠️ Un CICLO de un tercero SÍ lleva reporte: aunque sea dentro de un ciclo, ese día solo actúa
+# NUESTRO artista, así que la venta sí es de esa fecha. Por eso CICLO es un tipo de actividad propio
+# y no un alias de FESTIVAL.
+# ⚠️ El gate es NEGATIVO a propósito («fuera esto»), nunca «solo lo que vende entradas»: las
+# actividades anteriores al asistente no traen `entry_mode`, así que la condición positiva borraría
+# medio histórico del reporte de golpe.
+NO_SALES_REPORT_THIRD_PARTY_TYPES = {"FESTIVAL"}
+
+
+def _concert_needs_sales_report(session_db, concert, *, group_promoted=None) -> bool:
+    if concert is None:
+        return False
+    if _concert_is_free(concert):
+        return False
+    if _activity_kind_key(getattr(concert, "activity_type", None)) in NO_SALES_REPORT_THIRD_PARTY_TYPES:
+        if group_promoted is None:
+            group_promoted = _concert_is_group_promoted(session_db, concert)
+        if not group_promoted:
+            return False
+    return True
+
+
+CONCERT_CAPACITY_LABEL = "Aforo a la venta"
+CONCERT_CAPACITY_LABEL_FREE = "Aforo"
+
+
+def _concert_capacity_label(concert) -> str:
+    """Cómo se llama el aforo de ESTA actividad. Punto único.
+
+    ⚠️ En una actividad GRATUITA no se vende ninguna entrada, así que su aforo no es «a la venta»:
+    es el aforo a secas. Lo usan la cabecera de la ficha, sus formularios y la fila del listado."""
+    return CONCERT_CAPACITY_LABEL_FREE if _concert_is_free(concert) else CONCERT_CAPACITY_LABEL
 
 
 def _concert_type_label(concert) -> str:
@@ -47138,6 +47289,15 @@ def _concert_task_board(session_db, concert) -> dict:
                        url=(url_for("concert_detail_view", cid=concert.id, tab="general")
                             + "#contratos-actividad"),
                        action_label="Adjuntar el contrato")
+            # FORMA DE PAGO del caché: sin ella no se puede facturar ni cobrar. Mismo punto único
+            # que el aviso de la ficha (`_concert_cache_payment_state`), así que no hay dos verdades.
+            if _concert_cache_payment_state(session_db, concert)["unset"]:
+                suelta("forma_pago", 6, "Pendiente de configurar la forma de pago del caché",
+                       "fa-money-bill-transfer",
+                       url=(url_for("concert_detail_view", cid=concert.id, tab="general")
+                            + "#plan-facturacion"),
+                       action_label="Configurarla",
+                       hint="Reparte el caché en pagos (concepto, importe y fecha límite).")
             if (not getattr(concert, "announcement_date", None)
                     and not getattr(concert, "do_not_announce", False)):
                 # La MISMA etiqueta clicable de la cabecera: se pone la fecha o «Anunciado» sin salir.
@@ -47874,9 +48034,11 @@ def _peticion_apply_form(session_db, r, f, *, editing: bool = False) -> str:
     r.subject = subject or "Petición"
 
     # ¿CUBREN GASTOS? El mismo módulo que en el asistente de actividad (mismos nombres de campo, así
-    # que lo lee el mismo parser). Sin caché no se pregunta, y por tanto no se guarda.
-    gastos = ({"enabled": False, "items": []} if no_cache
-              else _parse_promoter_costs_form(f) if hasattr(f, "getlist")
+    # que lo lee el mismo parser).
+    # ⚠️⚠️ SE PREGUNTA HAYA O NO CACHÉ: un evento promocional puede ser SIN CACHÉ y que el promotor
+    # cubra igualmente hoteles, viajes o catering. Antes se limpiaba en cuanto se marcaba «Sin
+    # caché», así que ese caso —que es el normal en lo promocional— no se podía configurar.
+    gastos = (_parse_promoter_costs_form(f) if hasattr(f, "getlist")
               else {"enabled": False, "items": []})
     pay.update({
         "activity_type": activity_type,
@@ -48613,7 +48775,7 @@ def _concert_wizard_context(session_db):
             for p in promoters
         ],
         "companies": session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
-        "type_choices": [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER],
+        "type_choices": [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERT_TYPE_CHOICES_ORDER],
         "all_concert_tags": _collect_all_concert_tags(session_db),
         "wizard_tours": tours,
         "wizard_cycles": cycles,
@@ -49091,13 +49253,14 @@ def _render_event_activities():
         rows, drill_event, drill_group_id = [], None, None
         if drill_id:
             drill_event = eventos.get(str(drill_id))
-            rows = [c for c in actividades if str(c.event_id) == str(drill_id)]
-            for c in rows:
-                setattr(c, "sale_type_label", _concert_type_label(c))
-                setattr(c, "is_free", _concert_is_free(c))
-                setattr(c, "location_summary", _concert_location_summary(c))
-                # Un evento no tiene artista: el título es el del evento (o el nombre de la fecha).
-                setattr(c, "title_label", (getattr(drill_event, "name", "") or "Actividad"))
+            # La FILA es la misma de siempre (parcial único): aquí ya se sabe de qué evento son.
+            _hoy_ev = today_local()
+            rows = [_concert_row(c, show_subject=False, today=_hoy_ev)
+                    for c in actividades if str(c.event_id) == str(drill_id)]
+            for fila in rows:
+                # Un evento no tiene artista: el título es el del evento cuando la fecha no lo trae.
+                if not (fila.get("title") or "").strip():
+                    fila["title"] = (getattr(drill_event, "name", "") or "Actividad")
             grupo = (s.query(CycleFestival)
                      .filter(CycleFestival.event_id == drill_id)
                      .order_by(CycleFestival.created_at.desc()).first())
@@ -49607,6 +49770,216 @@ def _filter_by_year(items, anios, fecha=lambda it: getattr(it, "date", None)):
     return [it for it in items if (fecha(it) and fecha(it).year in anios)]
 
 
+# =================================================================================================
+# FILTROS DE UN LISTADO DE ACTIVIDADES · PUNTO ÚNICO
+# -------------------------------------------------------------------------------------------------
+# ⚠️ Los filtros de Contratación → Conciertos y los de la pestaña «Conciertos» de la ficha del
+# ARTISTA tienen que ser LOS MISMOS (estética y funcionamiento, con los años y con pasados/futuros).
+# Estaban escritos a mano dos veces y se habían desparejado: la ficha del artista solo tenía
+# «Cuándo» y «Estado», sin años, sin tipo, sin anuncio, sin etiquetas y con un botón «Filtrar».
+# Ahora hay UN helper que los lee, UNO que los aplica y UN parcial que los pinta
+# (`templates/_concert_filters.html`), así que no pueden volver a desparejarse.
+# =================================================================================================
+CONCERT_FILTER_WHEN = {"PAST", "FUTURE"}
+CONCERT_FILTER_STATUSES = {"BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"}
+CONCERT_FILTER_ANNOUNCEMENTS = {"NO_ANNOUNCE", "UPCOMING", "ANNOUNCED", "NONE"}
+
+
+def _concert_filters_from_request(*, default_when=("FUTURE",)):
+    """Lee de la URL los filtros de un listado de actividades. Punto único.
+
+    Los NOMBRES de los parámetros no cambian (`when`, `status`, `type`, `announcement`,
+    `concert_tag`, `year`, `open`), así que los enlaces ya guardados siguen valiendo."""
+    when = {(x or "").strip().upper() for x in (request.args.getlist("when") or []) if (x or "").strip()}
+    when = {x for x in when if x in CONCERT_FILTER_WHEN} or set(default_when)
+    statuses = [(x or "").strip().upper() for x in (request.args.getlist("status") or []) if (x or "").strip()]
+    sale_types = [(x or "").strip().upper() for x in (request.args.getlist("type") or []) if (x or "").strip()]
+    announcements = [(x or "").strip().upper() for x in (request.args.getlist("announcement") or []) if (x or "").strip()]
+    return {
+        "when": when,
+        "statuses": [x for x in statuses if x in CONCERT_FILTER_STATUSES],
+        "sale_types": [x for x in sale_types if x in CONCERT_SALE_TYPES_ALL_SET],
+        "announcements": [x for x in announcements if x in CONCERT_FILTER_ANNOUNCEMENTS],
+        "tags": _dedupe_concert_tags(request.args.getlist("concert_tag") or request.args.getlist("hashtag") or []),
+        "years": _year_filter_from_request(),
+        "open_filters": (request.args.get("open") or "").strip().lower() == "filtros",
+    }
+
+
+def _concert_filters_apply_sql(q, f, today):
+    """Lo que se puede filtrar en SQL: el estado y el periodo (pasados / futuros).
+
+    ⚠️ El TIPO DE VENTA se filtra en Python (`_concert_filters_apply_list`) a propósito: sus
+    contadores tienen que calcularse SIN su propio filtro, o al marcar un tipo los demás se quedan
+    a cero y desaparecen del pop-up, así que no se podrían combinar ni quitar."""
+    if f.get("statuses"):
+        q = q.filter(Concert.status.in_(f["statuses"]))
+    want_past = "PAST" in (f.get("when") or set())
+    want_future = "FUTURE" in (f.get("when") or set())
+    if want_past and not want_future:
+        q = q.filter(Concert.date < today)
+    elif want_future and not want_past:
+        q = q.filter(Concert.date >= today)
+    return q
+
+
+def _concert_filters_apply_list(concerts, f, today):
+    """Lo que se filtra en Python (etiquetas, anuncio, TIPO y año) + los contadores de las etiquetas.
+
+    ⚠️⚠️ El ORDEN importa: CADA grupo de etiquetas se cuenta con todos los DEMÁS filtros puestos
+    pero SIN el suyo. Si no, al marcar un tipo (o un año) los otros se quedan a cero, desaparecen
+    del pop-up y no se pueden ni combinar ni quitar (bug real).
+    Devuelve `(concerts, year_chips, type_counts)`."""
+    anios = f.get("years") or set()
+    tipos = f.get("sale_types") or []
+    if f.get("tags"):
+        concerts = [c for c in concerts if _concert_matches_any_tag(c, f["tags"])]
+    if f.get("announcements"):
+        concerts = [c for c in concerts if _announcement_state(c, today) in f["announcements"]]
+    # TIPOS: se cuentan con el año puesto pero sin el propio filtro de tipo.
+    type_counts = {}
+    for c in _filter_by_year(concerts, anios):
+        clave = (getattr(c, "sale_type", None) or "")
+        type_counts[clave] = type_counts.get(clave, 0) + 1
+    if tipos:
+        concerts = [c for c in concerts if (getattr(c, "sale_type", None) or "").upper() in tipos]
+    # AÑOS: se cuentan con el tipo puesto pero sin el propio filtro de año.
+    year_chips = _year_chips(concerts, today, anios)
+    concerts = _filter_by_year(concerts, anios)
+    return concerts, year_chips, type_counts
+
+
+def _concert_filters_context(f, *, action_url, hidden=None, reset_url=None, modal_id="concertsFiltersModal",
+                             type_choices=None, type_counts=None, all_tags=None, year_chips=None,
+                             hint=None):
+    """Todo lo que el parcial `_concert_filters.html` necesita para pintarse."""
+    return {
+        "action": action_url,
+        "hidden": list(hidden or []),
+        "reset_url": reset_url or action_url,
+        "modal_id": modal_id,
+        "when": sorted(f.get("when") or []),
+        "statuses": f.get("statuses") or [],
+        "sale_types": f.get("sale_types") or [],
+        "announcements": f.get("announcements") or [],
+        "tags": f.get("tags") or [],
+        "years": sorted(f.get("years") or []),
+        "open_filters": bool(f.get("open_filters")),
+        "type_choices": list(type_choices or []),
+        "type_counts": dict(type_counts or {}),
+        "all_tags": list(all_tags or []),
+        "year_chips": list(year_chips or []),
+        "hint": hint,
+    }
+
+
+# =================================================================================================
+# LA FILA DE UNA ACTIVIDAD EN UN LISTADO · PUNTO ÚNICO
+# -------------------------------------------------------------------------------------------------
+# ⚠️ La fila se pintaba TRES veces con tres maquetas distintas (Contratación → Conciertos, la
+# sección Actividades y la pestaña «Conciertos» de la ficha del artista) y ninguna decía lo mismo.
+# Ahora hay UN helper que arma el dict y UN parcial (`templates/_concert_row.html`) que lo pinta.
+# Lo que la fila dice, en este orden: el DÍA · el TIPO DE ACTIVIDAD con su icono · quién es (foto) ·
+# el título y el lugar · el TIPO DE VENTA · «Gratuito» si la entrada es gratis · «No anunciar» si
+# todavía no se puede anunciar · y el ESTADO (clicable).
+# =================================================================================================
+def _concert_row(c, *, show_subject=True, today=None, event_map=None):
+    """El dict de la fila de una ACTIVIDAD. Punto único de qué se enseña de ella en un listado."""
+    today = today or today_local()
+    kind = _activity_kind_key(getattr(c, "activity_type", None)) or "CONCIERTO"
+    status = (getattr(c, "status", None) or "BORRADOR").upper()
+    st_label, st_badge = _concert_status_meta(status)
+    # De quién es: en una actividad de EVENTO manda el EVENTO (su artista es solo el espejo).
+    event = None
+    if getattr(c, "event_id", None):
+        event = (event_map or {}).get(str(c.event_id))
+        if event is None:
+            event = getattr(c, "event", None)
+    artist = getattr(c, "artist", None)
+    if event is not None:
+        subject_name = (getattr(event, "name", None) or "Evento").strip()
+        subject_photo = (getattr(event, "logo_url", None) or "")
+        subject_id = str(getattr(event, "id", "") or "")
+    else:
+        subject_name = (getattr(artist, "name", None) or "").strip()
+        subject_photo = (getattr(artist, "photo_url", None) or "")
+        subject_id = str(getattr(c, "artist_id", "") or "")
+    fecha = getattr(c, "date", None)
+    return {
+        "kind": "concert",
+        "id": str(c.id),
+        "url": url_for("concert_detail_view", cid=c.id),
+        "date": fecha,
+        "date_label": fecha.strftime("%d/%m/%Y") if fecha else "Sin fecha",
+        "day": fecha.strftime("%d") if fecha else "",
+        "month": fecha.strftime("%b") if fecha else "",
+        "year": fecha.strftime("%Y") if fecha else "",
+        "type_key": kind,
+        "type_icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-guitar"),
+        "type_label": _activity_kind_label(kind),
+        # ⚠️ «Gratuito» NO es un tipo: el tipo es el que corresponda y lo de gratis va en su etiqueta.
+        "sale_label": (_concert_type_label(c) if kind in CONCERT_LIKE_ACTIVITY_TYPES
+                       else _activity_cache_label(getattr(c, "sale_type", None), getattr(c, "activity_type", None))),
+        "is_free": _concert_is_free(c),
+        # ⚠️ «No anunciar»: solo mientras NO se pueda anunciar. En cuanto se le pone fecha de anuncio
+        # (o se anuncia) la etiqueta desaparece sola — lo decide `_announcement_state`.
+        "no_announce": _announcement_state(c, today) == "NO_ANNOUNCE",
+        "status": status,
+        "status_label": st_label,
+        "status_badge": st_badge,
+        "show_subject": bool(show_subject),
+        "subject_name": subject_name,
+        "subject_photo": subject_photo,
+        "subject_id": subject_id,
+        "is_event": event is not None,
+        "title": ((getattr(c, "festival_name", None) or "").strip()
+                  or subject_name or _activity_kind_label(kind)),
+        "venue": (_concert_venue_name(c) or ""),
+        "municipality": _concert_city(c),
+        "province": _concert_province_value(c),
+        # El lugar en el formato ÚNICO de la casa: «Recinto · Municipio, Provincia» (país solo fuera).
+        "place_label": _place_label(_concert_city(c), _concert_province_value(c),
+                                    _concert_country_value(c), venue=_concert_venue_name(c)),
+    }
+
+
+def _action_row(a):
+    """La fila de una ACCIÓN (`CompanyAction`), con LAS MISMAS claves que la de una actividad."""
+    fecha = getattr(a, "start_date", None)
+    venue = getattr(a, "venue", None)
+    muni = (getattr(venue, "municipality", None) or "") if venue else ""
+    prov = (getattr(venue, "province", None) or "") if venue else ""
+    return {
+        "kind": "action",
+        "id": str(a.id),
+        "url": url_for("action_detail_view", action_id=a.id),
+        "date": fecha,
+        "date_label": fecha.strftime("%d/%m/%Y") if fecha else "Sin fecha",
+        "day": fecha.strftime("%d") if fecha else "",
+        "month": fecha.strftime("%b") if fecha else "",
+        "year": fecha.strftime("%Y") if fecha else "",
+        "type_key": "ACCION",
+        "type_icon": "fa-rocket",
+        "type_label": "Acción",
+        "sale_label": (getattr(a, "action_type", None) or "").replace("_", " ").capitalize(),
+        "is_free": False,
+        "no_announce": False,
+        "status": (getattr(a, "status", None) or ""),
+        "status_label": (getattr(a, "status", None) or ""),
+        "status_badge": _action_status_badge(getattr(a, "status", None)),
+        "show_subject": False,
+        "subject_name": "",
+        "subject_photo": "",
+        "subject_id": "",
+        "is_event": False,
+        "title": (getattr(a, "title", None) or "Acción"),
+        "venue": ((getattr(venue, "name", None) or "") if venue else ""),
+        "municipality": muni,
+        "province": prov,
+        "place_label": _place_label(muni, prov, None, venue=((getattr(venue, "name", None) or "") if venue else "")),
+    }
+
+
 @app.get("/actividades", endpoint="activities_view")
 @admin_required
 def activities_view():
@@ -49647,47 +50020,26 @@ def activities_view():
         # esta pantalla las enseñaba TODAS, así que una reserva que se estaba hablando salía para
         # toda la oficina.
         for c in _concert_list_visible(cq.order_by(Concert.date.asc().nullslast()).limit(1000).all()):
-            # QUÉ es la actividad (un evento promocional no es un concierto de ningún tipo).
-            _kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
-            lbl, bdg = _concert_status_meta(c.status)
-            items.append({
-                "kind": "concert", "type_key": _kind, "id": str(c.id),
-                "type_icon": QUAD_ACTIVITY_ICONS.get(_kind, "fa-guitar"),
-                "type_label": _activity_kind_label(_kind),
-                "sale_label": (_concert_type_label(c)
-                               if _kind in CONCERT_LIKE_ACTIVITY_TYPES else _activity_cache_label(c.sale_type, c.activity_type)),
-                "is_free": _concert_is_free(c),
-                "title": ((c.festival_name or "").strip() or _activity_kind_label(_kind)),
+            # La FILA la arma el punto único `_concert_row` (la misma que en Conciertos y que en la
+            # ficha del artista). Aquí solo se le añade lo que ESTA pantalla necesita para filtrar.
+            fila = _concert_row(c, show_subject=False, today=today)
+            fila.update({
                 "artist_id": (str(c.artist_id) if c.artist_id else ""),
                 "artist_ids": [str(x) for x in (c.artist_ids or [])],
                 "event_id": (str(c.event_id) if getattr(c, "event_id", None) else ""),
-                "date": c.date, "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
-                "venue": (_concert_venue_name(c) or "Sin recinto"),
-                "municipality": _concert_city(c), "province": _concert_province_value(c),
-                "status": (c.status or "BORRADOR").upper(),
-                "status_label": lbl, "status_badge": bdg,
-                "url": url_for("concert_detail_view", cid=c.id),
             })
+            items.append(fila)
         aq = s.query(CompanyAction).options(joinedload(CompanyAction.venue))
         if when_f == "future":
             aq = aq.filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) >= today)
         elif when_f == "past":
             aq = aq.filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) < today)
         for a in aq.order_by(CompanyAction.start_date.asc().nullslast()).limit(1000).all():
-            items.append({
-                "kind": "action", "type_key": "ACCION", "id": str(a.id), "type_icon": "fa-rocket",
-                "type_label": "Acción",
-                "sale_label": (a.action_type or "").replace("_", " ").capitalize(),
-                "title": (a.title or "Acción"),
+            fila = _action_row(a)
+            fila.update({
                 "artist_id": "", "artist_ids": [str(x) for x in (a.artist_ids or [])], "event_id": "",
-                "date": a.start_date,
-                "date_label": (a.start_date.strftime("%d/%m/%Y") if a.start_date else "Sin fecha"),
-                "venue": ((a.venue.name if a.venue else "") or "Sin recinto"),
-                "municipality": ((a.venue.municipality if a.venue else "") or ""),
-                "province": ((a.venue.province if a.venue else "") or ""),
-                "status_label": (a.status or ""), "status_badge": _action_status_badge(a.status),
-                "url": url_for("action_detail_view", action_id=a.id),
             })
+            items.append(fila)
         # Contadores de las etiquetas de tipo: sobre lo que se está VIENDO (el periodo y, si se ha
         # entrado en un artista o evento, solo lo suyo) pero sin aplicar el propio filtro de tipo —si
         # no, la etiqueta que acabas de pulsar dejaría a las demás a cero.
@@ -53146,21 +53498,25 @@ def concerts_page():
         promoters = s.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         all_concert_tags = _collect_all_concert_tags(s)
-        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
+        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERT_TYPE_CHOICES_ORDER]
 
         active_tab = (request.args.get("tab") or "vista").lower()
         # El formulario clásico desaparece: cualquier acceso antiguo a alta vuelve al listado.
         if active_tab == "alta" or active_tab not in ("vista", "facturacion"):
             active_tab = "vista"
 
-        f_artist_ids_raw = request.args.getlist("artist") or []
-        f_sale_types_raw = request.args.getlist("type") or []
-        f_statuses_raw = request.args.getlist("status") or []
-        f_when_raw = request.args.getlist("when") or []
-        f_announcements_raw = request.args.getlist('announcement') or []
-        f_years = _year_filter_from_request()
-        f_concert_tags = _dedupe_concert_tags(request.args.getlist("concert_tag") or request.args.getlist("hashtag") or [])
+        # FILTROS: punto único (los mismos que la pestaña «Conciertos» de la ficha del artista).
+        # En Facturación se miran también los pasados, así que ahí el valor por defecto es otro.
+        _f = _concert_filters_from_request(
+            default_when=(("PAST", "FUTURE") if active_tab == 'facturacion' else ("FUTURE",)))
+        f_when = _f["when"]
+        f_statuses = _f["statuses"]
+        f_sale_types = _f["sale_types"]
+        f_announcements = _f["announcements"]
+        f_concert_tags = _f["tags"]
+        f_years = _f["years"]
 
+        f_artist_ids_raw = request.args.getlist("artist") or []
         f_artist_ids = []
         for x in f_artist_ids_raw:
             x = (x or "").strip()
@@ -53171,23 +53527,8 @@ def concerts_page():
             except Exception:
                 pass
 
-        f_sale_types = [(x or "").strip().upper() for x in f_sale_types_raw if (x or "").strip()]
-        f_statuses = [(x or "").strip().upper() for x in f_statuses_raw if (x or "").strip()]
-        f_announcements = [(x or '').strip().upper() for x in f_announcements_raw if (x or '').strip()]
-
-        f_when = {(x or "").strip().upper() for x in f_when_raw if (x or "").strip()}
-        allowed_when = {"PAST", "FUTURE"}
-        f_when = {x for x in f_when if x in allowed_when}
-        if not f_when:
-            f_when = {"PAST", "FUTURE"} if active_tab == 'facturacion' else {"FUTURE"}
-
+        # (las listas blancas de los filtros viven ya en `_concert_filters_from_request`)
         allowed_sale_types = CONCERT_SALE_TYPES_ALL_SET
-        allowed_statuses = {"BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"}
-        allowed_announcements = {'NO_ANNOUNCE', 'UPCOMING', 'ANNOUNCED', 'NONE'}
-
-        f_sale_types = [x for x in f_sale_types if x in allowed_sale_types]
-        f_statuses = [x for x in f_statuses if x in allowed_statuses]
-        f_announcements = [x for x in f_announcements if x in allowed_announcements]
 
         if request.method == "POST":
             try:
@@ -53338,18 +53679,9 @@ def concerts_page():
             )
         if f_artist_ids:
             q = q.filter(Concert.artist_id.in_(f_artist_ids))
-        if f_sale_types:
-            q = q.filter(Concert.sale_type.in_(f_sale_types))
-        if f_statuses:
-            q = q.filter(Concert.status.in_(f_statuses))
 
         today = today_local()
-        want_past = "PAST" in f_when
-        want_future = "FUTURE" in f_when
-        if want_past and not want_future:
-            q = q.filter(Concert.date < today)
-        elif want_future and not want_past:
-            q = q.filter(Concert.date >= today)
+        q = _concert_filters_apply_sql(q, _f, today)
 
         concerts = q.order_by(Concert.date.asc()).all()
         # ⚠️ Lo que NO ESTÁ CONFIRMADO es de contratación: a esta pantalla llega también quien trabaja
@@ -53365,14 +53697,7 @@ def concerts_page():
                 if str(getattr(c, "artist_id", "") or "") in _assigned_set
                 or any(str(x) in _assigned_set for x in (getattr(c, "artist_ids", None) or []))
             ]
-        if f_concert_tags:
-            concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
-        if f_announcements:
-            concerts = [c for c in concerts if _announcement_state(c, today) in f_announcements]
-        # AÑO: las etiquetas se cuentan con todos los demás filtros puestos pero SIN el propio filtro
-        # de año (si no, al marcar uno los otros saldrían a cero y no se podrían combinar).
-        year_chips = _year_chips(concerts, today, f_years)
-        concerts = _filter_by_year(concerts, f_years)
+        concerts, year_chips, type_counts = _concert_filters_apply_list(concerts, _f, today)
 
         for c in concerts:
             setattr(c, "tags_clean", _concert_tags(c))
@@ -53434,7 +53759,6 @@ def concerts_page():
         artist_groups = []
         drill_artist = None
         show_all = request.args.get("all") == "1"
-        type_counts = {}
         if active_tab == "vista":
             count_q = (
                 s.query(Concert.artist_id, func.count(Concert.id))
@@ -53448,10 +53772,7 @@ def concerts_page():
             # ⚠️ EL NÚMERO DE CADA ARTISTA ES EL DE LO QUE VA A VER AL ENTRAR: se le aplica el MISMO
             # filtro de fechas que al listado (que por defecto enseña solo lo que está por venir).
             # Contando también lo pasado, la tarjeta decía «12 conciertos» y dentro había tres.
-            if want_past and not want_future:
-                count_q = count_q.filter(Concert.date < today)
-            elif want_future and not want_past:
-                count_q = count_q.filter(Concert.date >= today)
+            count_q = _concert_filters_apply_sql(count_q, {"when": _f["when"]}, today)
             if f_years:
                 count_q = count_q.filter(func.extract("year", Concert.date).in_(sorted(f_years)))
             count_rows = count_q.group_by(Concert.artist_id).all()
@@ -53469,8 +53790,6 @@ def concerts_page():
             filters_active = bool(f_sale_types or f_statuses or f_concert_tags or f_announcements
                                   or f_years or drill_artist or show_all)
             vista_mode = "list" if filters_active else "grid"
-            for c in concerts:
-                type_counts[c.sale_type] = type_counts.get(c.sale_type, 0) + 1
 
         # Las peticiones pendientes ya NO se listan aquí: viven en su propia pestaña (la primera de
         # Contratación) y lo que abre esta es el módulo de TAREAS pendientes (`CONTRACTING_TASKS`).
@@ -53486,6 +53805,21 @@ def concerts_page():
             drill_artist=drill_artist,
             show_all=show_all,
             type_counts=type_counts,
+            # FILTROS y FILAS: los dos parciales únicos (los mismos que la ficha del artista).
+            concert_filters=_concert_filters_context(
+                _f,
+                action_url=url_for('concerts_view'),
+                hidden=([('tab', 'vista')]
+                        + ([('artist', str(drill_artist.id))] if drill_artist else [('all', '1')])),
+                reset_url=url_for('concerts_view', **({'tab': 'vista', 'artist': str(drill_artist.id)}
+                                                      if drill_artist else {'tab': 'vista', 'all': '1'})),
+                modal_id='concertsFiltersModal',
+                type_choices=type_choices,
+                type_counts=type_counts,
+                all_tags=all_concert_tags,
+                year_chips=year_chips,
+            ),
+            concert_rows=[_concert_row(c, show_subject=not drill_artist, today=today) for c in concerts],
             # `artists` y `venues` son los de ESTA pantalla (su rejilla y sus filtros); el resto de
             # las listas del asistente las pone el punto único.
             artists=artists,
@@ -53689,6 +54023,8 @@ def concert_detail_view(cid):
         sale_channel_request = session.query(ConcertSaleChannelRequest).filter_by(concert_id=c.id).first()
         sale_seller = _concert_sale_seller(c)
         payment_terms = _concert_payment_rows(c, pending_only=False)
+        # ¿Está configurada la FORMA DE PAGO del caché? (aviso de la ficha + tarea del tablero)
+        cache_payment = _concert_cache_payment_state(session, c)
         payment_pending = _concert_payment_total(c, pending_only=True)
         payment_total_configured = _concert_payment_total(c, pending_only=False)
 
@@ -53870,6 +54206,7 @@ def concert_detail_view(cid):
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,
             payment_terms=payment_terms,
+            cache_payment=cache_payment,
             payment_pending=payment_pending,
             payment_total_configured=payment_total_configured,
             concert_contacts=_concert_contact_rows(c),
@@ -55167,10 +55504,9 @@ def concert_artwork_reject(cid):
 # ---------- Canales de venta (links de venta cuando vende un promotor externo) ----------
 
 def _concert_is_free_event(concert) -> bool:
-    """¿El evento es gratuito? (entrada FREE del asistente o sale_type GRATUITO)."""
-    payload = getattr(concert, 'ticketing_payload', None) or {}
-    entry_mode = (payload.get('entry_mode') or '').strip().upper() if isinstance(payload, dict) else ''
-    return entry_mode == 'FREE' or (concert.sale_type or '').strip().upper() == 'GRATUITO'
+    """¿El evento es gratuito? Alias del punto único `_concert_is_free` (se conserva el nombre
+    porque lo llaman los canales de venta; la regla vive en UN solo sitio)."""
+    return _concert_is_free(concert)
 
 
 def _concert_sale_seller(concert) -> dict:
@@ -55998,6 +56334,10 @@ def concert_section_update_handler(cid, section):
             # «El promotor cubre otros gastos» (solo si el formulario incluye el módulo).
             if request.form.get("promoter_costs_present"):
                 c.promoter_costs_payload = _parse_promoter_costs_form(request.form)
+            # FORMA DE PAGO del caché. ⚠️ Con CENTINELA: sin él, un POST desde una pantalla vieja
+            # dejaría el plan de pagos vacío (la misma regla que `promoter_costs_present`).
+            if request.form.get("payment_terms_present"):
+                c.payment_terms_json = _merge_payment_terms_rows(c, request.form)
             session.commit()
             flash("Cachés actualizados.", "success")
         elif section == "actividad":
@@ -57796,6 +58136,10 @@ def sales_update_view():
             .order_by(Concert.date.asc())
             .all()
         )
+        # ⚠️ Fuera lo GRATUITO (no vende ninguna entrada) y el FESTIVAL de un TERCERO (ese día tocan
+        # varios artistas y la venta no es de nuestra fecha). Punto único, EN BLOQUE.
+        _rep = _concerts_need_sales_report_map(session_db, concerts)
+        concerts = [c for c in concerts if _rep.get(c.id, True)]
 
         concert_ids = [c.id for c in concerts]
 
@@ -58763,6 +59107,10 @@ def concerts_for_report(session, day: date, past: bool = False, promoter_id=None
         q = q.filter(Concert.date >= cutoff)
 
     concerts = q.order_by(Concert.date.asc()).all()
+    # ⚠️ Fuera lo GRATUITO (no vende ninguna entrada) y el FESTIVAL de un TERCERO (ese día tocan
+    # varios artistas y la venta no es de nuestra fecha). Punto único, EN BLOQUE.
+    _rep = _concerts_need_sales_report_map(session, concerts)
+    concerts = [c for c in concerts if _rep.get(c.id, True)]
 
     def _safe_uuid(x):
         try:
@@ -59735,6 +60083,10 @@ def sales_update_report_pdf():
             concerts_q = concerts_q.filter(Concert.artist_id.in_(artist_uuid_set))
 
         concerts = concerts_q.order_by(Concert.date.asc()).all()
+        # ⚠️ Fuera lo GRATUITO (no vende ninguna entrada) y el FESTIVAL de un TERCERO (ese día tocan
+        # varios artistas y la venta no es de nuestra fecha). Punto único, EN BLOQUE.
+        _rep = _concerts_need_sales_report_map(session_db, concerts)
+        concerts = [c for c in concerts if _rep.get(c.id, True)]
         concert_ids = [c.id for c in concerts]
 
         if concert_ids:
@@ -63363,21 +63715,13 @@ def concert_wizard_create():
         artist_ids_payload = [str(uid) for uid in artist_ids]
         event_date = parse_date(request.form.get('date') or '')
         activity_type = (request.form.get('activity_type') or 'CONCIERTO').strip().upper()
-        activity_type_aliases = {
-            'CONCIERTO': 'CONCIERTO',
-            'FESTIVAL': 'FESTIVAL',
-            'EVENTO_PROMOCIONAL': 'EVENTO_PROMOCIONAL',
-            'PROMOCIONAL': 'EVENTO_PROMOCIONAL',
-            'PROGRAMA_TV': 'TV',
-            'TV': 'TV',
-            'MARCA': 'MARCA',
-            'ACCION_MARCA': 'MARCA',
-            'OTROS': 'OTROS',
-        }
-        # Ensayos y DISCOGRÁFICAS (premios, firmas, grabaciones, fotos, composición, reuniones): son
-        # actividades como las demás, con su ficha, su hoja de ruta, su bolsa y su producción.
-        activity_type_aliases.update({k: k for k in SIMPLE_ACTIVITY_TYPES})
-        activity_type = activity_type_aliases.get(activity_type, 'CONCIERTO')
+        # ⚠️ El TIPO se normaliza con el PUNTO ÚNICO del catálogo (`_activity_kind_key` +
+        # `QUAD_ACTIVITY_ALIASES`). Antes había aquí un segundo diccionario de alias y se
+        # desparejaba: un tipo nuevo del catálogo (CICLO, los ensayos, las discográficas) se
+        # guardaba como CONCIERTO sin dar ningún error.
+        activity_type = _activity_kind_key(activity_type) or 'CONCIERTO'
+        if activity_type not in QUAD_ACTIVITY_LABELS:
+            activity_type = 'CONCIERTO' 
         activity_subtype = (request.form.get('activity_subtype') or request.form.get('concert_kind') or '').strip().upper() or None
         sale_type = (request.form.get('sale_type') or 'EMPRESA').strip().upper()
         if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
@@ -64856,6 +65200,11 @@ def _concert_schedule_label(concert) -> str:
 QUAD_ACTIVITY_CHOICES = [
     ("CONCIERTO", "Concierto", "fa-guitar"),
     ("FESTIVAL", "Festival", "fa-star"),
+    # ⚠️ CICLO (de un TERCERO) no es lo mismo que FESTIVAL: en un festival tocan VARIOS artistas ese
+    # día y la venta no es de nuestra fecha (no lleva reporte de ventas ni se le pide al promotor que
+    # la actualice); en un ciclo, aunque sea de otro, ese día solo actúa NUESTRO artista, así que sí.
+    # No confundirlo con el ciclo que organizamos NOSOTROS, que es un `CycleFestival`.
+    ("CICLO", "Ciclo", "fa-calendar-week"),
     ("EVENTO_PROMOCIONAL", "Evento promocional", "fa-bullhorn"),
     ("TV", "Programa de TV", "fa-tv"),
     ("MARCA", "Acción con marca", "fa-tags"),
@@ -64896,7 +65245,9 @@ QUAD_ACTIVITY_LABELS = {k: l for k, l, _i in QUAD_ACTIVITY_CHOICES}
 QUAD_ACTIVITY_ICONS = {k: i for k, _l, i in QUAD_ACTIVITY_CHOICES}
 QUAD_ACTIVITY_ALIASES = {
     "CONCIERTO": "CONCIERTO",
-    "FESTIVAL": "FESTIVAL", "CADIZ": "FESTIVAL", "CICLO": "FESTIVAL",
+    # ⚠️ CICLO deja de ser un alias de FESTIVAL: es un tipo propio (ver el comentario del catálogo).
+    # «CADIZ» sí se queda apuntando a FESTIVAL: eso es un tipo de VENTA, no de actividad.
+    "FESTIVAL": "FESTIVAL", "CADIZ": "FESTIVAL", "CICLO": "CICLO",
     "EVENTO_PROMOCIONAL": "EVENTO_PROMOCIONAL", "PROMOCIONAL": "EVENTO_PROMOCIONAL", "PROMOCION": "EVENTO_PROMOCIONAL",
     "TV": "TV", "PROGRAMA_TV": "TV",
     "MARCA": "MARCA", "ACCION_MARCA": "MARCA",
@@ -64913,7 +65264,7 @@ QUAD_ACTIVITY_ALIASES = {
 }
 # Para el recuento de las pastillas: qué conceptos cuentan como "concierto" (vs
 # "actividad" no concierto: evento promocional / TV / marca / otros).
-QUAD_CONCERT_CONCEPTS = {"CONCIERTO", "FESTIVAL"}
+QUAD_CONCERT_CONCEPTS = {"CONCIERTO", "FESTIVAL", "CICLO"}
 # Tipos que viven en «Otras actividades» (los que NO son un concierto). Un evento promocional es un
 # evento promocional: aquí se filtra por lo que ES cada actividad, no por cómo se vende.
 OTHER_ACTIVITY_TYPE_KEYS = (["EVENTO_PROMOCIONAL", "TV", "MARCA"]
@@ -64921,7 +65272,7 @@ OTHER_ACTIVITY_TYPE_KEYS = (["EVENTO_PROMOCIONAL", "TV", "MARCA"]
 # Etiquetas de tipo de la sección ACTIVIDADES (todo lo que hay: los tipos de actividad + acciones).
 # Las «acciones» de antes se han fusionado en actividades: la etiqueta ACCION se conserva para las
 # `CompanyAction` que ya existían (siguen saliendo en el listado con su icono).
-ACTIVITIES_TYPE_KEYS = ["CONCIERTO", "FESTIVAL"] + OTHER_ACTIVITY_TYPE_KEYS + ["ACCION"]
+ACTIVITIES_TYPE_KEYS = ["CONCIERTO", "FESTIVAL", "CICLO"] + OTHER_ACTIVITY_TYPE_KEYS + ["ACCION"]
 
 
 def _concert_activity_concept(concert) -> str:
@@ -64941,7 +65292,7 @@ def quadrantes_view():
     try:
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
         all_concert_tags = _collect_all_concert_tags(session_db)
-        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
+        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERT_TYPE_CHOICES_ORDER]
 
         raw_ids = request.args.getlist("artist_id")
         selected_uuids = []
@@ -66716,6 +67067,7 @@ def _bootstrap_schema_bg():
         (ensure_vacations_schema, "ensure_vacations_schema"),
         (ensure_syncros_schema, "ensure_syncros_schema"),
         (ensure_afavor_schema, "ensure_afavor_schema"),
+        (ensure_expense_split_schema, "ensure_expense_split_schema"),
         (ensure_song_genres_schema, "ensure_song_genres_schema"),
         (ensure_song_demos_schema, "ensure_song_demos_schema"),
         (ensure_playlists_schema, "ensure_playlists_schema"),
@@ -72602,6 +72954,8 @@ INVOICE_STATUS_OPTIONS = [
     "ANULADA",
 ]
 BAG_STATUS_OPTIONS = ["ACTIVA", "EN_GESTION", "CERRADA", "LIQUIDADA", "ARCHIVADA"]
+# A una bolsa en estos estados NO se le añaden gastos (ni al crearlos ni al repartir uno).
+BAG_CLOSED_STATUSES = {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
 BAG_TYPES = [
     ("GENERAL", "General"),
     ("CONCIERTO", "Concierto"),
@@ -72613,6 +72967,7 @@ BAG_TYPES = [
     ("EVENTO_PROMOCIONAL", "Evento promocional"),
     ("PRORRATEO", "Bolsa de prorrateo"),
 ]
+BAG_TYPE_LABELS = {k: l for k, l in BAG_TYPES}
 PRODUCTION_ACTIVITY_TYPES = [
     ("CONCIERTO", "Concierto"),
     ("GIRA", "Gira"),
@@ -77839,8 +78194,11 @@ def _promotion_request_snapshot_from_source(session_db, source_type, source_id, 
             "artist_ids": [str(concert.artist_id)] if getattr(concert, "artist_id", None) else [],
             "cover_url": (getattr(getattr(concert, "artist", None), "photo_url", None) or default_cover),
             "detail_url": url_for("concert_detail_view", cid=concert.id, tab="marketing"),
-            "company_id": str(concert.billing_company_id) if getattr(concert, "billing_company_id", None) else None,
-            "company_label": (getattr(getattr(concert, "billing_company", None), "name", None) or "").strip(),
+            # ⚠️ La empresa la DICTA la actividad (la que factura): en el asistente de marketing no
+            # se pregunta, se configura sola. Punto único `_concert_billing_company_id`.
+            "company_id": (str(_concert_billing_company_id(concert)) if _concert_billing_company_id(concert) else None),
+            "company_label": (getattr(getattr(concert, "billing_company", None), "name", None)
+                              or getattr(getattr(concert, "group_company", None), "name", None) or "").strip(),
         }
     if source_type == "EVENT":
         # Evento propio (Bases de datos → Eventos): no cuelga de un artista, así que los artistas
@@ -78156,7 +78514,10 @@ def _promotion_creator_datasets(session_db):
             "meta": concert.date.strftime('%d/%m/%Y') if getattr(concert, 'date', None) else '',
             "cover_url": (getattr(getattr(concert, 'artist', None), 'photo_url', None) or default_cover),
             "date": concert.date.isoformat() if getattr(concert, 'date', None) else '',
-            "default_company_id": str(concert.billing_company_id) if getattr(concert, 'billing_company_id', None) else '',
+            # La empresa que FACTURA la actividad: el asistente NO la pregunta, la enseña ya puesta.
+            "default_company_id": (str(_concert_billing_company_id(concert)) if _concert_billing_company_id(concert) else ''),
+            "default_company_label": (getattr(getattr(concert, 'billing_company', None), 'name', None)
+                                      or getattr(getattr(concert, 'group_company', None), 'name', None) or ''),
         })
 
     # Eventos propios (Bases de datos → Eventos): no cuelgan de ningún artista, así que se listan
@@ -78186,6 +78547,7 @@ def _promotion_creator_datasets(session_db):
         "cover_url": ((t.logo_url or "").strip() or (getattr(getattr(t, "artist", None), "photo_url", None) or default_cover)),
         "date": t.start_date.isoformat() if getattr(t, "start_date", None) else "",
         "default_company_id": str(t.managing_company_id) if getattr(t, "managing_company_id", None) else "",
+        "default_company_label": (getattr(getattr(t, "managing_company", None), "name", None) or ""),
     } for t in (session_db.query(PurchasedTour)
                 .options(joinedload(PurchasedTour.artist))
                 .order_by(PurchasedTour.start_date.desc().nullslast(), PurchasedTour.created_at.desc()).all())]
@@ -78199,6 +78561,7 @@ def _promotion_creator_datasets(session_db):
         "cover_url": ((cf.logo_url or "").strip() or default_cover),
         "date": cf.start_date.isoformat() if getattr(cf, "start_date", None) else "",
         "default_company_id": str(cf.managing_company_id) if getattr(cf, "managing_company_id", None) else "",
+        "default_company_label": (getattr(getattr(cf, "managing_company", None), "name", None) or ""),
         "any_artist": True,
     } for cf in session_db.query(CycleFestival).order_by(CycleFestival.start_date.desc().nullslast(), CycleFestival.created_at.desc()).all()]
 
@@ -78610,12 +78973,18 @@ def promotion_create():
         target_date = _promotion_target_date_from_source(session_db, subject_type, subject_id)
         if not target_date and source_request and getattr(source_request, 'subject_date', None):
             target_date = source_request.subject_date
-        company_id = to_uuid(company_id_raw) if company_id_raw else None
-        if not company_id and snapshot.get('company_id'):
+        # ⚠️⚠️ La EMPRESA la DICTA el sujeto cuando él la tiene: en una campaña vinculada a una
+        # ACTIVIDAD (o a una gira o un ciclo) es SIEMPRE la que factura esa actividad, así que no se
+        # pregunta y lo que llegue del formulario NO manda (el asistente ni siquiera lo enseña).
+        # Solo cuando el sujeto no dicta ninguna (artista, canción, disco) vale lo que se elija.
+        company_id = None
+        if snapshot.get('company_id'):
             try:
                 company_id = to_uuid(snapshot.get('company_id'))
             except Exception:
                 company_id = None
+        if not company_id and company_id_raw:
+            company_id = to_uuid(company_id_raw)
         marketing_fields = _marketing_request_fields_from_form(request.form, source_request=source_request)
         state = _current_user_state()
         promotion = Promotion(
@@ -78723,7 +79092,10 @@ def promotion_detail_view(promotion_id):
             invoices = session_db.query(InvoiceRecord).filter(InvoiceRecord.bag_id == promotion.bag_id).order_by(InvoiceRecord.issue_date.desc(), InvoiceRecord.created_at.desc()).all()
         media_outlets = session_db.query(MediaOutlet).order_by(MediaOutlet.media_type.asc(), MediaOutlet.name.asc()).all()
         promoters = session_db.query(Promoter).order_by(Promoter.nick.asc()).all()
-        promoter_companies = session_db.query(PromoterCompany).order_by(PromoterCompany.legal_name.asc().nullslast(), PromoterCompany.name.asc().nullslast()).all()
+        # ⚠️ `PromoterCompany` NO tiene columna `name`: su nombre es `legal_name` (NOT NULL).
+        # Ordenar por un atributo inexistente reventaba la ficha entera con un AttributeError
+        # (500 → pantalla de mantenimiento) justo después de crear una acción de marketing.
+        promoter_companies = session_db.query(PromoterCompany).order_by(PromoterCompany.legal_name.asc()).all()
         bags_for_split = session_db.query(WorkflowBag).filter(WorkflowBag.is_archived == False).order_by(WorkflowBag.start_date.asc().nullslast(), WorkflowBag.title.asc()).all()  # noqa: E712
         media_contacts = session_db.query(MediaContact).order_by(MediaContact.created_at.asc()).all()
         media_contacts_payload = []
@@ -81566,7 +81938,20 @@ def _expense_payable_gross(expense, retention) -> Decimal:
 
 
 def _expense_payment_amount(session_db, expense, *, retention=None) -> Decimal:
-    """Lo que queda por PAGARLE: el total de la factura menos lo que ya se le haya pagado."""
+    """Lo que queda por PAGARLE: el total de la factura menos lo que ya se le haya pagado.
+
+    ⚠️⚠️ En un gasto DIVIDIDO paga el TITULAR y paga el TOTAL DEL GRUPO (la factura es una): una
+    PARTE devuelve 0 para que no se pueda pagar dos veces."""
+    if _split_is_part(expense):
+        return Decimal("0")
+    if getattr(expense, "split_group_id", None) and _split_is_titular(expense):
+        if retention is None:
+            retention = _expense_retention(session_db, expense)
+        filas = _split_group_rows(session_db, expense)
+        bruto = sum((_money_or_zero(getattr(f, "amount_gross", 0)) for f in filas), Decimal("0")) - _money_or_zero(retention)
+        pagado = sum((_money_or_zero(getattr(f, "paid_amount", 0)) for f in filas), Decimal("0"))
+        resto = (bruto if bruto > 0 else Decimal("0")) - pagado
+        return resto if resto > 0 else Decimal("0")
     if retention is None:
         retention = _expense_retention(session_db, expense)
     resto = _expense_payable_gross(expense, retention) - _money_or_zero(getattr(expense, "paid_amount", 0))
@@ -81581,6 +81966,9 @@ def _payment_pending_expenses(session_db, *, company_id=None, limit=800) -> list
              .filter(BagExpense.status != "ELIMINADO")
              .filter(BagExpense.covered_by == "BOLSA")
              .filter(BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)))
+             # ⚠️⚠️ Un gasto DIVIDIDO se paga UNA vez: solo sale el TITULAR del reparto. Las partes
+             # existen para que cada bolsa vea su trozo, y su estado se espeja del titular.
+             .filter(or_(BagExpense.split_role.is_(None), BagExpense.split_role != "PARTE"))
              .filter(BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"])))
     rows = query.order_by(BagExpense.created_at.desc()).limit(limit).all()
     if company_id is not None:
@@ -81662,6 +82050,8 @@ def _paid_without_receipt_expenses(session_db, *, limit=400) -> list:
             .options(joinedload(BagExpense.bag), joinedload(BagExpense.provider))
             .filter(BagExpense.status != "ELIMINADO",
                     BagExpense.payment_status == "PAGADO",
+                    # ⚠️ El justificante es del TITULAR del reparto: una PARTE no se paga por su cuenta.
+                    or_(BagExpense.split_role.is_(None), BagExpense.split_role != "PARTE"),
                     or_(BagExpense.payment_receipt_url.is_(None), BagExpense.payment_receipt_url == ""))
             .order_by(BagExpense.updated_at.desc().nullslast())
             .limit(limit).all())
@@ -81684,6 +82074,9 @@ def _payments_history_rows(session_db, *, q: str = "", limit: int = 1500) -> lis
               .options(joinedload(BagExpense.bag), joinedload(BagExpense.provider))
               .filter(BagExpense.status != "ELIMINADO",
                       BagExpense.payment_status.in_(["PAGADO", "PARCIAL"]),
+                      # ⚠️⚠️ Una PARTE de un gasto dividido NO es un pago: el pago es UNO y lo hace el
+                      # titular. Listándolas, el archivo de pagos contaría el mismo dinero N veces.
+                      or_(BagExpense.split_role.is_(None), BagExpense.split_role != "PARTE"),
                       BagExpense.paid_amount > 0)
               .order_by(BagExpense.updated_at.desc().nullslast()).limit(limit).all()):
         ben = _expense_beneficiary(session_db, e)
@@ -81697,8 +82090,14 @@ def _payments_history_rows(session_db, *, q: str = "", limit: int = 1500) -> lis
             "concept": (getattr(e, "concept", None) or "Sin concepto").strip(),
             "source": ((getattr(bag, "title", None) or "").strip() or "Gasto suelto"),
             "source_url": (url_for("bag_detail_view", bag_id=e.bag_id) if getattr(e, "bag_id", None) else ""),
-            "amount": _money_or_zero(getattr(e, "paid_amount", 0)),
-            "gross": _money_or_zero(getattr(e, "amount_gross", 0)),
+            # ⚠️ En un gasto DIVIDIDO el pago es UNO y por el GRUPO ENTERO: aquí se enseña lo que
+            # de verdad salió al proveedor, no solo el trozo de la bolsa del titular.
+            "amount": (sum((_money_or_zero(getattr(f, "paid_amount", 0))
+                            for f in _split_group_rows(session_db, e)), Decimal("0"))
+                       if getattr(e, "split_group_id", None)
+                       else _money_or_zero(getattr(e, "paid_amount", 0))),
+            "gross": (_split_totals(session_db, e)["gross"] if getattr(e, "split_group_id", None)
+                      else _money_or_zero(getattr(e, "amount_gross", 0))),
             "partial": (e.payment_status or "").upper() == "PARCIAL",
             "method": (getattr(e, "payment_method", None) or "").strip(),
             "batch_ref": (getattr(lote, "reference", None) or ""),
@@ -82455,6 +82854,9 @@ def _payment_batch_add_expenses(session_db, batch, expense_ids) -> int:
         if expense is None:
             continue
         if (getattr(expense, "payment_status", None) or "").upper() == "PAGADO":
+            continue
+        # ⚠️⚠️ Una PARTE de un gasto dividido NUNCA entra en un fichero SEPA: paga el titular.
+        if _split_is_part(expense):
             continue
         bag_company = str(getattr(getattr(expense, "bag", None), "company_id", "") or "")
         if str(batch.company_id or "") and bag_company and bag_company != str(batch.company_id):
@@ -83835,6 +84237,7 @@ def payment_batch_receipt(batch_id):
         batch.paid_at = _now_madrid()
         batch.updated_at = _now_madrid()
         bolsas, n = {}, 0
+        pagados_split = []
         for item in session_db.query(PaymentBatchItem).filter(PaymentBatchItem.batch_id == batch.id).all():
             expense = session_db.get(BagExpense, item.expense_id) if item.expense_id else None
             if expense is None:
@@ -83844,8 +84247,19 @@ def payment_batch_receipt(batch_id):
             # Si el gasto ya llevaba un pago parcial, la remesa paga la DIFERENCIA: se suma a lo que
             # ya había (topando en lo que hay que pagarle, o sea el bruto menos la retención), no se
             # sustituye.
-            bruto = _expense_payable_gross(expense, _expense_retention(session_db, expense))
-            acumulado = _money_or_zero(getattr(expense, "paid_amount", 0)) + _money_or_zero(item.amount)
+            # ⚠️⚠️ En un gasto DIVIDIDO el banco paga la factura ENTERA: el tope es el total del
+            # GRUPO, no el trozo del titular. Topando con su trozo, la app apuntaba MENOS dinero del
+            # que salió del banco (bug real: salían 1.210 € y quedaban apuntados 726 €).
+            _ret_r = _expense_retention(session_db, expense)
+            if getattr(expense, "split_group_id", None) and _split_is_titular(expense):
+                _bg = _split_totals(session_db, expense)["gross"] - _money_or_zero(_ret_r)
+                bruto = _bg if _bg > 0 else Decimal("0")
+                ya = sum((_money_or_zero(getattr(f, "paid_amount", 0))
+                          for f in _split_group_rows(session_db, expense)), Decimal("0"))
+            else:
+                bruto = _expense_payable_gross(expense, _ret_r)
+                ya = _money_or_zero(getattr(expense, "paid_amount", 0))
+            acumulado = ya + _money_or_zero(item.amount)
             expense.paid_amount = bruto if (bruto > 0 and acumulado > bruto) else acumulado
             expense.payment_method = f"Remesa {batch.reference}"
             expense.payment_batch_id = batch.id
@@ -83855,6 +84269,8 @@ def payment_batch_receipt(batch_id):
             n += 1
             if getattr(expense, "bag_id", None):
                 bolsas[str(expense.bag_id)] = expense.bag_id
+            if getattr(expense, "split_group_id", None):
+                pagados_split.append(expense)
         # Las LIQUIDACIONES DE ROYALTIES de la remesa también quedan pagadas: pasan a contabilidad
         # (pendientes de contabilizar) y se archivan, igual que una bolsa sin nada que pagar.
         liq_n = 0
@@ -83867,6 +84283,14 @@ def payment_batch_receipt(batch_id):
                 continue
             _royalty_mark_paid(rec, method=f"Remesa {batch.reference}", batch=batch)
             liq_n += 1
+        session_db.flush()
+        # ⚠️ Los gastos DIVIDIDOS: el pago del titular se espeja a sus partes y sus bolsas entran en
+        # la lista de las que hay que mirar para cerrar.
+        for _e in list(pagados_split):
+            _split_propagate(session_db, _e)
+            for _f in _split_group_rows(session_db, _e):
+                if getattr(_f, "bag_id", None):
+                    bolsas[str(_f.bag_id)] = _f.bag_id
         session_db.flush()
         archivadas = 0
         for bag_id in bolsas.values():
@@ -86325,10 +86749,13 @@ def _admin_pending_counts(session_db) -> dict:
         vivos, BagExpense.immediate_payment_requested == True))  # noqa: E712
     sin_factura = _n(session_db.query(func.count(BagExpense.id)).filter(
         vivos, BagExpense.consolidation_status == "SIN_FACTURA_SOLICITADO"))
+    # ⚠️ Sin excluir las PARTES de un gasto dividido, el número de la pestaña no cuadra con la lista
+    # (que sí las excluye): un gasto repartido en dos bolsas decía «2» y se veía «1».
     pago = _n(session_db.query(func.count(BagExpense.id)).filter(
         vivos,
         BagExpense.covered_by == "BOLSA",
         BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
+        or_(BagExpense.split_role.is_(None), BagExpense.split_role != "PARTE"),
         BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"])))
     # Las liquidaciones de royalties ya validadas también están pendientes de pago: si no se cuentan
     # aquí, el número de la subpestaña no cuadra con lo que se ve dentro.
@@ -86340,6 +86767,7 @@ def _admin_pending_counts(session_db) -> dict:
     # Un pago no termina hasta que hay JUSTIFICANTE: los ya pagados sin él siguen contando.
     pago += _n(session_db.query(func.count(BagExpense.id)).filter(
         vivos, BagExpense.payment_status == "PAGADO",
+        or_(BagExpense.split_role.is_(None), BagExpense.split_role != "PARTE"),
         or_(BagExpense.payment_receipt_url.is_(None), BagExpense.payment_receipt_url == "")))
 
     bolsas_base = and_(
@@ -86661,8 +87089,18 @@ def administration_expense_mark_paid(expense_id):
         # ⚠️ LO QUE HAY QUE PAGARLE es el TOTAL DE LA FACTURA (bruto − retención): la retención no se
         # le abona (la ingresa la casa en Hacienda). Medir contra el bruto dejaba el gasto en PARCIAL
         # para siempre al pagar lo que decía la factura.
-        gross = _expense_payable_gross(expense, _expense_retention(session_db, expense))
-        ya_pagado = _money_or_zero(getattr(expense, "paid_amount", 0))
+        # ⚠️⚠️ Si el gasto está DIVIDIDO entre varias bolsas, la factura es UNA y lo que se paga es
+        # el TOTAL DEL GRUPO: paga el TITULAR y paga por todas. Midiendo solo su trozo, el gasto se
+        # quedaba en PARCIAL para siempre y las demás bolsas no veían su parte pagada.
+        _ret = _expense_retention(session_db, expense)
+        if getattr(expense, "split_group_id", None) and _split_is_titular(expense):
+            _bruto_grupo = _split_totals(session_db, expense)["gross"] - _money_or_zero(_ret)
+            gross = _bruto_grupo if _bruto_grupo > 0 else Decimal("0")
+            ya_pagado = sum((_money_or_zero(getattr(f, "paid_amount", 0))
+                             for f in _split_group_rows(session_db, expense)), Decimal("0"))
+        else:
+            gross = _expense_payable_gross(expense, _ret)
+            ya_pagado = _money_or_zero(getattr(expense, "paid_amount", 0))
         pendiente = gross - ya_pagado
         if pendiente < 0:
             pendiente = Decimal("0")
@@ -86711,9 +87149,14 @@ def administration_expense_mark_paid(expense_id):
                                              amount=ahora, method=expense.payment_method,
                                              created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
         session_db.flush()
+        # ⚠️ Si el gasto está DIVIDIDO, el pago es de TODO el grupo: se espeja a sus partes para que
+        # cada bolsa vea que lo suyo ya está pagado (y se cierran las que se queden sin pendiente).
+        _split_propagate(session_db, expense)
         archivada = False
-        if expense.payment_status == "PAGADO" and getattr(expense, "bag_id", None):
-            archivada = _bag_close_if_fully_paid(session_db, session_db.get(WorkflowBag, expense.bag_id))
+        if expense.payment_status == "PAGADO":
+            for _bag_id in {getattr(f, "bag_id", None) for f in _split_group_rows(session_db, expense)}:
+                if _bag_id and _bag_close_if_fully_paid(session_db, session_db.get(WorkflowBag, _bag_id)):
+                    archivada = True
         session_db.commit()
         if expense.payment_status == "PARCIAL":
             flash(f"Pago parcial registrado. Quedan {format_eur(queda)} por pagar.", "success")
@@ -86734,6 +87177,10 @@ def administration_bag_liquidate(bag_id):
             bag.liquidation_status = "PENDIENTE_PAGO"
             bag.liquidation_reviewed_at = _now_madrid()
             for expense in session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO", BagExpense.covered_by == "BOLSA").all():
+            # ⚠️ Un gasto DIVIDIDO se paga y se factura UNA vez, en su TITULAR: las PARTES
+            # solo existen para que cada bolsa vea su trozo (su estado se espeja).
+                if _split_is_part(expense):
+                    continue
                 if (expense.payment_status or "NO_PAGADO") == "NO_PAGADO":
                     expense.payment_status = "PENDIENTE"
             session_db.commit()
@@ -86754,8 +87201,19 @@ def administration_bag_mark_paid(bag_id):
             bag.status = "LIQUIDADA"
             bag.liquidation_paid_at = _now_madrid()
             for expense in session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO", BagExpense.covered_by == "BOLSA").all():
+            # ⚠️ Un gasto DIVIDIDO se paga y se factura UNA vez, en su TITULAR: las PARTES
+            # solo existen para que cada bolsa vea su trozo (su estado se espeja).
+                # ⚠️⚠️ Marcando una PARTE como pagada, esta bolsa daría por saldado un dinero que
+                # NADIE ha pagado: la factura se paga entera desde la bolsa del titular.
+                if _split_is_part(expense):
+                    continue
                 expense.payment_status = "PAGADO"
-                expense.paid_amount = expense.amount_gross or 0
+                if getattr(expense, "split_group_id", None):
+                    # El titular paga por TODO el grupo, y cada bolsa ve su parte pagada.
+                    expense.paid_amount = _split_totals(session_db, expense)["gross"]
+                    _split_propagate(session_db, expense)
+                else:
+                    expense.paid_amount = expense.amount_gross or 0
             session_db.commit()
             flash("Bolsa liquidada y pagada.", "success")
     finally:
@@ -86890,7 +87348,10 @@ def _accounting_base_query(session_db, *, doc_types=None, include_done: bool = F
          .options(joinedload(BagExpense.bag).joinedload(WorkflowBag.artist),
                   joinedload(BagExpense.provider),
                   joinedload(BagExpense.provider_company))
-         .filter(BagExpense.status != "ELIMINADO"))
+         .filter(BagExpense.status != "ELIMINADO")
+         # ⚠️⚠️ Un gasto DIVIDIDO se contabiliza UNA vez (un documento no se sube dos veces a
+         # Holded): solo el TITULAR llega a contabilidad; las partes reciben su estado espejado.
+         .filter(or_(BagExpense.split_role.is_(None), BagExpense.split_role != "PARTE")))
     if company_ids:
         ids = [to_uuid(str(x)) for x in company_ids if to_uuid(str(x))]
         if ids:
@@ -90337,8 +90798,13 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
         expense.ticket_establishment = ticket_establishment
     elif expense.document_type != "TICKET" and "ticket_establishment" in form:
         expense.ticket_establishment = None
-    expense.invoice_number = (form.get("invoice_number") or "").strip() or None
-    expense.issue_date = _bag_date(form.get("issue_date"))
+    # ⚠️⚠️ Cada campo solo se escribe si el formulario LO TRAE. Sin la guarda, un formulario que no
+    # pregunte por el nº de factura, la fecha, la retención o el método de pago los BORRARÍA al
+    # guardar (y eso es dinero: la retención cambia lo que se paga en la remesa).
+    if "invoice_number" in form:
+        expense.invoice_number = (form.get("invoice_number") or "").strip() or None
+    if "issue_date" in form:
+        expense.issue_date = _bag_date(form.get("issue_date"))
 
     amount_net = _bag_money(form.get("amount_net"))
     amount_tax = _bag_money(form.get("amount_tax"))
@@ -90373,10 +90839,16 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
             amount_tax = amount_gross - amount_net
         if amount_net <= 0 and amount_gross > 0 and amount_tax > 0 and amount_gross >= amount_tax:
             amount_net = amount_gross - amount_tax
-    expense.amount_net = amount_net
-    expense.amount_tax = amount_tax
-    expense.amount_gross = amount_gross
-    expense.retention_amount = _bag_money(form.get("retention_amount"))
+    # ⚠️⚠️ Un formulario que NO trae NINGÚN campo de importe no toca el importe: sin esta guarda,
+    # cualquier guardado parcial (o el de una fila de un reparto, donde el importe no se pregunta)
+    # dejaba el gasto en 0 € — y eso es dinero que desaparece de la bolsa.
+    _trae_importe = any(k in form for k in ("amount_value", "amount_net", "amount_tax", "amount_gross"))
+    if _trae_importe:
+        expense.amount_net = amount_net
+        expense.amount_tax = amount_tax
+        expense.amount_gross = amount_gross
+    if "retention_amount" in form:
+        expense.retention_amount = _bag_money(form.get("retention_amount"))
 
     paid_amount = _bag_money(form.get("paid_amount"))
     estado_pedido = (form.get("payment_status") or "").strip().upper()
@@ -90389,7 +90861,8 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
     if expense.payment_status == "PAGADO" and paid_amount <= 0:
         paid_amount = amount_gross
     expense.paid_amount = paid_amount
-    expense.payment_method = (form.get("payment_method") or "").strip() or None
+    if "payment_method" in form:
+        expense.payment_method = (form.get("payment_method") or "").strip() or None
     if "covered_by" in form:
         covered = (form.get("covered_by") or "BOLSA").strip().upper()
         expense.covered_by = covered if covered in BAG_COVERED_BY_LABELS else "BOLSA"
@@ -90421,6 +90894,15 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
     else:
         expense.consolidation_status = "PENDIENTE"
     expense.updated_at = _now_madrid()
+    # ⚠️⚠️ Si el gasto está DIVIDIDO, lo que se acaba de escribir (la factura, su validación, el
+    # estado del pago, el tipo de documento) tiene que llegar a sus PARTES: si no, la bolsa de una
+    # parte se queda con el gasto «sin consolidar» para siempre y NO SE PUEDE CERRAR. El orden
+    # normal es dividir ANTES de que llegue la factura, así que sin esto el caso normal se rompe.
+    if getattr(expense, "split_group_id", None):
+        try:
+            _split_propagate(session_db, _split_titular_of(session_db, expense))
+        except Exception:
+            app.logger.exception("[bolsas] no se pudo espejar el reparto del gasto")
     return expense
 
 
@@ -90568,7 +91050,443 @@ def _bag_create_expense(session_db, bag: WorkflowBag, form, *, file_storage=None
     session_db.add(expense)
     session_db.flush()
     _bag_update_expense_from_form(session_db, expense, form, file_storage=file_storage, append_history=False)
-    # El buscador de proveedor ofrece MEDIOS, ARTISTAS y PERSONAL: se espejan a tercero al guardar.
+    _bag_apply_provider_from_form(session_db, expense, form)
+    _bag_expense_extras_from_form(session_db, expense, form)
+    return expense
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# DIVIDIR UN GASTO ENTRE VARIAS BOLSAS
+# ---------------------------------------------------------------------------------------------
+# Una misma factura puede ser de varias bolsas (un vuelo compartido, un alquiler que se reparte…).
+# ⚠️⚠️ LO QUE NO PUEDE PASAR ES PAGARLA NI CONTABILIZARLA DOS VECES. El reparto son N filas
+# hermanas —una por bolsa, para que cada una vea su trozo en SUS totales sin tocar ni un lector— con
+# UN ÚNICO **TITULAR**: es la única que sale en pendiente de pago, en la remesa SEPA y en
+# contabilidad. Las **PARTES** reciben el estado ESPEJADO (factura, validación, pago, contabilidad)
+# para que su bolsa lo vea, pero no se pagan ni se suben a Holded por su cuenta.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+SPLIT_MODES = [
+    ("EQUAL", "A partes iguales", "fa-equals"),
+    ("AMOUNT", "Importe fijo", "fa-euro-sign"),
+    ("PERCENT", "Porcentaje", "fa-percent"),
+]
+SPLIT_MODE_LABELS = {k: l for k, l, _i in SPLIT_MODES}
+SPLIT_TITULAR = "TITULAR"
+SPLIT_PARTE = "PARTE"
+
+# Qué bolsas ofrece cada tipo. ⚠️ En «Proyecto discográfico» salen TAMBIÉN las bolsas abiertas
+# directamente desde un SINGLE o desde un ÁLBUM aunque no hayan pasado por un proyecto: para el
+# dinero es lo mismo, y si no, no habría forma de repartir un gasto con ellas.
+BAG_SPLIT_KINDS = [
+    ("PROYECTO", "Proyecto discográfico", "fa-compact-disc"),
+    ("SINGLE", "Single", "fa-music"),
+    ("ACTIVIDAD", "Actividad", "fa-guitar"),
+]
+BAG_SPLIT_KIND_LABELS = {k: l for k, l, _i in BAG_SPLIT_KINDS}
+
+
+def _split_is_part(expense) -> bool:
+    return (getattr(expense, "split_role", None) or "").upper() == SPLIT_PARTE
+
+
+def _split_is_titular(expense) -> bool:
+    return (getattr(expense, "split_role", None) or "").upper() == SPLIT_TITULAR
+
+
+def _split_group_rows(session_db, expense) -> list:
+    """Todas las filas VIVAS del reparto, el titular primero."""
+    gid = getattr(expense, "split_group_id", None)
+    if not gid:
+        return [expense] if expense is not None else []
+    filas = (session_db.query(BagExpense)
+             .options(joinedload(BagExpense.bag))
+             .filter(BagExpense.split_group_id == gid, BagExpense.status != "ELIMINADO")
+             .all())
+    filas.sort(key=lambda e: (0 if _split_is_titular(e) else 1, str(getattr(e, "created_at", "") or "")))
+    return filas
+
+
+def _split_titular_of(session_db, expense):
+    """La fila que PAGA (y lleva la factura y la contabilidad) de este reparto."""
+    if expense is None:
+        return None
+    if not getattr(expense, "split_group_id", None) or _split_is_titular(expense):
+        return expense
+    for fila in _split_group_rows(session_db, expense):
+        if _split_is_titular(fila):
+            return fila
+    return expense
+
+
+def _split_totals(session_db, expense) -> dict:
+    """El total del REPARTO ENTERO (se calcula sumando las filas: guardarlo sería una segunda
+    verdad que se desparejaría al editar)."""
+    filas = _split_group_rows(session_db, expense)
+    def _suma(campo):
+        return sum((_money_or_zero(getattr(f, campo, 0)) for f in filas), Decimal("0"))
+    return {"gross": _suma("amount_gross"), "net": _suma("amount_net"),
+            "tax": _suma("amount_tax"), "retention": _suma("retention_amount"),
+            "rows": len(filas)}
+
+
+def _split_distribute(total_gross: Decimal, spec: list[dict]) -> list[dict]:
+    """Reparte `total_gross` entre las filas de `spec` [{bag_id, mode, value, titular}].
+
+    ⚠️⚠️ EL REDONDEO VA AL TITULAR: 100 € entre 3 son 33,33 + 33,33 + 33,34. Si las partes no suman
+    EXACTAMENTE el total, la factura deja de cuadrar con lo que se paga."""
+    total = _money_or_zero(total_gross)
+    n = len(spec)
+    if n == 0:
+        return []
+    modo = (spec[0].get("mode") or "EQUAL").upper()
+    salida = []
+    if modo == "EQUAL":
+        parte = (total / Decimal(n)).quantize(Decimal("0.01"))
+        importes = [parte] * n
+    elif modo == "PERCENT":
+        importes = []
+        for fila in spec:
+            pct = _parse_pct_decimal(fila.get("value")) or Decimal("0")
+            importes.append((total * pct / Decimal("100")).quantize(Decimal("0.01")))
+    else:  # AMOUNT
+        importes = [_money_or_zero(fila.get("value")) for fila in spec]
+    # El resto (o el sobrante) se lo queda el TITULAR, que es quien paga.
+    idx_titular = next((i for i, f in enumerate(spec) if f.get("titular")), 0)
+    importes[idx_titular] = importes[idx_titular] + (total - sum(importes, Decimal("0")))
+    for fila, importe in zip(spec, importes):
+        pct = (importe * Decimal("100") / total).quantize(Decimal("0.01")) if total else Decimal("0")
+        salida.append({**fila, "amount": importe, "pct": pct})
+    return salida
+
+
+def _split_amount_fields(expense, gross: Decimal, vat_pct, es_ticket: bool) -> None:
+    """Pone el bruto de una fila y recalcula su base y su IVA con el mismo criterio de la casa."""
+    gross = _money_or_zero(gross)
+    expense.amount_gross = gross
+    if es_ticket:
+        expense.amount_net = gross
+        expense.amount_tax = Decimal("0")
+        return
+    pct = _money_or_zero(vat_pct) if vat_pct is not None else BAG_VAT_PCT_DEFAULT
+    if pct:
+        neto = (gross / (Decimal("1") + pct / Decimal("100"))).quantize(Decimal("0.01"))
+    else:
+        neto = gross
+    expense.amount_net = neto
+    expense.amount_tax = gross - neto
+
+
+def _split_lock_reason(session_db, expense) -> str:
+    """¿Por qué NO se puede tocar este reparto? («» si se puede)."""
+    titular = _split_titular_of(session_db, expense)
+    if titular is None:
+        return "El gasto ya no existe."
+    if (getattr(titular, "payment_status", None) or "").upper() in ("PAGADO", "PARCIAL"):
+        return "Ya está pagado (del todo o en parte): para cambiar el reparto hay que deshacer el pago."
+    if getattr(titular, "payment_batch_id", None):
+        return "Está metido en una remesa: sácalo de la remesa antes de cambiar el reparto."
+    if (getattr(titular, "accounting_status", None) or "").upper() in ACCOUNTING_DONE_STATUSES:
+        return "Ya está contabilizado."
+    # ⚠️ Y si el documento YA está creado en Holded: un documento no se sube dos veces, así que
+    # cambiar aquí los importes dejaría la app y la contabilidad desparejadas sin remedio.
+    if (getattr(titular, "holded_doc_id", None) or "").strip():
+        return "Ya está subido a Holded: allí quedaría el importe viejo."
+    return ""
+
+
+def _split_propagate(session_db, titular) -> None:
+    """ESPEJA del titular a sus partes lo que NO puede vivir dos veces: la factura, su validación,
+    el estado del pago y la contabilidad.
+
+    Así cada bolsa VE lo que pasa con su trozo, pero el gasto se paga y se contabiliza UNA vez."""
+    if titular is None or not getattr(titular, "split_group_id", None):
+        return
+    grupo = _split_group_rows(session_db, titular)
+    total_grupo = sum((_money_or_zero(getattr(f, "amount_gross", 0)) for f in grupo), Decimal("0"))
+    # ⚠️⚠️ El pago se apunta EN EL TITULAR por el GRUPO ENTERO (la factura es una), pero cada fila
+    # tiene que enseñar LO SUYO en su bolsa: se prorratea entre todas —el titular incluido— y lo
+    # pagado del grupo pasa a ser la SUMA. Dejando el total del grupo en el titular, su bolsa decía
+    # «pagado 1.210 € de 403,34 €».
+    pagado_grupo = _money_or_zero(getattr(titular, "paid_amount", 0))
+    repartido = Decimal("0")
+    for fila in grupo:
+        proporcion = ((_money_or_zero(fila.amount_gross) / total_grupo) if total_grupo else Decimal("0"))
+        if not _split_is_titular(fila):
+            for campo in ("attachment_url", "attachment_name", "attachment_mime", "invoice_number",
+                          "issue_date", "document_type", "consolidation_status", "accounting_status",
+                          "payment_status", "payment_method"):
+                setattr(fila, campo, getattr(titular, campo, None))
+            # ⚠️⚠️ La RETENCIÓN se queda ENTERA en el titular, que es quien paga: es lo que
+            # `_expense_retention` descuenta del importe de la remesa. Prorrateándola, la suma del
+            # grupo daría más retención de la que lleva la factura; y en una PARTE es 0 porque esa
+            # bolsa no paga nada (la retención no descuenta el coste del gasto, solo lo que se abona).
+            fila.retention_amount = Decimal("0")
+            fila.paid_amount = (pagado_grupo * proporcion).quantize(Decimal("0.01"))
+            # ⚠️ El JUSTIFICANTE también se espeja: sin él, la parte cumplía para siempre la
+            # condición de «pagado sin justificante» e inflaba el contador de Administración.
+            fila.payment_receipt_url = getattr(titular, "payment_receipt_url", None)
+            fila.payment_receipt_name = getattr(titular, "payment_receipt_name", None)
+            repartido += fila.paid_amount
+            # ⚠️ La remesa es SIEMPRE del titular: una parte no puede entrar en un fichero SEPA.
+            fila.payment_batch_id = None
+            fila.updated_at = _now_madrid()
+    # El redondeo se lo queda el titular, como el importe.
+    titular.paid_amount = pagado_grupo - repartido
+
+
+def _split_apply(session_db, expense, spec: list[dict]) -> dict:
+    """APLICA un reparto. Es la ÚNICA función que escribe una división.
+
+    `spec` = [{bag_id, value}] con el modo en `spec[0]['mode']`; la bolsa del gasto de origen entra
+    siempre y es el TITULAR (quien paga, quien lleva la factura y quien sube a Holded).
+    Devuelve `{"ok": bool, "error": str}`."""
+    if expense is None:
+        return {"ok": False, "error": "El gasto ya no existe."}
+    titular = _split_titular_of(session_db, expense)
+    motivo = _split_lock_reason(session_db, titular)
+    if motivo:
+        return {"ok": False, "error": motivo}
+    modo = ((spec[0].get("mode") if spec else None) or "EQUAL").upper()
+    if modo not in SPLIT_MODE_LABELS:
+        modo = "EQUAL"
+    # El TOTAL del reparto es el del grupo entero (si ya estaba dividido, se vuelve a repartir todo).
+    total = _split_totals(session_db, titular)["gross"]
+    if total <= 0:
+        return {"ok": False, "error": "El gasto no tiene importe: ponle uno antes de dividirlo."}
+
+    # Las bolsas destino: se descartan las repetidas y la del propio titular (que va siempre).
+    # ⚠️ Un PRORRATEO no se divide: su fila lleva de dónde sale el dinero
+    # (`proration_source_bag_id`), y una parte sin eso liberaría ese importe para volver a
+    # prorratearlo en otra bolsa —el mismo dinero, dos veces—.
+    if getattr(titular, "is_proration", False):
+        return {"ok": False, "error": "Un prorrateo no se puede dividir: se reparte desde su bolsa de origen."}
+
+    destinos, vistos = [], {str(titular.bag_id)}
+    for fila in spec:
+        bid = str(fila.get("bag_id") or "").strip()
+        if not bid or bid in vistos:
+            continue
+        bag = session_db.get(WorkflowBag, _safe_uuid(bid))
+        if bag is None:
+            continue
+        # ⚠️ Ni a una bolsa CERRADA, LIQUIDADA o ARCHIVADA: es la misma guarda que el alta de un
+        # gasto. Sin ella, la liquidación que administración tiene bajo revisión cambiaría de
+        # importe por debajo y sin avisar.
+        if (getattr(bag, "status", None) or "").strip().upper() in BAG_CLOSED_STATUSES or getattr(bag, "is_archived", False):
+            return {"ok": False,
+                    "error": f"La bolsa «{bag.title or 'sin título'}» está cerrada: no se le pueden añadir gastos."}
+        vistos.add(bid)
+        destinos.append({"bag": bag, "value": fila.get("value")})
+    if not destinos:
+        return {"ok": False, "error": "Elige al menos otra bolsa con la que dividir el gasto."}
+
+    plan = [{"bag_id": str(titular.bag_id), "mode": modo,
+             "value": (spec[0].get("value") if spec else None), "titular": True}]
+    for d in destinos:
+        plan.append({"bag_id": str(d["bag"].id), "mode": modo, "value": d["value"], "titular": False})
+
+    # ⚠️⚠️ Que la SUMA cuadre no basta: cada bolsa tiene que llevarse ALGO. Una parte a 0 € (o
+    # negativa) deja en esa bolsa una fila que no se puede ni pagar ni contabilizar y que impide
+    # cerrarla; y un negativo colaba porque la única comprobación era que la suma no se pasara.
+    if modo == "PERCENT":
+        for x in plan:
+            pct = _parse_pct_decimal(x.get("value")) or Decimal("0")
+            if pct <= 0:
+                return {"ok": False, "error": "Cada bolsa tiene que llevarse un porcentaje mayor que 0."}
+        suma = sum((_parse_pct_decimal(x.get("value")) or Decimal("0")) for x in plan)
+        if abs(suma - Decimal("100")) > Decimal("0.05"):
+            return {"ok": False, "error": f"Los porcentajes suman {suma}%: tienen que sumar 100%."}
+    if modo == "AMOUNT":
+        for x in plan[1:]:                     # el titular se queda con el resto, puede ir vacío
+            if _money_or_zero(x.get("value")) <= 0:
+                return {"ok": False, "error": "Ponle un importe mayor que 0 a cada bolsa del reparto."}
+        suma = sum(_money_or_zero(x.get("value")) for x in plan)
+        if suma > total + Decimal("0.01"):
+            return {"ok": False,
+                    "error": f"El reparto suma {format_eur(suma)} y el gasto es de {format_eur(total)}: no puede pasarse."}
+        if (total - suma) < Decimal("0"):
+            return {"ok": False, "error": "El reparto se pasa del importe del gasto."}
+
+    repartido = _split_distribute(total, plan)
+    gid = getattr(titular, "split_group_id", None) or uuid.uuid4()
+    audit = _bag_current_user_audit()
+    es_ticket = (getattr(titular, "document_type", None) or "FACTURA").upper() == "TICKET"
+    vat = getattr(titular, "vat_pct", None)
+
+    # Las filas que YA estaban en el grupo, por bolsa (para reutilizarlas y no duplicar).
+    # ⚠️⚠️ Se excluye el titular POR SU ID, no por su rol: la PRIMERA vez que se divide un gasto su
+    # `split_role` todavía está vacío, así que filtrando por rol el titular entraba en «las que
+    # sobran» y se BORRABA (bug real: el reparto se quedaba sin la bolsa de origen y sin su dinero).
+    previas = {str(f.bag_id): f for f in _split_group_rows(session_db, titular) if f.id != titular.id}
+    for fila in repartido:
+        if fila["titular"]:
+            _split_amount_fields(titular, fila["amount"], vat, es_ticket)
+            titular.split_group_id = gid
+            titular.split_role = SPLIT_TITULAR
+            titular.split_mode = modo
+            titular.split_share_pct = fila["pct"]
+            titular.split_created_at = titular.split_created_at or _now_madrid()
+            titular.split_created_by_nick = titular.split_created_by_nick or audit["nick"]
+            continue
+        parte = previas.pop(fila["bag_id"], None)
+        if parte is None:
+            bag = session_db.get(WorkflowBag, _safe_uuid(fila["bag_id"]))
+            cat = _bag_normalize_category(getattr(titular, "category", None))
+            parte = BagExpense(
+                bag_id=bag.id, category=cat,
+                sort_order=_bag_next_sort_order(session_db, bag.id, cat),
+                concept=(getattr(titular, "concept", None) or "Gasto"),
+                provider_id=getattr(titular, "provider_id", None),
+                provider_company_id=getattr(titular, "provider_company_id", None),
+                provider_snapshot=(getattr(titular, "provider_snapshot", None) or {}),
+                document_type=(getattr(titular, "document_type", None) or "FACTURA"),
+                vat_pct=vat,
+                covered_by=(getattr(titular, "covered_by", None) or "BOLSA"),
+                cover_detail=getattr(titular, "cover_detail", None),
+                source_expense_id=titular.id,
+                created_by_user_id=audit["user_id"], created_by_nick=audit["nick"],
+            )
+            session_db.add(parte)
+            session_db.flush()
+        _split_amount_fields(parte, fila["amount"], vat, es_ticket)
+        parte.split_group_id = gid
+        parte.split_role = SPLIT_PARTE
+        parte.split_mode = modo
+        parte.split_share_pct = fila["pct"]
+        parte.split_created_at = parte.split_created_at or _now_madrid()
+        parte.split_created_by_nick = parte.split_created_by_nick or audit["nick"]
+        parte.updated_at = _now_madrid()
+    # Las que se han quitado del reparto: se borran en blando (su importe ya ha vuelto al titular).
+    for sobra in previas.values():
+        sobra.status = "ELIMINADO"
+        sobra.split_group_id = None
+        sobra.split_role = None
+        sobra.updated_at = _now_madrid()
+    _split_propagate(session_db, titular)
+    return {"ok": True, "error": ""}
+
+
+def _split_undo(session_db, expense) -> dict:
+    """DESHACE la división: el total vuelve al titular y las partes se borran en blando."""
+    titular = _split_titular_of(session_db, expense)
+    if titular is None or not getattr(titular, "split_group_id", None):
+        return {"ok": False, "error": "Este gasto no está dividido."}
+    motivo = _split_lock_reason(session_db, titular)
+    if motivo:
+        return {"ok": False, "error": motivo}
+    total = _split_totals(session_db, titular)["gross"]
+    es_ticket = (getattr(titular, "document_type", None) or "FACTURA").upper() == "TICKET"
+    for fila in _split_group_rows(session_db, titular):
+        if _split_is_titular(fila):
+            continue
+        fila.status = "ELIMINADO"
+        fila.split_group_id = None
+        fila.split_role = None
+        fila.updated_at = _now_madrid()
+    _split_amount_fields(titular, total, getattr(titular, "vat_pct", None), es_ticket)
+    titular.split_group_id = None
+    titular.split_role = None
+    titular.split_mode = None
+    titular.split_share_pct = None
+    titular.updated_at = _now_madrid()
+    return {"ok": True, "error": ""}
+
+
+def _split_summary(session_db, expense) -> dict:
+    """Cómo se enseña un gasto dividido (la etiqueta del panel y el pop-up)."""
+    vacio = {"active": False, "rows": [], "total": Decimal("0"), "mode": "", "mode_label": "",
+             "is_titular": False, "is_part": False, "pct": Decimal("0"), "titular_bag": "",
+             "titular_bag_id": "", "lock": ""}
+    if expense is None or not getattr(expense, "split_group_id", None):
+        return vacio
+    filas = _split_group_rows(session_db, expense)
+    if len(filas) < 2:
+        return vacio
+    titular = next((f for f in filas if _split_is_titular(f)), filas[0])
+    total = sum((_money_or_zero(getattr(f, "amount_gross", 0)) for f in filas), Decimal("0"))
+    modo = (getattr(titular, "split_mode", None) or "EQUAL").upper()
+    return {
+        "active": True,
+        "rows": [{"expense_id": str(f.id), "bag_id": str(f.bag_id),
+                  "bag_title": (getattr(getattr(f, "bag", None), "title", None) or "Bolsa"),
+                  "amount": _money_or_zero(getattr(f, "amount_gross", 0)),
+                  "pct": _money_or_zero(getattr(f, "split_share_pct", 0)),
+                  "titular": _split_is_titular(f)} for f in filas],
+        "total": total,
+        "mode": modo,
+        "mode_label": SPLIT_MODE_LABELS.get(modo, modo),
+        "is_titular": _split_is_titular(expense),
+        "is_part": _split_is_part(expense),
+        "pct": _money_or_zero(getattr(expense, "split_share_pct", 0)),
+        "titular_bag": (getattr(getattr(titular, "bag", None), "title", None) or "Bolsa"),
+        "titular_bag_id": str(titular.bag_id),
+        "lock": _split_lock_reason(session_db, expense),
+    }
+
+
+def _bag_provider_row(promoter) -> dict:
+    """La ficha de un PROVEEDOR con la MISMA forma que devuelve `api_bag_provider_search`.
+
+    Punto único para que el chip que pinta el servidor (al editar un gasto) y el que pinta el JS (al
+    elegirlo en el buscador) no se puedan desparejar."""
+    if promoter is None:
+        return {}
+    return {
+        "kind": "promoter", "kind_label": "Tercero", "id": str(promoter.id),
+        "name": _promoter_display_name(promoter) or (getattr(promoter, "nick", None) or "—"),
+        "photo_url": (getattr(promoter, "logo_url", None) or ""),
+        "tax_id": (getattr(promoter, "tax_id", None) or ""),
+        "companies": [{"id": str(c.id), "name": (c.legal_name or c.tax_id or "Sociedad"),
+                       "tax_id": (c.tax_id or ""), "logo_url": (getattr(c, "logo_url", "") or "")}
+                      for c in (getattr(promoter, "companies", None) or [])],
+    }
+
+
+def _bag_expense_form_context(session_db, expense: BagExpense) -> dict:
+    """Lo que hace falta para PRECARGAR el formulario de un gasto (el mismo que el de alta).
+
+    ⚠️⚠️ El importe que se precarga es la parte GRAVABLE (bruto − suplidos), NUNCA `amount_gross`:
+    los suplidos van DENTRO del bruto y no llevan IVA, así que precargando el bruto el desglose se
+    inflaría con lo que no lo lleva."""
+    if expense is None:
+        return {}
+    bruto = _money_or_zero(getattr(expense, "amount_gross", None))
+    suplidos = Decimal("0")
+    for fila in (getattr(expense, "supplements", None) or []):
+        suplidos += _money_or_zero((fila or {}).get("amount"))
+    gravable = bruto - suplidos
+    if gravable < 0:
+        gravable = bruto
+    estado = (getattr(expense, "payment_status", None) or "NO_PAGADO").strip().upper()
+    return {
+        "taxable_gross": gravable,
+        "supplements_total": suplidos,
+        "paid_amount": _money_or_zero(getattr(expense, "paid_amount", None)),
+        "retention": _money_or_zero(getattr(expense, "retention_amount", None)),
+        "vat_pct": (getattr(expense, "vat_pct", None) if getattr(expense, "vat_pct", None) is not None
+                    else BAG_VAT_PCT_DEFAULT),
+        "provider_row": _bag_provider_row(getattr(expense, "provider", None)),
+        "provider_company_id": (str(expense.provider_company_id) if getattr(expense, "provider_company_id", None) else ""),
+        "category": _bag_expense_display_cat(getattr(expense, "category", None)),
+        "document_type": (getattr(expense, "document_type", None) or "FACTURA"),
+        "payment_status": estado,
+        # ⚠️ PENDIENTE y COMPENSADO no los ofrece el formulario (los pone la aprobación de una remesa
+        # y la rectificativa): se pintan como una opción MÁS, ya marcada, para no cambiarlos sin querer.
+        "payment_extra_status": (estado if estado in ("PENDIENTE", "COMPENSADO") else ""),
+        "paid_kind": ("PARTIAL" if estado == "PARCIAL" else "FULL"),
+        "payment_method": (getattr(expense, "payment_method", None) or ""),
+        # ¿Es una fila de un REPARTO? Entonces su importe no se edita aquí.
+        "split_active": bool(getattr(expense, "split_group_id", None)),
+    }
+
+
+def _bag_apply_provider_from_form(session_db, expense: BagExpense, form) -> None:
+    """QUIÉN NOS FACTURA este gasto. Punto único del ALTA y de la EDICIÓN.
+
+    ⚠️ El buscador ofrece MEDIOS, ARTISTAS y PERSONAL además de terceros: lo que no es un tercero se
+    ESPEJA a tercero al guardar (`BagExpense.provider_id` apunta a promoters). Sin esto, en la
+    edición elegir un medio o un artista no guardaba NADA (el gasto se quedaba sin proveedor) y la
+    sociedad que factura por él se ignoraba."""
     espejo = _bag_provider_from_form(session_db, form)
     if espejo:
         expense.provider_id = to_uuid(espejo)
@@ -90576,8 +91494,6 @@ def _bag_create_expense(session_db, bag: WorkflowBag, form, *, file_storage=None
             session_db.get(Promoter, expense.provider_id), None)
     # ¿Factura otra sociedad por él? Entonces es ELLA la que emite la factura.
     _bag_billing_provider_from_form(session_db, expense, form)
-    _bag_expense_extras_from_form(session_db, expense, form)
-    return expense
 
 
 def _bag_provider_email_suggestions(session_db, expense: BagExpense) -> list[dict]:
@@ -90914,6 +91830,11 @@ def _bag_panel_context(session_db, bag) -> dict:
         category_totals=category_totals,
         artists=artists,
         providers=providers,
+        # PRECARGA del formulario de un gasto (el mismo que el de alta). El proveedor y su sociedad
+        # ya vienen con joinedload, así que no hay una consulta por gasto.
+        expense_form_prefill={str(e.id): _bag_expense_form_context(session_db, e) for e in expenses},
+        # Cómo está DIVIDIDO cada gasto (la etiqueta del panel y el pop-up).
+        expense_splits={str(e.id): _split_summary(session_db, e) for e in expenses},
         companies=companies,
         active_bags=active_bags,
         proration_bags=proration_bags,
@@ -91158,6 +92079,178 @@ def bag_expense_create(bag_id):
     return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
+@app.get("/bolsas/split/sujetos", endpoint="bag_split_subjects")
+@admin_required
+def bag_split_subjects():
+    """De quién es la otra bolsa: los ARTISTAS (los ACTIVOS primero) y los EVENTOS, con su foto."""
+    session_db = db()
+    try:
+        activos = _active_artist_ids(session_db)
+        artistas = (session_db.query(Artist).filter(Artist.event_id.is_(None))
+                    .order_by(Artist.name.asc()).all())
+        filas = [{"kind": "artist", "id": str(a.id), "name": (a.name or "Artista"),
+                  "photo_url": (a.photo_url or ""), "active": str(a.id) in {str(x) for x in activos}}
+                 for a in artistas]
+        for ev in session_db.query(AppEvent).order_by(AppEvent.name.asc()).all():
+            filas.append({"kind": "event", "id": str(ev.id), "name": (ev.name or "Evento"),
+                          "photo_url": (ev.logo_url or ""), "active": True})
+        return jsonify({"ok": True, "rows": filas, "kinds": [
+            {"key": k, "label": l, "icon": i} for k, l, i in BAG_SPLIT_KINDS]})
+    finally:
+        session_db.close()
+
+
+def _bag_split_kind_match(bag, kind: str) -> bool:
+    """¿Esta bolsa es de ese tipo? Punto único del mapeo.
+
+    ⚠️ En PROYECTO salen TAMBIÉN las bolsas abiertas directamente desde un SINGLE o desde un ÁLBUM
+    aunque no hayan pasado por un proyecto discográfico: para el dinero es lo mismo."""
+    lt = (getattr(bag, "linked_type", None) or "").upper()
+    bt = (getattr(bag, "bag_type", None) or "").upper()
+    if kind == "PROYECTO":
+        return lt in ("PROJECT", "SONG", "ALBUM") or bt in ("PROYECTO", "SINGLE", "DISCO")
+    if kind == "SINGLE":
+        return lt == "SONG" or bt == "SINGLE"
+    if kind == "ACTIVIDAD":
+        return lt in ("CONCERT", "PROMOTION") or bt not in ("PROYECTO", "SINGLE", "DISCO")
+    return False
+
+
+@app.get("/bolsas/split/bolsas", endpoint="bag_split_bags")
+@admin_required
+def bag_split_bags():
+    """Las bolsas de ese artista (o evento) y de ese tipo, para elegir con cuál se divide."""
+    kind = (request.args.get("kind") or "").strip().upper()
+    sujeto = (request.args.get("subject_id") or "").strip()
+    sujeto_kind = (request.args.get("subject_kind") or "artist").strip().lower()
+    excluir = {x.strip() for x in (request.args.get("exclude") or "").split(",") if x.strip()}
+    session_db = db()
+    try:
+        q = (session_db.query(WorkflowBag)
+             .options(joinedload(WorkflowBag.artist))
+             # ⚠️ Ni archivadas ni CERRADAS/LIQUIDADAS: `bag_close` deja la bolsa en CERRADA con
+             # `is_archived=False` mientras espera a administración, y ahí no se pueden meter gastos.
+             .filter(WorkflowBag.is_archived == False)                        # noqa: E712
+             .filter(or_(WorkflowBag.status.is_(None),
+                         ~func.upper(func.coalesce(WorkflowBag.status, "")).in_(list(BAG_CLOSED_STATUSES)))))
+        sid = _safe_uuid(sujeto)
+        if sujeto_kind == "event":
+            # Las bolsas de un evento cuelgan de sus actividades.
+            ids = [c.id for c in session_db.query(Concert.id).filter(Concert.event_id == sid).all()] if sid else []
+            ids = [x[0] if isinstance(x, tuple) else x for x in ids]
+            q = q.filter(WorkflowBag.linked_type == "CONCERT", WorkflowBag.linked_id.in_(ids or [uuid.uuid4()]))
+        elif sid:
+            q = q.filter(WorkflowBag.artist_id == sid)
+        filas = []
+        for bag in q.order_by(WorkflowBag.start_date.desc().nullslast(), WorkflowBag.title.asc()).limit(200).all():
+            if str(bag.id) in excluir:
+                continue
+            if kind and not _bag_split_kind_match(bag, kind):
+                continue
+            filas.append({
+                "id": str(bag.id),
+                "title": (bag.title or "Bolsa"),
+                "subtitle": " · ".join([x for x in [
+                    BAG_TYPE_LABELS.get((bag.bag_type or "").upper(), (bag.bag_type or "")),
+                    (bag.linked_title or ""),
+                    (bag.start_date.strftime("%d/%m/%Y") if bag.start_date else ""),
+                ] if x]),
+                "artist": (getattr(getattr(bag, "artist", None), "name", None) or ""),
+            })
+        return jsonify({"ok": True, "rows": filas})
+    finally:
+        session_db.close()
+
+
+@app.get("/bolsas/<bag_id>/expenses/<expense_id>/dividir", endpoint="bag_expense_split_state")
+@admin_required
+def bag_expense_split_state(bag_id, expense_id):
+    """Cómo está el reparto ahora mismo (para abrir el pop-up ya cumplimentado)."""
+    session_db = db()
+    try:
+        expense = (session_db.query(BagExpense)
+                   .filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id))
+                   .first())
+        if expense is None:
+            return jsonify({"ok": False, "error": "Gasto no encontrado"}), 404
+        titular = _split_titular_of(session_db, expense)
+        tot = _split_totals(session_db, titular)
+        resumen = _split_summary(session_db, expense)
+        return jsonify({
+            "ok": True,
+            "expense_id": str(titular.id),
+            "bag_id": str(titular.bag_id),
+            "concept": (titular.concept or "Gasto"),
+            "total_gross": str(tot["gross"]),
+            "total_net": str(tot["net"]),
+            "mode": resumen["mode"] or "EQUAL",
+            "lock": resumen["lock"],
+            "rows": [{**r, "amount": str(r["amount"]), "pct": str(r["pct"])} for r in resumen["rows"]],
+            "modes": [{"key": k, "label": l, "icon": i} for k, l, i in SPLIT_MODES],
+        })
+    finally:
+        session_db.close()
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/dividir", endpoint="bag_expense_split_save")
+@admin_required
+def bag_expense_split_save(bag_id, expense_id):
+    """Guarda el reparto de un gasto entre varias bolsas."""
+    session_db = db()
+    try:
+        expense = (session_db.query(BagExpense)
+                   .filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id))
+                   .first())
+        if expense is None:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
+        modo = (request.form.get("split_mode") or "EQUAL").strip().upper()
+        spec = [{"mode": modo, "value": request.form.get("split_self_value")}]
+        for bid, val in zip(request.form.getlist("split_bag_id[]"), request.form.getlist("split_value[]")):
+            spec.append({"mode": modo, "bag_id": bid, "value": val})
+        res = _split_apply(session_db, expense, spec)
+        if not res["ok"]:
+            session_db.rollback()
+            flash(res["error"], "warning")
+        else:
+            session_db.commit()
+            flash("Gasto dividido entre las bolsas.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[bolsas] no se pudo dividir el gasto")
+        flash(f"No se pudo dividir el gasto: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/dividir/deshacer", endpoint="bag_expense_split_undo")
+@admin_required
+def bag_expense_split_undo(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = (session_db.query(BagExpense)
+                   .filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id))
+                   .first())
+        if expense is None:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
+        res = _split_undo(session_db, expense)
+        if not res["ok"]:
+            session_db.rollback()
+            flash(res["error"], "warning")
+        else:
+            session_db.commit()
+            flash("División deshecha: el gasto vuelve entero a su bolsa.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[bolsas] no se pudo deshacer la división")
+        flash(f"No se pudo deshacer la división: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
+
+
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/edit", endpoint="bag_expense_edit")
 @admin_required
 def bag_expense_edit(bag_id, expense_id):
@@ -91167,8 +92260,27 @@ def bag_expense_edit(bag_id, expense_id):
         if not expense:
             flash("Gasto no encontrado.", "warning")
             return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
-        doc = request.files.get("document")
-        _bag_update_expense_from_form(session_db, expense, request.form, file_storage=doc if doc and getattr(doc, "filename", "") else None)
+        # ⚠️⚠️ EL IMPORTE DE UNA FILA DE UN REPARTO NO SE TOCA DESDE AQUÍ: el trozo de cada bolsa
+        # solo tiene sentido dentro del reparto, y cambiarlo a mano dejaría el grupo sumando algo
+        # distinto de la factura (y la remesa mandaría al banco otra cosa). Se cambia el importe
+        # TOTAL desde «Dividir gasto», que vuelve a repartirlo.
+        _form = request.form
+        if getattr(expense, "split_group_id", None):
+            _f2 = _form.copy()
+            for _k in ("amount_value", "amount_mode", "amount_net", "amount_tax", "amount_gross"):
+                _f2.poplist(_k) if hasattr(_f2, "poplist") else _f2.pop(_k, None)
+            _form = _f2
+        doc = request.files.get("document") or request.files.get("documents")
+        _bag_update_expense_from_form(session_db, expense, _form, file_storage=doc if doc and getattr(doc, "filename", "") else None)
+        # ⚠️ El MISMO camino que el alta: el espejo del proveedor, la sociedad que factura y la nota
+        # con su aviso. Antes la edición solo llamaba al primero, así que elegir un medio o un
+        # artista como proveedor no guardaba nada y la nota se tiraba.
+        _bag_apply_provider_from_form(session_db, expense, _form)
+        _bag_expense_extras_from_form(session_db, expense, _form)
+        # Los SUPLIDOS están DENTRO de `amount_gross`, y el recálculo del importe los machaca: se
+        # vuelven a sumar (el formulario pregunta por la parte GRAVABLE, sin suplidos).
+        if getattr(expense, "supplements", None):
+            _expense_apply_supplements(expense, expense.supplements)
         embargo_hits = _expense_active_embargo_alerts(session_db, expense) if "_expense_active_embargo_alerts" in globals() else []
         session_db.commit()
         flash("Gasto actualizado.", "success")
@@ -91387,8 +92499,17 @@ def bag_expense_cover(bag_id, expense_id):
         covered_by = (request.form.get("covered_by") or "BOLSA").strip().upper()
         expense.covered_by = covered_by if covered_by in BAG_COVERED_BY_LABELS else "BOLSA"
         expense.cover_detail = (request.form.get("cover_detail") or "").strip() or None
+        # ⚠️⚠️ El reparto ANTIGUO de este modal se RETIRÓ (creaba clones sueltos que se pagaban y se
+        # contabilizaban por su cuenta: la misma factura N veces). Lo sustituye «Dividir gasto».
+        # Se conserva el código por si llega un formulario viejo en caché, pero NUNCA sobre un gasto
+        # que ya está dividido de verdad: mezclarlos corrompería el reparto.
         split_rows = []
         target_ids = request.form.getlist("split_bag_ids")
+        if target_ids and getattr(expense, "split_group_id", None):
+            session_db.rollback()
+            flash("Este gasto ya está dividido: cambia el reparto desde «Dividir gasto» "
+                  "(tres puntitos del gasto).", "warning")
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
         equal_split = _bag_bool(request.form.get("equal_split"))
         current_amount = _bag_amount(expense)
         valid_targets = []
@@ -91646,6 +92767,53 @@ def bag_expense_delete(bag_id, expense_id):
     try:
         expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
         if expense:
+            # ⚠️⚠️ UN GASTO DIVIDIDO se borra ENTERO (o no se borra). Borrando solo el TITULAR, sus
+            # partes quedarían huérfanas: se seguirían viendo en sus bolsas y NO se podrían ni pagar
+            # ni contabilizar (solo el titular llega a pendiente de pago y a Holded). Borrando una
+            # PARTE, su importe vuelve al titular para que el reparto siga sumando la factura.
+            if getattr(expense, "split_group_id", None):
+                motivo = _split_lock_reason(session_db, expense)
+                if motivo:
+                    flash("No se puede eliminar: %s" % motivo, "warning")
+                    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
+                if _split_is_titular(expense):
+                    for fila in _split_group_rows(session_db, expense):
+                        fila.status = "ELIMINADO"
+                        fila.split_group_id = None
+                        fila.split_role = None
+                        fila.updated_at = _now_madrid()
+                    session_db.commit()
+                    flash("Gasto eliminado (con todas las bolsas entre las que estaba dividido).", "success")
+                    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
+                titular = _split_titular_of(session_db, expense)
+                vuelve = _money_or_zero(getattr(expense, "amount_gross", 0))
+                expense.status = "ELIMINADO"
+                expense.split_group_id = None
+                expense.split_role = None
+                expense.updated_at = _now_madrid()
+                session_db.flush()
+                es_ticket = (getattr(titular, "document_type", None) or "FACTURA").upper() == "TICKET"
+                _split_amount_fields(titular, _money_or_zero(getattr(titular, "amount_gross", 0)) + vuelve,
+                                     getattr(titular, "vat_pct", None), es_ticket)
+                # Si el titular se queda solo, deja de ser un reparto.
+                _quedan = _split_group_rows(session_db, titular)
+                if len(_quedan) < 2:
+                    titular.split_group_id = None
+                    titular.split_role = None
+                    titular.split_mode = None
+                    titular.split_share_pct = None
+                else:
+                    # ⚠️ Y se recalculan los PORCENTAJES: si no, la etiqueta del panel seguiría
+                    # diciendo «33,33%» cuando esa bolsa ya se lleva el 66,67%.
+                    _tot = sum((_money_or_zero(getattr(f, "amount_gross", 0)) for f in _quedan), Decimal("0"))
+                    for f in _quedan:
+                        f.split_share_pct = ((_money_or_zero(f.amount_gross) * Decimal("100") / _tot)
+                                             .quantize(Decimal("0.01")) if _tot else Decimal("0"))
+                    _split_propagate(session_db, titular)
+                titular.updated_at = _now_madrid()
+                session_db.commit()
+                flash("Se ha quitado esta bolsa del reparto: su parte vuelve a la bolsa de origen.", "success")
+                return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
             expense.status = "ELIMINADO"
             expense.updated_at = _now_madrid()
             session_db.commit()
@@ -92616,7 +93784,8 @@ def _supplier_invoice_expected(session_db, inv) -> dict:
             exp = session_db.get(BagExpense, fila.bag_expense_id)
             if exp is None:
                 continue
-            imp = _expense_invoice_breakdown(exp)
+            imp = _expense_invoice_breakdown(
+                exp, gross_override=_expense_billable_gross(session_db, exp))
             neto += imp["net"]
             bruto += imp["gross"]
         if bruto > 0:
@@ -99244,6 +100413,20 @@ def _concerts_group_promoted_map(session_db, concerts) -> dict:
     return {c.id: bool(getattr(c, "group_company_id", None)) or (c.id in con_share) for c in filas}
 
 
+def _concerts_need_sales_report_map(session_db, concerts) -> dict:
+    """`_concert_needs_sales_report` EN BLOQUE (una sola consulta), para los listados de ventas."""
+    filas = [c for c in (concerts or []) if c is not None and getattr(c, "id", None)]
+    if not filas:
+        return {}
+    # Solo hay que preguntar «¿lo promueve el grupo?» de los FESTIVALES: en el resto la regla ni se
+    # evalúa, así que no se gasta ninguna consulta de más.
+    festivales = [c for c in filas
+                  if _activity_kind_key(getattr(c, "activity_type", None)) in NO_SALES_REPORT_THIRD_PARTY_TYPES]
+    grupo = _concerts_group_promoted_map(session_db, festivales) if festivales else {}
+    return {c.id: _concert_needs_sales_report(session_db, c, group_promoted=grupo.get(c.id))
+            for c in filas}
+
+
 def _concert_sales_request_applies(session_db, concert, *, group_promoted=None) -> bool:
     """¿A esta actividad hay que pedirle la actualización de ventas?
 
@@ -99254,6 +100437,10 @@ def _concert_sales_request_applies(session_db, concert, *, group_promoted=None) 
         return False
     try:
         if not _concert_sells_tickets(concert):
+            return False
+        # ⚠️ Lo GRATUITO y el FESTIVAL de un tercero no llevan reporte de ventas, así que tampoco se
+        # le piden al promotor. Punto único, el mismo que el reporte y el listado /ventas.
+        if not _concert_needs_sales_report(session_db, concert, group_promoted=group_promoted):
             return False
         if (getattr(concert, "status", None) or "").strip().upper() != "CONFIRMADO":
             return False
@@ -103521,6 +104708,12 @@ def _accounting_amounts(session_db, expense, *, invoice=None) -> dict:
     base = _money_or_zero(getattr(expense, "amount_net", 0))
     iva = _money_or_zero(getattr(expense, "amount_tax", 0))
     ret = _money_or_zero(getattr(expense, "retention_amount", 0))
+    # ⚠️⚠️ En un gasto DIVIDIDO, a la contabilidad va la FACTURA ENTERA (una sola, del grupo): sin
+    # esto se creaba en Holded una compra por el trozo del titular con el PDF del total adjunto —y,
+    # como un documento no se sube dos veces, la app y la contabilidad quedaban desparejadas.
+    if getattr(expense, "split_group_id", None) and _split_is_titular(expense):
+        _tg = _split_totals(session_db, expense)
+        total, base, iva = _tg["gross"], _tg["net"], _tg["tax"]
     iva_pct = ret_pct = None
     if invoice is not None:
         if _money_or_zero(getattr(invoice, "amount_gross", None)) > 0:
@@ -105450,6 +106643,10 @@ def _bag_providers_pending_invoice(session_db, bag) -> list[dict]:
     for exp in expenses:
         if _bag_expense_has_invoice(exp):
             continue
+        # ⚠️ La factura de un gasto DIVIDIDO se le pide UNA vez, desde la bolsa del titular: si no,
+        # al mismo proveedor se le pediría la misma factura desde cada bolsa del reparto.
+        if _split_is_part(exp):
+            continue
         provider = getattr(exp, "provider", None)
         if not provider:
             continue
@@ -105464,7 +106661,8 @@ def _bag_providers_pending_invoice(session_db, bag) -> list[dict]:
             "gross": Decimal("0"),
         })
         net = _money_or_zero(getattr(exp, "amount_net", 0))
-        gross = _money_or_zero(getattr(exp, "amount_gross", 0)) or net
+        # ⚠️ De un gasto DIVIDIDO se le pide la factura ENTERA (es una sola factura del grupo).
+        gross = _expense_billable_gross(session_db, exp) or net
         row["items"].append({
             "id": str(exp.id),
             "concept": (exp.concept or "Gasto"),
@@ -105652,15 +106850,28 @@ def _expense_supplements_total(expense) -> Decimal:
                Decimal("0"))
 
 
-def _expense_invoice_breakdown(expense) -> dict:
+def _expense_billable_gross(session_db, expense):
+    """El bruto que hay que FACTURAR de un gasto: el del GRUPO si está dividido, y si no el suyo.
+
+    Punto único de «cuánto se le pide al proveedor» y de «cuánto se le exige a su factura»."""
+    if expense is not None and getattr(expense, "split_group_id", None) and _split_is_titular(expense):
+        return _split_totals(session_db, expense)["gross"]
+    return _money_or_zero(getattr(expense, "amount_gross", 0))
+
+
+def _expense_invoice_breakdown(expense, *, gross_override=None) -> dict:
     """Lo que hay que FACTURAR de un gasto: su trabajo (base + IVA) MÁS los suplidos SIN IVA.
 
     ⚠️ `BagExpense.amount_gross` incluye los suplidos (es lo que hay que facturar y pagar), así que
     la parte con IVA es `amount_gross − suplidos`: por eso el desglose no se puede sacar del bruto a
-    secas. Los suplidos no llevan IVA ni retención."""
+    secas. Los suplidos no llevan IVA ni retención.
+    ⚠️⚠️ `gross_override` es para un gasto DIVIDIDO: la factura es UNA y de TODO el grupo, así que lo
+    que se le pide al proveedor —y lo que se le exige al subirla— es el total del reparto, no el
+    trozo del titular (si no, se le pedían 726 € y su factura de 1.210 € se le rechazaba)."""
     suplidos = _expense_supplements(expense)
     total_sup = sum((s["amount"] for s in suplidos if s["amount"] is not None), Decimal("0"))
-    bruto = _money_or_zero(getattr(expense, "amount_gross", 0))
+    bruto = (_money_or_zero(gross_override) if gross_override is not None
+             else _money_or_zero(getattr(expense, "amount_gross", 0)))
     gravable = bruto - total_sup
     if gravable < 0:
         gravable = Decimal("0")
@@ -105693,7 +106904,8 @@ def _bag_invoice_request_context(session_db, req):
                     .all())
     rows = []
     for exp in expenses:
-        importes = _expense_invoice_breakdown(exp)
+        importes = _expense_invoice_breakdown(
+            exp, gross_override=_expense_billable_gross(session_db, exp))
         rows.append({
             "id": str(exp.id),
             "concept": (exp.concept or "Gasto"),
@@ -107158,7 +108370,9 @@ def public_invoice_upload():
                 if _exp is None:
                     continue
                 # Incluye los SUPLIDOS (sin IVA): es lo que hay que facturar de verdad.
-                _imp = _expense_invoice_breakdown(_exp)
+                # ⚠️ Y en un gasto DIVIDIDO, el total del GRUPO: su factura es una sola.
+                _imp = _expense_invoice_breakdown(
+                    _exp, gross_override=_expense_billable_gross(session_db, _exp))
                 _esp_net += _imp["net"]
                 _esp_gross += _imp["gross"]
             _ok, _motivo = _invoice_amount_check(_esp_gross, _esp_net, _dinero.get("amount_gross"),

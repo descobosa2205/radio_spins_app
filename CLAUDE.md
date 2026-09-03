@@ -9033,3 +9033,225 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Con `max(w0,h0) <= 960` no valía: en un vídeo VERTICAL el lado mayor es el ALTO (1706), así que
   justo el caso a corregir se quedaba fuera. Y con la condición floja, cualquiera con el enlace podía
   inflar el tamaño que se enseña; con esta, no (comprobado).
+
+- ⚠️⚠️ **LOS FILTROS Y LA FILA DE UN LISTADO DE ACTIVIDADES SON UN SOLO SITIO** (sep 2026). Los
+  filtros de la pestaña «Conciertos» de la ficha del ARTISTA y los de Contratación → Conciertos eran
+  dos formularios escritos a mano y se habían desparejado (la ficha solo tenía «Cuándo» y «Estado»,
+  con botón «Filtrar», sin años, sin tipo, sin anuncio y sin etiquetas); y la FILA se pintaba en
+  CUATRO maquetas distintas. Ahora hay dos puntos únicos y dos parciales:
+  · **FILTROS**: `_concert_filters_from_request` · `_concert_filters_apply_sql` ·
+    `_concert_filters_apply_list` · `_concert_filters_context` + **`templates/_concert_filters.html`**.
+    Los nombres de los parámetros NO cambian (`when`, `status`, `type`, `announcement`,
+    `concert_tag`, `year`, `open`), así que los enlaces guardados siguen valiendo.
+  · **FILA**: **`_concert_row`** (y su hermano `_action_row`, con las MISMAS claves) +
+    **`templates/_concert_row.html`**, usados por Contratación → Conciertos, la sección Actividades,
+    la pestaña Conciertos de la ficha del artista y las actividades de un EVENTO.
+  ⚠️⚠️ La macro hay que importarla **`with context`**: `DEFAULT_AVATAR_URL` y `CAN_EDIT_CONCERTS`
+  vienen de un context processor, no son globales del entorno de Jinja. Sin eso la fila sale sin foto
+  y **sin el desplegable de estado**, y no da ningún error.
+  ⚠️ El parcial de filtros trae su propio `<form>`: **no se puede incluir dentro de otro formulario**
+  (un form dentro de otro no es HTML válido). Y su `modal_id` es distinto por pantalla.
+  ⚠️⚠️ **CADA GRUPO DE ETIQUETAS SE CUENTA SIN SU PROPIO FILTRO** (`_concert_filters_apply_list`):
+  los TIPOS con el año puesto y sin el tipo, y los AÑOS con el tipo puesto y sin el año. Antes
+  `type_counts` se calculaba sobre lo ya filtrado por tipo, así que al marcar uno los demás se
+  quedaban a cero, **desaparecían del pop-up** y no se podían ni combinar ni quitar (bug real). Por
+  eso el TIPO DE VENTA se filtra en Python y no en SQL.
+  ⚠️ El bloque de conciertos de la ficha del artista va **guardado por `tab`**: hace su consulta y
+  lee todas las etiquetas de concierto de la base, y corría en las 14 pestañas.
+
+- ⚠️⚠️ **LA AGRUPACIÓN POR «GRATUITOS» DESAPARECE, Y LA FILA DICE QUÉ ES CADA ACTIVIDAD** (sep 2026).
+  Gratuito **no es un tipo de concierto** (es que la entrada es gratis, `_concert_is_free`), así que:
+  · la ficha del artista ya **no agrupa por tipo de venta** (era el bloque «Conciertos — Gratuitos»):
+    la lista va **plana y por fecha**, como en Contratación;
+  · la fila enseña el **TIPO REAL** (a empresa, vendido, participado…) y aparte la **etiqueta verde
+    «Gratuito»**;
+  · se añade el **TIPO DE ACTIVIDAD con su icono** (`QUAD_ACTIVITY_ICONS`) —el icono siempre, y el
+    rótulo solo cuando NO es un concierto, para no repetir lo obvio en un listado de conciertos—;
+  · y la etiqueta **«No anunciar»** mientras no se pueda anunciar, que **desaparece sola** en cuanto
+    se le pone fecha de anuncio o se anuncia (`_announcement_state(...) == 'NO_ANNOUNCE'`).
+  ⚠️ **«GRATUITO» YA NO SE OFRECE COMO TIPO** en ningún filtro ni en ningún selector
+  (`CONCERT_TYPE_CHOICES_ORDER`). Se queda en `CONCERT_SALE_TYPES_ALL` a propósito: hay actividades
+  ANTIGUAS guardadas así y un enlace con `?type=GRATUITO` tiene que seguir valiendo.
+  · El lugar de la fila va en el formato ÚNICO de la casa (`_place_label`: «Recinto · Municipio,
+  Provincia», con el país solo si es de fuera).
+
+- **AFORO · en una actividad GRATUITA es «Aforo», no «Aforo a la venta»** (sep 2026): punto único
+  **`_concert_capacity_label`** (global de plantilla **`capacity_label(concert)`**), aplicado en la
+  cabecera de la ficha, en sus dos formularios y en la fila del listado. En el asistente ya estaba
+  bien (el panel gratuito dice «Aforo estimado»); lo de la pestaña Ticketing es aforo POR TICKETERA
+  y sí es a la venta. De paso, `_concert_is_free_event` pasa a ser un alias de `_concert_is_free`:
+  la regla vive en UN sitio.
+
+- ⚠️ **UNA SECCIÓN QUE AÑADE NO ESCONDE LO QUE YA HAY** (sep 2026, `data-keep-view` en
+  `ficha_inline.js`). Al pulsar el «+» de **Contratos** (o de **Notas**, o el lápiz de
+  **Equipamiento**) desaparecía la lista de lo ya subido y daba la sensación de que no se había
+  subido nada. Ahora el formulario de una sección ADITIVA se marca con **`data-keep-view`** y su
+  vista consolidada se queda a la vista; las que REEMPLAZAN (datos, cachés, colaboradores, entradas)
+  siguen ocultándola.
+  ⚠️ El atributo va en el **FORM**, no en la sección (`show`/`hide` reciben el form).
+  ⚠️ **NO vale quitar el `data-section-view`**: `viewFor` tiene un fallback que busca el PRIMER
+  `[data-section-view]` del `[data-inline-zone]` ancestro, y en la ficha de actividad TODO cuelga de
+  `#concert-general-zone` — se ocultaría la vista de OTRA sección, en silencio.
+  · En **Equipamiento** la vista va **partida en dos**: arriba lo que el formulario reemplaza (la
+  etiqueta de la opción, con `data-section-view`) y debajo los ADJUNTOS y las NOTAS, sin marcar, que
+  no se ocultan nunca.
+
+- ⚠️⚠️ **LA FORMA DE PAGO DEL CACHÉ SE CONFIGURA EN LA FICHA, Y SE AVISA SI FALTA** (sep 2026).
+  «Forma de pago del caché» **NO es un campo de `ConcertCache`**: es **`Concert.payment_terms_json`**
+  (el plan de pagos: concepto, importe y fecha límite de cada uno), y **solo se podía configurar en
+  el asistente** — en la ficha era de solo lectura y, vacío, ni se pintaba.
+  · Ahora se edita dentro de la sección **«Cachés»** (filas dinámicas `data-rows="payment"` del
+  motor de siempre, `concert_form.js`) y el **plan de facturación se ve aunque esté vacío**, con su
+  botón para configurarlo.
+  · Si no está configurada, al entrar en la ficha sale el **aviso** («Pendiente de configurar la
+  forma de pago del caché», con «Configurarla») y la **tarea** en la pestaña «Inicio». Punto único
+  **`_concert_cache_payment_state`**, así que el aviso y la tarea no pueden decir cosas distintas; no
+  salta en lo CANCELADO ni en el histórico (`_concert_is_legacy`).
+  ⚠️⚠️ **PÉRDIDA DE DATOS EVITADA**: `_parse_payment_terms_rows` crea filas NUEVAS y deja
+  `invoice_url`/`invoiced_at`/`collected_at` a None, así que guardar la sección desde la ficha
+  BORRARÍA las facturas subidas y las marcas de cobrado. La ficha guarda con
+  **`_merge_payment_terms_rows`**: cada fila viaja con su **`payment_idx[]`** y solo se pisan
+  concepto, importe, fecha y a qué caché corresponde. Un pago que ya tiene factura o cobro se pinta
+  **bloqueado y sin papelera** (⚠️ `readonly` SÍ se envía; con `disabled` el pago desaparecería del
+  POST y se perdería).
+  ⚠️ Con **CENTINELA** (`payment_terms_present`): sin él, un POST a la sección desde una pantalla
+  vieja dejaría el plan de pagos vacío (la misma regla que `promoter_costs_present`).
+
+- ⚠️⚠️ **QUÉ LLEVA REPORTE DE VENTAS, Y EL TIPO «CICLO»** (sep 2026). Punto único
+  **`_concert_needs_sales_report`** (y su versión EN BLOQUE `_concerts_need_sales_report_map`),
+  aplicado en los CUATRO sitios: el **reporte** (`concerts_for_report`, del que cuelgan la pantalla,
+  «Anteriores», los reportes por promotor/artista/empresa, el PDF y el correo), el listado
+  **/ventas**, su **A4** y la **solicitud al promotor** (`_concert_sales_request_applies`, de la que
+  cuelgan el barrido, el enlace público y la tarea «Configurar el responsable de ticketing»).
+  · **Fuera**: lo **GRATUITO** (no vende ninguna entrada) y el **FESTIVAL de un TERCERO** (ese día
+  tocan varios artistas y la venta no es de nuestra fecha).
+  · **Dentro**: el **CICLO**, que es un **tipo de actividad NUEVO** (`QUAD_ACTIVITY_CHOICES`, icono
+  `fa-calendar-week`) — aunque sea el ciclo de otro, ese día solo actúa NUESTRO artista, así que sí
+  lleva reporte y sí se le pide al promotor. **No confundirlo** con el ciclo que organizamos
+  nosotros, que es un `CycleFestival`.
+  ⚠️ `QUAD_ACTIVITY_ALIASES` ya no manda `CICLO` a `FESTIVAL` (`CADIZ` sí se queda: es un tipo de
+  VENTA). CICLO entra además en `CONCERT_LIKE_ACTIVITY_TYPES`, `CONCERT_SINGING_ACTIVITY_TYPES`,
+  `QUAD_CONCERT_CONCEPTS` y `ACTIVITIES_TYPE_KEYS`.
+  ⚠️⚠️ El gate es **NEGATIVO** («fuera esto»), nunca «solo lo que vende entradas»: las actividades
+  anteriores al asistente no traen `entry_mode` y la condición positiva borraría medio histórico.
+  ⚠️ El asistente ya **no tiene su propio diccionario de alias**: normaliza con `_activity_kind_key`
+  (el punto único). Con dos catálogos, un tipo nuevo se guardaba como CONCIERTO sin dar ningún error.
+
+- ⚠️⚠️ **EDITAR UN GASTO ES EL MISMO FORMULARIO QUE AÑADIRLO** (sep 2026). La edición era una rejilla
+  plana de 17 campos escrita a mano en `_bag_panel.html` (con dos `<select>` gigantes por cada gasto)
+  y no se parecía en nada al alta. Ahora `templates/_bag_expense_form.html` sirve para los dos modos
+  (`be_mode` create|edit) con sus cuatro bocadillos, precargado por **`_bag_expense_form_context`**.
+  ⚠️ En edición se pinta **UNO POR GASTO**, así que TODOS los ids llevan el sufijo `uid`: con ids
+  repetidos, un `<label for>` marcaría el radio del PRIMER modal, la zona de arrastrar soltaría el
+  archivo en el gasto equivocado y el alta rápida rellenaría el selector de otro. ⚠️ El id del
+  selector de módulo en modo ALTA tiene que seguir siendo `addExpenseCategory` (lo busca el botón
+  «Añadir gasto en X»).
+  ⚠️⚠️ **GUARDAR SIN TOCAR NADA NO PUEDE CAMBIAR EL IMPORTE**: `_bag_update_expense_from_form`
+  escribía `invoice_number`, `issue_date`, `retention_amount` y `payment_method` **sin guarda**, así
+  que un formulario que no los preguntara los borraba — y la retención es dinero (cambia lo que se
+  paga en la remesa). Ahora cada uno solo se escribe **si el formulario lo trae**.
+  ⚠️ El importe que se precarga es la parte **GRAVABLE** (bruto − suplidos), nunca `amount_gross`:
+  los suplidos van dentro del bruto y **no llevan IVA**; al guardar se vuelven a sumar.
+  ⚠️ La edición pasa ya por el MISMO camino que el alta (**`_bag_apply_provider_from_form`** +
+  `_bag_expense_extras_from_form`): antes, elegir un **medio, un artista o alguien de la casa** como
+  proveedor **no guardaba nada** (el espejo a tercero solo lo hacía el alta) y la nota se tiraba.
+  ⚠️ `PENDIENTE` y `COMPENSADO` no los pone este formulario (los ponen la aprobación de una remesa y
+  la rectificativa): se pintan como una opción MÁS, ya marcada, para no cambiarlos sin querer.
+  ⚠️ El tipo de documento pasa de un hidden a **radios**: el JS lo lee con el punto único
+  `tipoDoc(root)` y el input de fichero se reconoce por **`[data-be-doc-input]`**, no por un id fijo.
+
+- ⚠️⚠️⚠️ **DIVIDIR UN GASTO ENTRE VARIAS BOLSAS** (sep 2026). Una misma factura puede ser de varias
+  bolsas (un vuelo compartido, un alquiler). **LO QUE NO PUEDE PASAR ES PAGARLA NI CONTABILIZARLA DOS
+  VECES.**
+  · **CÓMO ESTÁ MODELADO**: N filas `BagExpense` hermanas —una por bolsa, para que cada una vea su
+  trozo en SUS totales sin tocar ni un lector— unidas por **`split_group_id`**, con **UN ÚNICO
+  TITULAR** (`split_role`): es la única fila que sale en **pendiente de pago**, en la **remesa SEPA**
+  y en **contabilidad**. Las **PARTES** reciben el estado ESPEJADO (`_split_propagate`: factura,
+  validación, contabilidad, estado del pago y lo pagado **prorrateado**) para que su bolsa lo vea.
+  Columnas nuevas en `bag_expenses` (`ensure_expense_split_schema`): `split_group_id` · `split_role`
+  · `split_mode` · `split_share_pct` · `split_created_at` · `split_created_by_nick`, con un **índice
+  ÚNICO parcial del titular**, que es el candado de la BD contra pagar dos veces.
+  · **EL POP-UP** (`_bag_expense_split_modal.html` + `static/js/bag_expense_split.js`, GLOBAL y por
+  delegación): artista o evento (los **activos primero**, con «Ver más») → **proyecto discográfico /
+  single / actividad** → sus bolsas; luego **a partes iguales · importe fijo · porcentaje** (cada
+  opción con su icono y enseñando solo sus campos), con el **total con y sin IVA**, lo que **queda
+  por repartir** y el botón de **añadir más bolsas**, todas las que hagan falta.
+  ⚠️ En «proyecto discográfico» salen TAMBIÉN las bolsas abiertas directamente desde un **SINGLE** o
+  desde un **ÁLBUM** aunque no hayan pasado por un proyecto (punto único `_bag_split_kind_match`).
+  ⚠️⚠️ **EL REDONDEO VA AL TITULAR** (`_split_distribute`): 100 € entre 3 son 33,33 + 33,33 + 33,34.
+  Si las partes no suman EXACTAMENTE el total, la factura deja de cuadrar con lo que se paga.
+  ⚠️⚠️ **BUG REAL DE MI PROPIA IMPLEMENTACIÓN**: `_split_apply` calculaba «las filas que sobran»
+  filtrando por `split_role`, y la PRIMERA vez que se divide un gasto el titular todavía no tiene
+  rol → **el titular entraba en las que sobran y se BORRABA**, con su dinero. Se excluye **por su
+  id**, no por su rol.
+  · **LO QUE SE PAGA es el TOTAL DEL GRUPO** y lo paga el titular: `_expense_payment_amount` devuelve
+  **0** en una parte y, en el titular, `total del grupo − retención − lo pagado por TODAS sus filas`.
+  Al marcarlo pagado, lo pagado se **prorratea entre todas** (el redondeo al titular) para que cada
+  bolsa enseñe lo SUYO —dejando el total en el titular, su bolsa decía «pagado 1.210 € de 403,34 €»—
+  y se cierran **todas** las bolsas del grupo que se queden sin pendiente.
+  ⚠️ El reparto **se puede cambiar y deshacer** mientras no esté pagado, en una remesa o
+  contabilizado: lo dice `_split_lock_reason` (y se explica, no se calla).
+  ⚠️ Las divisiones **ANTIGUAS** (`source_expense_id` + `split_info`) no se migran ni se tocan: hoy
+  son gastos independientes y el origen ya tiene el importe reducido, así que no hay dinero
+  duplicado; solo se deja de crear más.
+
+- **UN EVENTO PROMOCIONAL PUEDE SER SIN CACHÉ Y CON GASTOS CUBIERTOS** (sep 2026): en el asistente de
+  **PETICIONES** el módulo «¿el promotor cubre otros gastos?» estaba DENTRO del bloque del importe
+  (`[data-pw-fee]`), así que al marcar «Sin caché» desaparecía y no había forma de configurarlo — y
+  `_peticion_apply_form` además lo LIMPIABA. Ahora se pregunta **haya o no caché** (es lo normal en
+  lo promocional: sin caché pero con hoteles, viajes o catering cubiertos). En el asistente de
+  ACTIVIDAD y en la ficha ya se ofrecía siempre.
+
+- **MARKETING · LA EMPRESA LA DICTA LA ACTIVIDAD** (sep 2026): en una campaña vinculada a una
+  ACTIVIDAD (o a una gira o un ciclo) la empresa del grupo es **SIEMPRE la que factura esa actividad**
+  y **no se pregunta**: el asistente esconde el selector y enseña cuál es, y `promotion_create` hace
+  que lo del formulario **no mande** cuando el sujeto la dicta. Punto único
+  **`_concert_billing_company_id`** (`billing_company_id` o, si no se ha dicho, `group_company_id` —
+  el mismo criterio que la cabecera de la ficha y que la bolsa). Sobre un artista, una canción o un
+  disco se sigue preguntando.
+  ⚠️ El `<select>` se **DESHABILITA** al esconderlo: un campo oculto se envía igual.
+
+- ⚠️⚠️ **`PromoterCompany` NO TIENE COLUMNA `name`** (bug real, sep 2026): su nombre es **`legal_name`**
+  (NOT NULL). Un `order_by(PromoterCompany.name...)` en `promotion_detail_view` reventaba con un
+  **AttributeError** → 500 → **página de mantenimiento** justo después de crear una acción de
+  marketing: la campaña SÍ se creaba y lo que fallaba era la ficha a la que redirige, así que parecía
+  que «no dejaba crearla».
+
+- ⚠️⚠️⚠️ **DIVIDIR UN GASTO · LAS DOCE TRAMPAS QUE SACÓ LA REVISIÓN** (sep 2026). Ninguna daba
+  error: todas eran dinero mal contado o una bolsa que no se podía cerrar.
+  · ⚠️⚠️ **EL ESPEJO NO SE DISPARABA AL LLEGAR LA FACTURA.** `_split_propagate` solo corría al crear
+  el reparto y al pagar, pero **lo normal es dividir ANTES de que llegue la factura**: al subirla en
+  el titular, la PARTE se quedaba sin `attachment_url` y en `PENDIENTE`, así que su bolsa daba el
+  gasto por «sin consolidar» **para siempre** y no se podía cerrar. Ahora el espejo se dispara desde
+  el PUNTO ÚNICO de guardado (`_bag_update_expense_from_form`), que es por donde pasa todo.
+  · ⚠️⚠️ **EL JUSTIFICANTE DE LA REMESA APUNTABA MENOS DINERO DEL QUE SALIÓ DEL BANCO**: el fichero
+  SEPA manda el total del grupo (1.210 €) pero `payment_batch_receipt` topaba lo pagado con el bruto
+  **del titular** (726 €). El tope es el del GRUPO, como en el pago a mano.
+  · ⚠️⚠️ **AL PROVEEDOR SE LE PEDÍA SOLO EL TROZO DEL TITULAR** y, cuando mandaba su factura de
+  verdad, el servidor **se la rechazaba** por no cuadrar. Punto único **`_expense_billable_gross`**
+  (el total del grupo si está dividido) + `gross_override` en `_expense_invoice_breakdown`, usados en
+  lo que se le pide **y** en lo que se le exige al subirla.
+  · **A HOLDED se subía el trozo del titular** con el PDF del total adjunto (y un documento no se
+  sube dos veces, así que quedaba desparejado): `_accounting_amounts` usa el total del grupo.
+  · **EDITAR una fila del reparto** cambiaba su importe sin rebalancear: el grupo dejaba de sumar la
+  factura y la remesa mandaba otra cosa al banco. El importe de una fila dividida es **de solo
+  lectura** (se cambia el total en «Dividir gasto») y el endpoint lo ignora aunque llegue.
+  ⚠️⚠️ Y de ahí salió otra: **un formulario que NO trae ningún campo de importe ya no pone el gasto
+  a 0** (`_trae_importe` en `_bag_update_expense_from_form`). Sin esa guarda, quitar los campos para
+  protegerlos **borraba el importe**.
+  · ⚠️⚠️ **LA DIVISIÓN ANTIGUA SEGUÍA VIVA** en el mismo menú (dentro de «Gasto lo cubre…»): creaba
+  CLONES sin `split_role`, que pasaban los filtros y se pagaban y contabilizaban por su cuenta. Se
+  **retiró** de la pantalla y el endpoint la rechaza sobre un gasto ya dividido.
+  · **Los CONTADORES de Administración** no excluían las partes (la pestaña decía 2 y se veía 1), y
+  el **justificante** no se espejaba, así que una parte contaba para siempre como «pagado sin
+  justificante» en un bloque que no la listaba.
+  · **El candado del reparto** mira también `holded_doc_id`: cambiar los importes de algo ya subido
+  a Holded dejaba la app y la contabilidad desparejadas sin remedio.
+  · **No se reparte a una bolsa CERRADA/LIQUIDADA** (la misma guarda que el alta de un gasto): con
+  `bag_close` la bolsa queda CERRADA pero `is_archived=False`, así que se ofrecía.
+  · **Un PRORRATEO no se divide**: su parte se creaba sin `proration_source_bag_id` y ese dinero
+  quedaba libre para volver a prorratearlo en otra bolsa.
+  · **Ni partes a 0 € ni negativas**: que la SUMA cuadre no basta; una fila a 0 en otra bolsa no se
+  puede pagar ni contabilizar y le impide cerrarse.
+  · **Al quitar una bolsa del reparto se recalculan los porcentajes**: si no, la etiqueta seguía
+  diciendo «33,33%» cuando esa bolsa ya se llevaba el 66,67%.

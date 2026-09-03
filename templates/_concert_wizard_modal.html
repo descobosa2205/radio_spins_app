@@ -68,10 +68,15 @@
           <section class="wizard-step" data-step="1" data-mode="any">
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-shapes"></i>¿Qué tipo de actividad es?</div>
+              {# ⚠️ CICLO (de un TERCERO) NO es lo mismo que FESTIVAL: en un festival tocan varios
+                 artistas ese día y no lleva reporte de ventas; en un ciclo, aunque sea de otro, ese
+                 día solo actúa nuestro artista, así que sí lo lleva. No confundirlo con el ciclo que
+                 organizamos NOSOTROS (eso es un ciclo/festival de la casa, un `CycleFestival`). #}
               <div class="row g-3">
                 {% set activity_options = [
                   ('CONCIERTO','fa-music','Concierto'),
                   ('FESTIVAL','fa-people-group','Festival'),
+                  ('CICLO','fa-calendar-week','Ciclo'),
                   ('EVENTO_PROMOCIONAL','fa-bullhorn','Evento promocional'),
                   ('TV','fa-tv','Programa de TV'),
                   ('MARCA','fa-handshake','Acción con marca'),
@@ -2679,8 +2684,12 @@
 
     function syncFestivalName(){
       const t = document.querySelector('input[name="activity_type"]:checked');
+      const tipo = (t && t.value) || '';
       const wrap = document.getElementById('wizardFestivalNameWrap');
-      if(wrap) wrap.classList.toggle('d-none', (t && t.value || '') === 'CONCIERTO');
+      if(wrap) wrap.classList.toggle('d-none', tipo === 'CONCIERTO');
+      // El rótulo dice lo que se está pidiendo: el nombre del ciclo o el del festival.
+      const lab = wrap ? wrap.querySelector('label') : null;
+      if(lab){ lab.textContent = (tipo === 'CICLO') ? 'Nombre del ciclo' : 'Nombre del festival / evento'; }
     }
     function filterTourCards(){
       const sel = document.getElementById('wizard_artist_id');

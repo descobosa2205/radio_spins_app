@@ -1,0 +1,96 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   DIVIDIR UN GASTO ENTRE VARIAS BOLSAS
+   ----------------------------------------------------------------------------------------------
+   Se elige de quién es la otra bolsa (artista o evento), qué tipo de bolsa y cuál; luego CÓMO se
+   divide (a partes iguales · importe fijo · porcentaje) y se pueden añadir todas las bolsas que
+   hagan falta.
+
+   ⚠️⚠️ EL GASTO SE PAGA Y SE CONTABILIZA UNA SOLA VEZ: la bolsa de origen es el TITULAR (lleva la
+   factura, el pago y la contabilidad) y las demás reciben su parte con el estado espejado. Es la
+   forma de que una factura que va a varias bolsas no se duplique.
+
+   ⚠️ Se pinta UNA vez por panel y se configura EN EL CLIC (`data-bag-split`), nunca en
+   `shown.bs.modal` (modal_stack.js se come ese evento). El motor es `static/js/bag_expense_split.js`
+   (GLOBAL y por delegación: el panel vive dentro de fichas que se repintan por AJAX).
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+<div class="modal fade" id="bagSplitModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" data-split-form>
+        <input type="hidden" name="next" value="{{ bag_next }}">
+        <input type="hidden" name="split_mode" data-split-mode value="EQUAL">
+        <input type="hidden" name="split_self_value" data-split-self-value>
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-code-branch me-2 text-danger"></i>Dividir gasto</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning d-none" data-split-lock></div>
+
+          {# ── El gasto y su total ── #}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><span><i class="fa fa-receipt"></i><span data-split-concept>Gasto</span></span></div>
+            <div class="sim-cat-card__body">
+              <div class="d-flex gap-4 flex-wrap">
+                <div><div class="small text-muted">Total con IVA</div><div class="fs-5 fw-semibold" data-split-total-gross>—</div></div>
+                <div><div class="small text-muted">Total sin IVA</div><div class="fs-5 fw-semibold" data-split-total-net>—</div></div>
+              </div>
+            </div>
+          </div>
+
+          {# ── Añadir una bolsa: sujeto → tipo → bolsa ── #}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><span><i class="fa fa-folder-open"></i>¿Con qué otra bolsa se divide?</span></div>
+            <div class="sim-cat-card__body">
+              {# Paso 1 · de quién es #}
+              <div data-split-step="subject">
+                <input type="text" class="form-control mb-2" data-split-subject-search placeholder="Buscar artista o evento…">
+                <div class="promo-pick-grid" data-split-subjects></div>
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-2 d-none" data-split-more>Ver más artistas</button>
+              </div>
+              {# Paso 2 · qué tipo de bolsa #}
+              <div class="d-none" data-split-step="kind">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" data-split-back="subject"><i class="fa fa-arrow-left"></i></button>
+                  <span class="fw-semibold" data-split-subject-name></span>
+                </div>
+                <div class="row g-2" data-split-kinds></div>
+              </div>
+              {# Paso 3 · cuál #}
+              <div class="d-none" data-split-step="bag">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" data-split-back="kind"><i class="fa fa-arrow-left"></i></button>
+                  <span class="fw-semibold" data-split-kind-name></span>
+                </div>
+                <div class="list-group" data-split-bags></div>
+                <div class="alert alert-light border mt-2 mb-0 d-none" data-split-bags-empty>No hay bolsas de ese tipo para ese artista.</div>
+              </div>
+            </div>
+          </div>
+
+          {# ── Cómo se divide ── #}
+          <div class="sim-cat-card d-none" data-split-shares-card>
+            <div class="sim-cat-card__head"><span><i class="fa fa-scale-balanced"></i>¿Cómo se divide?</span>
+              <span class="small fw-normal" data-split-pending></span></div>
+            <div class="sim-cat-card__body">
+              <div class="d-flex flex-wrap gap-2 mb-3" data-split-modes></div>
+              <div data-split-rows></div>
+              <button type="button" class="btn btn-sm btn-outline-primary mt-2" data-split-add>
+                <i class="fa fa-plus me-1"></i>Añadir otra bolsa</button>
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer d-flex justify-content-between">
+          <button type="button" class="btn btn-outline-danger d-none" data-split-undo
+                  data-confirm="¿Deshacer la división? El gasto vuelve entero a su bolsa.">
+            <i class="fa fa-rotate-left me-1"></i>Deshacer la división</button>
+          <div class="ms-auto d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary" data-split-submit><i class="fa fa-check me-1"></i>Guardar el reparto</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

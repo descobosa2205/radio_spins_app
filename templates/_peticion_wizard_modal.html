@@ -223,9 +223,12 @@
           <div data-pw-fee>
             <label class="form-label">Importe orientativo</label>
             <input class="form-control" name="fee_text" id="pwFee" placeholder="Ej.: 8.000 € + IVA">
-            {# Y debajo, si hay caché: ¿cubren gastos? (el MISMO módulo del asistente de actividad). #}
-            <div class="mt-3">{{ pcm.promoter_costs() }}</div>
           </div>
+          {# ⚠️⚠️ ¿CUBREN GASTOS? va FUERA del importe: un evento promocional puede ser SIN CACHÉ y
+             que el promotor cubra los gastos igualmente (hoteles, viajes, catering…). Metido dentro
+             de [data-pw-fee] desaparecía al marcar «Sin caché» y no había forma de configurarlo.
+             Es el MISMO módulo del asistente de actividad (mismos nombres de campo, mismo parser). #}
+          <div class="mt-3">{{ pcm.promoter_costs() }}</div>
           <label class="form-label mt-3">Descripción de la actividad</label>
           <textarea class="form-control" name="description" id="pwDescription" rows="3" placeholder="Detalles de lo que se pide…"></textarea>
 

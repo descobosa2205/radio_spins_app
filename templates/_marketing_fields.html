@@ -53,12 +53,22 @@
     </div>
     <div class="col-md-4"><label class="form-label">Máximo global</label><input type="number" step="0.01" name="budget_max" class="form-control"></div>
     <div class="col-md-4"><label class="form-label">Notas de presupuesto</label><input type="text" name="budget_notes" class="form-control"></div>
-    <div class="col-md-6">
+    {# ⚠️ EMPRESA: cuando la campaña va sobre una ACTIVIDAD (o una gira o un ciclo) NO se pregunta:
+       es la que factura esa actividad y la pone el servidor. El asistente esconde el selector y
+       enseña cuál es; el `<select>` se DESHABILITA al ocultarlo (un campo oculto se envía igual). #}
+    <div class="col-md-6" data-mk-company>
       <label class="form-label">Empresa</label>
       <select class="form-select select-with-thumbs" name="company_id">
         <option value="">Sin empresa específica</option>
         {% for company in companies or [] %}<option value="{{ company.id }}" data-logo="{{ company.logo_url or '' }}">{{ company.name }}</option>{% endfor %}
       </select>
+    </div>
+    <div class="col-md-6 d-none" data-mk-company-fixed>
+      <label class="form-label">Empresa</label>
+      <div class="form-control-plaintext border rounded px-3 py-2 bg-light">
+        <i class="fa fa-building me-2 text-muted"></i><span data-mk-company-name></span>
+        <div class="form-text mb-0">La que factura la actividad. No hace falta elegirla.</div>
+      </div>
     </div>
   </div>
 {% endmacro %}

@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
+{% from '_concert_row.html' import concert_row with context %}
 {% set contracting_tab = 'conciertos' %}{% include '_contracting_tabs.html' %}
 
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
@@ -46,179 +47,12 @@
     <span class="badge text-bg-light border">{{ concerts|length }}</span>
   </div>
 
-  {# ---------- Filtros con iconos (mismo lenguaje que Cuadrantes) ----------
-       «Cuándo» va en la barra porque es lo primero que se mira: futuros marcado por defecto,
-       pasados sin marcar. El resto (tipo, estado, anuncio, etiquetas) en el popup. #}
-  {% set TYPE_ICON = {'EMPRESA':'fa-building','GRATUITO':'fa-gift','GIRAS_COMPRADAS':'fa-route',
-                      'PARTICIPADOS':'fa-handshake','CADIZ':'fa-star','VENDIDO':'fa-tag'} %}
-  {% set ST_META = {
-    'BORRADOR':{'label':'Borrador','icon':'fa-pen-ruler','dot':'#1d4ed8'},
-    'HABLADO':{'label':'Hablado','icon':'fa-comments','dot':'#7a5b00'},
-    'RESERVADO':{'label':'Reservado','icon':'fa-bookmark','dot':'#084298'},
-    'CONFIRMADO':{'label':'Confirmado','icon':'fa-circle-check','dot':'#0f5132'}
-  } %}
-  {% set ANN_META = {
-    'NONE':{'label':'Sin definir','icon':'fa-circle-question'},
-    'NO_ANNOUNCE':{'label':'No anunciar','icon':'fa-eye-slash'},
-    'UPCOMING':{'label':'Próximamente','icon':'fa-bullhorn'},
-    'ANNOUNCED':{'label':'Ya anunciado','icon':'fa-circle-check'}
-  } %}
-  {% set base_args = {'tab':'vista'} %}
-  {% if drill_artist %}{% set _ = base_args.update({'artist': drill_artist.id}) %}{% else %}{% set _ = base_args.update({'all':'1'}) %}{% endif %}
-  {% set W = f_when or [] %}
-  {% set T = f_sale_types or [] %}
-  {% set S = f_statuses or [] %}
-  {% set A = f_announcements or [] %}
-  {% set TAGS = f_concert_tags or [] %}
-  {% set extra_count = (T|length) + (S|length) + (A|length) + (TAGS|length) %}
+  {# FILTROS: parcial ÚNICO, el mismo que la pestaña «Conciertos» de la ficha del artista. #}
+  {% with cf=concert_filters %}{% include '_concert_filters.html' %}{% endwith %}
 
-  {# ⚠️ Los filtros se aplican SOLOS: cualquier casilla que se marque envía el formulario (ya no hay
-     botón «Ver»). Los del pop-up también, y el pop-up se vuelve a abrir solo (`open=filtros`) para
-     poder seguir marcando sin tener que reabrirlo a mano. #}
-  <form method="get" action="{{ url_for('concerts_view') }}" class="mb-3" data-filters-auto>
-    <input type="hidden" name="tab" value="vista">
-    {% if drill_artist %}<input type="hidden" name="artist" value="{{ drill_artist.id }}">{% else %}<input type="hidden" name="all" value="1">{% endif %}
-    <div class="filter-panel">
-      <div class="filter-panel__body">
-        <div class="d-flex align-items-end gap-3 flex-wrap">
-          <div>
-            <div class="filter-label"><i class="fa fa-clock"></i>Cuándo</div>
-            <div class="filter-chips">
-              <label class="filter-chip">
-                <input type="checkbox" name="when" value="FUTURE" {% if 'FUTURE' in W %}checked{% endif %}>
-                <i class="fa fa-forward"></i>Futuros
-              </label>
-              <label class="filter-chip">
-                <input type="checkbox" name="when" value="PAST" {% if 'PAST' in W %}checked{% endif %}>
-                <i class="fa fa-backward"></i>Pasados
-              </label>
-              {# AÑO: el anterior, el actual y el siguiente. Un año sin conciertos no se ofrece. #}
-              {% if year_chips %}
-                <span class="vr mx-1"></span>
-                {% for y in year_chips %}
-                  <label class="filter-chip" title="Solo los conciertos de {{ y.year }}">
-                    <input type="checkbox" name="year" value="{{ y.year }}" {% if y.active %}checked{% endif %}>
-                    {{ y.year }}<span class="opacity-75">{{ y.count }}</span>
-                  </label>
-                {% endfor %}
-              {% endif %}
-            </div>
-          </div>
-          <div class="ms-auto d-flex gap-2">
-            <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#concertsFiltersModal">
-              <i class="fa fa-sliders me-1"></i>Filtros{% if extra_count %} <span class="badge text-bg-danger ms-1">{{ extra_count }}</span>{% endif %}
-            </button>
-            {% if extra_count or 'PAST' in W or f_years %}
-              <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', **base_args) }}" title="Quitar todos los filtros"><i class="fa fa-rotate-left"></i></a>
-            {% endif %}
-          </div>
-        </div>
-        <div class="filter-hint mt-2">
-          <i class="fa fa-circle-info me-1"></i>Se muestran los <strong>conciertos futuros</strong>; marca «Pasados» para ver también los ya celebrados.
-        </div>
-        {% if open_filters %}<input type="hidden" name="open" value="filtros">{% endif %}
-      </div>
-    </div>
-
-    <div class="modal fade" id="concertsFiltersModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title"><i class="fa fa-sliders me-2 text-danger"></i>Filtros</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="filter-group">
-              <div class="filter-label"><i class="fa fa-tag"></i>Tipo</div>
-              <div class="filter-chips">
-                {% for value, label in type_choices %}
-                  {% if type_counts.get(value) or value in T %}
-                  <label class="filter-chip">
-                    <input type="checkbox" name="type" value="{{ value }}" {% if value in T %}checked{% endif %}>
-                    <i class="fa {{ TYPE_ICON.get(value, 'fa-circle') }}"></i>{{ label }}
-                    <span class="opacity-75">{{ type_counts.get(value, 0) }}</span>
-                  </label>
-                  {% endif %}
-                {% endfor %}
-              </div>
-            </div>
-            <div class="filter-group">
-              <div class="filter-label"><i class="fa fa-flag"></i>Estado</div>
-              <div class="filter-chips">
-                {% for key, meta in ST_META.items() %}
-                  <label class="filter-chip">
-                    <input type="checkbox" name="status" value="{{ key }}" {% if key in S %}checked{% endif %}>
-                    <span class="filter-dot" style="background: {{ meta.dot }};"></span>
-                    <i class="fa {{ meta.icon }}"></i>{{ meta.label }}
-                  </label>
-                {% endfor %}
-              </div>
-            </div>
-            <div class="filter-group">
-              <div class="filter-label"><i class="fa fa-bullhorn"></i>Anuncio</div>
-              <div class="filter-chips">
-                {% for key, meta in ANN_META.items() %}
-                  <label class="filter-chip">
-                    <input type="checkbox" name="announcement" value="{{ key }}" {% if key in A %}checked{% endif %}>
-                    <i class="fa {{ meta.icon }}"></i>{{ meta.label }}
-                  </label>
-                {% endfor %}
-              </div>
-            </div>
-            {% if all_concert_tags %}
-            <div class="filter-group">
-              <div class="filter-label"><i class="fa fa-hashtag"></i>Etiquetas</div>
-              <div class="filter-chips">
-                {% for tag in all_concert_tags %}
-                  <label class="filter-chip">
-                    <input type="checkbox" name="concert_tag" value="{{ tag }}" {% if tag in TAGS %}checked{% endif %}>
-                    <i class="fa fa-hashtag"></i>{{ tag }}
-                  </label>
-                {% endfor %}
-              </div>
-            </div>
-            {% endif %}
-          </div>
-          <div class="modal-footer d-flex justify-content-between">
-            <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', **base_args) }}">Limpiar todo</a>
-            <button class="btn btn-danger" type="button" data-bs-dismiss="modal">Listo</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </form>
-  {% if open_filters %}
-  <script>
-    // El pop-up de filtros se reabre solo tras aplicar uno desde dentro (helper global de layout).
-    document.addEventListener('DOMContentLoaded', function () {
-      if (window.app33AutoOpenModal) window.app33AutoOpenModal('concertsFiltersModal');
-    });
-  </script>
-  {% endif %}
-
-  {% if concerts %}
+  {% if concert_rows %}
   <div class="card"><div class="list-group list-group-flush">
-    {% for c in concerts %}
-    <a href="{{ url_for('concert_detail_view', cid=c.id) }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
-      <div class="text-center flex-shrink-0" style="width:52px;">
-        {% if c.date %}<div class="fw-bold" style="font-size:1.15rem;line-height:1;">{{ c.date.strftime('%d') }}</div><div class="small text-danger text-uppercase fw-semibold">{{ c.date.strftime('%b') }}</div><div class="small text-muted">{{ c.date.strftime('%Y') }}</div>{% else %}<i class="fa fa-calendar text-muted"></i>{% endif %}
-      </div>
-      {% if not drill_artist %}<img src="{{ (c.artist.photo_url if c.artist else '') or DEFAULT_AVATAR_URL }}" alt="" data-default-photo="1" data-avatar="1" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">{% endif %}
-      <div class="flex-grow-1" style="min-width:0;">
-        <div class="fw-semibold text-truncate">{{ c.festival_name or (c.artist.name if c.artist else 'Concierto') }}</div>
-        <div class="small text-muted text-truncate">{% if not drill_artist and c.artist %}{{ c.artist.name }} · {% endif %}{{ c.location_summary or (c.venue.name if c.venue else 'Sin recinto') }}</div>
-      </div>
-      {# Una actuación DENTRO DEL FESTIVAL DE OTRO es un concierto y va en este listado, pero se ve
-         con su etiqueta: no es lo mismo que un festival nuestro (eso es un ciclo/festival aparte). #}
-      {% if (c.activity_type or 'CONCIERTO')|upper == 'FESTIVAL' %}
-        <span class="badge text-bg-light border flex-shrink-0" title="Actuación dentro de un festival"><i class="fa fa-star me-1"></i>Festival</span>
-      {% endif %}
-      <span class="badge text-bg-light border flex-shrink-0">{{ c.sale_type_label }}</span>
-      {# ⚠️ «Gratuito» NO es un tipo de venta: es que la entrada es gratis. Va en su etiqueta. #}
-      {% if c.is_free %}<span class="badge-gratuito flex-shrink-0"><i class="fa fa-gift"></i>Gratuito</span>{% endif %}
-      {% with cs_id=c.id, cs_status=c.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
-    </a>
-    {% endfor %}
+    {% for r in concert_rows %}{{ concert_row(r) }}{% endfor %}
   </div></div>
   {% else %}
   <div class="alert alert-light border">No hay conciertos con estos filtros.</div>

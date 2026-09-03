@@ -1,0 +1,160 @@
+{# =================================================================================================
+   FILTROS DE UN LISTADO DE ACTIVIDADES · PARCIAL ÚNICO
+   -------------------------------------------------------------------------------------------------
+   ⚠️ Los usan Contratación → Conciertos y la pestaña «Conciertos» de la ficha del ARTISTA: son LOS
+   MISMOS filtros (estética y funcionamiento), con las etiquetas de AÑO y con pasados/futuros.
+   Estaban escritos a mano dos veces y se habían desparejado; ahora es un solo sitio.
+
+   Se le pasa `cf`, que arma `_concert_filters_context` en app.py:
+     action · hidden [(nombre, valor)] · reset_url · modal_id · when · statuses · sale_types ·
+     announcements · tags · years · open_filters · type_choices · type_counts · all_tags ·
+     year_chips · hint
+
+   ⚠️ Trae su propio <form>: NO se puede incluir dentro de otro formulario (un form dentro de otro
+   no es HTML válido y el navegador cierra el de fuera donde empieza el de dentro).
+   ================================================================================================= #}
+{% set TYPE_ICON = {'EMPRESA':'fa-building','GRATUITO':'fa-gift','GIRAS_COMPRADAS':'fa-route',
+                    'PARTICIPADOS':'fa-handshake','CADIZ':'fa-star','VENDIDO':'fa-tag'} %}
+{% set ST_META = {
+  'BORRADOR':{'label':'Borrador','icon':'fa-pen-ruler','dot':'#1d4ed8'},
+  'HABLADO':{'label':'Hablado','icon':'fa-comments','dot':'#7a5b00'},
+  'RESERVADO':{'label':'Reservado','icon':'fa-bookmark','dot':'#084298'},
+  'CONFIRMADO':{'label':'Confirmado','icon':'fa-circle-check','dot':'#0f5132'}
+} %}
+{% set ANN_META = {
+  'NONE':{'label':'Sin definir','icon':'fa-circle-question'},
+  'NO_ANNOUNCE':{'label':'No anunciar','icon':'fa-eye-slash'},
+  'UPCOMING':{'label':'Próximamente','icon':'fa-bullhorn'},
+  'ANNOUNCED':{'label':'Ya anunciado','icon':'fa-circle-check'}
+} %}
+{% set W = cf.when or [] %}
+{% set T = cf.sale_types or [] %}
+{% set S = cf.statuses or [] %}
+{% set A = cf.announcements or [] %}
+{% set TAGS = cf.tags or [] %}
+{% set extra_count = (T|length) + (S|length) + (A|length) + (TAGS|length) %}
+
+{# ⚠️ Los filtros se aplican SOLOS: cualquier casilla que se marque envía el formulario (no hay
+   botón «Ver»). Los del pop-up también, y el pop-up se vuelve a abrir solo (`open=filtros`) para
+   poder seguir marcando sin tener que reabrirlo a mano. #}
+<form method="get" action="{{ cf.action }}" class="mb-3" data-filters-auto>
+  {% for n, v in cf.hidden %}<input type="hidden" name="{{ n }}" value="{{ v }}">{% endfor %}
+  <div class="filter-panel">
+    <div class="filter-panel__body">
+      <div class="d-flex align-items-end gap-3 flex-wrap">
+        <div>
+          <div class="filter-label"><i class="fa fa-clock"></i>Cuándo</div>
+          <div class="filter-chips">
+            <label class="filter-chip">
+              <input type="checkbox" name="when" value="FUTURE" {% if 'FUTURE' in W %}checked{% endif %}>
+              <i class="fa fa-forward"></i>Futuros
+            </label>
+            <label class="filter-chip">
+              <input type="checkbox" name="when" value="PAST" {% if 'PAST' in W %}checked{% endif %}>
+              <i class="fa fa-backward"></i>Pasados
+            </label>
+            {# AÑO: el anterior, el actual y el siguiente. Un año sin actividades no se ofrece. #}
+            {% if cf.year_chips %}
+              <span class="vr mx-1"></span>
+              {% for y in cf.year_chips %}
+                <label class="filter-chip" title="Solo lo de {{ y.year }}">
+                  <input type="checkbox" name="year" value="{{ y.year }}" {% if y.active %}checked{% endif %}>
+                  {{ y.year }}<span class="opacity-75">{{ y.count }}</span>
+                </label>
+              {% endfor %}
+            {% endif %}
+          </div>
+        </div>
+        <div class="ms-auto d-flex gap-2">
+          <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#{{ cf.modal_id }}">
+            <i class="fa fa-sliders me-1"></i>Filtros{% if extra_count %} <span class="badge text-bg-danger ms-1">{{ extra_count }}</span>{% endif %}
+          </button>
+          {% if extra_count or 'PAST' in W or cf.years %}
+            <a class="btn btn-outline-secondary" href="{{ cf.reset_url }}" title="Quitar todos los filtros"><i class="fa fa-rotate-left"></i></a>
+          {% endif %}
+        </div>
+      </div>
+      <div class="filter-hint mt-2">
+        <i class="fa fa-circle-info me-1"></i>{{ cf.hint or 'Se muestran los conciertos futuros; marca «Pasados» para ver también los ya celebrados.' }}
+      </div>
+      {% if cf.open_filters %}<input type="hidden" name="open" value="filtros">{% endif %}
+    </div>
+  </div>
+
+  <div class="modal fade" id="{{ cf.modal_id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-sliders me-2 text-danger"></i>Filtros</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% if cf.type_choices %}
+          <div class="filter-group">
+            <div class="filter-label"><i class="fa fa-tag"></i>Tipo</div>
+            <div class="filter-chips">
+              {% for value, label in cf.type_choices %}
+                {% if cf.type_counts.get(value) or value in T %}
+                <label class="filter-chip">
+                  <input type="checkbox" name="type" value="{{ value }}" {% if value in T %}checked{% endif %}>
+                  <i class="fa {{ TYPE_ICON.get(value, 'fa-circle') }}"></i>{{ label }}
+                  <span class="opacity-75">{{ cf.type_counts.get(value, 0) }}</span>
+                </label>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+          <div class="filter-group">
+            <div class="filter-label"><i class="fa fa-flag"></i>Estado</div>
+            <div class="filter-chips">
+              {% for key, meta in ST_META.items() %}
+                <label class="filter-chip">
+                  <input type="checkbox" name="status" value="{{ key }}" {% if key in S %}checked{% endif %}>
+                  <span class="filter-dot" style="background: {{ meta.dot }};"></span>
+                  <i class="fa {{ meta.icon }}"></i>{{ meta.label }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="filter-group">
+            <div class="filter-label"><i class="fa fa-bullhorn"></i>Anuncio</div>
+            <div class="filter-chips">
+              {% for key, meta in ANN_META.items() %}
+                <label class="filter-chip">
+                  <input type="checkbox" name="announcement" value="{{ key }}" {% if key in A %}checked{% endif %}>
+                  <i class="fa {{ meta.icon }}"></i>{{ meta.label }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+          {% if cf.all_tags %}
+          <div class="filter-group">
+            <div class="filter-label"><i class="fa fa-hashtag"></i>Etiquetas</div>
+            <div class="filter-chips">
+              {% for tag in cf.all_tags %}
+                <label class="filter-chip">
+                  <input type="checkbox" name="concert_tag" value="{{ tag }}" {% if tag in TAGS %}checked{% endif %}>
+                  <i class="fa fa-hashtag"></i>{{ tag }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+        </div>
+        <div class="modal-footer d-flex justify-content-between">
+          <a class="btn btn-outline-secondary" href="{{ cf.reset_url }}">Limpiar todo</a>
+          <button class="btn btn-danger" type="button" data-bs-dismiss="modal">Listo</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{% if cf.open_filters %}
+<script>
+  // El pop-up de filtros se reabre solo tras aplicar uno desde dentro (helper global de layout).
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.app33AutoOpenModal) window.app33AutoOpenModal({{ cf.modal_id|tojson }});
+  });
+</script>
+{% endif %}

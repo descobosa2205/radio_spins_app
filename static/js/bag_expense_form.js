@@ -41,6 +41,16 @@
   function q(root, sel) { return root ? root.querySelector(sel) : null; }
 
   /* ---------------------------------------------------------------- 1 · IMPORTE E IVA */
+  /* QUÉ ES el documento (FACTURA / TICKET / SIN_DOCUMENTO). ⚠️ Punto único: es un grupo de RADIOS
+     (antes era un hidden), y en edición se pinta uno por gasto, así que hay que leer el marcado
+     DE ESTE formulario, no el primero de la página. */
+  function tipoDoc(root) {
+    var marcado = root && root.querySelector('input[name="document_type"]:checked');
+    if (marcado) return (marcado.value || 'FACTURA').toUpperCase();
+    var hidden = q(root, '[data-be-doc-type]');
+    return ((hidden && hidden.value) || 'FACTURA').toUpperCase();
+  }
+
   function pintaIva(root) {
     if (!root) return;
     var hint = q(root, '[data-be-vat-hint]');
@@ -48,7 +58,7 @@
     var valor = num(q(root, 'input[name="amount_value"]') ? q(root, 'input[name="amount_value"]').value : '');
     var pct = num(q(root, '[data-be-vat-pct]') ? q(root, '[data-be-vat-pct]').value : '21') || 0;
     var modo = (q(root, 'input[name="amount_mode"]:checked') || {}).value || 'GROSS';
-    var esTicket = ((q(root, '[data-be-doc-type]') || {}).value || 'FACTURA') === 'TICKET';
+    var esTicket = tipoDoc(root) === 'TICKET';
     if (!valor) { hint.textContent = pct ? ('Sin IVA se le calcula el ' + pct + '% automáticamente.') : ''; return; }
     if (esTicket) {
       hint.innerHTML = 'Es un <strong>ticket</strong>: el IVA no se desglosa (no es deducible). Total ' + esc(eur(valor)) + '.';
@@ -237,11 +247,12 @@
 
   /* ---------------------------------------------------------------- 3 · FACTURA O TICKET */
   function ponDoc(root, res, nombre) {
-    var kindInput = q(root, '[data-be-doc-type]');
     var badge = q(root, '[data-be-doc-kind]');
     var campos = q(root, '[data-be-doc-fields]');
     var esTicket = (res && res.kind) === 'TICKET';
-    if (kindInput) kindInput.value = esTicket ? 'TICKET' : 'FACTURA';
+    var radio = root.querySelector('input[name="document_type"][value="' + (esTicket ? 'TICKET' : 'FACTURA') + '"]');
+    if (radio) { radio.checked = true; }
+    else { var hidden = q(root, '[data-be-doc-type]'); if (hidden) hidden.value = esTicket ? 'TICKET' : 'FACTURA'; }
     if (badge) {
       badge.textContent = esTicket ? 'Ticket · sin desglose de IVA' : 'Factura · con IVA desglosado';
       badge.classList.remove('d-none');
@@ -319,7 +330,7 @@
     var root = form(e.target);
     if (!root) return;
     if (e.target.matches('input[name="amount_mode"], [data-be-doc-type]')) pintaIva(root);
-    if (e.target.matches('#beDocInput, input[name="documents"]')) leeDoc(root, e.target);
+    if (e.target.matches('[data-be-doc-input]')) leeDoc(root, e.target);
     // ¿Pagado? → completo o parcial y método.
     if (e.target.matches('input[name="payment_status"]')) {
       var pagado = e.target.value === 'PAGADO' && e.target.checked;
@@ -382,5 +393,16 @@
     }
   });
 
-  window.app33BagExpense = { paintVat: pintaIva };
+  /* Repintado inicial: en EDICIÓN el formulario llega precargado, así que el desglose del IVA se
+     tiene que ver sin tocar nada. Se re-engancha con los eventos de la casa porque el panel de la
+     bolsa se pinta también embebido en fichas cuyas zonas se repintan por AJAX. */
+  function pintaTodos() {
+    document.querySelectorAll('[data-bag-expense-form]').forEach(function (root) { pintaIva(root); });
+  }
+  document.addEventListener('DOMContentLoaded', pintaTodos);
+  document.addEventListener('inline:updated', pintaTodos);
+  document.addEventListener('ficha:shown', pintaTodos);
+  if (document.readyState !== 'loading') { try { pintaTodos(); } catch (e) {} }
+
+  window.app33BagExpense = { paintVat: pintaIva, docType: tipoDoc };
 })();

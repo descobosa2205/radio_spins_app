@@ -9319,3 +9319,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   caminos de guardado del back office): la regla de `_notify_resolve`.
   ⚠️ **`/ventas?cid=<id>`** deja SOLO esa actividad (con su aviso y su «Ver todas las del día»): es
   a donde lleva el botón del correo y de la campanita.
+
+- ⚠️⚠️ **CADA TAREA DE UNA ACTIVIDAD ES DE UN ÁREA, Y SOLO LA VE QUIEN TRABAJA EN ELLA** (sep 2026).
+  El tablero de la pestaña «Inicio» y los avisos de la ficha se le pintaban a TODO EL MUNDO: quien
+  está en producción se encontraba «Sin contrato», «Pendiente de anunciar» o «Configura el
+  responsable de ticketing», que ni es suyo ni puede hacer.
+  · Punto único **`_concert_task_area_ok(area)`** (+ `CONCERT_TASK_AREA_*`): **dirección lo ve todo**;
+    `contratacion` → quien tenga acceso a Contratación · `ticketing` → `can_set_concert_onsale()`
+    (contratación, ticketing, ventas y dirección) · `produccion` → quien tenga Producción ·
+    `administracion` → quien tenga Administración.
+  · `suelta(...)` (las tareas DEL DEPARTAMENTO) gana `area=` —contratación por defecto— y
+    **`ver_siempre=`** para la excepción: **activar la producción es de QUIEN CREÓ la actividad**
+    (`created_by_user_id`), así que a esa persona se le enseña aunque no sea de producción.
+  ⚠️ **Las FASES DE UNA PETICIÓN no se filtran por área**: son de QUIEN LA PIDIÓ (llevan dueño,
+  `mine` y su campanita), y filtrarlas dejaría a esa persona sin ver su propio trabajo.
+  · Y en la ficha, junto al aviso de la forma de pago, sale ahora el de **«Pendiente de configurar el
+  responsable de ticketing»** (con `CAN_SET_ONSALE`, que es quien puede resolverlo).
+  ⚠️ Su pop-up **NO se incluye ahí**: ya está en la pestaña, FUERA de `#concert-general-zone` (esa
+  zona se reemplaza por AJAX). Incluirlo otra vez dejaría **dos ids iguales** en el DOM.
+  Probado con la app real: dirección ve las cinco · contratación las suyas · producción solo
+  «Activar producción» · administración ninguna (y el creador, la suya aunque no sea de producción).

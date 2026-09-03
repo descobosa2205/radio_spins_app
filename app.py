@@ -47420,6 +47420,35 @@ def concert_commission_request_invoice(cid, agent_id):
     return redirect(url_for("concert_detail_view", cid=cid) + "#comisiones")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# DE QUIÉN ES CADA TAREA DE LA FICHA DE UNA ACTIVIDAD
+# ⚠️⚠️ Las tareas «del departamento» (y los avisos de la ficha) son de un ÁREA y **solo las ve quien
+# trabaja en ella** —y dirección, que lo ve todo—. Antes se le pintaban a TODO EL MUNDO: quien está
+# en producción se encontraba «sin contrato», «pendiente de anunciar» o «configura el responsable de
+# ticketing», que ni es suyo ni puede hacer. Producción y administración ven las suyas en su pestaña.
+# ⚠️ Las FASES DE UNA PETICIÓN no se filtran por área: son de QUIEN LA PIDIÓ (llevan dueño y su
+#    campanita), y filtrarlas dejaría a esa persona sin ver su propio trabajo.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+CONCERT_TASK_AREA_CONTRATACION = "contratacion"
+CONCERT_TASK_AREA_TICKETING = "ticketing"
+CONCERT_TASK_AREA_PRODUCCION = "produccion"
+
+
+def _concert_task_area_ok(area: str) -> bool:
+    """¿Le corresponden a esta persona las tareas de esa área? (dirección lo ve todo)."""
+    if not area or is_master():
+        return True
+    if area == CONCERT_TASK_AREA_CONTRATACION:
+        return has_access_key("contratacion", include_descendants=True)
+    if area == CONCERT_TASK_AREA_TICKETING:
+        return can_set_concert_onsale()
+    if area == CONCERT_TASK_AREA_PRODUCCION:
+        return has_access_key("produccion", include_descendants=True)
+    if area == "administracion":
+        return has_access_key("administracion", include_descendants=True)
+    return True
+
+
 def _concert_task_board(session_db, concert) -> dict:
     """LAS TAREAS de una actividad, **paso a paso**, para su pestaña «Inicio» (el mismo patrón que
     las tareas pendientes de un proyecto discográfico).
@@ -47483,7 +47512,7 @@ def _concert_task_board(session_db, concert) -> dict:
     extra = []
 
     def suelta(key, n, label, icon, url="", modal="", action_label="", hint="", do="",
-               perm="concerts"):
+               perm="concerts", area=CONCERT_TASK_AREA_CONTRATACION, ver_siempre=False):
         """Una tarea DEL DEPARTAMENTO (no es de nadie en concreto).
 
         ⚠️⚠️ **TODAS SE PUEDEN HACER DESDE AQUÍ**: cada una lleva cómo se resuelve —un `url` a donde
@@ -47491,8 +47520,13 @@ def _concert_task_board(session_db, concert) -> dict:
         del anuncio, activar la venta)—. Una tarea que solo se puede leer obliga a buscar dónde se
         hace, que es justo lo que este tablero viene a evitar.
         `perm` dice qué permiso hace falta para ofrecer el control (`concerts` o `onsale`): un botón
-        que abre un pop-up que no se ha pintado no hace nada."""
+        que abre un pop-up que no se ha pintado no hace nada.
+        ⚠️ `area` dice DE QUIÉN es: solo se le pinta a quien trabaja en ella (y a dirección). Con
+        `ver_siempre=True` se le enseña además a quien la tiene por otro motivo (p. ej. activar la
+        producción, que es de QUIEN CREÓ la actividad)."""
         if key in hechas:
+            return
+        if not (ver_siempre or _concert_task_area_ok(area)):
             return
         extra.append({"key": key, "phase": n, "label": label, "icon": icon, "state": "todo",
                       "mine": False, "blocked": False, "blocked_reason": "", "owner_nick": "",
@@ -47543,6 +47577,7 @@ def _concert_task_board(session_db, concert) -> dict:
                 _hay_correo = bool((_concert_ticketing_contact(session_db, concert) or {}).get("email"))
                 suelta("contacto_ticketing", 9, "Configurar el responsable de ticketing",
                        "fa-address-book", modal="#ticketingContactModal", perm="onsale",
+                       area=CONCERT_TASK_AREA_TICKETING,
                        action_label="Configurarlo",
                        hint=("Mientras no esté, las ventas se le piden al correo del promotor"
                              if _hay_correo else
@@ -47550,8 +47585,13 @@ def _concert_task_board(session_db, concert) -> dict:
         # Si la actividad NO viene de una petición, sus dos tareas de siempre también salen aquí.
         if not pendientes and (r is None or not getattr(r, "accepted_at", None)):
             if _concert_production_pending(concert):
+                # ⚠️ Activar la producción es de QUIEN CREÓ la actividad (además de producción y
+                # dirección): a esa persona se le enseña aunque no sea de ninguno de los dos.
+                _creador = str(getattr(concert, "created_by_user_id", "") or "")
                 suelta("produccion", 4, "Activar producción", "fa-user-gear",
                        modal="#prodOwnerModal", action_label="Activar producción",
+                       area=CONCERT_TASK_AREA_PRODUCCION,
+                       ver_siempre=bool(_creador and _creador == yo),
                        hint="Di quién de producción se encarga")
             if _peticion_artist_notice_pending(session_db, concert):
                 suelta("informar", 4, "Informar al artista", "fa-bell",

@@ -109449,6 +109449,20 @@ PERSON_DOC_RENEW_KINDS = {"DNI": "DNI", "LICENSE": "carnet de conducir", "PASSPO
 PERSON_DOC_REMIND_DAYS = 30
 
 
+def _person_doc_owner_exists(session_db, owner_type: str, owner_id) -> bool:
+    """¿Sigue existiendo quien tiene el documento? Un tercero o usuario borrado deja sus documentos
+    huérfanos en BD; a esos no hay a quién reclamarles nada."""
+    ot = (owner_type or "").upper()
+    try:
+        if ot == "USER":
+            return session_db.get(User, owner_id) is not None
+        if ot == "PROMOTER":
+            return session_db.get(Promoter, owner_id) is not None
+    except Exception:
+        return True  # ante la duda, que el barrido siga tratándolo como siempre
+    return False
+
+
 def _person_doc_owner_contact(session_db, owner_type: str, owner_id):
     """(nombre, correo) de quien tiene el documento (personal de la casa o tercero)."""
     ot = (owner_type or "").upper()
@@ -109552,7 +109566,7 @@ def _person_docs_expired_sweep(limit: int = 200) -> dict:
     """Repasa los DNI, carnets y pasaportes CADUCADOS y le escribe a cada persona para que suba el
     nuevo. No insiste: como mucho un correo por documento cada `PERSON_DOC_REMIND_DAYS` días."""
     session_db = db()
-    enviados, saltados, errores = 0, 0, []
+    enviados, saltados, huerfanos, errores = 0, 0, 0, []
     try:
         hoy = today_local()
         docs = (session_db.query(PersonDocument)
@@ -109561,6 +109575,12 @@ def _person_docs_expired_sweep(limit: int = 200) -> dict:
                         PersonDocument.expiry_date < hoy)
                 .order_by(PersonDocument.expiry_date.asc()).limit(limit).all())
         for doc in docs:
+            # Documento de alguien que YA NO EXISTE (tercero o usuario borrado): no hay a quién
+            # escribir ni petición que crear. Antes salía cada día como «<uuid>: sin correo» y
+            # ensuciaba el informe del cron con errores que nadie podía arreglar.
+            if not _person_doc_owner_exists(session_db, doc.owner_type, doc.owner_id):
+                huerfanos += 1
+                continue
             req = _person_doc_request_create(session_db, doc.owner_type, doc.owner_id, doc.kind,
                                              doc=doc, reason="EXPIRED")
             if req is None:
@@ -109580,7 +109600,7 @@ def _person_docs_expired_sweep(limit: int = 200) -> dict:
         errores.append(str(exc))
     finally:
         session_db.close()
-    return {"enviados": enviados, "saltados": saltados, "errores": errores[:10]}
+    return {"enviados": enviados, "saltados": saltados, "huerfanos": huerfanos, "errores": errores[:10]}
 
 
 def _song_delivery_reminders_sweep(limit: int = 100) -> dict:
@@ -128253,8 +128273,10 @@ def _afavor_request_sweep() -> dict:
                                 "s" if len(pendientes) != 1 else ""),
                     "logo_url": (getattr(_afavor_pies_company(session_db), "logo_url", None) or ""),
                     "eyebrow": "Royalties a favor", "heading": periodo,
+                    # ⚠️ La clave es `temas` (la que devuelve _afavor_pending_by_semester): con
+                    # `items` el barrido reventaba con KeyError y el cron devolvía «error: true».
                     "facts": [("fa-building", "Compañías", str(len(pendientes))),
-                              ("fa-music", "Temas", str(sum(p["items"] for p in pendientes)))],
+                              ("fa-music", "Temas", str(sum(p.get("temas", 0) for p in pendientes)))],
                     "button": {"label": "Pedirlas todas",
                                "url": _external_url_for("afavor_request_view", s=sem_key, pendientes=1)},
                 })

@@ -109713,7 +109713,13 @@ def cron_expired_documents():
                     # Y la ACTUALIZACIÓN DE VENTAS que se le pide al promotor de fuera (el día lo
                     # decide `_sales_request_due`: la primera el día siguiente a la salida a la
                     # venta y después los lunes y los jueves).
-                    "ventas": _sales_request_sweep()})
+                    "ventas": _sales_request_sweep(),
+                    # Y el recordatorio de LO NUESTRO: al responsable de ticketing, cuando una
+                    # actividad que vendemos nosotros lleva más de una semana sin actualizarse.
+                    # ⚠️ Va aquí a propósito: su cron propio (`/cron/actualizar-ventas`) existe
+                    # igualmente, pero así no hace falta dar de alta otra tarea en el servidor —
+                    # el mismo criterio que las entregas de masters y las liquidaciones «a favor».
+                    "ventas_propias": _sales_own_sweep()})
 
 
 @app.post("/documentos/pedir", endpoint="person_doc_request_send")

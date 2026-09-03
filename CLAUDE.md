@@ -9300,7 +9300,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
     **`_sales_request_context(..., internal=True)`**: el botón «Actualizar ventas» lleva al **BACK
     OFFICE** (`/ventas?cid=…`) y no se ofrece derivar el ticketing. Un solo motor: si se toca el
     diseño, se tocan los dos a la vez.
-  · **AUTOMÁTICO**: `_sales_own_sweep`, colgado del MISMO cron (`/cron/actualizar-ventas`), avisa de
+  · **AUTOMÁTICO**: `_sales_own_sweep`, colgado del MISMO cron (`/cron/actualizar-ventas`) **y del
+    cron DIARIO de documentos** (`/cron/documentos-caducados`, donde ya cuelga `_sales_request_sweep`),
+    para no depender de dar de alta otra tarea en el servidor. Avisa de
     lo que lleva más de **`SALES_OWN_STALE_DAYS` (7)** días sin actualizarse, como mucho una vez cada
     `SALES_OWN_MIN_DAYS` (7). ⚠️ Cuándo se actualizó por última vez lo dice **`sales_maps_unified`**
     (el MISMO dato que pinta el «Actualizado hoy» del reporte), así que el aviso y la pantalla no

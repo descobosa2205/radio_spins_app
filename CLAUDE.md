@@ -9255,3 +9255,67 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   puede pagar ni contabilizar y le impide cerrarse.
   · **Al quitar una bolsa del reparto se recalculan los porcentajes**: si no, la etiqueta seguía
   diciendo «33,33%» cuando esa bolsa ya se llevaba el 66,67%.
+
+- ⚠️⚠️ **LA FOTO DE UN EVENTO SE VE POR SU ARTISTA ESPEJO: el espejo SIGUE al evento** (bug real,
+  sep 2026: «La Ruta del Aguilar se actualizó ayer y sigue saliendo la foto antigua en el reporte de
+  ventas y en los filtros»). Un `AppEvent` se espeja como `Artist` porque una actividad exige
+  artista, y **media app pinta la foto DEL ESPEJO**. `_ensure_artist_for_event` heredaba el logo
+  **solo si el espejo no tenía ninguno**, así que al cambiar la foto del evento se seguía viendo la
+  ANTIGUA en todas partes; y además solo se ejecutaba al crear actividades, nunca al guardar el
+  evento.
+  · Punto único **`_event_sync_mirror(session, event, *, logo_antes="")`**: pone al día el NOMBRE y
+  **la FOTO** del espejo, y lo llaman `_ensure_artist_for_event` **y `event_update`**.
+  · `logo_antes` arrastra también a los **ciclos/festivales** de ese evento que habían HEREDADO su
+  logo y no le han puesto uno propio (a los que sí lo tienen no se les toca).
+  · **Relleno puntual** `_event_mirrors_backfill_once` (marca `event_mirror_photo_backfill_v1`):
+  arregla los eventos a los que ya se les había cambiado la foto. El espejo no se edita desde
+  ninguna pantalla, así que ponerle la del evento no pisa nada escrito a mano.
+  ⚠️ **Lo mismo con los MEDIOS**: el TERCERO espejo de un medio (`_ensure_promoter_for_media`)
+  también heredaba el logo una sola vez → ahora lo sigue, y al guardar el medio se pone al día con
+  **`_sync_media_mirror_logo`**.
+  ⚠️ En un ARTISTA de verdad no hay problema de caché: `upload_image` genera la clave con un uuid,
+  así que la URL cambia en cada subida. Si un día «no se ve la foto nueva», el sospechoso es un
+  ESPEJO, no el navegador.
+
+- ⚠️⚠️ **ACTUALIZACIÓN DE VENTAS · TAMBIÉN LO NUESTRO** (sep 2026). Ya existía todo lo que se le
+  pide al **promotor de fuera**; ahora la pestaña **Ticketing** de una actividad tiene DOS módulos,
+  y solo se pinta el que toca:
+  · **Las vende un TERCERO** (`_concert_sales_request_applies`) → el de siempre, con tres cambios:
+    **el botón «Solicitar actualización de ventas»** a la vista (antes solo estaba escondido dentro
+    de «Compartir → Email…»), **«Añadir o cambiar a quién le llega»** y, sobre todo, **EL HISTORIAL
+    YA NO DESAPARECE**: al actualizar las ventas cada comunicación queda **marcada como RESPONDIDA**
+    (`answered_at`) y se ve **en VERDE** con la fecha de la respuesta; lo que sigue esperando, en
+    ámbar (`.sales-log.is-ok` / `.is-wait`). `_sales_request_log_clear` pasa a llamarse
+    **`_sales_request_log_answered`**: vaciarlo borraba la constancia de a quién se le había pedido.
+  · **Las vendemos NOSOTROS** (`_concert_sales_own_applies`, el espejo del anterior: vende entradas,
+    lleva reporte —ni gratuita ni festival de un tercero; **los CICLOS sí**—, confirmada, sin
+    celebrar y `_concert_sale_is_ours`) → módulo nuevo: **a quién se le avisa** (con su cara),
+    **cuándo se actualizaron por última vez**, el botón de **actualizarlas** y el de **solicitar la
+    actualización** (`concert_sales_own_request`).
+  · **EL AVISO INTERNO** (`_sales_own_notice`): a **quien lleva el TICKETING**
+    (`_sales_owner_user_ids`: el departamento Ticketing y, si no lo tiene nadie, dirección) por la
+    **campanita Y por correo**, con kind nuevo **`VENTAS_ACTUALIZAR`** («Hay que actualizar las
+    ventas»), que nace **encendido por correo** (`NOTICE_EMAIL_DEFAULT_KINDS`).
+    ⚠️ **El correo es EL MISMO que el del promotor** (`_sales_request_html`) con
+    **`_sales_request_context(..., internal=True)`**: el botón «Actualizar ventas» lleva al **BACK
+    OFFICE** (`/ventas?cid=…`) y no se ofrece derivar el ticketing. Un solo motor: si se toca el
+    diseño, se tocan los dos a la vez.
+  · **AUTOMÁTICO**: `_sales_own_sweep`, colgado del MISMO cron (`/cron/actualizar-ventas`), avisa de
+    lo que lleva más de **`SALES_OWN_STALE_DAYS` (7)** días sin actualizarse, como mucho una vez cada
+    `SALES_OWN_MIN_DAYS` (7). ⚠️ Cuándo se actualizó por última vez lo dice **`sales_maps_unified`**
+    (el MISMO dato que pinta el «Actualizado hoy» del reporte), así que el aviso y la pantalla no
+    pueden decir cosas distintas.
+  ⚠️⚠️ **HACE FALTA UN CONTEXTO DE PETICIÓN** (`_soldout_app_context`), no solo de aplicación:
+  `_notify_user` mira quién actúa con `_current_user_state()` → `session`, que revienta desde un
+  cron — con solo `app_context` el correo sale pero **el aviso de la campanita no llega a nadie** y
+  el `except` se lo traga (el mismo bug que ya salió con el Sold Out; lo volvió a sacar la prueba).
+  ⚠️⚠️ **UN RECORDATORIO QUE SE REPITE NECESITA `email_repeat=True`**: la regla de la casa es «por
+  correo solo la PRIMERA vez» (`_notice_email_already_sent`, por usuario + `ref_type`/`ref_id`), y
+  sin esa excepción el recordatorio semanal saldría por correo una sola vez en la vida. Es **opt-in**
+  y lo comprueban los DOS (`_notify_user` y `_notify_email`, que repetía la comprobación).
+  ⚠️ `_notify_email` acepta ya en `email` la clave **`html`** (y `text`): manda ESE cuerpo tal cual,
+  que es lo que permite reutilizar el correo del promotor sin una segunda versión que mantener.
+  ⚠️ **El aviso se cierra solo** al actualizar las ventas (`_sales_own_notice_resolve` en los dos
+  caminos de guardado del back office): la regla de `_notify_resolve`.
+  ⚠️ **`/ventas?cid=<id>`** deja SOLO esa actividad (con su aviso y su «Ver todas las del día»): es
+  a donde lleva el botón del correo y de la campanita.

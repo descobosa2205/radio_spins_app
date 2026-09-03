@@ -2995,6 +2995,71 @@
     </div>
 
   {% elif tab == 'ticketing' %}
+    {# ---------- ACTUALIZACIÓN DE VENTAS · LO NUESTRO (lo vendemos nosotros) ----------
+       Aquí no hay a quién pedírselo fuera: las ventas se apuntan en el back office y lo que hace
+       falta es que alguien se acuerde. Se le recuerda al RESPONSABLE DE TICKETING —en la app y por
+       correo—, a mano desde aquí y solo cuando lleva más de una semana sin actualizarse. #}
+    {% if sales_own and sales_own.applies %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+            <div>
+              <h6 class="mb-0"><i class="fa fa-rotate me-1 text-danger"></i>Actualización de ventas</h6>
+              <div class="small text-muted">
+                Las entradas las vendemos <strong>nosotros</strong>: las ventas se actualizan en el
+                back office. Si pasa <strong>más de una semana</strong> sin actualizarse, se le avisa
+                solo al responsable de ticketing.
+              </div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              <a class="btn btn-sm btn-outline-secondary" href="{{ sales_own.url }}">
+                <i class="fa fa-pen-to-square me-1"></i>Actualizar las ventas</a>
+              {% if CAN_SET_ONSALE %}
+                <form method="post" action="{{ url_for('concert_sales_own_request', cid=concert.id) }}" class="m-0">
+                  <button class="btn btn-sm btn-danger" type="submit">
+                    <i class="fa fa-paper-plane me-1"></i>Solicitar actualización de ventas</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small text-muted">Se le avisa a</span>
+            {% for o in sales_own.owners %}
+              <span class="d-inline-flex align-items-center gap-1 small">
+                <img src="{{ o.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                     style="width:26px;height:26px;border-radius:50%;object-fit:cover;">
+                <strong>{{ o.name }}</strong>
+              </span>
+            {% else %}
+              <span class="badge text-bg-warning text-dark">
+                <i class="fa fa-triangle-exclamation me-1"></i>Nadie tiene el ticketing a su cargo</span>
+            {% endfor %}
+            <span class="ms-auto small">
+              {% if sales_own.updated_label %}
+                {% if sales_own.stale %}
+                  <span class="badge text-bg-warning text-dark">
+                    <i class="fa fa-clock me-1"></i>Sin actualizar desde el {{ sales_own.updated_label }}
+                    {% if sales_own.stale_days is not none %}· {{ sales_own.stale_days }} días{% endif %}</span>
+                {% else %}
+                  <span class="badge text-bg-success">
+                    <i class="fa fa-circle-check me-1"></i>Actualizadas el {{ sales_own.updated_label }}</span>
+                {% endif %}
+              {% else %}
+                <span class="badge text-bg-warning text-dark">
+                  <i class="fa fa-clock me-1"></i>Todavía sin ninguna actualización</span>
+              {% endif %}
+            </span>
+          </div>
+          {% if sales_own.notice_label %}
+            <div class="small text-muted mt-2">
+              <i class="fa fa-paper-plane me-1"></i>Último aviso a ticketing: {{ sales_own.notice_label }}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
     {# ---------- ACTUALIZACIÓN DE VENTAS (las vende un TERCERO: hay que pedírselas) ---------- #}
     {% if sales_request and sales_request.applies %}
       {% include '_ticketing_contact_modal.html' %}
@@ -3028,7 +3093,11 @@
                 </div>
                 <button class="btn btn-sm btn-outline-primary" type="button"
                         data-bs-toggle="modal" data-bs-target="#ticketingContactModal">
-                  <i class="fa fa-address-book me-1"></i>Contacto de ticketing
+                  <i class="fa fa-address-book me-1"></i>Añadir o cambiar a quién le llega
+                </button>
+                {# El botón de verdad: manda la solicitud (el mismo pop-up del correo). #}
+                <button class="btn btn-sm btn-danger" type="button" data-sales-act="mail">
+                  <i class="fa fa-paper-plane me-1"></i>Solicitar actualización de ventas
                 </button>
               {% endif %}
               {# ⚠️ El enlace lleva el TOKEN con el que se ESCRIBEN las ventas: solo se le pinta a
@@ -3078,25 +3147,33 @@
             {% endif %}
           </div>
 
-          {# ── LAS COMUNICACIONES QUE SIGUEN ESPERANDO ────────────────────────────────────────
-             Cuándo se le ha pedido la actualización y a QUIÉN, hasta que la actualice: en cuanto
-             actualiza las ventas, todas las anteriores desaparecen (esto es el trabajo que está
-             esperando, no un archivo). #}
+          {# ── EL HISTORIAL DE SOLICITUDES ────────────────────────────────────────────────────
+             Cuándo se le ha pedido la actualización y a QUIÉN. Lo que ya ha CONTESTADO va en
+             VERDE (con la fecha de la respuesta) y lo que sigue esperando, en ámbar. #}
           {% if sales_request.log %}
             <div class="mt-3 pt-3 border-top">
               <div class="small fw-semibold mb-2">
-                <i class="fa fa-clock-rotate-left me-1 text-muted"></i>Pendientes de que actualice
-                <span class="badge text-bg-warning text-dark ms-1">{{ sales_request.log|length }}</span>
+                <i class="fa fa-clock-rotate-left me-1 text-muted"></i>Solicitudes
+                <span class="badge text-bg-light border ms-1">{{ sales_request.log|length }}</span>
+                {% if sales_request.waiting %}
+                  <span class="badge text-bg-warning text-dark ms-1">{{ sales_request.waiting }} sin responder</span>
+                {% endif %}
               </div>
               <ul class="list-unstyled mb-0 d-flex flex-column gap-1">
                 {% for l in sales_request.log %}
-                  <li class="d-flex align-items-center gap-2 small">
-                    <i class="fa fa-paper-plane text-muted"></i>
+                  <li class="sales-log d-flex align-items-center gap-2 small{{ ' is-ok' if l.answered else ' is-wait' }}">
+                    <i class="fa {{ 'fa-circle-check' if l.answered else 'fa-paper-plane' }}"></i>
                     <span class="text-muted">{{ l.at_label }}</span>
                     <img src="{{ l.photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
                          style="width:22px;height:22px;border-radius:50%;object-fit:cover;">
                     <span><strong>{{ l.name }}</strong>{% if l.email and l.email != l.name %}
                       <span class="text-muted">· {{ l.email }}</span>{% endif %}</span>
+                    {% if l.answered %}
+                      <span class="badge text-bg-success ms-auto" title="Actualizó las ventas">
+                        <i class="fa fa-check me-1"></i>Respondida{% if l.answered_label %} · {{ l.answered_label }}{% endif %}</span>
+                    {% else %}
+                      <span class="badge text-bg-warning text-dark ms-auto">Esperando</span>
+                    {% endif %}
                   </li>
                 {% endfor %}
               </ul>
@@ -3108,7 +3185,7 @@
           {% elif sales_request.updated_label %}
             <div class="mt-3 pt-3 border-top small text-success">
               <i class="fa fa-circle-check me-1"></i>Ventas actualizadas el
-              {{ sales_request.updated_label }}: no hay ninguna comunicación esperando respuesta.
+              {{ sales_request.updated_label }}: todavía no se le ha pedido ninguna actualización.
             </div>
           {% endif %}
         </div>

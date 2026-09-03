@@ -462,6 +462,8 @@ def ensure_artist_notifications_schema():
             -- se actualizaron las ventas por última vez: al actualizarlas, la lista se vacía.
             ADD COLUMN IF NOT EXISTS sales_request_log jsonb NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS sales_updated_at timestamptz,
+            -- LO NUESTRO: cuándo se le avisó por última vez al responsable de ticketing.
+            ADD COLUMN IF NOT EXISTS sales_own_notice_at timestamptz,
             -- Enlace PÚBLICO de la cartelería (para que el artista y el promotor la vean y la
             -- descarguen sin entrar en la app). Es un token OPACO y distinto del de la solicitud a
             -- diseño: con ese se SUBEN carteles, con este solo se descargan.
@@ -2628,12 +2630,17 @@ class Concert(Base):
     #    el día con un correo que está mal y para poder DECIRLO en la ficha.
     sales_request_error_at = Column(DateTime(timezone=True))
     sales_request_error = Column(Text)
-    #  · `sales_request_log` = las comunicaciones MANDADAS que siguen esperando respuesta, con a
-    #    quién y cuándo (una fila por envío). ⚠️ Cuando el promotor ACTUALIZA las ventas se VACÍA:
-    #    lo que se enseña es lo que está esperando, no un archivo (lo pidió así Dani).
+    #  · `sales_request_log` = EL HISTORIAL de comunicaciones mandadas, con a quién y cuándo (una
+    #    fila por envío). ⚠️ Cuando el promotor ACTUALIZA las ventas no se borra: cada fila queda
+    #    marcada con su `answered_at` y en la ficha se ve en VERDE.
     #  · `sales_updated_at`   = cuándo actualizó las ventas por última vez.
     sales_request_log = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     sales_updated_at = Column(DateTime(timezone=True))
+    # LO NUESTRO (lo que promueve el grupo y vendemos nosotros): al responsable de TICKETING se le
+    # avisa —en la app y por correo— de que hay que actualizar las ventas, a mano o solo cuando la
+    # actividad lleva más de una semana sin actualizarse. Aquí se apunta el último aviso para no
+    # repetirlo cada día.
+    sales_own_notice_at = Column(DateTime(timezone=True))
     # Enlace PÚBLICO de la cartelería (token opaco; ⚠️ NO es el de la solicitud a diseño, que sirve
     # para SUBIR carteles: aquí solo se ven y se descargan).
     artwork_share_token = Column(Text)

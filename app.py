@@ -50565,9 +50565,13 @@ def event_update(eid):
         ev.description = (request.form.get("description") or "").strip() or None
         ev.notes = (request.form.get("notes") or "").strip() or None
         logo = request.files.get("logo")
+        _logo_antes = (ev.logo_url or "")
         if logo and getattr(logo, "filename", ""):
             ev.logo_url = upload_image(logo, "events")
         ev.updated_at = datetime.utcnow()
+        # ⚠️ La foto del evento se ve por toda la app a través de su artista ESPEJO: hay que
+        # ponerlo al día o se seguiría viendo la antigua (reporte de ventas, filtros, listados).
+        _event_sync_mirror(s, ev, logo_antes=_logo_antes)
         s.commit()
         flash("Evento actualizado.", "success")
     except Exception as e:
@@ -58371,6 +58375,17 @@ def sales_update_view():
         _rep = _concerts_need_sales_report_map(session_db, concerts)
         concerts = [c for c in concerts if _rep.get(c.id, True)]
 
+        # ⚠️ `?cid=` deja SOLO esa actividad: es a donde lleva el aviso de «actualiza las ventas»
+        # (el correo y la campanita del responsable de ticketing), para no tener que buscarla entre
+        # todas las del día. Si ese día no está a la venta, no se filtra nada y se dice.
+        solo_cid = (request.args.get("cid") or "").strip()
+        cid_activo = ""
+        if solo_cid:
+            elegidas = [c for c in concerts if str(c.id) == solo_cid]
+            if elegidas:
+                concerts = elegidas
+                cid_activo = solo_cid
+
         concert_ids = [c.id for c in concerts]
 
         # Guardamos el aforo original (tal y como se creó el evento) para avisar si el aforo
@@ -58630,6 +58645,7 @@ def sales_update_view():
         return render_template(
             "sales_update.html",
             day=day,
+            solo_cid=cid_activo,
             prev_day=prev_day,
             next_day=next_day,
             open_cfg=(request.args.get("open_cfg") or ""),
@@ -58688,6 +58704,9 @@ def sales_save():
         session.commit()
         # ¿Ha llegado al 90%? Entonces se le pide sola la cartelería de Sold Out (best-effort).
         _soldout_artwork_check(session, [cid])
+        # Ya están actualizadas: el recordatorio a ticketing se cierra solo.
+        _sales_own_notice_resolve(session, [cid])
+        session.commit()
         flash("Ventas guardadas.", "success")
     except Exception as e:
         session.rollback()
@@ -59285,6 +59304,8 @@ def sales_ticketer_day_save(cid, tid):
 
         session_db.commit()
         _soldout_artwork_check(session_db, [concert_id])
+        _sales_own_notice_resolve(session_db, [concert_id])
+        session_db.commit()
         flash("Ventas por ticketera guardadas.", "success")
     except Exception as e:
         session_db.rollback()
@@ -63197,6 +63218,19 @@ def api_concert_artist_conflicts():
         session.close()
 
 
+def _sync_media_mirror_logo(session, media) -> None:
+    """El TERCERO espejo de un medio sigue su logo (solo si ya existe; aquí no se crea ninguno)."""
+    if media is None or not (getattr(media, "logo_url", "") or "").strip():
+        return
+    nombre = (media.name or "").strip()
+    if not nombre:
+        return
+    fila = (session.query(Promoter)
+            .filter(func.lower(Promoter.nick) == nombre.lower()).first())
+    if fila is not None and (fila.logo_url or "") != media.logo_url:
+        fila.logo_url = media.logo_url
+
+
 def _ensure_promoter_for_media(session, media_id):
     """El promotor de una actividad también puede ser un MEDIO de comunicación: como
     Concert.promoter_id apunta a promoters, se reutiliza (o crea) el tercero espejo con
@@ -63213,7 +63247,8 @@ def _ensure_promoter_for_media(session, media_id):
         .first()
     )
     if existing:
-        if not existing.logo_url and media.logo_url:
+        # ⚠️ El espejo SIGUE al medio: si al medio le cambian el logo, se ve en todas partes.
+        if media.logo_url and (existing.logo_url or "") != media.logo_url:
             existing.logo_url = media.logo_url
         return existing
     p = Promoter(nick=name, logo_url=media.logo_url, kind='empresa')
@@ -63615,6 +63650,75 @@ def _sim_sale_type(sim, default: str = "EMPRESA") -> str:
     return default
 
 
+def _event_mirrors_backfill_once():
+    """Pone al día la foto de los ESPEJOS de los eventos (arreglo PUNTUAL).
+
+    El espejo solo heredaba el logo del evento la primera vez, así que a los eventos a los que ya se
+    les había cambiado la foto se les seguía viendo la ANTIGUA por toda la app (el reporte de ventas,
+    los filtros, los listados). A partir de ahora lo mantiene `_event_sync_mirror` al guardar.
+    ⚠️ El espejo no se edita desde ninguna pantalla (no sale en /artistas ni en sus buscadores), así
+    que ponerle la foto del evento no pisa nada que haya escrito nadie."""
+    marca = "event_mirror_photo_backfill_v1"
+    s = db()
+    try:
+        if (_get_app_setting(marca) or "").strip():
+            return
+        tocados = 0
+        for ev in s.query(AppEvent).all():
+            espejo = s.query(Artist).filter(Artist.event_id == ev.id).first()
+            if espejo is None:
+                continue
+            nuevo = (ev.logo_url or "").strip()
+            if (espejo.photo_url or "").strip() != nuevo:
+                espejo.photo_url = (nuevo or None)
+                tocados += 1
+        s.commit()
+        _set_app_setting(marca, "1")
+        if tocados:
+            app.logger.info("[eventos] fotos de espejo puestas al día: %d", tocados)
+    except Exception:
+        s.rollback()
+        app.logger.exception("[eventos] no se pudieron poner al día las fotos de los espejos")
+    finally:
+        s.close()
+
+
+def _event_sync_mirror(session, event, *, logo_antes: str = "") -> None:
+    """EL ESPEJO DE UN EVENTO SIGUE AL EVENTO: su nombre y **su foto**.
+
+    ⚠️⚠️ Un evento (`AppEvent`) se espeja como `Artist` porque una actividad exige artista, y media
+    app pinta la foto DEL ESPEJO (el reporte de ventas, los filtros de artistas y eventos, los
+    listados). El espejo heredaba el logo **solo si no tenía ninguno**, así que al cambiarle la foto
+    al evento se seguía viendo la ANTIGUA por toda la app (bug real, sep 2026). Ahora se sigue
+    siempre: cambiar la foto en un sitio la cambia en todos.
+
+    `logo_antes` (el logo que tenía el evento antes de guardarlo) sirve para arrastrar también a los
+    ciclos/festivales que lo habían HEREDADO y no le han puesto uno propio; a los que tienen su
+    propio logo no se les toca."""
+    if event is None:
+        return
+    nuevo = (getattr(event, "logo_url", "") or "").strip()
+    espejo = session.query(Artist).filter(Artist.event_id == event.id).first()
+    if espejo is not None:
+        nombre = (event.name or "").strip()
+        # `Artist.name` es ÚNICO: solo se renombra si ese nombre está libre.
+        if nombre and espejo.name != nombre and not (
+                session.query(Artist.id).filter(func.lower(Artist.name) == nombre.lower(),
+                                                Artist.id != espejo.id).first()):
+            espejo.name = nombre
+        if (espejo.photo_url or "").strip() != nuevo:
+            espejo.photo_url = (nuevo or None)
+    viejo = (logo_antes or "").strip()
+    if viejo and viejo != nuevo:
+        try:
+            for cf in (session.query(CycleFestival)
+                       .filter(CycleFestival.event_id == event.id).all()):
+                if (cf.logo_url or "").strip() == viejo:
+                    cf.logo_url = (nuevo or None)
+        except Exception:
+            app.logger.exception("[eventos] no se pudo poner al día el logo de sus ciclos")
+
+
 def _ensure_artist_for_event(session, event):
     """Artista ESPEJO de un evento, creándolo la primera vez.
 
@@ -63627,14 +63731,7 @@ def _ensure_artist_for_event(session, event):
         return None
     existente = session.query(Artist).filter(Artist.event_id == event.id).first()
     if existente is not None:
-        # Si al evento le cambian el nombre o el logo, el espejo lo sigue.
-        nombre = (event.name or "").strip()
-        if nombre and existente.name != nombre and not (
-                session.query(Artist.id).filter(func.lower(Artist.name) == nombre.lower(),
-                                                Artist.id != existente.id).first()):
-            existente.name = nombre
-        if event.logo_url and not (existente.photo_url or "").strip():
-            existente.photo_url = event.logo_url
+        _event_sync_mirror(session, event)
         return existente
     nombre = (event.name or "Evento").strip()[:200]
     # `Artist.name` es ÚNICO: si ya hay un artista con ese nombre, el espejo lleva sufijo.
@@ -67337,6 +67434,9 @@ def _bootstrap_schema_bg():
     # es integrante de un artista no se le detectan las condiciones de su contrato.
     _safe_ensure(lambda: globals()["_artist_members_unify_backfill_once"](),
                  "_artist_members_unify_backfill_once")
+    # La foto de un EVENTO se ve por su artista espejo: los que ya la habían cambiado se quedaron
+    # con la antigua por toda la app. Se ponen al día una vez.
+    _safe_ensure(lambda: globals()["_event_mirrors_backfill_once"](), "_event_mirrors_backfill_once")
     # Los ISRC pasan a escribirse en seco (es con lo que se encuentran fuera).
     _safe_ensure(lambda: globals()["_isrc_dashes_backfill_once"](), "_isrc_dashes_backfill_once")
     # Las canciones marcadas como «no está en Chartmetric» por el fallo del array vuelven a la cola.
@@ -90344,6 +90444,12 @@ def media_outlet_detail_view(media_id):
                 logo = request.files.get("logo")
                 if logo and getattr(logo, "filename", ""):
                     outlet.logo_url = upload_image(logo, "media")
+                    # Si ese medio se ha espejado alguna vez como tercero (comisionistas, socios,
+                    # promotores), su logo tiene que seguir al del medio.
+                    try:
+                        _sync_media_mirror_logo(session_db, outlet)
+                    except Exception:
+                        app.logger.exception("[medios] no se pudo poner al día el logo del espejo")
                 session_db.commit()
                 flash("Medio actualizado.", "success")
                 return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab=tab))
@@ -100477,12 +100583,21 @@ SALES_REQUEST_HOUR = 10
 SALES_REQUEST_MAX_PER_RUN = 120
 # Un correo que NO sale (dirección mal escrita, buzón lleno) no se reintenta cada hora todo el día.
 SALES_REQUEST_RETRY_HOURS = 4
-# Cuántas comunicaciones mandadas se guardan como «esperando respuesta» (tope de cordura: al
-# actualizar las ventas la lista se vacía, así que en la práctica son unas pocas).
+# Cuántas comunicaciones se guardan en el HISTORIAL (tope de cordura). ⚠️ Al actualizar las ventas
+# ya NO se vacía: cada una queda marcada como respondida y se ve en verde.
 SALES_REQUEST_LOG_MAX = 40
 # La ticketera con la que se apunta lo que reporta el promotor cuando la actividad no tiene ninguna
 # propia: ese canal ES el reporte del promotor.
 SALES_PROMOTER_TICKETER_NAME = "Promotor"
+
+# ─── LO NUESTRO: avisar al RESPONSABLE DE TICKETING de que hay que actualizar las ventas ─────────
+# En lo que promueve el grupo y vendemos NOSOTROS no hay a quién pedírselo fuera: las ventas se
+# apuntan en `/ventas` y lo que hace falta es que alguien se acuerde. Se le avisa **en la app y por
+# correo** (el mismo correo que al promotor, pero con el botón al BACK OFFICE), a mano desde la
+# pestaña de Ticketing y **solo** cuando la actividad lleva más de una semana sin actualizarse.
+SALES_OWN_STALE_DAYS = 7        # sin actualizar más de una semana = hay que avisar
+SALES_OWN_MIN_DAYS = 7          # y no se vuelve a avisar antes de otra semana
+SALES_OWN_REF_TYPE = "CONCERT_SALES_UPDATE"
 
 # Las tres formas de decir a quién se le pide el ticketing. Cada una con su icono, y solo se piden
 # los campos de la que se elige.
@@ -100689,6 +100804,89 @@ def _concert_sales_request_applies(session_db, concert, *, group_promoted=None) 
         return False
 
 
+def _concert_sales_own_applies(session_db, concert, *, group_promoted=None) -> bool:
+    """¿A esta actividad le toca que se le RECUERDE a ticketing actualizar las ventas?
+
+    Es el espejo de `_concert_sales_request_applies`: vende entradas, lleva reporte de ventas (o
+    sea, ni gratuita ni festival de un tercero —los CICLOS sí—), está confirmada, no se ha
+    celebrado y **la promovemos NOSOTROS y la vendemos NOSOTROS** (`_concert_sale_is_ours`)."""
+    if concert is None:
+        return False
+    try:
+        if not _concert_sells_tickets(concert):
+            return False
+        if not _concert_needs_sales_report(session_db, concert, group_promoted=group_promoted):
+            return False
+        if (getattr(concert, "status", None) or "").strip().upper() != "CONFIRMADO":
+            return False
+        if _concert_is_legacy(concert):
+            return False
+        ultimo = _concert_last_day(concert)
+        if ultimo and ultimo < today_local():
+            return False
+        return _concert_sale_is_ours(session_db, concert)
+    except Exception:
+        app.logger.exception("[ventas] no se pudo mirar si hay que recordar la actualización")
+        return False
+
+
+def _sales_owner_user_ids(session_db) -> list[str]:
+    """EL RESPONSABLE DE TICKETING de la casa: el departamento **Ticketing**.
+
+    ⚠️ Si no lo tiene nadie se cae a DIRECCIÓN: un aviso que no le llega a nadie es lo mismo que no
+    avisar (la misma red de seguridad que `_registros_user_ids`)."""
+    try:
+        ids = [str(x) for x in _department_user_ids(session_db, "Ticketing")]
+        if ids:
+            return ids
+        inactivos = _inactive_user_ids(session_db)
+        return [str(u.id) for u in session_db.query(User).filter(User.role == 10).all()
+                if str(u.id) not in inactivos]
+    except Exception:
+        app.logger.exception("[ventas] no se pudo resolver quién lleva el ticketing")
+        return []
+
+
+def _sales_owner_names(session_db) -> list[dict]:
+    """Quién lleva el ticketing, con su nombre y su foto (para enseñar a quién se le avisa)."""
+    filas = []
+    try:
+        for uid in _sales_owner_user_ids(session_db):
+            prof = (session_db.query(UserProfile)
+                    .filter(UserProfile.user_id == to_uuid(str(uid))).first())
+            filas.append({"id": str(uid),
+                          "name": ((getattr(prof, "nick", None) or "").strip() or "Ticketing"),
+                          "photo": (getattr(prof, "photo_url", None) or "")})
+    except Exception:
+        app.logger.exception("[ventas] no se pudo leer quién lleva el ticketing")
+    return filas
+
+
+def _sales_own_url(concert) -> str:
+    """El enlace del BACK OFFICE para actualizar las ventas de ESA actividad.
+
+    ⚠️ `url_for` revienta fuera de una petición (el barrido corre desde un cron), así que la ruta se
+    compone a mano si hace falta: sin esto el correo saldría sin su botón y sin dar ningún error."""
+    cid = str(getattr(concert, "id", "") or "")
+    if not cid:
+        return ""
+    try:
+        return _external_url_for("sales_update_view", cid=cid)
+    except Exception:
+        base = (_public_base_url() or "").rstrip("/")
+        return (base + "/ventas?cid=" + cid) if base else ""
+
+
+def _concert_sales_own_stale_days(concert, last_day) -> int | None:
+    """Cuántos días lleva sin actualizarse (None si no consta ninguna actualización)."""
+    if last_day is None:
+        return None
+    try:
+        return (today_local() - last_day).days
+    except Exception:
+        return None
+
+
 def _concert_sales_request_on_sale(concert, *, today=None) -> bool:
     """¿Esta actividad está YA a la venta?
 
@@ -100742,12 +100940,20 @@ def _sales_request_log_add(concert, contacto: dict, *, at=None) -> None:
         pass
 
 
-def _sales_request_log_clear(concert, *, at=None) -> None:
-    """Las ventas SE HAN ACTUALIZADO: las comunicaciones anteriores dejan de estar esperando."""
+def _sales_request_log_answered(concert, *, at=None) -> None:
+    """Las ventas SE HAN ACTUALIZADO: las comunicaciones que estaban esperando quedan RESPONDIDAS.
+
+    ⚠️ El historial NO se borra: se marca cada comunicación con su respuesta, para poder ver cuándo
+    se le pidió y cuándo contestó (en verde). Antes se vaciaba, así que no quedaba constancia."""
     if concert is None:
         return
-    concert.sales_request_log = []
-    concert.sales_updated_at = at or _now_madrid()
+    ahora = at or _now_madrid()
+    log = [dict(x) for x in (getattr(concert, "sales_request_log", None) or []) if isinstance(x, dict)]
+    for fila in log:
+        if not (fila.get("answered_at") or ""):
+            fila["answered_at"] = ahora.isoformat()
+    concert.sales_request_log = log[-SALES_REQUEST_LOG_MAX:]
+    concert.sales_updated_at = ahora
     try:
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(concert, "sales_request_log")
@@ -100756,20 +100962,27 @@ def _sales_request_log_clear(concert, *, at=None) -> None:
 
 
 def _sales_request_log_rows(concert) -> list[dict]:
-    """Las comunicaciones que siguen esperando, de la más reciente a la más antigua."""
+    """EL HISTORIAL de comunicaciones, de la más reciente a la más antigua.
+
+    Cada una dice si sigue esperando o si YA SE RESPONDIÓ (y cuándo): las respondidas se pintan en
+    verde y las que esperan, en ámbar."""
+    def _etiqueta(valor):
+        if not valor:
+            return ""
+        try:
+            return (datetime.fromisoformat(valor).astimezone(TZ_MADRID)
+                    .strftime("%d/%m/%Y %H:%M"))
+        except Exception:
+            return ""
+
     filas = []
     for x in (getattr(concert, "sales_request_log", None) or []):
         if not isinstance(x, dict):
             continue
-        cuando = x.get("at") or ""
-        etiqueta = ""
-        if cuando:
-            try:
-                etiqueta = (datetime.fromisoformat(cuando).astimezone(TZ_MADRID)
-                            .strftime("%d/%m/%Y %H:%M"))
-            except Exception:
-                etiqueta = ""
-        filas.append({"at_label": etiqueta,
+        respondida = (x.get("answered_at") or "")
+        filas.append({"at_label": _etiqueta(x.get("at") or ""),
+                      "answered": bool(respondida),
+                      "answered_label": _etiqueta(respondida),
                       "name": (x.get("name") or x.get("email") or "").strip(),
                       "email": (x.get("email") or "").strip(),
                       "photo": (x.get("photo") or "").strip(),
@@ -101117,17 +101330,21 @@ def _sales_request_subject(concert, *, name: str = "") -> str:
     return ", ".join([str(p).strip() for p in partes if str(p or "").strip()])
 
 
-def _sales_request_context(session_db, concerts) -> dict:
+def _sales_request_context(session_db, concerts, *, internal: bool = False) -> dict:
     """Lo que necesitan el correo, la vista previa, el enlace y el asunto.
 
     La PRIMERA de la lista es la principal (de ella salen el asunto, el logo y el enlace de
-    derivar); las actividades se ordenan de la más PRÓXIMA a la más lejana."""
+    derivar); las actividades se ordenan de la más PRÓXIMA a la más lejana.
+    ⚠️ `internal=True` es el MISMO correo pero para dentro (lo nuestro, que vendemos nosotros): el
+    botón «Actualizar ventas» lleva al BACK OFFICE y no se ofrece derivar el ticketing (a nosotros
+    no se nos deriva). Un solo motor: si se toca el diseño, se tocan los dos a la vez."""
     filas = [c for c in (concerts or []) if c is not None]
     filas.sort(key=lambda c: (getattr(c, "date", None) or date.max, str(getattr(c, "id", ""))))
     # ⚠️ El TOKEN se crea AQUÍ, no en cada sitio que compone el correo: sin él no hay enlace, así que
     # el botón «Actualizar ventas» y el de derivar desaparecerían del correo SIN DAR NINGÚN ERROR.
-    for c in filas:
-        _ensure_concert_sales_request_token(session_db, c)
+    if not internal:
+        for c in filas:
+            _ensure_concert_sales_request_token(session_db, c)
     principal = filas[0] if filas else None
     company = (getattr(principal, "billing_company", None)
                or getattr(principal, "group_company", None)) if principal is not None else None
@@ -101139,12 +101356,16 @@ def _sales_request_context(session_db, concerts) -> dict:
             logo_url = ""
     contacto = _concert_ticketing_contact(session_db, principal) if principal is not None else {}
     tarjetas = [_sales_request_card(session_db, c) for c in filas]
+    if internal:
+        for tarjeta, c in zip(tarjetas, filas):
+            tarjeta["url"] = _sales_own_url(c)
     return {
         "title": SALES_REQUEST_TITLE,
         "company_name": (getattr(company, "name", None) or "").strip(),
         "logo_url": logo_url,
         "cards": tarjetas,
-        "derive_url": (_sales_request_derive_url(principal) if principal is not None else ""),
+        "derive_url": ("" if internal else
+                       (_sales_request_derive_url(principal) if principal is not None else "")),
         "contact": contacto,
         "subject": _sales_request_subject(
             principal, name=((tarjetas[0].get("heading") or "") if tarjetas else "")),
@@ -101241,9 +101462,12 @@ def _concert_sales_request_ficha(session_db, concert, tab: str) -> dict:
     vacio = {"ticketing_kinds": TICKETING_CONTACT_KINDS, "ticketing_contact": {},
              "ticketing_contact_raw": {}, "ticketing_applies": False,
              "ticketing_unset": False,
+             "sales_own": {"applies": False, "url": "", "owners": [], "notice_label": "",
+                           "updated_label": "", "stale_days": None, "stale": False},
              "sales_request": {"applies": False, "url": "", "derive_url": "", "subject": "",
                                "others": [], "last_label": "", "count": 0, "error": "",
-                               "error_label": "", "log": [], "updated_label": ""}}
+                               "error_label": "", "log": [], "waiting": 0,
+                               "updated_label": ""}}
     if concert is None or tab not in ("inicio", "ticketing", "general"):
         return vacio
     try:
@@ -101275,15 +101499,33 @@ def _concert_sales_request_ficha(session_db, concert, tab: str) -> dict:
         datos["error"] = (getattr(concert, "sales_request_error", None) or "") if err_at else ""
         datos["error_label"] = (err_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
                                 if err_at else "")
-        # LAS COMUNICACIONES QUE SIGUEN ESPERANDO (y a quién se le mandaron): desaparecen solas en
-        # cuanto el promotor actualiza las ventas.
+        # EL HISTORIAL de comunicaciones (a quién y cuándo), con las RESPONDIDAS en verde: al
+        # actualizar las ventas no se borra nada, se marca lo que ya ha contestado.
         datos["log"] = _sales_request_log_rows(concert)
+        datos["waiting"] = sum(1 for x in datos["log"] if not x["answered"])
         act = getattr(concert, "sales_updated_at", None)
         datos["updated_label"] = (act.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if act else "")
+        # LO NUESTRO: si la vendemos nosotros, en la pestaña de Ticketing se ve cuándo se
+        # actualizó por última vez y se puede recordárselo al responsable de ticketing.
+        propias = dict(vacio["sales_own"])
+        if tab == "ticketing" and not aplica and _concert_sales_own_applies(session_db, concert):
+            propias["applies"] = True
+            propias["url"] = url_for("sales_update_view", cid=concert.id)
+            _t, _hm, _last, _g, _gt = sales_maps_unified(session_db, today_local(), [concert.id])
+            dias = _concert_sales_own_stale_days(concert, _last.get(concert.id))
+            ultima = _last.get(concert.id)
+            propias["updated_label"] = (ultima.strftime("%d/%m/%Y") if ultima else "")
+            propias["stale_days"] = dias
+            propias["stale"] = bool(dias is None or dias > SALES_OWN_STALE_DAYS)
+            aviso = getattr(concert, "sales_own_notice_at", None)
+            propias["notice_label"] = (aviso.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                                       if aviso else "")
+            propias["owners"] = _sales_owner_names(session_db)
         return {"ticketing_kinds": TICKETING_CONTACT_KINDS, "ticketing_contact": contacto,
                 "ticketing_contact_raw": crudo, "ticketing_applies": aplica,
                 "ticketing_unset": (aplica and (contacto.get("source") or "").upper()
                                     not in ("CONCERT", "PROMOTER_DEFAULT")),
+                "sales_own": propias,
                 "sales_request": datos}
     except Exception:
         app.logger.exception("[ventas] no se pudo montar la actualización de ventas de la ficha")
@@ -101468,6 +101710,138 @@ def _sales_request_sweep(*, force: bool = False) -> dict:
     return salida
 
 
+# ─── LO NUESTRO: recordarle a TICKETING que hay que actualizar las ventas ────────────────────────
+
+def _sales_own_notice(session_db, concert, *, dias=None, actor: str = "") -> tuple[bool, str]:
+    """Avisa al responsable de TICKETING de que hay que actualizar las ventas de esta actividad.
+
+    Por los DOS canales: la campanita de la app y el CORREO —el mismo que se le manda al promotor de
+    fuera (`_sales_request_html`), pero con el botón «Actualizar ventas» llevando **al back office**
+    (`internal=True`)—.
+    ⚠️ Se apunta `sales_own_notice_at` para no repetirlo cada día; el que se manda A MANO también,
+    para que el barrido no vuelva a insistir justo después."""
+    if concert is None:
+        return False, "Sin actividad."
+    destinatarios = _sales_owner_user_ids(session_db)
+    if not destinatarios:
+        return False, "No hay nadie con el ticketing a su cargo."
+    ctx = _sales_request_context(session_db, [concert], internal=True)
+    if dias is None:
+        nota = ""
+    elif dias >= 0:
+        nota = ("Esta actividad lleva %d día%s sin actualizar las ventas."
+                % (dias, "" if dias == 1 else "s"))
+    else:
+        nota = "Todavía no consta ninguna actualización de ventas de esta actividad."
+    cuerpo = _sales_request_html(ctx, note=nota)
+    enlace = _sales_own_url(concert)
+    titulo = ctx["subject"]
+    cuerpo_aviso = (nota or "Hay que actualizar las ventas de esta actividad.")
+    artista = getattr(concert, "artist", None)
+    try:
+        _notify_users(session_db, destinatarios, "VENTAS_ACTUALIZAR", titulo, cuerpo_aviso, enlace,
+                      ref_type=SALES_OWN_REF_TYPE, ref_id=str(concert.id), email_repeat=True,
+                      actor_name=(getattr(artista, "name", "") or ""),
+                      actor_photo=(getattr(artista, "photo_url", "") or ""),
+                      email={"subject": titulo, "html": cuerpo,
+                             "text": "%s\n\n%s" % (titulo, enlace)})
+    except Exception:
+        app.logger.exception("[ventas] no se pudo avisar a ticketing")
+        return False, "No se pudo avisar."
+    concert.sales_own_notice_at = _now_madrid()
+    return True, ""
+
+
+def _sales_own_notice_resolve(session_db, concert_ids) -> None:
+    """Se han actualizado las ventas: el recordatorio a ticketing deja de estar esperando.
+
+    La regla de `_notify_resolve`: una tarea es «esto te está esperando» y cuando deja de estarlo
+    desaparece sola, sin que nadie la pinche. Best-effort: guardar unas ventas no puede fallar por
+    esto."""
+    for cid in (concert_ids or []):
+        if not cid:
+            continue
+        try:
+            _notify_resolve(session_db, SALES_OWN_REF_TYPE, str(cid))
+        except Exception:
+            app.logger.exception("[ventas] no se pudo cerrar el recordatorio de %s", cid)
+
+
+def _sales_own_sweep(*, force: bool = False) -> dict:
+    """Recuerda a TICKETING las actividades NUESTRAS que llevan más de una semana sin actualizarse.
+
+    ⚠️ Cuándo se actualizó por última vez lo dice `sales_maps_unified` (el mismo dato que pinta el
+    «Actualizado hoy» del reporte de ventas): así el aviso y lo que se ve en pantalla no pueden
+    decir cosas distintas. Se avisa como mucho una vez cada `SALES_OWN_MIN_DAYS` días."""
+    salida = {"mirados": 0, "avisos": 0, "errores": 0, "hora": 0, "antes_de_la_hora": False}
+    session_db = db()
+    try:
+        ahora = _now_madrid()
+        salida["hora"] = ahora.hour
+        if not force and ahora.hour < SALES_REQUEST_HOUR:
+            salida["antes_de_la_hora"] = True
+            return salida
+        hoy = today_local()
+        filas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                          joinedload(Concert.billing_company), joinedload(Concert.group_company),
+                          selectinload(Concert.ticket_types))
+                 .filter(Concert.sale_start_date.isnot(None))
+                 .filter(Concert.sale_start_date <= hoy)
+                 .filter(func.upper(func.coalesce(Concert.status, "")) == "CONFIRMADO")
+                 .filter(or_(and_(Concert.date.is_(None), Concert.end_date.is_(None)),
+                             func.coalesce(Concert.end_date, Concert.date) >= hoy))
+                 .filter(or_(Concert.date.is_(None), Concert.date >= LEGACY_ACTIVITY_CUTOFF))
+                 .order_by(Concert.date.asc().nullslast())
+                 .all())
+        grupo = _concerts_group_promoted_map(session_db, filas)
+        nuestras = [c for c in filas
+                    if _concert_sales_own_applies(session_db, c, group_promoted=grupo.get(c.id))]
+        salida["mirados"] = len(nuestras)
+        if not nuestras:
+            return salida
+        _t, _hoy_map, last_map, _g, _gt = sales_maps_unified(session_db, hoy,
+                                                            [c.id for c in nuestras])
+        for c in nuestras:
+            # No se insiste: como mucho un aviso por semana.
+            ultimo = getattr(c, "sales_own_notice_at", None)
+            try:
+                if ultimo and (hoy - ultimo.astimezone(TZ_MADRID).date()).days < SALES_OWN_MIN_DAYS:
+                    continue
+            except Exception:
+                pass
+            dias = _concert_sales_own_stale_days(c, last_map.get(c.id))
+            # Sin ninguna actualización se cuenta desde que salió a la venta.
+            if dias is None:
+                salida_venta = getattr(c, "sale_start_date", None)
+                dias = (hoy - salida_venta).days if salida_venta else 0
+            if dias <= SALES_OWN_STALE_DAYS:
+                continue
+            try:
+                # ⚠️⚠️ HACE FALTA UN CONTEXTO DE **PETICIÓN**, no solo de aplicación: `_notify_user`
+                # mira quién hace la acción con `_current_user_state()` → `session`, que revienta
+                # desde un cron. Con solo `app_context` el correo saldría pero el aviso de la
+                # campanita NO llegaría a nadie (el mismo bug que ya salió con el Sold Out).
+                with _soldout_app_context():
+                    ok, _err = _sales_own_notice(session_db, c, dias=dias)
+                if ok:
+                    session_db.commit()
+                    salida["avisos"] += 1
+                else:
+                    session_db.rollback()
+                    salida["errores"] += 1
+            except Exception:
+                session_db.rollback()
+                salida["errores"] += 1
+                app.logger.exception("[ventas] fallo recordando la actualización de %s", c.id)
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[ventas] el barrido de recordatorios internos falló")
+    finally:
+        session_db.close()
+    return salida
+
+
 @app.get("/cron/actualizar-ventas", endpoint="cron_sales_requests")
 def cron_sales_requests():
     """Pide a los promotores de fuera que actualicen sus ventas.
@@ -101482,7 +101856,11 @@ def cron_sales_requests():
                 or os.getenv("CHARTMETRIC_CRON_KEY"))
     if not esperada or clave != esperada:
         abort(404)
-    return jsonify({"ok": True, **_sales_request_sweep(force=_truthy(request.args.get("ahora")))})
+    ahora = _truthy(request.args.get("ahora"))
+    # Los DOS barridos: lo que se le pide al promotor de fuera y lo que se le recuerda a ticketing
+    # de lo NUESTRO (más de una semana sin actualizar).
+    return jsonify({"ok": True, **_sales_request_sweep(force=ahora),
+                    "propias": _sales_own_sweep(force=ahora)})
 
 
 # ─── EL CONTACTO DE TICKETING: configurarlo desde la app ─────────────────────────────────────────
@@ -101595,6 +101973,41 @@ def concert_sales_request_preview(cid):
                                                     preview=True)})
     finally:
         session_db.close()
+
+
+@app.post("/conciertos/<cid>/actualizar-ventas/recordar", endpoint="concert_sales_own_request")
+@admin_required
+def concert_sales_own_request(cid):
+    """LO NUESTRO: le recuerda al responsable de TICKETING que actualice las ventas.
+
+    El mismo aviso que manda el barrido semanal, pero a mano desde la pestaña de Ticketing."""
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    volver = url_for("concert_detail_view", cid=cid, tab="ticketing")
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(url_for("concerts_view"))
+        if not _concert_sales_own_applies(session_db, concert):
+            flash("Esta actividad no la vendemos nosotros: la actualización se le pide al promotor.",
+                  "warning")
+            return redirect(safe_next_or(volver))
+        ok, error = _sales_own_notice(session_db, concert)
+        if not ok:
+            session_db.rollback()
+            flash(error or "No se pudo avisar.", "danger")
+            return redirect(safe_next_or(volver))
+        session_db.commit()
+        flash("Avisado el responsable de ticketing (en la app y por correo).", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[ventas] no se pudo recordar la actualización")
+        flash("No se pudo avisar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(volver))
 
 
 @app.post("/conciertos/<cid>/actualizar-ventas/enviar", endpoint="concert_sales_request_send")
@@ -101784,7 +102197,7 @@ def public_sales_update_save(token, cid):
                                                   "página y vuelve a enviarlo."}), 409
         # YA ESTÁ ACTUALIZADA: las comunicaciones que estaban esperando dejan de estar pendientes
         # («cuando se actualice, todas las anteriores desaparecen»).
-        _sales_request_log_clear(destino)
+        _sales_request_log_answered(destino)
         session_db.commit()
         _soldout_artwork_check(session_db, [destino.id])
         filas = _sales_request_ticket_rows(session_db, destino)
@@ -111441,6 +111854,8 @@ NOTIFICATION_KIND_META = {
     "VACACIONES": ("Vacaciones", "fa-umbrella-beach"),
     "DEMO": ("Nos han enviado demos", "fa-compact-disc"),
     "VENTA": ("Hay que sacarla a la venta", "fa-ticket"),
+    # ⚠️ Distinto de VENTA: ese es «sácala a la venta» y este «actualiza cómo van las ventas».
+    "VENTAS_ACTUALIZAR": ("Hay que actualizar las ventas", "fa-rotate"),
     "CONTABILIDAD": ("Hay algo nuevo que contabilizar", "fa-calculator"),
     "REGISTROS": ("Hay un lanzamiento que cumplimentar", "fa-clipboard-list"),
     # Materiales entregados por el enlace de un tercero: hay que revisarlos y validarlos.
@@ -111531,6 +111946,10 @@ NOTIFICATION_KIND_HELP = {
     "REMESA": "Cuando una remesa de pagos queda pendiente del visto bueno de dirección.",
     "TAREA": "Tareas pendientes que no son de ninguna de las demás categorías.",
     "VENTA": "Cuando hay que sacar una actividad a la venta o comunicarlo.",
+    "VENTAS_ACTUALIZAR": "Cuando hay que actualizar cómo van las ventas de una actividad NUESTRA: "
+                         "se le pide al responsable de ticketing a mano y, automáticamente, cuando "
+                         "lleva más de una semana sin actualizarse. ⚠️ Este recordatorio se repite, "
+                         "así que su correo sale cada vez (no solo la primera).",
     "CONTABILIDAD": "Cuando entra algo nuevo que contabilizar.",
     "REGISTROS": "Cuando hay un lanzamiento que cumplimentar o registrar.",
     "MATERIALES": "Cuando un tercero entrega masters o materiales por su enlace.",
@@ -111543,13 +111962,15 @@ NOTIFICATION_KIND_HELP = {
 
 # VALORES DE FÁBRICA. Por la app, todo. Por correo, solo lo que es «te acaban de asignar algo»
 # (que es la regla de arriba). Por SMS, nada: cada mensaje cuesta dinero y se enciende a mano.
-NOTICE_EMAIL_DEFAULT_KINDS = {"PRODUCCION", "DISENO", "VACACIONES", "ADMIN_BOLSA"}
+NOTICE_EMAIL_DEFAULT_KINDS = {"PRODUCCION", "DISENO", "VACACIONES", "ADMIN_BOLSA",
+                              "VENTAS_ACTUALIZAR"}
 
 
 def _notice_kind_catalog() -> list[dict]:
     """Todos los tipos de aviso internos de la app, en el orden en que se configuran."""
     orden = ["PRODUCCION", "DISENO", "ADMIN_BOLSA", "ADMIN_PETICION", "REMESA", "VACACIONES",
-             "VENTA", "CONTABILIDAD", "REGISTROS", "MATERIALES", "FECHA_LANZAMIENTO", "PITCH",
+             "VENTA", "VENTAS_ACTUALIZAR", "CONTABILIDAD", "REGISTROS", "MATERIALES",
+             "FECHA_LANZAMIENTO", "PITCH",
              "DEMO", "DISCOGRAFICA", "AGENDA", "TAREA"]
     claves = orden + [k for k in NOTIFICATION_KIND_META if k not in orden]
     salida = []
@@ -111798,12 +112219,16 @@ def _notice_email_already_sent(session_db, user_id, kind, ref_type, ref_id, titl
 
 
 def _notify_email(session_db, user_id, kind, title, body="", url=None, *, email=None,
-                  ref_type=None, ref_id=None) -> bool:
+                  ref_type=None, ref_id=None, email_repeat=False) -> bool:
     """El CORREO de un aviso, si ese tipo lo tiene encendido y es la primera vez.
 
     `email` es el contenido a medida (la cabecera de lo que sea, sus datos y su botón); si no
     llega, se compone uno genérico con el título, el texto y el enlace del propio aviso, para que
-    encender el interruptor de un tipo sirva de algo. Devuelve si el correo salió."""
+    encender el interruptor de un tipo sirva de algo. Devuelve si el correo salió.
+    ⚠️ Con la clave **`html`** se manda ESE cuerpo tal cual (y `text` como versión en texto): es
+    para los avisos cuyo correo ya está compuesto por su propio motor y tiene que salir idéntico al
+    que se manda fuera (la actualización de ventas).
+    ⚠️ `email_repeat=True` salta el «solo la primera vez» (un recordatorio que se repite)."""
     try:
         if email is False:                    # este aviso no se manda por correo (ver `_notify_user`)
             return False
@@ -111812,10 +112237,17 @@ def _notify_email(session_db, user_id, kind, title, body="", url=None, *, email=
         destino = _notice_user_email(session_db, user_id)
         if not destino:
             return False
-        if _notice_email_already_sent(session_db, user_id, kind, ref_type, ref_id, title):
+        if not email_repeat and _notice_email_already_sent(session_db, user_id, kind,
+                                                          ref_type, ref_id, title):
             return False
         datos = dict(email or {})
         asunto = (datos.pop("subject", "") or title or "Tienes algo nuevo").strip()
+        cuerpo_hecho = (datos.pop("html", "") or "").strip()
+        texto_hecho = (datos.pop("text", "") or "").strip()
+        if cuerpo_hecho:
+            ok, _err = _send_optional_email(destino, asunto, cuerpo_hecho,
+                                            text_body=(texto_hecho or None))
+            return bool(ok)
         if not datos:
             enlace = ""
             if url:
@@ -112664,7 +113096,7 @@ def _notify_sms(session_db, user_id, kind, title, body="", url=None) -> None:
 
 def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
                  ref_type=None, ref_id=None, actor_user_id=None, commit=False,
-                 actor_name=None, actor_photo=None, email=None) -> bool:
+                 actor_name=None, actor_photo=None, email=None, email_repeat=False) -> bool:
     """Avisa a UNA persona. Devuelve False si no hay a quién avisar (o es uno mismo).
 
     ⚠️ No se avisa a uno mismo: quien hace la acción ya lo sabe.
@@ -112679,7 +113111,8 @@ def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
     de vacaciones, que en la app la ven dirección y administración pero por correo solo le llega a
     quien las gestiona).
     ⚠️ El correo se manda **solo la primera vez** que ese trabajo le llega a esa persona
-    (`_notice_email_already_sent`): lo que cambia después se ve en la app."""
+    (`_notice_email_already_sent`): lo que cambia después se ve en la app. Con
+    **`email_repeat=True`** sale SIEMPRE, que es lo que necesita un recordatorio que se repite."""
     uid = _safe_uuid(user_id)
     if not uid:
         return False
@@ -112688,7 +113121,11 @@ def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
         return False
     # ¿Hay que mandarle el correo? Se decide ANTES de crear el aviso (la comprobación de «ya se le
     # mandó» mira los avisos que YA existen: con el nuevo dentro se miraría a sí mismo).
-    manda_correo = _notice_email_already_sent(session_db, uid, kind, ref_type, ref_id, title) is False
+    # ⚠️ `email_repeat=True` es la EXCEPCIÓN a «por correo solo la primera vez»: un RECORDATORIO que
+    # se repite (las ventas sin actualizar) tiene que salir cada vez o no sirve de nada. Es opt-in:
+    # la regla de la casa sigue siendo la de siempre para todo lo demás.
+    manda_correo = bool(email_repeat) or (
+        _notice_email_already_sent(session_db, uid, kind, ref_type, ref_id, title) is False)
     fila = None
     try:
         fila = AppNotification(
@@ -112716,7 +113153,7 @@ def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
     if manda_correo:
         try:
             if _notify_email(session_db, uid, kind, title, body, url, email=email,
-                             ref_type=ref_type, ref_id=ref_id):
+                             ref_type=ref_type, ref_id=ref_id, email_repeat=email_repeat):
                 fila.email_sent_at = _now_madrid()
                 if commit:
                     session_db.commit()

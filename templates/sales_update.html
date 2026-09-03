@@ -21,6 +21,15 @@
 </div>
 
 
+{# Se ha entrado desde el aviso de «actualiza las ventas» de UNA actividad: se ve solo esa. #}
+{% if solo_cid %}
+  <div class="alert alert-light border d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span><i class="fa fa-filter me-1 text-muted"></i>Estás viendo <strong>solo esta actividad</strong>.</span>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('sales_update_view', d=day.isoformat()) }}">
+      <i class="fa fa-list me-1"></i>Ver todas las del día</a>
+  </div>
+{% endif %}
+
 {% for sale_type in order %}
   {% set concerts = sections.get(sale_type, []) %}
   {% if concerts and concerts|length %}

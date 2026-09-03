@@ -5939,3 +5939,11 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .vc-thumb__x{ border:0; background:#fff; color:#dc3545; border-radius:50%; width:20px; height:20px;
   line-height:1; font-size:.7rem; box-shadow:0 1px 4px rgba(0,0,0,.2); padding:0; }
 .vc-thumb__x:hover{ background:#dc3545; color:#fff; }
+
+/* HISTORIAL de solicitudes de actualización de ventas (pestaña Ticketing de una actividad).
+   Lo RESPONDIDO en verde y lo que sigue esperando, en ámbar. */
+.sales-log{ padding:.3rem .5rem; border-radius:8px; border:1px solid transparent; }
+.sales-log.is-ok{ background:#f2fbf5; border-color:#cfeddb; }
+.sales-log.is-ok > i{ color:#198754; }
+.sales-log.is-wait{ background:#fffaf0; border-color:#f5e3c0; }
+.sales-log.is-wait > i{ color:#b8860b; }

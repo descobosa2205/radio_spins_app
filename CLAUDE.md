@@ -9339,3 +9339,36 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   zona se reemplaza por AJAX). Incluirlo otra vez dejaría **dos ids iguales** en el DOM.
   Probado con la app real: dirección ve las cinco · contratación las suyas · producción solo
   «Activar producción» · administración ninguna (y el creador, la suya aunque no sea de producción).
+
+- ⚠️⚠️ **LA ACTUALIZACIÓN DE VENTAS SE LE PIDE A QUIEN VENDE, NO A QUIEN PROMUEVE** (sep 2026). Una
+  actividad puede ser **NUESTRA** y tener la venta en manos de **otro** (el promotor, el recinto o un
+  tercero): eso se elegía solo en el asistente (`ticketing_payload['sale_seller']`) y esas ventas se
+  daban por nuestras, así que **no se le pedían a nadie**.
+  · **`_concert_sales_request_applies`** pasa a mirar QUIÉN VENDE: la promueve un tercero (lo de
+  siempre) **o** la promovemos nosotros y `sale_seller.kind` ∈ PROMOTER | VENUE | THIRD. Sigue
+  siendo el espejo exacto de `_concert_sales_own_applies` (`_concert_sale_is_ours`), así que los dos
+  módulos de la pestaña Ticketing son **excluyentes** (comprobado sobre 200 actividades: 0 solapes).
+  ⚠️ Con la actividad de un TERCERO se sigue exigiendo `promoter_id` (sin promotor no hay a quién
+  pedírselo); con la NUESTRA no, que puede no tenerlo — y por eso **`_sales_request_candidates` ya
+  no filtra por `promoter_id` en la SQL**: ese filtro dejaba fuera del barrido justo ese caso.
+  · **Se configura desde la pestaña TICKETING** (`concert_sale_seller_save`, en
+  `SUPPORT_ACTION_ENDPOINTS`): las MISMAS cuatro tarjetas del asistente y el mismo punto único
+  (`_parse_wizard_sale_seller`), así que se guarda igual desde los tres sitios (asistente, sección
+  «Entradas y venta» de la ficha y aquí).
+  ⚠️ El buscador del tercero **no lleva `select-providers`**: ese Select2 filtra las `<option>` que
+  YA están en el DOM y aquí solo habría la vacía → no encontraría nada (el mismo bug que tenía el
+  director de videoclip). Va por AJAX contra `api_search_commission_entities`, que devuelve terceros
+  **y medios**, igual que el paso del asistente.
+  · **A QUIÉN se le escribe**: `_concert_ticketing_contact` gana un escalón,
+  **`_concert_ticketing_seller_contact`** (`source: SELLER`), entre el contacto por defecto del
+  tercero y el promotor a pelo: si vende un TERCERO (o un MEDIO, por su espejo) o el PROMOTOR, se le
+  escribe a él sin configurar nada.
+  ⚠️ Con **`VENUE` no hay a quién escribir**: un `Venue` **no tiene correo ni teléfono**, así que
+  salta la tarea de configurar el contacto a mano — inventarse un correo del recinto sería peor.
+  ⚠️⚠️ La clave del contexto es **`sale_seller_cfg`**, no `sale_seller`: la vista de la ficha YA pasa
+  `sale_seller` (lo guardado) y `render_template` revienta con «got multiple values» (lo sacó la
+  prueba). Es la trampa de siempre al mezclar contextos.
+  Probado con la app real: nuestra vendida por nosotros → módulo interno; se cambia a un tercero
+  desde Ticketing → pasa al módulo de solicitud, el contacto se resuelve solo al tercero (`SELLER`)
+  y entra en el barrido; nuestra sin promotor vendida por el recinto → se pide, y la tarea de
+  configurar el contacto salta con su aviso en la ficha.

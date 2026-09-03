@@ -77642,7 +77642,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     # ACTUALIZACIÓN DE VENTAS del promotor de fuera: configurar su contacto de ticketing y mandarle
     # (o previsualizar) la solicitud es trabajo de TICKETING. Mismo motivo que arriba.
     "concert_ticketing_contact_save", "concert_sales_request_preview",
-    "concert_sales_request_send",
+    "concert_sales_request_send", "concert_sale_seller_save", "concert_sales_own_request",
     # CARTEL DE SOLD OUT: se pide solo al 90%, y a mano lo puede pedir (o retirar) contratación,
     # ticketing o el propio diseño. El permiso fino lo comprueba el endpoint.
     "concert_soldout_request",
@@ -100745,6 +100745,51 @@ def _concert_promoter(session_db, concert):
     return promoter
 
 
+def _concert_ticketing_seller_contact(session_db, concert) -> dict:
+    """QUIEN LLEVA LA VENTA, como contacto al que pedirle la actualización.
+
+    Sale de `ticketing_payload['sale_seller']` (lo que se elige en el asistente y en la pestaña de
+    Ticketing). Solo aporta un correo cuando quien vende tiene ficha:
+      · `THIRD` con tercero → su ficha · `THIRD` con medio → el tercero espejo del medio ·
+      · `PROMOTER` → el promotor de la actividad.
+    ⚠️ Con `VENUE` no hay a quién escribir: un `Venue` **no tiene correo ni teléfono**, así que salta
+    la tarea de configurar el contacto de ticketing a mano (que es lo honesto: inventarse un correo
+    del recinto sería peor)."""
+    if concert is None:
+        return {}
+    seller = _concert_sale_seller(concert)
+    kind = (seller.get("kind") or "").strip().upper()
+    persona = None
+    try:
+        if kind == "THIRD":
+            pid = _safe_uuid(seller.get("promoter_id"))
+            if pid:
+                persona = session_db.get(Promoter, pid)
+            elif seller.get("media_id"):
+                medio = session_db.get(MediaOutlet, _safe_uuid(seller.get("media_id")))
+                if medio is not None:
+                    # El medio ya se espeja como tercero en el resto de la app (comisionistas,
+                    # socios): se reutiliza ese, no se crea nada aquí.
+                    persona = (session_db.query(Promoter)
+                               .filter(func.lower(Promoter.nick) == (medio.name or "").lower())
+                               .first())
+        elif kind == "PROMOTER":
+            persona = _concert_promoter(session_db, concert)
+    except Exception:
+        app.logger.exception("[ventas] no se pudo resolver quién lleva la venta")
+        return {}
+    if persona is None:
+        return {}
+    correo, tel = _promoter_email_phone(persona)
+    if not (correo or tel):
+        return {}
+    return {"kind": "THIRD", "label": TICKETING_CONTACT_LABELS["THIRD"],
+            "name": _promoter_display_name(persona), "email": correo, "phone": tel,
+            "promoter_id": str(persona.id),
+            "photo": (getattr(persona, "logo_url", None) or "").strip(),
+            "set_by": "", "set_at": ""}
+
+
 def _concert_ticketing_contact(session_db, concert) -> dict:
     """A QUIÉN se le piden las ventas de esta actividad. Punto ÚNICO.
 
@@ -100764,6 +100809,11 @@ def _concert_ticketing_contact(session_db, concert) -> dict:
         session_db, getattr(promoter, "ticketing_contact", None), promoter)
     if del_tercero.get("email") or del_tercero.get("phone"):
         return dict(del_tercero, source="PROMOTER_DEFAULT")
+    # QUIEN LLEVA LA VENTA: en lo que promovemos nosotros pero vende otro, es a quien hay que
+    # pedirle las ventas (y en lo de un tercero, el respaldo antes de escribirle al promotor).
+    vendedor = _concert_ticketing_seller_contact(session_db, concert)
+    if vendedor.get("email") or vendedor.get("phone"):
+        return dict(vendedor, source="SELLER")
     if promoter is not None:
         correo, tel = _promoter_email_phone(promoter)
         if correo or tel:
@@ -100813,11 +100863,16 @@ def _concerts_need_sales_report_map(session_db, concerts) -> dict:
 
 
 def _concert_sales_request_applies(session_db, concert, *, group_promoted=None) -> bool:
-    """¿A esta actividad hay que pedirle la actualización de ventas?
+    """¿A esta actividad hay que pedirle la actualización de ventas A ALGUIEN DE FUERA?
 
-    VENDE ENTRADAS y la promueve un TERCERO (`not _concert_is_group_promoted`, el mismo criterio
-    que cartelería, invitaciones y producción): de esas ventas no tenemos el dato. Lo que promueve
-    el grupo se actualiza en `/ventas` y no se le pide a nadie."""
+    VENDE ENTRADAS y **la venta la lleva alguien que no es la casa**: de esas ventas no tenemos el
+    dato, así que hay que pedírselas. Dos casos:
+      · la promueve un TERCERO (lo de siempre), o
+      · **la promovemos NOSOTROS pero la venta la saca OTRO** (el recinto, el promotor o un tercero:
+        `ticketing_payload['sale_seller']`, lo que se elige en el asistente y ahora también en la
+        pestaña de Ticketing). Antes esto se daba por nuestro y no se le pedía nada a nadie.
+    Lo que promovemos Y vendemos nosotros se actualiza en `/ventas` (ahí manda
+    `_concert_sales_own_applies`, que es el espejo de esta): los dos módulos son excluyentes."""
     if concert is None:
         return False
     try:
@@ -100834,11 +100889,14 @@ def _concert_sales_request_applies(session_db, concert, *, group_promoted=None) 
         ultimo = _concert_last_day(concert)
         if ultimo and ultimo < today_local():
             return False                      # ya se celebró: no hay ventas que actualizar
-        if not getattr(concert, "promoter_id", None):
-            return False                      # todavía no se sabe quién promueve: nada que pedir
         promovido = (_concert_is_group_promoted(session_db, concert)
                      if group_promoted is None else bool(group_promoted))
-        return not promovido
+        if not promovido:
+            # La promueve un tercero: si todavía no se sabe quién, no hay a quién pedírselo.
+            return bool(getattr(concert, "promoter_id", None))
+        # La promovemos NOSOTROS: solo si la venta la lleva otro.
+        return (_concert_sale_seller(concert).get("kind") or "").strip().upper() in (
+            "PROMOTER", "VENUE", "THIRD")
     except Exception:
         app.logger.exception("[ventas] no se pudo mirar si hay que pedir la actualización")
         return False
@@ -101502,6 +101560,11 @@ def _concert_sales_request_ficha(session_db, concert, tab: str) -> dict:
     vacio = {"ticketing_kinds": TICKETING_CONTACT_KINDS, "ticketing_contact": {},
              "ticketing_contact_raw": {}, "ticketing_applies": False,
              "ticketing_unset": False,
+             # ⚠️ `sale_seller_cfg`, NO `sale_seller`: la vista de la ficha YA pasa `sale_seller`
+             # (lo que hay guardado) y `render_template` revienta con «got multiple values».
+             "sale_seller_cfg": {"applies": False, "kind": "", "label": "", "third_id": "",
+                                 "group_promoted": False, "us_name": "", "promoter_name": "",
+                                 "venue_name": ""},
              "sales_own": {"applies": False, "url": "", "owners": [], "notice_label": "",
                            "updated_label": "", "stale_days": None, "stale": False},
              "sales_request": {"applies": False, "url": "", "derive_url": "", "subject": "",
@@ -101547,6 +101610,23 @@ def _concert_sales_request_ficha(session_db, concert, tab: str) -> dict:
         datos["updated_label"] = (act.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if act else "")
         # LO NUESTRO: si la vendemos nosotros, en la pestaña de Ticketing se ve cuándo se
         # actualizó por última vez y se puede recordárselo al responsable de ticketing.
+        # ¿QUIÉN SACA LAS ENTRADAS A LA VENTA? Se configura desde la pestaña de Ticketing (lo
+        # mismo que en el asistente): de aquí sale a quién se le piden las ventas.
+        vendedor = dict(vacio["sale_seller_cfg"])
+        if tab == "ticketing" and _concert_sells_tickets(concert):
+            actual = _concert_sale_seller(concert)
+            vendedor["applies"] = True
+            vendedor["kind"] = (actual.get("kind") or "").strip().upper()
+            vendedor["label"] = (actual.get("label") or "").strip()
+            vendedor["third_id"] = str(actual.get("promoter_id") or actual.get("media_id") or "")
+            vendedor["group_promoted"] = _concert_is_group_promoted(session_db, concert)
+            _co = (getattr(concert, "billing_company", None)
+                   or getattr(concert, "group_company", None))
+            vendedor["us_name"] = (getattr(_co, "name", "") or "")
+            _pr = _concert_promoter(session_db, concert)
+            vendedor["promoter_name"] = (_promoter_display_name(_pr) if _pr is not None else "")
+            _ve = getattr(concert, "venue", None)
+            vendedor["venue_name"] = (getattr(_ve, "name", "") or "")
         propias = dict(vacio["sales_own"])
         if tab == "ticketing" and not aplica and _concert_sales_own_applies(session_db, concert):
             propias["applies"] = True
@@ -101565,6 +101645,7 @@ def _concert_sales_request_ficha(session_db, concert, tab: str) -> dict:
                 "ticketing_contact_raw": crudo, "ticketing_applies": aplica,
                 "ticketing_unset": (aplica and (contacto.get("source") or "").upper()
                                     not in ("CONCERT", "PROMOTER_DEFAULT")),
+                "sale_seller_cfg": vendedor,
                 "sales_own": propias,
                 "sales_request": datos}
     except Exception:
@@ -101611,7 +101692,9 @@ def _sales_request_candidates(session_db, *, hoy=None) -> list:
              .filter(Concert.sale_start_date.isnot(None))
              .filter(Concert.sale_start_date < hoy)
              .filter(func.upper(func.coalesce(Concert.status, "")) == "CONFIRMADO")
-             .filter(Concert.promoter_id.isnot(None))
+             # ⚠️⚠️ NO se filtra por `promoter_id`: una actividad NUESTRA a la que la venta se la
+             # lleva otro (el recinto, un tercero) puede no tener promotor, y ese filtro la dejaba
+             # fuera del barrido. Quién tiene que actualizar lo decide `_concert_sales_request_applies`.
              # ⚠️ Lo que ya se sabe descartar, en la SQL: sin esto el barrido se traía TODO el
              # histórico de actividades vendidas en cada pasada (y corre cada hora).
              .filter(or_(and_(Concert.date.is_(None), Concert.end_date.is_(None)),
@@ -101934,6 +102017,57 @@ def _concert_ticketing_contact_apply(session_db, concert, fila: dict, *, scope: 
     concert.ticketing_payload = pay
     flag_modified(concert, "ticketing_payload")
     concert.updated_at = _now_madrid()
+
+
+@app.post("/conciertos/<cid>/venta-entradas", endpoint="concert_sale_seller_save")
+@admin_required
+def concert_sale_seller_save(cid):
+    """¿QUIÉN SACA LAS ENTRADAS A LA VENTA? Lo mismo que se elige en el asistente, ahora también
+    desde la pestaña de Ticketing.
+
+    ⚠️ De aquí sale que a una actividad **nuestra** se le pida la actualización de ventas: si la
+    venta la lleva el promotor, el recinto o un tercero, se le pide a él exactamente igual que
+    cuando la actividad es de fuera (`_concert_sales_request_applies`).
+    ⚠️ Lo puede hacer TICKETING (que no tiene por qué poder editar contratación): el endpoint va en
+    `SUPPORT_ACTION_ENDPOINTS` y el permiso se comprueba aquí dentro."""
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos para configurar la venta de entradas.")
+    next_url = safe_next_or(request.form.get("next")
+                            or url_for("concert_detail_view", cid=cid, tab="ticketing"))
+    session_db = db()
+    try:
+        concert = _concert_for_sale_notice(session_db, cid)
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(next_url)
+        seller = _parse_wizard_sale_seller(
+            session_db, request.form,
+            billing_company_id=(getattr(concert, "billing_company_id", None)
+                                or getattr(concert, "group_company_id", None)),
+            promoter_id=getattr(concert, "promoter_id", None),
+            venue_id=getattr(concert, "venue_id", None))
+        if not seller:
+            flash("Elige quién saca las entradas a la venta.", "warning")
+            return redirect(next_url)
+        pay = dict(getattr(concert, "ticketing_payload", None) or {})
+        pay["sale_seller"] = seller
+        # `sale_owner` es el rótulo que ya pintaban las pantallas antiguas: se mantiene al día.
+        pay["sale_owner"] = seller.get("label") or ""
+        concert.ticketing_payload = pay
+        try:
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(concert, "ticketing_payload")
+        except Exception:
+            pass
+        session_db.commit()
+        flash("Venta de entradas: la saca %s." % (seller.get("label") or "…"), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[ventas] no se pudo guardar quién saca las entradas")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
 
 
 @app.post("/conciertos/<cid>/contacto-ticketing", endpoint="concert_ticketing_contact_save")

@@ -5929,3 +5929,13 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 }
 .cc-role.is-on{ background:var(--brand-primary, #E33D48); border-color:var(--brand-primary, #E33D48); color:#fff; }
 .cc-new{ border:1px dashed rgba(0,0,0,.18); border-radius:12px; padding:.7rem .8rem; margin-top:.6rem; background:#fbfcfe; }
+
+/* MINIATURA del videoclip (pestaña «Videoclip» de la ficha de la canción). El módulo se enseña
+   SIEMPRE, esté puesta o no, así que cada miniatura lleva su ✕ encima para quitarla. */
+.vc-thumbs{ display:flex; gap:.5rem; flex-wrap:wrap; }
+.vc-thumb{ position:relative; display:inline-block; line-height:0; }
+.vc-thumb img{ width:96px; height:54px; object-fit:cover; border-radius:8px; border:1px solid #e9ecef; cursor:pointer; }
+.vc-thumb form{ position:absolute; top:-6px; right:-6px; }
+.vc-thumb__x{ border:0; background:#fff; color:#dc3545; border-radius:50%; width:20px; height:20px;
+  line-height:1; font-size:.7rem; box-shadow:0 1px 4px rgba(0,0,0,.2); padding:0; }
+.vc-thumb__x:hover{ background:#dc3545; color:#fff; }

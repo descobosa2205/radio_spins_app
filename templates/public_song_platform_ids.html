@@ -78,8 +78,8 @@
             <div class="border rounded-3 p-3 d-flex align-items-center gap-3 flex-wrap">
               {# ⚠️ `fa-brands` solo vale para los iconos de MARCA: `fa-globe` («todas») y el
                  `fa-link` de una añadida a mano se quedaban en blanco. #}
-              <span class="idplat" style="background:{{ r.color }};">
-                <i class="{{ 'fa-brands' if not r.custom and r.platform != 'ALL' else 'fa' }} {{ r.icon }} fa-lg"></i></span>
+              <span class="idplat" style="background:{{ '#fff' if r.logo_url else r.color }};{% if r.logo_url %}border:1px solid #e9ecef;{% endif %}">
+                {% if r.logo_url %}<img src="{{ r.logo_url }}" alt="{{ r.label }}" style="width:30px;height:30px;object-fit:contain;">{% else %}<i class="{{ 'fa-brands' if r.brand else 'fa' }} {{ r.icon }} fa-lg"></i>{% endif %}</span>
               <span class="flex-grow-1 min-w-0">
                 <span class="fw-semibold d-block">{{ r.label }}</span>
                 <span class="small text-muted d-block">Formato vertical (9:16)</span>

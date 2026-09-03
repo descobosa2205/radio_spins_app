@@ -690,6 +690,11 @@ class Song(Base):
     videoclip_same_release = Column(Boolean, nullable=False, server_default=text("false"))
     videoclip_director_promoter_id = Column(PGUUID(as_uuid=True),
                                             ForeignKey("promoters.id", ondelete="SET NULL"))
+    # LA MINIATURA del videoclip: la idea escrita y cuándo se le pidió a DISEÑO. Lo que se sube son
+    # materiales (`SongMaterial` VIDEO_THUMB); esto solo guarda la PETICIÓN.
+    # ⚠️ Si la canción la prepara un PROYECTO, la petición vive en el proyecto (no hay dos verdades):
+    #    lo resuelve `_song_video_thumb_state`.
+    videoclip_thumb_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     # Contenido explícito (se marca al subir la letra); muestra etiqueta "Explícita".
     # CONTENIDO EXPLÍCITO: hay que decirlo en TODAS las canciones, así que son TRES estados —
     # ⚠️ **NULL = sin decidir**, que no es «no explícita»: hay sitios (el alta, un proyecto) donde se
@@ -7591,6 +7596,7 @@ def ensure_song_delivery_schema():
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_release_date date;",
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_same_release boolean NOT NULL DEFAULT false;",
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_director_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_thumb_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
     ]
     for _s in stmts:
         try:
@@ -7855,6 +7861,7 @@ def ensure_isrc_and_song_detail_schema():
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_release_date date;",
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_same_release boolean NOT NULL DEFAULT false;",
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_director_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_thumb_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS materials_json jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS fields_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS reminders_enabled boolean NOT NULL DEFAULT false;",

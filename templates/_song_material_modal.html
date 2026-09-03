@@ -1,0 +1,86 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════
+   SUBIR UN MATERIAL DE LA CANCIÓN · el pop-up y su `openSongMaterialModal(cfg)`.
+   ⚠️ Es UNO para toda la ficha: lo incluyen la pestaña «Materiales» y la de «Videoclip»,
+      así que subir una portada, un máster, un videoclip o su miniatura se hace igual.
+   ══════════════════════════════════════════════════════════════════════════════════════ #}
+{% if CAN_EDIT_DISCOGRAFICA %}
+  <div class="modal fade" id="songMaterialUploadModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post" action="{{ url_for('discografica_song_material_upload', song_id=song.id) }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title" id="songMaterialUploadModalTitle">Subir material</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="category" id="songMaterialCategory">
+          <input type="hidden" name="slot_key" id="songMaterialSlotKey">
+          <input type="hidden" name="material_id" id="songMaterialId">
+          <input type="hidden" name="bundle_key" id="songMaterialBundleKey">
+
+          <div class="mb-3" id="songMaterialDisplayNameWrap" style="display:none;">
+            <label class="form-label">Nombre</label>
+            <input class="form-control" name="display_name" id="songMaterialDisplayName" placeholder="Nombre del subproducto o del grupo">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" id="songMaterialFilesLabel">Archivo</label>
+            <input class="form-control" type="file" name="files" id="songMaterialFiles" multiple>
+            <div class="form-text" id="songMaterialHelp"></div>
+          </div>
+
+          <div class="mb-0" id="songMaterialFolderWrap" style="display:none;">
+            <label class="form-label">O subir carpeta completa</label>
+            <input class="form-control" type="file" name="files" id="songMaterialFolderFiles" multiple webkitdirectory directory>
+            <div class="form-text">Disponible en navegadores compatibles.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let _songMaterialUploadModal;
+    function openSongMaterialModal(cfg){
+      cfg = cfg || {};
+      document.getElementById('songMaterialUploadModalTitle').textContent = cfg.title || 'Subir material';
+      document.getElementById('songMaterialCategory').value = cfg.category || '';
+      document.getElementById('songMaterialSlotKey').value = cfg.slotKey || 'DEFAULT';
+      document.getElementById('songMaterialId').value = cfg.materialId || '';
+      document.getElementById('songMaterialBundleKey').value = cfg.bundleKey || '';
+      const displayWrap = document.getElementById('songMaterialDisplayNameWrap');
+      const displayInput = document.getElementById('songMaterialDisplayName');
+      const filesInput = document.getElementById('songMaterialFiles');
+      const folderWrap = document.getElementById('songMaterialFolderWrap');
+      const folderInput = document.getElementById('songMaterialFolderFiles');
+      const help = document.getElementById('songMaterialHelp');
+      const filesLabel = document.getElementById('songMaterialFilesLabel');
+      displayWrap.style.display = cfg.showDisplayName ? '' : 'none';
+      displayInput.value = cfg.displayName || '';
+      displayInput.required = !!cfg.showDisplayName;
+      filesInput.value = '';
+      folderInput.value = '';
+      filesInput.multiple = !!cfg.multiple;
+      // Qué se admite en cada tipo de material.
+      const esImagen = (cfg.category === 'COVER' || cfg.category === 'VIDEO_THUMB');
+      const esVideo = (cfg.category === 'VIDEOCLIP');
+      filesInput.accept = esImagen ? 'image/*'
+                        : (esVideo ? '.mov,.mp4,.m4v,.mkv,.webm,.avi,video/*'
+                        : (cfg.stemMode ? '.zip,.wav,.wave,audio/*' : '.wav,.wave'));
+      filesLabel.textContent = cfg.stemMode ? 'Archivos / ZIP' : (cfg.multiple ? 'Archivos' : 'Archivo');
+      help.textContent = cfg.stemMode
+        ? 'Puedes seleccionar varios archivos (.wav), un ZIP o una carpeta completa.'
+        : (cfg.category === 'VIDEO_THUMB' ? 'Miniaturas del videoclip: cualquier formato de imagen.'
+        : (esVideo ? 'Formatos de vídeo: MOV, MP4, M4V, MKV, WEBM o AVI.'
+        : (cfg.category === 'COVER' ? 'Se admite cualquier formato de imagen.' : 'Solo se admite formato .wav.')));
+      folderWrap.style.display = cfg.stemMode ? '' : 'none';
+      folderInput.disabled = !cfg.stemMode;
+      _songMaterialUploadModal = new bootstrap.Modal(document.getElementById('songMaterialUploadModal'));
+      _songMaterialUploadModal.show();
+    }
+    {# Compartir (correo/WhatsApp/SMS/copiar) es GLOBAL: static/js/scripts.js #}
+  </script>
+{% endif %}

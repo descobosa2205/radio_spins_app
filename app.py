@@ -8254,10 +8254,16 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
 
     # Cada videoclip se lleva sus miniaturas y la que se enseña (la subida a mano manda sobre la
     # que saca ffmpeg; si no hay ninguna, el hueco enseña el icono).
+    # ⚠️ Una miniatura subida ANTES de que exista el vídeo se queda sin `bundle_key`: cae en el
+    # cajón «sin vídeo» y se la queda el videoclip principal en cuanto se sube. Así el módulo de
+    # miniatura de la pestaña Videoclip se puede usar aunque todavía no haya vídeo.
+    sueltas = list(video_thumbs.get("", []))
     for item in [videoclip_default] + videoclip_subproducts:
         if not item:
             continue
-        propias = video_thumbs.get(item["id"], [])
+        propias = list(video_thumbs.get(item["id"], []))
+        if item is videoclip_default:
+            propias += sueltas
         item["thumbs"] = propias
         item["preview_url"] = (propias[0]["file_url"] if propias else item.get("poster_url") or "")
 
@@ -8273,6 +8279,7 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
         "tv_track_default": tv_track_default,
         "tv_track_subproducts": tv_track_subproducts,
         "videoclip_default": videoclip_default,
+        "video_thumbs_free": sueltas,
         "videoclip_subproducts": videoclip_subproducts,
         "video_rights": video_rights,
         "stem_groups": stem_groups,
@@ -16057,7 +16064,7 @@ def _isrc_panel_context(session_db, *, isrc_tab: str = "repertorio", artist_id=N
 # ⚠️ En el primero solo sale la flecha de siguiente y en el último solo la de anterior.
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
 SONG_DETAIL_TABS = {
-    "informacion", "editorial", "materiales", "royalties", "ingresos",
+    "informacion", "editorial", "materiales", "videoclip", "royalties", "ingresos",
     "gastos", "promocion", "marketing", "radio", "playlisting",
 }
 # ⚠️ Una pestaña NUEVA hay que meterla aquí: si no, cae en «Información» y su panel no se pinta
@@ -21540,6 +21547,9 @@ def discografica_song_detail(song_id):
                           if getattr(s, "videoclip_director_promoter_id", None) else None)
     # Estado de registro del videoclip (para la etiqueta «Pendiente de registro» de sus datos).
     videoclip_registration = _song_videoclip_registration(session_db, s, st)
+    # LA MINIATURA del videoclip (su módulo se enseña siempre, esté puesta o no). Solo en su
+    # pestaña: mirarlo cuesta dos consultas y no se usa en ninguna otra.
+    video_thumb = (_song_video_thumb_state(session_db, s) if tab == "videoclip" else None)
 
     _delivery_active = (
         session_db.query(SongMasterDeliveryLink)
@@ -22023,6 +22033,7 @@ def discografica_song_detail(song_id):
         isrc_video=isrc_video,
         videoclip_director=videoclip_director,
         videoclip_registration=videoclip_registration,
+        video_thumb=video_thumb,
         materials_status=materials_status,
         master_delivery=master_delivery,
         song_delivery_sections=SONG_DELIVERY_SECTIONS,
@@ -23149,7 +23160,7 @@ def discografica_song_videoclip_data(song_id):
     «Sin videoclip» (que esconde el módulo entero hasta que se deshaga)."""
     if not can_edit_discografica():
         return forbid("No tienes permisos para editar los materiales.")
-    volver = url_for("discografica_song_detail", song_id=song_id, tab="materiales")
+    volver = url_for("discografica_song_detail", song_id=song_id, tab="videoclip")
     session_db = db()
     try:
         song = session_db.get(Song, to_uuid(song_id))
@@ -23182,6 +23193,142 @@ def discografica_song_videoclip_data(song_id):
     return redirect(volver)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# LA MINIATURA DEL VIDEOCLIP (pestaña «Videoclip» de la ficha de la canción)
+# La miniatura es LO QUE SE VE del vídeo en todas partes, así que su módulo se enseña **siempre**
+# —aunque no haya ninguna puesta— para poder arrastrarla o elegirla, y con la opción de PEDÍRSELA A
+# DISEÑO: entonces les sale como TAREA PENDIENTE en su Inicio.
+# ⚠️ Lo que se sube son materiales (`SongMaterial` VIDEO_THUMB, con el id del videoclip en su
+#    `bundle_key`); esto guarda solo la PETICIÓN.
+# ⚠️⚠️ Si la canción la prepara un PROYECTO discográfico, la petición es LA DEL PROYECTO
+#    (`production_payload['video']['thumb']`, la que ya mira su paso del videoclip): no hay dos
+#    verdades, así que lo que se pide desde la canción se ve en el proyecto y al revés.
+# ⚠️ La tarea **se cierra sola** en cuanto hay una miniatura subida (la regla de `_notify_resolve`):
+#    se mira el DATO, no una marca aparte.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+SONG_VIDEO_THUMB_REF = "SONG_VIDEO_THUMB"
+
+
+def _song_video_thumb_project(session_db, song):
+    """El PROYECTO del que cuelga la miniatura de esta canción (o None si no lo lleva ninguno)."""
+    try:
+        p = _song_project(session_db, getattr(song, "id", None))
+    except Exception:
+        app.logger.exception("[videoclip] no se pudo buscar el proyecto de la canción")
+        return None
+    return p if (p is not None and _disco_project_has_videoclip(p)) else None
+
+
+def _song_has_video_thumb(session_db, song_id) -> bool:
+    """¿Hay alguna miniatura subida para esta canción?"""
+    try:
+        return bool(session_db.query(SongMaterial.id)
+                    .filter(SongMaterial.song_id == to_uuid(str(song_id)),
+                            func.upper(func.coalesce(SongMaterial.category, "")) == "VIDEO_THUMB")
+                    .first())
+    except Exception:
+        app.logger.exception("[videoclip] no se pudo mirar la miniatura de la canción")
+        return False
+
+
+def _song_video_thumb_row(session_db, song):
+    """De DÓNDE sale la petición de la miniatura: (dict de la petición, proyecto o None)."""
+    proyecto = _song_video_thumb_project(session_db, song)
+    if proyecto is not None:
+        return dict((_disco_video(proyecto).get("thumb") or {})), proyecto
+    return dict(getattr(song, "videoclip_thumb_json", None) or {}), None
+
+
+def _song_video_thumb_save(session_db, song, mini: dict, proyecto=None) -> None:
+    """Guarda la petición donde toque (el proyecto manda si lo hay)."""
+    if proyecto is not None:
+        video = _disco_video(proyecto)
+        video["thumb"] = mini
+        _disco_video_set(proyecto, video)
+        return
+    song.videoclip_thumb_json = mini
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(song, "videoclip_thumb_json")
+    except Exception:
+        pass
+
+
+def _song_video_thumb_state(session_db, song, *, has_thumb=None) -> dict:
+    """La MINIATURA del videoclip: si está puesta, si se le ha pedido a diseño y con qué idea."""
+    if song is None:
+        return {"has": False, "asked": False, "asked_label": "", "asked_by": "", "idea": "",
+                "project": None, "ref_type": SONG_VIDEO_THUMB_REF, "ref_id": ""}
+    mini, proyecto = _song_video_thumb_row(session_db, song)
+    hay = _song_has_video_thumb(session_db, song.id) if has_thumb is None else bool(has_thumb)
+    pedida = _parse_iso_date_safe(str(mini.get("asked_at") or "")[:10])
+    return {
+        "has": hay,
+        # Pedida y todavía sin miniatura = lo que sigue esperando.
+        "asked": bool(mini.get("asked_at")) and not hay,
+        "asked_label": (pedida.strftime("%d/%m/%Y") if pedida else ""),
+        "asked_by": (mini.get("asked_by") or ""),
+        "idea": (mini.get("idea") or ""),
+        "project": proyecto,
+        "ref_type": ("DISCO_VIDEO_THUMB" if proyecto is not None else SONG_VIDEO_THUMB_REF),
+        "ref_id": (str(proyecto.id) if proyecto is not None else str(song.id)),
+    }
+
+
+@app.post("/discografica/canciones/<song_id>/videoclip/miniatura",
+          endpoint="discografica_song_video_thumb_request")
+@admin_required
+def discografica_song_video_thumb_request(song_id):
+    """La miniatura del videoclip: guardar la idea, PEDÍRSELA A DISEÑO o retirar la petición."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar los materiales.")
+    volver = url_for("discografica_song_detail", song_id=song_id, tab="videoclip")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        mini, proyecto = _song_video_thumb_row(session_db, song)
+        ref_type = ("DISCO_VIDEO_THUMB" if proyecto is not None else SONG_VIDEO_THUMB_REF)
+        ref_id = (str(proyecto.id) if proyecto is not None else str(song.id))
+        if _flag_arg("undo"):
+            mini.pop("asked_at", None)
+            mini.pop("asked_by", None)
+            _song_video_thumb_save(session_db, song, mini, proyecto)
+            _notify_resolve(session_db, ref_type, ref_id)
+            session_db.commit()
+            flash("Petición de miniatura retirada.", "info")
+            return redirect(safe_next_or(volver))
+        mini["idea"] = (request.form.get("idea") or "").strip()
+        pedir = _truthy(request.form.get("ask"))
+        if pedir:
+            yo = _current_user_state() or {}
+            mini["asked_at"] = _now_madrid().isoformat()
+            mini["asked_by"] = (yo.get("nick") or "")
+        _song_video_thumb_save(session_db, song, mini, proyecto)
+        if pedir:
+            artista = (song.artists[0] if getattr(song, "artists", None) else None)
+            try:
+                _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                              "Miniatura del videoclip · %s" % (song.title or "canción"),
+                              (mini["idea"] or "Hay que hacer la miniatura del videoclip."),
+                              volver, ref_type=ref_type, ref_id=ref_id,
+                              actor_name=(getattr(artista, "name", "") or ""),
+                              actor_photo=(getattr(artista, "photo_url", "") or ""))
+            except Exception:
+                app.logger.exception("[videoclip] no se pudo avisar a diseño de la miniatura")
+        session_db.commit()
+        flash("Miniatura: %s" % ("solicitada a diseño." if pedir else "idea guardada."), "success")
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[videoclip] no se pudo guardar la miniatura de la canción")
+        flash(f"No se pudo guardar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(volver))
+
+
 @app.post("/discografica/canciones/<song_id>/materials/upload")
 @admin_required
 def discografica_song_material_upload(song_id):
@@ -23190,6 +23337,8 @@ def discografica_song_material_upload(song_id):
 
     category = (request.form.get("category") or "").strip().upper()
     slot_key = (request.form.get("slot_key") or "DEFAULT").strip().upper()
+    # ⚠️ Lo del VÍDEO vive ya en su propia pestaña: hay que volver ahí, no a Materiales.
+    _tab = "videoclip" if category in ("VIDEOCLIP", "VIDEO_THUMB", "VIDEO_RIGHTS") else "materiales"
     display_name = (request.form.get("display_name") or "").strip() or None
     replace_material_id = (request.form.get("material_id") or "").strip() or None
     replace_bundle_key = (request.form.get("bundle_key") or "").strip() or None
@@ -23212,7 +23361,7 @@ def discografica_song_material_upload(song_id):
     if category not in {"COVER", "MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS", "VIDEOCLIP",
                         "VIDEO_THUMB", "VIDEO_RIGHTS"}:
         flash("Tipo de material no válido.", "warning")
-        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
     if category == "COVER":
         if slot_key != "COVER_PROVISIONAL":
@@ -23232,17 +23381,17 @@ def discografica_song_material_upload(song_id):
 
     if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK", "VIDEOCLIP"} and slot_key == "SUBPRODUCT" and not display_name:
         flash("Debes indicar un nombre para el subproducto.", "warning")
-        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
     if not files:
         flash("Selecciona al menos un archivo.", "warning")
-        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
     if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"}:
         non_wav = [f for f in files if Path((f.filename or "").replace("\\", "/")).suffix.lower() not in {".wav", ".wave"}]
         if non_wav:
             flash("Los masters, la instrumental y el TV track deben subirse en formato .wav.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
     if category == "VIDEOCLIP":
         malos = [f for f in files
@@ -23250,11 +23399,7 @@ def discografica_song_material_upload(song_id):
         if malos:
             flash("El videoclip tiene que ser un vídeo (%s)."
                   % ", ".join(sorted(e.lstrip(".").upper() for e in SONG_VIDEO_EXTENSIONS)), "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
-
-    if category == "VIDEO_THUMB" and not (request.form.get("bundle_key") or "").strip():
-        flash("La miniatura tiene que ir vinculada a un videoclip.", "warning")
-        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
     session_db = db()
     try:
@@ -23267,7 +23412,7 @@ def discografica_song_material_upload(song_id):
             old_row = session_db.get(SongMaterial, to_uuid(replace_material_id))
             if not old_row or old_row.song_id != song.id:
                 flash("Material no encontrado.", "warning")
-                return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+                return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
             if not display_name and (getattr(old_row, "display_name", None) or "").strip():
                 display_name = (old_row.display_name or "").strip()
             if old_row.category == "COVER":
@@ -23455,7 +23600,7 @@ def discografica_song_material_upload(song_id):
                     added_any = True
             if not added_any:
                 flash("El ZIP o la carpeta de stems no contenía archivos válidos.", "warning")
-                return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+                return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
         song.updated_at = datetime.now(TZ_MADRID)
         session_db.add(song)
@@ -23466,6 +23611,13 @@ def discografica_song_material_upload(song_id):
             .all()
         )
         _refresh_song_material_status(session_db, song, material_rows=material_rows)
+        # La tarea de DISEÑO se cierra sola en cuanto hay miniatura (la regla de `_notify_resolve`).
+        if category == "VIDEO_THUMB":
+            try:
+                _est_mini = _song_video_thumb_state(session_db, song, has_thumb=True)
+                _notify_resolve(session_db, _est_mini["ref_type"], _est_mini["ref_id"])
+            except Exception:
+                app.logger.exception("[videoclip] no se pudo cerrar el aviso de la miniatura")
         session_db.commit()
         flash("Material guardado.", "success")
     except StorageObjectTooLargeError as e:
@@ -23477,7 +23629,7 @@ def discografica_song_material_upload(song_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
 
 @app.post("/discografica/canciones/<song_id>/materials/<material_id>/delete")
@@ -23486,13 +23638,17 @@ def discografica_song_material_delete(song_id, material_id):
     if not can_edit_discografica():
         return forbid("No tienes permisos para eliminar materiales.")
 
+    _tab = "materiales"
     session_db = db()
     try:
         song = session_db.get(Song, to_uuid(song_id))
         row = session_db.get(SongMaterial, to_uuid(material_id))
+        # ⚠️ Lo del VÍDEO vive en su propia pestaña: hay que volver ahí.
+        if row is not None and (row.category or "").upper() in ("VIDEOCLIP", "VIDEO_THUMB", "VIDEO_RIGHTS"):
+            _tab = "videoclip"
         if not song or not row or row.song_id != song.id:
             flash("Material no encontrado.", "warning")
-            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
         was_cover = (row.category or "").upper() == "COVER"
         # ⚠️ RECHAZAR es esto (el botón ✗ borra el archivo). Si venía de una entrega y estaba sin
         # validar, se apunta en la entrega: si no, la tarea desaparecería justo cuando falta algo.
@@ -23517,7 +23673,7 @@ def discografica_song_material_delete(song_id, material_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab=_tab))
 
 
 @app.post("/discografica/canciones/<song_id>/materials/<material_id>/cover-role")
@@ -24114,6 +24270,8 @@ def _disco_project_release(session_db, project) -> dict:
                 "cover_url": (song.cover_url or ""),
                 "provisional": bool(getattr(song, "is_provisional", False)),
                 "url": url_for("discografica_song_detail", song_id=song.id, tab="materiales"),
+                # El VÍDEO tiene su propia pestaña en la ficha de la canción.
+                "video_url": url_for("discografica_song_detail", song_id=song.id, tab="videoclip"),
                 "label": "Canción"}
     return {}
 
@@ -27680,6 +27838,22 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                       hint=("Faltan en %d tema(s) · se suben o se le piden al artista"
                             % ids["missing"]))
 
+        # ===== EL MINUTO DE INICIO EN TIKTOK (se elige en la ficha de cada canción) =====
+        tk = _disco_project_tiktok_state(session_db, project)
+        if tk["has_songs"]:
+            if tk["all_done"]:
+                tarea("tiktok", "Inicio en TikTok", "", "fa-stopwatch", state="done",
+                      value=("Elegido%s" % ((" · %s" % tk["songs"][0]["label"])
+                                            if len(tk["songs"]) == 1 and tk["songs"][0]["label"]
+                                            else "")))
+            else:
+                destino_tk = (tk["songs"][0]["url"] if len(tk["songs"]) == 1
+                              else (release.get("url") if release else url_mat))
+                tarea("tiktok", "Elegir el minuto de inicio de TikTok", destino_tk, "fa-stopwatch",
+                      grupo="single", action_label="Elegirlo",
+                      hint=("Falta en %d tema(s) · se elige en «Información» de la canción"
+                            % tk["missing"]))
+
     # ================= LOS ENLACES DE LA DISTRIBUIDORA =================
     # Los pide quien lleva el proyecto y los sube quien es REGISTROS y SELLO; después se le
     # comparten al ARTISTA. ⚠️ La tarea se ve en el proyecto pero está CONDICIONADA a que esa
@@ -27752,7 +27926,8 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                 tarea("master", ("Falta el máster de %d tema(s)" % faltan), destino, "fa-file-audio",
                       grupo="single")
         if _disco_project_missing_videoclip(session_db, project):
-            tarea("videoclip", "Falta el videoclip", destino, "fa-film", grupo="video")
+            tarea("videoclip", "Falta el videoclip",
+                  (release.get("video_url") or destino), "fa-film", grupo="video")
     try:
         if not (_roadmap_load(project).get("agenda") or []):
             tarea("hoja", "La hoja de ruta está vacía", url_hoja, "fa-route")
@@ -31741,9 +31916,34 @@ SONG_PLATFORM_ID_CATALOG = (
     ("APPLE", "Apple Music", "fa-apple", "#FA243C"),
     ("AMAZON", "Amazon Music", "fa-amazon", "#25D1DA"),
     ("YOUTUBE", "YouTube", "fa-youtube", "#FF0000"),
+    # LA DISTRIBUIDORA del single o del álbum: un ID fijo más, que se ve **con SU logo** (el de la
+    # distribuidora que corresponda, no un icono genérico). ⚠️ No es una marca de Font Awesome:
+    # su icono sólido es solo el respaldo de cuando la distribuidora no tiene logo subido.
+    ("DISTRIBUIDORA", "Distribuidora", "fa-truck-fast", "#0f766e"),
     ("ALL", "Todas las plataformas", "fa-globe", "#111827"),
 )
 SONG_PLATFORM_ID_LABELS = {k: l for k, l, _i, _c in SONG_PLATFORM_ID_CATALOG}
+# Las claves que NO son una marca de Font Awesome (su icono se pinta con la familia sólida).
+SONG_PLATFORM_ID_NO_BRAND = {"ALL", "DISTRIBUIDORA"}
+
+
+def _song_distributor(session_db, song_id):
+    """La DISTRIBUIDORA de una canción: la suya y, si no la tiene, la de su álbum. Punto único."""
+    sid = _safe_uuid(song_id)
+    if not sid:
+        return None
+    try:
+        song = session_db.get(Song, sid)
+        did = getattr(song, "distributor_id", None) if song is not None else None
+        if not did:
+            did = (session_db.query(Album.distributor_id)
+                   .join(AlbumTrack, AlbumTrack.album_id == Album.id)
+                   .filter(AlbumTrack.song_id == sid, Album.distributor_id.isnot(None))
+                   .limit(1).scalar())
+        return session_db.get(Distributor, did) if did else None
+    except Exception:
+        app.logger.exception("[ids] no se pudo resolver la distribuidora de la canción")
+        return None
 
 
 def _song_platform_ids(session_db, song_id) -> dict:
@@ -31770,11 +31970,18 @@ def _song_platform_ids(session_db, song_id) -> dict:
             hechos += 1
         else:
             pendientes.append(clave)
-        salida.append({"platform": clave, "label": etiqueta, "icon": icono, "color": color,
-                       "file_url": ((f.file_url or "") if f else ""),
-                       "file_name": ((f.file_name or "") if f else ""),
-                       "not_needed": no_hace, "done": (subido or no_hace), "custom": False,
-                       "id": (str(f.id) if f else "")})
+        fila = {"platform": clave, "label": etiqueta, "icon": icono, "color": color,
+                "logo_url": "", "brand": (clave not in SONG_PLATFORM_ID_NO_BRAND),
+                "file_url": ((f.file_url or "") if f else ""),
+                "file_name": ((f.file_name or "") if f else ""),
+                "not_needed": no_hace, "done": (subido or no_hace), "custom": False,
+                "id": (str(f.id) if f else "")}
+        if clave == "DISTRIBUIDORA":
+            dist = _song_distributor(session_db, song_id)
+            if dist is not None:
+                fila["label"] = (dist.name or etiqueta)
+                fila["logo_url"] = (dist.logo_url or "")
+        salida.append(fila)
     # Los añadidos a mano (otra plataforma con su nombre).
     for clave, f in filas.items():
         subido = bool(f.file_url or "")
@@ -31783,13 +31990,36 @@ def _song_platform_ids(session_db, song_id) -> dict:
         else:
             pendientes.append(clave)
         salida.append({"platform": clave, "label": (f.label or clave.title()), "icon": "fa-link",
-                       "color": "#6b7280", "file_url": (f.file_url or ""),
+                       "color": "#6b7280", "logo_url": "", "brand": False,
+                       "file_url": (f.file_url or ""),
                        "file_name": (f.file_name or ""), "not_needed": bool(f.not_needed),
                        "done": (subido or bool(f.not_needed)), "custom": True, "id": str(f.id)})
     return {"rows": salida, "pending": pendientes, "done": hechos, "total": len(salida),
             "all_done": not pendientes, "request": peticion,
             "request_url": (_external_url_for("public_song_platform_ids", token=peticion.token)
                             if peticion is not None else "")}
+
+
+def _disco_project_tiktok_state(session_db, project) -> dict:
+    """EL MINUTO DE INICIO EN TIKTOK de las canciones del lanzamiento (tarea del proyecto).
+
+    Es el segundo por el que arranca el tema en TikTok: hay que elegirlo antes de publicarlo, así
+    que en un proyecto con AUDIO es una tarea más. El dato vive en la ficha de la canción
+    (`Song.tiktok_start_seconds`), que es de donde lo leen el Label Copy y la entrega: aquí solo se
+    mira quién lo tiene y quién no."""
+    canciones = _disco_project_release_songs(session_db, project)
+    filas, faltan = [], 0
+    for c in canciones:
+        seg = getattr(c, "tiktok_start_seconds", None)
+        puesto = seg is not None
+        if not puesto:
+            faltan += 1
+        filas.append({"song_id": str(c.id), "title": (c.title or ""),
+                      "url": url_for("discografica_song_detail", song_id=c.id, tab="informacion"),
+                      "done": puesto,
+                      "label": (_seconds_to_timecode(seg) if puesto else "")})
+    return {"songs": filas, "missing": faltan, "all_done": bool(canciones) and faltan == 0,
+            "has_songs": bool(canciones)}
 
 
 def _disco_project_ids_state(session_db, project) -> dict:
@@ -127751,6 +127981,15 @@ def _home_design_tasks(limit: int = 12) -> list[dict]:
                                       "late": bool(art.get("due_date") and art["due_date"] < today_local())})
             except Exception:
                 app.logger.exception("[diseño] no se pudo leer la portada del proyecto")
+            # La MINIATURA del videoclip, si se la han pedido y todavía no está.
+            try:
+                if _disco_project_has_videoclip(p):
+                    _mini = _disco_video_state(session_db, p)["thumb"]
+                    if _mini["asked"] and not _mini["done"]:
+                        subtareas.append({"label": "Miniatura del videoclip", "icon": "fa-image",
+                                          "due_label": "", "days": "", "late": False})
+            except Exception:
+                app.logger.exception("[diseño] no se pudo leer la miniatura del videoclip")
             # Y cada CREATIVIDAD solicitada que aún no se ha subido.
             try:
                 cre = _disco_creatives_state(session_db, p)
@@ -127779,6 +128018,40 @@ def _home_design_tasks(limit: int = 12) -> list[dict]:
             })
             if len(filas) >= limit:
                 break
+        # LAS CANCIONES SUELTAS: la miniatura de un videoclip que no prepara ningún proyecto se pide
+        # desde la ficha de la canción, así que también tiene que salir aquí.
+        # ⚠️ Se cae sola en cuanto hay una miniatura subida (se mira el DATO, no una marca aparte).
+        try:
+            pedidas = (session_db.query(Song)
+                       .filter(Song.videoclip_thumb_json["asked_at"].astext.isnot(None))
+                       .order_by(Song.release_date.asc().nullslast()).limit(60).all())
+            if pedidas:
+                con_mini = {str(r[0]) for r in (
+                    session_db.query(SongMaterial.song_id)
+                    .filter(SongMaterial.song_id.in_([c.id for c in pedidas]),
+                            func.upper(func.coalesce(SongMaterial.category, "")) == "VIDEO_THUMB")
+                    .distinct().all())}
+                for cancion in pedidas:
+                    if len(filas) >= limit:
+                        break
+                    if str(cancion.id) in con_mini:
+                        continue
+                    artista = (cancion.artists[0] if getattr(cancion, "artists", None) else None)
+                    filas.append({
+                        "id": str(cancion.id),
+                        "title": (cancion.title or "Canción"),
+                        "artist_name": (getattr(artista, "name", "") or ""),
+                        "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                        "release_label": (cancion.release_date.strftime("%d/%m/%Y")
+                                          if getattr(cancion, "release_date", None) else ""),
+                        "tasks": [{"label": "Miniatura del videoclip", "icon": "fa-image",
+                                   "due_label": "", "days": "", "late": False}],
+                        "late": False,
+                        "url": url_for("discografica_song_detail", song_id=cancion.id,
+                                       tab="videoclip"),
+                    })
+        except Exception:
+            app.logger.exception("[diseño] no se pudieron leer las miniaturas pedidas de canciones")
         return filas
     except Exception:
         app.logger.exception("[diseño] no se pudieron montar las tareas de diseño")

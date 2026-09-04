@@ -61,7 +61,10 @@
 <body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}" data-default-cover-url="{{ DEFAULT_COVER_URL }}" data-default-avatar-url="{{ DEFAULT_AVATAR_URL }}"
       {# LO QUE SE ESCRIBE NO SE PIERDE: `data-autosave` enciende `form_autosave.js`, y solo
          aquí — en las páginas PÚBLICAS no se deja nada escrito en el disco de un tercero. #}
-      {% if CURRENT_USER %}data-autosave="1"{% endif %}
+      {% if CURRENT_USER %}data-autosave="1"
+      {# ORDENAR LAS PESTAÑAS: lo que cada uno se ha colocado, y dónde se guarda. #}
+      data-ui-order='{{ (UI_ORDER or {})|tojson|forceescape }}'
+      data-ui-order-url="{{ url_for('ui_order_save') }}"{% endif %}
       {% if FORM_ERROR_PAYLOAD %}data-form-rechazado='{{ FORM_ERROR_PAYLOAD|forceescape }}'{% endif %}>
 {# Loader global: iconos musicales animados (colores corporativos) + barra de carga. La barra va
    en modo «barrido» continuo mientras se piensa y pasa a PORCENTAJE REAL en las subidas de
@@ -452,6 +455,8 @@
    [data-address-autocomplete] (el parcial `_fiscal_address_fields.html`). #}
 <script src="{{ url_for('static', filename='js/address_autocomplete.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/ficha_inline.js', v=ASSET_V) }}"></script>
+{# ORDENAR LAS PESTAÑAS (fichas, subpestañas y menú): mantener pulsado, arrastrar y pinchar fuera. #}
+<script src="{{ url_for('static', filename='js/sortable_tabs.js', v=ASSET_V) }}"></script>
 {# Etiqueta de audio de los materiales (icono + play + duración). Global: la usan las fichas. #}
 <script src="{{ url_for('static', filename='js/media_chip.js', v=ASSET_V) }}"></script>
 {# Interruptores de TRES posiciones (`.sw3`): se arrastran con el dedo o con el ratón. Global para

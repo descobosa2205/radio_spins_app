@@ -2,7 +2,12 @@
    artista, filtros de tipo a la izquierda) o 'artist' (color por tipo, listado de eventos a la
    izquierda). El render lo hace static/js/agenda_calendar.js a partir del JSON embebido. #}
 {% macro agenda_calendar(data, mode='home') %}
-<div class="agenda-cal-root" data-agenda-calendar data-mode="{{ mode }}">
+{# ⚠️ `data-prefs` = lo que ESA persona dejó apagado (calendarios y tipos), y `data-prefs-url` es
+   donde se guarda al tocarlos. Solo en Inicio: en la ficha de un artista se ve SU calendario y no
+   hay nada que recordar. #}
+<div class="agenda-cal-root" data-agenda-calendar data-mode="{{ mode }}"
+     {% if mode == 'home' and AGENDA_PREFS is defined %}data-prefs="{{ AGENDA_PREFS|tojson|forceescape }}"
+     data-prefs-url="{{ url_for('agenda_prefs_save') }}"{% endif %}>
   <div class="agenda-cal-root__loading text-muted small">Cargando el calendario…</div>
   <script type="application/json" data-agenda-json>{{ (data or {})|tojson }}</script>
 </div>

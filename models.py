@@ -4025,6 +4025,11 @@ class UserProfile(Base):
     # ⚠️ Se guarda lo APAGADO, no lo encendido: así un calendario NUEVO (un artista que entra) se ve
     #    solo, sin tener que acordarse de encenderlo.
     agenda_prefs = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # EL ORDEN DE LAS PESTAÑAS que cada uno se ha colocado: {clave del grupo: [ids en su orden]}.
+    # Vale para las pestañas de una ficha, las subpestañas de una sección y el menú de cabecera.
+    # ⚠️ La CLAVE la calcula el navegador con las pestañas que hay: si mañana se añade una, la clave
+    #    cambia y se vuelve al orden natural — así una pestaña nueva no queda escondida.
+    ui_order = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     home_order = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Última vez que esta persona entró en Producción → Activas (para marcar «Nueva actividad»).
     production_seen_at = Column(DateTime(timezone=True))
@@ -8708,6 +8713,7 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS menu_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS home_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS agenda_prefs jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS ui_order jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS production_seen_at timestamptz;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS tasks_seen jsonb;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).

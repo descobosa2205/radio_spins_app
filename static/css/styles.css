@@ -5951,3 +5951,13 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 /* Al abrir un formulario desde un aviso, la parte a la que lleva destella para que se vea. */
 @keyframes editFocusFlash{ 0%{ box-shadow:0 0 0 0 rgba(227,61,72,.45); } 100%{ box-shadow:0 0 0 12px rgba(227,61,72,0); } }
 .edit-focus-flash{ animation:editFocusFlash 1.2s ease-out 1; border-color:var(--brand-primary,#E33D48) !important; }
+
+/* ORDENAR PESTAÑAS: se mantiene pulsada una, TIEMBLAN todas y se arrastran. Al pinchar fuera se
+   guarda. Mismo lenguaje que el modo «Ordenar mi inicio». */
+@keyframes tabWiggle{ 0%{transform:rotate(-1.2deg);} 50%{transform:rotate(1.2deg);} 100%{transform:rotate(-1.2deg);} }
+.sorting{ position:relative; }
+.sorting__item{ animation:tabWiggle .22s ease-in-out infinite; cursor:grab; touch-action:none;
+  border-radius:.5rem; }
+.sorting__item.is-dragging{ animation:none; cursor:grabbing; opacity:.85;
+  box-shadow:0 6px 18px rgba(0,0,0,.18); }
+.sorting__item .nav-link{ pointer-events:none; }

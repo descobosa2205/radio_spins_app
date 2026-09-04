@@ -75400,6 +75400,8 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         home_order=[str(x) for x in (getattr(profile, "home_order", None) or [])],
         # Qué CALENDARIOS y qué TIPOS deja apagados cada uno en el calendario de Inicio.
         agenda_prefs=dict(getattr(profile, "agenda_prefs", None) or {}),
+        # El orden de las pestañas que se ha colocado esa persona ({grupo: [ids]}).
+        ui_order=dict(getattr(profile, "ui_order", None) or {}),
         production_seen_at=getattr(profile, "production_seen_at", None),
         # ⚠️ Lo que no esté aquí es INVISIBLE desde `_current_user_state()` y las plantillas.
         tasks_seen=getattr(profile, "tasks_seen", None),
@@ -77547,6 +77549,15 @@ def inject_personnel_globals():
     # ── ¿Estamos en INICIO y con sesión? Todo lo caro cuelga de esto ──────────────────────────
     _home = bool(request.endpoint == "home" and session.get("user_id"))
     _estado = (_current_user_state() or {}) if _home else {}
+    # El PERFIL para lo que hace falta en TODA página (el orden de las pestañas, las preferencias
+    # del calendario). `_current_user_state()` está cacheado en `g` y el enforcement de permisos ya
+    # lo llama en cada petición, así que no cuesta nada más.
+    _perfil_ui = None
+    if session.get("user_id"):
+        try:
+            _perfil_ui = (_estado or _current_user_state() or {}).get("profile")
+        except Exception:
+            _perfil_ui = None
     # ⚠️ DIRECCIÓN no trabaja en una sección: MIRA. Su Inicio son sus cosas BÁSICAS (avisos,
     # calendario, sus gastos, sus vacaciones… cada una en su sitio de siempre) más «MIS TAREAS
     # PENDIENTES» —lo suyo y lo de dirección en un mismo sitio— y, debajo, el CUADRO DE MANDO (una
@@ -77567,6 +77578,8 @@ def inject_personnel_globals():
     _artwork = _home_artwork_rejected() if _home and "_home_artwork_rejected" in globals() else []
     _mypet = _home_my_peticiones() if _home and "_home_my_peticiones" in globals() else []
     _myinv = _home_invitation_requests_for_current_user() if _home and "_home_invitation_requests_for_current_user" in globals() else []
+    # EL DÍA DEL EVENTO: invitaciones bloqueadas o subidas sin asignar (solo si las hay).
+    _invleft = _home_invitation_leftovers() if _home and "_home_invitation_leftovers" in globals() else []
     _plans = _home_plans_awaiting_direccion() if _dir and "_home_plans_awaiting_direccion" in globals() else []
     # LO QUE ESTÁ POR COBRAR y LO FACTURADO EN EL AÑO: los ven CONTRATACIÓN y DIRECCIÓN, y solo en
     # Inicio (recorren los planes de pago de todas las actividades).
@@ -77690,6 +77703,9 @@ def inject_personnel_globals():
                                  if _dept and "_home_ticketing_sales_wrap" in globals() else []),
         # Carteles que subió esta persona y diseño ha rechazado (con la nota de qué cambiar).
         "HOME_ARTWORK_REJECTED": ([] if _dir else _artwork),
+        # HOY hay evento y quedan invitaciones sin repartir: se avisa a quien las gestiona. Va en
+        # «LO SUYO» (con `_home`): se le pide a la persona que gestiona ESA actividad.
+        "HOME_INVITATION_LEFTOVERS": _invleft,
         # ROYALTIES A FAVOR · las tres tareas, cada una a quien le toca. Van en «LO SUYO» (con
         # `_home`, no con `_dept`): se le piden a la persona por su NOMBRE, así que las ve también
         # dirección y quien no tenga la sección de Royalties concedida.
@@ -77727,6 +77743,12 @@ def inject_personnel_globals():
         "HOME_BILLING_PENDING": _billing_pending,
         "HOME_BILLING_YEAR": _billing_year,
         # EL ORDEN DE LOS MÓDULOS DE INICIO que ha puesto esa persona (vacío = el de siempre).
+        # Lo que cada uno dejó apagado en el calendario de Inicio (sus calendarios y sus tipos).
+        "AGENDA_PREFS": dict(getattr(_perfil_ui, "agenda_prefs", None) or {}),
+        # El ORDEN DE LAS PESTAÑAS que se ha colocado esa persona ({grupo: [ids]}).
+        # ⚠️ Hace falta en TODA página (las pestañas están en todas), no solo en Inicio: por eso el
+        #    perfil se lee aparte de `_estado`, que solo se monta en Inicio.
+        "UI_ORDER": dict(getattr(_perfil_ui, "ui_order", None) or {}),
         "HOME_ORDER": ((_estado.get("profile").home_order
                         if _home and getattr(_estado.get("profile", None), "home_order", None) else [])
                        if _home else []),
@@ -78040,7 +78062,7 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "my_expense_upload_invoice", "my_expense_no_invoice", "my_expense_send_direct",
                       # El ORDEN DEL MENÚ es cosa de cada uno: son sus preferencias, no una sección.
                       "nav_menu_order_save",
-                      "home_order_save", "agenda_prefs_save",
+                      "home_order_save", "agenda_prefs_save", "ui_order_save",
                       # Apuntar que ya ha abierto una de SUS tareas (para que deje de salir «Nueva»).
                       "home_task_seen",
                       # Los AVISOS son de cada persona (solo ve los suyos: se filtra por su user_id).
@@ -106618,6 +106640,49 @@ def cron_holded_refresh():
     return jsonify({"ok": True, **out})
 
 
+@app.post('/mi-orden/pestanas', endpoint='ui_order_save')
+@admin_required
+def ui_order_save():
+    """Guarda EL ORDEN DE LAS PESTAÑAS que se ha colocado esta persona.
+
+    Vale para las pestañas de una ficha, las subpestañas de una sección y el menú de cabecera: cada
+    grupo tiene su clave y su lista de ids. Es una preferencia SUYA, como el orden de los módulos de
+    Inicio, así que vale desde cualquier navegador y sesión.
+    ⚠️ Solo se guarda el ORDEN: lo que se ve (y lo que no) lo siguen decidiendo sus permisos."""
+    uid = to_uuid(session.get("user_id") or "")
+    if not uid:
+        abort(403)
+    session_db = db()
+    try:
+        datos = request.get_json(silent=True) or {}
+        grupo = str(datos.get("key") or "").strip()[:120]
+        orden = [str(x).strip() for x in (datos.get("order") or []) if str(x or "").strip()][:60]
+        if not grupo:
+            return jsonify({"ok": False, "error": "Sin grupo."}), 400
+        perfil = session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+        if perfil is None:
+            abort(404)
+        todo = dict(getattr(perfil, "ui_order", None) or {})
+        if orden:
+            todo[grupo] = orden
+        else:
+            todo.pop(grupo, None)         # sin orden = el de siempre
+        # Tope de cordura: no se guarda un diccionario que crezca sin fin.
+        if len(todo) > 80:
+            for k in list(todo)[:len(todo) - 80]:
+                todo.pop(k, None)
+        perfil.ui_order = todo
+        perfil.updated_at = _now_madrid()
+        session_db.commit()
+        return jsonify({"ok": True, "key": grupo, "order": orden})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[orden] no se pudo guardar el orden de las pestañas")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.post('/mi-calendario/preferencias', endpoint='agenda_prefs_save')
 @admin_required
 def agenda_prefs_save():
@@ -118260,6 +118325,63 @@ def _invitation_parse_ticket_kind_and_guest_mode(raw_kind: str | None, fallback_
     if value not in {"PDF_UNNUMBERED", "PDF_NUMBERED"}:
         value = "PDF_UNNUMBERED"
     return value, None
+
+
+def _home_invitation_leftovers(limit: int = 8) -> list[dict]:
+    """EL DÍA DEL EVENTO: invitaciones **BLOQUEADAS** o **SUBIDAS SIN ASIGNAR** que se van a quedar
+    sin usar (módulo de Inicio de quien gestiona las invitaciones de esa actividad).
+
+    ⚠️ **Solo dice lo que HAY**: si no hay bloqueadas no se nombran, y si no hay sin asignar tampoco.
+    Y si no hay ninguna de las dos cosas, la actividad no sale — el módulo entero desaparece.
+    ⚠️ Es de HOY: el día del evento es cuando todavía se pueden repartir; el día siguiente ya no
+    sirve de nada."""
+    session_db = db()
+    try:
+        hoy = today_local()
+        filas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                 .filter(Concert.date == hoy)
+                 .order_by(Concert.date.asc()).limit(80).all())
+        if not filas:
+            return []
+        # Solo las que ESA persona gestiona (el mismo punto único que la pantalla de invitaciones).
+        mias = _filter_manageable_concerts(session_db, filas)
+        salida = []
+        for c in mias:
+            try:
+                cuentas = _invitation_ficha_header_counts(session_db, c)
+            except Exception:
+                app.logger.exception("[invitaciones] no se pudieron contar las que sobran")
+                continue
+            bloqueadas = int(cuentas.get("blocked") or 0)
+            libres = int(cuentas.get("available") or 0)
+            if not (bloqueadas or libres):
+                continue
+            trozos = []
+            if libres:
+                trozos.append("%d subida%s sin asignar" % (libres, "" if libres == 1 else "s"))
+            if bloqueadas:
+                trozos.append("%d bloqueada%s" % (bloqueadas, "" if bloqueadas == 1 else "s"))
+            artista = getattr(c, "artist", None)
+            salida.append({
+                "id": str(c.id),
+                "title": ((getattr(c, "festival_name", None) or "").strip()
+                          or _place_label(c) or "Actividad"),
+                "artist_name": (getattr(artista, "name", "") or ""),
+                "artist_photo": (getattr(artista, "photo_url", "") or ""),
+                "blocked": bloqueadas, "available": libres,
+                "label": " · ".join(trozos),
+                # A la GESTIÓN de ese evento, que es donde se reparten.
+                "url": url_for("invitation_event_detail", concert_id=c.id, **{"from": "gestionar"}),
+            })
+            if len(salida) >= limit:
+                break
+        return salida
+    except Exception:
+        app.logger.exception("[invitaciones] no se pudo montar el aviso del día del evento")
+        return []
+    finally:
+        session_db.close()
 
 
 def _invitation_ficha_header_counts(session_db, concert: Concert) -> dict:

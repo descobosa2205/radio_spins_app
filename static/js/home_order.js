@@ -213,4 +213,8 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', arranca);
   else arranca();
+
+  // Se entra al modo también MANTENIENDO PULSADO un módulo (el mismo gesto que las pestañas):
+  // lo dispara `sortable_tabs.js`, que no sabe nada de módulos — solo avisa.
+  window.app33HomeOrderEnter = function () { if (zona) entra(); };
 })();

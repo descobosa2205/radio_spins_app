@@ -63,8 +63,39 @@
     var holidays = {};
     (data.holidays || []).forEach(function (h) { if (h && h.day) holidays[h.day] = h; });
 
-    var activeArtists = {}; artists.forEach(function (a) { activeArtists[a.id] = true; });
-    var activeKinds = {}; kinds.forEach(function (k) { activeKinds[k.key] = true; });
+    // LO QUE CADA UNO DEJÓ PUESTO: los calendarios y los tipos que apagó se recuerdan (viven en su
+    // perfil, así que valen desde cualquier navegador y sesión).
+    // ⚠️ Se guarda lo APAGADO, no lo encendido: así un calendario NUEVO (un artista que entra) se ve
+    //    solo, sin tener que acordarse de encenderlo.
+    var prefsUrl = container.getAttribute('data-prefs-url') || '';
+    var offCals = {}, offKinds = {};
+    try {
+      var pr = JSON.parse(container.getAttribute('data-prefs') || '{}');
+      (pr.off_cals || []).forEach(function (x) { offCals[String(x)] = true; });
+      (pr.off_kinds || []).forEach(function (x) { offKinds[String(x)] = true; });
+    } catch (e) {}
+    var activeArtists = {}; artists.forEach(function (a) { activeArtists[a.id] = !offCals[String(a.id)]; });
+    var activeKinds = {}; kinds.forEach(function (k) { activeKinds[k.key] = !offKinds[String(k.key)]; });
+
+    // Guardar la selección (sin agobiar al servidor: se espera a que se deje de tocar).
+    var guardaTimer = null;
+    function guardaPrefs() {
+      if (!prefsUrl) return;
+      clearTimeout(guardaTimer);
+      guardaTimer = setTimeout(function () {
+        var apagCals = Object.keys(activeArtists).filter(function (k) { return !activeArtists[k]; });
+        var apagKinds = Object.keys(activeKinds).filter(function (k) { return !activeKinds[k]; });
+        offCals = {}; apagCals.forEach(function (k) { offCals[k] = true; });
+        offKinds = {}; apagKinds.forEach(function (k) { offKinds[k] = true; });
+        try {
+          fetch(prefsUrl, {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ off_cals: apagCals, off_kinds: apagKinds })
+          });
+        } catch (e) {}
+      }, 500);
+    }
 
     // Colores ESTABLES por artista al navegar en Inicio: el servidor colorea cada ventana por
     // separado (y el mismo artista podría cambiar de color entre ventanas), así que el cliente
@@ -156,11 +187,13 @@
           if (!todosOn) {
             top.appendChild(botonBloque('Todos', 'fa-check-double', function () {
               artists.forEach(function (a) { activeArtists[a.id] = true; });
+              guardaPrefs();
             }));
           }
           if (!ningunoOn) {
             top.appendChild(botonBloque('Ninguno', 'fa-xmark', function () {
               artists.forEach(function (a) { activeArtists[a.id] = false; });
+              guardaPrefs();
             }));
           }
         }
@@ -180,6 +213,7 @@
           chip.innerHTML = '<span class="agenda-chip__dot"></span><img src="' + esc(a.photo_url || DEFAULT_PHOTO) + '"><span>' + esc(a.name) + '</span>';
           chip.addEventListener('click', function () {
             activeArtists[a.id] = !activeArtists[a.id];
+            guardaPrefs();
             chip.classList.toggle('is-on', activeArtists[a.id]);
             render();
           });
@@ -194,11 +228,13 @@
           if (!kTodos) {
             top.appendChild(botonBloque('Todos', 'fa-check-double', function () {
               visibles.forEach(function (k) { activeKinds[k.key] = true; });
+              guardaPrefs();
             }));
           }
           if (!kNinguno) {
             top.appendChild(botonBloque('Ninguno', 'fa-xmark', function () {
               visibles.forEach(function (k) { activeKinds[k.key] = false; });
+              guardaPrefs();
             }));
           }
         }
@@ -209,6 +245,7 @@
           chip.innerHTML = '<span class="agenda-chip__dot"></span><i class="fa ' + esc(k.icon) + '"></i><span>' + esc(k.label) + '</span>';
           chip.addEventListener('click', function () {
             activeKinds[k.key] = !activeKinds[k.key];
+            guardaPrefs();
             chip.classList.toggle('is-on', activeKinds[k.key]);
             render();
           });
@@ -226,10 +263,11 @@
     container.appendChild(bodyWrap);
 
     // ---------- Calendario ----------
-    // Inicio (3 semanas) y agenda del artista (4 semanas, por meses): navegables SIN límite
+    // Inicio (4 semanas: la actual y las tres siguientes) y calendario del artista (4 semanas, por
+    // meses): navegables SIN límite
     // temporal — las ventanas fuera de lo cargado se piden bajo demanda a /agenda/inicio.json.
     var isArtist = (mode === 'artist');
-    var HOME_STEP = 21; // días que salta cada flecha en Inicio (la ventana completa)
+    var HOME_STEP = 28; // días que salta cada flecha en Inicio (la ventana completa: 4 semanas)
     var artistId = data.artist_id || '';            // ficha: con él se piden más ventanas al servidor
     var unlimited = !isArtist || !!artistId;        // sin artist_id (payload antiguo), se limita al rango cargado
     // Límites SOLO para el modo limitado (ficha sin artist_id).
@@ -264,7 +302,7 @@
       (d.artists || []).forEach(function (a) {
         if (!artists.some(function (x) { return x.id === a.id; })) {
           artists.push(a);
-          if (activeArtists[a.id] === undefined) activeArtists[a.id] = true;
+          if (activeArtists[a.id] === undefined) activeArtists[a.id] = !offCals[String(a.id)];
         }
         colorFor(a.id);
       });
@@ -280,7 +318,7 @@
       (d.kinds || []).forEach(function (k) {
         if (!kinds.some(function (x) { return x.key === k.key; })) {
           kinds.push(k);
-          if (activeKinds[k.key] === undefined) activeKinds[k.key] = true;
+          if (activeKinds[k.key] === undefined) activeKinds[k.key] = !offKinds[String(k.key)];
         }
       });
       kinds.sort(function (x, y) { return KIND_ORDER.indexOf(x.key) - KIND_ORDER.indexOf(y.key); });
@@ -638,6 +676,7 @@
           if (!activeKinds[k.key]) b.classList.remove('is-on');
           b.addEventListener('click', function () {
             activeKinds[k.key] = !activeKinds[k.key];
+            guardaPrefs();
             b.classList.toggle('is-on', activeKinds[k.key]);
             renderCal();
           });

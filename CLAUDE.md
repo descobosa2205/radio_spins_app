@@ -9417,3 +9417,54 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   configurarlo: «pinchas y no hace nada».
   ⚠️ `discografica_song_tiktok_save` va en **`REQUEST_ANY_ENDPOINTS`**: lo marca como hecho
   Registros+Sello, que no tiene por qué poder editar discográfica (se comprueba dentro).
+
+- **EL CALENDARIO DE INICIO SE RECUERDA, Y SON 4 SEMANAS** (sep 2026):
+  · **Lo que cada uno deja apagado se guarda** (`UserProfile.agenda_prefs`, endpoint
+    `agenda_prefs_save` en `PERSONAL_ENDPOINTS`): al volver, se ve lo que dejó puesto, desde
+    cualquier navegador y sesión —igual que `home_order`—.
+  ⚠️⚠️ **Se guarda lo APAGADO, no lo encendido**: así un calendario NUEVO (un artista que entra, un
+  evento) **se ve solo**, sin tener que acordarse de encenderlo. Guardar lo encendido escondería
+  todo lo que apareciera después.
+  ⚠️ Se guarda con un respiro de 500 ms (`guardaPrefs`), no en cada clic.
+  · La ventana pasa de 3 a **4 semanas**: la actual y las TRES siguientes (`_agenda_window(27)` y
+  `HOME_STEP = 28` en `agenda_calendar.js` — **los dos a la vez**, o las flechas saltarían mal).
+
+- **ORDENAR LAS PESTAÑAS** (sep 2026, `static/js/sortable_tabs.js`, GLOBAL). Se **mantiene pulsada**
+  una pestaña, **tiemblan** todas, se **arrastran** y al **pinchar fuera** se guarda. Vale para las
+  pestañas de una FICHA (`ul.ficha-tabs`), las SUBPESTAÑAS de una sección (`ul.contract-tabs` y
+  `ul.nav-tabs`, que es lo que usan Producción, Registros…) y lo que se marque con `data-sortable`.
+  Se guarda en `UserProfile.ui_order` (`ui_order_save`, en `PERSONAL_ENDPOINTS`).
+  ⚠️⚠️ **La CLAVE de cada grupo es la huella de las pestañas QUE HAY** (sus destinos, ordenados): así
+  dos grupos distintos no comparten orden y, si mañana se añade una pestaña, la clave cambia y se
+  vuelve al orden natural — **una pestaña nueva nunca queda escondida**.
+  ⚠️ Se arrastra con eventos de PUNTERO (no el arrastre nativo de HTML5): dentro de una pestaña hay
+  enlaces que tienen que seguir funcionando y, con el dedo, el HTML5 no va.
+  ⚠️ Mientras se ordena, el clic de una pestaña NO navega (si no, arrastrar cambiaría de pestaña):
+  lo corta el handler en CAPTURA + `.sorting__item .nav-link { pointer-events:none }`.
+  ⚠️ **Lo que YA tenía su modo de ordenar no se duplica**: mantener pulsado un MÓDULO de Inicio entra
+  en «Ordenar mi inicio» (`window.app33HomeOrderEnter`) y mantener pulsado el MENÚ abre «Ordenar mi
+  menú». El motor solo reconoce el gesto y llama al suyo.
+  ⚠️ Un movimiento del dedo antes de los 500 ms **cancela**: es un scroll, no un «mantener pulsado».
+
+- **EL DÍA DEL EVENTO · INVITACIONES SIN REPARTIR** (sep 2026, `_home_invitation_leftovers` →
+  `HOME_INVITATION_LEFTOVERS`): a quien **gestiona** esa actividad (`_filter_manageable_concerts`, el
+  mismo punto único que la pantalla de invitaciones) le sale en Inicio, **solo el día del evento**,
+  lo que se va a quedar sin usar: las **subidas sin asignar** y las **bloqueadas**.
+  ⚠️ **Solo se dice LO QUE HAY**: si no hay bloqueadas no se nombran, y si no hay ninguna de las dos
+  cosas la actividad no sale (y el módulo entero desaparece).
+  ⚠️ Los números salen de `_invitation_ficha_header_counts`, el MISMO que pinta las galletas de la
+  cabecera de invitaciones: no pueden decir cosas distintas.
+
+- ⚠️⚠️⚠️ **UNA COLUMNA NUEVA NO SE METE EN UN BLOQUE `DO $$ … IF NOT EXISTS(…) THEN ALTER …`**
+  (bug real y grave, sep 2026: **500 en toda la app al abrir la ficha de una actividad**). En
+  `ensure_isrc_and_song_detail_schema` hay un `DO` con una guarda de rendimiento que **solo ejecuta
+  su `ALTER TABLE songs` si falta ALGUNA de las columnas que ENUMERA**. Las cuatro columnas del
+  lanzamiento en TikTok se añadieron ahí: como en producción ya estaban todas las que enumera, el
+  ALTER **no llegó a ejecutarse nunca** y las columnas nuevas no se crearon. El ORM las pedía en cada
+  consulta a `songs` → 500 en cualquier pantalla que cargue una canción (Contratación se veía y la
+  ficha de la actividad, que carga el repertorio, daba la pantalla de «página caída»).
+  · **Una columna nueva va SIEMPRE en su propia sentencia** de la lista `stmts`
+  (`"ALTER TABLE x ADD COLUMN IF NOT EXISTS …;"`), que sí pasa por `_ddl_already_applied` —ese es
+  preciso: solo salta si TODAS las columnas de ESE alter ya existen—.
+  · Comprobación: borrar las columnas nuevas en una base de prueba, llamar a su `ensure_*` y ver que
+  aparecen. Con el código roto salían **cero**.

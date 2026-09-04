@@ -1400,6 +1400,37 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# HOY HAY EVENTO y quedan invitaciones sin repartir: bloqueadas o subidas sin asignar.
+   ⚠️ Solo se dice LO QUE HAY: si no hay bloqueadas no se nombran, y si no hay ninguna de las dos
+   cosas el módulo entero no aparece. #}
+{% if HOME_INVITATION_LEFTOVERS %}
+<div class="card mb-4 border-warning" data-home-module="invitaciones-sin-repartir">
+  <div class="card-body">
+    <h5 class="mb-1"><i class="fa fa-envelope-open-text text-warning me-2"></i>Invitaciones sin repartir
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_INVITATION_LEFTOVERS|length }}</span></h5>
+    <div class="text-muted small mb-3">Es hoy: si no se reparten, se quedan sin usar.</div>
+    <div class="list-group list-group-flush">
+      {% for r in HOME_INVITATION_LEFTOVERS %}
+        <a class="list-group-item list-group-item-action d-flex gap-3 align-items-center" href="{{ r.url }}">
+          <img src="{{ r.artist_photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+               style="width:38px;height:38px;border-radius:50%;object-fit:cover;">
+          <span class="flex-grow-1 min-w-0">
+            <span class="fw-semibold d-block text-truncate">{{ r.title }}</span>
+            {% if r.artist_name %}<span class="small text-muted">{{ r.artist_name }}</span>{% endif %}
+          </span>
+          <span class="d-flex gap-1 flex-wrap justify-content-end">
+            {% if r.available %}
+              <span class="badge text-bg-warning text-dark">{{ r.available }} sin asignar</span>{% endif %}
+            {% if r.blocked %}
+              <span class="badge text-bg-secondary">{{ r.blocked }} bloqueada{{ '' if r.blocked == 1 else 's' }}</span>{% endif %}
+          </span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# Carteles subidos a mano que diseño ha RECHAZADO: hay que volver a subirlos con los cambios. #}
 {% if HOME_ARTWORK_REJECTED %}
 <div class="card mb-4 border-danger">

@@ -78,6 +78,34 @@
     });
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════
+     AL ENTRAR EN UNA SECCIÓN SE ABRE **SU** PRIMERA PESTAÑA
+
+     Si esa persona ha reordenado las pestañas, al entrar sin decir cuál (`?tab=`) se abre la
+     PRIMERA DE SU ORDEN, no la de por defecto: es lo que espera quien se ha colocado las suyas.
+
+     ⚠️ Solo cuando la URL NO trae `tab` (si se pide una, manda la que se pide), solo si esa
+     pestaña tiene su propio enlace con `tab=` y solo UNA vez por pantalla (marca en
+     `sessionStorage`), para que no pueda quedarse en bucle.
+     ══════════════════════════════════════════════════════════════════════════════════════════ */
+  function abreLaSuya(grupo) {
+    try {
+      if (/[?&]tab=/.test(location.search)) return;      // se ha pedido una: manda esa
+      var orden = GUARDADO[claveDe(grupo)];
+      if (!orden || !orden.length) return;
+      var primera = items(grupo)[0];
+      if (!primera) return;
+      var a = primera.matches('a') ? primera : primera.querySelector('a[href]');
+      var href = a && a.getAttribute('href');
+      if (!href || href.indexOf('tab=') < 0) return;     // no es una pestaña servida por URL
+      if (a.classList.contains('active') || primera.querySelector('.active')) return;  // ya está
+      var marca = 'tabfirst:' + location.pathname + ':' + claveDe(grupo);
+      if (sessionStorage.getItem(marca)) return;         // ya se ha hecho: nada de bucles
+      sessionStorage.setItem(marca, '1');
+      location.replace(a.href);
+    } catch (e) {}
+  }
+
   function guarda(grupo) {
     if (!URL_GUARDAR) return;
     var clave = claveDe(grupo), orden = items(grupo).map(idDe);
@@ -288,18 +316,20 @@
   }, true);
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') sal(true); });
 
-  function arranca() {
+  function arranca(primeraCarga) {
     SELECTORES.forEach(function (sel) {
       document.querySelectorAll(sel).forEach(function (g) {
         if (g.hasAttribute('data-no-sort') || g.dataset.sortBound) return;
         g.dataset.sortBound = '1';
         aplica(g);
+        // Al ENTRAR (no cuando las pestañas llegan por AJAX) se abre la primera del orden suyo.
+        if (primeraCarga) abreLaSuya(g);
       });
     });
   }
-  if (document.readyState !== 'loading') arranca();
-  else document.addEventListener('DOMContentLoaded', arranca);
-  // Las pestañas que llegan por AJAX también se ordenan.
-  document.addEventListener('inline:updated', arranca);
-  window.app33SortableTabs = arranca;
+  if (document.readyState !== 'loading') arranca(true);
+  else document.addEventListener('DOMContentLoaded', function () { arranca(true); });
+  // Las pestañas que llegan por AJAX también se ordenan (pero ahí NO se navega a otra).
+  document.addEventListener('inline:updated', function () { arranca(false); });
+  window.app33SortableTabs = function () { arranca(false); };
 })();

@@ -115167,6 +115167,58 @@ def fotos_list_json(owner_type, owner_id):
         session_db.close()
 
 
+def _fotos_album_from_form(session_db, form, owner_type, owner, *, state=None):
+    """EN QUÉ ÁLBUM VA lo que se está subiendo. Punto único (lo usan la subida por servidor y el
+    registro de los vídeos que van directos a Storage).
+
+    · NONE      → sueltas (lo de siempre).
+    · NEW       → un álbum NUEVO con el nombre que se haya puesto.
+    · EXISTING  → uno que YA existe (se comprueba que es de ESE dueño: el id viaja en el formulario).
+    Devuelve el álbum o None."""
+    modo = (form.get("album_mode") or "").strip().upper()
+    if modo == "EXISTING":
+        al = session_db.get(PhotoAlbum, _safe_uuid(form.get("album_id")))
+        if al is not None and al.owner_type == owner_type and str(al.owner_id) == str(owner.id):
+            return al
+        return None
+    if modo != "NEW":
+        return None
+    nombre = (form.get("album_name") or "").strip()
+    if not nombre:
+        nombre = "Álbum " + today_local().strftime("%d/%m/%Y")
+    # ⚠️ Si ya hay uno con ese nombre en este dueño se REUTILIZA: subir dos veces «Sesión de
+    # prensa» no puede dejar dos álbumes que se llamen igual.
+    ya = (session_db.query(PhotoAlbum)
+          .filter(PhotoAlbum.owner_type == owner_type, PhotoAlbum.owner_id == owner.id,
+                  func.lower(PhotoAlbum.name) == nombre.lower()).first())
+    if ya is not None:
+        return ya
+    st = state or (_current_user_state() or {})
+    al = PhotoAlbum(owner_type=owner_type, owner_id=owner.id, name=nombre,
+                    created_by_user_id=_safe_uuid(st.get("user_id")),
+                    created_by_nick=(st.get("nick") or "").strip() or None)
+    session_db.add(al)
+    session_db.flush()
+    return al
+
+
+def _fotos_album_add(session_db, album, fotos) -> None:
+    """Mete en el álbum lo que se acaba de subir (sin duplicar y respetando el orden)."""
+    if album is None or not fotos:
+        return
+    base = (session_db.query(func.coalesce(func.max(PhotoAlbumItem.sort_order), -1))
+            .filter(PhotoAlbumItem.album_id == album.id).scalar())
+    orden = int(base or -1) + 1
+    ya = {str(x[0]) for x in session_db.query(PhotoAlbumItem.photo_id)
+          .filter(PhotoAlbumItem.album_id == album.id).all()}
+    for f in fotos:
+        if str(f.id) in ya:
+            continue
+        session_db.add(PhotoAlbumItem(album_id=album.id, photo_id=f.id, sort_order=orden))
+        orden += 1
+
+
+
 @app.post("/fotos/<owner_type>/<owner_id>/upload", endpoint="fotos_upload")
 @admin_required
 def fotos_upload(owner_type, owner_id):
@@ -115318,6 +115370,14 @@ def fotos_upload(owner_type, owner_id):
             next_order += 1
             created.append(row)
 
+        session_db.flush()
+        # ¿Van a un ÁLBUM? Se dice AL SUBIRLAS, así que no hay que moverlas después.
+        album = None
+        try:
+            album = _fotos_album_from_form(session_db, request.form, ot, owner, state=state)
+            _fotos_album_add(session_db, album, created)
+        except Exception:
+            app.logger.exception("[fotos] no se pudo meter lo subido en su album")
         session_db.commit()
         # Generar la miniatura/póster de cada vídeo en 2º plano (no bloquea la respuesta).
         for p in created:
@@ -115329,6 +115389,7 @@ def fotos_upload(owner_type, owner_id):
             "created": [_photo_payload(p, promo_map.get(p.photographer_promoter_id)) for p in created],
             "errors": errors,
             "duplicates": duplicates,
+            "album": ({"id": str(album.id), "name": album.name} if album is not None else None),
         })
     except Exception as e:
         session_db.rollback()
@@ -115477,6 +115538,16 @@ def fotos_video_register(owner_type, owner_id):
                 existing_fps.add(fp_key)
             next_order += 1
             created.append(row)
+        session_db.flush()
+        # El mismo ÁLBUM que en la subida por servidor (un vídeo va directo a Storage, pero acaba
+        # en el mismo sitio). `data` es JSON, así que se le pasa tal cual: `.get` es lo único que
+        # `_fotos_album_from_form` necesita.
+        album = None
+        try:
+            album = _fotos_album_from_form(session_db, data, ot, owner, state=state)
+            _fotos_album_add(session_db, album, created)
+        except Exception:
+            app.logger.exception("[fotos] no se pudo meter el video en su album")
         session_db.commit()
         # Generar la miniatura/póster de cada vídeo en 2º plano (no bloquea la respuesta).
         for p in created:

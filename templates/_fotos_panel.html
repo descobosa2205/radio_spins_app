@@ -112,6 +112,59 @@
           </div>
         </div>
 
+        {# ══════════ EN QUÉ ÁLBUM VAN ══════════
+           ⚠️ Al subir fotos o vídeos se dice desde el principio dónde van: sueltas, en un ÁLBUM
+           NUEVO (con su nombre) o dentro de uno que YA EXISTE, con las opciones a la vista. Antes
+           había que subirlas y luego moverlas a mano. #}
+        <div class="mb-3" data-fotos-album>
+          <label class="form-label fw-semibold">¿En qué álbum van?</label>
+          <div class="row g-2">
+            <div class="col-6 col-md-4">
+              <label class="marketing-option-card w-100">
+                <input class="form-check-input visually-hidden" type="radio" name="fotos_album_mode"
+                       value="NONE" data-fa-mode checked>
+                <i class="fa fa-images"></i>Sueltas
+              </label>
+            </div>
+            <div class="col-6 col-md-4">
+              <label class="marketing-option-card w-100">
+                <input class="form-check-input visually-hidden" type="radio" name="fotos_album_mode"
+                       value="NEW" data-fa-mode>
+                <i class="fa fa-folder-plus"></i>Álbum nuevo
+              </label>
+            </div>
+            {% if fotos_ctx.albums %}
+              <div class="col-6 col-md-4">
+                <label class="marketing-option-card w-100">
+                  <input class="form-check-input visually-hidden" type="radio" name="fotos_album_mode"
+                         value="EXISTING" data-fa-mode>
+                  <i class="fa fa-folder-open"></i>En uno que ya hay
+                </label>
+              </div>
+            {% endif %}
+          </div>
+          <div class="mt-2 d-none" data-fa-new>
+            <input type="text" class="form-control" id="fotosAlbumName"
+                   placeholder="Nombre del álbum (por ejemplo «Sesión de prensa»)">
+          </div>
+          {% if fotos_ctx.albums %}
+            <div class="mt-2 d-none" data-fa-existing>
+              <div class="row g-2">
+                {% for al in fotos_ctx.albums %}
+                  <div class="col-6 col-md-4">
+                    <label class="marketing-option-card w-100">
+                      <input class="form-check-input visually-hidden" type="radio" name="fotos_album_id"
+                             value="{{ al.id }}" {% if loop.first %}checked{% endif %}>
+                      <i class="fa fa-folder"></i>{{ al.name or 'Álbum' }}
+                      <span class="text-muted small d-block">{{ al.count or 0 }} archivos</span>
+                    </label>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+        </div>
+
         {# Zona de arrastrar / seleccionar. data-file-drop="off": ya tiene su propio drag&drop
            (fotos.js) y el global (file_drop.js) no debe duplicarlo. #}
         <div class="fotos-dropzone" id="fotosDropzone" data-file-drop="off">

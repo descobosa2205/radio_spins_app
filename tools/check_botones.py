@@ -239,6 +239,50 @@ def rutas_duplicadas(fuente: str) -> list[str]:
     return fallos
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#  UNA RUTA PEGADA A LA FUNCIÓN EQUIVOCADA
+#
+#  ⚠️⚠️ Si entre `@app.post(...)` y su `def` se cuela otra función, **la ruta apunta a esa otra** y
+#  la de verdad se queda sin registrar. No da ningún error al arrancar: la pantalla responde 500 al
+#  usarla, o peor, hace otra cosa. Pasó de verdad (sep 2026) al insertar dos ayudantes justo encima
+#  de `def fotos_upload`.
+#  Se detecta cuando el decorador declara `endpoint="X"` y la función siguiente NO se llama X, o
+#  cuando la función es privada (empieza por «_»), que nunca es una vista.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+EP_RE = re.compile(r"""endpoint\s*=\s*['"]([^'"]+)['"]""")
+
+
+def rutas_mal_pegadas(fuente: str) -> list[str]:
+    lineas = fuente.split("\n")
+    fallos = []
+    for i, l in enumerate(lineas):
+        if not RUTA_RE.match(l):
+            continue
+        if i and RUTA_RE.match(lineas[i - 1]):
+            continue                       # alias apilados: solo se mira el primero del bloque
+        # El endpoint declarado en cualquiera de los decoradores del bloque.
+        ep, j = "", i
+        while j < len(lineas) and (RUTA_RE.match(lineas[j]) or lineas[j].startswith("@")
+                                   or not lineas[j].strip()):
+            m = EP_RE.search(lineas[j])
+            if m and not ep:
+                ep = m.group(1)
+            j += 1
+        d = DEF_RE.match(lineas[j]) if j < len(lineas) else None
+        if not d:
+            fallos.append("la ruta de la línea %d no tiene ninguna función debajo" % (i + 1))
+            continue
+        fn = d.group(1)
+        # ⚠️ Que el endpoint se llame DISTINTO que la función es legítimo y deliberado (para eso
+        # está `endpoint=`), así que eso NO se avisa. Lo que nunca es correcto es que la ruta caiga
+        # en una función PRIVADA: ahí se ha colado algo entre el decorador y su vista.
+        if fn.startswith("_"):
+            fallos.append("la ruta de la línea %d apunta a «%s», que es una función privada: "
+                          "se ha colado algo entre el decorador y su vista" % (i + 1, fn))
+    return fallos
+
+
 def main() -> int:
     js_global = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in sorted(JS.glob("*.js")))
     # Los ids de TODO el proyecto: sirven para distinguir «no existe» de «no está en esta pantalla».
@@ -263,13 +307,15 @@ def main() -> int:
                 print(f"   · {x}")
     # RUTAS DUPLICADAS de app.py: no dan ningún error y ejecutan el endpoint equivocado.
     app_py = RAIZ / "app.py"
-    dup = rutas_duplicadas(app_py.read_text(encoding="utf-8")) if app_py.exists() else []
+    fuente_py = app_py.read_text(encoding="utf-8") if app_py.exists() else ""
+    dup = (rutas_duplicadas(fuente_py) + rutas_mal_pegadas(fuente_py)) if fuente_py else []
     if dup:
         print("\napp.py")
         for x in dup:
             print(f"   · {x}")
         graves += len(dup)
-    print(f"\nbotones muertos: {graves}   ·   avisos: {total - graves}")
+        total += len(dup)
+    print(f"\nfallos: {graves}   ·   avisos: {max(total - graves, 0)}")
     return 1 if graves else 0
 
 

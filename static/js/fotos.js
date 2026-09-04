@@ -568,6 +568,17 @@
     var url = listUrl + (showDiscarded ? '?include_discarded=1' : '');
     return fetch(url).then(function (r) { return r.json(); }).then(function (d) { if (d && d.ok) { state.albums = d.albums || []; state.photos = d.photos || []; render(); } });
   }
+
+  /* CUÁNTOS ARCHIVOS HAY AHORA MISMO (sueltos + los de los álbumes).
+     ⚠️⚠️ Sirve para saber si una subida ENTRÓ DE VERDAD cuando el navegador dice que ha fallado:
+     en el móvil pasa a menudo que la conexión se corta después de mandar los bytes —el servidor las
+     guarda, pero el cliente ve un error de red— y entonces la pantalla decía «no se ha subido»
+     cuando sí estaban (bug real). Antes de dar una subida por fallida se vuelve a contar. */
+  function mediaCount() {
+    var n = (state.photos || []).length;
+    (state.albums || []).forEach(function (a) { n += ((a.photos || []).length); });
+    return n;
+  }
   // ================================================================== bulk
   document.querySelectorAll('#fotosBulkBar [data-bulk]').forEach(function (a) {
     a.addEventListener('click', function (e) {
@@ -960,10 +971,48 @@
   // Registra la fila del vídeo ya subido. Reintenta (el register es IDEMPOTENTE por file_url en el
   // servidor: reintentar NO crea duplicados). Éxito = reg.ok con al menos un created/duplicate; un
   // ok:true con created vacío (p. ej. HEAD aún sin propagar) se reintenta.
+  /* EN QUÉ ÁLBUM VA lo que se sube: sueltas, uno NUEVO (con su nombre) o uno que ya existe.
+     Punto único: lo leen la subida por servidor y el registro de los vídeos. */
+  function albumChoice() {
+    var caja = document.querySelector('[data-fotos-album]');
+    if (!caja) return { mode: 'NONE' };
+    var m = caja.querySelector('[data-fa-mode]:checked');
+    var modo = m ? m.value : 'NONE';
+    if (modo === 'NEW') {
+      var n = document.getElementById('fotosAlbumName');
+      return { mode: 'NEW', name: (n && n.value || '').trim() };
+    }
+    if (modo === 'EXISTING') {
+      var r = caja.querySelector('input[name="fotos_album_id"]:checked');
+      return { mode: 'EXISTING', id: (r && r.value) || '' };
+    }
+    return { mode: 'NONE' };
+  }
+
+  /* Al elegir el modo, sale el hueco que toca (el nombre del álbum nuevo o los que ya hay).
+     Por delegación: el modal se pinta con la página. */
+  document.addEventListener('change', function (ev) {
+    var r = ev.target;
+    if (!r || !r.matches || !r.matches('[data-fa-mode]')) return;
+    var caja = r.closest('[data-fotos-album]');
+    if (!caja) return;
+    var nuevo = caja.querySelector('[data-fa-new]'), existente = caja.querySelector('[data-fa-existing]');
+    if (nuevo) nuevo.classList.toggle('d-none', r.value !== 'NEW');
+    if (existente) existente.classList.toggle('d-none', r.value !== 'EXISTING');
+    if (r.value === 'NEW') {
+      var n = document.getElementById('fotosAlbumName');
+      if (n) setTimeout(function () { n.focus(); }, 50);
+    }
+  });
+
   function registerVideo(key, file, ph, attempt) {
     return fingerprint(file).then(function (fp) {
       var body = { items: [{ key: key, file_name: file.name, mime_type: file.type || '', size: file.size, fp: fp }] };
       if (ph.unknown) body.photographer_unknown = true; else if (ph.id) body.photographer_promoter_id = ph.id;
+      var al = albumChoice();
+      body.album_mode = al.mode;
+      if (al.name) body.album_name = al.name;
+      if (al.id) body.album_id = al.id;
       return fetch(videoRegisterUrl, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
         body: JSON.stringify(body)
@@ -1022,6 +1071,9 @@
     var directVideos = (videoSignUrl && videoRegisterUrl) ? pending.filter(function (it) { return isVideoFile(it.file); }) : [];
     var serverItems = pending.filter(function (it) { return directVideos.indexOf(it) === -1; });
     var agg = { created: [], duplicates: [], errors: [] };
+    // Cuántos había ANTES y cuántos se envían: con eso se comprueba después si de verdad entraron
+    // (en el móvil la conexión se corta a menudo DESPUÉS de mandar los bytes).
+    var antes = mediaCount(), enviados = pending.length;
 
     function setProgress(p) { bar.style.width = p + '%'; pct.textContent = p + '%'; }
     function setLabel(t) { var l = document.getElementById('fotosProgressLabel'); if (l) l.textContent = t; }
@@ -1051,6 +1103,10 @@
       var fd = new FormData();
       serverItems.forEach(function (it) { fd.append('files', it.file); });
       if (ph.unknown) fd.append('photographer_unknown', '1'); else if (ph.id) fd.append('photographer_promoter_id', ph.id);
+      var alb = albumChoice();
+      fd.append('album_mode', alb.mode);
+      if (alb.name) fd.append('album_name', alb.name);
+      if (alb.id) fd.append('album_id', alb.id);
       setLabel(directVideos.length ? 'Subiendo el resto…' : 'Subiendo… 0%'); setProgress(0);
       var xhr = new XMLHttpRequest();
       xhr.open('POST', uploadUrl);
@@ -1077,6 +1133,31 @@
     });
 
     function finishUpload(serverErrMsg) {
+      // ⚠️⚠️ ANTES DE DECIR QUE HA FALLADO, SE COMPRUEBA: si la galería tiene más archivos que
+      // antes, la subida SÍ entró (la conexión se cortó al recibir la respuesta, que es lo que
+      // pasa en el móvil). Sin esto la pantalla decía «no se han subido» y sí estaban.
+      if (serverErrMsg || agg.errors.length) {
+        refresh().then(function () {
+          var ahora = mediaCount();
+          if (ahora > antes) {
+            var entraron = ahora - antes;
+            agg.errors = [];
+            if (!agg.created.length) {
+              // No hay payload de las creadas (nunca llegó la respuesta), pero están: se cuenta.
+              agg.created = new Array(Math.min(entraron, enviados));
+            }
+            pintaFin(entraron >= enviados ? null : ('Se subieron ' + entraron + ' de ' + enviados
+              + ': vuelve a intentarlo con lo que falte.'));
+            return;
+          }
+          pintaFin(serverErrMsg);
+        }, function () { pintaFin(serverErrMsg); });
+        return;
+      }
+      pintaFin(serverErrMsg);
+    }
+
+    function pintaFin(serverErrMsg) {
       var n = agg.created.length, dups = agg.duplicates, errs = agg.errors;
       var msgs = [];
       if (n) msgs.push(n + ' ' + (n === 1 ? 'archivo guardado' : 'archivos guardados') + '.');
@@ -1094,7 +1175,23 @@
       // muerto tras una subida que sí funcionó.
       var cleanup = function () {
         if (!dups.length && !anyErr) {
-          setTimeout(function () { var m = bsModal('fotosUploadModal'); if (m) m.hide(); }, 800);
+          // ⚠️ SE CIERRA SOLO Y SE VE LO SUBIDO: la ventana desaparece y la galería queda a la
+          // vista (con scroll hasta ella), que es lo que uno espera al terminar de subir. Antes
+          // había que cerrarla a mano y no quedaba claro si había entrado algo.
+          setTimeout(function () {
+            var m = bsModal('fotosUploadModal');
+            if (m) m.hide();
+            pending = []; renderFileList();
+            // Y se limpia la ventana para la próxima vez (el fotógrafo y el álbum se conservan:
+            // lo normal es subir varias tandas de la misma sesión de fotos).
+            var pr = document.getElementById('fotosProgress');
+            if (pr) pr.classList.add('d-none');
+            var hint = document.getElementById('fotosUploadHint'); if (hint) hint.textContent = '';
+            try {
+              var g = panel.querySelector('#fotosGallery, [data-fotos-gallery], .fotos-gallery');
+              (g || panel).scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (e) {}
+          }, 700);
         } else {
           pending = []; renderFileList();
         }

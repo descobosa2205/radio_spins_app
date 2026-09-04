@@ -67,23 +67,32 @@
     <div class="modal-body">
       {# Paso 1: artista #}
       <section data-mg-step="1">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h6 class="mb-0">¿De qué artista?</h6>
-          <button type="button" class="btn btn-sm btn-outline-secondary" id="mgSeeMore"><i class="fa fa-ellipsis me-1"></i>Ver más</button>
-        </div>
+        <h6 class="mb-1">¿De qué artista?</h6>
         <div class="text-muted small mb-2">Artistas con lanzamientos o actividades próximas o de los últimos 10 días.</div>
         <div class="row g-2" id="mgActiveList">
+          {% set _activos = active_owners|map(attribute='id')|map('string')|list %}
           {% for a in active_owners %}
             <div class="col-6 col-md-4"><button type="button" class="btn btn-outline-secondary w-100 text-start mg-pick-artist" data-id="{{ a.id }}" data-name="{{ a.name }}">
               {% if a.photo %}<img src="{{ a.photo }}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;" class="me-1">{% else %}<i class="fa fa-user me-1"></i>{% endif %}{{ a.name }}
             </button></div>
           {% else %}
-            <div class="col-12 text-muted small">No hay artistas activos ahora mismo. Pulsa «Ver más».</div>
+            <div class="col-12 text-muted small">No hay artistas activos ahora mismo. Pulsa «Ver más artistas».</div>
           {% endfor %}
         </div>
-        <div class="mt-2 d-none" id="mgAllWrap">
-          <label class="form-label small mb-0">Todos los artistas</label>
-          <select class="form-select" id="mgAllArtists"><option value="">— Selecciona —</option>{% for a in all_artists %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select>
+        {# ⚠️ EL BOTÓN VA DEBAJO DE LOS ACTIVOS y los demás salen AHÍ MISMO, igual y con su foto: un
+           desplegable no deja ver de quién es cada uno (que es lo que se está eligiendo). #}
+        <div class="mt-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="mgSeeMore">
+            <i class="fa fa-ellipsis me-1"></i>Ver más artistas</button>
+        </div>
+        <div class="row g-2 mt-1 d-none" id="mgAllWrap">
+          {% for a in all_artists %}
+            {% if a.id not in _activos %}
+              <div class="col-6 col-md-4"><button type="button" class="btn btn-outline-secondary w-100 text-start mg-pick-artist" data-id="{{ a.id }}" data-name="{{ a.name }}">
+                {% if a.photo %}<img src="{{ a.photo }}" data-avatar="1" style="width:24px;height:24px;border-radius:50%;object-fit:cover;" class="me-1">{% else %}<i class="fa fa-user me-1"></i>{% endif %}{{ a.name }}
+              </button></div>
+            {% endif %}
+          {% endfor %}
         </div>
       </section>
       {# Paso 2: actividad o suelto #}
@@ -136,7 +145,14 @@
   function step(n){ modalEl.querySelectorAll('[data-mg-step]').forEach(function(s){ s.classList.toggle('d-none', s.getAttribute('data-mg-step')!=String(n)); }); }
   var addBtn=document.getElementById('mgAddBtn');
   if(addBtn) addBtn.addEventListener('click', function(){ step(1); if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show(); });
-  document.getElementById('mgSeeMore').addEventListener('click', function(){ document.getElementById('mgAllWrap').classList.toggle('d-none'); });
+  // «Ver más artistas»: los demás salen DEBAJO, con su foto (el botón desaparece al abrirlos).
+  var seeMore=document.getElementById('mgSeeMore');
+  if(seeMore) seeMore.addEventListener('click', function(){
+    var w=document.getElementById('mgAllWrap');
+    if(!w) return;
+    w.classList.remove('d-none');
+    seeMore.classList.add('d-none');
+  });
   function pickArtist(id, name){ artistId=id; artistName=name||''; document.getElementById('mgArtistName').textContent=artistName; step(2); }
   modalEl.addEventListener('click', function(e){
     var pa=e.target.closest('.mg-pick-artist'); if(pa){ pickArtist(pa.getAttribute('data-id'), pa.getAttribute('data-name')); return; }
@@ -145,8 +161,7 @@
     var la=e.target.closest('#mgLinkActivity'); if(la){ loadActivities(); step(3); return; }
     var ll=e.target.closest('#mgLinkLoose'); if(ll){ window.location.href = "{{ url_for('media_panel_view', owner_type='artist', owner_id='AID') }}".replace('AID', artistId); return; }
   });
-  var allSel=document.getElementById('mgAllArtists');
-  if(allSel) allSel.addEventListener('change', function(){ if(this.value){ var o=this.options[this.selectedIndex]; pickArtist(this.value, o.text); } });
+
   function loadActivities(){
     var wrap=document.getElementById('mgActivities'); wrap.innerHTML='<div class="text-muted small p-2">Cargando…</div>';
     fetch("{{ url_for('api_media_artist_activities', artist_id='AID') }}".replace('AID', artistId))

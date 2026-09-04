@@ -4813,13 +4813,15 @@ def _concert_cache_payment_state(session_db, concert) -> dict:
     El estado VACÍO trae las MISMAS claves que el lleno (leer algo que no aplica no puede reventar)."""
     estado = {"applies": False, "rows": 0, "cache_total": Decimal("0"),
               "configured_total": Decimal("0"), "pending": Decimal("0"),
-              "unset": False, "mismatch": False}
+              "unset": False, "mismatch": False, "silent": False}
     if concert is None:
         return estado
-    if (getattr(concert, "status", None) or "").strip().upper() in CONCERT_PROCESS_STATUSES:
-        return estado                                     # cancelada o aplazada: no reclama nada
-    if _concert_is_legacy(concert):
-        return estado                                     # el histórico no genera trabajo
+    # ⚠️ Una actividad CANCELADA o del HISTÓRICO no RECLAMA nada (ni aviso ni tarea), pero su
+    # módulo se sigue viendo para poder configurarlo a mano: son dos cosas distintas y antes se
+    # decidían juntas, así que en lo antiguo no había forma de configurar la forma de pago.
+    _muda = ((getattr(concert, "status", None) or "").strip().upper() in CONCERT_PROCESS_STATUSES
+             or _concert_is_legacy(concert))
+    estado["silent"] = _muda
     try:
         if not _concert_has_cache(session_db, concert):
             return estado
@@ -4838,9 +4840,12 @@ def _concert_cache_payment_state(session_db, concert) -> dict:
         "cache_total": total,
         "configured_total": configurado,
         "pending": (total - configurado),
-        "unset": len(filas) == 0,
+        # ⚠️ `unset`/`mismatch` son LO QUE SE AVISA (y la tarea del tablero): en lo cancelado y en
+        # el histórico se callan, aunque el módulo se vea.
+        "unset": (len(filas) == 0 and not _muda),
         # Solo se avisa del descuadre cuando hay un caché fijo con el que comparar.
-        "mismatch": bool(filas and total > 0 and abs(total - configurado) > Decimal("0.01")),
+        "mismatch": bool(filas and total > 0 and abs(total - configurado) > Decimal("0.01")
+                         and not _muda),
     })
     return estado
 
@@ -5920,6 +5925,17 @@ def _song_missing_required(song, *, genres=None) -> list[dict]:
             "label": "Pitch",
             "icon": "fa-comment-dots",
             "hint": "Es el texto con el que se presenta el lanzamiento.",
+        })
+    # EL LANZAMIENTO EN TIKTOK cuando es OTRO DÍA: hasta que Registros+Sello lo dan por configurado,
+    # sigue esperando. ⚠️ Si es el mismo día del single no hay nada que configurar y no se dice nada.
+    _tk = _song_tiktok_state(song)
+    if _tk["pending"]:
+        faltan.append({
+            "key": "tiktok",
+            "label": "Lanzamiento en TikTok",
+            "icon": "fa-triangle-exclamation",
+            "hint": ("Sale el %s%s, que NO es el día del lanzamiento: hay que configurarlo en TikTok."
+                     % (_tk["date_label"], (" a las %s" % _tk["time"]) if _tk["time"] else "")),
         })
     return faltan
 
@@ -22034,6 +22050,8 @@ def discografica_song_detail(song_id):
         videoclip_director=videoclip_director,
         videoclip_registration=videoclip_registration,
         video_thumb=video_thumb,
+        # TIKTOK: el minuto de inicio y cuándo se lanza (su pop-up y lo que falta por configurar).
+        song_tiktok=_song_tiktok_state(s),
         materials_status=materials_status,
         master_delivery=master_delivery,
         song_delivery_sections=SONG_DELIVERY_SECTIONS,
@@ -23273,6 +23291,71 @@ def _song_video_thumb_state(session_db, song, *, has_thumb=None) -> dict:
         "ref_type": ("DISCO_VIDEO_THUMB" if proyecto is not None else SONG_VIDEO_THUMB_REF),
         "ref_id": (str(proyecto.id) if proyecto is not None else str(song.id)),
     }
+
+
+@app.post("/discografica/canciones/<song_id>/tiktok", endpoint="discografica_song_tiktok_save")
+@admin_required
+def discografica_song_tiktok_save(song_id):
+    """EL MINUTO DE INICIO y el LANZAMIENTO en TikTok de una canción.
+
+    ⚠️ «El mismo día del lanzamiento» es lo de por defecto y se guarda como fecha VACÍA: así, si
+    después se mueve el single, TikTok lo sigue solo. Con otro día se avisa a Registros+Sello y la
+    acción entra en el plan de lanzamiento.
+    ⚠️ Va en `REQUEST_ANY_ENDPOINTS`: lo marca como hecho quien es Registros y Sello, que no tiene
+    por qué poder editar discográfica (se comprueba dentro)."""
+    session_db = db()
+    volver = url_for("discografica_song_detail", song_id=song_id, tab="informacion")
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if song is None:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        yo = _current_user_state() or {}
+        # MARCAR COMO HECHO (o deshacerlo): lo hace Registros+Sello desde su aviso.
+        if _flag_arg("done"):
+            if not (can_edit_discografica() or _is_registros_sello() or is_master()):
+                return forbid("No tienes permisos.")
+            if _flag_arg("undo"):
+                song.tiktok_release_done_at = None
+                song.tiktok_release_done_by = None
+            else:
+                song.tiktok_release_done_at = _now_madrid()
+                song.tiktok_release_done_by = (yo.get("nick") or "")
+            _song_tiktok_notify(session_db, song)
+            session_db.commit()
+            flash("Lanzamiento en TikTok: %s." % ("pendiente otra vez" if _flag_arg("undo")
+                                                  else "dado por configurado"), "success")
+            return redirect(safe_next_or(request.form.get("next") or volver))
+        if not can_edit_discografica():
+            return forbid("No tienes permisos para editar la canción.")
+        f = request.form
+        if "tiktok_start" in f:
+            song.tiktok_start_seconds = parse_timecode_to_seconds(f.get("tiktok_start"))
+        modo = (f.get("release_mode") or "SAME").strip().upper()
+        antes = getattr(song, "tiktok_release_date", None)
+        if modo == "OTHER":
+            song.tiktok_release_date = parse_optional_date(f.get("release_date"))
+            song.tiktok_release_time = _agenda_clean_time(f.get("release_time")) or None
+        else:
+            # El mismo día del lanzamiento: se guarda VACÍO para que siga al single si se mueve.
+            song.tiktok_release_date = None
+            song.tiktok_release_time = None
+        # Si cambia la fecha, lo que se hubiera dado por configurado deja de valer.
+        if getattr(song, "tiktok_release_date", None) != antes:
+            song.tiktok_release_done_at = None
+            song.tiktok_release_done_by = None
+        session_db.flush()
+        _song_tiktok_notify(session_db, song)
+        _song_tiktok_plan_sync(session_db, song)
+        session_db.commit()
+        flash("TikTok: %s." % _song_tiktok_state(song)["when_label"].lower(), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[tiktok] no se pudo guardar")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(request.form.get("next") or volver))
 
 
 @app.post("/discografica/canciones/<song_id>/videoclip/miniatura",
@@ -27841,18 +27924,38 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
         # ===== EL MINUTO DE INICIO EN TIKTOK (se elige en la ficha de cada canción) =====
         tk = _disco_project_tiktok_state(session_db, project)
         if tk["has_songs"]:
+            _una = tk["song"] is not None
+            _destino_tk = (tk["songs"][0]["url"] if len(tk["songs"]) == 1
+                           else (release.get("url") if release else url_mat))
             if tk["all_done"]:
-                tarea("tiktok", "Inicio en TikTok", "", "fa-stopwatch", state="done",
-                      value=("Elegido%s" % ((" · %s" % tk["songs"][0]["label"])
-                                            if len(tk["songs"]) == 1 and tk["songs"][0]["label"]
-                                            else "")))
+                tarea("tiktok", "TikTok", "", "fa-stopwatch", state="done",
+                      value=("%s%s" % (("Empieza en %s" % tk["state"]["start_label"])
+                                       if (_una and tk["state"]["start_label"]) else "Elegido",
+                                       (" · %s" % tk["state"]["when_label"]) if _una else "")),
+                      menu=([{"label": "Cambiarlo", "icon": "fa-pen", "modal": "#dpTikTokModal"}]
+                            if _una else
+                            [{"label": "Verlo en el lanzamiento", "icon": "fa-arrow-right",
+                              "url": _destino_tk}]))
             else:
-                destino_tk = (tk["songs"][0]["url"] if len(tk["songs"]) == 1
-                              else (release.get("url") if release else url_mat))
-                tarea("tiktok", "Elegir el minuto de inicio de TikTok", destino_tk, "fa-stopwatch",
+                tarea("tiktok", "Elegir el minuto de inicio de TikTok",
+                      ("" if _una else _destino_tk), "fa-stopwatch",
                       grupo="single", action_label="Elegirlo",
-                      hint=("Falta en %d tema(s) · se elige en «Información» de la canción"
+                      modal=("#dpTikTokModal" if _una else ""),
+                      hint=("Y cuándo se lanza en TikTok (por defecto, el mismo día)" if _una else
+                            "Falta en %d tema(s) · se elige en «Información» de la canción"
                             % tk["missing"]))
+            # LA FECHA distinta: mientras Registros+Sello no lo den por configurado, sigue pendiente.
+            if _una and tk["state"]["different"]:
+                if tk["state"]["done"]:
+                    tarea("tiktok_fecha", "Lanzamiento en TikTok configurado", "", "fa-circle-check",
+                          sub=True, state="done",
+                          value="%s%s" % (tk["state"]["when_label"],
+                                          (" · %s" % tk["state"]["done_by"]) if tk["state"]["done_by"] else ""))
+                else:
+                    tarea("tiktok_fecha", "Configurar el lanzamiento en TikTok", "",
+                          "fa-triangle-exclamation", sub=True, state="sent", grupo="single",
+                          value=tk["state"]["when_label"],
+                          hint="La fecha NO es la del single: lo configura Registros y Sello")
 
     # ================= LOS ENLACES DE LA DISTRIBUIDORA =================
     # Los pide quien lleva el proyecto y los sube quien es REGISTROS y SELLO; después se le
@@ -29198,6 +29301,9 @@ def disco_project_detail(project_id):
                           "project_bags", "bag_scope", "links",
                           "video", "video_fee_modes", "video_companies", "video_distributors"):
                 bag_ctx.pop(clave, None)
+        # TIKTOK: el minuto de inicio y su fecha. Solo en la pestaña donde está la lista de
+        # tareas (mirarlo cuesta una consulta y no se usa en las demás).
+        _tk_ctx = (_disco_project_tiktok_state(session_db, project) if tab == "calendario" else None)
         return render_template(
             "disco_project_detail.html",
             project=project, row=fila, tab=tab,
@@ -29315,6 +29421,9 @@ def disco_project_detail(project_id):
             vocals_modes=DISCO_VOCALS_MODES,
             vocals_places=DISCO_VOCALS_PLACES,
             has_audio=_disco_project_has_audio(project),
+            # TIKTOK: su pop-up se pinta cuando el lanzamiento es UNA canción.
+            tiktok_song=(_tk_ctx or {}).get("song"),
+            tiktok=(_tk_ctx or {}).get("state"),
             bag=bag,
             roadmap_ctx=roadmap_ctx,
             CAN_EDIT=can_edit_discografica(),
@@ -32000,6 +32109,88 @@ def _song_platform_ids(session_db, song_id) -> dict:
                             if peticion is not None else "")}
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# TIKTOK: el MINUTO en el que empieza el tema y CUÁNDO se lanza en TikTok.
+# ⚠️ El lanzamiento en TikTok puede ser ANTES que el del single. Por defecto es **el mismo día**
+#    (`tiktok_release_date` a NULL): eso no genera trabajo ni avisos.
+# ⚠️⚠️ Si se pone OTRO día, pasan tres cosas: entra en el PLAN DE LANZAMIENTO y en su cronograma
+#    («Lanzamiento en TikTok» con su hora), se avisa a quien es **REGISTROS y SELLO a la vez** para
+#    que lo configure —con el aviso de que la fecha NO es la del single— y sale en la ficha de la
+#    canción entre lo que falta, hasta que se marca como hecho.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+TIKTOK_REF_TYPE = "SONG_TIKTOK_RELEASE"
+
+
+def _song_tiktok_state(song) -> dict:
+    """Cómo está lo de TikTok en una canción: el minuto de inicio y su fecha de lanzamiento."""
+    vacio = {"start_seconds": None, "start_label": "", "has_start": False,
+             "date": None, "date_label": "", "time": "", "same_day": True,
+             "different": False, "done": False, "done_label": "", "done_by": "",
+             "when_label": "", "pending": False}
+    if song is None:
+        return vacio
+    seg = getattr(song, "tiktok_start_seconds", None)
+    fecha = getattr(song, "tiktok_release_date", None)
+    hora = _agenda_clean_time(getattr(song, "tiktok_release_time", None)) or ""
+    lanzamiento = getattr(song, "release_date", None)
+    # Poner la MISMA fecha del single es «el mismo día»: no es una excepción y no reclama nada.
+    distinta = bool(fecha and lanzamiento and fecha != lanzamiento)
+    hecho = getattr(song, "tiktok_release_done_at", None)
+    return {
+        "start_seconds": seg,
+        "start_label": (_seconds_to_timecode(seg) if seg is not None else ""),
+        "has_start": seg is not None,
+        "date": fecha, "time": hora,
+        "date_label": (fecha.strftime("%d/%m/%Y") if fecha else ""),
+        "same_day": not distinta,
+        "different": distinta,
+        "done": bool(hecho),
+        "done_label": (hecho.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if hecho else ""),
+        "done_by": (getattr(song, "tiktok_release_done_by", None) or ""),
+        "when_label": ("El mismo día del lanzamiento" if not distinta else
+                       ("%s%s" % (fecha.strftime("%d/%m/%Y"), (" · %s" % hora) if hora else ""))),
+        # Lo que sigue esperando: fecha distinta y todavía sin configurar en TikTok.
+        "pending": bool(distinta and not hecho),
+    }
+
+
+def _song_tiktok_subject(song) -> str:
+    """«Lanzamiento en TikTok · <canción> · <artista>» (el título del aviso y de la acción)."""
+    artistas = ", ".join([(a.name or "") for a in (getattr(song, "artists", None) or [])][:2])
+    partes = [(getattr(song, "title", "") or "Canción")]
+    if artistas:
+        partes.append(artistas)
+    return " · ".join(partes)
+
+
+def _song_tiktok_notify(session_db, song) -> None:
+    """Avisa a quien es REGISTROS **y** SELLO de que hay que configurar el lanzamiento en TikTok.
+
+    ⚠️ Solo cuando la fecha es DISTINTA a la del single: si es el mismo día no hay nada que
+    configurar aparte. El aviso lleva el icono de alerta y dice la fecha."""
+    est = _song_tiktok_state(song)
+    if not est["pending"]:
+        _notify_resolve(session_db, TIKTOK_REF_TYPE, str(song.id))
+        return
+    try:
+        destinos = _registros_sello_user_ids(session_db)
+        if not destinos:
+            return
+        artista = (song.artists[0] if getattr(song, "artists", None) else None)
+        cuerpo = ("Hay que configurar el lanzamiento en TikTok para el %s%s. ⚠️ La fecha es DISTINTA "
+                  "a la del lanzamiento del single%s."
+                  % (est["date_label"], (" a las %s" % est["time"]) if est["time"] else "",
+                     (" (%s)" % song.release_date.strftime("%d/%m/%Y")) if song.release_date else ""))
+        _notify_users(session_db, destinos, "REGISTROS",
+                      "Lanzamiento en TikTok · %s" % _song_tiktok_subject(song), cuerpo,
+                      url_for("discografica_song_detail", song_id=song.id, tab="informacion"),
+                      ref_type=TIKTOK_REF_TYPE, ref_id=str(song.id),
+                      actor_name=(getattr(artista, "name", "") or ""),
+                      actor_photo=(getattr(artista, "photo_url", "") or ""))
+    except Exception:
+        app.logger.exception("[tiktok] no se pudo avisar del lanzamiento en TikTok")
+
+
 def _disco_project_tiktok_state(session_db, project) -> dict:
     """EL MINUTO DE INICIO EN TIKTOK de las canciones del lanzamiento (tarea del proyecto).
 
@@ -32010,16 +32201,19 @@ def _disco_project_tiktok_state(session_db, project) -> dict:
     canciones = _disco_project_release_songs(session_db, project)
     filas, faltan = [], 0
     for c in canciones:
-        seg = getattr(c, "tiktok_start_seconds", None)
-        puesto = seg is not None
-        if not puesto:
+        est = _song_tiktok_state(c)
+        if not est["has_start"]:
             faltan += 1
         filas.append({"song_id": str(c.id), "title": (c.title or ""),
                       "url": url_for("discografica_song_detail", song_id=c.id, tab="informacion"),
-                      "done": puesto,
-                      "label": (_seconds_to_timecode(seg) if puesto else "")})
+                      "done": est["has_start"], "label": est["start_label"],
+                      "when_label": est["when_label"], "different": est["different"],
+                      "release_done": est["done"]})
+    # La CANCIÓN del lanzamiento cuando es una sola: entonces se configura sin salir del proyecto.
+    unica = (canciones[0] if len(canciones) == 1 else None)
     return {"songs": filas, "missing": faltan, "all_done": bool(canciones) and faltan == 0,
-            "has_songs": bool(canciones)}
+            "has_songs": bool(canciones), "song": unica,
+            "state": (_song_tiktok_state(unica) if unica is not None else _song_tiktok_state(None))}
 
 
 def _disco_project_ids_state(session_db, project) -> dict:
@@ -34780,6 +34974,52 @@ def _song_radio_project_url(session_db, fila) -> str:
         return url_for("discografica_song_detail", song_id=fila.song_id, tab="informacion")
     except Exception:
         return url_for("home")
+
+
+TIKTOK_PLAN_TITLE = "Lanzamiento en TikTok"
+
+
+def _song_tiktok_plan_sync(session_db, song) -> None:
+    """El LANZAMIENTO EN TIKTOK, en el PLAN DE LANZAMIENTO (y por tanto en su cronograma).
+
+    Solo cuando el día es DISTINTO al del single: si es el mismo, no es una acción aparte. La acción
+    lleva **el minuto en el que empieza** el tema. Si se vuelve al mismo día, se RETIRA (el mismo
+    criterio que el gasto de una acción sin coste: lo que deja de ser, deja de estar)."""
+    try:
+        project = _song_project(session_db, getattr(song, "id", None))
+        if project is None:
+            return
+        plan = _disco_plan(session_db, project, create=False)
+        est = _song_tiktok_state(song)
+        actual = None
+        if plan is not None:
+            for a in (plan.actions or []):
+                if (a.title or "").strip().lower() == TIKTOK_PLAN_TITLE.lower():
+                    actual = a
+                    break
+        if not est["different"]:
+            if actual is not None:
+                session_db.delete(actual)
+            return
+        if plan is None:
+            plan = _disco_plan(session_db, project, create=True)
+        if actual is None:
+            actual = DiscoReleasePlanAction(plan_id=plan.id, position=len(plan.actions or []))
+            session_db.add(actual)
+        detalle = []
+        if est["start_label"]:
+            detalle.append("Empieza en el minuto %s" % est["start_label"])
+        if est["time"]:
+            detalle.append("A las %s" % est["time"])
+        actual.title = TIKTOK_PLAN_TITLE
+        actual.description = " · ".join(detalle) or None
+        actual.cost_mode = (actual.cost_mode or "NONE")
+        actual.date_kind = "DATE"
+        actual.start_date = est["date"]
+        actual.end_date = None
+        session_db.flush()
+    except Exception:
+        app.logger.exception("[tiktok] no se pudo anotar el lanzamiento en el plan")
 
 
 def _song_radio_plan_action(session_db, fila, cancion, nombre_medio) -> None:
@@ -77864,7 +78104,7 @@ REQUEST_ANY_ENDPOINTS = {
     # ⚠️ CONTESTAR si una emisora coge la canción es tarea de PROMOCIÓN (o de dirección con función de
     # sello): el endpoint comprueba dentro que es de quien le toca. Va aquí y no en
     # `SUPPORT_ACTION_ENDPOINTS` por lo mismo que la logística: ese exige ser «actor».
-    "song_radio_pitch_decide",
+    "song_radio_pitch_decide", "discografica_song_tiktok_save",
     # ⚠️ La NOTA DE PRENSA la sube promoción (el texto) y diseño (el gráfico), y la marca enviada
     # promoción: ninguno tiene por qué poder editar discográfica. Cada endpoint comprueba dentro que
     # es de su departamento (o dirección).

@@ -5947,3 +5947,7 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .sales-log.is-ok > i{ color:#198754; }
 .sales-log.is-wait{ background:#fffaf0; border-color:#f5e3c0; }
 .sales-log.is-wait > i{ color:#b8860b; }
+
+/* Al abrir un formulario desde un aviso, la parte a la que lleva destella para que se vea. */
+@keyframes editFocusFlash{ 0%{ box-shadow:0 0 0 0 rgba(227,61,72,.45); } 100%{ box-shadow:0 0 0 12px rgba(227,61,72,0); } }
+.edit-focus-flash{ animation:editFocusFlash 1.2s ease-out 1; border-color:var(--brand-primary,#E33D48) !important; }

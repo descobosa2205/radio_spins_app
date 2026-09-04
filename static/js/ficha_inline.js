@@ -53,7 +53,7 @@
     return !!(s && s.hasAttribute('data-keep-view'));
   }
 
-  function show(form) {
+  function show(form, foco) {
     if (!form) return;
     form.classList.remove('d-none');
     var v = viewFor(form);
@@ -63,7 +63,15 @@
     // Aviso para inicializadores específicos de cada ficha (p. ej. concert_form.js: sale_type+tags,
     // rehidratación de filas). Quien lo necesite escucha "ficha:shown".
     try { document.dispatchEvent(new CustomEvent('ficha:shown', { detail: { form: form } })); } catch (e) {}
-    try { form.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+    // [data-edit-focus="#id"] en el botón: lleva DIRECTAMENTE a esa parte del formulario (p. ej.
+    // «configura la forma de pago» abre el de Cachés y baja a su bloque, no al principio).
+    var destino = form;
+    if (foco) { var f = document.querySelector(foco); if (f) destino = f; }
+    try { destino.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    if (foco && destino !== form) {
+      destino.classList.add('edit-focus-flash');
+      setTimeout(function () { destino.classList.remove('edit-focus-flash'); }, 1600);
+    }
   }
 
   function hide(form) {
@@ -81,7 +89,7 @@
       var sel = t.getAttribute('data-edit-toggle');
       var form = sel ? document.querySelector(sel)
         : (function () { var s = t.closest('.ficha-section'); return s ? s.querySelector('[data-section-form]') : null; })();
-      show(form);
+      show(form, t.getAttribute('data-edit-focus'));
       return;
     }
     var c = e.target.closest('[data-edit-cancel]');

@@ -1,0 +1,91 @@
+{# ═══════════════════════════════════════════════════════════════════════════════════════════════
+   TIKTOK · el MINUTO en el que empieza el tema y CUÁNDO se lanza en TikTok.
+   Parcial ÚNICO: lo incluyen la ficha de la CANCIÓN y el proyecto discográfico, así que se
+   configura igual desde los dos sitios.
+   ⚠️ «El mismo día del lanzamiento» es lo de por defecto y se guarda como fecha VACÍA: si después
+      se mueve el single, TikTok lo sigue solo. Con otro día se avisa a Registros+Sello y la acción
+      entra en el plan de lanzamiento y en su cronograma.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% set tk = tiktok %}
+<div class="modal fade" id="dpTikTokModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('discografica_song_tiktok_save', song_id=tiktok_song.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-stopwatch me-2 text-danger"></i>TikTok</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Minuto en el que empieza el tema</label>
+          <input name="tiktok_start" class="form-control" placeholder="00:15"
+                 value="{{ tk.start_label if tk.start_label else '' }}">
+          <div class="form-text">El segundo por el que arranca el tema en TikTok (mm:ss).</div>
+        </div>
+
+        <label class="form-label">¿Cuándo se lanza en TikTok?</label>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+              <input class="form-check-input visually-hidden" type="radio" name="release_mode" value="SAME"
+                     {% if tk.same_day %}checked{% endif %} data-tk-mode>
+              <i class="fa fa-calendar-check d-block fs-3 mb-2 text-dark"></i>
+              <span class="fw-semibold small">El mismo día del lanzamiento</span>
+              <span class="text-muted small d-block text-truncate">
+                {% if tiktok_song.release_date %}{{ tiktok_song.release_date.strftime('%d/%m/%Y') }}{% endif %}</span>
+            </label>
+          </div>
+          <div class="col-6">
+            <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+              <input class="form-check-input visually-hidden" type="radio" name="release_mode" value="OTHER"
+                     {% if tk.different %}checked{% endif %} data-tk-mode>
+              <i class="fa-brands fa-tiktok d-block fs-3 mb-2 text-dark"></i>
+              <span class="fw-semibold small">Otro día</span>
+              <span class="text-muted small d-block">Puede ser antes que el single</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="row g-2 mt-2{% if not tk.different %} d-none{% endif %}" data-tk-other>
+          <div class="col-7">
+            <label class="form-label">Día</label>
+            <input type="date" name="release_date" class="form-control"
+                   value="{{ tk.date.isoformat() if tk.date else '' }}">
+          </div>
+          <div class="col-5">
+            <label class="form-label">Hora</label>
+            <input type="time" name="release_time" class="form-control" value="{{ tk.time }}">
+          </div>
+          <div class="col-12">
+            <div class="alert alert-warning small mb-0 mt-1">
+              <i class="fa fa-triangle-exclamation me-1"></i>Al ser un día distinto al del single, se
+              añade al plan de lanzamiento y se avisa a Registros y Sello para que lo configuren.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  /* El panel del «otro día» se ve solo con esa opción. Por delegación: este pop-up se pinta con la
+     página y las tarjetas cambian el radio desde su <label>. */
+  (function () {
+    function panel() {
+      var m = document.querySelector('input[name="release_mode"]:checked');
+      var z = document.querySelector('[data-tk-other]');
+      if (z) z.classList.toggle('d-none', !(m && m.value === 'OTHER'));
+    }
+    document.addEventListener('change', function (e) {
+      if (e.target && e.target.name === 'release_mode') panel();
+    });
+    if (document.readyState !== 'loading') panel();
+    else document.addEventListener('DOMContentLoaded', panel);
+  })();
+</script>

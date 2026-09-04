@@ -9374,3 +9374,46 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   desde Ticketing → pasa al módulo de solicitud, el contacto se resuelve solo al tercero (`SELLER`)
   y entra en el barrido; nuestra sin promotor vendida por el recinto → se pide, y la tarea de
   configurar el contacto salta con su aviso en la ficha.
+
+- ⚠️⚠️ **EN UN CONCIERTO «VENDIDO» NO SE VEÍAN LOS CACHÉS** (bug real, sep 2026). Los módulos de
+  **Colaboradores, CACHÉS y Entradas y venta** estaban los tres dentro de `{% if concert.sale_type
+  != 'VENDIDO' %}`, así que en un concierto VENDIDO —que es justo el que tiene caché— **no se
+  pintaban ni el módulo ni su formulario**: el aviso «Pendiente de configurar la forma de pago»
+  apuntaba a `#concert-caches-form`, que **no existía en la página**, y por eso «pinchas y no hace
+  nada» (lo mismo desde el módulo del plan de facturación).
+  · **Cachés y Entradas se ven SIEMPRE**; dentro de ese `if` se queda solo **Colaboradores** (en un
+  concierto vendido no hay socios). Es el mismo error que ya se corrigió con el promotor y con las
+  comisiones: esconder por tipo de venta cosas que no dependen del tipo de venta.
+  · **`data-edit-focus="#id"`** (nuevo, en `ficha_inline.js`): el botón abre el formulario y lleva
+  **directamente a esa parte** (aquí, `#forma-pago-cache`), que destella (`.edit-focus-flash`). Un
+  formulario largo que se abre por arriba obliga a buscar el bloque.
+  · Y el plan de facturación vacío lleva su propio botón **«Configurar la forma de pago»**: un texto
+  que dice «pulsa el lápiz» obliga a buscar el lápiz.
+  ⚠️⚠️ **EL MÓDULO SE VE AUNQUE LA ACTIVIDAD NO RECLAME NADA**: `_concert_cache_payment_state`
+  devolvía el estado VACÍO en lo cancelado y en el HISTÓRICO, así que en lo antiguo no había forma de
+  configurar la forma de pago. Ahora son dos cosas distintas: **`applies`** (el módulo se puede usar)
+  y **`unset`/`mismatch`** (lo que se AVISA, que se callan con `silent`).
+  · **Detector de botones muertos** (vale para cualquier pantalla): pedir el HTML servido y
+  comprobar que cada `data-bs-target="#x"`, `data-edit-toggle="#x"`, `data-view`, `data-inline-target`
+  y `href="#x"` tiene su `id="x"` en esa misma página. Así salió también un `href="#pitch"` que
+  apuntaba a una zona que se llama `#pitch-zone`.
+
+- **TIKTOK · el minuto de inicio y CUÁNDO se lanza** (sep 2026). El lanzamiento en TikTok puede ser
+  **ANTES** que el del single, así que tiene su propia fecha (`Song.tiktok_release_date`,
+  `tiktok_release_time`, `tiktok_release_done_at`/`_by`).
+  · **Por defecto es EL MISMO DÍA** del lanzamiento, con su tarjeta rápida y su icono. ⚠️ Se guarda
+  como fecha **VACÍA**, no copiando la del single: así, si el single se mueve, TikTok lo sigue solo.
+  Poner a mano la misma fecha del single cuenta también como «el mismo día» (`_song_tiktok_state`).
+  · **Con OTRO día** pasan tres cosas: entra en el **PLAN DE LANZAMIENTO** (y por tanto en su
+  cronograma) como «Lanzamiento en TikTok» **con el minuto en el que empieza**
+  (`_song_tiktok_plan_sync`, que lo RETIRA si se vuelve al mismo día); se avisa a quien es
+  **REGISTROS y SELLO a la vez** (`_song_tiktok_notify`, kind `REGISTROS`, con el aviso de que la
+  fecha NO es la del single); y sale **en la ficha de la canción** entre lo que falta
+  (`_song_missing_required`), con su botón **«Ya está configurado»**.
+  ⚠️ Cambiar la fecha **invalida** lo que se hubiera dado por configurado: es otra fecha.
+  · **El pop-up es un parcial único** (`_tiktok_modal.html`): lo incluyen la ficha de la CANCIÓN y el
+  PROYECTO (ahí solo cuando el lanzamiento es UNA canción; en un álbum el minuto es de cada tema).
+  Antes la tarea del proyecto llevaba a la pestaña «Información» de la canción, donde no se ve dónde
+  configurarlo: «pinchas y no hace nada».
+  ⚠️ `discografica_song_tiktok_save` va en **`REQUEST_ANY_ENDPOINTS`**: lo marca como hecho
+  Registros+Sello, que no tiene por qué poder editar discográfica (se comprueba dentro).

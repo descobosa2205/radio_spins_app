@@ -302,6 +302,9 @@
   {% if CAN_EDIT and has_audio %}{% include '_disco_project_steps.html' %}{% endif %}
   {# Y los del VIDEOCLIP, que tiene su propio proceso en paralelo. #}
   {% if CAN_EDIT and video %}{% include '_disco_video_modals.html' %}{% endif %}
+  {# TIKTOK: el minuto de inicio y cuándo se lanza. Solo cuando el lanzamiento es UNA canción
+     (en un álbum el minuto es de cada tema y se pone en su ficha). #}
+  {% if CAN_EDIT and tiktok_song %}{% include '_tiktok_modal.html' %}{% endif %}
   {# ⚠️ Los pop-ups del PLAN también aquí: seis acciones de la lista de tareas los abren
      (`#dpPlanReviewModal`, `#dpPlanPromoModal`, `#dpPlanNoticeModal`…) y, al vivir solo en la
      pestaña del plan, esos botones no hacían NADA. #}

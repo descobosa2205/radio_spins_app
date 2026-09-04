@@ -781,7 +781,8 @@
             (quedan {{ cache_payment.pending|eur }} por repartir).
           {% endif %}
         </div>
-        <button type="button" class="btn btn-sm btn-dark" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view">
+        <button type="button" class="btn btn-sm btn-dark" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view"
+                data-edit-focus="#forma-pago-cache">
           <i class="fa fa-sliders me-1"></i>Configurarla</button>
       </div>
     {% endif %}
@@ -856,9 +857,20 @@
     {% if payment_terms or (cache_payment and cache_payment.applies) %}
     {# El id es el destino de las tareas de FACTURAR y COBRAR del módulo de Contratación. #}
     <div class="ficha-section" id="plan-facturacion">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-file-invoice-dollar"></i>Plan de facturación / cobro{% if payment_pending %} <span class="badge text-bg-warning text-dark ms-2">Pendiente: {{ payment_pending|eur }}</span>{% endif %}</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view" title="Configurar la forma de pago"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-file-invoice-dollar"></i>Plan de facturación / cobro{% if payment_pending %} <span class="badge text-bg-warning text-dark ms-2">Pendiente: {{ payment_pending|eur }}</span>{% endif %}</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view" data-edit-focus="#forma-pago-cache" title="Configurar la forma de pago"><i class="fa fa-pen"></i></button>{% endif %}</div>
       {% if not payment_terms %}
-        <div class="ficha-section__body"><div class="ficha-empty">Sin formas de pago configuradas. Pulsa <i class="fa fa-pen"></i> para repartir el caché en pagos.</div></div>
+        {# ⚠️ Un texto que dice «pulsa el lápiz» obliga a buscarlo: el botón va aquí, y lleva
+           DIRECTAMENTE al bloque de la forma de pago dentro del formulario de Cachés. #}
+        <div class="ficha-section__body">
+          <div class="ficha-empty d-flex align-items-center justify-content-between gap-3 flex-wrap">
+            <span>Sin formas de pago configuradas: reparte el caché en pagos para poder facturarlo y cobrarlo.</span>
+            {% if CAN_EDIT_CONCERTS %}
+              <button type="button" class="btn btn-sm btn-dark" data-edit-toggle="#concert-caches-form"
+                      data-view="#concert-caches-view" data-edit-focus="#forma-pago-cache">
+                <i class="fa fa-money-bill-transfer me-1"></i>Configurar la forma de pago</button>
+            {% endif %}
+          </div>
+        </div>
       {% else %}
       <div class="ficha-section__body p-0">
         <div class="table-responsive">
@@ -1088,6 +1100,7 @@
       {% endif %}
     </div>
 
+    {# ⚠️ COLABORADORES: en un concierto «vendido» no hay socios ni participaciones. #}
     {% if concert.sale_type != 'VENDIDO' %}
     <div class="ficha-section">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Colaboradores</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
@@ -1110,6 +1123,7 @@
       {% endif %}
     </div>
 
+    {% endif %}{# /colaboradores: solo si no es un concierto «vendido» #}
     {# CACHÉS: un evento puede tener artistas con caché o solo socios. Si no hay ninguno configurado
        (ni en la simulación ni en el alta) NO se enseña el módulo: queda solo un botón discreto para
        añadir uno si más adelante hace falta. #}
@@ -1157,7 +1171,7 @@
            ⚠️ Cada fila lleva su `payment_idx[]`: al guardar se CONSERVAN la factura subida y la marca
            de cobrado de ese pago (`_merge_payment_terms_rows`). Un pago que ya tiene factura o cobro
            se enseña bloqueado y no se puede borrar desde aquí (para eso están sus tres puntitos). #}
-        <div class="border rounded p-3 mb-3">
+        <div class="border rounded p-3 mb-3" id="forma-pago-cache">
           <div class="fw-semibold mb-2"><i class="fa fa-money-bill-transfer me-1 text-danger"></i>Forma de pago del caché</div>
           <div class="form-text mb-2">Reparte el caché en pagos: concepto, importe y fecha límite de cada uno.</div>
           <input type="hidden" name="payment_terms_present" value="1">
@@ -1362,7 +1376,10 @@
       {% endif %}
     </div>
 
-    {% endif %}{# /el bloque de colaboradores, cachés y entradas: solo si no es un concierto «vendido» #}
+    {# ⚠️⚠️ CACHÉS y ENTRADAS SE VEN SIEMPRE (bug real, sep 2026): estaban dentro del `if`
+       de «no vendido», así que en un concierto VENDIDO —que es justo el que tiene caché—
+       no se pintaban ni el módulo ni su formulario, y el aviso de «configura la forma de
+       pago» apuntaba a un formulario que no existía en la página: no hacía nada. #}
 
     {# ⚠️ LAS COMISIONES SE VEN SIEMPRE (antes solo si el concierto NO era «vendido», así que en la
        mayoría no se podían ni añadir). Cada una dice cómo se aplica: si es un GASTO sobre el caché

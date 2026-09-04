@@ -616,6 +616,13 @@ class Song(Base):
     version = Column(Text)
     duration_seconds = Column(Integer)
     tiktok_start_seconds = Column(Integer)
+    # EL LANZAMIENTO EN TIKTOK. Puede ser ANTES que el del single, así que tiene su propia fecha:
+    # ⚠️ `tiktok_release_date` a NULL = **el mismo día del lanzamiento** (es lo normal y lo que vale
+    #    por defecto). Solo cuando se pone otro día se avisa a Registros+Sello y entra en el plan.
+    tiktok_release_date = Column(Date)
+    tiktok_release_time = Column(Text)          # «HH:MM» (opcional)
+    tiktok_release_done_at = Column(DateTime(timezone=True))
+    tiktok_release_done_by = Column(Text)
     recording_date = Column(Date)
 
     # ISRCs avanzados (principal/subproductos) se guardan en song_isrc_codes,
@@ -7796,6 +7803,10 @@ def ensure_isrc_and_song_detail_schema():
                         ADD COLUMN IF NOT EXISTS version text,
                         ADD COLUMN IF NOT EXISTS duration_seconds integer,
                         ADD COLUMN IF NOT EXISTS tiktok_start_seconds integer,
+                        ADD COLUMN IF NOT EXISTS tiktok_release_date date,
+                        ADD COLUMN IF NOT EXISTS tiktok_release_time text,
+                        ADD COLUMN IF NOT EXISTS tiktok_release_done_at timestamptz,
+                        ADD COLUMN IF NOT EXISTS tiktok_release_done_by text,
                         ADD COLUMN IF NOT EXISTS recording_date date,
                         ADD COLUMN IF NOT EXISTS is_distribution boolean NOT NULL DEFAULT false,
                         ADD COLUMN IF NOT EXISTS master_ownership_pct numeric NOT NULL DEFAULT 100,

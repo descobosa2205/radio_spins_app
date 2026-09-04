@@ -458,7 +458,19 @@
                   <button type="button" class="btn btn-sm btn-outline-primary" data-edit-toggle="#songInfoForm">
                     <i class="fa fa-pen me-1"></i>Poner el género</button>
                 {% elif m.key == 'pitch' %}
-                  <a class="btn btn-sm btn-outline-primary" href="#pitch"><i class="fa fa-pen me-1"></i>Escribir el pitch</a>
+                  <a class="btn btn-sm btn-outline-primary" href="#pitch-zone"><i class="fa fa-pen me-1"></i>Escribir el pitch</a>
+                {% elif m.key == 'tiktok' %}
+                  {# Lo da por configurado quien es Registros y Sello (y dirección). #}
+                  <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            data-bs-toggle="modal" data-bs-target="#dpTikTokModal">
+                      <i class="fa fa-pen me-1"></i>Cambiar la fecha</button>
+                    <form method="post" action="{{ url_for('discografica_song_tiktok_save', song_id=song.id, done=1) }}" class="m-0">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <input type="hidden" name="next" value="{{ request.full_path }}">
+                      <button class="btn btn-sm btn-outline-primary"><i class="fa fa-check me-1"></i>Ya está configurado</button>
+                    </form>
+                  </div>
                 {% endif %}
               </div>
             </div>
@@ -1667,7 +1679,12 @@
       </script>
     {% endif %}
 
-  {% elif tab == 'materiales' %}
+      {# TIKTOK: el minuto de inicio y cuándo se lanza (parcial único, el mismo del proyecto). #}
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      {% with tiktok_song = song, tiktok = song_tiktok %}{% include '_tiktok_modal.html' %}{% endwith %}
+    {% endif %}
+
+{% elif tab == 'materiales' %}
 
     {# LA MAQUETA del proyecto que creó esta canción: se ve aquí MIENTRAS NO HAYA MÁSTERS. En cuanto
        se suben, esta función desaparece de los materiales y la maqueta se queda en Demos. #}

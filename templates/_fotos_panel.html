@@ -116,20 +116,27 @@
            ⚠️ Al subir fotos o vídeos se dice desde el principio dónde van: sueltas, en un ÁLBUM
            NUEVO (con su nombre) o dentro de uno que YA EXISTE, con las opciones a la vista. Antes
            había que subirlas y luego moverlas a mano. #}
-        <div class="mb-3" data-fotos-album>
+        {# ⚠️⚠️ EN LAS FOTOS DEL PROPIO ARTISTA EL ÁLBUM ES OBLIGATORIO: cada álbum suyo es un
+           BLOQUE PRINCIPAL de su pantalla de fotos (como lo es cada actividad), así que unas fotos
+           sin álbum no tendrían dónde salir. En una actividad sí se pueden dejar sueltas: su bloque
+           principal es la propia actividad. #}
+        {% set _album_obliga = fotos_ctx.owner_type == 'ARTIST' %}
+        <div class="mb-3" data-fotos-album {% if _album_obliga %}data-fa-required="1"{% endif %}>
           <label class="form-label fw-semibold">¿En qué álbum van?</label>
           <div class="row g-2">
+            {% if not _album_obliga %}
+              <div class="col-6 col-md-4">
+                <label class="marketing-option-card w-100">
+                  <input class="form-check-input visually-hidden" type="radio" name="fotos_album_mode"
+                         value="NONE" data-fa-mode checked>
+                  <i class="fa fa-images"></i>Sueltas
+                </label>
+              </div>
+            {% endif %}
             <div class="col-6 col-md-4">
               <label class="marketing-option-card w-100">
                 <input class="form-check-input visually-hidden" type="radio" name="fotos_album_mode"
-                       value="NONE" data-fa-mode checked>
-                <i class="fa fa-images"></i>Sueltas
-              </label>
-            </div>
-            <div class="col-6 col-md-4">
-              <label class="marketing-option-card w-100">
-                <input class="form-check-input visually-hidden" type="radio" name="fotos_album_mode"
-                       value="NEW" data-fa-mode>
+                       value="NEW" data-fa-mode {% if _album_obliga and not fotos_ctx.albums %}checked{% endif %}>
                 <i class="fa fa-folder-plus"></i>Álbum nuevo
               </label>
             </div>
@@ -137,18 +144,19 @@
               <div class="col-6 col-md-4">
                 <label class="marketing-option-card w-100">
                   <input class="form-check-input visually-hidden" type="radio" name="fotos_album_mode"
-                         value="EXISTING" data-fa-mode>
+                         value="EXISTING" data-fa-mode {% if _album_obliga %}checked{% endif %}>
                   <i class="fa fa-folder-open"></i>En uno que ya hay
                 </label>
               </div>
             {% endif %}
           </div>
-          <div class="mt-2 d-none" data-fa-new>
+          <div class="mt-2 {% if not (_album_obliga and not fotos_ctx.albums) %}d-none{% endif %}"
+               data-fa-new>
             <input type="text" class="form-control" id="fotosAlbumName"
                    placeholder="Nombre del álbum (por ejemplo «Sesión de prensa»)">
           </div>
           {% if fotos_ctx.albums %}
-            <div class="mt-2 d-none" data-fa-existing>
+            <div class="mt-2 {% if not _album_obliga %}d-none{% endif %}" data-fa-existing>
               <div class="row g-2">
                 {% for al in fotos_ctx.albums %}
                   <div class="col-6 col-md-4">
@@ -162,6 +170,10 @@
                 {% endfor %}
               </div>
             </div>
+          {% endif %}
+          {% if _album_obliga %}
+            <div class="form-text">Estas fotos no van a ninguna actividad, así que van en un álbum:
+              cada uno se ve como un bloque en la pantalla de fotos del artista.</div>
           {% endif %}
         </div>
 

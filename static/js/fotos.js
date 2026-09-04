@@ -34,6 +34,12 @@
   var mediaType = 'all';       // chip directo: all | photos | videos
   var showDiscarded = false;   // chip "Descartadas": incluye las fotos ocultas
   var currentAlbum = null;     // null = nivel del dueño (tarjetas de sub-álbum + sueltas); id = dentro de un álbum
+  // ⚠️ Si se llega con `?album=<id>` (desde la pantalla de fotos del artista, donde cada álbum suyo
+  // es un bloque), se abre ESE álbum directamente.
+  try {
+    var _al = new URLSearchParams(location.search).get('album');
+    if (_al) currentAlbum = _al;
+  } catch (e) {}
   var detailPhotoId = null;
   var bulkContext = { ids: [] };       // contexto de acciones en bloque / sobre álbum
 
@@ -1098,6 +1104,20 @@
 
   function doUpload() {
     if (!pending.length) return;
+    // ⚠️ En las fotos del propio artista el ÁLBUM es obligatorio: cada álbum suyo es un bloque de
+    // su pantalla de fotos, así que sin álbum no tendrían dónde salir. Lo vuelve a comprobar el
+    // servidor (esconder la opción «Sueltas» no basta).
+    var cajaAl = document.querySelector('[data-fotos-album][data-fa-required]');
+    if (cajaAl) {
+      var el = albumChoice();
+      if (el.mode === 'NONE') { alert('Elige un álbum o crea uno nuevo.'); return; }
+      if (el.mode === 'NEW' && !el.name) {
+        alert('Ponle nombre al álbum.');
+        var n = document.getElementById('fotosAlbumName'); if (n) n.focus();
+        return;
+      }
+      if (el.mode === 'EXISTING' && !el.id) { alert('Elige el álbum.'); return; }
+    }
     var ph = uploadPicker.value();
     var bar = document.getElementById('fotosProgressBar'), pct = document.getElementById('fotosProgressPct');
     document.getElementById('fotosProgress').classList.remove('d-none');

@@ -113128,16 +113128,33 @@ def _build_artist_fotos_groups(session_db, artist_id):
         "name": (getattr(artist, "name", None) or "").strip(),
         "photo_url": (getattr(artist, "photo_url", None) or ""),
     } if artist else None
+    # ⚠️⚠️ LOS BLOQUES PRINCIPALES SON: cada ACTIVIDAD (concierto, acción, proyecto…) y **cada
+    # ÁLBUM de las fotos que se subieron sueltas al artista**. Antes todo lo que no era un concierto
+    # se metía en UN bloque tratado como «acción» —así que las sueltas salían dentro de una acción
+    # que no existe— y sus álbumes quedaban escondidos dentro. Ahora cada álbum del propio artista
+    # es su propio bloque; los sub-álbumes de una actividad siguen dentro de ella, como estaban.
+    album_de = {}
+    if any((p.owner_type or "").upper() == "ARTIST" for p in photos):
+        for aid_, pid_ in (session_db.query(PhotoAlbumItem.album_id, PhotoAlbumItem.photo_id)
+                           .join(PhotoAlbum, PhotoAlbum.id == PhotoAlbumItem.album_id)
+                           .filter(PhotoAlbum.owner_type == "ARTIST",
+                                   PhotoAlbum.owner_id == aid).all()):
+            album_de.setdefault(str(pid_), str(aid_))
     groups, order = {}, []
     for p in photos:
-        key = (p.owner_type, p.owner_id)
+        if (p.owner_type or "").upper() == "ARTIST":
+            # Cada álbum, su bloque; lo que no está en ninguno, el bloque «sin álbum».
+            key = ("ARTIST", p.owner_id, album_de.get(str(p.id), ""))
+        else:
+            key = (p.owner_type, p.owner_id, "")
         if key not in groups:
             groups[key] = []
             order.append(key)
         groups[key].append(p)
     out = []
-    for (ot, oid) in order:
-        plist = groups[(ot, oid)]
+    for clave in order:
+        ot, oid, album_pk = clave
+        plist = groups[clave]
         owner, _art, title = _photo_resolve_owner(session_db, ot, oid)
         if not owner:
             continue
@@ -113150,6 +113167,16 @@ def _build_artist_fotos_groups(session_db, artist_id):
             event_name = (getattr(owner, "festival_name", None) or "").strip()
             city = _concert_city(owner)
             province = _concert_province_value(owner)
+        elif ot == "ARTIST":
+            # Un ÁLBUM del propio artista (fotos que no van a ninguna actividad).
+            al = session_db.get(PhotoAlbum, _safe_uuid(album_pk)) if album_pk else None
+            type_label = "Álbum"
+            type_icon = "fa-layer-group"
+            event_name = (al.name if al is not None else "Sin álbum")
+            title = event_name
+            city = province = ""
+            d = getattr(al, "created_at", None) if al is not None else None
+            d = d.date() if hasattr(d, "date") else d
         else:
             akey = (getattr(owner, "action_type", None) or "").strip().upper()
             type_label = ACTION_TYPE_LABELS.get(akey, akey.replace("_", " ").title() or "Acción")
@@ -113159,7 +113186,7 @@ def _build_artist_fotos_groups(session_db, artist_id):
             _venue = getattr(owner, "venue", None)
             city = (getattr(_venue, "municipality", None) or _snap.get("city") or "").strip()
             province = (getattr(_venue, "province", None) or _snap.get("province") or "").strip()
-        albums = (
+        albums = [] if ot == "ARTIST" else (
             session_db.query(PhotoAlbum)
             .filter(PhotoAlbum.owner_type == ot, PhotoAlbum.owner_id == oid)
             .order_by(PhotoAlbum.sort_order.asc())
@@ -113203,7 +113230,9 @@ def _build_artist_fotos_groups(session_db, artist_id):
             "photo_count": sum(1 for p in plist if not _pv(p)),
             "cover_url": _cover_url_val,
             "cover_is_video": _cover_is_video,
-            "url": _photo_owner_url(ot.lower(), str(oid)),
+            "url": (_photo_owner_url(ot.lower(), str(oid))
+                    + (("?album=" + album_pk) if (ot == "ARTIST" and album_pk) else "")),
+            "album_id": album_pk,
             "albums": album_summ,
             "thumbs": [p.file_url for p in plist[:8]],
             # solo fotos (para la tira de miniaturas de foto, separada de la de vídeo)
@@ -115176,6 +115205,12 @@ def _fotos_album_from_form(session_db, form, owner_type, owner, *, state=None):
     · EXISTING  → uno que YA existe (se comprueba que es de ESE dueño: el id viaja en el formulario).
     Devuelve el álbum o None."""
     modo = (form.get("album_mode") or "").strip().upper()
+    # ⚠️⚠️ EN LAS FOTOS DEL PROPIO ARTISTA el álbum es OBLIGATORIO: cada uno es un bloque principal
+    # de su pantalla de fotos, así que unas sueltas no tendrían dónde salir. Si no se dice nada, se
+    # crea uno con la fecha en vez de dejarlas huérfanas (el formulario ya lo exige; esto es la red
+    # de seguridad de un POST que no lo traiga).
+    if (owner_type or "").upper() == "ARTIST" and modo not in ("NEW", "EXISTING"):
+        modo = "NEW"
     if modo == "EXISTING":
         al = session_db.get(PhotoAlbum, _safe_uuid(form.get("album_id")))
         if al is not None and al.owner_type == owner_type and str(al.owner_id) == str(owner.id):

@@ -64,7 +64,11 @@
       {% if CURRENT_USER %}data-autosave="1"
       {# ORDENAR LAS PESTAÑAS: lo que cada uno se ha colocado, y dónde se guarda. #}
       data-ui-order='{{ (UI_ORDER or {})|tojson|forceescape }}'
-      data-ui-order-url="{{ url_for('ui_order_save') }}"{% endif %}
+      data-ui-order-url="{{ url_for('ui_order_save') }}"
+      {# ⚠️ La PÁGINA forma parte de la clave del orden, y tiene que ser estable: si la clave
+         dependiera de las pestañas que hay, añadir una mañana borraría el orden que puso la
+         persona. Con el endpoint, una pestaña nueva simplemente se coloca al final. #}
+      data-ui-page="{{ request.endpoint or '' }}"{% endif %}
       {% if FORM_ERROR_PAYLOAD %}data-form-rechazado='{{ FORM_ERROR_PAYLOAD|forceescape }}'{% endif %}>
 {# Loader global: iconos musicales animados (colores corporativos) + barra de carga. La barra va
    en modo «barrido» continuo mientras se piensa y pasa a PORCENTAJE REAL en las subidas de

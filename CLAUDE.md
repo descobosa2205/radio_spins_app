@@ -9434,9 +9434,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pestañas de una FICHA (`ul.ficha-tabs`), las SUBPESTAÑAS de una sección (`ul.contract-tabs` y
   `ul.nav-tabs`, que es lo que usan Producción, Registros…) y lo que se marque con `data-sortable`.
   Se guarda en `UserProfile.ui_order` (`ui_order_save`, en `PERSONAL_ENDPOINTS`).
-  ⚠️⚠️ **La CLAVE de cada grupo es la huella de las pestañas QUE HAY** (sus destinos, ordenados): así
-  dos grupos distintos no comparten orden y, si mañana se añade una pestaña, la clave cambia y se
-  vuelve al orden natural — **una pestaña nueva nunca queda escondida**.
+  ⚠️⚠️ **La CLAVE de cada grupo tiene que ser ESTABLE aunque cambien las pestañas**: se compone con
+  la PÁGINA (`request.endpoint`, que emite el servidor en `data-ui-page`), la clase del grupo y su
+  posición entre los de esa clase. Si dependiera de las pestañas que hay —su huella—, **añadir una
+  mañana borraría el orden que puso la persona**, que es justo lo que no se quiere.
+  ⚠️ Una pestaña NUEVA se coloca **AL FINAL** y el orden elegido se mantiene: `aplica()` pone
+  primero las que están en el orden guardado y detrás las que no estaban, en su orden natural. Una
+  que desaparezca simplemente no se pinta.
   ⚠️ Se arrastra con eventos de PUNTERO (no el arrastre nativo de HTML5): dentro de una pestaña hay
   enlaces que tienen que seguir funcionando y, con el dedo, el HTML5 no va.
   ⚠️ Mientras se ordena, el clic de una pestaña NO navega (si no, arrastrar cambiaría de pestaña):

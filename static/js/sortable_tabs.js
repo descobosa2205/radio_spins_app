@@ -44,21 +44,38 @@
     return v.replace(/\s+/g, ' ').slice(0, 60);
   }
 
-  /* La clave del GRUPO: la huella de las pestañas que tiene (ordenadas), para que dos grupos
-     distintos no compartan orden y una pestaña nueva devuelva el orden natural. */
+  /* La clave del GRUPO. ⚠️⚠️ Tiene que ser ESTABLE aunque cambien las pestañas: si dependiera de
+     ellas, añadir una mañana cambiaría la clave y **se perdería el orden que puso la persona**.
+     Se compone con la PÁGINA (el endpoint, que emite el servidor), la clase distintiva del grupo y
+     su posición entre los de esa clase, que no cambian al añadir una pestaña. */
+  var PAGINA = (document.body && document.body.getAttribute('data-ui-page')) || '';
+
   function claveDe(grupo) {
     var propia = grupo.getAttribute('data-sortable');
     if (propia) return 'tabs:' + propia;
-    var ids = items(grupo).map(idDe).slice().sort();
-    return 'tabs:' + ids.join('|').slice(0, 110);
+    var clase = 'nav';
+    ['ficha-tabs', 'contract-tabs', 'nav-tabs'].forEach(function (c) {
+      if (grupo.classList.contains(c) && clase === 'nav') clase = c;
+    });
+    var hermanos = Array.prototype.slice.call(document.querySelectorAll('ul.' + clase));
+    var i = hermanos.indexOf(grupo);
+    return 'tabs:' + PAGINA + ':' + clase + ':' + (i < 0 ? 0 : i);
   }
 
+  /* Aplica el orden guardado. ⚠️ Lo que NO estaba guardado (una pestaña NUEVA) se queda AL FINAL,
+     en su orden natural: el orden que puso la persona se mantiene y lo nuevo se añade detrás. */
   function aplica(grupo) {
     var orden = GUARDADO[claveDe(grupo)];
     if (!orden || !orden.length) return;
-    var mapa = {};
+    var mapa = {}, conocidas = {};
     items(grupo).forEach(function (el) { mapa[idDe(el)] = el; });
-    orden.forEach(function (id) { if (mapa[id]) grupo.appendChild(mapa[id]); });
+    orden.forEach(function (id) {
+      if (mapa[id]) { grupo.appendChild(mapa[id]); conocidas[id] = true; }
+    });
+    // Las que no estaban en el orden guardado: al final, como estaban entre ellas.
+    items(grupo).forEach(function (el) {
+      if (!conocidas[idDe(el)]) grupo.appendChild(el);
+    });
   }
 
   function guarda(grupo) {

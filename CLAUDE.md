@@ -9509,3 +9509,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Del menú personal desaparecen **«Ordenar mi menú»** y **«Ordenar mi inicio»**: se hace
   manteniendo pulsado. El modal del menú se conserva porque es lo que abre ese gesto (y es quien
   guarda `menu_order`, la única verdad del orden del menú).
+
+- ⚠️⚠️⚠️ **UN BOTÓN DENTRO DE UNA ZONA `data-inline-zone` NECESITA DELEGACIÓN** (bug real repetido,
+  sep 2026). «Subir factura» del plan de facturación **no hacía nada**: su handler era un
+  `document.querySelectorAll('.trigger-invoice-upload').forEach(… addEventListener …)`, que engancha
+  los botones **que existen al cargar**. Ese plan vive dentro de `#concert-general-zone`, que se
+  **REEMPLAZA por AJAX** al guardar cualquier sección: los botones del HTML nuevo se quedan sin
+  listener y el clic no hace nada, **sin ningún error en la consola**. Es la misma trampa que ya
+  mató el gestor de géneros de la ficha de canción.
+  · **La regla**: dentro de una zona que se repinta, **siempre delegación en `document`**
+  (`document.addEventListener('click', ev => ev.target.closest('.x') && …)`), nunca listeners
+  pegados a los nodos.
+  · **Y HAY UNA COMPROBACIÓN QUE LO BUSCA SOLO: `python3 tools/check_botones.py`**. Encuentra las
+  tres formas que hemos tenido de dejar un botón muerto:
+    1. **destino muerto** — `data-bs-target` / `data-edit-toggle` / `data-view` /
+       `data-inline-target` / `href="#x"` que apuntan a un id que no existe (así salió el botón de
+       «configura la forma de pago», que apuntaba a un formulario que en un concierto VENDIDO ni se
+       pintaba, y el `href="#pitch"` de la ficha de canción);
+    2. **handler que muere al repintar** — un `querySelectorAll(...).addEventListener` que engancha
+       algo que está DENTRO de una zona `data-inline-zone` (esto);
+    3. **función inexistente** — un `onclick="loQueSea(…)"` que no está definida en ningún `.js` ni
+       en la propia plantilla (así estuvo «Compartir LC» sin hacer nada).
+  · Distingue **botón muerto** (el id no existe en NINGUNA plantilla: seguro) de **AVISO** (existe en
+  otra: puede ser un include condicional), y **solo falla** con los muertos, para que se pueda dejar
+  en CI. Los parciales (`_x.html`) no se revisan sueltos: se revisan al pegarlos en su página.
+  · **Al tocar plantillas, pasarla**: hoy quedan **0 botones muertos** (los cuatro que encontró
+  —copiar en la ficha de empresa, probar Cabify y los dos de Registros— están arreglados).

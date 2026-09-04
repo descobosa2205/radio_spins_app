@@ -326,11 +326,14 @@
       window.prompt('Copia esto:', text);
     }
   }
-  document.querySelectorAll('[data-copy-target]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      var el = document.querySelector(btn.getAttribute('data-copy-target'));
-      if (el) copyText(el.value || el.textContent || '', btn);
-    });
+  /* ⚠️ POR DELEGACIÓN en `document`: esto vive dentro de una zona `data-inline-zone`, que se
+     REEMPLAZA por AJAX al guardar. Con listeners pegados a los nodos, los botones del HTML
+     nuevo se quedan MUERTOS («pinchas y no hace nada»). */
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest && ev.target.closest('[data-copy-target]');
+    if (!btn) return;
+    var el = document.querySelector(btn.getAttribute('data-copy-target'));
+    if (el) copyText(el.value || el.textContent || '', btn);
   });
 
   /* ---- Generar el código de inserción y copiarlo de una vez ---- */

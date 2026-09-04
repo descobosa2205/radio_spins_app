@@ -1608,8 +1608,12 @@ document.addEventListener('DOMContentLoaded', function () {
 <script>
 /* «Probar conexión» de Cabify: además de validar las claves, el servidor busca la URL de la API
    (que Cabify no publica) y la guarda. Aquí solo se cuenta el resultado. */
-document.querySelectorAll('.js-cabify-test').forEach(function (btn) {
-  btn.addEventListener('click', function () {
+/* ⚠️ POR DELEGACIÓN en `document`: esto vive dentro de una zona `data-inline-zone` (las pestañas
+   de Integraciones se refrescan por AJAX), y con el listener pegado al botón, el del HTML nuevo se
+   queda MUERTO. */
+document.addEventListener('click', function (ev) {
+  var btn = ev.target.closest && ev.target.closest('.js-cabify-test');
+  if (btn) {
     var msg = btn.parentElement.querySelector('[data-cabify-test-msg]');
     var meta = document.querySelector('meta[name="csrf-token"]');
     btn.disabled = true;
@@ -1634,7 +1638,7 @@ document.querySelectorAll('.js-cabify-test').forEach(function (btn) {
         btn.disabled = false;
         if (msg) { msg.className = 'small align-self-center text-danger'; msg.textContent = 'Error de conexión'; }
       });
-  });
+  }
 });
 
 /* Buscadores de las listas de Chartmetric: filtran NUESTRAS filas (canciones y álbumes) sin recargar.

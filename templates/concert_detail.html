@@ -4112,21 +4112,25 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   });
 
-  document.querySelectorAll('.trigger-invoice-upload').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const form = btn.closest('.invoice-upload-form');
-      if (!form) return;
-      const input = form.querySelector('.invoice-file-input');
-      if (input) input.click();
-    });
+  /* ⚠️⚠️ POR DELEGACIÓN EN `document`, no enganchando los botones que hay al cargar: el plan de
+     facturación vive dentro de `#concert-general-zone`, que se REEMPLAZA por AJAX al guardar
+     cualquier sección. Con listeners pegados a los nodos, los botones del HTML nuevo se quedan
+     MUERTOS y «pinchas y no hace nada» (bug real, sep 2026). Es la misma regla que ya obligó a
+     sacar el gestor de géneros de la zona inline de la ficha de canción. */
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest && ev.target.closest('.trigger-invoice-upload');
+    if (!btn) return;
+    var form = btn.closest('.invoice-upload-form');
+    if (!form) return;
+    var input = form.querySelector('.invoice-file-input');
+    if (input) input.click();
   });
 
-  document.querySelectorAll('.invoice-file-input').forEach(function(input){
-    input.addEventListener('change', function(){
-      if (input.files && input.files.length) {
-        input.closest('form').submit();
-      }
-    });
+  document.addEventListener('change', function (ev) {
+    var input = ev.target.closest && ev.target.closest('.invoice-file-input');
+    if (!input || !input.files || !input.files.length) return;
+    var form = input.closest('form');
+    if (form) form.submit();
   });
 
   // «Editar ficha»: pone TODA la ficha de contratación en modo edición inline a la vez

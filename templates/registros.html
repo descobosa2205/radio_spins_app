@@ -402,15 +402,19 @@
         declZone.classList.toggle('is-set', !!f);
       });
     }
-    document.querySelectorAll('[data-decl-upload]').forEach(function(btn){
-      btn.addEventListener('click', function(){
+  /* ⚠️ POR DELEGACIÓN en `document`: esto vive dentro de una zona `data-inline-zone`, que se
+     REEMPLAZA por AJAX al guardar. Con listeners pegados a los nodos, los botones del HTML
+     nuevo se quedan MUERTOS («pinchas y no hace nada»). */
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('[data-decl-upload]');
+      if (btn) {
         declForm.setAttribute('action', btn.getAttribute('data-decl-url') || '');
         document.getElementById('declSignedWhat').textContent = btn.getAttribute('data-decl-title') || '';
         if(declFile) declFile.value = '';
         if(declName) declName.textContent = '';
         if(declZone) declZone.classList.remove('is-set');
         bootstrap.Modal.getOrCreateInstance(document.getElementById('declSignedModal')).show();
-      });
+      }
     });
   }
 
@@ -447,8 +451,12 @@
     btnYes.disabled = !hay;
   }
 
-  document.querySelectorAll('[data-sgae-register]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
+  /* ⚠️ POR DELEGACIÓN en `document`: esto vive dentro de una zona `data-inline-zone`, que se
+     REEMPLAZA por AJAX al guardar. Con listeners pegados a los nodos, los botones del HTML
+     nuevo se quedan MUERTOS («pinchas y no hace nada»). */
+  document.addEventListener('click', async function (ev) {
+    var btn = ev.target.closest && ev.target.closest('[data-sgae-register]');
+    if (btn) {
       btn.disabled = true;
       try {
         var res = await fetch(btn.getAttribute('data-register-url'), {
@@ -477,7 +485,7 @@
         alert('No se pudo marcar el registro en SGAE.');
         btn.disabled = false;
       }
-    });
+    }
   });
 
   // Decir «no» no deshace nada: la obra se queda registrada.

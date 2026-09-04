@@ -38,6 +38,8 @@
 <ul class="nav nav-tabs mb-4">
   <li class="nav-item"><a class="nav-link {% if tab == 'informacion' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='informacion') }}">Información</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'acciones' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='acciones') }}">Acciones</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'materiales' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='materiales') }}"><i class="fa fa-photo-film me-1"></i>Materiales</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'testigos' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='testigos') }}"><i class="fa fa-clipboard-check me-1"></i>Testigos</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'hoja_ruta' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='hoja_ruta') }}">Hoja de ruta</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'gastos' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='gastos') }}">Gastos / facturas</a></li>
 </ul>
@@ -72,6 +74,44 @@
     </div>
   </div>
 {% elif tab == 'acciones' %}
+  {# ⚠️⚠️ LA CAMPAÑA NO SE ARCHIVA HASTA QUE ESTÁ CERRADA: los testigos subidos y la factura
+     consolidada de cada acción (o gasto 0). Aquí se dice qué falta y desde dónde se hace. #}
+  {% if marketing_close and marketing_close.rows %}
+    {% if marketing_close.ready %}
+      {% if promotion.status != 'ARCHIVED' %}
+        <div class="alert alert-success d-flex align-items-center gap-2 flex-wrap">
+          <i class="fa fa-check-circle"></i>
+          <span class="flex-grow-1">No queda nada pendiente en esta campaña.</span>
+          {% if can_edit_promocion %}
+            <form method="post" action="{{ url_for('promotion_archive_toggle', promotion_id=promotion.id) }}" class="m-0"
+                  data-confirm="¿Archivar la campaña?">
+              <input type="hidden" name="next" value="{{ request.url }}">
+              <button class="btn btn-sm btn-success"><i class="fa fa-box-archive me-1"></i>Archivar campaña</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="alert alert-warning">
+        <div class="d-flex align-items-center gap-2">
+          <i class="fa fa-triangle-exclamation"></i>
+          <strong>Falta {{ marketing_close.missing_label }} para poder cerrar la campaña.</strong>
+        </div>
+        <ul class="mb-0 mt-2 small">
+          {% for r in marketing_close.rows %}
+            {% if not r.state.ready %}
+              <li>{{ r.label }} —
+                {% if r.state.needs_witness %}<a href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='testigos') }}">subir los testigos</a>{% endif %}
+                {% if r.state.needs_witness and r.state.needs_invoice %} · {% endif %}
+                {% if r.state.needs_invoice %}subir la factura y consolidar el gasto{% endif %}
+                {% if not r.state.finished %}todavía no ha terminado{% endif %}
+              </li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  {% endif %}
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
       <h5 class="mb-0">Acciones de marketing</h5>
@@ -107,7 +147,12 @@
                     <div class="flex-grow-1">
                       <div class="d-flex gap-2 align-items-center flex-wrap">
                         <div class="fw-semibold">{{ row.media.name if row.media else (target.media_name_fallback or target.platform or target.digital_platform or target.city or group.label) }}</div>
-                        <span class="badge {{ status.class }}">{{ status.label }}</span>
+                        {% if row.cancelled_at %}
+                          <span class="badge text-bg-dark" title="Cancelada{% if row.cancel_reason %}: {{ row.cancel_reason }}{% endif %}{% if row.cancelled_by_nick %} · {{ row.cancelled_by_nick }}{% endif %}">
+                            <i class="fa fa-ban me-1"></i>Cancelada</span>
+                        {% else %}
+                          <span class="badge {{ status.class }}">{{ status.label }}</span>
+                        {% endif %}
                         <span class="badge text-bg-light border">{{ row.document_type or 'FACTURA' }}</span>
                         {% if row.consolidation_status == 'CONSOLIDADO' %}<span class="badge text-bg-success">Consolidada</span>{% else %}<span class="badge text-bg-secondary">Sin consolidar</span>{% endif %}
                       </div>
@@ -163,6 +208,12 @@
                       {% if row.bag_expense_id and promotion.bag_id %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#paymentActionModal{{ row.id }}" type="button">Solicitar pago inmediato</button></li>{% endif %}
                       <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#noInvoiceActionModal{{ row.id }}" type="button">Marcar sin ticket o factura</button></li>
                       <li><hr class="dropdown-divider"></li>
+                      {% if row.cancelled_at %}
+                        <li><form method="post" action="{{ url_for('marketing_action_cancel', promotion_id=promotion.id, activity_id=row.id) }}"><input type="hidden" name="next" value="{{ request.url }}"><input type="hidden" name="undo" value="1"><button class="dropdown-item">Volver a activarla</button></form></li>
+                      {% else %}
+                        <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#cancelActionModal{{ row.id }}">Cancelar acción</button></li>
+                      {% endif %}
+                      <li><hr class="dropdown-divider"></li>
                       <li><form method="post" action="{{ url_for('marketing_action_delete', promotion_id=promotion.id, activity_id=row.id) }}" onsubmit="return confirm('¿Eliminar esta acción?');"><input type="hidden" name="next" value="{{ request.url }}"><button class="dropdown-item text-danger">Eliminar acción</button></form></li>
                     </ul>
                   </div>
@@ -176,6 +227,45 @@
                 <div class="modal fade" id="paymentActionModal{{ row.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" action="{{ url_for('bag_expense_request_payment', bag_id=promotion.bag_id, expense_id=row.bag_expense_id) }}"><input type="hidden" name="next" value="{{ request.url }}"><div class="modal-header"><h5 class="modal-title">Solicitar pago inmediato</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body row g-3"><div class="col-12"><label class="form-label">Motivo</label><input class="form-control" name="reason"></div><div class="col-md-6"><label class="form-label">Importe</label><select class="form-select" name="amount_mode"><option value="TOTAL">Completo</option><option value="PERCENT">Porcentaje</option><option value="AMOUNT">Importe concreto</option></select></div><div class="col-md-3"><label class="form-label">%</label><input class="form-control" name="percent" type="number" step="0.01"></div><div class="col-md-3"><label class="form-label">Importe</label><input class="form-control" name="amount" type="number" step="0.01"></div><div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="send_receipt" value="1"> Enviar justificante al tercero</label></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Solicitar</button></div></form></div></div>
               {% endif %}
               <div class="modal fade" id="splitActionModal{{ row.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" action="{{ url_for('marketing_action_update', promotion_id=promotion.id, activity_id=row.id) }}"><input type="hidden" name="next" value="{{ request.url }}"><input type="hidden" name="action_type" value="{{ row.action_type or group.key }}"><input type="hidden" name="start_date" value="{{ row.activity_date.isoformat() if row.activity_date else '' }}"><input type="hidden" name="amount_net" value="{{ row.amount_net or 0 }}"><input type="hidden" name="amount_tax" value="{{ row.amount_tax or 0 }}"><input type="hidden" name="amount_gross" value="{{ row.amount_gross or 0 }}"><div class="modal-header"><h5 class="modal-title">Dividir gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><label class="form-label">Reparto</label><select class="form-select" name="allocation_mode"><option value="SOURCE">No asignar a nada más</option><option value="SPLIT_ACTIVITIES">Repartir con otras actividades</option><option value="ARTIST_INVESTMENT">Aplicar a inversión artista</option></select><label class="form-label mt-3">Detalle del reparto</label><textarea class="form-control" name="allocation_note" rows="3">{{ (row.allocation_json or [])|tojson }}</textarea></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar reparto</button></div></form></div></div>
+              {# CANCELAR: la acción no se ha hecho. Se pregunta si hubo ALGÚN gasto, porque de eso
+                 depende que su gasto salga de la bolsa o haya que consolidarlo antes. #}
+              <div class="modal fade" id="cancelActionModal{{ row.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog"><form class="modal-content" method="post"
+                      action="{{ url_for('marketing_action_cancel', promotion_id=promotion.id, activity_id=row.id) }}">
+                  <input type="hidden" name="next" value="{{ request.url }}">
+                  <div class="modal-header"><h5 class="modal-title">Cancelar la acción</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                  <div class="modal-body">
+                    <p class="mb-2">No se ha hecho, así que se archiva y <strong>no aparecerá en la
+                      ficha de la actividad ni del artista</strong>.</p>
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">¿Ha habido algún gasto?</label>
+                      <div class="row g-2">
+                        <div class="col-6">
+                          <label class="marketing-option-card w-100">
+                            <input type="radio" name="had_expense" value="" checked>
+                            <i class="fa fa-ban"></i>No, ninguno
+                          </label>
+                        </div>
+                        <div class="col-6">
+                          <label class="marketing-option-card w-100">
+                            <input type="radio" name="had_expense" value="1">
+                            <i class="fa fa-receipt"></i>Sí, hubo gasto
+                          </label>
+                        </div>
+                      </div>
+                      <div class="form-text">Sin gasto, el que esté configurado se quita de la bolsa.
+                        Si hubo gasto, hay que subirlo y consolidarlo antes de cancelarla.</div>
+                    </div>
+                    <label class="form-label">¿Por qué se cancela?</label>
+                    <input class="form-control" name="reason" placeholder="Opcional">
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Dejarlo</button>
+                    <button class="btn btn-danger">Cancelar la acción</button>
+                  </div>
+                </form></div>
+              </div>
               <div class="modal fade" id="editActionModal{{ row.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><form class="modal-content" method="post" enctype="multipart/form-data" action="{{ url_for('marketing_action_update', promotion_id=promotion.id, activity_id=row.id) }}"><input type="hidden" name="next" value="{{ request.url }}"><div class="modal-header"><h5 class="modal-title">Editar acción</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">{% set edit_row = row %}{% include 'marketing_action_form_fields.html' ignore missing %}</div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar cambios</button></div></form></div></div>
             {% endfor %}
           </div>
@@ -190,6 +280,9 @@
   {% if can_edit_promocion %}
   <div class="modal fade" id="marketingActionModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><form class="modal-content" method="post" enctype="multipart/form-data" action="{{ url_for('promotion_activity_create', promotion_id=promotion.id) }}"><input type="hidden" name="next" value="{{ request.url }}"><div class="modal-header"><h5 class="modal-title">Nueva acción de marketing</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">{% include 'marketing_action_form_fields.html' ignore missing %}</div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Añadir acción</button></div></form></div></div>
   {% endif %}
+{% elif tab in ('materiales', 'testigos') %}
+  {% if marketing_files %}{% include '_marketing_files.html' %}{% endif %}
+
 {% elif tab == 'hoja_ruta' %}
   {% include "_roadmap_panel.html" %}
 {% else %}

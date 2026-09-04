@@ -1,0 +1,179 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   MATERIALES o TESTIGOS de una campaña de marketing (el mismo panel para los dos).
+
+   · MATERIALES = lo que hace falta para hacer la acción. Se suben o se le PIDEN A DISEÑO, que
+     funciona como cualquier otra petición a diseño: le llega su aviso y lo que sube queda
+     vinculado a la acción.
+   · TESTIGOS = la prueba de que se hizo (fotos, audios, certificados de emisión).
+
+   Recibe `marketing_files` (de `_marketing_files_context`).
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% set mf = marketing_files %}
+{% set es_testigo = mf.kind == 'TESTIGO' %}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h5 class="mb-0">
+      <i class="fa {{ 'fa-clipboard-check' if es_testigo else 'fa-photo-film' }} me-1 text-danger"></i>
+      {{ mf.label }}</h5>
+    <div class="small text-muted">
+      {% if es_testigo %}La prueba de que la campaña se hizo: fotos, audios, certificados de emisión…
+      {% else %}Lo que hace falta para hacer las acciones: cuñas, banners, artes…{% endif %}
+    </div>
+  </div>
+  {% if can_edit_promocion %}
+    <div class="d-flex gap-2">
+      {% if not es_testigo %}
+        <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#mktDesignModal">
+          <i class="fa fa-pen-ruler me-1"></i>Solicitar diseños</button>
+      {% endif %}
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#mktUploadModal">
+        <i class="fa fa-upload me-1"></i>Subir {{ 'testigos' if es_testigo else 'materiales' }}</button>
+    </div>
+  {% endif %}
+</div>
+
+{# LO QUE SE LE HA PEDIDO A DISEÑO y sigue esperando. #}
+{% if mf.design_requests %}
+  <div class="sim-cat-card mb-3">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <i class="fa fa-pen-ruler text-danger"></i><strong>Pedido a diseño</strong>
+    </div>
+    <ul class="list-group list-group-flush">
+      {% for r in mf.design_requests %}
+        <li class="list-group-item d-flex align-items-center gap-2 flex-wrap px-0">
+          <span class="badge text-bg-{{ 'success' if r.status == 'ENTREGADA' else 'warning' }}">
+            {{ 'Entregado' if r.status == 'ENTREGADA' else 'Pendiente' }}</span>
+          {% if r.activity_label %}<span class="small text-muted">{{ r.activity_label }}</span>{% endif %}
+          <span class="flex-grow-1">{{ r.note }}</span>
+          {% if r.due %}<span class="small text-muted"><i class="fa fa-clock me-1"></i>{{ r.due }}{% if r.days_left %} · {{ r.days_left }}{% endif %}</span>{% endif %}
+          {% if r.by %}<span class="small text-muted">Lo pidió {{ r.by }}</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+{% if mf.rows %}
+  <div class="row g-3">
+    {% for f in mf.rows %}
+      <div class="col-6 col-md-4 col-lg-3">
+        <div class="border rounded-3 overflow-hidden h-100 bg-white">
+          {# La miniatura: la imagen, el póster del vídeo o el icono de lo que sea. #}
+          <div class="position-relative bg-light d-flex align-items-center justify-content-center"
+               style="height:130px;cursor:pointer"
+               data-viewer-src="{{ f.url }}" data-viewer-kind="{{ f.media_kind }}"
+               data-viewer-name="{{ f.name }}" data-viewer-download="{{ f.url }}"
+               data-viewer-set="mktfiles" {% if f.poster %}data-viewer-poster="{{ f.poster }}"{% endif %}>
+            {% if f.media_kind == 'IMAGE' %}
+              <img src="{{ f.url }}" alt="" style="width:100%;height:100%;object-fit:cover">
+            {% elif f.media_kind == 'VIDEO' %}
+              {% if f.poster %}<img src="{{ f.poster }}" alt="" style="width:100%;height:100%;object-fit:cover">{% endif %}
+              <span class="position-absolute top-50 start-50 translate-middle badge bg-dark bg-opacity-75">
+                <i class="fa fa-play"></i></span>
+            {% elif f.media_kind == 'AUDIO' %}
+              <i class="fa fa-file-audio fs-2 text-muted"></i>
+            {% else %}
+              <i class="fa fa-file-lines fs-2 text-muted"></i>
+            {% endif %}
+          </div>
+          <div class="p-2">
+            <div class="small fw-semibold text-truncate" title="{{ f.name }}">{{ f.name }}</div>
+            {% if f.activity_label %}<div class="small text-muted text-truncate">{{ f.activity_label }}</div>{% endif %}
+            {% if f.note %}<div class="small text-muted text-truncate" title="{{ f.note }}">{{ f.note }}</div>{% endif %}
+            <div class="d-flex align-items-center gap-2 mt-1">
+              <span class="small text-muted flex-grow-1">{{ f.at }}{% if f.by %} · {{ f.by }}{% endif %}</span>
+              {% if f.from_design %}<span class="badge text-bg-light border" title="Lo subió diseño">
+                <i class="fa fa-pen-ruler"></i></span>{% endif %}
+              <a href="{{ f.url }}" class="btn btn-sm btn-outline-secondary" download
+                 title="Descargar"><i class="fa fa-download"></i></a>
+              {% if can_edit_promocion %}
+                <form method="post" class="m-0"
+                      action="{{ url_for('marketing_file_delete', promotion_id=promotion.id, file_id=f.id) }}"
+                      data-confirm="¿Eliminar «{{ f.name }}»?">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="alert alert-light border">
+    {% if es_testigo %}Todavía no hay testigos de esta campaña.
+    {% else %}Todavía no hay materiales. Súbelos o pídeselos a diseño.{% endif %}
+  </div>
+{% endif %}
+
+{% if can_edit_promocion %}
+  {# SUBIR: se arrastran o se eligen, y se puede decir de qué acción son. #}
+  <div class="modal fade" id="mktUploadModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog"><form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('marketing_file_upload', promotion_id=promotion.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="kind" value="{{ mf.kind }}">
+      <div class="modal-header"><h5 class="modal-title">
+        Subir {{ 'testigos' if es_testigo else 'materiales' }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label">¿De qué acción son?</label>
+          <select class="form-select" name="activity_id">
+            <option value="">De la campaña en general</option>
+            {% for a in mf.actions %}<option value="{{ a.id }}">{{ a.label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-2" data-file-drop-for="#mktFiles">
+          <label class="form-label">Archivos</label>
+          <input type="file" class="form-control" id="mktFiles" name="files" multiple>
+          <div class="form-text">Se pueden arrastrar aquí. Imágenes, vídeos, audios, PDF o un ZIP.</div>
+        </div>
+        <div>
+          <label class="form-label">Nota <span class="text-muted small">· opcional</span></label>
+          <input class="form-control" name="note" placeholder="Qué es, o para qué">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary">Subir</button>
+      </div>
+    </form></div>
+  </div>
+
+  {% if not es_testigo %}
+    {# PEDIRLE A DISEÑO: la misma idea que cualquier petición a diseño. #}
+    <div class="modal fade" id="mktDesignModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog"><form class="modal-content" method="post"
+            action="{{ url_for('marketing_design_request', promotion_id=promotion.id) }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <div class="modal-header"><h5 class="modal-title">Solicitar diseños</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">¿Para qué acción?</label>
+            <select class="form-select" name="activity_id">
+              <option value="">Para la campaña en general</option>
+              {% for a in mf.actions %}<option value="{{ a.id }}">{{ a.label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">¿Qué necesitas?</label>
+            <textarea class="form-control" name="note" rows="3" required
+                      placeholder="Formatos, medidas, qué tiene que decir…"></textarea>
+          </div>
+          <div>
+            <label class="form-label">Fecha máxima</label>
+            <input type="date" class="form-control" name="due_date">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Pedírselo a diseño</button>
+        </div>
+      </form></div>
+    </div>
+  {% endif %}
+{% endif %}

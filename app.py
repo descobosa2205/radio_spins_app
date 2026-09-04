@@ -7784,6 +7784,71 @@ def _song_video_poster_schedule(material_id, url) -> None:
         pass
 
 
+def _marketing_poster_schedule(file_id, url) -> None:
+    """La MINIATURA de un material o testigo en VÍDEO, en 2º plano.
+
+    Mismo motor, cerrojo, tope de concurrencia y caché negativa que el póster de un cartel
+    (claves `mkt:<id>`). Best-effort: si no sale, el hueco se queda con el icono de vídeo."""
+    if not file_id or not url or not _ffmpeg_exe():
+        return
+    clave = "mkt:%s" % str(file_id)
+    ahora = time.time()
+    with _VIDEO_POSTER_LOCK:
+        if clave in _VIDEO_POSTER_INFLIGHT:
+            return
+        exp = _VIDEO_POSTER_FAILED.get(clave)
+        if exp is not None:
+            if exp > ahora:
+                return
+            _VIDEO_POSTER_FAILED.pop(clave, None)
+        _VIDEO_POSTER_INFLIGHT.add(clave)
+    if not _VIDEO_POSTER_SEM.acquire(blocking=False):
+        with _VIDEO_POSTER_LOCK:
+            _VIDEO_POSTER_INFLIGHT.discard(clave)
+        return
+
+    def _trabajo():
+        ok = False
+        try:
+            data = _video_generate_poster_bytes(url)
+            if not data:
+                return
+            poster = None
+            try:
+                poster = _upload_bytes(data, "marketing/posters/%s.jpg" % str(file_id),
+                                       "image/jpeg", upsert=True)
+            except Exception:
+                app.logger.exception("[marketing] no se pudo subir la miniatura del vídeo")
+            ok = bool(poster)
+            if not poster:
+                return
+            s2 = db()
+            try:
+                row = s2.get(MarketingActionFile, to_uuid(file_id))
+                if row is not None and not (getattr(row, "poster_url", None) or "").strip():
+                    row.poster_url = poster
+                    s2.commit()
+            except Exception:
+                s2.rollback()
+            finally:
+                s2.close()
+        except Exception:
+            app.logger.exception("[marketing] no se pudo sacar la miniatura del vídeo")
+        finally:
+            with _VIDEO_POSTER_LOCK:
+                _VIDEO_POSTER_INFLIGHT.discard(clave)
+                if not ok:
+                    _VIDEO_POSTER_FAILED[clave] = time.time() + _VIDEO_POSTER_FAIL_TTL
+            _VIDEO_POSTER_SEM.release()
+
+    try:
+        threading.Thread(target=_trabajo, daemon=True).start()
+    except Exception:
+        with _VIDEO_POSTER_LOCK:
+            _VIDEO_POSTER_INFLIGHT.discard(clave)
+        _VIDEO_POSTER_SEM.release()
+
+
 def _artwork_poster_schedule(asset_id, url) -> None:
     """La MINIATURA de un cartel en VÍDEO **y sus medidas**, en 2º plano.
 
@@ -67693,6 +67758,8 @@ from models import (
     ProductionRequest,
     Promotion,
     PromotionActivity,
+    MarketingActionFile,
+    MarketingDesignRequest,
     PromotionAlert,
     Bank,
     GroupCompanyBankAccount,
@@ -77835,6 +77902,10 @@ def inject_personnel_globals():
         # NOTAS DE PRENSA pendientes: a promoción (redactarla y enviarla) y a diseño (el gráfico).
         "HOME_PRESS_TASKS": (_home_press_tasks()
                              if _home and "_home_press_tasks" in globals() else []),
+        # CAMPAÑAS DE MARKETING por cerrar: los testigos y la factura final. Es de la PERSONA
+        # (quien la creó) y de quien lleva marketing, así que va con lo SUYO.
+        "HOME_MARKETING_CLOSE": (_home_marketing_close()
+                                 if _home and "_home_marketing_close" in globals() else []),
         # LO DE DISEÑO, agrupado por proyecto (la portada y las creatividades de cada lanzamiento).
         "HOME_DESIGN_TASKS": (_home_design_tasks()
                               if _home and "_home_design_tasks" in globals() else []),
@@ -78827,6 +78898,280 @@ def _marketing_amounts_from_form(form):
     return neto, iva, bruto
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#  MATERIALES y TESTIGOS de una acción de marketing
+#
+#  · MATERIAL = lo que hace falta para hacerla (la cuña, el banner, el arte de la valla). Se puede
+#    subir o **encargar a DISEÑO**, que funciona como cualquier otra petición a diseño: le llega su
+#    aviso y lo que sube queda vinculado a la acción.
+#  · TESTIGO  = la prueba de que se hizo (la foto de la valla, el audio de la cuña emitida, el
+#    certificado de emisión). Es lo que hay que subir al terminar la campaña.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+MARKETING_FILE_KINDS = (
+    ("MATERIAL", "Materiales", "fa-photo-film",
+     "Lo que hace falta para hacer la acción: la cuña, el banner, el arte de la valla…"),
+    ("TESTIGO", "Testigos", "fa-clipboard-check",
+     "La prueba de que se hizo: fotos, audios, certificados de emisión…"),
+)
+MARKETING_FILE_KIND_LABELS = {k: l for k, l, _i, _h in MARKETING_FILE_KINDS}
+MARKETING_FILE_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif",
+                       ".mp4", ".mov", ".m4v", ".mp3", ".wav", ".m4a", ".aac", ".zip"}
+
+
+def _marketing_file_kind_ok(v: str) -> str:
+    v = (v or "").strip().upper()
+    return v if v in MARKETING_FILE_KIND_LABELS else "MATERIAL"
+
+
+def _marketing_file_is_video(row) -> bool:
+    n = ((getattr(row, "file_name", None) or "") + " " + (getattr(row, "file_mime", None) or "")).lower()
+    return n.endswith((".mp4", ".mov", ".m4v")) or "video/" in n or ".mp4" in n or ".mov" in n
+
+
+def _marketing_file_is_audio(row) -> bool:
+    n = ((getattr(row, "file_name", None) or "") + " " + (getattr(row, "file_mime", None) or "")).lower()
+    return "audio/" in n or n.endswith((".mp3", ".wav", ".m4a", ".aac")) or ".mp3" in n
+
+
+def _marketing_file_is_image(row) -> bool:
+    n = ((getattr(row, "file_name", None) or "") + " " + (getattr(row, "file_mime", None) or "")).lower()
+    return "image/" in n or n.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
+
+
+def _marketing_file_row(row, *, activities_by_id=None) -> dict:
+    """Una fila de material o testigo, con lo que hace falta para pintarla."""
+    act = (activities_by_id or {}).get(str(getattr(row, "activity_id", "") or ""))
+    if _marketing_file_is_video(row):
+        clase = "VIDEO"
+    elif _marketing_file_is_audio(row):
+        clase = "AUDIO"
+    elif _marketing_file_is_image(row):
+        clase = "IMAGE"
+    else:
+        clase = "FILE"
+    return {
+        "id": str(row.id), "kind": row.kind, "url": row.file_url,
+        "name": (row.file_name or "Archivo"), "mime": (row.file_mime or ""),
+        "poster": (getattr(row, "poster_url", None) or ""),
+        "note": (row.note or ""), "media_kind": clase,
+        "from_design": bool(getattr(row, "design_request_id", None)),
+        "activity_id": str(getattr(row, "activity_id", "") or ""),
+        "activity_label": _marketing_action_title(act) if act is not None else "",
+        "at": (row.uploaded_at.strftime("%d/%m/%Y") if getattr(row, "uploaded_at", None) else ""),
+        "by": (getattr(row, "uploaded_by_nick", None) or ""),
+    }
+
+
+def _marketing_action_title(act) -> str:
+    """Cómo se llama una ACCIÓN en una lista: su tipo, su medio y su fecha.
+
+    ⚠️ No confundir con `_marketing_action_label`, que es la etiqueta de un TIPO de acción (y que
+    ya existía: dos `def` con el mismo nombre y la última pisa a la primera)."""
+    if act is None:
+        return ""
+    tipo = MARKETING_ACTION_TYPE_LABELS.get(
+        (getattr(act, "action_type", None) or getattr(act, "media_type", None) or ""), "Acción")
+    medio = ""
+    try:
+        medio = (getattr(getattr(act, "media", None), "name", None) or "").strip()
+    except Exception:
+        medio = ""
+    fecha = act.activity_date.strftime("%d/%m/%Y") if getattr(act, "activity_date", None) else ""
+    return " · ".join([x for x in [tipo, medio, fecha] if x])
+
+
+def _marketing_files_context(session_db, promotion, kind: str) -> dict:
+    """Los materiales (o los testigos) de una campaña, con sus acciones para elegir."""
+    kind = _marketing_file_kind_ok(kind)
+    acciones = (session_db.query(PromotionActivity)
+                .filter(PromotionActivity.promotion_id == promotion.id)
+                .order_by(PromotionActivity.activity_date.asc()).all())
+    por_id = {str(a.id): a for a in acciones}
+    filas = (session_db.query(MarketingActionFile)
+             .filter(MarketingActionFile.promotion_id == promotion.id,
+                     MarketingActionFile.kind == kind)
+             .order_by(MarketingActionFile.uploaded_at.desc()).all())
+    # Las peticiones a diseño que siguen esperando (solo en materiales).
+    pedidos = []
+    if kind == "MATERIAL":
+        for r in (session_db.query(MarketingDesignRequest)
+                  .filter(MarketingDesignRequest.promotion_id == promotion.id)
+                  .order_by(MarketingDesignRequest.requested_at.desc()).all()):
+            act = por_id.get(str(getattr(r, "activity_id", "") or ""))
+            pedidos.append({
+                "id": str(r.id), "status": r.status,
+                "due": (r.due_date.strftime("%d/%m/%Y") if r.due_date else ""),
+                "days_left": _disco_days_left_label(r.due_date) if r.due_date else "",
+                "note": (r.note or ""), "by": (r.requested_by_nick or ""),
+                "at": (r.requested_at.strftime("%d/%m/%Y") if r.requested_at else ""),
+                "activity_id": str(getattr(r, "activity_id", "") or ""),
+                "activity_label": _marketing_action_title(act) if act is not None else "",
+            })
+    return {
+        "kind": kind, "label": MARKETING_FILE_KIND_LABELS[kind],
+        "rows": [_marketing_file_row(r, activities_by_id=por_id) for r in filas],
+        "actions": [{"id": str(a.id), "label": _marketing_action_title(a)} for a in acciones],
+        "design_requests": pedidos,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#  EL CIERRE DE UNA ACCIÓN DE MARKETING
+#
+#  Cuando la acción TERMINA hay que subir los TESTIGOS y la FACTURA final, y hasta que el gasto esté
+#  consolidado la campaña NO se archiva. Se puede archivar sin factura si el gasto ha sido 0.
+#
+#  ⚠️⚠️ CANCELAR es otra cosa: la acción NO se ha hecho, así que se archiva y **su gasto sale de la
+#  bolsa**. Si hubo algún gasto de todas formas, hay que subirlo y CONSOLIDARLO antes de poder
+#  cancelarla — y entonces sigue su proceso de pago como cualquier otro.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+def _home_marketing_close(limit: int = 12) -> list:
+    """CAMPAÑAS DE MARKETING QUE HAY QUE CERRAR: subir los testigos y la factura final.
+
+    ⚠️ Es de la PERSONA: le sale a quien creó la campaña y a quien lleva marketing, así que no
+    depende de ningún permiso de sección más allá de eso. Y desaparece sola en cuanto no falta nada
+    (la regla de `_notify_resolve`: una tarea es «esto te está esperando»)."""
+    uid = session.get("user_id")
+    if not uid:
+        return []
+    s = db()
+    try:
+        yo = _safe_uuid(uid)
+        soy_marketing = can_edit_marketing()
+        q = (s.query(Promotion)
+             .filter(Promotion.kind == "MARKETING",
+                     func.coalesce(Promotion.status, "ACTIVE") != "ARCHIVED"))
+        if not soy_marketing:
+            q = q.filter(Promotion.created_by_user_id == yo)
+        filas = []
+        for p in q.order_by(Promotion.target_date.asc().nullslast()).limit(60).all():
+            # Solo lo MÍO si no llevo marketing (ya filtrado) y, si lo llevo, lo mío primero.
+            st = _marketing_promotion_close_state(s, p)
+            if st["ready"] or not st["rows"]:
+                continue
+            # ⚠️ Solo se reclama lo que YA HA TERMINADO: una campaña en marcha no es una tarea.
+            if not any(r["state"]["finished"] and not r["state"]["ready"] for r in st["rows"]):
+                continue
+            filas.append({
+                "id": str(p.id),
+                "title": (dict(getattr(p, "snapshot", {}) or {}).get("title")
+                          or (p.name or "Campaña de marketing")),
+                "url": url_for("promotion_detail_view", promotion_id=p.id, tab="acciones"),
+                "witness_url": url_for("promotion_detail_view", promotion_id=p.id, tab="testigos"),
+                "missing": st["missing_label"],
+                "pending": st["pending"],
+                "mine": str(getattr(p, "created_by_user_id", "") or "") == str(yo),
+                "by": (p.created_by_nick or ""),
+            })
+            if len(filas) >= limit:
+                break
+        # Lo mío primero.
+        filas.sort(key=lambda x: (not x["mine"],))
+        return filas
+    except Exception:
+        app.logger.exception("[marketing] no se pudo montar el módulo de cierre")
+        return []
+    finally:
+        s.close()
+
+
+def _marketing_action_is_cancelled(act) -> bool:
+    return bool(getattr(act, "cancelled_at", None))
+
+
+def _marketing_action_finished(act) -> bool:
+    """¿Ha TERMINADO la acción? Todas sus oleadas finalizadas, o su último día ya pasó."""
+    if act is None or _marketing_action_is_cancelled(act):
+        return False
+    oleadas = [w for w in (getattr(act, "waves_json", None) or []) if isinstance(w, dict)]
+    if oleadas and all(_marketing_wave_status_ok(w.get("status")) == "FINALIZADO" for w in oleadas):
+        return True
+    hoy = today_local()
+    fin = None
+    for w in oleadas:
+        try:
+            d = parse_optional_date(w.get("end") or w.get("start"))
+        except Exception:
+            d = None
+        if d and (fin is None or d > fin):
+            fin = d
+    if fin is None:
+        fin = getattr(act, "activity_date", None)
+    return bool(fin and fin < hoy)
+
+
+def _marketing_action_amount(act) -> Decimal:
+    try:
+        return Decimal(str(getattr(act, "amount_gross", 0) or 0))
+    except Exception:
+        return Decimal("0")
+
+
+def _marketing_action_consolidated(act) -> bool:
+    """¿El gasto de la acción está CONSOLIDADO? Mismo criterio que un gasto de bolsa."""
+    if (getattr(act, "consolidation_status", "") or "").upper() in BAG_CONSOLIDATED_STATUSES:
+        return True
+    return bool(getattr(act, "attachment_url", None))
+
+
+def _marketing_action_close_state(session_db, act, *, testigos=None) -> dict:
+    """QUÉ LE FALTA a una acción para poder cerrarla. Punto único: lo usan la ficha, el módulo de
+    Inicio y el propio archivado, así que los tres dicen lo mismo."""
+    if act is None:
+        return {"finished": False, "cancelled": False, "needs_witness": False,
+                "needs_invoice": False, "ready": False, "missing": [], "missing_label": ""}
+    cancelada = _marketing_action_is_cancelled(act)
+    terminada = _marketing_action_finished(act)
+    importe = _marketing_action_amount(act)
+    if testigos is None:
+        testigos = (session_db.query(func.count(MarketingActionFile.id))
+                    .filter(MarketingActionFile.activity_id == act.id,
+                            MarketingActionFile.kind == "TESTIGO").scalar() or 0)
+    falta_testigo = bool(terminada and not cancelada and not testigos)
+    # ⚠️ Sin gasto no se pide factura: se puede archivar con gasto 0.
+    falta_factura = bool(terminada and not cancelada and importe > 0
+                         and not _marketing_action_consolidated(act))
+    faltan = []
+    if falta_testigo:
+        faltan.append("los testigos")
+    if falta_factura:
+        faltan.append("la factura y consolidar el gasto")
+    return {
+        "finished": terminada, "cancelled": cancelada,
+        "needs_witness": falta_testigo, "needs_invoice": falta_factura,
+        "witnesses": int(testigos or 0), "amount": importe,
+        "ready": bool((terminada or cancelada) and not falta_testigo and not falta_factura),
+        "missing": faltan,
+        "missing_label": " y ".join(faltan),
+    }
+
+
+def _marketing_promotion_close_state(session_db, promotion) -> dict:
+    """Y lo mismo de la CAMPAÑA: se archiva cuando TODAS sus acciones están cerradas."""
+    acciones = (session_db.query(PromotionActivity)
+                .filter(PromotionActivity.promotion_id == promotion.id).all())
+    if not acciones:
+        return {"ready": True, "rows": [], "pending": 0, "missing_label": ""}
+    # Los testigos de todas las acciones, en UNA consulta (nada de una por acción).
+    cuenta = dict(session_db.query(MarketingActionFile.activity_id,
+                                   func.count(MarketingActionFile.id))
+                  .filter(MarketingActionFile.promotion_id == promotion.id,
+                          MarketingActionFile.kind == "TESTIGO")
+                  .group_by(MarketingActionFile.activity_id).all())
+    filas, pendientes, faltan = [], 0, set()
+    for a in acciones:
+        st = _marketing_action_close_state(session_db, a, testigos=cuenta.get(a.id, 0))
+        filas.append({"id": str(a.id), "label": _marketing_action_title(a), "state": st})
+        if not st["ready"]:
+            pendientes += 1
+            for x in st["missing"]:
+                faltan.add(x)
+    return {"ready": pendientes == 0, "rows": filas, "pending": pendientes,
+            "missing_label": " y ".join(sorted(faltan))}
+
+
 def _marketing_action_needs_media(action_type: str) -> bool:
     """¿Esta acción se hace EN un medio? Punto único (lo usan el formulario y el guardado)."""
     return (action_type or "").strip().upper() in MARKETING_MEDIA_ACTION_TYPES
@@ -79218,16 +79563,46 @@ def _promotion_entity_requests(session_db, source_type, source_id):
 
 
 def _promotion_entity_promotions(session_db, source_type, source_id):
+    """Las campañas de una ficha (artista, actividad, canción, disco…).
+
+    ⚠️⚠️ LO QUE NO SE HA HECHO NO SALE: una campaña cuyas acciones están TODAS canceladas es como
+    si no hubiera existido, así que no se pinta en la ficha de nadie (lo pidió así Dani). Lo decide
+    `_promotions_done_map`, en UNA consulta agrupada (nada de una por campaña)."""
     source_type = (source_type or "").strip().upper()
     if not source_id:
         return []
-    return (
+    filas = (
         session_db.query(Promotion)
         .filter(Promotion.subject_type == source_type)
         .filter(Promotion.subject_id == to_uuid(source_id))
         .order_by(Promotion.target_date.asc().nullslast(), Promotion.created_at.desc())
         .all()
     )
+    hechas = _promotions_done_map(session_db, [r.id for r in filas])
+    return [r for r in filas if hechas.get(str(r.id), True)]
+
+
+def _promotions_done_map(session_db, promotion_ids) -> dict:
+    """¿Se ha hecho algo de cada campaña? False solo cuando TIENE acciones y todas están canceladas.
+
+    ⚠️ Una campaña SIN acciones cuenta como «hecha» (todavía se está montando): esconderla sería
+    perderla de vista justo cuando hay que trabajarla."""
+    ids = [x for x in (promotion_ids or []) if x]
+    if not ids:
+        return {}
+    try:
+        filas = (session_db.query(PromotionActivity.promotion_id,
+                                  func.count(PromotionActivity.id),
+                                  func.count(PromotionActivity.cancelled_at))
+                 .filter(PromotionActivity.promotion_id.in_(ids))
+                 .group_by(PromotionActivity.promotion_id).all())
+    except Exception:
+        app.logger.exception("[marketing] no se pudo saber qué campañas se han hecho")
+        return {}
+    salida = {}
+    for pid, total, canceladas in filas:
+        salida[str(pid)] = not (int(total or 0) > 0 and int(total or 0) == int(canceladas or 0))
+    return salida
 
 
 def _promotion_panel_context(session_db, source_type, source_id) -> dict:
@@ -79935,7 +80310,9 @@ def promotion_detail_view(promotion_id):
             flash('Campaña de marketing no encontrada.', 'warning')
             return redirect(url_for('promocion_view'))
         tab = (request.args.get('tab') or 'informacion').strip().lower()
-        if tab not in {'informacion', 'acciones', 'gastos', 'hoja_ruta'}:
+        # ⚠️ Una pestaña que no esté en esta lista cae en «informacion» SIN dar ningún error: al
+        # añadir una hay que meterla aquí y en el `{% for %}` de la plantilla.
+        if tab not in {'informacion', 'acciones', 'materiales', 'testigos', 'gastos', 'hoja_ruta'}:
             tab = 'informacion'
         artist_ids = _promotion_normalized_artist_ids(getattr(promotion, 'artist_ids', None) or [])
         artist_rows = []
@@ -80005,9 +80382,18 @@ def promotion_detail_view(promotion_id):
                     'rows': rows,
                 })
         roadmap_ctx = _roadmap_context(session_db, 'promotion', promotion)
+        # MATERIALES y TESTIGOS: solo se calculan en su pestaña.
+        marketing_files = (_marketing_files_context(session_db, promotion,
+                                                    'TESTIGO' if tab == 'testigos' else 'MATERIAL')
+                           if tab in ('materiales', 'testigos') else None)
         session_db.commit()
         return render_template(
             'marketing_detail.html',
+            marketing_files=marketing_files,
+            marketing_file_kinds=MARKETING_FILE_KINDS,
+            # EL CIERRE: qué falta para poder archivar la campaña (solo donde se ve).
+            marketing_close=(_marketing_promotion_close_state(session_db, promotion)
+                             if tab in ('acciones', 'testigos') else None),
             promotion=promotion,
             promotion_display=_promotion_display_promotion(promotion),
             tab=tab,
@@ -80058,6 +80444,18 @@ def promotion_archive_toggle(promotion_id):
                 row.bag.archived_at = None
             flash('Promoción reactivada.', 'success')
         else:
+            # ⚠️⚠️ UNA CAMPAÑA DE MARKETING NO SE ARCHIVA HASTA QUE ESTÁ CERRADA: los TESTIGOS
+            # subidos y la FACTURA consolidada de cada acción (o gasto 0). Es lo que impide
+            # archivarla y olvidarse de justificar el dinero. Punto único
+            # `_marketing_promotion_close_state`, el mismo que pinta el aviso de la ficha y el
+            # módulo de Inicio, así que los tres dicen lo mismo.
+            if (getattr(row, 'kind', None) or '').upper() == 'MARKETING':
+                cierre = _marketing_promotion_close_state(session_db, row)
+                if not cierre['ready']:
+                    flash('Todavía no se puede archivar: falta %s en %d acción%s.'
+                          % (cierre['missing_label'] or 'cerrar alguna acción', cierre['pending'],
+                             'es' if cierre['pending'] != 1 else ''), 'warning')
+                    return redirect(next_url)
             row.status = 'ARCHIVED'
             row.archived_at = _now_madrid()
             if getattr(row, 'bag', None):
@@ -80322,6 +80720,225 @@ def marketing_action_delete(promotion_id, activity_id):
     finally:
         session_db.close()
     return redirect(next_url)
+
+
+@app.post("/marketing/<promotion_id>/acciones/<activity_id>/cancelar",
+          endpoint="marketing_action_cancel")
+@admin_required
+def marketing_action_cancel(promotion_id, activity_id):
+    """CANCELAR una acción: no se ha hecho, así que se archiva y **su gasto sale de la bolsa**.
+
+    ⚠️⚠️ Se pregunta si hubo ALGÚN GASTO de todas formas:
+      · «no hubo gasto» → se retira el gasto de la bolsa y la acción queda cancelada;
+      · «sí hubo» → hay que subirlo y CONSOLIDARLO antes de poder cancelarla (las normas de
+        consolidación son las de siempre), y desde ahí sigue su proceso de pago.
+    ⚠️ Una acción cancelada NO sale en la ficha de la actividad, del artista ni del lanzamiento: es
+    como si no se hubiera hecho."""
+    if not can_edit_marketing():
+        return forbid("No tienes permisos para editar Marketing.")
+    destino = request.form.get("next") or url_for("promotion_detail_view",
+                                                  promotion_id=promotion_id, tab="acciones")
+    session_db = db()
+    try:
+        row = session_db.get(PromotionActivity, _safe_uuid(activity_id))
+        if row is None or str(row.promotion_id) != str(_safe_uuid(promotion_id)):
+            flash("Acción no encontrada.", "warning")
+            return redirect(destino)
+        if _flag_arg("undo"):
+            row.cancelled_at = None
+            row.cancelled_by_nick = None
+            row.cancel_reason = None
+            session_db.commit()
+            flash("La acción vuelve a estar activa. Su gasto habrá que volver a configurarlo.", "success")
+            return redirect(destino)
+        hubo_gasto = _flag_arg("had_expense")
+        gasto = session_db.get(BagExpense, row.bag_expense_id) if getattr(row, "bag_expense_id", None) else None
+        if hubo_gasto:
+            # ⚠️ Solo se puede cancelar cuando el gasto está CONSOLIDADO: si no, quedaría un gasto
+            # sin justificar en una acción archivada y nadie volvería a mirarlo.
+            if not (gasto is not None and _bag_expense_is_consolidated(gasto)):
+                flash("Antes de cancelarla, sube el gasto y consolídalo: se ha gastado dinero y "
+                      "tiene que quedar justificado (y seguir su proceso de pago).", "warning")
+                return redirect(destino)
+        else:
+            # No se ha gastado nada: el gasto configurado SE QUITA de la bolsa.
+            if gasto is not None:
+                if _bag_expense_is_consolidated(gasto):
+                    flash("Ese gasto ya está consolidado: si de verdad no se ha gastado nada, "
+                          "quítalo primero desde la bolsa.", "warning")
+                    return redirect(destino)
+                session_db.delete(gasto)
+                row.bag_expense_id = None
+            row.amount_net = row.amount_tax = row.amount_gross = 0
+        yo = _current_user_state() or {}
+        row.cancelled_at = _now_madrid()
+        row.cancelled_by_nick = (yo.get("nick") or "")
+        row.cancel_reason = (request.form.get("reason") or "").strip() or None
+        session_db.commit()
+        flash("Acción cancelada. No aparecerá como hecha en ninguna ficha.", "success")
+        # ¿Con esto se cierra ya la campaña entera?
+        try:
+            promotion = session_db.get(Promotion, _safe_uuid(promotion_id))
+            st = _marketing_promotion_close_state(session_db, promotion)
+            if st["ready"] and (promotion.status or "").upper() != "ARCHIVED":
+                flash("Ya no queda nada pendiente en esta campaña: se puede archivar.", "info")
+        except Exception:
+            app.logger.exception("[marketing] no se pudo repasar el cierre de la campaña")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[marketing] no se pudo cancelar la acción")
+        flash("No se pudo cancelar la acción.", "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
+
+
+@app.post("/marketing/<promotion_id>/archivos/subir", endpoint="marketing_file_upload")
+@admin_required
+def marketing_file_upload(promotion_id):
+    """Sube MATERIALES o TESTIGOS de una campaña (y, si se dice, de una acción concreta)."""
+    if not can_edit_marketing():
+        return forbid("No tienes permisos para editar Marketing.")
+    kind = _marketing_file_kind_ok(request.form.get("kind"))
+    destino = request.form.get("next") or url_for("promotion_detail_view",
+                                                  promotion_id=promotion_id,
+                                                  tab=("testigos" if kind == "TESTIGO" else "materiales"))
+    session_db = db()
+    try:
+        promotion = session_db.get(Promotion, _safe_uuid(promotion_id))
+        if promotion is None:
+            flash("Campaña no encontrada.", "warning")
+            return redirect(destino)
+        activity_id = _safe_uuid(request.form.get("activity_id")) if (request.form.get("activity_id") or "").strip() else None
+        if activity_id is not None:
+            act = session_db.get(PromotionActivity, activity_id)
+            if act is None or str(act.promotion_id) != str(promotion.id):
+                activity_id = None       # el id viaja en el formulario: se valida contra la campaña
+        ficheros = [f for f in request.files.getlist("files") if f and (f.filename or "").strip()]
+        if not ficheros:
+            _flash_form_error("No has elegido ningún archivo.", ["files"])
+            return redirect(destino)
+        yo = _current_user_state() or {}
+        nota = (request.form.get("note") or "").strip() or None
+        subidos, fallos = 0, []
+        for f in ficheros:
+            try:
+                url = upload_file(f, "marketing", allowed_extensions=MARKETING_FILE_EXTS)
+            except Exception as exc:
+                fallos.append("%s (%s)" % ((f.filename or "archivo"), exc))
+                continue
+            fila = MarketingActionFile(
+                promotion_id=promotion.id, activity_id=activity_id, kind=kind,
+                file_url=url, file_name=(f.filename or "archivo").strip(),
+                file_mime=(getattr(f, "mimetype", "") or "").strip() or None, note=nota,
+                uploaded_by_user_id=_safe_uuid(yo.get("user_id")),
+                uploaded_by_nick=(yo.get("nick") or ""))
+            session_db.add(fila)
+            session_db.flush()
+            # La MINIATURA de un vídeo, en 2º plano (el mismo motor que el resto de la casa).
+            try:
+                if _marketing_file_is_video(fila):
+                    _marketing_poster_schedule(fila.id, url)
+            except Exception:
+                app.logger.exception("[marketing] no se pudo programar la miniatura")
+            subidos += 1
+        session_db.commit()
+        if subidos:
+            flash("%d archivo%s subido%s." % (subidos, "s" if subidos != 1 else "",
+                                              "s" if subidos != 1 else ""), "success")
+        # ⚠️ Lo que no se ha podido subir NO se calla.
+        if fallos:
+            flash("No se pudieron subir: " + " · ".join(fallos[:4]), "warning")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[marketing] no se pudieron subir los archivos")
+        flash("No se pudieron subir los archivos.", "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
+
+
+@app.post("/marketing/<promotion_id>/archivos/<file_id>/eliminar", endpoint="marketing_file_delete")
+@admin_required
+def marketing_file_delete(promotion_id, file_id):
+    if not can_edit_marketing():
+        return forbid("No tienes permisos para editar Marketing.")
+    session_db = db()
+    try:
+        fila = session_db.get(MarketingActionFile, _safe_uuid(file_id))
+        # ⚠️ Se borra POR ID, así que se comprueba que es de ESA campaña (regla de la casa).
+        if fila is None or str(fila.promotion_id) != str(_safe_uuid(promotion_id)):
+            flash("Ese archivo ya no está.", "warning")
+        else:
+            kind = fila.kind
+            session_db.delete(fila)
+            session_db.commit()
+            flash("Archivo eliminado.", "success")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[marketing] no se pudo eliminar el archivo")
+        flash("No se pudo eliminar.", "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next") or url_for("promotion_detail_view",
+                                                        promotion_id=promotion_id, tab="materiales"))
+
+
+@app.post("/marketing/<promotion_id>/diseno/solicitar", endpoint="marketing_design_request")
+@admin_required
+def marketing_design_request(promotion_id):
+    """Le pide a DISEÑO los materiales de una acción. Funciona como cualquier petición a diseño:
+    le llega su aviso con la nota y la fecha máxima, y lo que sube queda vinculado a la acción."""
+    if not can_edit_marketing():
+        return forbid("No tienes permisos para editar Marketing.")
+    destino = request.form.get("next") or url_for("promotion_detail_view",
+                                                  promotion_id=promotion_id, tab="materiales")
+    session_db = db()
+    try:
+        promotion = session_db.get(Promotion, _safe_uuid(promotion_id))
+        if promotion is None:
+            flash("Campaña no encontrada.", "warning")
+            return redirect(destino)
+        nota = (request.form.get("note") or "").strip()
+        if not nota:
+            _flash_form_error("Di qué necesitas que diseñen.", ["note"], abrir="mktDesignModal")
+            return redirect(destino)
+        activity_id = _safe_uuid(request.form.get("activity_id")) if (request.form.get("activity_id") or "").strip() else None
+        act = session_db.get(PromotionActivity, activity_id) if activity_id else None
+        if act is not None and str(act.promotion_id) != str(promotion.id):
+            act, activity_id = None, None
+        yo = _current_user_state() or {}
+        fila = MarketingDesignRequest(
+            promotion_id=promotion.id, activity_id=activity_id,
+            due_date=parse_optional_date(request.form.get("due_date")), note=nota,
+            requested_by_user_id=_safe_uuid(yo.get("user_id")),
+            requested_by_nick=(yo.get("nick") or ""))
+        session_db.add(fila)
+        session_db.flush()
+        # A DISEÑO, con lo que hay que hacer y para cuándo.
+        try:
+            titulo = "Materiales de marketing por diseñar"
+            cuerpo = nota
+            if act is not None:
+                cuerpo = _marketing_action_title(act) + " · " + cuerpo
+            if fila.due_date:
+                cuerpo += " · para el " + fila.due_date.strftime("%d/%m/%Y")
+            _notify_users(session_db, _department_user_ids(session_db, "Diseño"), kind="DISENO",
+                          title=titulo, body=cuerpo,
+                          url=url_for("promotion_detail_view", promotion_id=promotion.id,
+                                      tab="materiales"),
+                          ref_type="MARKETING_DESIGN", ref_id=str(fila.id), email=None)
+        except Exception:
+            app.logger.exception("[marketing] no se pudo avisar a diseño")
+        session_db.commit()
+        flash("Se le ha pedido a diseño.", "success")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[marketing] no se pudo pedir el diseño")
+        flash("No se pudo pedir el diseño.", "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
 
 
 @app.post("/marketing/<promotion_id>/acciones/<activity_id>/oleada/<int:idx>/estado",

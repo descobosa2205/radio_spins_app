@@ -4853,6 +4853,65 @@ class Promotion(Base):
     )
 
 
+class MarketingActionFile(Base):
+    """MATERIALES y TESTIGOS de una acción de marketing.
+
+    · MATERIAL = lo que se necesita para hacerla (la cuña, el banner, el arte de la valla).
+    · TESTIGO  = la prueba de que se hizo (la foto de la valla puesta, el audio de la cuña emitida,
+      el certificado de emisión).
+    Cuelgan de la CAMPAÑA y, cuando se sabe, de la ACCIÓN concreta: así se ven juntos los de una
+    campaña y filtrados los de cada acción."""
+
+    __tablename__ = "marketing_action_files"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promotion_id = Column(PGUUID(as_uuid=True), ForeignKey("promotions.id", ondelete="CASCADE"),
+                          nullable=False)
+    activity_id = Column(PGUUID(as_uuid=True),
+                         ForeignKey("promotion_activities.id", ondelete="CASCADE"))
+    kind = Column(Text, nullable=False, server_default=text("'MATERIAL'"))   # MATERIAL | TESTIGO
+    file_url = Column(Text, nullable=False)
+    file_name = Column(Text)
+    file_mime = Column(Text)
+    poster_url = Column(Text)          # miniatura de un vídeo (la saca ffmpeg en 2º plano)
+    note = Column(Text)
+    design_request_id = Column(PGUUID(as_uuid=True))   # si lo subió diseño por su petición
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+    uploaded_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    uploaded_by_nick = Column(Text)
+
+    __table_args__ = (
+        Index("idx_mkt_files_promotion", "promotion_id", "kind"),
+        Index("idx_mkt_files_activity", "activity_id", "kind"),
+    )
+
+
+class MarketingDesignRequest(Base):
+    """El encargo a DISEÑO de los materiales de una acción de marketing.
+
+    Funciona como cualquier otra petición a diseño: se pide con su nota y su fecha máxima, le llega
+    a Diseño y lo que sube queda VINCULADO a esta acción."""
+
+    __tablename__ = "marketing_design_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promotion_id = Column(PGUUID(as_uuid=True), ForeignKey("promotions.id", ondelete="CASCADE"),
+                          nullable=False)
+    activity_id = Column(PGUUID(as_uuid=True),
+                         ForeignKey("promotion_activities.id", ondelete="CASCADE"))
+    due_date = Column(Date)
+    note = Column(Text)
+    formats = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    status = Column(Text, nullable=False, server_default=text("'SOLICITADA'"))  # SOLICITADA|ENTREGADA
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    submitted_at = Column(DateTime(timezone=True))
+    submitted_by_nick = Column(Text)
+
+    __table_args__ = (Index("idx_mkt_design_promotion", "promotion_id", "status"),)
+
+
 class PromotionActivity(Base):
     __tablename__ = "promotion_activities"
 
@@ -4897,6 +4956,11 @@ class PromotionActivity(Base):
     bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
     artist_performed = Column(Boolean, nullable=False, server_default=text("false"))
     performed_song_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # CANCELADA: la acción no se ha hecho. Se archiva y su gasto sale de la bolsa (o, si hubo algún
+    # gasto, hay que subirlo y consolidarlo antes de poder cancelarla).
+    cancelled_at = Column(DateTime(timezone=True))
+    cancelled_by_nick = Column(Text)
+    cancel_reason = Column(Text)
     has_fee = Column(Boolean, nullable=False, server_default=text("false"))
     fee_amount = Column(Numeric, nullable=False, server_default=text("0"))
     covered_costs = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
@@ -9947,6 +10011,48 @@ def ensure_marketing_country_schema():
     """Asegura países de emisoras/medios y campos extendidos de Marketing."""
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        # MATERIALES y TESTIGOS de una acción, y el encargo a DISEÑO de sus materiales.
+        """
+        CREATE TABLE IF NOT EXISTS marketing_action_files (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promotion_id uuid NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+            activity_id uuid REFERENCES promotion_activities(id) ON DELETE CASCADE,
+            kind text NOT NULL DEFAULT 'MATERIAL',
+            file_url text NOT NULL,
+            file_name text,
+            file_mime text,
+            poster_url text,
+            note text,
+            design_request_id uuid,
+            uploaded_at timestamptz DEFAULT now(),
+            uploaded_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            uploaded_by_nick text
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_mkt_files_promotion ON marketing_action_files(promotion_id, kind);",
+        "CREATE INDEX IF NOT EXISTS idx_mkt_files_activity ON marketing_action_files(activity_id, kind);",
+        """
+        CREATE TABLE IF NOT EXISTS marketing_design_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promotion_id uuid NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+            activity_id uuid REFERENCES promotion_activities(id) ON DELETE CASCADE,
+            due_date date,
+            note text,
+            formats jsonb NOT NULL DEFAULT '[]'::jsonb,
+            status text NOT NULL DEFAULT 'SOLICITADA',
+            requested_at timestamptz DEFAULT now(),
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_nick text,
+            submitted_at timestamptz,
+            submitted_by_nick text
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_mkt_design_promotion ON marketing_design_requests(promotion_id, status);",
+        # ⚠️ CADA COLUMNA EN SU PROPIA SENTENCIA con IF NOT EXISTS: dentro de un ALTER con varias,
+        # si una ya existe el resto tampoco se aplica y la app revienta al consultar la tabla.
+        "ALTER TABLE IF EXISTS promotion_activities ADD COLUMN IF NOT EXISTS cancelled_at timestamptz;",
+        "ALTER TABLE IF EXISTS promotion_activities ADD COLUMN IF NOT EXISTS cancelled_by_nick text;",
+        "ALTER TABLE IF EXISTS promotion_activities ADD COLUMN IF NOT EXISTS cancel_reason text;",
         """
         ALTER TABLE IF EXISTS radio_stations
             ADD COLUMN IF NOT EXISTS country_code text NOT NULL DEFAULT 'ES',

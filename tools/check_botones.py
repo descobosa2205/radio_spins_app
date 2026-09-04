@@ -174,6 +174,71 @@ def revisa(fichero: Path, js_global: str, ids_del_proyecto: set[str]) -> list[st
     return sorted(set(fallos))
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#  RUTAS DUPLICADAS — dos `@app.post("/lo/mismo")` y gana LA PRIMERA registrada
+#
+#  ⚠️⚠️ Es un fallo que no da NINGÚN error: la app arranca, la ruta responde… y ejecuta el endpoint
+#  equivocado. Pasó de verdad (sep 2026): un `/marketing/<id>/archivar` nuevo no se ejecutaba nunca
+#  porque esa regla ya existía, así que la comprobación de «archívala solo si está cerrada» no se
+#  aplicaba y la campaña se archivaba sin justificar el gasto.
+#  ⚠️ Varias rutas para el MISMO endpoint (alias, como `/marketing/…` y `/promocion/…` apilados
+#  sobre la misma función) son legítimas y no cuentan.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+RUTA_RE = re.compile(r"""^@app\.(?:route|get|post|put|delete)\(\s*['"]([^'"]+)['"]([^)]*)\)""", re.M)
+DEF_RE = re.compile(r"^def\s+([A-Za-z_][A-Za-z0-9_]*)", re.M)
+
+
+def rutas_duplicadas(fuente: str) -> list[str]:
+    """Reglas de ruta repetidas en funciones DISTINTAS."""
+    lineas = fuente.split("\n")
+    porRuta: dict[tuple, list[str]] = {}
+    i = 0
+    while i < len(lineas):
+        m = RUTA_RE.match(lineas[i])
+        if not m:
+            i += 1
+            continue
+        # Todos los decoradores seguidos (varias rutas sobre la misma función son alias legítimos).
+        reglas, j = [], i
+        while j < len(lineas):
+            mm = RUTA_RE.match(lineas[j])
+            if mm:
+                metodos = mm.group(2)
+                verbo = ("post" if ".post(" in lineas[j] else
+                         "get" if ".get(" in lineas[j] else
+                         "put" if ".put(" in lineas[j] else
+                         "delete" if ".delete(" in lineas[j] else "route")
+                reglas.append((mm.group(1), verbo))
+                j += 1
+                continue
+            if lineas[j].startswith("@") or not lineas[j].strip():
+                j += 1
+                continue
+            break
+        # La función a la que pertenecen
+        fn = ""
+        while j < len(lineas):
+            d = DEF_RE.match(lineas[j])
+            if d:
+                fn = d.group(1)
+                break
+            if lineas[j].strip() and not lineas[j].startswith("@"):
+                break
+            j += 1
+        for r in reglas:
+            porRuta.setdefault(r, [])
+            if fn and fn not in porRuta[r]:
+                porRuta[r].append(fn)
+        i = j + 1
+    fallos = []
+    for (regla, verbo), fns in sorted(porRuta.items()):
+        if len(fns) > 1:
+            fallos.append("ruta duplicada %s %s → gana «%s», el resto es código muerto (%s)"
+                          % (verbo.upper(), regla, fns[0], ", ".join(fns[1:])))
+    return fallos
+
+
 def main() -> int:
     js_global = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in sorted(JS.glob("*.js")))
     # Los ids de TODO el proyecto: sirven para distinguir «no existe» de «no está en esta pantalla».
@@ -196,6 +261,14 @@ def main() -> int:
             print(f"\n{nombre}")
             for x in fallos:
                 print(f"   · {x}")
+    # RUTAS DUPLICADAS de app.py: no dan ningún error y ejecutan el endpoint equivocado.
+    app_py = RAIZ / "app.py"
+    dup = rutas_duplicadas(app_py.read_text(encoding="utf-8")) if app_py.exists() else []
+    if dup:
+        print("\napp.py")
+        for x in dup:
+            print(f"   · {x}")
+        graves += len(dup)
     print(f"\nbotones muertos: {graves}   ·   avisos: {total - graves}")
     return 1 if graves else 0
 

@@ -1295,6 +1295,35 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# CAMPAÑAS DE MARKETING POR CERRAR: la campaña ha terminado y falta subir los TESTIGOS y la
+   FACTURA final. Hasta que el gasto esté consolidado no se archiva. #}
+{% if HOME_MARKETING_CLOSE %}
+<div class="card mb-4 border-warning" data-home-module="marketing-cerrar">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <h6 class="mb-0"><i class="fa fa-bullhorn me-1 text-warning"></i>Campañas de marketing por cerrar
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_MARKETING_CLOSE|length }}</span></h6>
+    <span class="small text-muted">No se archivan hasta subir los testigos y la factura</span>
+  </div>
+  <ul class="list-group list-group-flush">
+    {% for r in HOME_MARKETING_CLOSE %}
+      <li class="list-group-item">
+        <div class="ctask__head d-flex align-items-center gap-2 flex-wrap">
+          <strong class="me-auto">{{ r.title }}</strong>
+          {% if not r.mine and r.by %}<span class="small text-muted">La creó {{ r.by }}</span>{% endif %}
+        </div>
+        <div class="small text-muted">Falta {{ r.missing }} en {{ r.pending }} acción{{ 'es' if r.pending != 1 }}.</div>
+        <div class="d-flex gap-2 mt-2 flex-wrap">
+          <a href="{{ r.witness_url }}" class="btn btn-sm btn-outline-primary">
+            <i class="fa fa-clipboard-check me-1"></i>Subir testigos</a>
+          <a href="{{ r.url }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fa fa-receipt me-1"></i>Facturas y gastos</a>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {# LA LOGÍSTICA de un lanzamiento que le han pedido a ESTA persona (producción). Con lo que se le
    pide a la vista, y los dos sitios donde trabaja: la bolsa (gastos) y la hoja de ruta. #}
 {% if HOME_DISCO_LOGISTICS %}

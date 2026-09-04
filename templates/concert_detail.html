@@ -3784,6 +3784,45 @@
     {% endif %}
 
     {% include "_et_ticketing_panel.html" %}
+
+    {# ══════════ COMPRADORES cuando la venta NO la lleva Enterticket ══════════
+       ⚠️ Cuando vende un TERCERO o el PROMOTOR, su base de compradores se sube a mano y se trabaja
+       EXACTAMENTE igual: los mismos filtros, los mismos envíos y el mismo histórico. Todo eso vive
+       en `/compradores`, así que aquí solo está la puerta de entrada (y lo que ya se ha mandado). #}
+    {% if buyers_ctx and not buyers_ctx.from_et %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h5 class="mb-0"><i class="fa fa-users me-1 text-danger"></i>Compradores</h5>
+              <div class="text-muted small">
+                {% if buyers_ctx.has_list %}
+                  {{ buyers_ctx.total|k }} compradores{% if buyers_ctx.name %} · {{ buyers_ctx.name }}{% endif %}
+                {% else %}
+                  Esta venta no la llevamos nosotros: sube su base de datos de compradores para
+                  poder mandarles SMS o correos.
+                {% endif %}
+              </div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              {% if buyers_ctx.has_list %}
+                <a class="btn btn-sm btn-primary" href="{{ buyers_ctx.url_sms }}">
+                  <i class="fa fa-comment-sms me-1"></i>Enviar SMS</a>
+                <a class="btn btn-sm btn-accent" href="{{ buyers_ctx.url_email }}">
+                  <i class="fa fa-envelope me-1"></i>Enviar Email</a>
+                <a class="btn btn-sm btn-outline-primary" href="{{ buyers_ctx.url }}">
+                  <i class="fa fa-database me-1"></i>Ver los compradores</a>
+              {% endif %}
+              <a class="btn btn-sm btn-success" href="{{ buyers_ctx.url_import }}">
+                <i class="fa fa-file-import me-1"></i>Subir base de datos</a>
+            </div>
+          </div>
+          {% set campaigns = buyers_ctx.campaigns %}
+          {% include '_buyer_campaign_history.html' %}
+        </div>
+      </div>
+    {% endif %}
+
     <div class="card mb-3"><div class="card-body">
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
         <div>

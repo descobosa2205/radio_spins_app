@@ -284,6 +284,9 @@
     Se muestran los primeros {{ rows_limit|k }} (los totales de arriba y los envíos van sobre <strong>todos</strong> los filtrados).
   </div>
   {% endif %}
+
+  {# LO QUE YA SE LE HA MANDADO a este listado. #}
+  {% include '_buyer_campaign_history.html' %}
 {% endif %}
 
 {# El filtro de categorías se abre y se cierra aquí mismo: no necesita Bootstrap (que además se
@@ -325,5 +328,44 @@
 {% if can_edit %}
   {% include '_buyer_import_modal.html' %}
   {% if vista == 'listado' and source %}{% include '_buyer_campaign_modal.html' %}{% endif %}
+
+  {# ⚠️ SE LLEGA AQUÍ DESDE LA PESTAÑA DE TICKETING con el pop-up ya pedido (`?open=sms|email|
+     importar`): los filtros y las opciones de envío viven SOLO aquí, así que desde allí se viene
+     con el listado abierto en vez de duplicar el formulario (lo que se cambie se ve igual en los
+     dos sitios). El helper `app33AutoOpenModal` es el global de la casa. #}
+  {% set abrir = (request.args.get('open') or '')|lower %}
+  {% if abrir and vista == 'listado' and source %}
+    <script>
+      (function () {
+        /* ⚠️ SE PINCHA UN BOTÓN DE VERDAD, no se abre el modal a mano: así pasa por EL MISMO
+           camino que un clic normal (el data-api de Bootstrap y los handlers de
+           `buyer_campaign.js` / `buyer_import.js`, que leen `data-bc-channel` y `data-bi-scope`
+           EN EL CLIC). Abriéndolo por otra vía, el canal y el ámbito se quedarían sin fijar. */
+        var que = {{ abrir|tojson }};
+        var target = (que === 'importar') ? '#buyerImportModal' : '#buyerCampaignModal';
+        var intentos = 0;
+        (function espera() {
+          if (!document.querySelector(target) || !window.bootstrap) {
+            if (++intentos < 60) return setTimeout(espera, 120);
+            return;
+          }
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'd-none';
+          b.setAttribute('data-bs-toggle', 'modal');
+          b.setAttribute('data-bs-target', target);
+          if (que === 'sms') b.setAttribute('data-bc-channel', 'SMS');
+          if (que === 'email') b.setAttribute('data-bc-channel', 'EMAIL');
+          if (que === 'importar') {
+            b.setAttribute('data-bi-scope',
+              {{ (('event:' ~ source.pk) if source.kind == 'ET' else ('lista:' ~ source.pk))|tojson }});
+          }
+          document.body.appendChild(b);
+          b.click();
+          b.remove();
+        })();
+      })();
+    </script>
+  {% endif %}
 {% endif %}
 {% endblock %}

@@ -153,7 +153,18 @@
     <div class="tab-pane fade" id="et-pane-buyers">
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
         <input type="search" class="form-control form-control-sm" style="max-width:320px" placeholder="Buscar por nombre, email o teléfono…" id="et-buyers-search">
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
+          {# ⚠️ Los envíos y la importación viven en `/compradores`, que es donde están los filtros
+             y todas las opciones: se va allí con el listado abierto y el pop-up ya abierto. Así no
+             hay dos versiones y lo que se cambie en un sitio se ve igual en el otro. #}
+          {% if buyers_ctx and buyers_ctx.has_list %}
+            <a class="btn btn-sm btn-primary" href="{{ buyers_ctx.url_sms }}">
+              <i class="fa fa-comment-sms me-1"></i>Enviar SMS</a>
+            <a class="btn btn-sm btn-accent" href="{{ buyers_ctx.url_email }}">
+              <i class="fa fa-envelope me-1"></i>Enviar Email</a>
+            <a class="btn btn-sm btn-success" href="{{ buyers_ctx.url_import }}">
+              <i class="fa fa-file-import me-1"></i>Añadir desde fichero</a>
+          {% endif %}
           <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('buyers_export_csv', event=et_event.id) }}"><i class="fa fa-file-csv me-1"></i>Exportar CSV</a>
           <a class="btn btn-sm btn-outline-primary" href="{{ url_for('buyers_view', event=et_event.id, vista='evento') }}"><i class="fa fa-database me-1"></i>Base de datos completa</a>
         </div>
@@ -180,6 +191,11 @@
       </div>
       {% if et_buyers_total > et_buyers|length %}
       <div class="small text-muted mt-1">Se muestran los {{ et_buyers|length|k }} compradores con más entradas (de {{ et_buyers_total|k }}). Usa «Base de datos completa» para buscar entre todos.</div>
+      {% endif %}
+      {# LO QUE YA SE LE HA MANDADO a esta base de compradores. #}
+      {% if buyers_ctx %}
+        {% set campaigns = buyers_ctx.campaigns %}
+        {% include '_buyer_campaign_history.html' %}
       {% endif %}
     </div>
     {% endif %}

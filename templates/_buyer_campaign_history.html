@@ -1,0 +1,40 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   EL HISTÓRICO DE COMUNICACIONES de una base de datos de compradores.
+
+   Todo lo que se le ha mandado a ese listado —SMS y correos—, con cuándo, a cuántos y quién lo
+   mandó. Se pincha una y se ve lo que se envió tal cual salió.
+
+   ⚠️ Es el MISMO parcial en los dos sitios (la base de datos de compradores y la pestaña Ticketing
+   de una actividad), porque es el mismo dato. Recibe `campaigns`.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% if campaigns %}
+  <div class="card mt-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="fa fa-paper-plane text-danger"></i>
+      <strong class="me-auto">Comunicaciones enviadas</strong>
+      <span class="badge text-bg-light border">{{ campaigns|length }}</span>
+    </div>
+    <ul class="list-group list-group-flush">
+      {% for c in campaigns %}
+        <li class="list-group-item p-0">
+          <a class="d-flex align-items-center gap-2 flex-wrap text-reset text-decoration-none p-3"
+             href="{{ c.url }}">
+            <span class="badge text-bg-{{ 'primary' if c.channel == 'SMS' else 'info' }}">
+              <i class="fa {{ c.icon }} me-1"></i>{{ c.channel_label }}</span>
+            <span class="flex-grow-1 min-w-0">
+              <span class="d-block text-truncate">{{ c.subject or (c.body[:70] ~ ('…' if c.body|length > 70 else '')) or 'Sin asunto' }}</span>
+              <span class="small text-muted">{{ c.when }}{% if c.by %} · {{ c.by }}{% endif %}</span>
+            </span>
+            <span class="text-end">
+              <span class="d-block"><strong>{{ c.ok }}</strong>
+                <span class="text-muted small">de {{ c.total }}</span></span>
+              {% if c.fail %}<span class="small text-danger">{{ c.fail }} no salieron</span>{% endif %}
+              {% if c.sending %}<span class="small text-muted">Enviándose…</span>{% endif %}
+            </span>
+            <i class="fa fa-chevron-right text-muted"></i>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}

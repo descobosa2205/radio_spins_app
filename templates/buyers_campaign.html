@@ -1,0 +1,84 @@
+{% extends "layout.html" %}
+{% block content %}
+{# UNA COMUNICACIÓN YA ENVIADA a una base de datos de compradores: lo que se mandó y a quién.
+   ⚠️ El correo se pinta con el MISMO HTML que salió, así que se ve tal cual lo recibieron. #}
+<div class="mb-2">
+  <a class="btn-volver" title="Volver a los compradores"
+     href="{% if camp.source and camp.source.kind == 'ET' %}{{ url_for('buyers_view', event=camp.source.pk, vista='listado') }}{% elif camp.source %}{{ url_for('buyers_view', lista=camp.source.pk, vista='listado') }}{% else %}{{ url_for('buyers_view') }}{% endif %}">
+    <i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+    <span class="badge text-bg-{{ 'primary' if camp.channel == 'SMS' else 'info' }} fs-6">
+      <i class="fa {{ 'fa-comment-sms' if camp.channel == 'SMS' else 'fa-envelope' }} me-1"></i>
+      {{ camp.channel_label }}</span>
+    <div class="flex-grow-1 min-w-0">
+      <div class="fw-semibold text-truncate">
+        {{ camp.subject or camp.title or ('Mensaje de ' ~ camp.channel_label|lower) }}</div>
+      <div class="small text-muted">
+        {% if camp.source %}{{ camp.source.label }} · {% endif %}{{ camp.when }}
+        {% if camp.by %} · lo mandó {{ camp.by }}{% endif %}
+        {% if camp.sms_sender %} · remitente «{{ camp.sms_sender }}»{% endif %}
+      </div>
+    </div>
+    <div class="text-end">
+      <div><strong>{{ camp.ok }}</strong> <span class="text-muted small">de {{ camp.total }}</span></div>
+      {% if camp.fail %}<div class="small text-danger">{{ camp.fail }} no salieron</div>{% endif %}
+      {% if camp.status == 'SENDING' %}<div class="small text-muted">Enviándose…</div>{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-header"><i class="fa fa-eye me-1"></i>Lo que se envió</div>
+      <div class="card-body">
+        {% if camp.channel == 'SMS' %}
+          <pre class="mb-0" style="white-space:pre-wrap;font:inherit">{{ cuerpo }}</pre>
+        {% else %}
+          <iframe title="El correo que se envió" style="width:100%;height:520px;border:1px solid #eee;border-radius:8px"
+                  srcdoc="{{ cuerpo|forceescape }}"></iframe>
+        {% endif %}
+        {% if camp.files %}
+          <div class="mt-3">
+            <div class="small text-muted mb-1">Adjuntos</div>
+            <div class="d-flex flex-wrap gap-2">
+              {% for f in camp.files %}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ f.url }}" target="_blank" rel="noopener">
+                  <i class="fa fa-paperclip me-1"></i>{{ f.name or 'Archivo' }}</a>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header"><i class="fa fa-users me-1"></i>A quién le llegó
+        <span class="badge text-bg-light border ms-1">{{ camp.recipients|length }}</span></div>
+      <div class="table-responsive" style="max-height:520px;overflow:auto">
+        <table class="table table-sm align-middle mb-0">
+          <tbody>
+            {% for r in camp.recipients %}
+              <tr>
+                <td class="small">{{ r.name or '—' }}</td>
+                <td class="small text-muted">{{ r.target }}</td>
+                <td class="text-end">
+                  {% if r.status == 'ENVIADO' %}<i class="fa fa-check text-success" title="Enviado"></i>
+                  {% elif r.status == 'ERROR' %}<i class="fa fa-xmark text-danger" title="{{ r.error }}"></i>
+                  {% else %}<i class="fa fa-clock text-muted" title="Pendiente"></i>{% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr><td class="text-muted small">Sin destinatarios apuntados.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

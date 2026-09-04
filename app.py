@@ -54670,6 +54670,7 @@ def concert_detail_view(cid):
         et_buyers_total = 0
         et_candidates = []
         et_venue_map = None
+        buyers_ctx = None
         if tab == 'ticketing':
             try:
                 et_event = _et_concert_event(session, c.id)
@@ -54687,6 +54688,13 @@ def concert_detail_view(cid):
             except Exception:
                 et_event = None
                 et_ctx = None
+            # LOS COMPRADORES de la actividad, venga la venta de Enterticket o de un fichero subido
+            # a mano (cuando la venta la lleva un tercero o el promotor).
+            try:
+                if has_access_key('databases.buyers'):
+                    buyers_ctx = _concert_buyers_context(session, c, et_event=et_event)
+            except Exception:
+                app.logger.exception("[ticketing] no se pudieron montar los compradores")
         # Ticketing: SIN pestaña si el evento es gratuito (entrada FREE o sale_type GRATUITO).
         show_ticketing_tab = not _concert_is_free_event(c)
         # Menores: solo donde promovemos NOSOTROS (es nuestra política de menores la que se aplica).
@@ -54981,6 +54989,7 @@ def concert_detail_view(cid):
             et_ctx=et_ctx,
             et_buyers=et_buyers,
             et_buyers_total=et_buyers_total,
+            buyers_ctx=buyers_ctx,
             et_candidates=et_candidates,
             et_venue_map=et_venue_map,
             fotos_ctx=fotos_ctx,
@@ -134481,6 +134490,124 @@ def _buyer_filters_from_request(args=None) -> dict:
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#  EL HISTÓRICO DE COMUNICACIONES de una base de datos de compradores
+#
+#  Todo lo que se le ha mandado a ese listado —SMS y correos—, con cuándo, a cuántos, quién lo mandó
+#  y **lo que se envió**: se pincha una y se ve tal cual salió. Se ve en los DOS sitios (la pestaña
+#  Compradores de la actividad y la base de datos de compradores), porque es el mismo dato.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+def _concert_buyers_context(session_db, concert, *, et_event=None) -> dict:
+    """LOS COMPRADORES de una actividad, para la pestaña de Ticketing.
+
+    ⚠️⚠️ No hace falta Enterticket: cuando la venta la lleva un TERCERO o el PROMOTOR, la base de
+    compradores se sube a mano (`BuyerList`) y se trabaja EXACTAMENTE igual. Por eso este contexto
+    resuelve el listado venga de donde venga y lleva SIEMPRE a `/compradores`, que es el único sitio
+    donde viven los filtros y los envíos: lo que se cambie ahí se ve igual desde los dos lados."""
+    if concert is None:
+        return {}
+    lista = None
+    if et_event is None:
+        try:
+            lista = (session_db.query(BuyerList)
+                     .filter(BuyerList.concert_id == concert.id)
+                     .order_by(BuyerList.created_at.asc()).first())
+        except Exception:
+            lista = None
+    event_pk = str(et_event.id) if et_event is not None else ""
+    list_pk = str(lista.id) if lista is not None else ""
+    base = {}
+    if event_pk:
+        base = {"event": event_pk, "vista": "listado"}
+    elif list_pk:
+        base = {"lista": list_pk, "vista": "listado"}
+    total = 0
+    if event_pk or list_pk:
+        try:
+            q = session_db.query(func.count(BuyerEvent.id))
+            q = (q.filter(BuyerEvent.event_id == _safe_uuid(event_pk)) if event_pk
+                 else q.filter(BuyerEvent.list_id == _safe_uuid(list_pk)))
+            total = int(q.scalar() or 0)
+        except Exception:
+            total = 0
+    return {
+        "has_list": bool(event_pk or list_pk),
+        "from_et": bool(event_pk),
+        "total": total,
+        "name": (lista.name if lista is not None else ""),
+        # A `/compradores` con el listado abierto y, si se pide, el pop-up ya abierto: los filtros y
+        # las opciones de envío son las de allí (un solo sitio).
+        "url": (url_for("buyers_view", **base) if base else url_for("buyers_view")),
+        "url_sms": (url_for("buyers_view", open="sms", **base) if base else ""),
+        "url_email": (url_for("buyers_view", open="email", **base) if base else ""),
+        "url_import": (url_for("buyers_view", open="importar", **base) if base
+                       else url_for("buyers_view", open="importar", concierto=str(concert.id))),
+        "campaigns": _buyer_campaign_rows(session_db, event_pk=event_pk, list_pk=list_pk),
+    }
+
+
+def _buyer_campaign_rows(session_db, *, event_pk: str = "", list_pk: str = "", limit: int = 50) -> list:
+    """Las comunicaciones ya mandadas a ese listado, de la más reciente a la más antigua."""
+    q = session_db.query(BuyerCampaign)
+    if event_pk:
+        q = q.filter(BuyerCampaign.event_id == _safe_uuid(event_pk))
+    elif list_pk:
+        q = q.filter(BuyerCampaign.list_id == _safe_uuid(list_pk))
+    else:
+        return []
+    # ⚠️ Las PRUEBAS no son comunicaciones a los compradores: no se listan.
+    q = q.filter(func.coalesce(BuyerCampaign.status, "") != "PRUEBA")
+    filas = []
+    for c in q.order_by(BuyerCampaign.created_at.desc()).limit(limit).all():
+        cuando = c.sent_at or c.created_at
+        filas.append({
+            "id": str(c.id),
+            "channel": (c.channel or "").upper(),
+            "channel_label": ("SMS" if (c.channel or "").upper() == "SMS" else "Correo"),
+            "icon": ("fa-comment-sms" if (c.channel or "").upper() == "SMS" else "fa-envelope"),
+            "subject": (c.subject or c.title or "").strip(),
+            "body": (c.body or "").strip(),
+            "when": (cuando.strftime("%d/%m/%Y %H:%M") if cuando else ""),
+            "total": int(c.total or 0), "ok": int(c.sent_ok or 0), "fail": int(c.sent_fail or 0),
+            "status": (c.status or ""),
+            "by": (c.created_by_nick or ""),
+            "sending": (c.status or "").upper() == "SENDING",
+            "url": url_for("buyers_campaign_view", campaign_id=c.id),
+        })
+    return filas
+
+
+def _buyer_campaign_detail(session_db, campaign_id) -> dict | None:
+    """UNA comunicación: lo que se envió y a quién le llegó."""
+    c = session_db.get(BuyerCampaign, _safe_uuid(campaign_id))
+    if c is None:
+        return None
+    dest = (session_db.query(BuyerCampaignRecipient)
+            .filter(BuyerCampaignRecipient.campaign_id == c.id)
+            .order_by(BuyerCampaignRecipient.status.asc()).limit(500).all())
+    cuando = c.sent_at or c.created_at
+    marca = _campaign_brand(session_db, c) if "_campaign_brand" in globals() else {}
+    return {
+        "id": str(c.id), "channel": (c.channel or "").upper(),
+        "channel_label": ("SMS" if (c.channel or "").upper() == "SMS" else "Correo"),
+        "subject": (c.subject or ""), "title": (c.title or ""), "body": (c.body or ""),
+        "button_label": (c.button_label or ""), "button_url": (c.button_url or ""),
+        "link_url": (c.link_url or ""),
+        "files": [f for f in (c.files_json or []) if isinstance(f, dict)],
+        "when": (cuando.strftime("%d/%m/%Y %H:%M") if cuando else ""),
+        "total": int(c.total or 0), "ok": int(c.sent_ok or 0), "fail": int(c.sent_fail or 0),
+        "status": (c.status or ""), "by": (c.created_by_nick or ""),
+        "sms_sender": (c.sms_sender or ""),
+        "brand": marca,
+        "source": _buyer_source(session_db,
+                                event_pk=(str(c.event_id) if c.event_id else ""),
+                                list_pk=(str(c.list_id) if c.list_id else "")),
+        "recipients": [{"name": (r.name or ""), "target": (r.target or ""),
+                        "status": (r.status or ""), "error": (r.error or "")} for r in dest],
+    }
+
+
 def _buyer_source(session_db, *, event_pk: str = "", list_pk: str = "") -> dict | None:
     """Un LISTADO de compradores (un evento de Enterticket o uno subido a mano), en la misma forma.
 
@@ -135088,6 +135215,37 @@ def can_edit_buyers() -> bool:
     return is_master() or has_access_key("databases.buyers", edit=True, include_descendants=True)
 
 
+@app.get("/compradores/comunicaciones/<campaign_id>", endpoint="buyers_campaign_view")
+@admin_required
+def buyers_campaign_view(campaign_id):
+    """UNA comunicación ya enviada: lo que se mandó y a quién le llegó.
+
+    ⚠️ El correo se pinta con el MISMO `_campaign_email_html` que se envió, así que se ve tal cual
+    salió y no hay una segunda versión que se pueda desparejar."""
+    session_db = db()
+    try:
+        camp = session_db.get(BuyerCampaign, _safe_uuid(campaign_id))
+        if camp is None:
+            flash("Esa comunicación ya no está.", "warning")
+            return redirect(url_for("buyers_view"))
+        detalle = _buyer_campaign_detail(session_db, camp.id)
+        cuerpo = ""
+        try:
+            if (camp.channel or "").upper() == "EMAIL":
+                cuerpo = _campaign_email_html(session_db, camp)
+            else:
+                cuerpo = (_campaign_sms_preview(session_db, camp.body or "",
+                                                camp.link_url or "",
+                                                [f for f in (camp.files_json or []) if isinstance(f, dict)])
+                          or {}).get("text", camp.body or "")
+        except Exception:
+            app.logger.exception("[compradores] no se pudo componer la comunicación enviada")
+            cuerpo = camp.body or ""
+        return render_template("buyers_campaign.html", camp=detalle, cuerpo=cuerpo)
+    finally:
+        session_db.close()
+
+
 @app.get("/compradores", endpoint="buyers_view")
 @admin_required
 def buyers_view():
@@ -135170,6 +135328,9 @@ def buyers_view():
             sources=sources, buyers=buyers, totals=totals, vista=vista,
             source=source, company=company, categorias=categorias, filtros=filtros,
             cycle=ciclo,
+            # EL HISTÓRICO de lo que ya se le ha mandado a este listado (solo dentro de uno).
+            campaigns=(_buyer_campaign_rows(s, event_pk=event_pk, list_pk=list_pk)
+                       if (vista == "listado" and source) else []),
             # ⚠️ La empresa que firma NO se pregunta si la actividad ya la tiene configurada: se pone
             # la que corresponde. Solo se pregunta cuando la actividad es de un CICLO o FESTIVAL
             # propio (ahí sí hay dos respuestas posibles: el ciclo o la empresa que lo organiza).

@@ -9472,3 +9472,40 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   preciso: solo salta si TODAS las columnas de ESE alter ya existen—.
   · Comprobación: borrar las columnas nuevas en una base de prueba, llamar a su `ensure_*` y ver que
   aparecen. Con el código roto salían **cero**.
+
+- ⚠️⚠️ **EL RECINTO: o se elige de la base o SE DICE QUE NO SE CONOCE** (sep 2026). En la ficha de la
+  actividad convivían el selector de recintos y los campos «a mano», así que al elegir un recinto los
+  de abajo se quedaban ahí sin sentido y **no había forma de decir «todavía no se sabe»**. Ahora es un
+  interruptor —**«Conozco el recinto»** / **«Todavía no se sabe»**— y solo se ve el bloque que toca.
+  ⚠️ El bloque que se esconde se **DESHABILITA** (`app33VenueSwitch` en `concert_form.js`): un campo
+  oculto se envía igual, y con los dos a la vez el guardado se llevaría por delante lo que no toca.
+  ⚠️ Al guardar manda **`venue_known`**: con «no se sabe» vale con el nombre a mano **o** con el
+  sitio (puede que solo se sepa el municipio, y eso ya es algo). Y lo manual **solo se toca si llega
+  ese interruptor**: un guardado parcial de otra pantalla no puede borrarlo (la regla de los
+  centinelas).
+
+- ⚠️⚠️ **CREAR UN RECINTO: SOLO LA BARRA, y los campos salen rellenos** (sep 2026). El alta rápida
+  pedía municipio, provincia, país y dirección sueltos. Ahora es el patrón de la casa
+  (`data-addr-reveal`): **una sola barra** donde se escribe la dirección, el municipio o la
+  provincia, salen las coincidencias y al elegir una **se rellena todo** —dirección, código postal,
+  municipio, provincia y país—, que se ve debajo ya cumplimentado. Con cuatro campos a la vista la
+  gente escribía el municipio mientras la barra buscaba y el recinto quedaba a medias.
+  · `Venue.postal_code` es una columna nueva: el buscador lo trae con el resto y **se guarda**.
+  ⚠️ Sigue estando **«Escribirla a mano»** para un sitio que el buscador no conozca.
+
+- **ORDENAR · sin pantallas y con el gesto** (sep 2026):
+  ⚠️⚠️ **NO HAY PANTALLA DE GUARDAR**: los módulos de Inicio se guardan **al pinchar fuera** (en
+  cualquier sitio de la página) o con Escape. La barra de «Guardar / Cancelar / Orden de siempre» se
+  ha retirado: era un paso más que nadie pedía. Igual que las pestañas.
+  ⚠️ Mientras se ordena, un clic DENTRO de un módulo (o de una pestaña) **no navega**: si no,
+  arrastrar abriría lo que hay debajo.
+  ⚠️⚠️ **UN MÓDULO GRANDE SE COMPRIME mientras se ordena** (`.home-ordering .home-order-item >
+  *:not(.home-order-grip)`): queda **solo su asa**, así caben todos a la vez y se ve a dónde se está
+  moviendo. Con dos módulos que ocupan la pantalla no se puede colocar nada.
+  · **FLUIDEZ**: el que se arrastra **sigue al dedo** (`transform` desde el punto de agarre) y los
+  demás se apartan con **FLIP** (se apuntan las posiciones, se reordena y cada pieza se anima desde
+  donde estaba). Sin eso el reordenado es un salto seco: es lo que se siente «poco fluido». Está en
+  los DOS motores (`home_order.js` y `sortable_tabs.js`); si se toca uno, se toca el otro.
+  · Del menú personal desaparecen **«Ordenar mi menú»** y **«Ordenar mi inicio»**: se hace
+  manteniendo pulsado. El modal del menú se conserva porque es lo que abre ese gesto (y es quien
+  guarda `menu_order`, la única verdad del orden del menú).

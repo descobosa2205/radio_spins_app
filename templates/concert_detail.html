@@ -584,16 +584,35 @@
                 <span>Por confirmar</span>
               </label>
             </div>
-            <div class="col-12">
-              <label class="form-label">Recinto</label>
-              <div class="input-group">
+            {# ⚠️⚠️ EL RECINTO: o se elige de la base o SE DICE QUE NO SE CONOCE, y entonces —y solo
+               entonces— se escribe a mano. Es el mismo interruptor del asistente. Antes los dos
+               bloques estaban a la vez y, al elegir un recinto, los campos de abajo se quedaban ahí
+               sin sentido y no había forma de decir «no lo conozco». #}
+            {% set _venue_manual = (not concert.venue_id) and (concert.manual_venue_name or concert.manual_municipality or concert.manual_province) %}
+            <div class="col-12" data-venue-switch>
+              <label class="form-label d-block">Recinto</label>
+              <div class="d-flex gap-2 flex-wrap mb-2">
+                <label class="invitation-radio-option">
+                  <input type="radio" name="venue_known" value="1" data-venue-mode
+                         {% if not _venue_manual %}checked{% endif %}>
+                  <i class="fa fa-location-dot"></i><span>Conozco el recinto</span>
+                </label>
+                <label class="invitation-radio-option">
+                  <input type="radio" name="venue_known" value="0" data-venue-mode
+                         {% if _venue_manual %}checked{% endif %}>
+                  <i class="fa fa-circle-question"></i><span>Todavía no se sabe</span>
+                </label>
+              </div>
+              <div class="input-group{% if _venue_manual %} d-none{% endif %}" data-venue-pick>
                 <select name="venue_id" id="concertDatosVenue" class="form-select select-venues">
                   <option value="">— sin recinto de la base —</option>
                   {% for v in venues %}<option value="{{ v.id }}" data-photo="{{ (v.logo_url or v.photo_url) or '' }}" {% if concert.venue_id == v.id %}selected{% endif %}>{{ v.name }} — {{ v.municipality }} ({{ v.province }})</option>{% endfor %}
                 </select>
-                <button type="button" class="btn btn-outline-secondary" data-quick-create="venue" data-target="concertDatosVenue"><i class="fa fa-plus"></i></button>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="venue" data-target="concertDatosVenue" title="Crear un recinto nuevo"><i class="fa fa-plus"></i></button>
               </div>
-              <div class="form-text">Si todavía no está dado de alta, déjalo en «sin recinto» y escríbelo abajo a mano.</div>
+              <div class="form-text{% if _venue_manual %} d-none{% endif %}" data-venue-pick-help>
+                Si no está dado de alta, créalo con el <i class="fa fa-plus"></i> o marca «Todavía no se sabe».
+              </div>
             </div>
             {# El recinto A MANO: para cuando no hay ficha de recinto (una plaza, un pabellón de paso…).
                ⚠️⚠️ SE RELLENA EN DOS PASOS, igual que en el asistente: primero **solo la barra de
@@ -603,7 +622,8 @@
                ⚠️ Y TODO va dentro del MISMO bloque `data-address-autocomplete`: antes la zona
                envolvía solo la columna de la izquierda, así que el código postal, el municipio y la
                provincia se quedaban FUERA y no se rellenaban nunca (bug real). #}
-            <div class="col-12" data-address-autocomplete data-addr-reveal>
+            <div class="col-12{% if not _venue_manual %} d-none{% endif %}" data-venue-manual
+                 data-address-autocomplete data-addr-reveal>
               <div class="row g-2">
                 <div class="col-md-6">
                   <label class="form-label">Nombre del recinto a mano</label>

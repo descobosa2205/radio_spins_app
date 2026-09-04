@@ -5870,7 +5870,16 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
    se arrastra; abajo, la barra con Guardar / Cancelar / Orden de siempre. */
 .home-order-item{ position:relative; outline:2px dashed transparent; transition:outline-color .15s ease; }
 .home-ordering .home-order-item{ outline-color:rgba(227,61,72,.35); outline-offset:3px; }
-.home-order-item.is-dragging{ opacity:.55; }
+.home-order-item.is-dragging{ opacity:.75; z-index:5; box-shadow:0 10px 26px rgba(0,0,0,.18); }
+/* ⚠️⚠️ MIENTRAS SE ORDENA, UN MÓDULO GRANDE SE COMPRIME: con dos módulos que ocupan la pantalla no
+   se ve a dónde se está moviendo nada. Se deja SOLO SU ASA (nombre + agarre) y su cuerpo se pliega,
+   así caben todos a la vez y se colocan de un vistazo. */
+.home-ordering .home-order-item > *:not(.home-order-grip){
+  max-height:0; overflow:hidden; opacity:0; margin:0 !important; padding-top:0 !important;
+  padding-bottom:0 !important; border:0 !important;
+  transition:max-height .18s ease, opacity .12s ease; }
+.home-ordering .home-order-item{ margin-bottom:.5rem !important; }
+.home-ordering .home-order-grip{ border-radius:12px; }
 /* ⚠️ SE ARRASTRA POR EL ASA (no por la tarjeta entera): dentro de un módulo hay botones y enlaces
    que tienen que seguir pinchándose. `touch-action:none` para que con el dedo arrastre en vez de
    hacer scroll (misma regla que el interruptor de tres posiciones). */
@@ -5879,7 +5888,7 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   font-size:.8rem; font-weight:700; border-radius:12px 12px 0 0;
   cursor:grab; touch-action:none; user-select:none; }
 .home-order-item.is-dragging .home-order-grip{ cursor:grabbing; }
-.home-order-grip__t{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.home-order-grip__t{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
 .home-order-bar{ position:fixed; left:50%; transform:translateX(-50%); bottom:1rem; z-index:1080;
   display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; justify-content:center;
   background:#fff; border:1px solid var(--line-2,#e3e6eb); border-radius:999px;

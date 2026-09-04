@@ -2031,6 +2031,9 @@ class Venue(Base):
     address = Column(Text)
     municipality = Column(Text)
     province = Column(Text)
+    # El CÓDIGO POSTAL lo trae el buscador de direcciones junto con el resto, así que se guarda:
+    # es lo que da la provincia y lo que hace falta para facturar o para una dirección completa.
+    postal_code = Column(Text)
     country = Column(Text)  # país (por defecto España en los formularios)
     photo_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -7283,6 +7286,7 @@ def ensure_simulations_schema():
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         "ALTER TABLE IF EXISTS artists  ADD COLUMN IF NOT EXISTS is_international boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS venues   ADD COLUMN IF NOT EXISTS allows_bars     boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS venues   ADD COLUMN IF NOT EXISTS postal_code text;",
         # Ciclo / Festival (multi-artista + costes compartidos).
         "ALTER TABLE IF EXISTS simulations           ADD COLUMN IF NOT EXISTS poster_url text;",
         "ALTER TABLE IF EXISTS simulation_activities ADD COLUMN IF NOT EXISTS artist_id uuid REFERENCES artists(id) ON DELETE SET NULL;",

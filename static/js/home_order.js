@@ -76,17 +76,6 @@
   // ── MODO ORDENAR ────────────────────────────────────────────────────────────────────────────
   var enModo = false;
 
-  function barra() {
-    var b = document.createElement('div');
-    b.className = 'home-order-bar';
-    b.innerHTML =
-      '<span class="home-order-bar__t"><i class="fa fa-up-down-left-right me-2"></i>' +
-      'Arrastra los módulos para colocarlos como quieras</span>' +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-ho-reset>Orden de siempre</button>' +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-ho-cancel>Cancelar</button>' +
-      '<button type="button" class="btn btn-sm btn-primary" data-ho-save><i class="fa fa-check me-1"></i>Guardar</button>';
-    return b;
-  }
 
   function guardar(orden) {
     var cuerpo = new URLSearchParams();
@@ -113,29 +102,22 @@
         m.insertBefore(g, m.firstChild);
       }
     });
-    var b = barra();
-    document.body.appendChild(b);
-
-    b.querySelector('[data-ho-save]').addEventListener('click', function () {
-      guardar(modulos().map(clave)).then(function () { sale(b); });
-    });
-    b.querySelector('[data-ho-cancel]').addEventListener('click', function () {
-      aplica(previo); sale(b);
-    });
-    b.querySelector('[data-ho-reset]').addEventListener('click', function () {
-      guardar([]).then(function () { location.href = location.pathname; });
-    });
+    // ⚠️⚠️ NO HAY PANTALLA DE GUARDAR: se guarda al PINCHAR FUERA de los módulos, en cualquier
+    // sitio (o con Escape). Una barra con «Guardar / Cancelar» es un paso más que nadie pide.
+    void previo;
   }
 
   function sale(b) {
+    if (!enModo) return;
     enModo = false;
     document.body.classList.remove('home-ordering');
     modulos().forEach(function (m) {
       m.classList.remove('home-order-item', 'is-dragging');
+      m.style.transition = ''; m.style.transform = '';
       var g = m.querySelector('.home-order-grip');
       if (g) g.remove();
     });
-    if (b) b.remove();
+    if (b && b.remove) b.remove();
     // Quitar el `?ordenar=1` de la barra de direcciones: si no, recargar volvería a entrar en el
     // modo de ordenar sin haberlo pedido.
     try {
@@ -153,27 +135,58 @@
      también CON EL DEDO en un iPad, que es donde más se mira el Inicio. La tarjeta se MUEVE
      mientras se arrastra (se ve dónde va a quedar), como en el editor de playlists: con índices
      el módulo quedaba una posición desviada al bajarlo. */
-  var arrastrando = null;
+  var arrastrando = null, agarre = null;
 
   function bajoElPuntero(x, y) {
     var el = document.elementFromPoint(x, y);
     return el && el.closest ? el.closest('.home-order-item') : null;
   }
 
+  /* FLIP: se apuntan las posiciones, se reordena y cada módulo se anima DESDE donde estaba. Sin
+     esto el reordenado es un salto seco, que es lo que se siente «poco fluido». */
+  function flip(cambia) {
+    var piezas = modulos(), antes = piezas.map(function (el) { return el.getBoundingClientRect(); });
+    cambia();
+    piezas.forEach(function (el, i) {
+      if (el === arrastrando) return;
+      var r = el.getBoundingClientRect();
+      var dy = antes[i].top - r.top, dx = antes[i].left - r.left;
+      if (!dx && !dy) return;
+      el.style.transition = 'none';
+      el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          el.style.transition = 'transform .18s cubic-bezier(.2,.8,.2,1)';
+          el.style.transform = '';
+        });
+      });
+    });
+  }
+
   function mueve(ev) {
     if (!arrastrando) return;
     ev.preventDefault();
+    // EL MÓDULO SIGUE AL DEDO: si se queda quieto, el gesto se siente muerto.
+    if (agarre) {
+      arrastrando.style.transform = 'translate(' + (ev.clientX - agarre.x) + 'px,'
+        + (ev.clientY - agarre.y) + 'px)';
+    }
     var sobre = bajoElPuntero(ev.clientX, ev.clientY);
     if (!sobre || sobre === arrastrando) return;
     var r = sobre.getBoundingClientRect();
     var despues = (ev.clientY - r.top) > r.height / 2;
-    zona.insertBefore(arrastrando, despues ? sobre.nextSibling : sobre);
+    var destino = despues ? sobre.nextSibling : sobre;
+    if (destino === arrastrando || destino === arrastrando.nextSibling) return;
+    flip(function () { zona.insertBefore(arrastrando, destino); });
   }
 
   function suelta() {
     if (!arrastrando) return;
+    arrastrando.style.transition = 'transform .18s cubic-bezier(.2,.8,.2,1)';
+    arrastrando.style.transform = '';
     arrastrando.classList.remove('is-dragging');
     arrastrando = null;
+    agarre = null;
     document.removeEventListener('pointermove', mueve);
     document.removeEventListener('pointerup', suelta);
     document.removeEventListener('pointercancel', suelta);
@@ -186,6 +199,8 @@
     var m = asa.closest('.home-order-item');
     if (!m) return;
     ev.preventDefault();
+    agarre = { x: ev.clientX, y: ev.clientY };
+    m.style.transition = 'none';
     arrastrando = m;
     m.classList.add('is-dragging');
     try { asa.setPointerCapture(ev.pointerId); } catch (e) {}
@@ -217,4 +232,17 @@
   // Se entra al modo también MANTENIENDO PULSADO un módulo (el mismo gesto que las pestañas):
   // lo dispara `sortable_tabs.js`, que no sabe nada de módulos — solo avisa.
   window.app33HomeOrderEnter = function () { if (zona) entra(); };
+
+  /* SE GUARDA AL PINCHAR FUERA de los módulos, en cualquier sitio de la página. Mientras se ordena,
+     un clic DENTRO de un módulo no navega (si no, arrastrar abriría lo que hay debajo). */
+  document.addEventListener('click', function (ev) {
+    if (!enModo) return;
+    var dentro = ev.target.closest && ev.target.closest('.home-order-item');
+    if (dentro) { ev.preventDefault(); ev.stopPropagation(); return; }
+    guardar(modulos().map(clave));
+    sale();
+  }, true);
+  document.addEventListener('keydown', function (ev) {
+    if (enModo && ev.key === 'Escape') { guardar(modulos().map(clave)); sale(); }
+  });
 })();

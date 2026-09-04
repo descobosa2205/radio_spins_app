@@ -11,14 +11,34 @@
       <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_venue') }}" data-qc-json="1">
         <div class="modal-header"><h5 class="modal-title">Nuevo recinto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
-          <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
-          <div class="row g-2">
-            <div class="col-md-6"><label class="form-label">Municipio</label><input class="form-control" name="municipality"></div>
-            <div class="col-md-6"><label class="form-label">Provincia</label><input class="form-control" name="province"></div>
-          </div>
-          <div class="row g-2 mt-0">
-            <div class="col-md-6"><label class="form-label">País</label><input class="form-control" name="country" value="España" list="qcVenueCountryOptions"></div>
-            <div class="col-md-6"><label class="form-label">Dirección</label><span data-address-autocomplete class="d-block position-relative"><input class="form-control" name="address" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…"></span></div>
+          <div class="mb-3"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Sala, plaza, pabellón…"></div>
+
+          {# ⚠️⚠️ AQUÍ NO SE PIDEN LOS CAMPOS SUELTOS: solo la BARRA. Se escribe la dirección, el
+             municipio o la provincia, salen las coincidencias y al elegir una **se rellena todo**
+             (dirección, código postal, municipio, provincia y país), que es lo que se ve debajo ya
+             cumplimentado. Con cuatro campos a la vista la gente escribía el municipio mientras la
+             barra buscaba y el recinto acababa a medias.
+             `data-addr-reveal` es el patrón de la casa (el mismo del recinto a mano de una ficha). #}
+          <div data-address-autocomplete data-addr-reveal>
+            <label class="form-label">¿Dónde está?</label>
+            <div class="position-relative">
+              <input class="form-control" data-addr="search" autocomplete="off"
+                     placeholder="Escribe dirección, municipio, provincia…">
+            </div>
+            <div class="form-text">Elige una coincidencia y se rellena todo.
+              <a href="#" data-addr-manual>Escribirla a mano</a>.</div>
+            <div class="row g-2 mt-1 d-none" data-addr-parts>
+              <div class="col-md-7"><label class="form-label">Dirección</label>
+                <input class="form-control" name="address" data-addr="address"></div>
+              <div class="col-md-5"><label class="form-label">C. postal</label>
+                <input class="form-control" name="postal_code" data-addr="postal_code"></div>
+              <div class="col-md-6"><label class="form-label">Municipio</label>
+                <input class="form-control" name="municipality" data-addr="city"></div>
+              <div class="col-md-6"><label class="form-label">Provincia</label>
+                <input class="form-control" name="province" data-addr="province"></div>
+              <div class="col-md-6"><label class="form-label">País</label>
+                <input class="form-control" name="country" data-addr="country" value="España" list="qcVenueCountryOptions"></div>
+            </div>
           </div>
           <datalist id="qcVenueCountryOptions">
             <option value="España"></option><option value="Portugal"></option><option value="Francia"></option><option value="Andorra"></option><option value="Italia"></option><option value="México"></option><option value="Argentina"></option><option value="Chile"></option><option value="Colombia"></option><option value="Estados Unidos"></option>

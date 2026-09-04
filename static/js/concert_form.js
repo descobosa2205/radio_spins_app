@@ -362,3 +362,37 @@
     setShown(row.querySelector('.zone-amount'), !pct);
   }
 })();
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   EL RECINTO: o se elige de la base o SE DICE QUE NO SE CONOCE (y entonces se escribe a mano).
+   ⚠️ El bloque que se esconde se DESHABILITA: un campo oculto se envía igual, y con los dos a la
+      vez el guardado podía llevarse por delante lo que no toca.
+   Va por DELEGACIÓN: la sección se reemplaza por AJAX al guardar.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+  function pinta(raiz) {
+    var zona = (raiz || document).querySelector('[data-venue-switch]');
+    if (!zona) return;
+    var form = zona.closest('form') || document;
+    var m = form.querySelector('input[data-venue-mode]:checked');
+    var conocido = !m || m.value === '1';
+    var pick = form.querySelector('[data-venue-pick]');
+    var ayuda = form.querySelector('[data-venue-pick-help]');
+    var mano = form.querySelector('[data-venue-manual]');
+    if (pick) pick.classList.toggle('d-none', !conocido);
+    if (ayuda) ayuda.classList.toggle('d-none', !conocido);
+    if (mano) mano.classList.toggle('d-none', conocido);
+    // Lo oculto no viaja: si no, se guardarían las dos cosas.
+    if (pick) pick.querySelectorAll('select, input').forEach(function (el) { el.disabled = !conocido; });
+    if (mano) mano.querySelectorAll('input, select').forEach(function (el) { el.disabled = conocido; });
+  }
+  document.addEventListener('change', function (ev) {
+    if (ev.target && ev.target.matches && ev.target.matches('input[data-venue-mode]')) pinta();
+  });
+  document.addEventListener('ficha:shown', function () { pinta(); });
+  document.addEventListener('inline:updated', function () { pinta(); });
+  if (document.readyState !== 'loading') pinta();
+  else document.addEventListener('DOMContentLoaded', function () { pinta(); });
+  window.app33VenueSwitch = pinta;
+})();

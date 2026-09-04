@@ -92,7 +92,7 @@
   }
 
   /* ---------- el modo ORDENAR ---------- */
-  var activo = null, arrastrado = null, pulsando = null, timer = null;
+  var activo = null, arrastrado = null, pulsando = null, timer = null, agarre = null;
 
   function entra(grupo) {
     if (activo === grupo) return;
@@ -108,8 +108,34 @@
     var g = activo;
     activo = null;
     g.classList.remove('sorting');
-    items(g).forEach(function (el) { el.classList.remove('sorting__item', 'is-dragging'); });
+    items(g).forEach(function (el) {
+      el.classList.remove('sorting__item', 'is-dragging');
+      el.style.transition = ''; el.style.transform = '';
+    });
     if (guardar) guarda(g);
+  }
+
+  /* FLIP (First-Last-Invert-Play): se apuntan las posiciones, se reordena y cada pieza se anima
+     DESDE donde estaba hasta donde ha quedado. Sin esto el reordenado es un salto seco, que es lo
+     que se siente «poco fluido». El arrastrado se excluye: ese va pegado al dedo. */
+  function flip(grupo, cambia) {
+    var piezas = items(grupo), antes = piezas.map(function (el) { return el.getBoundingClientRect(); });
+    cambia();
+    piezas.forEach(function (el, i) {
+      if (el === arrastrado) return;
+      var r = el.getBoundingClientRect();
+      var dx = antes[i].left - r.left, dy = antes[i].top - r.top;
+      if (!dx && !dy) return;
+      el.style.transition = 'none';
+      el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      // Dos fotogramas: el primero fija el punto de partida, el segundo anima.
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          el.style.transition = 'transform .18s cubic-bezier(.2,.8,.2,1)';
+          el.style.transform = '';
+        });
+      });
+    });
   }
 
   function itemEn(grupo, x, y) {
@@ -159,6 +185,8 @@
     if (!it || it.parentElement !== grupo) return;
     if (activo === grupo) {                      // ya está temblando: se arrastra
       arrastrado = it;
+      agarre = { x: ev.clientX, y: ev.clientY };
+      it.style.transition = 'none';
       it.classList.add('is-dragging');
       try { it.setPointerCapture(ev.pointerId); } catch (e) {}
       ev.preventDefault();
@@ -181,6 +209,11 @@
     }
     if (!activo || !arrastrado) return;
     ev.preventDefault();
+    // EL ARRASTRADO SIGUE AL DEDO (si no, se queda quieto y el gesto se siente muerto).
+    if (agarre) {
+      arrastrado.style.transform = 'translate(' + (ev.clientX - agarre.x) + 'px,'
+        + (ev.clientY - agarre.y) + 'px)';
+    }
     var sobre = itemEn(activo, ev.clientX, ev.clientY);
     if (!sobre || sobre === arrastrado) return;
     var r = sobre.getBoundingClientRect();
@@ -188,12 +221,21 @@
     var antes = (r.width >= r.height)
       ? (ev.clientX < r.left + r.width / 2)
       : (ev.clientY < r.top + r.height / 2);
-    activo.insertBefore(arrastrado, antes ? sobre : sobre.nextSibling);
+    var destino = antes ? sobre : sobre.nextSibling;
+    if (destino === arrastrado || destino === arrastrado.nextSibling) return;   // ya está ahí
+    flip(activo, function () { activo.insertBefore(arrastrado, destino); });
   }, { passive: false });
 
   function suelta() {
     clearTimeout(timer); pulsando = null;
-    if (arrastrado) { arrastrado.classList.remove('is-dragging'); arrastrado = null; }
+    if (arrastrado) {
+      // Vuelve a su hueco con animación, en vez de aparecer de golpe.
+      arrastrado.style.transition = 'transform .18s cubic-bezier(.2,.8,.2,1)';
+      arrastrado.style.transform = '';
+      arrastrado.classList.remove('is-dragging');
+      arrastrado = null;
+    }
+    agarre = null;
   }
   document.addEventListener('pointerup', suelta);
   document.addEventListener('pointercancel', suelta);

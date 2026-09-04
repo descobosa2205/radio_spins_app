@@ -56662,10 +56662,19 @@ def concert_section_update_handler(cid, section):
                 sale_type = "EMPRESA"
             venue_raw = (request.form.get("venue_id") or "").strip()
             manual_name = (request.form.get("manual_venue_name") or "").strip()
-            # ⚠️ El recinto puede no estar dado de alta: entonces vale con escribirlo a mano (es lo que
-            # ya hace el asistente). Lo que no se admite es dejar los DOS vacíos.
-            if not venue_raw and not manual_name:
-                raise ValueError("Elige un recinto de la lista (o crea uno con el botón +), o escribe su nombre a mano.")
+            # ⚠️ EL RECINTO: o se elige de la base o se dice que TODAVÍA NO SE SABE (`venue_known`,
+            # el interruptor del formulario; el bloque que no toca va deshabilitado, así que sus
+            # campos no llegan). Con «no se sabe» vale con el nombre a mano O con el sitio: puede
+            # que solo se sepa el municipio, y eso es más que nada.
+            _known = (request.form.get("venue_known") or "").strip()
+            _sitio = any((request.form.get(k) or "").strip()
+                         for k in ("manual_municipality", "manual_province", "manual_venue_address"))
+            if _known == "0":
+                if not (manual_name or _sitio):
+                    raise ValueError("Escribe al menos el nombre del sitio o su municipio.")
+            elif not venue_raw and not manual_name:
+                raise ValueError("Elige un recinto de la lista (o crea uno con el botón +), o marca "
+                                 "«Todavía no se sabe» y escribe lo que se sepa.")
             c.date = parse_date(request.form["date"])
             # FECHA DE FIN: una actividad puede durar varios días (ensayos, rodajes, ferias).
             _fin = parse_optional_date(request.form.get("end_date"))
@@ -56673,11 +56682,28 @@ def concert_section_update_handler(cid, section):
             c.festival_name = (request.form.get("festival_name") or "").strip() or None
             c.venue_id = to_uuid(venue_raw) if venue_raw else None
             # EL RECINTO A MANO (y su dirección), para cuando no hay ficha de recinto.
-            c.manual_venue_name = manual_name or None
-            c.manual_venue_address = (request.form.get("manual_venue_address") or "").strip() or None
-            c.manual_municipality = (request.form.get("manual_municipality") or "").strip() or None
-            c.manual_province = (request.form.get("manual_province") or "").strip() or None
-            c.manual_postal_code = (request.form.get("manual_postal_code") or "").strip() or None
+            # ⚠️ Lo MANUAL solo se toca si el formulario trae su interruptor: al elegir un recinto
+            # de la base se limpia (ya no hace falta), pero un guardado parcial de otra pantalla no
+            # puede borrarlo sin más.
+            if _known:
+                if _known == "1":
+                    c.manual_venue_name = None
+                    c.manual_venue_address = None
+                    c.manual_municipality = None
+                    c.manual_province = None
+                    c.manual_postal_code = None
+                else:
+                    c.manual_venue_name = manual_name or None
+                    c.manual_venue_address = (request.form.get("manual_venue_address") or "").strip() or None
+                    c.manual_municipality = (request.form.get("manual_municipality") or "").strip() or None
+                    c.manual_province = (request.form.get("manual_province") or "").strip() or None
+                    c.manual_postal_code = (request.form.get("manual_postal_code") or "").strip() or None
+            elif manual_name or not venue_raw:
+                c.manual_venue_name = manual_name or None
+                c.manual_venue_address = (request.form.get("manual_venue_address") or "").strip() or None
+                c.manual_municipality = (request.form.get("manual_municipality") or "").strip() or None
+                c.manual_province = (request.form.get("manual_province") or "").strip() or None
+                c.manual_postal_code = (request.form.get("manual_postal_code") or "").strip() or None
             if "manual_country" in request.form:
                 c.manual_country = (request.form.get("manual_country") or "").strip() or None
             # HORARIOS (con su «por confirmar»): son de esta pantalla, no de otra.
@@ -57077,6 +57103,8 @@ def api_create_venue():
         province = (payload.get("province") or "").strip() or None
         country = (payload.get("country") or "").strip() or "España"
         address = (payload.get("address") or "").strip() or None
+        # El CÓDIGO POSTAL lo trae el buscador de direcciones con el resto: se guarda.
+        postal_code = (payload.get("postal_code") or "").strip() or None
         force_new = _truthy(payload.get("force_new"))
         photo = request.files.get("photo") or request.files.get("logo") if not request.is_json else None
         photo_url = upload_image(photo, "venues") if photo and getattr(photo, "filename", "") else None
@@ -57113,6 +57141,7 @@ def api_create_venue():
             address=address,
             municipality=municipality,
             province=province,
+            postal_code=postal_code,
             country=country,
             photo_url=photo_url,
         )

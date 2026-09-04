@@ -186,12 +186,10 @@
               {# MIS VACACIONES: son días propios, lo tiene cualquiera con sesión. #}
               <li><a class="dropdown-item" href="{{ url_for('mis_vacaciones_view') }}"><i class="fa fa-umbrella-beach me-2"></i> Mis vacaciones</a></li>
               {# ORDENAR MI MENÚ: cada uno se coloca sus secciones arrastrándolas. #}
-              <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#navOrderModal">
-                <i class="fa fa-arrows-up-down-left-right me-2"></i> Ordenar mi menú</a></li>
+
               {# ORDENAR MI INICIO: lo mismo con los MÓDULOS de la portada. Solo se ordena lo que esa
                  persona ve, y los avisos no se mueven. Fuera de Inicio, el enlace lleva allí. #}
-              <li><a class="dropdown-item" href="{{ url_for('home', ordenar=1) }}" data-home-order>
-                <i class="fa fa-table-cells-large me-2"></i> Ordenar mi inicio</a></li>
+
               {% if has_access_key('personal', include_descendants=True) %}
                 <li><a class="dropdown-item" href="{{ url_for('personnel_view') }}"><i class="fa fa-users-cog me-2"></i> Personal de la Oficina</a></li>
               {% endif %}

@@ -608,6 +608,13 @@ def inject_country_helpers():
         "marketing_action_types": globals().get("MARKETING_ACTION_TYPES", []),
         "marketing_action_type_labels": globals().get("MARKETING_ACTION_TYPE_LABELS", {}),
         "marketing_exterior_subtypes": globals().get("MARKETING_EXTERIOR_SUBTYPES", []),
+        # El ESTADO de cada oleada y qué acciones van contra un MEDIO: los usan el formulario de una
+        # acción, su ficha y el listado, así que van al contexto global (un solo sitio).
+        "marketing_wave_statuses": globals().get("MARKETING_WAVE_STATUSES", ()),
+        "marketing_wave_status_labels": globals().get("MARKETING_WAVE_STATUS_LABELS", {}),
+        "marketing_wave_status_icons": globals().get("MARKETING_WAVE_STATUS_ICONS", {}),
+        "marketing_wave_status_colors": globals().get("MARKETING_WAVE_STATUS_COLORS", {}),
+        "marketing_media_action_types": globals().get("MARKETING_MEDIA_ACTION_TYPES", set()),
         "marketing_digital_platforms": globals().get("MARKETING_DIGITAL_PLATFORMS", []),
         # `MEDIA_TYPES` es global porque el alta rápida de medios (modal transversal) lo necesita.
         "MEDIA_TYPES": globals().get("MEDIA_TYPES", []),
@@ -1352,6 +1359,21 @@ def format_eur(n):
     except Exception:
         return "0,00 €"
     
+@app.template_filter("fecha_corta")
+def _tpl_fecha_corta(v):
+    """Una fecha en corto («10/09»), venga como texto ISO o como date. Para las etiquetas donde no
+    cabe la fecha entera (los periodos de una acción de marketing)."""
+    if not v:
+        return "—"
+    try:
+        if hasattr(v, "strftime"):
+            return v.strftime("%d/%m")
+        t = str(v).strip()
+        return t[8:10] + "/" + t[5:7] if len(t) >= 10 else t
+    except Exception:
+        return str(v)
+
+
 @app.template_filter("isrc")
 def format_isrc_filter(value):
     return _norm_isrc(value) if value not in (None, "") else "—"
@@ -78728,6 +78750,88 @@ MARKETING_ACTION_TYPES = [
 ]
 MARKETING_ACTION_TYPE_LABELS = {key: label for key, label, _icon in MARKETING_ACTION_TYPES}
 MARKETING_ACTION_TYPE_ICONS = {key: icon for key, _label, icon in MARKETING_ACTION_TYPES}
+# ⚠️ QUÉ ACCIONES IMPLICAN A UN MEDIO: en una campaña de radio el proveedor ES la emisora, en una
+# de prensa el periódico y en una de TV la cadena. En las demás (exterior, merchandising, una
+# presentación) no hay medio que elegir, así que ese hueco no se enseña.
+MARKETING_MEDIA_ACTION_TYPES = {"RADIO", "TV", "PRENSA", "DIGITAL", "PLATAFORMAS"}
+# Y qué tipo de medio se propone en cada una (el selector se filtra por esto).
+MARKETING_ACTION_MEDIA_KIND = {
+    "RADIO": "Radio", "TV": "TV", "PRENSA": "Prensa", "DIGITAL": "Digital", "PLATAFORMAS": "Digital",
+}
+
+
+# EL ESTADO DE CADA OLEADA. Se ve en el listado y se cambia pinchándolo.
+MARKETING_WAVE_STATUSES = (
+    ("PENDIENTE", "Pendiente", "fa-hourglass-start", "warning"),
+    ("EN_EJECUCION", "En ejecución", "fa-play", "primary"),
+    ("FINALIZADO", "Finalizado", "fa-check", "success"),
+)
+MARKETING_WAVE_STATUS_LABELS = {k: l for k, l, _i, _c in MARKETING_WAVE_STATUSES}
+MARKETING_WAVE_STATUS_ICONS = {k: i for k, _l, i, _c in MARKETING_WAVE_STATUSES}
+MARKETING_WAVE_STATUS_COLORS = {k: c for k, _l, _i, c in MARKETING_WAVE_STATUSES}
+MARKETING_VAT_PCT = Decimal("21")
+
+
+def _marketing_wave_status_ok(v: str) -> str:
+    v = (v or "").strip().upper()
+    return v if v in MARKETING_WAVE_STATUS_LABELS else "PENDIENTE"
+
+
+def _marketing_waves_from_form(form, execution_mode: str, start_date, end_date) -> list:
+    """Las OLEADAS de una acción, cada una con su periodo, su nota y SU ESTADO.
+
+    ⚠️ Con «de una sola vez» hay UNA oleada (el periodo entero): así el listado y el calendario
+    tratan igual los dos casos y no hay dos caminos que mantener. Su estado se conserva."""
+    estados = form.getlist("wave_status")
+    filas = []
+    for i, (ws, we, wn) in enumerate(zip(form.getlist("wave_start"),
+                                         form.getlist("wave_end"),
+                                         form.getlist("wave_note"))):
+        if not (ws or we or (wn or "").strip()):
+            continue
+        filas.append({"start": ws or None, "end": we or None,
+                      "note": (wn or "").strip() or None,
+                      "status": _marketing_wave_status_ok(estados[i] if i < len(estados) else "")})
+    if (execution_mode or "").upper() != "OLEADAS":
+        estado = _marketing_wave_status_ok(estados[0] if estados else "")
+        return [{"start": start_date.isoformat() if start_date else None,
+                 "end": end_date.isoformat() if end_date else None,
+                 "note": None, "status": estado}]
+    return filas
+
+
+def _marketing_amounts_from_form(form):
+    """El importe de una acción: se escribe UNO y se dice si lleva el IVA o hay que sumárselo.
+
+    ⚠️ El desglose lo hace el SERVIDOR, exactamente igual que en un gasto de bolsa: así sale igual
+    se guarde desde donde se guarde y no hay una segunda versión en JavaScript que se desparejе.
+    ⚠️ Se sigue aceptando el formato ANTIGUO (`amount_net`/`amount_tax`/`amount_gross`) por si queda
+    una pantalla vieja abierta."""
+    if (form.get("amount_value") or "").strip() or (form.get("amount_mode") or "").strip():
+        valor = _parse_money_decimal(form.get("amount_value")) or Decimal("0")
+        modo = (form.get("amount_mode") or "INCLUDED").strip().upper()
+        if valor <= 0:
+            return Decimal("0"), Decimal("0"), Decimal("0")
+        if modo == "PLUS":                      # lo escrito es la BASE: se le suma el IVA
+            base = valor
+            iva = (base * MARKETING_VAT_PCT / Decimal("100")).quantize(Decimal("0.01"))
+        else:                                   # lo escrito YA lleva el IVA
+            base = (valor / (Decimal("1") + MARKETING_VAT_PCT / Decimal("100"))).quantize(Decimal("0.01"))
+            iva = valor - base
+        return base, iva, base + iva
+    neto = _parse_money(form.get("amount_net")) or Decimal("0")
+    iva = _parse_money(form.get("amount_tax")) or Decimal("0")
+    bruto = _parse_money(form.get("amount_gross")) or Decimal("0")
+    if bruto == 0 and (neto or iva):
+        bruto = neto + iva
+    return neto, iva, bruto
+
+
+def _marketing_action_needs_media(action_type: str) -> bool:
+    """¿Esta acción se hace EN un medio? Punto único (lo usan el formulario y el guardado)."""
+    return (action_type or "").strip().upper() in MARKETING_MEDIA_ACTION_TYPES
+
+
 MARKETING_EXTERIOR_SUBTYPES = [
     ("CARTELES", "Pegada de carteles", "fa-map-pin"),
     ("VALLA", "Valla publicitaria", "fa-panorama"),
@@ -79999,12 +80103,7 @@ def promotion_activity_create(promotion_id):
         wave_starts = request.form.getlist('wave_start')
         wave_ends = request.form.getlist('wave_end')
         wave_notes = request.form.getlist('wave_note')
-        for ws, we, wn in zip(wave_starts, wave_ends, wave_notes):
-            if not (ws or we or wn):
-                continue
-            waves.append({'start': ws or None, 'end': we or None, 'note': (wn or '').strip() or None})
-        if execution_mode == 'PERIODO' and (start_date or end_date):
-            waves = [{'start': start_date.isoformat() if start_date else None, 'end': end_date.isoformat() if end_date else None, 'note': None}]
+        waves = _marketing_waves_from_form(request.form, execution_mode, start_date, end_date)
 
         media_id = _safe_uuid(request.form.get('media_id')) if (request.form.get('media_id') or '').strip() else None
         if not media_id and (request.form.get('new_media_name') or '').strip():
@@ -80035,11 +80134,7 @@ def promotion_activity_create(promotion_id):
         if provider_company:
             provider_snapshot.update({'company_id': str(provider_company.id), 'company_name': getattr(provider_company, 'legal_name', None) or getattr(provider_company, 'name', None)})
 
-        amount_net = _parse_money(request.form.get('amount_net')) or Decimal('0')
-        amount_tax = _parse_money(request.form.get('amount_tax')) or Decimal('0')
-        amount_gross = _parse_money(request.form.get('amount_gross')) or Decimal('0')
-        if amount_gross == 0 and (amount_net or amount_tax):
-            amount_gross = amount_net + amount_tax
+        amount_net, amount_tax, amount_gross = _marketing_amounts_from_form(request.form)
         document_type = (request.form.get('document_type') or 'FACTURA').strip().upper()
         if document_type not in {'FACTURA', 'TICKET', 'SIN_DOCUMENTO'}:
             document_type = 'FACTURA'
@@ -80055,6 +80150,8 @@ def promotion_activity_create(promotion_id):
             'end_date': end_date.isoformat() if end_date else None,
             'group_with_existing': (request.form.get('group_with_existing') or '').strip() or None,
             'allocation_note': (request.form.get('allocation_note') or '').strip() or None,
+            # ¿Es un PRESUPUESTO (una previsión) o el importe cerrado? Cambia cómo se enseña.
+            'is_budget': (request.form.get('amount_kind') or '').strip().upper() == 'PRESUPUESTO',
         }
         doc = request.files.get('document')
         attachment_url = attachment_name = attachment_mime = None
@@ -80227,6 +80324,53 @@ def marketing_action_delete(promotion_id, activity_id):
     return redirect(next_url)
 
 
+@app.post("/marketing/<promotion_id>/acciones/<activity_id>/oleada/<int:idx>/estado",
+          endpoint="marketing_wave_status")
+@admin_required
+def marketing_wave_status(promotion_id, activity_id, idx):
+    """EL ESTADO DE UN PERIODO DE EJECUCIÓN, pinchando en él: Pendiente → En ejecución → Finalizado.
+
+    Avanza al siguiente del ciclo (o al que se le mande en `status`). Responde JSON: la pantalla no
+    se mueve."""
+    if not can_edit_marketing():
+        return jsonify({"ok": False, "error": "No tienes permiso para editar Marketing."}), 403
+    session_db = db()
+    try:
+        row = session_db.get(PromotionActivity, _safe_uuid(activity_id))
+        if row is None or str(row.promotion_id) != str(_safe_uuid(promotion_id)):
+            return jsonify({"ok": False, "error": "Acción no encontrada."}), 404
+        oleadas = [dict(w) for w in (row.waves_json or []) if isinstance(w, dict)]
+        if not (0 <= idx < len(oleadas)):
+            return jsonify({"ok": False, "error": "Ese periodo ya no existe. Recarga la pantalla."}), 409
+        pedido = (request.form.get("status") or request.args.get("status") or "").strip().upper()
+        if pedido in MARKETING_WAVE_STATUS_LABELS:
+            nuevo = pedido
+        else:
+            # Avanza en el ciclo (es lo que se espera al pinchar la etiqueta).
+            orden = [k for k, _l, _i, _c in MARKETING_WAVE_STATUSES]
+            actual = _marketing_wave_status_ok(oleadas[idx].get("status"))
+            nuevo = orden[(orden.index(actual) + 1) % len(orden)]
+        oleadas[idx]["status"] = nuevo
+        row.waves_json = oleadas
+        # ⚠️ El patrón de leer-copiar-reasignar no escribe la segunda vez en la misma petición.
+        try:
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(row, "waves_json")
+        except Exception:
+            pass
+        session_db.commit()
+        return jsonify({"ok": True, "status": nuevo,
+                        "label": MARKETING_WAVE_STATUS_LABELS[nuevo],
+                        "icon": MARKETING_WAVE_STATUS_ICONS[nuevo],
+                        "color": MARKETING_WAVE_STATUS_COLORS[nuevo]})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[marketing] no se pudo cambiar el estado de la oleada")
+        return jsonify({"ok": False, "error": "No se pudo cambiar el estado."}), 400
+    finally:
+        session_db.close()
+
+
 @app.post('/marketing/<promotion_id>/acciones/<activity_id>/editar')
 @admin_required
 def marketing_action_update(promotion_id, activity_id):
@@ -80248,12 +80392,7 @@ def marketing_action_update(promotion_id, activity_id):
         execution_mode = (request.form.get('execution_mode') or getattr(row, 'execution_mode', None) or 'PERIODO').strip().upper()
         if execution_mode not in {'PERIODO', 'OLEADAS'}:
             execution_mode = 'PERIODO'
-        waves = []
-        for ws, we, wn in zip(request.form.getlist('wave_start'), request.form.getlist('wave_end'), request.form.getlist('wave_note')):
-            if ws or we or wn:
-                waves.append({'start': ws or None, 'end': we or None, 'note': (wn or '').strip() or None})
-        if execution_mode == 'PERIODO':
-            waves = [{'start': start_date.isoformat() if start_date else None, 'end': end_date.isoformat() if end_date else None, 'note': None}]
+        waves = _marketing_waves_from_form(request.form, execution_mode, start_date, end_date)
         provider_id = _safe_uuid(request.form.get('provider_id')) if (request.form.get('provider_id') or '').strip() else None
         provider_company_id = _safe_uuid(request.form.get('provider_company_id')) if (request.form.get('provider_company_id') or '').strip() else None
         provider = session_db.get(Promoter, provider_id) if provider_id else None
@@ -80263,11 +80402,7 @@ def marketing_action_update(promotion_id, activity_id):
             provider_snapshot.update({'id': str(provider.id), 'nick': provider.nick, 'email': getattr(provider, 'contact_email', None)})
         if provider_company:
             provider_snapshot.update({'company_id': str(provider_company.id), 'company_name': getattr(provider_company, 'legal_name', None) or getattr(provider_company, 'name', None)})
-        amount_net = _parse_money(request.form.get('amount_net')) or Decimal('0')
-        amount_tax = _parse_money(request.form.get('amount_tax')) or Decimal('0')
-        amount_gross = _parse_money(request.form.get('amount_gross')) or Decimal('0')
-        if amount_gross == 0 and (amount_net or amount_tax):
-            amount_gross = amount_net + amount_tax
+        amount_net, amount_tax, amount_gross = _marketing_amounts_from_form(request.form)
         document_type = (request.form.get('document_type') or getattr(row, 'document_type', None) or 'FACTURA').strip().upper()
         if document_type not in {'FACTURA', 'TICKET', 'SIN_DOCUMENTO'}:
             document_type = 'FACTURA'
@@ -80307,6 +80442,8 @@ def marketing_action_update(promotion_id, activity_id):
             'description': (request.form.get('task_description') or request.form.get('description') or '').strip() or None,
             'end_date': end_date.isoformat() if end_date else None,
             'allocation_note': (request.form.get('allocation_note') or '').strip() or None,
+            # ¿Es un PRESUPUESTO (una previsión) o el importe cerrado? Cambia cómo se enseña.
+            'is_budget': (request.form.get('amount_kind') or '').strip().upper() == 'PRESUPUESTO',
         }
         row.task_description = row.details_json.get('description')
         row.execution_mode = execution_mode

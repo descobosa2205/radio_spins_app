@@ -15,7 +15,7 @@
 <ul class="nav nav-tabs mb-4">
   <li class="nav-item"><a class="nav-link {% if tab == 'requested' %}active{% endif %}" href="{{ url_for('marketing_view', tab='requested') }}">Peticiones <span class="badge text-bg-warning ms-1">{{ request_count }}</span></a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'active' %}active{% endif %}" href="{{ url_for('marketing_view', tab='active') }}">Activas <span class="badge text-bg-light border ms-1">{{ active_count }}</span></a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'archived' %}active{% endif %}" href="{{ url_for('marketing_view', tab='archived') }}">Archivadas <span class="badge text-bg-light border ms-1">{{ archived_count }}</span></a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'archived' %}active{% endif %}" href="{{ url_for('marketing_view', tab='archived') }}">Archivadas</a></li>
 </ul>
 
 {% if tab == 'requested' %}

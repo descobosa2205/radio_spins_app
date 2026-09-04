@@ -115,8 +115,30 @@
                         {{ row.activity_date.strftime('%d/%m/%Y') if row.activity_date else 'Sin fecha' }}{% if details.end_date %} - {{ details.end_date }}{% endif %}
                         {% if row.execution_mode == 'OLEADAS' %} · Por oleadas{% endif %}
                       </div>
-                      {% if row.execution_mode == 'OLEADAS' and row.waves_json %}
-                        <div class="d-flex flex-wrap gap-1 mt-2">{% for wave in row.waves_json %}<span class="badge text-bg-light border">{{ wave.start or '—' }} - {{ wave.end or '—' }}{% if wave.note %} · {{ wave.note }}{% endif %}</span>{% endfor %}</div>
+                      {% if row.waves_json %}
+                        {# LOS PERIODOS DE EJECUCIÓN y el ESTADO de cada uno: se pincha y se cambia
+                           (Pendiente · En ejecución · Finalizado). Con «de una sola vez» hay una
+                           sola oleada, así que se lee igual en los dos casos. #}
+                        <div class="d-flex flex-wrap gap-1 mt-2">
+                          {% for wave in row.waves_json %}
+                            {% set west = wave.status or 'PENDIENTE' %}
+                            <span class="badge text-bg-light border d-inline-flex align-items-center gap-1">
+                              <i class="fa fa-calendar-day text-muted"></i>
+                              {{ wave.start|fecha_corta if wave.start else '—' }} – {{ wave.end|fecha_corta if wave.end else '—' }}
+                              {% if wave.note %} · {{ wave.note }}{% endif %}
+                              {% if can_edit_promocion %}
+                                <button type="button" class="badge text-bg-{{ marketing_wave_status_colors.get(west, 'secondary') }} border-0"
+                                        data-wave-status data-wave-url="{{ url_for('marketing_wave_status', promotion_id=promotion.id, activity_id=row.id, idx=loop.index0) }}"
+                                        data-wave-current="{{ west }}"
+                                        title="Pincha para cambiar el estado">
+                                  <i class="fa {{ marketing_wave_status_icons.get(west, 'fa-circle') }} me-1"></i>{{ marketing_wave_status_labels.get(west, west) }}</button>
+                              {% else %}
+                                <span class="badge text-bg-{{ marketing_wave_status_colors.get(west, 'secondary') }}">
+                                  <i class="fa {{ marketing_wave_status_icons.get(west, 'fa-circle') }} me-1"></i>{{ marketing_wave_status_labels.get(west, west) }}</span>
+                              {% endif %}
+                            </span>
+                          {% endfor %}
+                        </div>
                       {% endif %}
                       {% if row.task_description %}<div class="small mt-2">{{ row.task_description }}</div>{% endif %}
                       <div class="small text-muted mt-2">

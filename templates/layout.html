@@ -468,6 +468,9 @@
 {# Contactos de una actividad por función: GLOBAL y por delegación (el bloque se pinta en el
    asistente y en la ficha, cuyas zonas se reemplazan por AJAX). No hace nada sin `[data-ac-role]`. #}
 <script src="{{ url_for('static', filename='js/activity_contacts.js', v=ASSET_V) }}"></script>
+{# El formulario de una acción de marketing: GLOBAL y por delegación (se pinta en un modal y en la
+   ficha, que repinta zonas). No hace nada sin `[data-marketing-form]`. #}
+<script src="{{ url_for('static', filename='js/marketing_form.js', v=ASSET_V) }}"></script>
 {# Editor de texto con formato (negrita/cursiva/subrayado) del PITCH. Global y no-op sin
    `[data-rich-editor]`; el HTML se sanea otra vez en el servidor. #}
 <script src="{{ url_for('static', filename='js/rich_text.js', v=ASSET_V) }}"></script>

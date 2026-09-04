@@ -39413,6 +39413,41 @@ def api_promoter_self_contact():
         session_db.close()
 
 
+@app.get("/api/terceros/contactos-defecto", endpoint="api_promoter_default_contacts")
+@admin_required
+def api_promoter_default_contacts():
+    """LOS CONTACTOS POR DEFECTO de un tercero, por función.
+
+    Con esto el asistente propone al entrar en el paso de contactos las personas que ya se le
+    pusieron a ese promotor: solo hay que confirmarlas o cambiarlas. Es una LECTURA
+    (`SUPPORT_READ_ENDPOINTS`): la usa cualquiera con sesión."""
+    pid = _safe_uuid(request.args.get("promoter_id"))
+    if not pid:
+        return jsonify({"ok": True, "rows": {}})
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, pid)
+        if promoter is None:
+            return jsonify({"ok": True, "rows": {}})
+        correo, tel = _promoter_email_phone(promoter)
+        filas = {}
+        for rol, _l, _i, _h in ACTIVITY_CONTACT_ROLES:
+            crudo = _promoter_default_contact(promoter, rol)
+            if not crudo:
+                continue
+            r = _ticketing_contact_resolve(session_db, crudo, promoter)
+            filas[rol] = {"kind": crudo.get("kind") or "", "promoter_id": crudo.get("promoter_id") or "",
+                          "name": r.get("name") or "", "email": r.get("email") or "",
+                          "phone": r.get("phone") or "", "photo": r.get("photo") or ""}
+        return jsonify({"ok": True, "rows": filas,
+                        "promoter": {"id": str(promoter.id),
+                                     "name": _promoter_display_name(promoter),
+                                     "email": correo, "phone": tel,
+                                     "photo": (promoter.logo_url or "")}})
+    finally:
+        session_db.close()
+
+
 @app.get("/api/contactos/buscar", endpoint="api_contact_search")
 @admin_required
 def api_contact_search():
@@ -49274,6 +49309,10 @@ def _concert_wizard_context(session_db):
                                   for k in DISCOGRAFICA_ACTIVITY_TYPES],
         # Quién puede llevar la producción (paso de logística de las actividades cortas).
         "production_people_wizard": _production_people(session_db),
+        # CONTACTOS por función (paso 14): los cuatro huecos vacíos. Los de por defecto del
+        # promotor los propone el JS al elegirlo (`api_promoter_default_contacts`), porque aquí
+        # todavía no se sabe cuál es.
+        "wizard_contact_rows": _activity_contacts_context(session_db, None),
         "promoters": promoters,
         "promoters_payload": [
             {
@@ -54728,6 +54767,9 @@ def concert_detail_view(cid):
             # Lo que YA tiene la actividad, con TODAS las funciones de cada persona (una persona
             # puede llevar varias, y una función puede ser de varias personas).
             concert_contacts_roles=_concert_contacts_roles_map(c),
+            # CONTACTOS por función: lo que hay en la actividad y lo que propone el promotor.
+            activity_contacts=_activity_contacts_context(session, c),
+            activity_contacts_promoter=_activity_contacts_promoter_chip(session, c),
             # Para poder editar TODOS los campos de la actividad desde su ficha.
             activity_type_choices=QUAD_ACTIVITY_CHOICES,
             purchased_tours=session.query(PurchasedTour).order_by(PurchasedTour.name.asc()).all(),
@@ -56976,8 +57018,14 @@ def concert_section_update_handler(cid, section):
             flash("Notas actualizadas.", "success")
         elif section == "contactos":
             _replace_concert_contacts(session, c.id, _parse_concert_contacts_form(request.form))
+            # LAS CUATRO FUNCIONES (ticketing · producción · producción local · contratación), con
+            # su alcance: solo esta actividad o el de por defecto del promotor de aquí en adelante.
+            _avisos = _activity_contacts_apply_form(session, c, request.form,
+                                                    default_scope=CONTACT_SCOPE_ONLY)
             session.commit()
             flash("Contactos actualizados.", "success")
+            for _aviso in _avisos:
+                flash(_aviso, "info")
         else:
             raise ValueError("Sección no reconocida.")
     except Exception as e:
@@ -58997,12 +59045,31 @@ def sales_update_view():
 @app.post("/ventas/save")
 @admin_required
 def sales_save():
+    """Modo BÁSICO (sin categorías ni ticketeras): se apunta el TOTAL vendido y la app calcula lo
+    del día.
+
+    ⚠️⚠️ Lo que se escribe es el ACUMULADO, no el delta (lo pidió así Dani, sep 2026): un reporte
+    de ticketera da el total, y hacer la resta a mano es donde se equivoca uno. El centinela
+    `qty_total_mode` lo dice; sin él (una pestaña vieja) se sigue leyendo como el delta de siempre.
+    ⚠️ Un total MENOR que lo que ya consta no resta ventas: se apunta 0 y se avisa."""
     session = db()
     day = parse_date(request.form["day"])
     cid = to_uuid(request.form["concert_id"])
     qty = request.form.get("sold_today","").strip()
     qty_int = int(qty) if qty else 0
+    if qty_int < 0:
+        qty_int = 0
+    aviso = ""
     try:
+        if (request.form.get("qty_total_mode") or "").strip():
+            antes = int(session.query(func.coalesce(func.sum(TicketSale.sold_today), 0))
+                        .filter(TicketSale.concert_id == cid, TicketSale.day != day).scalar() or 0)
+            delta = qty_int - antes
+            if delta < 0:
+                aviso = ("El total (%d) es menor que lo que ya constaba de días anteriores (%d): se "
+                         "ha apuntado 0 para este día." % (qty_int, antes))
+                delta = 0
+            qty_int = delta
         row = (session.query(TicketSale)
                .filter_by(concert_id=cid, day=day).first())
         if row:
@@ -59016,6 +59083,8 @@ def sales_save():
         # Ya están actualizadas: el recordatorio a ticketing se cierra solo.
         _sales_own_notice_resolve(session, [cid])
         session.commit()
+        if aviso:
+            flash(aviso, "warning")
         flash("Ventas guardadas.", "success")
     except Exception as e:
         session.rollback()
@@ -59578,12 +59647,40 @@ def sales_ticketer_day_save(cid, tid):
         if not types:
             raise ValueError("Primero añade al menos un tipo de entrada")
 
+        # ⚠️⚠️ LO QUE SE ESCRIBE ES EL **TOTAL VENDIDO**, NO LO DE ESE DÍA: se apunta el acumulado
+        # de esa categoría en esa ticketera y la app calcula sola lo vendido en el día (lo pidió
+        # así Dani, sep 2026). Antes se escribía el delta, que obliga a hacer la resta a mano y a
+        # equivocarse cuando el reporte de la ticketera da el acumulado (que es lo normal).
+        # Lo ya apuntado en ESA ticketera, sin contar el día que se está guardando: es contra eso
+        # contra lo que se calcula la diferencia. Con `qty_total_mode` vacío (una pestaña vieja o un
+        # POST antiguo) se sigue interpretando como el delta del día, para no romper nada.
+        modo_total = bool((request.form.get("qty_total_mode") or "").strip())
+        previos = {}
+        if modo_total:
+            previos = dict(
+                session_db.query(TicketSaleDetail.ticket_type_id, func.coalesce(func.sum(TicketSaleDetail.qty), 0))
+                .filter(TicketSaleDetail.concert_id == concert_id,
+                        TicketSaleDetail.ticketer_id == ticketer_id,
+                        TicketSaleDetail.day != day)
+                .group_by(TicketSaleDetail.ticket_type_id).all()
+            )
+        avisos_totales = []
+
         for tt in types:
             field = f"qty_{tt.id}"
             raw = (request.form.get(field) or "").strip()
             qty_int = int(raw) if raw else 0
             if qty_int < 0:
                 qty_int = 0
+            if modo_total:
+                antes = int(previos.get(tt.id, 0) or 0)
+                delta = qty_int - antes
+                if delta < 0:
+                    # ⚠️ Un total MENOR que lo que ya consta no resta ventas: se apunta 0 y se dice.
+                    avisos_totales.append("%s: el total (%d) es menor que lo que ya constaba de "
+                                          "días anteriores (%d)." % (tt.name or "—", qty_int, antes))
+                    delta = 0
+                qty_int = delta
 
             price_gross = float(cfg_price_map.get(tt.id, 0.0) or 0.0)
             if price_gross <= 0:
@@ -59615,6 +59712,8 @@ def sales_ticketer_day_save(cid, tid):
         _soldout_artwork_check(session_db, [concert_id])
         _sales_own_notice_resolve(session_db, [concert_id])
         session_db.commit()
+        for aviso in avisos_totales:
+            flash(aviso, "warning")
         flash("Ventas por ticketera guardadas.", "success")
     except Exception as e:
         session_db.rollback()
@@ -64655,6 +64754,16 @@ def concert_wizard_create():
         _de_peticion = _wizard_link_peticion(session, concert)
         # Las canciones elegidas en el asistente SON el repertorio de la actividad (en su orden).
         _seed_concert_setlist_from_performance(session, concert, performance)
+        # CONTACTOS por función (ticketing · producción · producción local · contratación). En un
+        # alta el alcance es SIEMPRE «para todas»: es la primera vez que se dicen, así que quedan
+        # como los de por defecto del promotor y las siguientes actividades ya salen con ellos.
+        try:
+            _avisos_contactos = _activity_contacts_apply_form(
+                session, concert, request.form, promoter=session.get(Promoter, promoter_id) if promoter_id else None,
+                default_scope=CONTACT_SCOPE_ALL)
+        except Exception:
+            app.logger.exception("[contactos] no se pudieron guardar los contactos del alta")
+            _avisos_contactos = []
 
         # COMPUERTA del aviso al artista: una actividad NUEVA no puede nacer confirmada sin habérselo
         # comunicado al artista. ⚠️ Aquí no se aborta el alta (se le cuelgan entradas, cachés,
@@ -64807,6 +64916,10 @@ def concert_wizard_create():
                 flash(f'Actividad creada. La solicitud de cartelería quedó registrada pero el correo no se pudo enviar: {error}', 'warning')
         else:
             flash('Actividad creada correctamente.', 'success')
+        # Los contactos que se han puesto también en las OTRAS actividades de ese promotor a las
+        # que les faltaban: se dice, en vez de tocarlas en silencio.
+        for _aviso in (_avisos_contactos or []):
+            flash(_aviso, "info")
         # Venía de una PETICIÓN APROBADA: se dice lo que toca ahora (la fase siguiente es hablarlo
         # con el artista; hasta que confirme, no se le confirma nada al promotor).
         if _de_peticion:
@@ -78042,6 +78155,7 @@ SUPPORT_READ_ENDPOINTS = {
     # ya están) y la búsqueda en todos los terceros: son BÚSQUEDAS, las usa cualquier sesión.
     "api_concert_contact_options",
     "api_contact_search",
+    "api_promoter_default_contacts",
     # Aviso del límite de facturación anual por empresa del grupo (asistente de actividad).
     "api_company_billing_limit",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
@@ -101287,6 +101401,288 @@ def _concert_sales_request_on_sale(concert, *, today=None) -> bool:
     sentido (bug real: en el enlace salía una fecha que aún no estaba a la venta)."""
     fecha = getattr(concert, "sale_start_date", None)
     return bool(fecha and fecha <= (today or today_local()))
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#  CONTACTOS DE UNA ACTIVIDAD POR FUNCIÓN — ticketing · producción · producción local · contratación
+#
+#  ⚠️⚠️ UN CONTACTO SE PONE UNA VEZ Y SIRVE PARA TODAS LAS ACTIVIDADES DE ESE PROMOTOR. Al elegir (o
+#  crear) a alguien para una función, queda **vinculado al promotor con esa función**: las
+#  actividades de ese promotor a las que les falte ese contacto se completan solas, y las nuevas ya
+#  salen con esa persona propuesta — solo hay que confirmarla o cambiarla. Si se cambia, se pregunta
+#  si el cambio es **para todas las actividades de ese promotor de aquí en adelante** o **solo para
+#  esta**.
+#
+#  ⚠️ Dónde vive cada cosa (punto único; no hay dos verdades):
+#   · TICKETING → donde YA vivía: `Concert.ticketing_payload['ticketing_contact']` y
+#     `Promoter.ticketing_contact`, de los que cuelgan las peticiones de actualización de ventas.
+#   · el resto  → `Concert.ticketing_payload['contacts'][ROL]` y `Promoter.default_contacts[ROL]`.
+#  Todos con la MISMA forma y las mismas funciones (`_ticketing_contact_clean` / `_from_form` /
+#  `_resolve`), así que lo que se mejore en una vale para las cuatro.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+ACTIVITY_CONTACT_ROLES = (
+    ("TICKETING", "Ticketing", "fa-ticket",
+     "A quien se le piden las actualizaciones de ventas."),
+    ("PRODUCCION", "Producción", "fa-screwdriver-wrench",
+     "Con quien se cuadra la producción de la actividad."),
+    ("PRODUCCION_LOCAL", "Producción local", "fa-people-carry-box",
+     "Quien está en el sitio el día de la actividad."),
+    ("CONTRATACION", "Contratación", "fa-file-signature",
+     "Con quien se cierran el contrato y la facturación."),
+)
+ACTIVITY_CONTACT_LABELS = {k: l for k, l, _i, _h in ACTIVITY_CONTACT_ROLES}
+ACTIVITY_CONTACT_ICONS = {k: i for k, _l, i, _h in ACTIVITY_CONTACT_ROLES}
+# El alcance de un cambio: solo esta actividad, o el de por defecto del promotor.
+CONTACT_SCOPE_ONLY, CONTACT_SCOPE_ALL = "ONLY", "ALL"
+
+
+def _activity_contact_role_ok(rol: str) -> str:
+    rol = (rol or "").strip().upper()
+    return rol if rol in ACTIVITY_CONTACT_LABELS else ""
+
+
+def _activity_contact_raw(concert, rol: str) -> dict:
+    """Lo GUARDADO en la actividad para esa función (sin resolver ni caer al promotor)."""
+    rol = _activity_contact_role_ok(rol)
+    pay = getattr(concert, "ticketing_payload", None) or {}
+    if not rol or not isinstance(pay, dict):
+        return {}
+    if rol == "TICKETING":
+        return _ticketing_contact_clean(pay.get("ticketing_contact"))
+    otros = pay.get("contacts")
+    if not isinstance(otros, dict):
+        return {}
+    return _ticketing_contact_clean(otros.get(rol))
+
+
+def _activity_contact_set(concert, rol: str, fila: dict) -> None:
+    """Escribe (o borra, con {}) el contacto de esa función EN LA ACTIVIDAD."""
+    rol = _activity_contact_role_ok(rol)
+    if not rol or concert is None:
+        return
+    pay = dict(getattr(concert, "ticketing_payload", None) or {})
+    fila = _ticketing_contact_clean(fila)
+    if rol == "TICKETING":
+        if fila:
+            pay["ticketing_contact"] = fila
+        else:
+            pay.pop("ticketing_contact", None)
+    else:
+        otros = dict(pay.get("contacts") or {})
+        if fila:
+            otros[rol] = fila
+        else:
+            otros.pop(rol, None)
+        if otros:
+            pay["contacts"] = otros
+        else:
+            pay.pop("contacts", None)
+    concert.ticketing_payload = pay
+    # ⚠️ El patrón de leer-copiar-reasignar NO escribe la segunda vez en la misma petición: hay que
+    # marcar el JSONB a mano (bug conocido de la casa).
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(concert, "ticketing_payload")
+    except Exception:
+        pass
+
+
+def _promoter_default_contact(promoter, rol: str) -> dict:
+    """El contacto POR DEFECTO de ese tercero para esa función."""
+    rol = _activity_contact_role_ok(rol)
+    if not rol or promoter is None:
+        return {}
+    if rol == "TICKETING":
+        return _ticketing_contact_clean(getattr(promoter, "ticketing_contact", None))
+    todos = getattr(promoter, "default_contacts", None)
+    if not isinstance(todos, dict):
+        return {}
+    return _ticketing_contact_clean(todos.get(rol))
+
+
+def _promoter_default_contact_set(promoter, rol: str, fila: dict) -> None:
+    rol = _activity_contact_role_ok(rol)
+    if not rol or promoter is None:
+        return
+    fila = _ticketing_contact_clean(fila)
+    if rol == "TICKETING":
+        promoter.ticketing_contact = fila or {}
+        campo = "ticketing_contact"
+    else:
+        todos = dict(getattr(promoter, "default_contacts", None) or {})
+        if fila:
+            todos[rol] = fila
+        else:
+            todos.pop(rol, None)
+        promoter.default_contacts = todos
+        campo = "default_contacts"
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(promoter, campo)
+    except Exception:
+        pass
+
+
+def _activity_contact(session_db, concert, rol: str) -> dict:
+    """A QUIÉN corresponde esa función en esta actividad. Punto ÚNICO, en cascada:
+    el contacto de LA ACTIVIDAD → el de por defecto DEL TERCERO. Devuelve {} si no hay nadie.
+
+    ⚠️ En TICKETING se delega en `_concert_ticketing_contact`, que además cae a quien lleva la venta
+    y al propio promotor: de ahí cuelgan las peticiones de actualización de ventas y no puede haber
+    dos criterios."""
+    rol = _activity_contact_role_ok(rol)
+    if not rol or concert is None:
+        return {}
+    if rol == "TICKETING":
+        return _concert_ticketing_contact(session_db, concert)
+    promoter = _concert_promoter(session_db, concert)
+    propio = _ticketing_contact_resolve(session_db, _activity_contact_raw(concert, rol), promoter)
+    if propio.get("email") or propio.get("phone") or propio.get("name"):
+        return dict(propio, source="CONCERT")
+    del_tercero = _ticketing_contact_resolve(
+        session_db, _promoter_default_contact(promoter, rol), promoter)
+    if del_tercero.get("email") or del_tercero.get("phone") or del_tercero.get("name"):
+        return dict(del_tercero, source="PROMOTER_DEFAULT")
+    return {}
+
+
+def _activity_contact_link(session_db, promoter, fila: dict, rol: str) -> None:
+    """VINCULA al tercero elegido con el promotor, diciendo con qué función.
+
+    Es la vinculación de siempre de la casa (`ThirdPartyLink`), así que se ve en las DOS fichas y la
+    relación dice para qué es («Contacto de ticketing»). Idempotente: no duplica."""
+    rol = _activity_contact_role_ok(rol)
+    fila = _ticketing_contact_clean(fila)
+    if not rol or promoter is None or fila.get("kind") != "THIRD":
+        return
+    tercero_id = _safe_uuid(fila.get("promoter_id"))
+    pid = getattr(promoter, "id", None)
+    if not tercero_id or not pid or str(tercero_id) == str(pid):
+        return
+    relacion = "Contacto de " + ACTIVITY_CONTACT_LABELS[rol].lower()
+    try:
+        # ⚠️ La vinculación es BIDIRECCIONAL (se ve en las dos fichas): se busca en los dos
+        # sentidos para no crear la misma dos veces.
+        ya = session_db.query(ThirdPartyLink.id).filter(
+            or_(and_(ThirdPartyLink.source_type == "promoter", ThirdPartyLink.source_id == pid,
+                     ThirdPartyLink.target_type == "promoter", ThirdPartyLink.target_id == tercero_id),
+                and_(ThirdPartyLink.source_type == "promoter", ThirdPartyLink.source_id == tercero_id,
+                     ThirdPartyLink.target_type == "promoter", ThirdPartyLink.target_id == pid)),
+            func.lower(func.coalesce(ThirdPartyLink.relation_title, "")) == relacion.lower(),
+        ).first()
+        if ya:
+            return
+        yo = _current_user_state() or {}
+        session_db.add(ThirdPartyLink(
+            source_type="promoter", source_id=pid,
+            target_type="promoter", target_id=tercero_id,
+            relation_title=relacion, created_by_nick=(yo.get("nick") or "")))
+    except Exception:
+        app.logger.exception("no se pudo vincular el contacto %s con el promotor", rol)
+
+
+def _promoter_default_contact_propagate(session_db, promoter, rol: str, fila: dict,
+                                        *, exclude_concert_id=None) -> int:
+    """Rellena esa función en las actividades del promotor a las que LE FALTA.
+
+    ⚠️ SOLO donde está incompleta: una actividad a la que alguien le puso otra persona a mano no se
+    toca nunca. Y solo en las actividades VIVAS (lo ya celebrado no se reescribe)."""
+    rol = _activity_contact_role_ok(rol)
+    fila = _ticketing_contact_clean(fila)
+    if not rol or not fila or promoter is None:
+        return 0
+    hoy = today_local()
+    q = session_db.query(Concert).filter(
+        Concert.promoter_id == promoter.id,
+        or_(Concert.date.is_(None), Concert.date >= hoy),
+    )
+    if exclude_concert_id:
+        q = q.filter(Concert.id != exclude_concert_id)
+    n = 0
+    for c in q.all():
+        if _activity_contact_raw(c, rol):
+            continue                      # ya tiene el suyo: no se pisa
+        _activity_contact_set(c, rol, fila)
+        n += 1
+    return n
+
+
+def _activity_contacts_apply_form(session_db, concert, form, *, promoter=None,
+                                  default_scope: str = CONTACT_SCOPE_ALL) -> list:
+    """Guarda las CUATRO funciones desde un formulario. Devuelve los avisos que hay que contar.
+
+    Por cada función lee `c_<ROL>_kind` / `_name` / `_email` / `_phone` / `_promoter_id` (los mismos
+    nombres que el contacto de ticketing, con el prefijo del rol) y `c_<ROL>_scope`:
+      · ALL  → se guarda TAMBIÉN como el de por defecto del promotor, se le VINCULA con esa función
+               y se rellenan las actividades de ese promotor a las que les falte.
+      · ONLY → solo en esta actividad.
+    ⚠️ Con CENTINELA (`contacts_present`): si el formulario no lo trae, no se toca nada — un
+    guardado parcial de otra sección no puede borrar los contactos."""
+    avisos = []
+    if concert is None or not (form.get("contacts_present") or "").strip():
+        return avisos
+    if promoter is None:
+        promoter = _concert_promoter(session_db, concert)
+    for rol, etiqueta, _icono, _ayuda in ACTIVITY_CONTACT_ROLES:
+        pref = "c_" + rol + "_"
+        if not any(k.startswith(pref) for k in form.keys()):
+            continue                       # esa función no venía en el formulario
+        try:
+            fila = _ticketing_contact_from_form(form, prefix=pref)
+        except ValueError as e:
+            avisos.append("%s: %s" % (etiqueta, e))
+            continue
+        _activity_contact_set(concert, rol, fila)
+        alcance = (form.get(pref + "scope") or default_scope or CONTACT_SCOPE_ALL).strip().upper()
+        if not fila or alcance != CONTACT_SCOPE_ALL:
+            continue
+        # Se pone como el de por defecto del promotor (y de ahí en adelante lo hereda todo lo nuevo).
+        if promoter is not None and fila != _promoter_default_contact(promoter, rol):
+            _promoter_default_contact_set(promoter, rol, fila)
+            _activity_contact_link(session_db, promoter, fila, rol)
+            n = _promoter_default_contact_propagate(
+                session_db, promoter, rol, fila, exclude_concert_id=getattr(concert, "id", None))
+            if n:
+                avisos.append("%s: se ha puesto también en %d actividad%s de %s a la%s que le "
+                              "faltaba." % (etiqueta, n, "es" if n != 1 else "",
+                                            _promoter_display_name(promoter), "s" if n != 1 else ""))
+        elif promoter is not None and fila.get("kind") == "THIRD":
+            # Ya era el de por defecto: basta con asegurar la vinculación.
+            _activity_contact_link(session_db, promoter, fila, rol)
+    return avisos
+
+
+def _activity_contacts_promoter_chip(session_db, concert) -> dict:
+    """Los datos del PROMOTOR para el botón «El mismo contacto que el promotor»."""
+    promoter = _concert_promoter(session_db, concert) if concert is not None else None
+    if promoter is None:
+        return {"name": "", "photo": "", "email": "", "phone": ""}
+    correo, tel = _promoter_email_phone(promoter)
+    return {"name": _promoter_display_name(promoter), "photo": (promoter.logo_url or ""),
+            "email": correo or "", "phone": tel or ""}
+
+
+def _activity_contacts_context(session_db, concert, *, promoter=None) -> list:
+    """Lo que necesita el formulario de contactos: por función, lo que hay y de dónde sale."""
+    if promoter is None and concert is not None:
+        promoter = _concert_promoter(session_db, concert)
+    filas = []
+    for rol, etiqueta, icono, ayuda in ACTIVITY_CONTACT_ROLES:
+        propio = _activity_contact_raw(concert, rol) if concert is not None else {}
+        defecto = _promoter_default_contact(promoter, rol)
+        resuelto = _activity_contact(session_db, concert, rol) if concert is not None else \
+            _ticketing_contact_resolve(session_db, defecto, promoter)
+        sug = _ticketing_contact_resolve(session_db, defecto, promoter) if defecto else {}
+        filas.append({
+            "role": rol, "label": etiqueta, "icon": icono, "help": ayuda,
+            "raw": propio or defecto,          # con qué se pinta el formulario
+            "own": bool(propio),
+            "resolved": resuelto,
+            "suggested": sug,                  # el de por defecto del promotor, para confirmarlo
+            "prefix": "c_" + rol + "_",
+        })
+    return filas
 
 
 def _concert_ticketing_contact_unset(session_db, concert, *, group_promoted=None) -> bool:
@@ -132311,6 +132707,8 @@ def _et_link_event(s, ev: EnterticketEvent, concert: Concert) -> None:
     ev.concert_id = concert.id
     ev.link_status = "LINKED"
     ev.last_error = None
+    # Vincular A MANO es una decisión deliberada: se levanta el bloqueo del automatch.
+    ev.autolink_blocked = False
     _et_ensure_concert_ticketer(s, ev)
     for be in s.query(BuyerEvent).filter(BuyerEvent.event_id == ev.id).all():
         be.concert_id = concert.id
@@ -132325,6 +132723,12 @@ def _et_unlink_event(s, ev: EnterticketEvent) -> None:
     concert_id = ev.concert_id
     ev.concert_id = None
     ev.link_status = "PENDING"
+    # ⚠️ Y NO SE VUELVE A VINCULAR SOLO: se ha deshecho a mano porque estaba mal.
+    ev.autolink_blocked = True
+    # Las ventas que trajo el espejo dejan de contar: la sincronización empieza de cero si algún
+    # día se vuelve a vincular a mano (si no, `desde_id` se saltaría todas las ventas anteriores).
+    ev.sales_last_id = 0
+    ev.sales_last_sync_unix = 0
     for be in s.query(BuyerEvent).filter(BuyerEvent.event_id == ev.id).all():
         be.concert_id = None
     if not concert_id:
@@ -132357,6 +132761,12 @@ def _et_unlink_event(s, ev: EnterticketEvent) -> None:
                   .filter(ConcertTicketerTicketType.ticket_type_id == tt.id).first())
         if not in_use:
             s.delete(tt)
+            continue
+        # ⚠️⚠️ EL QUE SE QUEDA (porque tiene ventas de otra ticketera) DEJA DE SER UN ESPEJO: sin
+        # quitarle `et_managed` seguía siendo intocable —`_replace_concert_ticket_types_manual` no
+        # toca los de Enterticket— y esa actividad se quedaba con tipos de OTRO evento que no se
+        # podían editar ni borrar (bug real: «no te deja editarlos»).
+        tt.et_managed = False
     s.flush()
     _sync_concert_capacity_from_ticket_types(s, concert_id)
 
@@ -132412,7 +132822,14 @@ def _et_automatch_candidates(s, ev: EnterticketEvent, day_margin: int = 1) -> li
 
 def _et_try_automatch(s, ev: EnterticketEvent) -> bool:
     """Vincula automáticamente SOLO si hay un candidato claro: artista + fecha exacta (score ≥ 4)
-    y sin empate. En caso de duda queda PENDIENTE y se decide a mano en Integraciones."""
+    y sin empate. En caso de duda queda PENDIENTE y se decide a mano en Integraciones.
+
+    ⚠️⚠️ LO QUE SE HA DESVINCULADO A MANO NO SE VUELVE A VINCULAR SOLO (`autolink_blocked`): si
+    alguien deshace un vínculo es porque estaba MAL, y volver a hacerlo en el siguiente sync
+    devolvía las ventas de OTRO evento a esa actividad (bug real). Vincularlo a mano sigue
+    valiendo: es una decisión deliberada."""
+    if getattr(ev, "autolink_blocked", False):
+        return False
     cands = _et_automatch_candidates(s, ev, day_margin=0)
     if not cands:
         return False

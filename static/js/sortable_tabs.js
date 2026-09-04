@@ -7,8 +7,8 @@
 
    · Es una PREFERENCIA de la persona (`UserProfile.ui_order`), no un permiso: solo se ordena lo que
      ya ve, y lo que se guarda es el ORDEN, nada más.
-   · ⚠️ La CLAVE de cada grupo se calcula con las pestañas QUE HAY: si mañana se añade una, la clave
-     cambia y se vuelve al orden natural — así una pestaña nueva nunca queda escondida.
+   · ⚠️ La CLAVE de cada grupo es ESTABLE (la página + la clase + su posición): añadir una pestaña
+     mañana NO puede cambiarla, o se perdería el orden que puso la persona. Lo nuevo va al final.
    · ⚠️ Se arrastra con eventos de PUNTERO (no el arrastre nativo de HTML5): dentro de una pestaña
      hay enlaces que tienen que seguir funcionando, y con el dedo (iPad) el HTML5 no va.
    · ⚠️ Mientras se ordena, el clic de las pestañas NO navega (si no, arrastrar cambiaría de pestaña).
@@ -103,6 +103,15 @@
     try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
   }
 
+  /* Coger una pieza: punto único, lo usan el segundo toque y la propia entrada en el modo. */
+  function agarra(it, x, y, pid) {
+    arrastrado = it;
+    agarre = { x: x, y: y };
+    it.style.transition = 'none';
+    it.classList.add('is-dragging');
+    try { it.setPointerCapture(pid); } catch (e) {}
+  }
+
   function sal(guardar) {
     if (!activo) return;
     var g = activo;
@@ -118,14 +127,17 @@
   /* FLIP (First-Last-Invert-Play): se apuntan las posiciones, se reordena y cada pieza se anima
      DESDE donde estaba hasta donde ha quedado. Sin esto el reordenado es un salto seco, que es lo
      que se siente «poco fluido». El arrastrado se excluye: ese va pegado al dedo. */
+  var animando = false, tAnim = null;
   function flip(grupo, cambia) {
     var piezas = items(grupo), antes = piezas.map(function (el) { return el.getBoundingClientRect(); });
     cambia();
+    var movio = false;
     piezas.forEach(function (el, i) {
       if (el === arrastrado) return;
       var r = el.getBoundingClientRect();
       var dx = antes[i].left - r.left, dy = antes[i].top - r.top;
       if (!dx && !dy) return;
+      movio = true;
       el.style.transition = 'none';
       el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
       // Dos fotogramas: el primero fija el punto de partida, el segundo anima.
@@ -136,24 +148,48 @@
         });
       });
     });
+    // RED DE SEGURIDAD: si de verdad no se ha movido nada, no se bloquea el gesto esperando una
+    // animación que no existe.
+    if (!movio) return;
+    animando = true;
+    clearTimeout(tAnim);
+    tAnim = setTimeout(function () { animando = false; }, 190);
   }
 
-  function itemEn(grupo, x, y) {
-    var res = null;
-    items(grupo).forEach(function (el) {
-      var r = el.getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) res = el;
-    });
-    return res;
+  /* ⚠️⚠️ DÓNDE SE VA A QUEDAR: se compara el dedo con el CENTRO de cada pieza, EXCLUYENDO la que se
+     arrastra. Antes se miraba «sobre qué pieza está el dedo» y se insertaba antes o después de ella,
+     y eso NO ES SIMÉTRICO: hacia la izquierda bastaba con rozar la mitad del vecino, pero hacia la
+     derecha el destino calculado era justo el hueco en el que ya estaba, así que no pasaba nada
+     hasta cruzar pieza y media (bug real: «a la izquierda se ve dónde se va a colocar, a la derecha
+     no»). Comparando centros, el umbral es EL MISMO en los dos sentidos. */
+  function destinoPara(grupo, x, y) {
+    var lista = items(grupo).filter(function (el) { return el !== arrastrado; });
+    if (!lista.length) return null;
+    var horiz = esHorizontal(grupo, lista);
+    for (var i = 0; i < lista.length; i++) {
+      var r = lista[i].getBoundingClientRect();
+      var centro = horiz ? (r.left + r.width / 2) : (r.top + r.height / 2);
+      if ((horiz ? x : y) < centro) return lista[i];
+    }
+    return null;   // más allá del último: al final
+  }
+
+  // Horizontal o vertical lo dice CÓMO ESTÁN PUESTAS las piezas (una fila de pestañas o un menú
+  // apilado), no la forma de una de ellas.
+  function esHorizontal(grupo, lista) {
+    lista = lista || items(grupo);
+    if (lista.length < 2) return true;
+    var a = lista[0].getBoundingClientRect(), b = lista[lista.length - 1].getBoundingClientRect();
+    return Math.abs(b.left - a.left) >= Math.abs(b.top - a.top);
   }
 
   /* EL MISMO GESTO para lo que YA tiene su propio modo de ordenar: mantener pulsado un MÓDULO de
      Inicio entra en «Ordenar mi inicio», y mantener pulsado el MENÚ abre «Ordenar mi menú». No se
      duplica ningún motor: aquí solo se reconoce el gesto y se llama al suyo. */
-  function gestoPropio(destino) {
+  function gestoPropio(destino, x, y, pid) {
     var mod = destino.closest && destino.closest('[data-home-modules] .card, [data-home-modules] [data-home-module]');
     if (mod && !mod.hasAttribute('data-home-fixed') && window.app33HomeOrderEnter) {
-      window.app33HomeOrderEnter();
+      window.app33HomeOrderEnter(mod, x, y, pid);   // entra Y AGARRA: se sigue arrastrando sin soltar
       return true;
     }
     var menu = destino.closest && destino.closest('#primaryNavList');
@@ -173,32 +209,34 @@
     if (!grupo) {
       if (activo) sal(true);
       // ¿Es un módulo de Inicio o el menú? Ahí el gesto abre SU modo de ordenar.
-      var objetivo = ev.target;
+      var objetivo = ev.target, ox = ev.clientX, oy = ev.clientY, opid = ev.pointerId;
       clearTimeout(timer);
       pulsando = { grupo: null, item: null, x: ev.clientX, y: ev.clientY };
       timer = setTimeout(function () {
-        if (pulsando) { gestoPropio(objetivo); pulsando = null; }
+        if (pulsando) { gestoPropio(objetivo, ox, oy, opid); pulsando = null; }
       }, 600);
       return;
     }
     var it = ev.target.closest('li, [data-sort-item]');
     if (!it || it.parentElement !== grupo) return;
     if (activo === grupo) {                      // ya está temblando: se arrastra
-      arrastrado = it;
-      agarre = { x: ev.clientX, y: ev.clientY };
-      it.style.transition = 'none';
-      it.classList.add('is-dragging');
-      try { it.setPointerCapture(ev.pointerId); } catch (e) {}
+      agarra(it, ev.clientX, ev.clientY, ev.pointerId);
       ev.preventDefault();
       return;
     }
     // Mantener pulsado ~500 ms para entrar en el modo.
-    pulsando = { grupo: grupo, item: it, x: ev.clientX, y: ev.clientY };
+    pulsando = { grupo: grupo, item: it, x: ev.clientX, y: ev.clientY, pid: ev.pointerId };
     clearTimeout(timer);
     timer = setTimeout(function () {
       if (!pulsando) return;
-      entra(pulsando.grupo);
-      pulsando = null;
+      var p = pulsando; pulsando = null;
+      entra(p.grupo);
+      /* ⚠️⚠️ Y SE AGARRA YA, EN EL MISMO GESTO: el dedo sigue abajo, así que de aquí se sigue
+         arrastrando sin soltar, que es lo que uno espera al mantener pulsado algo. Antes esto solo
+         ponía a temblar las pestañas y había que SOLTAR y volver a cogerlas para moverlas: sin
+         hacerlo, arrastrar no movía nada (bug real que se notaba como «hacia un lado va y hacia el
+         otro no», según si quedaba un agarre suelto de antes). */
+      agarra(p.item, p.x, p.y, p.pid);
     }, 500);
   }, true);
 
@@ -214,15 +252,16 @@
       arrastrado.style.transform = 'translate(' + (ev.clientX - agarre.x) + 'px,'
         + (ev.clientY - agarre.y) + 'px)';
     }
-    var sobre = itemEn(activo, ev.clientX, ev.clientY);
-    if (!sobre || sobre === arrastrado) return;
-    var r = sobre.getBoundingClientRect();
-    // Horizontal (pestañas) o vertical (menú apilado): manda el lado más largo.
-    var antes = (r.width >= r.height)
-      ? (ev.clientX < r.left + r.width / 2)
-      : (ev.clientY < r.top + r.height / 2);
-    var destino = antes ? sobre : sobre.nextSibling;
-    if (destino === arrastrado || destino === arrastrado.nextSibling) return;   // ya está ahí
+    // ⚠️ Mientras la animación del hueco está en marcha, los rectángulos MIENTEN (están a mitad de
+    // camino): recolocar ahí produce temblor y saltos. Se espera a que termine.
+    if (animando) return;
+    var destino = destinoPara(activo, ev.clientX, ev.clientY);
+    // ⚠️⚠️ `nextElementSibling`, NO `nextSibling`: entre dos <li> hay un NODO DE TEXTO (el salto de
+    // línea del HTML), así que con `nextSibling` esta guarda no acertaba NUNCA — se reordenaba a la
+    // misma posición, eso disparaba el FLIP y su bandera `animando` bloqueaba los 190 ms
+    // siguientes, con lo que el arrastre se quedaba clavado (bug real: «hacia un lado se ve dónde
+    // se va a colocar y hacia el otro no»).
+    if (destino === arrastrado || destino === arrastrado.nextElementSibling) return;   // ya está ahí
     flip(activo, function () { activo.insertBefore(arrastrado, destino); });
   }, { passive: false });
 

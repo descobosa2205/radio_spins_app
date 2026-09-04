@@ -25,7 +25,7 @@
          Antes de tocar nada se enseña QUÉ cambia y hay que aceptarlo. #}
       <button type="button" class="btn btn-primary btn-sm" data-et-dump-open><i class="fa fa-download me-1"></i>Volcar configuración</button>
       <form method="post" action="{{ url_for('concert_et_sync', cid=concert.id) }}"><button class="btn btn-outline-secondary btn-sm"><i class="fa fa-rotate me-1"></i>Actualizar ahora</button></form>
-      <form method="post" action="{{ url_for('concert_et_unlink', cid=concert.id) }}" onsubmit="return confirm('¿Desvincular este concierto del evento de Enterticket?');"><button class="btn btn-outline-danger btn-sm" title="Desvincular"><i class="fa fa-link-slash"></i></button></form>
+      <form method="post" action="{{ url_for('concert_et_unlink', cid=concert.id) }}" onsubmit="return confirm('¿Desvincular este concierto del evento de Enterticket?\n\nSe borran las ventas que trajo la sincronización y vuelve a verse el último dato de ventas anterior. No se volverá a vincular solo: habría que hacerlo a mano.');"><button class="btn btn-outline-danger btn-sm" title="Desvincular"><i class="fa fa-link-slash"></i></button></form>
       {% endif %}
     </div>
   </div>

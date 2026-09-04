@@ -465,6 +465,9 @@
    que funcionen en cualquier pantalla que los use (antes el JS vivía en una plantilla y en el
    iPhone no se podían mover). No hace nada si la página no tiene ninguno. #}
 <script src="{{ url_for('static', filename='js/sw3.js', v=ASSET_V) }}"></script>
+{# Contactos de una actividad por función: GLOBAL y por delegación (el bloque se pinta en el
+   asistente y en la ficha, cuyas zonas se reemplazan por AJAX). No hace nada sin `[data-ac-role]`. #}
+<script src="{{ url_for('static', filename='js/activity_contacts.js', v=ASSET_V) }}"></script>
 {# Editor de texto con formato (negrita/cursiva/subrayado) del PITCH. Global y no-op sin
    `[data-rich-editor]`; el HTML se sanea otra vez en el servidor. #}
 <script src="{{ url_for('static', filename='js/rich_text.js', v=ASSET_V) }}"></script>

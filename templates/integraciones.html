@@ -1011,7 +1011,7 @@
                     <form method="post" class="d-inline" data-inline data-inline-target="#etZone"><input type="hidden" name="et_event_pk" value="{{ ev.pk }}">
                       {% if ev.status == 'LINKED' %}
                         <button name="action" value="et_sync_event" class="btn btn-sm btn-outline-primary" title="Sincronizar ventas ahora"><i class="fa fa-rotate"></i></button>
-                        <button name="action" value="et_unlink" class="btn btn-sm btn-outline-danger" title="Desvincular" onclick="return confirm('¿Desvincular este evento del concierto?');"><i class="fa fa-link-slash"></i></button>
+                        <button name="action" value="et_unlink" class="btn btn-sm btn-outline-danger" title="Desvincular" onclick="return confirm('¿Desvincular este evento del concierto?\n\nSe borran las ventas que trajo la sincronización y vuelve a verse el último dato anterior. No se volverá a vincular solo.');"><i class="fa fa-link-slash"></i></button>
                       {% elif ev.status == 'IGNORED' %}
                         <button name="action" value="et_unignore" class="btn btn-sm btn-outline-secondary" title="Recuperar"><i class="fa fa-rotate-left"></i></button>
                       {% elif ev.status == 'REQUESTED' %}

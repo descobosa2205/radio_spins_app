@@ -188,11 +188,18 @@
                   <form method="post" action="{{ url_for('sales_save') }}">
                     <input type="hidden" name="concert_id" value="{{ c.id }}">
                     <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                    {# ⚠️ Se escribe el TOTAL vendido; lo del día lo calcula la app. #}
+                    <input type="hidden" name="qty_total_mode" value="1">
 
                     <div class="row g-3 align-items-end">
                       <div class="col-md-4">
-                        <label class="form-label">Entradas vendidas HOY (total)</label>
-                        <input class="form-control" type="number" min="0" step="1" name="sold_today" value="{{ sold_today }}">
+                        <label class="form-label">Total de entradas vendidas</label>
+                        <input class="form-control" type="number" min="0" step="1" name="sold_today"
+                               id="qtyb-{{ c.id }}" value="{{ sold_total }}"
+                               data-sales-total data-sales-base="{{ sold_total - sold_today }}">
+                        <div class="form-text">Este día:
+                          <strong data-sales-day="qtyb-{{ c.id }}">{{ sold_today }}</strong>
+                          · se calcula solo con lo que ya constaba.</div>
                       </div>
 
                       <div class="col-md-8 d-flex gap-2 justify-content-end">
@@ -248,6 +255,10 @@
 
                         <form method="post" action="{{ url_for('sales_ticketer_day_save', cid=c.id, tid=tid) }}">
                           <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                          {# ⚠️ Lo que se escribe es el TOTAL VENDIDO, no lo del día: el centinela
+                             se lo dice al servidor (sin él, una pestaña vieja se seguiría leyendo
+                             como el delta de siempre y se contarían ventas de más). #}
+                          <input type="hidden" name="qty_total_mode" value="1">
 
                           <div class="table-responsive">
                             <table class="table table-sm align-middle">
@@ -255,8 +266,8 @@
                                 <tr>
                                   <th>Tipo</th>
                                   <th class="text-end">Precio bruto</th>
-                                  <th class="text-end">Hoy</th>
-                                  <th class="text-end">Vendidas</th>
+                                  <th class="text-end">Total vendidas</th>
+                                  <th class="text-end">Este día</th>
                                   <th class="text-end">% venta</th>
                                   <th class="text-end">Pendientes</th>
                                   <th class="text-end">Configuradas</th>
@@ -275,6 +286,9 @@
                                   <tr>
                                     <td>{{ tt.name }}</td>
                                     <td class="text-end">{{ "%.2f"|format(cfg_price or 0.0) }} €</td>
+                                    {# Se escribe el TOTAL acumulado de esa categoría en ESTA
+                                       ticketera; lo vendido en el día lo calcula la app (y se ve
+                                       al lado según se escribe). #}
                                     <td class="text-end">
                                       <input
                                         id="qty-{{ c.id }}-{{ tid }}-{{ tt.id }}"
@@ -283,11 +297,14 @@
                                         min="0"
                                         step="1"
                                         name="qty_{{ tt.id }}"
-                                        value="{{ today_val }}"
+                                        value="{{ sold_acum }}"
+                                        data-sales-total
+                                        data-sales-base="{{ sold_acum - today_val }}"
                                         {% if is_et %}disabled title="Se actualiza sola desde Enterticket"{% endif %}
                                       >
                                     </td>
-                                    <td class="text-end">{{ sold_acum }}</td>
+                                    <td class="text-end" data-sales-day="qty-{{ c.id }}-{{ tid }}-{{ tt.id }}">
+                                      {{ today_val }}</td>
                                     <td class="text-end">{{ "%.1f"|format(pct_tt) }}%</td>
                                     <td class="text-end">{{ pend_tt }}</td>
                                     <td class="text-end">{{ cfg_qty }}</td>
@@ -1007,4 +1024,22 @@ function openNewTicketerModal(concertId) {
   });
 </script>
 
+
+{# «Este día» se calcula solo: lo que se escribe es el TOTAL vendido. Por DELEGACIÓN, porque esta
+   pantalla repinta zonas. #}
+<script>
+document.addEventListener('input', function (ev) {
+  var i = ev.target.closest && ev.target.closest('[data-sales-total]');
+  if (!i) return;
+  var celda = document.querySelector('[data-sales-day="' + i.id + '"]');
+  if (!celda) return;
+  var base = parseInt(i.getAttribute('data-sales-base') || '0', 10) || 0;
+  var total = parseInt(i.value || '0', 10);
+  if (isNaN(total)) { celda.textContent = '—'; return; }
+  var dia = total - base;
+  celda.textContent = dia < 0 ? '0' : String(dia);
+  celda.classList.toggle('text-danger', dia < 0);
+  celda.title = dia < 0 ? 'El total es menor que lo que ya constaba de días anteriores (' + base + ').' : '';
+});
+</script>
 {% endblock %}

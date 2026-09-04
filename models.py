@@ -1820,6 +1820,13 @@ class Promoter(Base):
     # (`ticketing_payload['ticketing_contact']`), que manda sobre este cuando está puesto:
     #   {kind: 'PROMOTER'|'THIRD'|'EMAIL', promoter_id?, name, email, phone, set_at, set_by}
     ticketing_contact = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # CONTACTOS POR DEFECTO de este tercero, por FUNCIÓN (`ACTIVITY_CONTACT_ROLES` en `app.py`):
+    # producción, producción local y contratación. Cada uno con la MISMA forma que el de ticketing.
+    # ⚠️ El de TICKETING **no** va aquí: vive en `ticketing_contact` (que ya existía y de la que
+    # cuelgan las peticiones de actualización de ventas). Punto único que decide dónde vive cada
+    # uno: `_promoter_default_contact` / `_promoter_default_contact_set`.
+    #   {'PRODUCCION': {kind, promoter_id?, name, email, phone, set_at, set_by}, ...}
+    default_contacts = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     publishing_company_id = Column(
         PGUUID(as_uuid=True),
@@ -10931,6 +10938,11 @@ class EnterticketEvent(Base):
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"))
     # PENDING (sin vincular) | LINKED | IGNORED | REQUESTED (petición a Contratación creada)
     link_status = Column(Text, nullable=False, server_default=text("'PENDING'"))
+    # ⚠️⚠️ DESVINCULADO A MANO: no se vuelve a vincular SOLO. Cuando alguien deshace un vínculo es
+    # porque estaba MAL, y el automatch lo volvía a hacer en el siguiente sync volcando otra vez las
+    # ventas de otro evento (bug real, sep 2026). Se puede volver a vincular a mano, que es una
+    # decisión deliberada.
+    autolink_blocked = Column(Boolean, nullable=False, server_default=text("false"))
     booking_request_id = Column(PGUUID(as_uuid=True), ForeignKey("booking_requests.id", ondelete="SET NULL"))
 
     # Sincronización incremental de ventas: último id visto (desde_id) y última marca updated_at.
@@ -11203,6 +11215,7 @@ def ensure_enterticket_schema():
             blocked_json jsonb NOT NULL DEFAULT '[]'::jsonb,
             concert_id uuid REFERENCES concerts(id) ON DELETE SET NULL,
             link_status text NOT NULL DEFAULT 'PENDING',
+            autolink_blocked boolean NOT NULL DEFAULT false,
             booking_request_id uuid REFERENCES booking_requests(id) ON DELETE SET NULL,
             sales_last_id bigint NOT NULL DEFAULT 0,
             sales_last_sync_unix bigint NOT NULL DEFAULT 0,
@@ -11212,6 +11225,9 @@ def ensure_enterticket_schema():
             updated_at timestamptz DEFAULT now()
         );
         """,
+        # ⚠️ En su PROPIA sentencia con IF NOT EXISTS: dentro de un DO $$ … IF NOT EXISTS(otra) $$
+        # no se aplicaría en cuanto esa otra ya existiera, y la app reventaría al consultar la tabla.
+        "ALTER TABLE IF EXISTS enterticket_events ADD COLUMN IF NOT EXISTS autolink_blocked boolean NOT NULL DEFAULT false;",
         "CREATE INDEX IF NOT EXISTS idx_et_events_concert ON enterticket_events(concert_id);",
         "CREATE INDEX IF NOT EXISTS idx_et_events_status ON enterticket_events(link_status, event_date);",
         """
@@ -12893,6 +12909,10 @@ def ensure_afavor_schema():
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS afavor_token text;",
         # El CONTACTO DE TICKETING por defecto del tercero (las actualizaciones de ventas).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS ticketing_contact jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        # ⚠️ CADA COLUMNA EN SU PROPIA SENTENCIA, con IF NOT EXISTS: metida dentro de un DO $$ … IF
+        # NOT EXISTS(alguna de estas) THEN ALTER … END $$ no se aplicaría nunca en cuanto una de las
+        # enumeradas ya existiera, y la app reventaría al consultar la tabla (bug real, sep 2026).
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS default_contacts jsonb NOT NULL DEFAULT '{}'::jsonb;",
         # Una persona de contacto puede no colgar de ningún tercero (actividad sin promotor).
         "ALTER TABLE IF EXISTS promoter_contacts ALTER COLUMN promoter_id DROP NOT NULL;",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_promoters_afavor_token ON promoters(afavor_token) WHERE afavor_token IS NOT NULL;",

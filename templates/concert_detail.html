@@ -1108,10 +1108,52 @@
         {% else %}
           <div class="ficha-empty">Sin contactos. Pulsa <i class="fa fa-pen"></i> para asignar quién lleva producción, ticketing y comunicación.</div>
         {% endif %}
+        {# LAS CUATRO FUNCIONES, tal como quedan: con su foto y diciendo si sale de la actividad o
+           es el de por defecto del promotor. Solo se pinta lo que hay. #}
+        {% if activity_contacts %}
+          {% set _hay = activity_contacts|selectattr('resolved')|list %}
+          {% if _hay %}
+            <div class="row g-2 mt-1">
+              {% for r in _hay %}
+                <div class="col-12 col-sm-6 col-lg-3">
+                  <div class="d-flex align-items-center gap-2">
+                    <img src="{{ r.resolved.photo or DEFAULT_AVATAR_URL }}" data-avatar="1"
+                         style="width:32px;height:32px;border-radius:50%;object-fit:cover" alt="">
+                    <div class="min-w-0">
+                      <div class="ficha-field__label"><i class="fa {{ r.icon }} me-1"></i>{{ r.label }}</div>
+                      <div class="ficha-field__value text-truncate" title="{{ r.resolved.email }}{% if r.resolved.phone %} · {{ r.resolved.phone }}{% endif %}">
+                        {{ r.resolved.name or '—' }}</div>
+                      {% if r.resolved.source == 'PROMOTER_DEFAULT' %}
+                        <div class="small text-muted">El del promotor</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endif %}
         {% include '_concert_ticketing_owner.html' %}
       </div>
       {% if CAN_EDIT_CONCERTS %}
       <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='contactos') }}" data-inline data-inline-target="#concert-general-zone">
+        {# LAS CUATRO FUNCIONES: ticketing · producción · producción local · contratación. Es el
+           MISMO bloque que el asistente, así que se pone igual en los dos. #}
+        {% if activity_contacts %}
+          {% set ac_rows = activity_contacts %}
+          {% set ac_promoter = concert.promoter %}
+          {% set ac_ask_scope = True %}
+          {% include '_activity_contacts.html' %}
+          {% if concert.promoter %}
+            <span class="d-none" data-ac-promoter-name="{{ activity_contacts_promoter.name }}"
+                  data-ac-promoter-photo="{{ activity_contacts_promoter.photo }}"
+                  data-ac-promoter-email="{{ activity_contacts_promoter.email }}"
+                  data-ac-promoter-phone="{{ activity_contacts_promoter.phone }}"></span>
+          {% endif %}
+          <hr class="my-3">
+          <div class="small text-muted mb-2"><i class="fa fa-user-group me-1"></i>Otras personas de
+            contacto de esta actividad</div>
+        {% endif %}
         {% with cc_id='fichaContacts', cc_concert_id=concert.id, cc_promoter_input='#concertDatosPromoter', cc_promoter_id=(concert.promoter_id|string if concert.promoter_id else ''), cc_selected=concert_contacts_roles %}
           {% include '_concert_contacts_picker.html' %}
         {% endwith %}
@@ -3063,149 +3105,106 @@
        lleva otro (el promotor, el recinto o un tercero), se le pide a él exactamente igual que
        cuando la actividad es de fuera. #}
     {% if sale_seller_cfg and sale_seller_cfg.applies and CAN_SET_ONSALE %}
-      <div class="card mb-3">
+      {# ⚠️⚠️ UNA VEZ ELEGIDO, SE VE SOLO LO ELEGIDO: enseñar las cuatro tarjetas cada vez que se
+         entra hace que parezca que no se ha guardado, y además invita a cambiarlo sin querer. Se
+         dice quién vende y, para cambiarlo, «Cambiar» abre las opciones. #}
+      <div class="card mb-3" data-seller-card>
         <form method="post" action="{{ url_for('concert_sale_seller_save', cid=concert.id) }}" class="card-body">
           <input type="hidden" name="next" value="{{ request.full_path }}">
-          <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
-            <div>
-              <h6 class="mb-0"><i class="fa fa-cash-register me-1 text-danger"></i>¿Quién saca las entradas a la venta?</h6>
-              <div class="small text-muted">
-                {% if sale_seller_cfg.kind and sale_seller_cfg.kind != 'US' %}
-                  La venta la lleva <strong>{{ sale_seller_cfg.label }}</strong>: la actualización de
-                  ventas se le pide a él.
-                {% else %}
-                  Las vendemos nosotros: las ventas se apuntan en el back office.
-                {% endif %}
-              </div>
-            </div>
-            <button class="btn btn-sm btn-primary" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
-          </div>
-          <div class="row g-2">
-            <div class="col-6 col-md-3">
-              <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                <input class="form-check-input visually-hidden" type="radio" name="sale_seller_kind" value="US"
-                       {% if sale_seller_cfg.kind in ('', 'US') %}checked{% endif %}>
-                <i class="fa fa-building d-block fs-3 mb-2 text-dark"></i>
-                <span class="fw-semibold small">Nosotros</span>
-                <span class="text-muted small d-block text-truncate">{{ sale_seller_cfg.us_name }}</span>
-              </label>
-            </div>
-            {% if sale_seller_cfg.promoter_name %}
-              <div class="col-6 col-md-3">
-                <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                  <input class="form-check-input visually-hidden" type="radio" name="sale_seller_kind" value="PROMOTER"
-                         {% if sale_seller_cfg.kind == 'PROMOTER' %}checked{% endif %}>
-                  <i class="fa fa-user-tie d-block fs-3 mb-2 text-dark"></i>
-                  <span class="fw-semibold small">El promotor</span>
-                  <span class="text-muted small d-block text-truncate">{{ sale_seller_cfg.promoter_name }}</span>
-                </label>
-              </div>
-            {% endif %}
-            {% if sale_seller_cfg.venue_name %}
-              <div class="col-6 col-md-3">
-                <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                  <input class="form-check-input visually-hidden" type="radio" name="sale_seller_kind" value="VENUE"
-                         {% if sale_seller_cfg.kind == 'VENUE' %}checked{% endif %}>
-                  <i class="fa fa-location-dot d-block fs-3 mb-2 text-dark"></i>
-                  <span class="fw-semibold small">El recinto</span>
-                  <span class="text-muted small d-block text-truncate">{{ sale_seller_cfg.venue_name }}</span>
-                </label>
-              </div>
-            {% endif %}
-            <div class="col-6 col-md-3">
-              <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                <input class="form-check-input visually-hidden" type="radio" name="sale_seller_kind" value="THIRD"
-                       {% if sale_seller_cfg.kind == 'THIRD' %}checked{% endif %}>
-                <i class="fa fa-user-plus d-block fs-3 mb-2 text-dark"></i>
-                <span class="fw-semibold small">Un tercero</span>
-                <span class="text-muted small d-block text-truncate">
-                  {% if sale_seller_cfg.kind == 'THIRD' %}{{ sale_seller_cfg.label }}{% endif %}</span>
-              </label>
-            </div>
-          </div>
-          {# El tercero que vende: el buscador de siempre, con su foto y su «+» para crearlo. #}
-          <div class="row g-2 mt-2{% if sale_seller_cfg.kind != 'THIRD' %} d-none{% endif %}" data-seller-third>
-            <div class="col-12 col-md-6">
-              <label class="form-label">¿Quién lleva la venta?</label>
-              <div class="input-group">
-                {# ⚠️ NO lleva `select-providers`: ese Select2 filtra las <option> QUE YA ESTÁN en
-                   el DOM, y aquí solo habría la vacía → no encontraría nada (el mismo bug que tenía
-                   el director de videoclip). Se busca por AJAX contra el MISMO endpoint que el
-                   asistente (terceros **y medios**). #}
-                <select id="tkSellerThird" class="form-select" data-no-loader>
-                  <option value=""></option>
-                  {% if sale_seller_cfg.kind == 'THIRD' and sale_seller_cfg.third_id %}
-                    <option value="promoter:{{ sale_seller_cfg.third_id }}" selected>{{ sale_seller_cfg.label }}</option>
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2 min-w-0">
+              <i class="fa fa-cash-register text-danger"></i>
+              <div class="min-w-0">
+                <div class="small text-muted">Saca las entradas a la venta</div>
+                <div class="fw-semibold text-truncate">
+                  {% if sale_seller_cfg.kind == 'US' or not sale_seller_cfg.kind %}
+                    Nosotros{% if sale_seller_cfg.us_name %} · {{ sale_seller_cfg.us_name }}{% endif %}
+                  {% elif sale_seller_cfg.kind == 'PROMOTER' %}
+                    El promotor{% if sale_seller_cfg.promoter_name %} · {{ sale_seller_cfg.promoter_name }}{% endif %}
+                  {% elif sale_seller_cfg.kind == 'VENUE' %}
+                    El recinto{% if sale_seller_cfg.venue_name %} · {{ sale_seller_cfg.venue_name }}{% endif %}
+                  {% else %}
+                    {{ sale_seller_cfg.label or 'Un tercero' }}
                   {% endif %}
-                </select>
-                <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
-                        data-target="tkSellerThird" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+                </div>
               </div>
-              <input type="hidden" name="sale_seller_third_id" id="tkSellerThirdId" value="{{ sale_seller_cfg.third_id }}">
-              <input type="hidden" name="sale_seller_third_kind" id="tkSellerThirdKind" value="promoter">
-              <input type="hidden" name="sale_seller_third_label" id="tkSellerThirdLabel" value="{{ sale_seller_cfg.label if sale_seller_cfg.kind == 'THIRD' else '' }}">
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-seller-edit>
+              <i class="fa fa-pen me-1"></i>Cambiar</button>
+          </div>
+
+          <div class="d-none mt-3" data-seller-options>
+            <div class="row g-2">
+              <div class="col-6 col-md-3">
+                <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                  <input class="form-check-input visually-hidden" type="radio" name="sale_seller_kind" value="US"
+                         {% if sale_seller_cfg.kind in ('', 'US') %}checked{% endif %}>
+                  <i class="fa fa-building d-block fs-3 mb-2 text-dark"></i>
+                  <span class="fw-semibold small">Nosotros</span>
+                  <span class="text-muted small d-block text-truncate">{{ sale_seller_cfg.us_name }}</span>
+                </label>
+              </div>
+              {% if sale_seller_cfg.promoter_name %}
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden" type="radio" name="sale_seller_kind" value="PROMOTER"
+                           {% if sale_seller_cfg.kind == 'PROMOTER' %}checked{% endif %}>
+                    <i class="fa fa-user-tie d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">El promotor</span>
+                    <span class="text-muted small d-block text-truncate">{{ sale_seller_cfg.promoter_name }}</span>
+                  </label>
+                </div>
+              {% endif %}
+              {% if sale_seller_cfg.venue_name %}
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden" type="radio" name="sale_seller_kind" value="VENUE"
+                           {% if sale_seller_cfg.kind == 'VENUE' %}checked{% endif %}>
+                    <i class="fa fa-location-dot d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">El recinto</span>
+                    <span class="text-muted small d-block text-truncate">{{ sale_seller_cfg.venue_name }}</span>
+                  </label>
+                </div>
+              {% endif %}
+              <div class="col-6 col-md-3">
+                <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                  <input class="form-check-input visually-hidden" type="radio" name="sale_seller_kind" value="THIRD"
+                         {% if sale_seller_cfg.kind == 'THIRD' %}checked{% endif %}>
+                  <i class="fa fa-user-plus d-block fs-3 mb-2 text-dark"></i>
+                  <span class="fw-semibold small">Un tercero</span>
+                  <span class="text-muted small d-block text-truncate">
+                    {% if sale_seller_cfg.kind == 'THIRD' %}{{ sale_seller_cfg.label }}{% endif %}</span>
+                </label>
+              </div>
+            </div>
+            {# El tercero que vende: el buscador de siempre, con su foto y su «+» para crearlo. #}
+            <div class="row g-2 mt-2{% if sale_seller_cfg.kind != 'THIRD' %} d-none{% endif %}" data-seller-third>
+              <div class="col-12 col-md-6">
+                <label class="form-label">¿Quién lleva la venta?</label>
+                <div class="input-group">
+                  {# ⚠️ NO lleva `select-providers`: ese Select2 filtra las <option> QUE YA ESTÁN en
+                     el DOM, y aquí solo habría la vacía → no encontraría nada. Se busca por AJAX
+                     contra el MISMO endpoint que el asistente (terceros **y medios**). #}
+                  <select id="tkSellerThird" class="form-select" data-no-loader>
+                    <option value=""></option>
+                    {% if sale_seller_cfg.kind == 'THIRD' and sale_seller_cfg.third_id %}
+                      <option value="promoter:{{ sale_seller_cfg.third_id }}" selected>{{ sale_seller_cfg.label }}</option>
+                    {% endif %}
+                  </select>
+                  <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                          data-target="tkSellerThird" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+                </div>
+                <input type="hidden" name="sale_seller_third_id" id="tkSellerThirdId" value="{{ sale_seller_cfg.third_id }}">
+                <input type="hidden" name="sale_seller_third_kind" id="tkSellerThirdKind" value="promoter">
+                <input type="hidden" name="sale_seller_third_label" id="tkSellerThirdLabel" value="{{ sale_seller_cfg.label if sale_seller_cfg.kind == 'THIRD' else '' }}">
+              </div>
+            </div>
+            <div class="mt-2">
+              <button class="btn btn-sm btn-primary" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
             </div>
           </div>
         </form>
       </div>
-      <script>
-        /* El panel del tercero se ve solo con esa opción, y lo elegido viaja a los ocultos
-           (el mismo patrón que el paso del asistente). Va por DELEGACIÓN: esta pestaña se pinta
-           con la página, pero el `change` de Select2 llega por jQuery. */
-        (function () {
-          function panel() {
-            var m = document.querySelector('input[name="sale_seller_kind"]:checked');
-            var z = document.querySelector('[data-seller-third]');
-            if (z) z.classList.toggle('d-none', !(m && m.value === 'THIRD'));
-          }
-          document.addEventListener('change', function (e) {
-            if (e.target && e.target.name === 'sale_seller_kind') panel();
-          });
-          function cableaSelect2() {
-            if (!window.jQuery || !jQuery.fn || !jQuery.fn.select2) { setTimeout(cableaSelect2, 120); return; }
-            var sel = document.getElementById('tkSellerThird');
-            if (!sel || sel.__tkInit) return;
-            sel.__tkInit = true;
-            function pinta(d) {
-              if (!d.id) return d.text;
-              var logo = d.logo_url || '';
-              var img = logo ? '<img class="thumb" src="' + logo + '">'
-                             : '<span class="me-2"><i class="fa fa-user"></i></span>';
-              return jQuery('<span>' + img + (d.text || '') + '</span>');
-            }
-            jQuery(sel).select2({
-              width: '100%', allowClear: true, minimumInputLength: 1,
-              placeholder: 'Busca el tercero o el medio que vende…',
-              ajax: {
-                url: '{{ url_for("api_search_commission_entities") }}', dataType: 'json', delay: 200,
-                data: function (p) { return { q: p.term || '' }; },
-                processResults: function (data) {
-                  return { results: (data || []).map(function (it) {
-                    return { id: it.kind + ':' + it.id, text: it.label || '',
-                             logo_url: it.logo_url || '', kind: it.kind, raw_id: it.id };
-                  }) };
-                }
-              },
-              templateResult: pinta, templateSelection: pinta,
-              escapeMarkup: function (m) { return m; }
-            });
-            /* ⚠️ Select2 avisa con jQuery.trigger('change'), que NO dispara los listeners nativos. */
-            jQuery(sel).on('change', function () {
-              var d = jQuery(sel).select2('data')[0] || {};
-              var valor = String(d.id || '');
-              var trozos = valor.split(':');
-              var kind = (d.kind || trozos[0] || 'promoter');
-              var id = (d.raw_id || trozos[1] || '');
-              document.getElementById('tkSellerThirdId').value = id;
-              document.getElementById('tkSellerThirdKind').value = (kind === 'media' ? 'media' : 'promoter');
-              document.getElementById('tkSellerThirdLabel').value =
-                String(d.text || '').replace(' · medio', '').trim();
-            });
-          }
-          if (document.readyState !== 'loading') { panel(); cableaSelect2(); }
-          else document.addEventListener('DOMContentLoaded', function () { panel(); cableaSelect2(); });
-        })();
-      </script>
     {% endif %}
 
     {# ---------- ACTUALIZACIÓN DE VENTAS · LO NUESTRO (lo vendemos nosotros) ----------
@@ -4431,5 +4430,93 @@ document.addEventListener('DOMContentLoaded', function(){
   });
 </script>
 {% endif %}
+
+
+{# ---------- ¿QUIÉN SACA LAS ENTRADAS A LA VENTA? · un solo elegido a la vista ----------
+   ⚠️ TODO POR DELEGACIÓN en `document`: el módulo vive en la pestaña de Ticketing y esta ficha
+   reemplaza zonas por AJAX; un listener pegado a los botones que hay al cargar se queda muerto en
+   cuanto se repinta y «pinchas y no hace nada» (regla de la casa). #}
+<script>
+(function () {
+  function panel(root) { return root ? root.querySelector('[data-seller-options]') : null; }
+
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('[data-seller-edit]');
+    if (!b) return;
+    var p = panel(b.closest('[data-seller-card]'));
+    if (!p) return;
+    p.classList.remove('d-none');
+    b.classList.add('d-none');
+  });
+
+  // Al elegir «Un tercero» sale su buscador; con cualquier otra opción se esconde Y SE DESHABILITA
+  // (un campo oculto se envía igual).
+  document.addEventListener('change', function (ev) {
+    var r = ev.target;
+    if (!r || r.name !== 'sale_seller_kind') return;
+    var card = r.closest('[data-seller-card]');
+    var zona = card ? card.querySelector('[data-seller-third]') : null;
+    if (!zona) return;
+    var es3 = r.value === 'THIRD';
+    zona.classList.toggle('d-none', !es3);
+    zona.querySelectorAll('input, select').forEach(function (el) { el.disabled = !es3; });
+  });
+
+  // El buscador del tercero: el MISMO endpoint que el asistente (terceros y medios, con foto).
+  function initBuscador() {
+    var sel = document.getElementById('tkSellerThird');
+    if (!sel || sel.dataset.tkReady === '1') return;
+    if (!window.jQuery || !window.jQuery.fn || !window.jQuery.fn.select2) return;
+    sel.dataset.tkReady = '1';
+    var $s = window.jQuery(sel);
+    $s.select2({
+      width: '100%',
+      placeholder: 'Escribe para buscar…',
+      dropdownParent: window.jQuery(sel).closest('.tab-pane, body'),
+      ajax: {
+        url: '{{ url_for("api_search_commission_entities") }}',
+        dataType: 'json', delay: 200,
+        data: function (params) { return { q: params.term || '' }; },
+        processResults: function (data) {
+          return { results: (data.results || data.items || []).map(function (r) {
+            return { id: (r.kind || 'promoter') + ':' + r.id, text: r.label || r.name || r.nick || '', foto: r.logo_url || r.photo_url || '' };
+          }) };
+        }
+      },
+      templateResult: function (o) {
+        if (!o.id) return o.text;
+        var $w = window.jQuery('<span class="d-flex align-items-center gap-2"></span>');
+        if (o.foto) $w.append('<img src="' + o.foto + '" style="width:22px;height:22px;border-radius:50%;object-fit:cover">');
+        return $w.append(window.jQuery('<span></span>').text(o.text));
+      },
+      templateSelection: function (o) {
+        if (!o.id) return o.text;
+        var $w = window.jQuery('<span class="d-flex align-items-center gap-2"></span>');
+        if (o.foto) $w.append('<img src="' + o.foto + '" style="width:20px;height:20px;border-radius:50%;object-fit:cover">');
+        return $w.append(window.jQuery('<span></span>').text(o.text));
+      }
+    });
+    // Select2 avisa con jQuery.trigger('change'), que NO dispara los listeners nativos.
+    $s.on('change', function () {
+      var v = sel.value || '';
+      var i = v.indexOf(':');
+      var kind = i > 0 ? v.slice(0, i) : 'promoter';
+      var id = i > 0 ? v.slice(i + 1) : v;
+      var h = document.getElementById('tkSellerThirdId'); if (h) h.value = id;
+      var k = document.getElementById('tkSellerThirdKind'); if (k) k.value = kind;
+      var l = document.getElementById('tkSellerThirdLabel');
+      if (l) l.value = (sel.options[sel.selectedIndex] || {}).text || '';
+    });
+  }
+  var intentos = 0;
+  (function esperaJq() {
+    initBuscador();
+    if (++intentos < 60 && !(document.getElementById('tkSellerThird') || {}).dataset) return;
+    if (intentos < 60) setTimeout(esperaJq, 150);
+  })();
+  document.addEventListener('DOMContentLoaded', initBuscador);
+  document.addEventListener('shown.bs.tab', initBuscador, true);
+})();
+</script>
 
 {% endblock %}

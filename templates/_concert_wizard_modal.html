@@ -510,15 +510,6 @@
               </div>
             </div>
 
-            {# Personas de contacto del promotor: producción, ticketing y comunicación. #}
-            <div class="wizard-card" id="wizardContactsWrap">
-              <div class="wizard-card__title"><i class="fa fa-address-book"></i>Contactos</div>
-              <div class="wizard-card__hint">¿Con quién se habla para cada cosa? Elige entre las personas del promotor (o de los terceros vinculados con él), búscalas en toda la base o crea una nueva. Una persona puede llevar varias funciones, y no hace falta tener promotor para poner contactos.</div>
-              {% with cc_id='wizardContacts', cc_concert_id='nuevo', cc_promoter_input='#wizard_promoter_id' %}
-                {% include '_concert_contacts_picker.html' %}
-              {% endwith %}
-            </div>
-
             {# Socios y comisionistas (en el mismo paso que el promotor; ocultos en no-concierto gratuito). #}
             <div id="wizardPartnersZone" data-wz-panel>
               <div class="wizard-card">
@@ -573,6 +564,39 @@
                   <div id="wizardZoneRows"></div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          {# ==================== PASO 14 (direct) · CONTACTOS por función ====================
+             ⚠️ Va justo DESPUÉS del promotor: es él quien da los contactos por defecto, así que al
+             llegar aquí ya salen propuestos (`api_promoter_default_contacts`) y solo hay que
+             confirmarlos o cambiarlos. Sin promotor no hay nada que proponer y el paso se salta. #}
+          <section class="wizard-step" data-step="14" data-mode="direct">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-address-book"></i>Contactos de la actividad</div>
+              <div class="wizard-card__hint">A quién se llama para cada cosa. Lo que se ponga aquí
+                queda vinculado al promotor con esa función, así que sus siguientes actividades ya
+                saldrán con estas personas propuestas.</div>
+              {% set ac_rows = wizard_contact_rows %}
+              {% set ac_promoter = None %}
+              {% set ac_ask_scope = False %}
+              {% include '_activity_contacts.html' %}
+              {# Datos del promotor para el botón «El mismo contacto que el promotor»: los rellena el
+                 JS al elegirlo (aquí todavía no se sabe cuál es). #}
+              <span class="d-none" data-ac-promoter-name="" data-ac-promoter-photo=""
+                    data-ac-promoter-email="" data-ac-promoter-phone=""></span>
+            </div>
+
+            {# OTRAS personas de contacto de esta actividad (funciones libres). Es el selector de
+               siempre: una persona puede llevar varias funciones y no hace falta promotor. #}
+            <div class="wizard-card" id="wizardContactsWrap">
+              <div class="wizard-card__title"><i class="fa fa-user-group"></i>Otras personas de contacto</div>
+              <div class="wizard-card__hint">Además de las cuatro de arriba: elige entre las personas
+                del promotor (o de los terceros vinculados con él), búscalas en toda la base o crea
+                una nueva.</div>
+              {% with cc_id='wizardContacts', cc_concert_id='nuevo', cc_promoter_input='#wizard_promoter_id' %}
+                {% include '_concert_contacts_picker.html' %}
+              {% endwith %}
             </div>
           </section>
 
@@ -1883,11 +1907,64 @@
       // caché y logística.
       if(SIMPLE_TYPES.indexOf(activityType()) >= 0) return [12, 1, 3, 4, 6, 13];
       const seq = [12, 1, 2, 3, 4];
-      seq.push(5, 6, 8);
+      // 14 = CONTACTOS por función, justo después del promotor (que es quien los propone).
+      seq.push(5, 14, 6, 8);
       if(!isPromoActivity() || artistSings()) seq.push(9);
       // Cartelería (data-step 7) es el paso PENÚLTIMO; el último es estado + anuncio.
       seq.push(10, 7, 11);
       return seq;
+    }
+
+    /* ⚠️ CONTACTOS: al llegar a su paso se proponen los que ya tiene ese promotor
+       (`api_promoter_default_contacts`), para solo confirmarlos. Se pide UNA vez por promotor. */
+    let contactosDe = null;
+    function proponerContactos(){
+      const pid = (promoterIdInput && promoterIdInput.value || '').trim();
+      const zona = form.querySelector('[data-activity-contacts]');
+      if(!zona) return;
+      // Los datos del PROMOTOR para el botón «el mismo contacto que el promotor».
+      const marca = form.querySelector('[data-ac-promoter-name]');
+      if(marca && selectedPromoter){
+        marca.setAttribute('data-ac-promoter-name', selectedPromoter.label || '');
+        marca.setAttribute('data-ac-promoter-photo', selectedPromoter.logo || '');
+      }
+      if(!pid || contactosDe === pid) return;
+      contactosDe = pid;
+      fetch('{{ url_for("api_promoter_default_contacts") }}?promoter_id=' + encodeURIComponent(pid),
+            {credentials:'same-origin'})
+        .then(r => r.json())
+        .then(d => {
+          const filas = (d && d.rows) || {};
+          if(marca && d && d.promoter){
+            marca.setAttribute('data-ac-promoter-name', d.promoter.name || '');
+            marca.setAttribute('data-ac-promoter-photo', d.promoter.photo || '');
+            marca.setAttribute('data-ac-promoter-email', d.promoter.email || '');
+            marca.setAttribute('data-ac-promoter-phone', d.promoter.phone || '');
+          }
+          Object.keys(filas).forEach(rol => {
+            const caja = zona.querySelector('[data-ac-role="' + rol + '"]');
+            if(!caja) return;
+            // ⚠️ Solo se PROPONE: si ya se ha elegido algo a mano en este asistente, no se pisa.
+            const k = caja.querySelector('[data-ac-kind]');
+            if(k && (k.value || '').trim()) return;
+            const f = filas[rol] || {};
+            if(k) k.value = f.kind || '';
+            const id = caja.querySelector('[data-ac-id]'); if(id) id.value = f.promoter_id || '';
+            const n = caja.querySelector('[data-ac-hidden-name]'); if(n) n.value = f.name || '';
+            const inp = caja.querySelector('[data-ac-input]'); if(inp) inp.value = f.name || '';
+            const foto = caja.querySelector('[data-ac-photo]'); if(foto && f.photo) foto.src = f.photo;
+            const nom = caja.querySelector('[data-ac-name]'); if(nom) nom.textContent = f.name || '';
+            const con = caja.querySelector('[data-ac-contact]');
+            if(con) con.textContent = [f.email, f.phone].filter(Boolean).join(' · ');
+            const pick = caja.querySelector('[data-ac-picked]');
+            if(pick && (f.name || f.email)) pick.classList.remove('d-none');
+            const busca = caja.querySelector('[data-ac-search]');
+            if(busca) busca.classList.toggle('d-none', !(f.kind === 'THIRD' || f.kind === 'EMAIL'));
+            // Y se marca como «lo que ya había», para no preguntar el alcance sin haber cambiado nada.
+            caja.setAttribute('data-ac-was', (f.kind || '') + '|' + (f.promoter_id || ''));
+          });
+        })
+        .catch(() => {});
     }
 
     function renderStepPills(){
@@ -1897,6 +1974,8 @@
 
     function showStep(step){
       currentStep = step;
+      // Al entrar en CONTACTOS se proponen los del promotor (solo hay que confirmarlos).
+      if(step === 14) setTimeout(proponerContactos, 0);
       /* ⚠️⚠️ TODO VUELVE A ESTAR VIVO AL MOVERSE POR EL ASISTENTE. Al enviar se deshabilitan los
          campos de los pasos y paneles que no tocan (para que no viajen), y si el envío se para
          —una validación, un error— se quedaban MUERTOS con el modal todavía abierto: no se podía

@@ -137,21 +137,35 @@
      el módulo quedaba una posición desviada al bajarlo. */
   var arrastrando = null, agarre = null;
 
-  function bajoElPuntero(x, y) {
-    var el = document.elementFromPoint(x, y);
-    return el && el.closest ? el.closest('.home-order-item') : null;
+  /* ⚠️⚠️ DÓNDE SE VA A QUEDAR: se compara el dedo con el CENTRO de cada módulo, EXCLUYENDO el que
+     se arrastra. Antes se miraba «sobre qué módulo está el dedo» y se insertaba antes o después de
+     él, y eso NO ES SIMÉTRICO: en un sentido bastaba con rozar la mitad del vecino y en el otro el
+     destino calculado era el hueco en el que ya estaba, así que no pasaba nada hasta cruzar módulo
+     y medio (el mismo bug que en las pestañas). Comparando centros, el umbral es EL MISMO en los
+     dos sentidos — y además no depende de `elementFromPoint`, que devuelve el propio módulo
+     arrastrado cuando pasa por encima de los demás. */
+  function destinoPara(y) {
+    var lista = modulos().filter(function (el) { return el !== arrastrando; });
+    for (var i = 0; i < lista.length; i++) {
+      var r = lista[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2) return lista[i];
+    }
+    return null;   // más abajo del último: al final
   }
 
   /* FLIP: se apuntan las posiciones, se reordena y cada módulo se anima DESDE donde estaba. Sin
      esto el reordenado es un salto seco, que es lo que se siente «poco fluido». */
+  var animando = false, tAnim = null;
   function flip(cambia) {
     var piezas = modulos(), antes = piezas.map(function (el) { return el.getBoundingClientRect(); });
     cambia();
+    var movio = false;
     piezas.forEach(function (el, i) {
       if (el === arrastrando) return;
       var r = el.getBoundingClientRect();
       var dy = antes[i].top - r.top, dx = antes[i].left - r.left;
       if (!dx && !dy) return;
+      movio = true;
       el.style.transition = 'none';
       el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
       requestAnimationFrame(function () {
@@ -161,6 +175,11 @@
         });
       });
     });
+    // RED DE SEGURIDAD: si no se ha movido nada, no se bloquea el gesto por una animación que no hay.
+    if (!movio) return;
+    animando = true;
+    clearTimeout(tAnim);
+    tAnim = setTimeout(function () { animando = false; }, 190);
   }
 
   function mueve(ev) {
@@ -171,12 +190,14 @@
       arrastrando.style.transform = 'translate(' + (ev.clientX - agarre.x) + 'px,'
         + (ev.clientY - agarre.y) + 'px)';
     }
-    var sobre = bajoElPuntero(ev.clientX, ev.clientY);
-    if (!sobre || sobre === arrastrando) return;
-    var r = sobre.getBoundingClientRect();
-    var despues = (ev.clientY - r.top) > r.height / 2;
-    var destino = despues ? sobre.nextSibling : sobre;
-    if (destino === arrastrando || destino === arrastrando.nextSibling) return;
+    // ⚠️ Mientras la animación del hueco está en marcha, los rectángulos MIENTEN (están a mitad de
+    // camino): recolocar ahí produce temblor y saltos. Se espera a que termine.
+    if (animando) return;
+    var destino = destinoPara(ev.clientY);
+    // ⚠️⚠️ `nextElementSibling`, NO `nextSibling`: entre dos módulos hay un NODO DE TEXTO, así que
+    // con `nextSibling` esta guarda no acertaba y se reordenaba a la MISMA posición, disparando el
+    // FLIP y bloqueando el gesto los 190 ms siguientes.
+    if (destino === arrastrando || destino === arrastrando.nextElementSibling) return;
     flip(function () { zona.insertBefore(arrastrando, destino); });
   }
 
@@ -231,7 +252,25 @@
 
   // Se entra al modo también MANTENIENDO PULSADO un módulo (el mismo gesto que las pestañas):
   // lo dispara `sortable_tabs.js`, que no sabe nada de módulos — solo avisa.
-  window.app33HomeOrderEnter = function () { if (zona) entra(); };
+  /* ⚠️⚠️ AL ENTRAR SE AGARRA YA: el dedo sigue abajo sobre el módulo, así que de aquí se sigue
+     arrastrando SIN SOLTAR, que es lo que uno espera al mantener pulsado algo. Antes esto solo
+     entraba en el modo y había que soltar y volver a coger el asa; sin hacerlo, arrastrar no movía
+     nada (el mismo bug que tenían las pestañas). Se le pasa el módulo y dónde está el dedo. */
+  window.app33HomeOrderEnter = function (destino, x, y, pid) {
+    if (!zona) return;
+    entra();
+    if (!destino) return;
+    var m = destino.closest && destino.closest('.home-order-item');
+    if (!m || m.hasAttribute('data-home-fixed')) return;
+    agarre = { x: x, y: y };
+    m.style.transition = 'none';
+    arrastrando = m;
+    m.classList.add('is-dragging');
+    try { m.setPointerCapture(pid); } catch (e) {}
+    document.addEventListener('pointermove', mueve);
+    document.addEventListener('pointerup', suelta);
+    document.addEventListener('pointercancel', suelta);
+  };
 
   /* SE GUARDA AL PINCHAR FUERA de los módulos, en cualquier sitio de la página. Mientras se ordena,
      un clic DENTRO de un módulo no navega (si no, arrastrar abriría lo que hay debajo). */

@@ -1,0 +1,111 @@
+{# ══════════════════════════════════════════════════════════════════════════════════════════════
+   CONTACTOS DE UNA ACTIVIDAD, POR FUNCIÓN — ticketing · producción · producción local · contratación
+
+   Un solo sitio: lo usan el ASISTENTE de alta y la ficha de la actividad, así que se pone y se ve
+   igual en los dos y una mejora vale para ambos.
+
+   Por cada función: el botón «El mismo contacto que el promotor», la barra de búsqueda de terceros
+   con su foto (y el «+» para crear uno nuevo) y, si el promotor ya tiene a alguien puesto para esa
+   función, sale PROPUESTO — solo hay que confirmarlo o cambiarlo.
+
+   ⚠️ Al cambiarlo se pregunta el ALCANCE: para todas las actividades de ese promotor de aquí en
+   adelante, o solo para esta.
+
+   Parámetros:
+     ac_rows        · lo que devuelve `_activity_contacts_context`
+     ac_promoter    · el promotor (para el botón «el mismo que el promotor»)
+     ac_ask_scope   · preguntar el alcance (en la FICHA sí; en el alta no hace falta)
+   ══════════════════════════════════════════════════════════════════════════════════════════════ #}
+{% set ac_ask_scope = ac_ask_scope if ac_ask_scope is defined else true %}
+<input type="hidden" name="contacts_present" value="1">
+<div class="row g-3" data-activity-contacts>
+  {% for r in ac_rows %}
+    {% set k = r.raw.get('kind') if r.raw else '' %}
+    <div class="col-12 col-lg-6">
+      <div class="border rounded-3 p-3 h-100 bg-white" data-ac-role="{{ r.role }}">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <i class="fa {{ r.icon }} text-danger"></i>
+          <strong>{{ r.label }}</strong>
+          {% if r.suggested and not r.own %}
+            <span class="badge bg-light text-dark border">Propuesto</span>
+          {% endif %}
+        </div>
+        <div class="small text-muted mb-2">{{ r.help }}</div>
+
+        {# Lo elegido, a la vista: foto o logo + nombre + cómo se le escribe. #}
+        <div class="d-flex align-items-center gap-2 mb-2 {% if not r.resolved %}d-none{% endif %}"
+             data-ac-picked>
+          <img src="{{ r.resolved.photo or DEFAULT_AVATAR_URL }}" data-avatar="1" data-ac-photo
+               style="width:34px;height:34px;border-radius:50%;object-fit:cover" alt="">
+          <div class="min-w-0">
+            <div class="fw-semibold text-truncate" data-ac-name>{{ r.resolved.name }}</div>
+            <div class="small text-muted text-truncate" data-ac-contact>
+              {{ r.resolved.email }}{% if r.resolved.email and r.resolved.phone %} · {% endif %}{{ r.resolved.phone }}
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          {% if ac_promoter %}
+            <button type="button" class="btn btn-sm {{ 'btn-danger' if k == 'PROMOTER' else 'btn-outline-secondary' }}"
+                    data-ac-same>
+              <i class="fa fa-user-tie me-1"></i>El mismo contacto que el promotor</button>
+          {% endif %}
+          <button type="button" class="btn btn-sm {{ 'btn-danger' if k in ('THIRD','EMAIL') else 'btn-outline-secondary' }}"
+                  data-ac-other><i class="fa fa-magnifying-glass me-1"></i>Otra persona</button>
+        </div>
+
+        {# El buscador: en TODA la base, con foto o logo, y el «+» para crearla al vuelo. #}
+        <div class="{% if k not in ('THIRD','EMAIL') %}d-none{% endif %}" data-ac-search>
+          <div class="input-group input-group-sm">
+            <input type="text" class="form-control" placeholder="Escribe un nombre…"
+                   data-ac-input value="{{ r.resolved.name if k in ('THIRD','EMAIL') else '' }}"
+                   autocomplete="off">
+            <select class="d-none" data-ac-select><option value=""></option></select>
+            <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                    data-ac-plus title="Crear la persona"><i class="fa fa-plus"></i></button>
+          </div>
+          {# Si la persona elegida no tiene correo ni teléfono en su ficha, se piden aquí. #}
+          <div class="row g-2 mt-1 {% if not (k == 'EMAIL' or (k == 'THIRD' and not (r.resolved.email or r.resolved.phone))) %}d-none{% endif %}"
+               data-ac-datos>
+            <div class="col-12 col-sm-6">
+              <input type="email" class="form-control form-control-sm" placeholder="Correo"
+                     name="{{ r.prefix }}email" value="{{ r.raw.get('email', '') if r.raw else '' }}">
+            </div>
+            <div class="col-12 col-sm-6">
+              <input type="text" class="form-control form-control-sm" placeholder="Teléfono"
+                     name="{{ r.prefix }}phone" value="{{ r.raw.get('phone', '') if r.raw else '' }}">
+            </div>
+          </div>
+        </div>
+
+        {# El ALCANCE: solo se pregunta cuando lo elegido NO es lo que ya tiene el promotor. #}
+        {% if ac_ask_scope %}
+          <div class="mt-2 d-none" data-ac-scope>
+            <div class="small text-muted mb-1">Este contacto ya era otro. ¿Para qué lo cambias?</div>
+            <div class="d-flex flex-wrap gap-3">
+              <label class="form-check small mb-0">
+                <input class="form-check-input" type="radio" name="{{ r.prefix }}scope"
+                       value="ALL" checked>
+                <span class="form-check-label">Para todas las actividades de este promotor,
+                  de ahora en adelante</span>
+              </label>
+              <label class="form-check small mb-0">
+                <input class="form-check-input" type="radio" name="{{ r.prefix }}scope" value="ONLY">
+                <span class="form-check-label">Solo para esta actividad</span>
+              </label>
+            </div>
+          </div>
+        {% else %}
+          <input type="hidden" name="{{ r.prefix }}scope" value="ALL">
+        {% endif %}
+
+        <input type="hidden" name="{{ r.prefix }}kind" value="{{ k }}" data-ac-kind>
+        <input type="hidden" name="{{ r.prefix }}promoter_id" data-ac-id
+               value="{{ r.raw.get('promoter_id', '') if r.raw else '' }}">
+        <input type="hidden" name="{{ r.prefix }}name" data-ac-hidden-name
+               value="{{ r.raw.get('name', '') if r.raw else '' }}">
+      </div>
+    </div>
+  {% endfor %}
+</div>

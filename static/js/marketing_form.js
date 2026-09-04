@@ -80,6 +80,7 @@
         if (picked) picked.classList.remove('d-none');
         var pick = q(c, '[data-ma-media-pick]');
         if (pick) pick.classList.add('d-none');
+        proponeProveedor(c, sel.value);
       } else if (picked) { picked.classList.add('d-none'); }
     }
     if (sel.matches && sel.matches('[data-ma-provider]')) {
@@ -105,6 +106,33 @@
       } else if (t) { t.classList.toggle('d-none', n > 0); }
     }
   });
+
+  /* ⚠️ EN UNA CAMPAÑA DE RADIO EL PROVEEDOR ES LA EMISORA: al elegir el medio se propone su ficha
+     de tercero y sus SOCIEDADES (las que ese medio ya tiene). Solo se PROPONE: si ya hay un
+     proveedor elegido a mano, no se pisa. */
+  function proponeProveedor(c, mediaId) {
+    var sel = q(c, '[data-ma-provider]');
+    if (!sel || !mediaId) return;
+    if ((sel.value || '').trim()) return;            // ya hay uno elegido: no se toca
+    fetch('/api/medios/' + encodeURIComponent(mediaId) + '/proveedor', {credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.provider) return;
+        var id = d.provider.id;
+        // Si su ficha no está entre las opciones (es nueva), se añade.
+        if (!Array.prototype.some.call(sel.options, function (o) { return o.value === id; })) {
+          var o = document.createElement('option');
+          o.value = id; o.textContent = d.provider.name || '';
+          if (d.provider.photo) o.setAttribute('data-photo', d.provider.photo);
+          sel.appendChild(o);
+        }
+        sel.value = id;
+        // Select2 avisa con jQuery, así que se dispara por los dos caminos.
+        try { if (window.jQuery) window.jQuery(sel).trigger('change'); } catch (e) {}
+        sel.dispatchEvent(new Event('change', {bubbles: true}));
+      })
+      .catch(function () {});
+  }
 
   /* EJECUCIÓN: de una vez o por oleadas. */
   document.addEventListener('change', function (ev) {

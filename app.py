@@ -39500,6 +39500,41 @@ def api_promoter_self_contact():
         session_db.close()
 
 
+@app.get("/api/medios/<media_id>/proveedor", endpoint="api_media_provider")
+@admin_required
+def api_media_provider(media_id):
+    """EL PROVEEDOR DE UN MEDIO y SUS SOCIEDADES.
+
+    ⚠️⚠️ En una campaña de radio el proveedor ES la emisora, en una de prensa el periódico y en una
+    de TV la cadena: al elegir el medio se propone su ficha de tercero (el espejo de siempre,
+    `_ensure_promoter_for_media`, porque los importes y las facturas cuelgan de `promoters`) y las
+    SOCIEDADES que se ofrecen son las que ese medio ya tiene configuradas. Lo que se cree desde ahí
+    queda colgado de esa ficha, o sea **vinculado al medio**.
+    Es una LECTURA (`SUPPORT_READ_ENDPOINTS`)."""
+    session_db = db()
+    try:
+        media = session_db.get(MediaOutlet, _safe_uuid(media_id))
+        if media is None:
+            return jsonify({"ok": True, "provider": None, "companies": []})
+        prov = _ensure_promoter_for_media(session_db, media.id)
+        if prov is None:
+            return jsonify({"ok": True, "provider": None, "companies": []})
+        session_db.commit()
+        companies = [{"id": str(c.id), "name": (c.legal_name or c.tax_id or "Sociedad"),
+                      "tax_id": (c.tax_id or ""), "logo_url": (getattr(c, "logo_url", "") or "")}
+                     for c in (prov.companies or [])]
+        return jsonify({"ok": True,
+                        "provider": {"id": str(prov.id), "name": _promoter_display_name(prov) or prov.nick,
+                                     "photo": (prov.logo_url or media.logo_url or "")},
+                        "companies": companies})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[marketing] no se pudo resolver el proveedor del medio")
+        return jsonify({"ok": False, "provider": None, "companies": []}), 400
+    finally:
+        session_db.close()
+
+
 @app.get("/api/terceros/contactos-defecto", endpoint="api_promoter_default_contacts")
 @admin_required
 def api_promoter_default_contacts():
@@ -78249,6 +78284,9 @@ SUPPORT_READ_ENDPOINTS = {
     "api_concert_contact_options",
     "api_contact_search",
     "api_promoter_default_contacts",
+    # El proveedor de un MEDIO (su ficha de tercero) y sus sociedades: en una campaña de radio el
+    # proveedor ES la emisora.
+    "api_media_provider",
     # Aviso del límite de facturación anual por empresa del grupo (asistente de actividad).
     "api_company_billing_limit",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
@@ -80524,6 +80562,14 @@ def promotion_activity_create(promotion_id):
             media_id = new_media.id
         provider_id = _safe_uuid(request.form.get('provider_id')) if (request.form.get('provider_id') or '').strip() else None
         provider_company_id = _safe_uuid(request.form.get('provider_company_id')) if (request.form.get('provider_company_id') or '').strip() else None
+        # ⚠️ EN UNA CAMPAÑA DE RADIO EL PROVEEDOR ES LA EMISORA: si no se ha dicho otro y la acción
+        # va contra un medio, se usa su ficha de tercero (el espejo de siempre), que es de donde
+        # cuelgan sus sociedades y sus facturas.
+        if not provider_id and media_id and _marketing_action_needs_media(action_type):
+            _espejo = _ensure_promoter_for_media(session_db, media_id)
+            if _espejo is not None:
+                session_db.flush()
+                provider_id = _espejo.id
         provider = session_db.get(Promoter, provider_id) if provider_id else None
         provider_company = session_db.get(PromoterCompany, provider_company_id) if provider_company_id else None
         provider_snapshot = {}
@@ -81048,6 +81094,19 @@ def marketing_action_update(promotion_id, activity_id):
             session_db.flush()
             media_id = new_media.id
         row.media_id = media_id
+        # ⚠️ EN UNA CAMPAÑA DE RADIO EL PROVEEDOR ES LA EMISORA: si no se ha dicho otro y la acción
+        # va contra un medio, se usa su ficha de tercero (el espejo de siempre), que es de donde
+        # cuelgan sus sociedades y sus facturas. Va AQUÍ y no arriba porque `media_id` se resuelve
+        # en este punto (arriba sería un NameError).
+        if not provider_id and media_id and _marketing_action_needs_media(action_type):
+            _espejo = _ensure_promoter_for_media(session_db, media_id)
+            if _espejo is not None:
+                session_db.flush()
+                provider_id = _espejo.id
+                provider = _espejo
+                provider_snapshot.update({'id': str(_espejo.id), 'nick': _espejo.nick,
+                                          'email': getattr(_espejo, 'contact_email', None)})
+                row.provider_id = provider_id
         row.media_target_json = {
             'city': (request.form.get('city') or '').strip() or None,
             'platform': (request.form.get('platform') or '').strip() or None,

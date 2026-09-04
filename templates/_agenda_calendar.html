@@ -3,7 +3,7 @@
    izquierda). El render lo hace static/js/agenda_calendar.js a partir del JSON embebido. #}
 {% macro agenda_calendar(data, mode='home') %}
 <div class="agenda-cal-root" data-agenda-calendar data-mode="{{ mode }}">
-  <div class="agenda-cal-root__loading text-muted small">Cargando agenda…</div>
+  <div class="agenda-cal-root__loading text-muted small">Cargando el calendario…</div>
   <script type="application/json" data-agenda-json>{{ (data or {})|tojson }}</script>
 </div>
 
@@ -15,7 +15,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title"><i class="fa fa-pen me-2"></i>Editar en la agenda</h5>
+          <h5 class="modal-title"><i class="fa fa-pen me-2"></i>Editar en el calendario</h5>
           <div class="text-muted small"><span data-ae-kind>Otro</span> · al cambiar la fecha se preguntará si se avisa.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>

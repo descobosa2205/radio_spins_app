@@ -73776,7 +73776,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "artists.contratos", "label": "Contratos", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 122, "description": "Pestaña «Contratos» del artista."},
     {"key": "artists.conciertos", "label": "Conciertos", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 123, "description": "Pestaña «Conciertos» del artista (incluye importes)."},
     {"key": "artists.discografica", "label": "Discográfica", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 124, "description": "Pestaña «Discográfica» del artista: lanzamientos y regalías (importes)."},
-    {"key": "artists.agenda", "label": "Agenda", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 125, "description": "Pestaña «Agenda» del artista."},
+    {"key": "artists.agenda", "label": "Calendario", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 125, "description": "Pestaña «Calendario» del artista."},
     {"key": "artists.promocion", "label": "Marketing", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 126, "description": "Pestaña «Marketing» del artista: promoción y medios."},
     {"key": "artists.liquidaciones", "label": "Liquidaciones", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 127, "description": "Pestaña «Liquidaciones» del artista (importes)."},
     {"key": "artists.onesheet", "label": "One-sheet", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 128, "description": "Pestaña «One-sheet» del artista: dossier público."},
@@ -75398,6 +75398,8 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         menu_order=[str(x) for x in (getattr(profile, "menu_order", None) or [])],
         # El orden de los módulos de INICIO que ha puesto esa persona (vacío = el de siempre).
         home_order=[str(x) for x in (getattr(profile, "home_order", None) or [])],
+        # Qué CALENDARIOS y qué TIPOS deja apagados cada uno en el calendario de Inicio.
+        agenda_prefs=dict(getattr(profile, "agenda_prefs", None) or {}),
         production_seen_at=getattr(profile, "production_seen_at", None),
         # ⚠️ Lo que no esté aquí es INVISIBLE desde `_current_user_state()` y las plantillas.
         tasks_seen=getattr(profile, "tasks_seen", None),
@@ -78038,7 +78040,7 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "my_expense_upload_invoice", "my_expense_no_invoice", "my_expense_send_direct",
                       # El ORDEN DEL MENÚ es cosa de cada uno: son sus preferencias, no una sección.
                       "nav_menu_order_save",
-                      "home_order_save",
+                      "home_order_save", "agenda_prefs_save",
                       # Apuntar que ya ha abierto una de SUS tareas (para que deje de salir «Nueva»).
                       "home_task_seen",
                       # Los AVISOS son de cada persona (solo ve los suyos: se filtra por su user_id).
@@ -106616,6 +106618,39 @@ def cron_holded_refresh():
     return jsonify({"ok": True, **out})
 
 
+@app.post('/mi-calendario/preferencias', endpoint='agenda_prefs_save')
+@admin_required
+def agenda_prefs_save():
+    """Guarda QUÉ CALENDARIOS y QUÉ TIPOS deja apagados esta persona en el calendario de Inicio.
+
+    Es una preferencia SUYA (como el orden de los módulos), así que vale desde cualquier navegador y
+    cualquier sesión: al volver, se ve lo que dejó puesto.
+    ⚠️ Se guarda lo APAGADO, no lo encendido: así un calendario NUEVO (un artista que entra, un
+    evento) se ve solo, sin tener que acordarse de encenderlo."""
+    uid = to_uuid(session.get("user_id") or "")
+    if not uid:
+        abort(403)
+    session_db = db()
+    try:
+        datos = request.get_json(silent=True) or {}
+        def _lista(clave):
+            return [str(x).strip() for x in (datos.get(clave) or []) if str(x or "").strip()][:200]
+        prefs = {"off_cals": _lista("off_cals"), "off_kinds": _lista("off_kinds")}
+        perfil = session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+        if perfil is None:
+            abort(404)
+        perfil.agenda_prefs = prefs
+        perfil.updated_at = _now_madrid()
+        session_db.commit()
+        return jsonify({"ok": True, **prefs})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[calendario] no se pudieron guardar las preferencias")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.post('/mi-inicio/orden', endpoint='home_order_save')
 @admin_required
 def home_order_save():
@@ -126742,10 +126777,10 @@ def _agenda_holidays_safe(session_db, start_date, end_date, *, include_office=Fa
         return []
 
 
-def _agenda_window(days_ahead: int = 20):
-    """Ventana INICIAL de la agenda de Inicio: 3 semanas alineadas a lunes (la semana actual y las
-    dos siguientes). Las flechas del calendario cargan más ventanas bajo demanda (`home_agenda_data`),
-    sin límite temporal. Devuelve (today, start, end)."""
+def _agenda_window(days_ahead: int = 27):
+    """Ventana INICIAL del calendario de Inicio: **4 semanas** alineadas a lunes (la semana actual y
+    las TRES siguientes). Las flechas cargan más ventanas bajo demanda (`home_agenda_data`), sin
+    límite temporal. Devuelve (today, start, end)."""
     today = today_local()
     start = today - timedelta(days=today.weekday())
     return today, start, start + timedelta(days=days_ahead)
@@ -127230,7 +127265,7 @@ def agenda_item_update(item_id):
                 "notify_url": (url_for("agenda_item_notify", item_id=str(it.id))
                                if cambio_fecha else ""),
             })
-        flash("Agenda actualizada." + (" Ha cambiado de fecha." if cambio_fecha else ""), "success")
+        flash("Calendario actualizado." + (" Ha cambiado de fecha." if cambio_fecha else ""), "success")
         return _agenda_redirect_back()
     except Exception as exc:
         session_db.rollback()
@@ -127376,7 +127411,7 @@ def _artist_calendar_ics(agenda_data: dict, artist) -> str:
         "PRODID:-//33 Producciones//Agenda//ES",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
-        f"X-WR-CALNAME:{_ics_escape('Agenda · ' + (getattr(artist, 'name', '') or ''))}",
+        f"X-WR-CALNAME:{_ics_escape('Calendario · ' + (getattr(artist, 'name', '') or ''))}",
         "X-PUBLISHED-TTL:PT1H",
         "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
     ]
@@ -128109,7 +128144,7 @@ def _caldav_options_resp():
 
 def _caldav_calendar_response_xml(artist, ctag=""):
     href = f"/caldav/calendars/{artist.id}/"
-    name = _xml_escape("Agenda · " + (artist.name or ""))
+    name = _xml_escape("Calendario · " + (artist.name or ""))
     prop = ('<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>'
             f'<D:displayname>{name}</D:displayname>'
             '<C:supported-calendar-component-set><C:comp name="VEVENT"/></C:supported-calendar-component-set>'

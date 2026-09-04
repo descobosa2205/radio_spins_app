@@ -107,7 +107,7 @@
     <li class="nav-item">
       <a class="nav-link {% if tab=='agenda' %}active{% endif %}"
          href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='agenda') }}">
-        Agenda
+        Calendario
       </a>
     </li>
   {% endif %}
@@ -753,7 +753,7 @@
     <div class="card-body">
       <div class="d-flex align-items-center gap-2 mb-3">
         <i class="fa fa-calendar-day text-danger"></i>
-        <h5 class="mb-0">Agenda</h5>
+        <h5 class="mb-0">Calendario</h5>
         <div class="ms-auto d-flex gap-2">
           {# VOLCAR el calendario de iCloud que se venía usando con este artista: su histórico se
              queda guardado aquí, así que si mañana se borra allí no se pierde. #}

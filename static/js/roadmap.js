@@ -232,7 +232,7 @@
     function renderAgenda() {
       var map = agendaByDay();
       var tools = RO ? '' : '<div class="ms-auto d-flex gap-1">' + tplBtn('ROADMAP') + '<button class="btn btn-sm btn-outline-secondary" data-share title="Compartir (solo lectura)"><i class="fa fa-share-nodes"></i></button><button class="btn btn-sm btn-outline-secondary" data-cfg title="Configurar días"><i class="fa fa-gear"></i></button></div>';
-      var html = '<div class="rm-toolbar"><div class="text-muted small">Agenda de la actividad</div>' + tools + '</div><div class="rm-agenda">';
+      var html = '<div class="rm-toolbar"><div class="text-muted small">Calendario de la actividad</div>' + tools + '</div><div class="rm-agenda">';
       DAYS.forEach(function (d) { html += dayBlock(d, map[d.date] || []); });
       html += '</div>';
       view.innerHTML = html;

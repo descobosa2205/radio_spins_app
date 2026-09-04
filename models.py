@@ -4019,6 +4019,12 @@ class UserProfile(Base):
     menu_order = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # EL ORDEN DE LOS MÓDULOS DE INICIO que ha puesto cada uno arrastrándolos. Es una preferencia
     # suya: vacío = el orden de siempre. Solo se ordena lo que esa persona ve (los avisos no).
+    # EL CALENDARIO DE CADA UNO: qué calendarios y qué tipos deja encendidos en Inicio. Es una
+    # PREFERENCIA suya (no un permiso), así que vale desde cualquier navegador y sesión —igual que
+    # `home_order` y `tasks_seen`—. {"off_cals": [ids apagados], "off_kinds": [tipos apagados]}.
+    # ⚠️ Se guarda lo APAGADO, no lo encendido: así un calendario NUEVO (un artista que entra) se ve
+    #    solo, sin tener que acordarse de encenderlo.
+    agenda_prefs = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     home_order = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Última vez que esta persona entró en Producción → Activas (para marcar «Nueva actividad»).
     production_seen_at = Column(DateTime(timezone=True))
@@ -7611,6 +7617,15 @@ def ensure_song_delivery_schema():
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_same_release boolean NOT NULL DEFAULT false;",
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_director_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_thumb_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        # ⚠️⚠️ EL LANZAMIENTO EN TIKTOK VA AQUÍ, NO EN EL BLOQUE `DO $$ … IF NOT EXISTS(…) THEN`
+        # de arriba: esa guarda solo ejecuta su ALTER cuando falta ALGUNA de las columnas que
+        # ENUMERA, así que una columna nueva metida ahí **no se crea nunca** en una base que ya
+        # tiene las demás — y el ORM revienta al pedirla (bug real, sep 2026: 500 en toda pantalla
+        # que consulte una canción).
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS tiktok_release_date date;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS tiktok_release_time text;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS tiktok_release_done_at timestamptz;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS tiktok_release_done_by text;",
     ]
     for _s in stmts:
         try:
@@ -7803,10 +7818,6 @@ def ensure_isrc_and_song_detail_schema():
                         ADD COLUMN IF NOT EXISTS version text,
                         ADD COLUMN IF NOT EXISTS duration_seconds integer,
                         ADD COLUMN IF NOT EXISTS tiktok_start_seconds integer,
-                        ADD COLUMN IF NOT EXISTS tiktok_release_date date,
-                        ADD COLUMN IF NOT EXISTS tiktok_release_time text,
-                        ADD COLUMN IF NOT EXISTS tiktok_release_done_at timestamptz,
-                        ADD COLUMN IF NOT EXISTS tiktok_release_done_by text,
                         ADD COLUMN IF NOT EXISTS recording_date date,
                         ADD COLUMN IF NOT EXISTS is_distribution boolean NOT NULL DEFAULT false,
                         ADD COLUMN IF NOT EXISTS master_ownership_pct numeric NOT NULL DEFAULT 100,
@@ -7880,6 +7891,15 @@ def ensure_isrc_and_song_detail_schema():
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_same_release boolean NOT NULL DEFAULT false;",
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_director_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_thumb_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        # ⚠️⚠️ EL LANZAMIENTO EN TIKTOK VA AQUÍ, NO EN EL BLOQUE `DO $$ … IF NOT EXISTS(…) THEN`
+        # de arriba: esa guarda solo ejecuta su ALTER cuando falta ALGUNA de las columnas que
+        # ENUMERA, así que una columna nueva metida ahí **no se crea nunca** en una base que ya
+        # tiene las demás — y el ORM revienta al pedirla (bug real, sep 2026: 500 en toda pantalla
+        # que consulte una canción).
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS tiktok_release_date date;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS tiktok_release_time text;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS tiktok_release_done_at timestamptz;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS tiktok_release_done_by text;",
         "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS materials_json jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS fields_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS reminders_enabled boolean NOT NULL DEFAULT false;",
@@ -8687,6 +8707,7 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS accounting_company_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS menu_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS home_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS agenda_prefs jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS production_seen_at timestamptz;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS tasks_seen jsonb;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).

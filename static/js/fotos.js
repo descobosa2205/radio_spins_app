@@ -194,12 +194,18 @@
     var counts = [];
     if (np) counts.push('<i class="fa fa-image me-1"></i>' + np);
     if (nv) counts.push('<i class="fa fa-video me-1"></i>' + nv);
-    return '<button type="button" class="fotos-albumcard" data-album-open="' + esc(a.id) + '" title="' + esc(a.name) + '">'
+    // ⚠️ EL LÁPIZ VA EN LA PROPIA TARJETA: cambiarle el nombre a un álbum estaba solo DENTRO de él
+    // y escondido en los tres puntos, así que no se encontraba. Va fuera del <button> (un botón
+    // dentro de otro no es HTML válido) y por eso la tarjeta se envuelve.
+    var lapiz = canEdit ? ('<button type="button" class="fotos-albumcard__rename" title="Cambiar el nombre"'
+      + ' data-album-rename="' + esc(a.id) + '"><i class="fa fa-pen"></i></button>') : '';
+    return '<span class="fotos-albumcard-wrap">'
+      + '<button type="button" class="fotos-albumcard" data-album-open="' + esc(a.id) + '" title="' + esc(a.name) + '">'
       + '<span class="fotos-albumcard__cover">' + (a.cover_url ? '<img src="' + esc(a.cover_url) + '" alt="">' : '<i class="fa fa-images"></i>')
       + '<span class="fotos-albumcard__badge"><i class="fa fa-layer-group"></i></span></span>'
       + '<span class="fotos-albumcard__name">' + esc(a.name) + '</span>'
       + '<span class="fotos-albumcard__counts small text-muted">' + counts.join(' · ') + '</span>'
-      + '</button>';
+      + '</button>' + lapiz + '</span>';
   }
   // Cabecera al entrar en un sub-álbum (volver + nombre + menú de acciones del álbum).
   function albumHeadHtml(a) {
@@ -215,7 +221,12 @@
       + '</ul></div>') : '';
     return '<div class="fotos-albumhead d-flex align-items-center gap-2 mb-2 flex-wrap">'
       + '<button type="button" class="btn btn-sm btn-outline-secondary" data-album-back><i class="fa fa-arrow-left me-1"></i>Álbumes</button>'
-      + '<span class="fw-semibold"><i class="fa fa-layer-group me-1 text-muted"></i>' + esc(a.name) + '</span>'
+      + (canEdit
+         ? ('<button type="button" class="btn btn-link p-0 fw-semibold text-reset text-decoration-none"'
+            + ' data-album-rename="' + esc(a.id) + '" title="Cambiar el nombre">'
+            + '<i class="fa fa-layer-group me-1 text-muted"></i>' + esc(a.name)
+            + ' <i class="fa fa-pen small text-muted ms-1"></i></button>')
+         : ('<span class="fw-semibold"><i class="fa fa-layer-group me-1 text-muted"></i>' + esc(a.name) + '</span>'))
       + '<span class="text-muted small">(' + (a.count || 0) + ')</span>'
       + menu + '</div>';
   }
@@ -345,6 +356,14 @@
 
   // ============================================================== detalle / navegación de álbumes
   gallery.addEventListener('click', function (e) {
+    // ⚠️ EL LÁPIZ va DENTRO de la tarjeta que abre el álbum: se atiende ANTES y se corta, o el
+    // clic seguiría hasta abrirlo.
+    var ren = e.target.closest('[data-album-rename]');
+    if (ren) {
+      e.preventDefault(); e.stopPropagation();
+      renombraAlbum(ren.getAttribute('data-album-rename'));
+      return;
+    }
     // Abrir un sub-álbum (tarjeta) o volver a la lista de álbumes.
     var open = e.target.closest('[data-album-open]');
     if (open) { currentAlbum = open.getAttribute('data-album-open'); render(); return; }
@@ -668,6 +687,24 @@
     else if (action === 'edit') openEditAlbum(album);
     else if (action === 'delete') { document.getElementById('fotosDeleteAlbumId').value = albumId; bsModal('fotosDeleteAlbumModal').show(); }
   });
+  /* CAMBIARLE EL NOMBRE A UN ÁLBUM. Es lo que se hace a menudo (sobre todo con las fotos que no
+     van a ninguna actividad y se subieron a un álbum con un nombre puesto de paso), así que va en
+     un paso: se pide el nombre y se guarda. «Editar álbum» sigue estando para la portada. */
+  function renombraAlbum(albumId) {
+    var a = albumById(albumId);
+    if (!a) return;
+    var nombre = window.prompt('¿Cómo se llama este álbum?', a.name || '');
+    if (nombre === null) return;                 // se ha cancelado
+    nombre = nombre.trim();
+    if (!nombre || nombre === a.name) return;    // sin cambios: no se toca nada
+    postJson('/fotos/album/' + albumId + '/update', { name: nombre })
+      .then(function (r) {
+        if (r && r.ok === false && r.error) { alert(r.error); return; }
+        refresh();
+      })
+      .catch(function () { alert('No se pudo cambiar el nombre.'); });
+  }
+
   function openEditAlbum(album) {
     document.getElementById('fotosEditAlbumId').value = album.id;
     document.getElementById('fotosEditAlbumName').value = album.name;

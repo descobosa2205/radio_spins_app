@@ -115899,10 +115899,25 @@ def photo_album_update(album_id):
         album = session_db.get(PhotoAlbum, to_uuid(album_id))
         if not album:
             return jsonify({"ok": False, "error": "Álbum no encontrado."}), 404
+        # ⚠️ Se toca POR ID, así que se comprueba que quien lo hace puede editar (regla de la casa:
+        # esconder el botón no basta).
+        if not (is_master() or _user_is_actor()):
+            return jsonify({"ok": False, "error": "No tienes permiso para editar los álbumes."}), 403
         if "name" in payload:
             new_name = (payload.get("name") or "").strip()
-            if new_name:
-                album.name = new_name
+            if not new_name:
+                return jsonify({"ok": False, "error": "El álbum tiene que llamarse de alguna manera."}), 400
+            # ⚠️ Si YA hay otro álbum con ese nombre en el mismo sitio se dice: dos álbumes que se
+            # llaman igual no hay forma de distinguirlos.
+            repe = (session_db.query(PhotoAlbum.id)
+                    .filter(PhotoAlbum.owner_type == album.owner_type,
+                            PhotoAlbum.owner_id == album.owner_id,
+                            PhotoAlbum.id != album.id,
+                            func.lower(PhotoAlbum.name) == new_name.lower()).first())
+            if repe:
+                return jsonify({"ok": False,
+                                "error": "Ya hay otro álbum que se llama «%s» aquí." % new_name}), 409
+            album.name = new_name
         if "cover_photo_id" in payload:
             album.cover_photo_id = to_uuid(payload.get("cover_photo_id"))
         album.updated_at = _now_madrid()

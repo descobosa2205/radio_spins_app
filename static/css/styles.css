@@ -2337,6 +2337,17 @@ div.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spaci
 
 /* ---- Nivel 3: sub-álbumes como tarjetas en fila + cabecera al entrar ---- */
 .fotos-albumrow{ display:flex; gap:.6rem; flex-wrap:wrap; margin-bottom:.9rem; }
+/* EL LÁPIZ de la tarjeta de un álbum (cambiarle el nombre sin entrar en él). Va sobre la tarjeta,
+   no dentro del <button> (un botón dentro de otro no es HTML válido), y aparece al pasar el ratón
+   — en táctil, donde no hay «pasar el ratón», se ve siempre. */
+.fotos-albumcard-wrap{ position:relative; display:inline-block; }
+.fotos-albumcard__rename{ position:absolute; top:5px; right:5px; z-index:2; border:0; border-radius:6px;
+  background:rgba(0,0,0,.55); color:#fff; width:26px; height:26px; line-height:1; font-size:.75rem;
+  cursor:pointer; opacity:0; transition:opacity .15s; }
+.fotos-albumcard-wrap:hover .fotos-albumcard__rename,
+.fotos-albumcard__rename:focus-visible{ opacity:1; }
+@media (hover:none){ .fotos-albumcard__rename{ opacity:1; } }
+
 .fotos-albumcard{ width:130px; text-align:left; border:1px solid #eceef1; background:#fff; border-radius:10px; overflow:hidden; padding:0; cursor:pointer; box-shadow:0 1px 4px rgba(0,0,0,.04); transition:box-shadow .15s, transform .15s; }
 .fotos-albumcard:hover{ box-shadow:0 4px 12px rgba(0,0,0,.10); transform:translateY(-2px); }
 .fotos-albumcard__cover{ position:relative; display:flex; align-items:center; justify-content:center; aspect-ratio:1/1; background:#f1f3f5; color:#c4c9d0; font-size:1.5rem; overflow:hidden; }

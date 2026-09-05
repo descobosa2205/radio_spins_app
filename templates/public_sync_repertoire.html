@@ -75,15 +75,23 @@
       <a class="btn btn-sm {{ 'btn-primary' if view == 'artista' else 'btn-outline-secondary' }}"
          href="{{ url_for('public_sync_repertoire', lang=('en' if lang=='EN' else None), ver='artista') }}">
         <i class="fa-solid fa-user me-1"></i>{{ t.by_artist }}</a>
+      {# ⚠️ One-Stop solo se ofrece si HAY alguno: un filtro que no puede devolver nada solo estorba. #}
+      {% if n_one_stop %}
+        <a class="btn btn-sm {{ 'btn-primary' if view == 'onestop' else 'btn-outline-secondary' }}"
+           href="{{ url_for('public_sync_repertoire', lang=('en' if lang=='EN' else None), ver='onestop') }}"
+           title="{{ t.one_stop_help }}">
+          <i class="fa-solid fa-clapperboard me-1"></i>{{ t.one_stop|title }}</a>
+      {% endif %}
     </div>
 
     {% if selected %}
       <div class="d-flex align-items-center gap-2 mb-3">
         <a class="btn btn-outline-secondary btn-sm"
-           href="{{ url_for('public_sync_repertoire', lang=('en' if lang=='EN' else None), ver=view) }}">
+           href="{{ url_for('public_sync_repertoire', lang=('en' if lang=='EN' else None),
+                            ver=('genero' if view == 'onestop' else view)) }}">
           <i class="fa-solid fa-arrow-left"></i></a>
         {% if selected_photo %}<img src="{{ selected_photo }}" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;">{% endif %}
-        <h2 class="h5 mb-0">{{ selected }}</h2>
+        <h2 class="h5 mb-0">{% if view == 'onestop' %}<i class="fa-solid fa-clapperboard me-1 text-muted"></i>{% endif %}{{ selected }}</h2>
         <span class="text-muted small ms-2">{{ total }} {{ t.song_one if total == 1 else t.songs }}</span>
       </div>
       <ul class="pl-list rep-list list-unstyled mb-0" data-playlist-player>

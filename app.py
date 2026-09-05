@@ -140823,9 +140823,7 @@ def _sync_public_nav(session_db, song):
     if (request.args.get("nav") or "").strip().lower() != "rep":
         return None
     try:
-        vista = (request.args.get("ver") or "genero").strip().lower()
-        if vista not in ("genero", "artista"):
-            vista = "genero"
+        vista = _sync_repertoire_view(request.args.get("ver"))
         genero = (request.args.get("genero") or "").strip()
         artista = _safe_uuid((request.args.get("artista") or "").strip())
         filas = _sync_public_repertoire_filtered(session_db, vista=vista, genero=genero,
@@ -140903,6 +140901,17 @@ def public_sync_song():
         session_db.close()
 
 
+# Cómo se mira el repertorio ABIERTO. ⚠️ Punto único: la lista blanca estaba escrita a mano en la
+# landing Y en las flechas de la ficha pública, así que un modo nuevo en un solo sitio hacía que las
+# flechas cayeran en «genero» y recorrieran OTRA lista (el tema siguiente no era el de debajo).
+SYNC_REPERTOIRE_VIEWS = ("genero", "artista", "onestop")
+
+
+def _sync_repertoire_view(raw) -> str:
+    v = (raw or "genero").strip().lower()
+    return v if v in SYNC_REPERTOIRE_VIEWS else "genero"
+
+
 def _sync_public_repertoire_filtered(session_db, *, vista: str = "genero", genero: str = "",
                                      artista=None):
     """El repertorio ABIERTO ya filtrado: `(filas, generos, artistas, elegido, titulo)`.
@@ -140926,8 +140935,15 @@ def _sync_public_repertoire_filtered(session_db, *, vista: str = "genero", gener
                                           "photo": (getattr(mapa_art.get(aid), "photo_url", "") or "").strip()})
             d["count"] += 1
 
+    n_one_stop = sum(1 for f in filas if f.get("one_stop"))
+
     elegido, titulo_sel = None, ""
-    if vista == "artista" and artista:
+    if vista == "onestop":
+        # ⚠️ ONE-STOP no agrupa nada: es un FILTRO, así que se enseña el listado directamente (por
+        # eso lleva título: es lo que hace que la plantilla pinte los temas y no las galletas).
+        filas = [f for f in filas if f.get("one_stop")]
+        titulo_sel = "One-Stop"
+    elif vista == "artista" and artista:
         filas = [f for f in filas if str(artista) in f["artist_ids"]]
         elegido = mapa_art.get(str(artista))
         titulo_sel = (getattr(elegido, "name", "") or "").strip()
@@ -140935,7 +140951,7 @@ def _sync_public_repertoire_filtered(session_db, *, vista: str = "genero", gener
         clave = _norm_text_key(genero)
         filas = [f for f in filas if clave in {_norm_text_key(g) for g in f["genres"]}]
         titulo_sel = genero
-    return filas, generos, artistas, elegido, titulo_sel
+    return filas, generos, artistas, elegido, titulo_sel, n_one_stop
 
 
 @app.get("/repertorio-sincronizaciones", endpoint="public_sync_repertoire")
@@ -140950,13 +140966,11 @@ def public_sync_repertoire():
     try:
         lang = _sync_lang("EN" if (request.args.get("lang") or "").strip().lower() in ("en", "eng") else "ES")
         t = SYNC_TEXTS[lang]
-        vista = (request.args.get("ver") or "genero").strip().lower()
-        if vista not in ("genero", "artista"):
-            vista = "genero"
+        vista = _sync_repertoire_view(request.args.get("ver"))
         genero = (request.args.get("genero") or "").strip()
         artista = _safe_uuid((request.args.get("artista") or "").strip())
 
-        filas, generos_d, artistas_d, elegido, titulo_sel = _sync_public_repertoire_filtered(
+        filas, generos_d, artistas_d, elegido, titulo_sel, n_one_stop = _sync_public_repertoire_filtered(
             session_db, vista=vista, genero=genero, artista=artista)
         generos, artistas = generos_d, artistas_d
 
@@ -140980,7 +140994,7 @@ def public_sync_repertoire():
             genres=sorted(generos.values(), key=lambda d: (-d["count"], _norm_text_key(d["name"]))),
             artists=sorted(artistas.values(), key=lambda d: _norm_text_key(d["name"])),
             view=vista, selected=titulo_sel, selected_photo=(getattr(elegido, "photo_url", "") or ""),
-            total=len(filas),
+            total=len(filas), n_one_stop=n_one_stop,
             og_title=t["repertoire_title"],
             og_image_url=_external_url_for("og_default_image"))
     finally:

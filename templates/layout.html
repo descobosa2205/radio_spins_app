@@ -233,11 +233,9 @@
    pantalla llegaba sin ellas y un instante después el contenido daba un salto hacia abajo — parecía
    que la página se recargaba sola. El JS solo se ocupa del repaso de cada minuto y de los clics. #}
 {% if CURRENT_USER %}
-  <div class="notif-bar" id="notifBar" data-notif-bar>
-    {%- for av in NOTIF_STRIPS %}
+  <div class="notif-bar" id="notifBar" data-notif-bar>{% for av in NOTIF_STRIPS -%}
     <div class="notif-strip is-in{{ ' notif-strip--urgent' if av.urgent }}" data-notif-id="{{ av.id }}">{{ av.html }}</div>
-    {%- endfor %}
-  </div>
+  {%- endfor %}</div>
   {# Lo que el JS necesita saber de las franjas ya pintadas: no volver a meterlas y poder abrir su
      pop-up al pincharlas. #}
   <script type="application/json" data-notif-strips>{{ NOTIF_STRIPS|tojson }}</script>

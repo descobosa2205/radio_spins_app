@@ -21,7 +21,9 @@
     {% if it.stream_url %}data-pl-src="{{ it.stream_url }}"{% endif %}
     data-pl-title="{{ it.title }}"
     data-pl-artist="{{ it.artist_name or '' }}"
-    data-pl-cover="{{ it.cover_url or DEFAULT_COVER_URL }}"
+    {# ⚠️ Esta es la carátula que ve el SISTEMA (pantalla de bloqueo, CarPlay, el reloj): el
+       placeholder va en PNG, porque un SVG ahí no se pinta y saldría sin portada. #}
+    data-pl-cover="{{ it.cover_url or DEFAULT_COVER_PNG_URL }}"
     data-pl-dur="{{ it.duration_seconds or '' }}">
   <div class="pl-row__cover">
     <img src="{{ it.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>

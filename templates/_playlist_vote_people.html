@@ -1,52 +1,49 @@
 {# ═══════════════════════════════════════════════════════════════════════════
-   LO VOTADO · dentro de la ficha de una playlist de selección/valoración.
+   A QUIÉN SE LE HA MANDADO · pestaña «La playlist» de una de valoración/selección.
 
-   · Los temas, **de los más votados a los menos**, con su nota media: al pinchar la nota sale el
-     DESGLOSE de qué ha puesto cada uno (en un POP-UP, sin salir de aquí).
-   · Debajo, QUIÉN HA VOTADO con su foto y **en qué punto está** cada uno; al pinchar a alguien se
-     ve SU orden. En los tres puntitos: compartir, copiar enlace, resetear y anular.
-   · El filtro **«Ver resultados incompletos»** enseña además lo que cada uno lleva hecho AHORA.
+   Lo que hace falta saber de un vistazo: **a quién** se le ha enviado, **para qué** (qué se le pide
+   y con qué plazo) y **en qué punto está cada uno**. Lo votado va en la otra pestaña.
    ═══════════════════════════════════════════════════════════════════════════ #}
-<div class="card mt-3" data-pvres
-     data-results-url="{{ url_for('playlist_vote_results_data', playlist_id=pl.id) }}"
+<div class="card mt-3" data-pvpeople
      data-action-url="{{ url_for('playlist_voter_action', playlist_id=pl.id, voter_id='VID', accion='ACC') }}">
   <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
     <span class="fw-semibold">
-      <i class="fa fa-star-half-stroke me-2 text-danger"></i>{{ vote.kind_label }}
+      <i class="fa fa-paper-plane me-2 text-danger"></i>A quién se le ha mandado
       <span class="badge text-bg-light border ms-1">{{ vote.done_count }} de {{ vote.total_count }}</span>
     </span>
-    <span class="d-flex align-items-center gap-2 flex-wrap">
-      {# ⚠️ Con esto se ve **lo que va haciendo cada uno en este momento**, no solo lo ya enviado. #}
-      <label class="filter-chip mb-0">
-        <input class="visually-hidden" type="checkbox" data-pvres-partial>
-        <i class="fa fa-hourglass-half me-1"></i>Ver resultados incompletos
-      </label>
-      {% if CAN_EDIT_DISCOGRAFICA %}
-        <a class="btn btn-sm btn-danger" href="{{ url_for('playlist_vote_send_view', playlist_id=pl.id) }}">
-          <i class="fa fa-paper-plane me-1"></i>Mandárselo a más gente</a>
-      {% endif %}
-    </span>
-  </div>
-
-  <div class="card-body">
-    {% if vote.due_label %}
-      <div class="small text-muted mb-2"><i class="fa fa-calendar-day me-1"></i>Plazo: {{ vote.due_label }}</div>
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      <a class="btn btn-sm btn-danger" href="{{ url_for('playlist_vote_send_view', playlist_id=pl.id) }}">
+        <i class="fa fa-paper-plane me-1"></i>Mandárselo a más gente</a>
     {% endif %}
-    <div class="pv-results" data-pvres-rows>
-      <div class="text-muted small">Cargando…</div>
-    </div>
   </div>
 
-  {# ---------- QUIÉN LO TIENE y en qué punto está ---------- #}
+  {# PARA QUÉ se les ha mandado: la dinámica, cuántas hay que elegir, el plazo y la nota. #}
+  <div class="card-body pb-2">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <span class="badge text-bg-danger"><i class="fa fa-star-half-stroke me-1"></i>{{ vote.kind_label }}</span>
+      {% if vote.pick_count %}
+        <span class="badge text-bg-light border"><i class="fa fa-check me-1"></i>Hay que elegir {{ vote.pick_count }}</span>
+      {% endif %}
+      {% if vote.due_label %}
+        <span class="badge text-bg-light border"><i class="fa fa-calendar-day me-1"></i>Plazo: {{ vote.due_label }}</span>
+      {% endif %}
+    </div>
+    {% if pl.vote_note %}
+      <div class="pl-note mt-2"><i class="fa fa-note-sticky"></i><span>{{ pl.vote_note }}</span></div>
+    {% endif %}
+  </div>
+
+  {# EN QUÉ PUNTO ESTÁ CADA UNO. #}
   <div class="list-group list-group-flush">
     {% for v in vote.voters %}
-      <div class="list-group-item d-flex align-items-center gap-2 flex-wrap" data-pvres-voter="{{ v.id }}">
+      <div class="list-group-item d-flex align-items-center gap-2 flex-wrap">
         <img class="pv-face" src="{{ v.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
-        <button class="btn btn-link p-0 text-reset fw-semibold" type="button"
-                data-pvres-open="{{ v.id }}" data-name="{{ v.name|e }}"
-                title="Ver su orden">{{ v.name }}</button>
+        <span class="fw-semibold">{{ v.name }}</span>
         <span class="badge text-bg-{{ v.state_color }}"><i class="fa {{ v.state_icon }} me-1"></i>{{ v.state_label }}</span>
         {% if v.progress_label %}<span class="small text-muted">{{ v.progress_label }}</span>{% endif %}
+        <a class="btn btn-sm btn-link p-0 ms-1 small"
+           href="{{ url_for('playlist_detail_view', playlist_id=pl.id, tab='valoraciones', quien=v.id) }}"
+           title="Ver su valoración"><i class="fa fa-star-half-stroke me-1"></i>Ver su valoración</a>
         {% if CAN_EDIT_DISCOGRAFICA %}
           <span class="ms-auto dropdown">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
@@ -84,19 +81,5 @@
     {% else %}
       <div class="list-group-item text-muted small">Todavía no se le ha mandado a nadie.</div>
     {% endfor %}
-  </div>
-</div>
-
-{# ---------- EL POP-UP (el desglose de un tema · el orden de una persona) ----------
-   ⚠️ Un POP-UP, no otra pantalla: se mira sin salir de donde se está. #}
-<div class="modal fade" id="pvDetailModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" data-pvres-title>Detalle</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body" data-pvres-detail></div>
-    </div>
   </div>
 </div>

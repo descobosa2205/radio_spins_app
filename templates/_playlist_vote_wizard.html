@@ -10,8 +10,9 @@
    ⚠️ Cada asistente CARGA SU MOTOR (`step_wizard.js`): sin él el modal se abre EN BLANCO y no avanza,
    y no salta ningún error (bug real del asistente de proyectos).
    ═══════════════════════════════════════════════════════════════════════════ #}
+{% from '_playlist_picker.html' import playlist_picker with context %}
 <div class="modal fade" id="playlistVoteModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <form class="modal-content" method="post" action="{{ url_for('playlist_vote_create') }}"
           data-step-wizard data-autosave="playlist-seleccion"
           data-autosave-title="la playlist de selección"
@@ -37,26 +38,31 @@
 
         {# ---------- 2 · LOS TEMAS ---------- #}
         <section class="sw-step" data-step="2" data-title="Temas">
-          <label class="form-label">¿Qué temas lleva?</label>
-          <div class="pv-pick" data-pv-picker>
-            <div class="d-flex gap-2 flex-wrap mb-2">
-              <button class="btn btn-sm btn-outline-secondary" type="button" data-pv-source="repertorio">
-                <i class="fa fa-music me-1"></i>Del repertorio</button>
-              <button class="btn btn-sm btn-outline-secondary" type="button" data-pv-source="demos">
-                <i class="fa fa-compact-disc me-1"></i>De las maquetas</button>
-              <button class="btn btn-sm btn-link d-none" type="button" data-pv-back>
-                <i class="fa fa-arrow-left me-1"></i>Volver</button>
+          {# ⚠️ La PLAYLIST a la izquierda y el BUSCADOR a la derecha (el MISMO de la ficha, con su
+             motor único): así, según crece la playlist, el sitio donde se ven el repertorio y las
+             maquetas no se encoge. #}
+          <div class="plb" data-pv-picker>
+            <div class="plb-main">
+              {# La NOTA de la playlist: se deja puesta ya, antes de crearla. #}
+              <div class="pl-note pl-note--edit d-none" data-pv-note-box>
+                <i class="fa fa-note-sticky"></i>
+                <textarea class="form-control form-control-sm" rows="2" name="note" data-pv-note
+                          placeholder="Lo que quieras contar de esta playlist."></textarea>
+                <button class="btn btn-sm btn-link text-danger p-0 ms-1" type="button" data-pv-note-del
+                        title="Quitar la nota"><i class="fa fa-xmark"></i></button>
+              </div>
+              <div class="fw-semibold small mb-1">
+                La playlist <span class="badge text-bg-light border" data-pv-count>0</span>
+              </div>
+              {# Lo elegido, en columna y arrastrable: el orden del DOM es el orden de la playlist. #}
+              <div class="pv-chosen" data-pv-chosen></div>
+              <div class="text-muted small" data-pv-empty>
+                Añade el primer tema desde el buscador de la derecha.
+              </div>
+              <input type="hidden" name="wz_items" data-pv-items value="[]">
             </div>
-            <div class="pv-pick__box" data-pv-list>
-              <div class="text-muted small">Elige de dónde: del repertorio o de las maquetas.</div>
-            </div>
+            {{ playlist_picker(url_for('playlist_picker_open')) }}
           </div>
-          <div class="fw-semibold small mt-3 mb-1">
-            Elegidos <span class="badge text-bg-light border" data-pv-count>0</span>
-          </div>
-          {# Lo elegido, en columna y arrastrable: el orden del DOM es el orden de la playlist. #}
-          <div class="pv-chosen" data-pv-chosen></div>
-          <input type="hidden" name="wz_items" data-pv-items value="[]">
         </section>
 
         {# ---------- 3 · LA DINÁMICA ---------- #}
@@ -103,5 +109,6 @@
     </form>
   </div>
 </div>
+<script src="{{ url_for('static', filename='js/playlist_picker.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/playlist_vote.js', v=ASSET_V) }}"></script>

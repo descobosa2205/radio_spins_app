@@ -4516,12 +4516,19 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .pv-bar__msg.is-ok{ color:#198754; font-weight:600; }
 .pv-tools{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; }
 .pv-lock{ font-size:.78rem; color:#8a909a; }
-.pv-pickbtns{ display:inline-flex; gap:.3rem; }
-.pv-btn{ border:1px solid #e5e8ee; background:#fff; border-radius:999px; padding:.15rem .6rem;
-         font-size:.8rem; color:#374151; }
-.pv-btn--keep.is-on{ border-color:#198754; background:rgba(25,135,84,.1); color:#146c43; font-weight:700; }
-.pv-btn--drop.is-on{ border-color:var(--brand-primary); background:rgba(227,61,72,.08);
-                     color:var(--brand-primary); font-weight:700; }
+.pv-pickbtns{ display:inline-flex; gap:.35rem; }
+/* ELEGIR o DESCARTAR: el VERDE y el ROJO de siempre, en CLARITO hasta que se marca y RELLENOS una
+   vez decidido. Y decidido solo se ve lo elegido: volver a pincharlo lo deshace. */
+.pv-btn{ display:inline-flex; align-items:center; gap:.35rem; border:1px solid transparent;
+         border-radius:999px; padding:.2rem .7rem; font-size:.82rem; font-weight:600; line-height:1.3; }
+.pv-btn i{ font-size:.95rem; }
+.pv-btn--keep{ background:rgba(25,135,84,.12); color:#198754; }
+.pv-btn--keep:hover{ background:rgba(25,135,84,.22); }
+.pv-btn--keep.is-on{ background:#198754; color:#fff; }
+.pv-btn--drop{ background:rgba(227,61,72,.12); color:var(--brand-primary); }
+.pv-btn--drop:hover{ background:rgba(227,61,72,.22); }
+.pv-btn--drop.is-on{ background:var(--brand-primary); color:#fff; }
+.pv-pickbtns.is-decided .pv-btn:not(.is-on){ display:none; }
 .pv-scores{ display:inline-flex; gap:2px; }
 .pv-score{ width:1.55rem; height:1.55rem; border-radius:6px; border:1px solid #e5e8ee; background:#fff;
            font-size:.72rem; color:#8a909a; padding:0; line-height:1; }
@@ -4556,8 +4563,15 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .pv-row{ display:flex; align-items:center; gap:.5rem; border:1px solid #e5e8ee; border-radius:10px;
          padding:.3rem .45rem; background:#fff; }
 .pv-row img{ width:34px; height:34px; border-radius:8px; object-fit:cover; flex:0 0 auto; }
-.pv-row__grip{ color:#c2c8d2; cursor:grab; }
+.pv-row__grip{ color:#c2c8d2; cursor:grab; flex:0 0 auto; }
 .pv-row.is-drag{ opacity:.5; }
+/* El ARTISTA se ve con su foto, igual que en la playlist. */
+.pv-row__a{ display:flex; align-items:center; gap:.3rem; }
+.pv-row__a img{ width:18px; height:18px; border-radius:50%; object-fit:cover; border:1px solid #e5e8ee; }
+/* Un TÍTULO y una DIVISIÓN no llevan etiqueta: se ven por lo que son. */
+.pv-row--title input{ flex:1 1 auto; font-weight:700; }
+.pv-row--divider{ padding:.5rem .5rem; }
+.pv-row__line{ flex:1 1 auto; border-top:2px dashed #d7dbe3; }
 .pv-results{ display:flex; flex-direction:column; gap:.35rem; }
 .pv-res{ display:flex; align-items:center; gap:.55rem; border:1px solid #e5e8ee; border-radius:10px;
          padding:.35rem .5rem; background:#fff; }
@@ -4953,6 +4967,29 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .pl-pick-song__main{ flex:1 1 auto; min-width:0; }
 .pl-pick-song__title{ display:block; font-weight:700; }
 .pl-pick-song__sub{ display:block; color:#6b7280; font-size:.82rem; }
+.pl-pick-song__ico{ font-size:1.1rem; flex:0 0 auto; }
+/* Lo que YA está en la playlist se ve en VERDE con su check (no basta con apagarlo: hay que ver
+   de un golpe qué has metido ya). */
+.pl-pick-song.is-added{ background:#eaf7ef; border-color:#8fd0a8; }
+.pl-pick-song.is-added .pl-pick-song__title{ color:#146c43; }
+
+/* ---- MONTAR UNA PLAYLIST: la lista a la IZQUIERDA y el buscador a la DERECHA ----
+   Son dos columnas fijas a propósito: según crece la playlist, el sitio donde se ven el repertorio
+   y las maquetas NO se encoge. En móvil se apilan, con el buscador debajo de la lista. */
+.plb{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem; align-items:start; }
+.plb-main{ min-width:0; }
+.plb-side{ min-width:0; position:sticky; top:.5rem; display:flex; flex-direction:column; gap:.6rem; }
+.plb-tools{ display:flex; gap:.4rem; flex-wrap:wrap; }
+.plb-pick{ border:1px solid #e5e8ee; border-radius:14px; background:#fff; overflow:hidden; }
+.plb-pick__head{ display:flex; align-items:center; gap:.5rem; padding:.5rem .7rem;
+                 border-bottom:1px solid #eef1f5; background:#fbfcfe; }
+.plb-pick__sub{ font-size:.85rem; color:#6b7280; font-weight:600; min-width:0;
+                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.plb-pick__body{ padding:.7rem; max-height:26rem; overflow:auto; }
+@media (max-width: 991.98px){
+  .plb{ grid-template-columns:1fr; }
+  .plb-side{ position:static; }
+}
 
 
 /* =========================================================================

@@ -10,6 +10,7 @@
 {# Los BOTONES (editar · compartir · copiar enlace · descarga · eliminar) van dentro de la cabecera de
    la playlist, a su derecha: `_playlist_actions.html`, que incluyen tanto la vista como la edición. #}
 {% set playlist_actions = True %}
+{% from '_playlist_picker.html' import playlist_picker with context %}
 
 <div class="mb-2">
   <a class="btn btn-outline-secondary btn-sm btn-volver"
@@ -17,10 +18,28 @@
      title="Volver a las playlists" aria-label="Volver a las playlists"><i class="fa fa-arrow-left"></i></a>
 </div>
 
-{# LO VOTADO, cuando la playlist es de SELECCIÓN/VALORACIÓN: los temas de más a menos votados,
-   quién ha contestado y en qué punto está cada uno. #}
-{% if vote and not edit_mode %}{% include '_playlist_vote_panel.html' %}{% endif %}
+{# ⚠️⚠️ DOS PESTAÑAS cuando la playlist es de SELECCIÓN/VALORACIÓN:
+     · **La playlist** — la playlist tal cual, y debajo a quién se le ha mandado, para qué y en qué
+       punto está cada uno;
+     · **Las valoraciones** — lo votado, con los botones de filtro de cada persona (foto y nombre,
+       como los filtros de artistas) y «Todos» por defecto.
+   Las pestañas las SIRVE el servidor (`?tab=`), como en el resto de la app. #}
+{% set vote_tab = (vote_tab or 'playlist') if vote else 'playlist' %}
 {% if vote and not edit_mode %}
+  <ul class="nav nav-tabs contract-tabs mb-3">
+    <li class="nav-item">
+      <a class="nav-link{{ ' active' if vote_tab == 'playlist' }}"
+         href="{{ url_for('playlist_detail_view', playlist_id=pl.id, tab='playlist') }}">
+        <i class="fa fa-list-ul me-1"></i>La playlist</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link{{ ' active' if vote_tab == 'valoraciones' }}"
+         href="{{ url_for('playlist_detail_view', playlist_id=pl.id, tab='valoraciones') }}">
+        <i class="fa fa-star-half-stroke me-1"></i>Valoraciones
+        <span class="contract-tabs__n">{{ vote.done_count }}</span></a>
+    </li>
+  </ul>
+  {% if vote_tab == 'valoraciones' %}{% include '_playlist_vote_results.html' %}{% endif %}
   <script src="{{ url_for('static', filename='js/playlist_vote.js', v=ASSET_V) }}"></script>
 {% endif %}
 
@@ -65,23 +84,13 @@
       <button class="btn btn-sm btn-link text-danger p-0 ms-1" type="button" data-pl-note-del
               title="Quitar la nota"><i class="fa fa-xmark"></i></button>
     </div>
-    <div class="mb-3">
-      <button class="btn btn-sm btn-outline-secondary{{ ' d-none' if pl.note }}" type="button" data-pl-note-add>
-        <i class="fa fa-note-sticky me-1"></i>Añadir una nota
-      </button>
-    </div>
 
-    {# Añadir, arriba de la playlist. #}
+    {# Guardar arriba; lo de AÑADIR (un título, una división, la nota y los temas) vive en la
+       columna de la derecha. #}
     <div class="pl-addbar">
-      <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#playlistPickModal">
-        <i class="fa fa-plus me-1"></i>Añadir canción
-      </button>
-      <button class="btn btn-outline-secondary btn-sm" type="button" data-pl-add-title>
-        <i class="fa fa-heading me-1"></i>Añadir un título
-      </button>
-      <button class="btn btn-outline-secondary btn-sm" type="button" data-pl-add-divider>
-        <i class="fa fa-grip-lines me-1"></i>Añadir una división
-      </button>
+      <span class="small text-muted">
+        <i class="fa fa-arrows-up-down me-1"></i>Arrastra las líneas para ordenarlas.
+      </span>
       <div class="ms-auto d-flex align-items-center gap-2">
         <span class="small text-muted" data-pl-saved></span>
         <button class="btn btn-success btn-sm" type="button" data-pl-save>
@@ -90,16 +99,25 @@
       </div>
     </div>
 
-    <ol class="pl-list pl-list--edit" data-pl-rows></ol>
-    <div class="pl-empty" data-pl-empty>Añade el primer tema con «Añadir canción».</div>
+    {# ⚠️ La PLAYLIST a la izquierda y el BUSCADOR a la derecha: así, según crece la playlist, el
+       sitio donde se ven el repertorio y las maquetas no se encoge. #}
+    <div class="plb">
+      <div class="plb-main">
+        <ol class="pl-list pl-list--edit" data-pl-rows></ol>
+        <div class="pl-empty" data-pl-empty>Añade el primer tema desde el buscador de la derecha.</div>
+      </div>
+      {{ playlist_picker(url_for('playlist_picker_data', playlist_id=pl.id)) }}
+    </div>
   </div>
 
-{% else %}
+{% elif vote_tab == 'playlist' %}
   {# ============ VISTA (la misma que ve quien la recibe) ============ #}
   {# La duración la lee el navegador la primera vez y se apunta aquí, para no volver a pedir la
      cabecera de cada archivo en cada carga (`__ID__` lo sustituye playlist.js). #}
   {% set duration_save_base = url_for('playlist_item_duration', playlist_id=pl.id, item_id='__ID__') %}
   {% include '_playlist_view.html' with context %}
+  {# Y debajo, a quién se le ha mandado, para qué y en qué punto está cada uno. #}
+  {% if vote %}{% include '_playlist_vote_people.html' %}{% endif %}
 {% endif %}
 
 {# ---------- COMPARTIR ----------
@@ -179,30 +197,8 @@
   </div>
 </div>
 
-{# ---------- Añadir canción: demos o repertorio ---------- #}
-<div class="modal fade" id="playlistPickModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <div>
-          <h5 class="modal-title"><i class="fa fa-plus me-2 text-muted"></i>Añadir canción</h5>
-          <div class="small text-muted" data-pick-sub>¿De dónde la cogemos?</div>
-        </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body" data-pick-body>
-        {# El contenido lo pinta playlist.js: fuente (demos/repertorio) → artistas → temas. #}
-      </div>
-      <div class="modal-footer justify-content-between">
-        <button class="btn btn-outline-secondary btn-sm d-none" type="button" data-pick-back>
-          <i class="fa fa-arrow-left me-1"></i>Atrás
-        </button>
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
-      </div>
-    </div>
-  </div>
-</div>
 {% endif %}
 
+<script src="{{ url_for('static', filename='js/playlist_picker.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
 {% endblock %}

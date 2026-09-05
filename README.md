@@ -189,6 +189,39 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-09-05 (4) — Elegir temas a dos columnas · dos pestañas en las valoraciones · el coche
+
+- **AL ELEGIR TEMAS, LA PLAYLIST A LA IZQUIERDA Y LAS DEMOS A LA DERECHA.** Antes el buscador iba
+  debajo, así que **según crecía la playlist se encogía el sitio donde se ven el repertorio y las
+  maquetas**. Ahora son dos columnas: a la izquierda la playlist (se sigue arrastrando para
+  ordenarla) y a la derecha, fijo, el buscador — con **las funciones de añadir arriba del todo**
+  (añadir un título, una división y una nota), para dejarlas puestas antes de crear nada.
+  · **Lo que ya está añadido se marca en VERDE**, como antes.
+  · Funciona **igual al crear una playlist normal y al crear una de selección**: es el mismo
+    buscador, así que lo que se mejore vale para los dos.
+- **LAS PLAYLISTS DE VALORACIÓN TIENEN DOS PESTAÑAS:**
+  · **La playlist** — la playlist tal cual, y debajo **a quién se le ha mandado, para qué** (qué se
+    le pide, cuántas hay que elegir y el plazo) **y en qué punto está cada uno**.
+  · **Valoraciones** — lo votado, con un **botón por persona (con su foto y su nombre)** y **«Todos»
+    por defecto**: con «Todos» se ven los temas **de los más elegidos a los menos**, con el resultado
+    en **«cuántos de cuántos»** y su nota; pinchando a una persona, **lo que ha dicho ella**.
+- **LOS BOTONES DE «La elijo» / «Descartar»** van con **iconos sólidos**, **verde para elegir y rojo
+  para descartar**, **en clarito hasta que se marcan**; al marcarlos se quedan **macizos**, **solo se
+  ve la opción elegida** y **se deselecciona pinchando encima**.
+- **EL CORREO de una valoración enseña las PORTADAS de los temas** (y la imagen de «sin portada» a
+  las que no tienen) **y el ARTISTA con su foto**, igual que se ve en la playlist.
+- ⚠️ **PASAR DE CANCIÓN DESDE EL IPHONE, EL COCHE O EL MAC: ARREGLADO.** No funcionaba en ningún
+  dispositivo de Apple —solo en el navegador del ordenador— porque el reproductor no estaba «dentro»
+  de la página y para el iPhone eso no cuenta como música que suena en el dispositivo. Ahora sí: la
+  **pantalla de bloqueo**, **CarPlay**, el coche por **Bluetooth**, los **AirPods**, el **Centro de
+  control** y el **reloj** enseñan el tema y dejan pasar de canción, y la portada de «sin portada»
+  también se ve en el coche.
+  · Si el enlace se abre **desde dentro de WhatsApp**, el iPhone no da esos controles a ninguna
+    página: hay que abrirlo en Safari (eso no lo decidimos nosotros).
+- ⚠️ **INICIO YA NO CARGA A TROMPICONES.** La pantalla salía primero **sin los avisos** y un instante
+  después el contenido daba un salto hacia abajo al aparecer la franja (y la campanita se encendía
+  sola), y parecía un fallo. Ahora **los avisos vienen ya en la página**, así que carga de una vez.
+
 ### 2026-09-05 (3) — Playlist de SELECCIÓN y VALORACIÓN
 
 - **Botón «+ Playlist selección»** en Discográfica → Playlists, a la izquierda del de siempre. Su

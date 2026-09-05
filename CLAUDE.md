@@ -2237,6 +2237,86 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   nada.
   Probado en el navegador con audio de verdad: siguiente · anterior · pausa · seguir · el paso
   automático al acabar, y los metadatos siguiendo al tema.
+  · ⚠️⚠️⚠️ **Y NO FUNCIONABA EN EL IPHONE, NI EN EL COCHE, NI EN EL MAC** (corregido sep 2026, bug
+  real): el reproductor era un **`new Audio()` suelto en memoria**, sin colgar del documento. Eso
+  SUENA igual, pero para **Safari (iPhone y Mac)** no es «lo que está sonando en este dispositivo»:
+  no entra en el **Now Playing** del sistema, así que ni la pantalla de bloqueo, ni **CarPlay**, ni
+  el coche por Bluetooth, ni los AirPods, ni el Centro de control enseñaban el tema ni dejaban pasar
+  de canción. **En Chrome funciona de las dos formas**, y por eso probándolo en el navegador «iba».
+  Ahora el `<audio>` se crea con `document.createElement` y se **cuelga del `<body>`** (sin
+  `controls` no se ve ni ocupa sitio) — es lo que ya hacía `media_chip.js`.
+  ⚠️ **REGLA**: cualquier reproductor de la casa tiene que tener su `<audio>` EN EL DOM.
+  ⚠️ Los mandos se **vuelven a enganchar en CADA tema** (fuera el cerrojo de «ya está hecho»): los
+  mandos del sistema son UNOS SOLOS y los registra el último reproductor que suena, así que en una
+  pantalla con dos, al volver al primero los botones del coche seguían mandando sobre el otro.
+  ⚠️ La CARÁTULA lleva su **`type` deducido de la extensión** y, si no se sabe, no se pone: un
+  `type: ''` hace que algunos sistemas descarten la imagen. Y el placeholder de «sin portada» va en
+  **PNG** (`DEFAULT_COVER_PNG_URL`), no en SVG: **el coche no pinta un SVG** y el tema saldría sin
+  portada (la fila lo emite en `data-pl-cover`).
+  ⚠️ Lo que NO se puede arreglar desde aquí: si el enlace se abre desde **dentro de WhatsApp** (su
+  navegador propio), iOS no da Now Playing a esa página. Abriéndolo en Safari, sí.
+
+- ⚠️⚠️ **LAS FRANJAS DE AVISO SE PINTAN EN EL HTML, NO LAS METE EL JS** (sep 2026, bug real: «al
+  entrar, Inicio carga sin las notificaciones y es como que vuelve a cargar todo con ellas»). El
+  contenedor `#notifBar` llegaba VACÍO y `notificaciones.js` pedía `/avisos?nuevos=1` **después de
+  cargar la página**: al llegar la respuesta, la franja empujaba todo el contenido hacia abajo y
+  parecía que la pantalla se recargaba sola (y la campanita aparecía de golpe un segundo después).
+  · Puntos únicos nuevos: **`_notification_strip_rows`** (las franjas de una persona) y
+  **`_notification_strip_html`** (el HTML de UNA franja), que usan **`layout.html`** —vía el
+  contexto `NOTIF_STRIPS` / `NOTIF_UNREAD` de `inject_notification_bar`— **y** el endpoint
+  `/avisos?nuevos=1`, que devuelve ese mismo HTML en `html`. Así no hay dos versiones del markup:
+  el JS solo lo inserta.
+  · El JS ya **no pide nada al cargar**: se apunta las que ya están pintadas (del
+  `<script data-notif-strips>`) para no repetirlas y para poder abrir su pop-up, y deja el repaso de
+  cada 60 s. Los clics de una franja van por **DELEGACIÓN** (las que trae la página nunca pasan por
+  `franja()`, así que no se les puede pegar un listener al crearlas).
+  ⚠️ El contexto es *best-effort* y va cacheado en `g`: si algo falla, la página se pinta igual y el
+  JS las trae como siempre. Y se protege de `session` fuera de una petición (un cron, un hilo).
+  ⚠️ La franja nace con **`is-in`** (sin la animación de entrada): animar lo que ya está en el HTML
+  sería volver a provocar el salto que se quería quitar.
+
+- **PLAYLIST · LA PLAYLIST A LA IZQUIERDA Y EL BUSCADOR A LA DERECHA** (sep 2026). Al elegir temas,
+  el buscador de repertorio y maquetas estaba debajo (y en un modal), así que **según crecía la
+  playlist se encogía el sitio donde se ven las demos**. Ahora es una rejilla de dos columnas
+  (`.plb`): a la izquierda la playlist y a la **derecha, fija**, el buscador — con las **funciones de
+  añadir arriba del todo** (un título · una división · una nota), para poder dejarlas puestas antes
+  de crear nada.
+  · **UN SOLO MOTOR** para las dos pantallas: `static/js/playlist_picker.js`
+  (`window.app33PlaylistPicker.init(zona, {tiene, onAdd})`) + el parcial
+  `templates/_playlist_picker.html`. Lo usan **el editor de una playlist** y el **paso 2 del
+  asistente** de selección/valoración, así que se comportan igual y una mejora vale para los dos.
+  · **LO YA AÑADIDO SE MARCA EN VERDE** (`.pl-pick-song.is-added` + el icono a `fa-circle-check`),
+  como era antes: lo decide `opts.tiene(kind, id)` y el host refresca con `zona.plPickRefresh()` cada
+  vez que la playlist cambia.
+  ⚠️ El pop-up de añadir temas (`#playlistPickModal`) se **retiró**: era la segunda implementación
+  del mismo buscador.
+
+- **PLAYLIST DE VALORACIÓN · DOS PESTAÑAS** (sep 2026, `PLAYLIST_VOTE_TABS`, servidas con `?tab=`):
+  · **«La playlist»** — la playlist tal cual se ve fuera y, debajo, **a quién se le ha mandado, para
+    qué** (la dinámica, cuántas hay que elegir, el plazo y la nota) **y en qué punto está cada uno**,
+    con su foto, su estado y lo que lleva hecho (`_playlist_vote_people.html`).
+  · **«Valoraciones»** — lo votado (`_playlist_vote_results.html`), con **botones de filtro por
+    persona con foto y nombre** (los mismos `.artist-mini` que los filtros de artistas del
+    repertorio) y **«Todos» por defecto**: con «Todos», los temas **de los más elegidos a los menos**
+    con el resultado en **«cuántos de cuántos»** y la nota media; con una persona, **su** valoración
+    en su orden. Se llega a una persona directamente desde la otra pestaña (`?quien=<id>`).
+  ⚠️ Una `?tab=` que no esté en el catálogo cae en la PRIMERA (la regla de la casa).
+  ⚠️ **El orden lo manda lo ELEGIDO, no la nota**, cuando la dinámica incluye seleccionar
+  (`_playlist_vote_results`): en una selección lo que se pregunta es cuántos la eligen y la nota solo
+  desempata. Donde solo se puntúa, manda la nota. El rótulo lo dice (`wants_pick` en el payload).
+  ⚠️ Las acciones sobre una persona (resetear, anular, reenviar) viven en la pestaña de la PLAYLIST,
+  así que su handler de `playlist_vote.js` mira las dos zonas (`[data-pvpeople]` y `[data-pvres]`).
+
+- **VOTAR · «La elijo» / «Descartar» se leen de un vistazo** (sep 2026): iconos **sólidos**, **verde
+  para elegir y rojo para descartar**, en **clarito** hasta que se marca y **macizos** al marcarlos;
+  entonces **solo se ve la opción elegida** (`.pv-pickbtns.is-decided .pv-btn:not(.is-on){display:none}`)
+  y **se deselecciona pinchando encima** de la que está puesta.
+
+- **EL CORREO DE UNA VALORACIÓN lleva las PORTADAS y el ARTISTA con su foto** (sep 2026): cada tema
+  sale con su portada (48 px) y, si no tiene, con la imagen de **«sin portada»**
+  (`cover_placeholder.png`, nunca un SVG: en un correo no se pinta); y debajo del título, el
+  **artista con su foto redonda** de 20 px, igual que en la playlist. Todo con `<table>` y URLs
+  **absolutas** (`_absolute_media_url`), que es lo único que entiende un cliente de correo.
 
 - ⚠️⚠️ **LO QUE SE DESCARGA LLEVA PUESTO DE QUIÉN ES** (sep 2026). Una canción o una maqueta que sale
   de aquí lleva DENTRO sus metadatos: **título · artista · AUTORES · PRODUCTORES · disco · género ·

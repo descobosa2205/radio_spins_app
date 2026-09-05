@@ -165,27 +165,38 @@
     // Lo URGENTE en rojo; lo demás, amarillo (lo dice el servidor: `_notice_is_urgent`).
     el.className = 'notif-strip' + (av.urgent ? ' notif-strip--urgent' : '');
     el.setAttribute('data-notif-id', av.id);
-    el.innerHTML =
-      '<button type="button" class="notif-strip__link">'
-      + cara(av, 'notif-strip__ico')
-      + '<span class="notif-strip__txt"><strong>' + (av.title || '') + '</strong>'
-      + (av.body ? '<span>' + av.body + '</span>' : '') + '</span>'
-      + '<span class="notif-strip__go">Ver <i class="fa fa-arrow-right ms-1"></i></span></button>'
-      + '<button type="button" class="notif-strip__x" aria-label="Cerrar">&times;</button>';
-
-    el.querySelector('.notif-strip__link').addEventListener('click', function () {
-      // ⚠️ El aviso se ve en un POP-UP: no se sale de la pantalla en la que estás.
-      abrirAviso(av);
-    });
-    el.querySelector('.notif-strip__x').addEventListener('click', function () {
-      // La ✕ se APUNTA en el servidor: si no, la franja volvería a salir en la página siguiente.
-      ocultarFranja(av.id);
-      el.classList.remove('is-in');
-      setTimeout(function () { el.remove(); }, 250);
-    });
+    // ⚠️ EL HTML DE LA FRANJA LO PINTA EL SERVIDOR (`_notification_strip_html`), que es el mismo
+    // que la deja ya puesta en la página: así no hay dos versiones del mismo trozo. Lo de aquí
+    // debajo es el respaldo por si un día llega un aviso sin él.
+    el.innerHTML = av.html ||
+      ('<button type="button" class="notif-strip__link">'
+       + cara(av, 'notif-strip__ico')
+       + '<span class="notif-strip__txt"><strong>' + (av.title || '') + '</strong>'
+       + (av.body ? '<span>' + av.body + '</span>' : '') + '</span>'
+       + '<span class="notif-strip__go">Ver <i class="fa fa-arrow-right ms-1"></i></span></button>'
+       + '<button type="button" class="notif-strip__x" aria-label="Cerrar">&times;</button>');
     barra.appendChild(el);
     setTimeout(function () { el.classList.add('is-in'); }, 20);
   }
+
+  /* Los clics de una franja van por DELEGACIÓN: las que trae la página ya pintadas no han pasado
+     nunca por `franja()`, así que no se les puede pegar un listener al crearlas. */
+  document.addEventListener('click', function (ev) {
+    var tira = ev.target.closest && ev.target.closest('.notif-strip');
+    if (!tira) return;
+    var id = tira.getAttribute('data-notif-id') || '';
+    if (ev.target.closest('.notif-strip__x')) {
+      // La ✕ se APUNTA en el servidor: si no, la franja volvería a salir en la página siguiente.
+      ocultarFranja(id);
+      tira.classList.remove('is-in');
+      setTimeout(function () { tira.remove(); }, 250);
+      return;
+    }
+    if (ev.target.closest('.notif-strip__link')) {
+      // ⚠️ El aviso se ve en un POP-UP: no se sale de la pantalla en la que estás.
+      abrirAviso(porId[id] || {id: id});
+    }
+  });
 
   function mirar(soloNuevos) {
     return fetch(URL_LIST + (soloNuevos ? '?nuevos=1' : ''), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
@@ -242,8 +253,18 @@
     });
   }
 
-  // Al entrar en CUALQUIER página: el contador y las franjas de lo que sigue pendiente sin cerrar.
-  // Y cada 60 s, por si llega algo con la pestaña abierta.
-  mirar(true);
+  /* ⚠⚠ AL ENTRAR NO SE PIDE NADA: las franjas y el contador vienen YA en el HTML
+     (`NOTIF_STRIPS` de `layout.html`). Aquí solo se apuntan las que ya están pintadas —para no
+     volver a meterlas y para poder abrir su pop-up al pincharlas— y se deja el repaso de cada 60 s,
+     por si llega algo con la pestaña abierta. Pedírselas al servidor al cargar era lo que hacía
+     que Inicio saliera primero sin avisos y un instante después diera un salto con ellos. */
+  try {
+    var datos = document.querySelector('script[data-notif-strips]');
+    (JSON.parse((datos && datos.textContent) || '[]') || []).forEach(function (av) {
+      if (!av || !av.id) return;
+      vistos[av.id] = true;
+      porId[av.id] = av;
+    });
+  } catch (e) {}
   setInterval(function () { if (!document.hidden) mirar(true); }, 60000);
 })();

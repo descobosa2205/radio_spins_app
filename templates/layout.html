@@ -120,10 +120,10 @@
         {# AVISOS: la campana va la PRIMERA, antes de «Inicio», y solo se ve cuando hay algo
            pendiente (el JS le quita el d-none). Al pincharla salen todos en un pop-up. #}
         {% if CURRENT_USER %}
-          <li class="nav-item d-none" id="navBellItem">
+          <li class="nav-item{{ ' d-none' if not NOTIF_UNREAD }}" id="navBellItem">
             <button type="button" class="nav-link notif-bell" data-notif-open title="Avisos pendientes" data-no-loader>
               <i class="fa fa-bell"></i>
-              <span class="notif-dot" data-notif-count>0</span>
+              <span class="notif-dot" data-notif-count>{{ '99+' if NOTIF_UNREAD > 99 else NOTIF_UNREAD }}</span>
             </button>
           </li>
         {% endif %}
@@ -228,9 +228,19 @@
 </nav>
 
 {# FRANJAS de aviso, justo debajo del menú. Se quedan hasta que se pinchan (llevan a su gestión y
-   el aviso queda leído) o se cierran con la ✕. El pop-up de la campana enseña todos los pendientes. #}
+   el aviso queda leído) o se cierran con la ✕. El pop-up de la campana enseña todos los pendientes.
+   ⚠️⚠️ SE PINTAN AQUÍ, EN EL HTML SERVIDO (`NOTIF_STRIPS`), no las mete el JS al cargar: si no, la
+   pantalla llegaba sin ellas y un instante después el contenido daba un salto hacia abajo — parecía
+   que la página se recargaba sola. El JS solo se ocupa del repaso de cada minuto y de los clics. #}
 {% if CURRENT_USER %}
-  <div class="notif-bar" id="notifBar" data-notif-bar></div>
+  <div class="notif-bar" id="notifBar" data-notif-bar>
+    {%- for av in NOTIF_STRIPS %}
+    <div class="notif-strip is-in{{ ' notif-strip--urgent' if av.urgent }}" data-notif-id="{{ av.id }}">{{ av.html }}</div>
+    {%- endfor %}
+  </div>
+  {# Lo que el JS necesita saber de las franjas ya pintadas: no volver a meterlas y poder abrir su
+     pop-up al pincharlas. #}
+  <script type="application/json" data-notif-strips>{{ NOTIF_STRIPS|tojson }}</script>
 
   {# ⚠️ UN AVISO SE VE EN UN POP-UP, no navegando a otra pantalla: al pincharlo se abre aquí (con su
      cara, su texto y, si el aviso ES una página —el de vacaciones, p. ej.—, su contenido dentro) y

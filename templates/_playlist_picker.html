@@ -1,0 +1,38 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   LA COLUMNA DE LA DERECHA AL MONTAR UNA PLAYLIST · parcial ÚNICO.
+
+   Arriba, LAS FUNCIONES para añadir cosas a la playlist (un título, una división, la nota) y debajo
+   el BUSCADOR de temas: de dónde (maquetas o repertorio) → de quién → sus temas.
+
+   Va a la DERECHA y la playlist a la izquierda, así el sitio donde se ven el repertorio y las
+   maquetas NO se encoge según crece la playlist. Lo mueve `static/js/playlist_picker.js`, que es el
+   MISMO motor en el editor de una playlist y en el asistente de «+ Playlist selección».
+   ═══════════════════════════════════════════════════════════════════════════ #}
+{% macro playlist_picker(picker_url, with_note=True, note_label='Añadir una nota') %}
+<aside class="plb-side" data-plpick data-picker-url="{{ picker_url }}">
+  <div class="plb-tools">
+    <button class="btn btn-outline-secondary btn-sm" type="button" data-plb-add="TITLE">
+      <i class="fa fa-heading me-1"></i>Añadir un título
+    </button>
+    <button class="btn btn-outline-secondary btn-sm" type="button" data-plb-add="DIVIDER">
+      <i class="fa fa-grip-lines me-1"></i>Añadir una división
+    </button>
+    {% if with_note %}
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-plb-add="NOTE">
+        <i class="fa fa-note-sticky me-1"></i>{{ note_label }}
+      </button>
+    {% endif %}
+  </div>
+
+  <div class="plb-pick">
+    <div class="plb-pick__head">
+      <button class="btn btn-sm btn-link p-0 d-none" type="button" data-plpick-back>
+        <i class="fa fa-arrow-left me-1"></i>Atrás
+      </button>
+      <span class="plb-pick__sub" data-plpick-sub>¿De dónde la cogemos?</span>
+    </div>
+    {# El contenido lo pinta playlist_picker.js: fuente → artistas → temas. #}
+    <div class="plb-pick__body" data-plpick-body></div>
+  </div>
+</aside>
+{% endmacro %}

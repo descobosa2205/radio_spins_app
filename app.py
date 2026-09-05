@@ -38765,10 +38765,15 @@ def _playlist_vote_results(session_db, pl, *, incluir_incompletos: bool = False)
             "detail": detalle,
         }))
     elige, puntua = _playlist_vote_wants(pl)
-    # De más a menos: por nota si se puntúa, y si no por cuántos la han elegido.
-    filas.sort(key=lambda f: (-(f["avg"] if (puntua and f["avg"] is not None) else -1),
-                              -f["kept"], f["title"] or ""))
+    # ⚠️ DE LAS MÁS ELEGIDAS A LAS MENOS: en una selección lo que se pregunta es **cuántos la
+    # eligen**, así que eso manda y la nota solo desempata. Donde solo se puntúa, manda la nota.
+    if elige:
+        filas.sort(key=lambda f: (-f["kept"],
+                                  -(f["avg"] if f["avg"] is not None else -1), f["title"] or ""))
+    else:
+        filas.sort(key=lambda f: (-(f["avg"] if f["avg"] is not None else -1), f["title"] or ""))
     return {"rows": filas, "voters": list(fichas.values()), "count": len(votantes),
+            "wants_pick": bool(elige), "wants_rate": bool(puntua),
             "partial": bool(incluir_incompletos)}
 
 
@@ -38820,6 +38825,11 @@ def _playlist_progress_from(pl, temas, votos: dict) -> dict:
         "rated": len(a_puntuar) - len(sin_puntuar), "to_rate": len(a_puntuar),
         "ready": bool(temas) and listo, "message": aviso,
     }
+
+
+# Las DOS pestañas de una playlist de valoración/selección. ⚠️ La primera es la de por defecto: una
+# `?tab=` que no esté aquí cae en ella (misma regla que la ficha de personal o contabilidad).
+PLAYLIST_VOTE_TABS = ("playlist", "valoraciones")
 
 
 def _playlist_voter_rows(session_db, pl) -> list[dict]:
@@ -39036,6 +39046,9 @@ def _playlist_vote_email_html(session_db, pl, ctx: dict, *, url: str, note: str 
                   % esc(pl_ctx.get("name")))
 
     # EL LISTADO, como se ve en la playlist (portada · título · artista · duración).
+    # ⚠️ En un correo la imagen tiene que ser ABSOLUTA y de nuestro dominio.
+    sin_portada = _absolute_media_url(_safe_url_for("static", filename="img/cover_placeholder.png")) or ""
+    sin_foto = _absolute_media_url(_safe_url_for("static", filename="img/avatar_placeholder.png")) or ""
     filas = []
     for it in (ctx.get("items") or []):
         if it.get("kind") == "TITLE":
@@ -39046,21 +39059,34 @@ def _playlist_vote_email_html(session_db, pl, ctx: dict, *, url: str, note: str 
             filas.append('<tr><td colspan="3" style="padding:6px 0;">'
                          '<div style="border-top:1px solid #e5e7eb;"></div></td></tr>')
             continue
-        portada = _absolute_media_url(it.get("cover_url") or "") or ""
+        # ⚠️ La PORTADA se ve SIEMPRE: sin ella va la imagen de «sin portada», la misma que en la
+        #    app, no un hueco en blanco.
+        portada = (_absolute_media_url(it.get("cover_url") or "") or sin_portada)
+        # Y el ARTISTA, con su FOTO, igual que se ve en la playlist.
+        foto = (_absolute_media_url(it.get("artist_photo") or "") or sin_foto)
         dur = it.get("duration_seconds") or 0
         dur_txt = ("%d:%02d" % (dur // 60, dur % 60)) if dur else ""
+        artista = ""
+        if it.get("artist_name"):
+            artista = (
+                '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+                'style="border-collapse:collapse;margin-top:3px;"><tr>'
+                + (f'<td width="22" valign="middle" style="padding-right:6px;">'
+                   f'<img src="{esc(foto)}" alt="" width="20" height="20" style="display:block;'
+                   'width:20px;height:20px;object-fit:cover;border-radius:50%;'
+                   'border:1px solid #e5e7eb;background:#fff;"></td>' if foto else "")
+                + f'<td valign="middle" style="font-size:13px;color:#6b7280;">'
+                  f'{esc(it.get("artist_name"))}</td></tr></table>')
         filas.append(
             '<tr>'
             f'<td width="60" valign="middle" style="padding:6px 0;">'
-            + (f'<img src="{esc(portada)}" alt="" style="display:block;width:48px;height:48px;'
-               'object-fit:cover;border-radius:8px;border:1px solid #e5e7eb;background:#fff;">'
-               if portada else "")
-            + '</td>'
+            f'<img src="{esc(portada)}" alt="" width="48" height="48" style="display:block;'
+            'width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb;'
+            'background:#fff;"></td>'
             f'<td valign="middle" style="padding:6px 10px;">'
             f'<a href="{esc(url)}" style="color:#111827;text-decoration:none;font-weight:bold;'
             f'font-size:15px;">{esc(it.get("title"))}</a>'
-            + (f'<div style="font-size:13px;color:#6b7280;">{esc(it.get("artist_name"))}</div>'
-               if it.get("artist_name") else "")
+            + artista
             + '</td>'
             f'<td width="52" valign="middle" align="right" style="padding:6px 0;font-size:13px;'
             f'color:#6b7280;">{esc(dur_txt)}</td>'
@@ -39280,8 +39306,15 @@ def playlist_detail_view(playlist_id):
                 "total_count": len(filas_v),
                 "done_count": sum(1 for v in filas_v if v["state"] == "DONE"),
             }
+        # ⚠️ DOS PESTAÑAS cuando es de valoración/selección: **la playlist** (con a quién se le ha
+        # mandado, para qué y en qué punto está cada uno) y **las valoraciones**. Una pestaña que no
+        # esté en la lista blanca cae en la primera, como en el resto de la app.
+        pestaña = (request.args.get("tab") or "").strip().lower()
+        if pestaña not in PLAYLIST_VOTE_TABS:
+            pestaña = PLAYLIST_VOTE_TABS[0]
         session_db.commit()        # puede haberse creado el token público
         return render_template("playlist_detail.html", edit_mode=editando, vote=votacion,
+                               vote_tab=pestaña,
                                picker=(_playlist_picker_song_groups(session_db) if editando else None),
                                demo_groups=(_playlist_picker_demo_groups(session_db) if editando else None),
                                **ctx)
@@ -39328,6 +39361,7 @@ def playlist_vote_create():
         estado = _current_user_state() or {}
         pl = Playlist(name=nombre,
                       vote_mode=modo,
+                      note=((request.form.get("note") or "").strip() or None),
                       pick_count=(n_pedidas or None),
                       vote_due_date=parse_optional_date(request.form.get("due_date")),
                       created_by_user_id=to_uuid(estado.get("user_id")) if estado.get("user_id") else None,
@@ -39367,14 +39401,19 @@ def _playlist_apply_wizard_items(session_db, pl, form) -> None:
         if not isinstance(r, dict):
             continue
         kind = (r.get("kind") or "SONG").strip().upper()
-        if kind not in ("SONG", "DEMO"):
+        if kind not in PLAYLIST_ITEM_KINDS:
+            continue
+        titulo = (r.get("title") or "").strip()
+        # Un TÍTULO o una DIVISIÓN se pueden dejar puestos ya, antes de crear la playlist.
+        if kind in ("TITLE", "DIVIDER"):
+            pl.items.append(PlaylistItem(kind=kind, title=(titulo or None), position=i))
             continue
         song_id = _safe_uuid(r.get("song_id"))
         demo_id = _safe_uuid(r.get("demo_id"))
         if not song_id and not demo_id:
             continue
         pl.items.append(PlaylistItem(kind=kind, song_id=song_id, demo_id=demo_id,
-                                     title=(r.get("title") or "").strip() or None, position=i))
+                                     title=(titulo or None), position=i))
 
 
 @app.get("/discografica/playlists/<playlist_id>/valoracion", endpoint="playlist_vote_send_view")
@@ -79888,6 +79927,10 @@ def inject_personnel_globals():
         # Placeholder de PORTADA (canción/álbum) cuando no hay portada: disco gris sobre fondo gris
         # claro, para cubrir el hueco sin fingir que es la portada real.
         "DEFAULT_COVER_URL": url_for("static", filename="img/cover_placeholder.svg"),
+        # ⚠️ El MISMO placeholder en PNG, para donde un SVG no vale: la carátula que se le manda al
+        # SISTEMA (pantalla de bloqueo, CarPlay, el reloj) y las miniaturas de los enlaces. Ni el
+        # coche ni WhatsApp pintan un SVG, así que ahí saldría sin portada.
+        "DEFAULT_COVER_PNG_URL": url_for("static", filename="img/cover_placeholder.png"),
         # Las dinámicas de una playlist de SELECCIÓN/VALORACIÓN (con su icono), para el asistente.
         "playlist_vote_modes": PLAYLIST_VOTE_MODES,
         "SECTION_ICONS": SECTION_ICONS,
@@ -115336,6 +115379,142 @@ def push_enabled():
     return bool(getattr(settings, "VAPID_PUBLIC_KEY", None) and getattr(settings, "VAPID_PRIVATE_KEY", None))
 
 
+def _notification_strip_html(av: dict) -> Markup:
+    """El HTML de UNA franja de aviso.
+
+    ⚠️ PUNTO ÚNICO del trozo: lo pinta el SERVIDOR en `layout.html` (para que la página llegue ya
+    completa) y lo reutiliza tal cual `notificaciones.js` con lo que llega en el repaso de cada
+    minuto — así no hay dos versiones del mismo markup que se puedan desparejar.
+    """
+    if (av.get("photo_url") or "").strip():
+        cara = Markup('<img class="notif-ava" src="{}" alt="" data-avatar="1" title="{}">').format(
+            av.get("photo_url") or "", av.get("actor_name") or "")
+    else:
+        cara = Markup('<span class="notif-strip__ico"><i class="fa {}"></i></span>').format(
+            av.get("icon") or "fa-bell")
+    cuerpo = (Markup("<span>{}</span>").format(av.get("body") or "")
+              if (av.get("body") or "").strip() else Markup(""))
+    return Markup(
+        '<button type="button" class="notif-strip__link">{cara}'
+        '<span class="notif-strip__txt"><strong>{title}</strong>{cuerpo}</span>'
+        '<span class="notif-strip__go">Ver <i class="fa fa-arrow-right ms-1"></i></span></button>'
+        '<button type="button" class="notif-strip__x" aria-label="Cerrar">&times;</button>'
+    ).format(cara=cara, title=(av.get("title") or ""), cuerpo=cuerpo)
+
+
+def _notification_strip_rows(session_db, user_id, *, limit=5, mark_shown=True) -> list[dict]:
+    """LAS FRANJAS de aviso de una persona: lo pendiente que todavía no se ha cerrado con la ✕.
+
+    ⚠️⚠️ PUNTO ÚNICO, y por eso existe: lo usan `/avisos?nuevos=1` (el repaso de cada minuto) **y
+    `layout.html`, que las pinta YA en el HTML servido**. Antes solo estaba lo primero, así que la
+    pantalla llegaba SIN franjas y el JS las metía después de cargar: el contenido daba un salto
+    hacia abajo y parecía que la página se recargaba sola (a trompicones). Ahora llega de una vez.
+    """
+    if not user_id:
+        return []
+    filas = (session_db.query(AppNotification)
+             .filter(AppNotification.user_id == to_uuid(str(user_id)),
+                     AppNotification.read_at.is_(None),
+                     AppNotification.strip_dismissed_at.is_(None))
+             # El `id` como segundo criterio: varios avisos creados en la misma operación comparten
+             # `created_at` y sin él las franjas se reordenaban en cada página.
+             .order_by(AppNotification.created_at.asc(),
+                       AppNotification.id.asc()).limit(int(limit or 5)).all())
+    if not filas:
+        return []
+    # ⚠️ Las FRANJAS traen lo mismo que la campanita (la cara de quien lo provoca, el tipo y si el
+    # aviso ES una página): al pincharlas se abre su POP-UP, no se navega, y ahí se enseña todo eso.
+    fotos = {}
+    _ids = {n.actor_user_id for n in filas if n.actor_user_id and not n.actor_photo_url}
+    if _ids:
+        try:
+            for prof in (session_db.query(UserProfile)
+                         .filter(UserProfile.user_id.in_(list(_ids))).all()):
+                fotos[str(prof.user_id)] = ((getattr(prof, "photo_url", None) or "").strip(),
+                                            (getattr(prof, "nick", None) or "").strip())
+        except Exception:
+            app.logger.exception("[avisos] no se pudo leer la foto del actor de la franja")
+    salida = []
+    for n in filas:
+        _f, _nick = fotos.get(str(n.actor_user_id or ""), ("", ""))
+        fila = {
+            "id": str(n.id), "title": (n.title or ""), "body": (n.body or ""),
+            "url": (n.url or ""),
+            "kind": (n.kind or ""),
+            "kind_label": NOTIFICATION_KIND_META.get((n.kind or "").upper(),
+                                                     ("Aviso", "fa-bell"))[0],
+            "when": _format_madrid_datetime_label(n.created_at),
+            "photo_url": ((n.actor_photo_url or "").strip() or _f),
+            "actor_name": ((n.actor_name or "").strip() or _nick),
+            "embed": bool((n.url or "").startswith("/vacaciones/aviso/")),
+            "icon": (n.icon or NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("", "fa-bell"))[1]),
+            "urgent": _notice_is_urgent(n.kind, n.url),
+        }
+        fila["html"] = _notification_strip_html(fila)
+        salida.append(fila)
+        if mark_shown and n.shown_at is None:
+            n.shown_at = _now_madrid()      # la primera vez que sale (informativo)
+    if mark_shown:
+        session_db.commit()
+    return salida
+
+
+def _notification_bar_context() -> dict:
+    """Lo que `layout.html` necesita para pintar los avisos SIN esperar a ningún fetch: las franjas
+    pendientes y cuántos avisos sin leer hay (para la campanita).
+
+    ⚠️ Es *best-effort*: si algo falla, la página se pinta igual y el JS los trae como siempre en su
+    repaso — un aviso que tarda un segundo es mucho mejor que una pantalla que no carga.
+    """
+    vacio = {"NOTIF_STRIPS": [], "NOTIF_UNREAD": 0}
+    # ⚠️ Un `render_template` desde un CRON o un hilo no tiene petición, y ahí `session` revienta con
+    # «Working outside of request context» (la trampa de siempre, la misma que con `url_for`).
+    try:
+        uid = session.get("user_id")
+    except Exception:
+        return vacio
+    if not uid:
+        return vacio
+    try:
+        if getattr(g, "_notif_bar_done", False):
+            return getattr(g, "_notif_bar_ctx", vacio)
+    except Exception:
+        pass
+    ctx = {"NOTIF_STRIPS": [], "NOTIF_UNREAD": 0}
+    session_db = None
+    try:
+        session_db = db()
+        ctx["NOTIF_STRIPS"] = _notification_strip_rows(session_db, uid)
+        ctx["NOTIF_UNREAD"] = int(
+            session_db.query(func.count(AppNotification.id))
+            .filter(AppNotification.user_id == to_uuid(str(uid)),
+                    AppNotification.read_at.is_(None)).scalar() or 0)
+    except Exception:
+        if session_db is not None:
+            try:
+                session_db.rollback()
+            except Exception:
+                pass
+        app.logger.exception("[avisos] no se pudieron pintar las franjas en el HTML")
+    finally:
+        if session_db is not None:
+            try:
+                session_db.close()
+            except Exception:
+                pass
+    try:
+        g._notif_bar_ctx = ctx
+        g._notif_bar_done = True
+    except Exception:
+        pass
+    return ctx
+
+
+@app.context_processor
+def inject_notification_bar():
+    return _notification_bar_context()
+
+
 @app.get("/avisos", endpoint="notifications_list")
 @admin_required
 def notifications_list():
@@ -115351,47 +115530,7 @@ def notifications_list():
     solo_nuevos = _truthy(request.args.get("nuevos"))
     session_db = db()
     try:
-        pendientes = []
-        if solo_nuevos:
-            filas = (session_db.query(AppNotification)
-                     .filter(AppNotification.user_id == to_uuid(str(uid)),
-                             AppNotification.read_at.is_(None),
-                             AppNotification.strip_dismissed_at.is_(None))
-                     # El `id` como segundo criterio: varios avisos creados en la misma operación
-                     # comparten `created_at` y sin él las franjas se reordenaban en cada página.
-                     .order_by(AppNotification.created_at.asc(),
-                               AppNotification.id.asc()).limit(5).all())
-            # ⚠️ Las FRANJAS traen lo mismo que la campanita (la cara de quien lo provoca, el tipo y
-            # si el aviso ES una página): al pincharlas se abre su POP-UP, no se navega, y ahí se
-            # enseña todo eso.
-            fotos = {}
-            _ids = {n.actor_user_id for n in filas if n.actor_user_id and not n.actor_photo_url}
-            if _ids:
-                try:
-                    for prof in (session_db.query(UserProfile)
-                                 .filter(UserProfile.user_id.in_(list(_ids))).all()):
-                        fotos[str(prof.user_id)] = ((getattr(prof, "photo_url", None) or "").strip(),
-                                                    (getattr(prof, "nick", None) or "").strip())
-                except Exception:
-                    app.logger.exception("[avisos] no se pudo leer la foto del actor de la franja")
-            for n in filas:
-                _f, _nick = fotos.get(str(n.actor_user_id or ""), ("", ""))
-                pendientes.append({
-                    "id": str(n.id), "title": (n.title or ""), "body": (n.body or ""),
-                    "url": (n.url or ""),
-                    "kind": (n.kind or ""),
-                    "kind_label": NOTIFICATION_KIND_META.get((n.kind or "").upper(),
-                                                             ("Aviso", "fa-bell"))[0],
-                    "when": _format_madrid_datetime_label(n.created_at),
-                    "photo_url": ((n.actor_photo_url or "").strip() or _f),
-                    "actor_name": ((n.actor_name or "").strip() or _nick),
-                    "embed": bool((n.url or "").startswith("/vacaciones/aviso/")),
-                    "icon": (n.icon or NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("", "fa-bell"))[1]),
-                    "urgent": _notice_is_urgent(n.kind, n.url),
-                })
-                if n.shown_at is None:
-                    n.shown_at = _now_madrid()      # la primera vez que sale (informativo)
-            session_db.commit()
+        pendientes = (_notification_strip_rows(session_db, uid) if solo_nuevos else [])
         sin_leer = (session_db.query(func.count(AppNotification.id))
                     .filter(AppNotification.user_id == to_uuid(str(uid)),
                             AppNotification.read_at.is_(None)).scalar() or 0)

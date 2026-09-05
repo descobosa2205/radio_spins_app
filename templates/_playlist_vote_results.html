@@ -1,0 +1,55 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   LAS VALORACIONES · la segunda pestaña de una playlist de valoración/selección.
+
+   · Arriba, los BOTONES DE FILTRO con la **foto y el nombre** de cada persona (los mismos que los
+     filtros de artistas del repertorio) y **«Todos» por defecto**.
+   · Con «Todos»: los temas **de los más elegidos a los menos**, con el resultado en
+     **«cuántos de cuántos»** y la nota media. Al pinchar la nota sale el desglose de quién ha
+     puesto qué.
+   · Con una persona: **su** valoración, en su orden.
+   · «Ver resultados incompletos» añade lo que cada uno lleva hecho AHORA MISMO.
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div class="card mt-3" data-pvres
+     data-results-url="{{ url_for('playlist_vote_results_data', playlist_id=pl.id) }}"
+     data-action-url="{{ url_for('playlist_voter_action', playlist_id=pl.id, voter_id='VID', accion='ACC') }}"
+     data-pvres-who="{{ request.args.get('quien', '') }}">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-star-half-stroke me-2 text-danger"></i>{{ vote.kind_label }}
+      <span class="badge text-bg-light border ms-1">{{ vote.done_count }} de {{ vote.total_count }}</span>
+    </span>
+    <span class="d-flex align-items-center gap-2 flex-wrap">
+      {# ⚠️ Con esto se ve **lo que va haciendo cada uno en este momento**, no solo lo ya enviado. #}
+      <label class="filter-chip mb-0">
+        <input class="visually-hidden" type="checkbox" data-pvres-partial>
+        <i class="fa fa-hourglass-half me-1"></i>Ver resultados incompletos
+      </label>
+    </span>
+  </div>
+
+  <div class="card-body">
+    {# LOS FILTROS: «Todos» y una persona por botón, con su foto y su nombre. #}
+    <div class="d-flex flex-wrap gap-2 mb-3" data-pvres-filters></div>
+    {% if vote.due_label %}
+      <div class="small text-muted mb-2"><i class="fa fa-calendar-day me-1"></i>Plazo: {{ vote.due_label }}</div>
+    {% endif %}
+    <div class="small text-muted mb-2" data-pvres-caption></div>
+    <div class="pv-results" data-pvres-rows>
+      <div class="text-muted small">Cargando…</div>
+    </div>
+  </div>
+</div>
+
+{# ---------- EL POP-UP (el desglose de un tema) ----------
+   ⚠️ Un POP-UP, no otra pantalla: se mira sin salir de donde se está. #}
+<div class="modal fade" id="pvDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" data-pvres-title>Detalle</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" data-pvres-detail></div>
+    </div>
+  </div>
+</div>

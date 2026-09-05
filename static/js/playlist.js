@@ -62,8 +62,18 @@
       .filter(function (li) { return !!li.getAttribute('data-pl-src'); });
     if (!filas.length) return;
 
-    var audio = new Audio();
+    /* ⚠️⚠️ EL <audio> TIENE QUE ESTAR EN LA PÁGINA, no suelto en memoria. Un `new Audio()` que no
+       se cuelga del documento SUENA igual, pero para **Safari (el iPhone y el Mac)** no es «lo que
+       está sonando en este dispositivo»: no entra en el Now Playing del sistema, así que **ni la
+       pantalla de bloqueo, ni CarPlay, ni el coche por Bluetooth, ni los AirPods, ni el Centro de
+       control enseñan el tema ni dejan pasar de canción**. En Chrome funciona de las dos formas —por
+       eso probándolo en el navegador de aquí «iba»— y en Safari no. Sin `controls` no se ve nada ni
+       ocupa sitio: es el mismo reproductor de siempre, pero colgado del documento. */
+    var audio = document.createElement('audio');
     audio.preload = 'none';
+    audio.setAttribute('playsinline', '');            // iOS: nada de abrir el reproductor a pantalla completa
+    audio.setAttribute('aria-hidden', 'true');
+    try { document.body.appendChild(audio); } catch (e) {}
     var actual = -1;                       // índice de la fila que está sonando
     var arrastrando = false;
 
@@ -114,6 +124,7 @@
       // Lo que va a ver el coche (o la pantalla de bloqueo) y los botones que va a poder usar.
       metadatos(li);
       enganchaMandos();
+      if (ms) { try { ms.playbackState = 'playing'; } catch (e) {} }
       audio.play().catch(function () { pinta(); });
     }
 
@@ -133,8 +144,14 @@
       if (portada) {
         // ⚠️ Se declaran VARIOS tamaños con la misma imagen: cada sitio (la pantalla de bloqueo, el
         // coche, el reloj) pide el que le cuadra y, sin candidatos, algunos no enseñan ninguna.
+        // ⚠️ El `type` se DEDUCE de la extensión y, si no se sabe, no se pone: un `type: ''` hace
+        // que algunos sistemas descarten la imagen y el coche se queda sin portada.
+        var m = /\.(png|jpe?g|webp|gif)(?:$|\?)/i.exec(portada || '');
+        var tipo = m ? ('image/' + (m[1].toLowerCase() === 'jpg' ? 'jpeg' : m[1].toLowerCase())) : '';
         ['256x256', '512x512'].forEach(function (tam) {
-          arte.push({ src: abs(portada), sizes: tam, type: '' });
+          var a = { src: abs(portada), sizes: tam };
+          if (tipo) a.type = tipo;
+          arte.push(a);
         });
       }
       try {
@@ -187,8 +204,11 @@
       suena(i);
     }
     function enganchaMandos() {
-      if (!ms || root.dataset.plMsReady === '1') return;
-      root.dataset.plMsReady = '1';
+      /* ⚠️ Se vuelven a enganchar en CADA tema, a propósito: en una pantalla puede haber más de un
+         reproductor (el de la ficha y el de una lista), los mandos del sistema son UNOS SOLOS y los
+         registra el último que suena. Con un cerrojo de «ya está hecho», al volver al primero los
+         botones del coche seguían mandando sobre el otro. Registrarlos no cuesta nada. */
+      if (!ms) return;
       mando('play', function () { audio.play().catch(function () {}); });
       mando('pause', function () { audio.pause(); });
       mando('stop', function () { audio.pause(); try { audio.currentTime = 0; } catch (e) {} });
@@ -213,7 +233,12 @@
     audio.addEventListener('timeupdate', posicion);
     audio.addEventListener('play', pinta);
     audio.addEventListener('pause', pinta);
-    audio.addEventListener('play', function () { if (ms) { try { ms.playbackState = 'playing'; } catch (e) {} } });
+    audio.addEventListener('play', function () {
+      // Si mientras tanto ha sonado OTRO reproductor de la página, los mandos del sistema son suyos:
+      // se vuelven a coger al arrancar este.
+      enganchaMandos();
+      if (ms) { try { ms.playbackState = 'playing'; } catch (e) {} }
+    });
     audio.addEventListener('pause', function () { if (ms) { try { ms.playbackState = 'paused'; } catch (e) {} } });
     audio.addEventListener('loadedmetadata', function () {
       if (actual < 0) return;
@@ -396,6 +421,7 @@
 
     var COVER = (document.body && document.body.getAttribute('data-default-cover-url')) || '';
     var AVATAR = (document.body && document.body.getAttribute('data-default-avatar-url')) || '';
+    var refrescaPick = null;   // lo pone el buscador de la derecha (repasa sus verdes)
 
     function rowHtml(r, i) {
       var asa = '<span class="pl-erow__handle" title="Arrastra para colocarla"><i class="fa fa-grip-vertical"></i></span>';
@@ -456,6 +482,8 @@
       if (countEl) countEl.textContent = suenan;
       if (emptyEl) emptyEl.classList.toggle('d-none', rows.length > 0);
       if (window.initImageFallbacks) { try { window.initImageFallbacks(); } catch (e) {} }
+      // Lo que está puesto se ve en VERDE en el buscador: al quitar una línea deja de estarlo.
+      if (refrescaPick) refrescaPick();
     }
 
     function tocado() { if (savedEl) savedEl.textContent = 'Sin guardar'; }
@@ -563,25 +591,28 @@
       if (reconstruyeDesdeLista()) tocado();
     });
 
-    // --- Añadir título / división ---
-    var btnTitle = root.querySelector('[data-pl-add-title]');
-    if (btnTitle) btnTitle.addEventListener('click', function () {
-      rows.push({ id: '', kind: 'TITLE', title: '' });
-      render(); tocado();
-      var last = rowsEl.querySelector('.pl-erow:last-child input'); if (last) last.focus();
-    });
-    var btnDiv = root.querySelector('[data-pl-add-divider]');
-    if (btnDiv) btnDiv.addEventListener('click', function () {
-      rows.push({ id: '', kind: 'DIVIDER', title: '' });
-      render(); tocado();
-    });
-
-    // --- Nota ---
-    if (noteAdd) noteAdd.addEventListener('click', function () {
+    /* --- Añadir un TÍTULO, una DIVISIÓN o la NOTA ---
+       Los tres botones viven en la COLUMNA DE LA DERECHA (`_playlist_picker.html`), encima del
+       buscador, y son los mismos en el editor y en el asistente. */
+    function abreNota() {
       if (noteBox) noteBox.classList.remove('d-none');
-      noteAdd.classList.add('d-none');
+      if (noteAdd) noteAdd.classList.add('d-none');
       if (noteEl) noteEl.focus();
+    }
+    root.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-plb-add]');
+      if (!b) return;
+      var que = (b.getAttribute('data-plb-add') || '').toUpperCase();
+      if (que === 'NOTE') { abreNota(); return; }
+      if (que !== 'TITLE' && que !== 'DIVIDER') return;
+      rows.push({ id: '', kind: que, title: '' });
+      render(); tocado();
+      if (que === 'TITLE') {
+        var last = rowsEl.querySelector('.pl-erow:last-child input');
+        if (last) last.focus();
+      }
     });
+    if (noteAdd) noteAdd.addEventListener('click', abreNota);
     var noteDel = root.querySelector('[data-pl-note-del]');
     if (noteDel) noteDel.addEventListener('click', function () {
       if (noteEl) noteEl.value = '';
@@ -630,166 +661,31 @@
     var btnSave = root.querySelector('[data-pl-save]');
     if (btnSave) btnSave.addEventListener('click', guarda);
 
-    /* ---------- Pop-up de añadir canción ---------- */
-    var modal = document.getElementById('playlistPickModal');
-    if (modal) {
-      var cuerpo = modal.querySelector('[data-pick-body]');
-      var sub = modal.querySelector('[data-pick-sub]');
-      var atras = modal.querySelector('[data-pick-back]');
-      var pickerUrl = root.getAttribute('data-picker-url') || '';
-      var estado = { paso: 'fuente', source: '', artist: '', artistName: '' };
-
-      function cargando() { cuerpo.innerHTML = '<div class="text-center text-muted py-4"><i class="fa fa-spinner fa-spin"></i></div>'; }
-
-      function pintaFuente() {
-        estado.paso = 'fuente';
-        if (sub) sub.textContent = '¿De dónde la cogemos?';
-        if (atras) atras.classList.add('d-none');
-        cuerpo.innerHTML =
-          '<div class="pl-pick-sources">' +
-            '<button class="pl-pick-source" type="button" data-pick-source="demos">' +
-              '<i class="fa fa-compact-disc"></i><span>Demos</span>' +
-              '<span class="small text-muted">Las maquetas que se están valorando</span></button>' +
-            '<button class="pl-pick-source" type="button" data-pick-source="repertorio">' +
-              '<i class="fa fa-music"></i><span>Repertorio</span>' +
-              '<span class="small text-muted">Las canciones del catálogo</span></button>' +
-          '</div>';
-      }
-
-      function grupoHtml(g) {
-        var img = g.photo
-          ? '<img src="' + esc(g.photo) + '" alt="" data-avatar="1">'
-          : '<span class="pl-pick-artist__icon"><i class="fa ' + esc(g.icon || 'fa-user') + '"></i></span>';
-        return '<button class="pl-pick-artist" type="button" data-pick-artist="' + esc(g.id) + '" data-name="' + esc(g.name) + '">' +
-          img + '<span class="pl-pick-artist__name">' + esc(g.name) + '</span>' +
-          '<span class="badge text-bg-light border">' + (g.count || 0) + '</span></button>';
-      }
-
-      function pintaArtistas(js) {
-        estado.paso = 'artistas';
-        if (sub) sub.textContent = (estado.source === 'demos') ? 'Demos · elige de quién' : 'Repertorio · elige el artista';
-        if (atras) atras.classList.remove('d-none');
-        var html = '<input class="form-control form-control-sm mb-3" data-pick-filter placeholder="Buscar…" autocomplete="off">';
-        if (estado.source === 'demos') {
-          var grupos = js.groups || [];
-          html += grupos.length ? '<div class="pl-pick-artists">' + grupos.map(grupoHtml).join('') + '</div>'
-                                : '<div class="alert alert-light border">No hay maquetas todavía.</div>';
-        } else {
-          var act = js.active || [], otros = js.others || [];
-          html += act.length ? '<div class="pl-pick-artists">' + act.map(grupoHtml).join('') + '</div>'
-                             : '<div class="alert alert-light border">Ningún artista activo con repertorio.</div>';
-          if (otros.length) {
-            html += '<div class="mt-3"><button class="btn btn-sm btn-outline-secondary" type="button" data-pick-more>' +
-              '<i class="fa fa-chevron-down me-1"></i>Ver más artistas (' + otros.length + ')</button>' +
-              '<div class="pl-pick-artists mt-2 d-none" data-pick-others>' + otros.map(grupoHtml).join('') + '</div></div>';
-          }
-        }
-        cuerpo.innerHTML = html;
-      }
-
-      function pintaTemas(filas) {
-        estado.paso = 'temas';
-        if (sub) sub.textContent = estado.artistName + ' · pincha el tema para añadirlo';
-        if (atras) atras.classList.remove('d-none');
-        if (!filas.length) {
-          cuerpo.innerHTML = '<div class="alert alert-light border">No hay nada aquí.</div>';
-          return;
-        }
-        // ⚠️ Los datos van en data-* SUELTOS, no en un JSON dentro del atributo: un JSON con comillas
-        //    dentro de un atributo se corta en la primera comilla (el mismo tropiezo que `|tojson`).
-        cuerpo.innerHTML =
-          '<input class="form-control form-control-sm mb-3" data-pick-filter placeholder="Buscar…" autocomplete="off">' +
-          '<div class="pl-pick-songs">' + filas.map(function (f) {
-            return '<button class="pl-pick-song" type="button" data-pick-add="1"' +
-              ' data-kind="' + esc(f.kind) + '" data-id="' + esc(f.id) + '"' +
-              ' data-title="' + esc(f.title) + '" data-cover="' + esc(f.cover_url || '') + '"' +
-              ' data-artist="' + esc(f.artist_name || '') + '" data-photo="' + esc(f.artist_photo || '') + '"' +
-              ' data-subtitle="' + esc(f.subtitle || '') + '">' +
-              '<img src="' + esc(f.cover_url || COVER) + '" alt="" data-cover>' +
-              '<span class="pl-pick-song__main"><span class="pl-pick-song__title">' + esc(f.title) + '</span>' +
-              '<span class="pl-pick-song__sub">' + esc(f.artist_name || '') +
-              (f.subtitle ? ' · ' + esc(f.subtitle) : '') + '</span></span>' +
-              (f.playable ? '' : '<span class="badge text-bg-light border text-muted" title="Sin audio">sin audio</span>') +
-              '<i class="fa fa-plus text-success"></i></button>';
-          }).join('') + '</div>';
-      }
-
-      function pide(params) {
-        cargando();
-        var url = pickerUrl + (pickerUrl.indexOf('?') >= 0 ? '&' : '?') + new URLSearchParams(params).toString();
-        return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-          .then(function (r) { return r.json(); })
-          .catch(function () { return { ok: false }; });
-      }
-
-      cuerpo.addEventListener('click', function (ev) {
-        var fuente = ev.target.closest('[data-pick-source]');
-        if (fuente) {
-          estado.source = fuente.getAttribute('data-pick-source');
-          pide({ source: estado.source }).then(function (js) {
-            if (!js || !js.ok) { cuerpo.innerHTML = '<div class="alert alert-danger">No se pudo cargar.</div>'; return; }
-            pintaArtistas(js);
+    /* ---------- El BUSCADOR de temas (columna de la derecha) ----------
+       ⚠️ El motor es ÚNICO (`playlist_picker.js`) y lo comparte con el asistente de «+ Playlist
+       selección»: los dos se comportan igual y lo que ya está puesto se ve en VERDE. */
+    var zonaPick = root.querySelector('[data-plpick]');
+    if (zonaPick && window.app33PlaylistPicker) {
+      window.app33PlaylistPicker.init(zonaPick, {
+        tiene: function (kind, id) {
+          return rows.some(function (r) {
+            return r.kind === kind && (kind === 'DEMO' ? r.demo_id : r.song_id) === id;
           });
-          return;
-        }
-        var mas = ev.target.closest('[data-pick-more]');
-        if (mas) {
-          var caja = cuerpo.querySelector('[data-pick-others]');
-          if (caja) caja.classList.remove('d-none');
-          mas.classList.add('d-none');
-          return;
-        }
-        var art = ev.target.closest('[data-pick-artist]');
-        if (art) {
-          estado.artist = art.getAttribute('data-pick-artist');
-          estado.artistName = art.getAttribute('data-name') || '';
-          pide({ source: estado.source, artist: estado.artist }).then(function (js) {
-            if (!js || !js.ok) { cuerpo.innerHTML = '<div class="alert alert-danger">No se pudo cargar.</div>'; return; }
-            pintaTemas(js.rows || []);
-          });
-          return;
-        }
-        var add = ev.target.closest('[data-pick-add]');
-        if (add) {
-          var kind = (add.getAttribute('data-kind') || 'SONG').toUpperCase();
-          var id = add.getAttribute('data-id') || '';
+        },
+        onAdd: function (f) {
           rows.push({
-            id: '', kind: kind, title: add.getAttribute('data-title') || '',
-            song_id: (kind === 'SONG' ? id : ''), demo_id: (kind === 'DEMO' ? id : ''),
-            cover_url: add.getAttribute('data-cover') || '',
-            artist_name: add.getAttribute('data-artist') || '',
-            artist_photo: add.getAttribute('data-photo') || '',
-            subtitle: add.getAttribute('data-subtitle') || '', duration_seconds: 0
+            id: '', kind: f.kind, title: f.title,
+            song_id: (f.kind === 'SONG' ? f.id : ''), demo_id: (f.kind === 'DEMO' ? f.id : ''),
+            cover_url: f.cover_url, artist_name: f.artist_name, artist_photo: f.artist_photo,
+            subtitle: f.subtitle, duration_seconds: 0
           });
           render(); tocado();
-          add.classList.add('is-added');
-          var mas = add.querySelector('i.fa-plus');
-          if (mas) mas.className = 'fa fa-check text-success';
-          return;
         }
       });
-
-      cuerpo.addEventListener('input', function (ev) {
-        if (!ev.target.matches('[data-pick-filter]')) return;
-        var q = (ev.target.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        Array.prototype.forEach.call(cuerpo.querySelectorAll('.pl-pick-artist, .pl-pick-song'), function (el) {
-          var txt = (el.textContent || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          el.classList.toggle('d-none', !!q && txt.indexOf(q) < 0);
-        });
-      });
-
-      if (atras) atras.addEventListener('click', function () {
-        if (estado.paso === 'temas') {
-          pide({ source: estado.source }).then(function (js) { if (js && js.ok) pintaArtistas(js); });
-        } else {
-          pintaFuente();
-        }
-      });
-
-      // ⚠️ Se monta en el PROPIO CLIC (o en `show`): con modal_stack.js por medio `shown.bs.modal`
-      //    puede no llegar nunca, y el pop-up saldría vacío (bug real de los calendarios).
-      modal.addEventListener('show.bs.modal', pintaFuente);
-      pintaFuente();
+      // Al QUITAR una línea, el buscador tiene que dejar de darla por puesta.
+      refrescaPick = function () {
+        if (typeof zonaPick.plPickRefresh === 'function') zonaPick.plPickRefresh();
+      };
     }
 
     /* ---------- Nombre del archivo de la portada ---------- */

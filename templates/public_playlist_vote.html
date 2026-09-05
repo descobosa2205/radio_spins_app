@@ -95,11 +95,13 @@
                 <i class="fa fa-lock me-1"></i>Escúchala entera para {{ 'decidir' if progress.wants_pick else 'puntuarla' }}
               </span>
               {% if progress.wants_pick %}
-                <span class="pv-pickbtns{{ ' d-none' if not it.vote_heard }}">
+                {# Decidido, solo se ve lo elegido (`is-decided`): volver a pincharlo lo deshace. #}
+                <span class="pv-pickbtns{{ ' d-none' if not it.vote_heard }}{{ ' is-decided' if it.vote_state }}"
+                      data-pv-pickbtns>
                   <button class="pv-btn pv-btn--keep{{ ' is-on' if it.vote_state == 'KEEP' }}" type="button"
-                          data-pv-state="KEEP"><i class="fa fa-check me-1"></i>La elijo</button>
+                          data-pv-state="KEEP"><i class="fa-solid fa-circle-check"></i>La elijo</button>
                   <button class="pv-btn pv-btn--drop{{ ' is-on' if it.vote_state == 'DROP' }}" type="button"
-                          data-pv-state="DROP"><i class="fa fa-xmark me-1"></i>Descartar</button>
+                          data-pv-state="DROP"><i class="fa-solid fa-circle-xmark"></i>Descartar</button>
                 </span>
               {% endif %}
               {% if progress.wants_rate %}

@@ -1379,6 +1379,12 @@ def format_isrc_filter(value):
     return _norm_isrc(value) if value not in (None, "") else "—"
 
 
+@app.template_filter("pct")
+def format_pct_filter(value):
+    """Un porcentaje como se escribe aquí: coma decimal y sin ceros de adorno (7,6 · 10)."""
+    return _fmt_pct_es(value) if value not in (None, "") else "—"
+
+
 def _parse_share_pairs(ids_list, pct_list):
     """Normaliza y DEDUPLICA: el último gana; % en [0..100]."""
     dedup = {}
@@ -51993,9 +51999,13 @@ def _sim_parse_date(v):
 
 
 # --- Constantes de cálculo de simulaciones ---
-SIM_IVA_TICKET = Decimal("0.10")     # IVA de las entradas (10%) — por defecto
-SIM_SGAE_RATE = Decimal("0.0765")    # SGAE: 7,65% sobre el precio sin IVA — por defecto
-SIM_IVA_EXTRA = Decimal("0.10")      # IVA de complementos (10%) — por defecto
+# ⚠️⚠️ EL IVA Y LA SGAE SE DICEN EN **UN SOLO SITIO**: `sim_calc`. Aquí hay un segundo motor
+# (el resumen de ticketing de una simulación) y llegó a tener su propia copia del 7,65%, así que
+# el mismo número vivía en cuatro sitios (los dos motores, el JS de la pantalla y sus textos) y
+# se desparejaron en cuanto ticketing lo cambió a 7,6%. Se leen de `sim_calc`, nunca se copian.
+SIM_IVA_TICKET = Decimal(str(sim_calc.IVA_TICKET))   # IVA de las entradas — por defecto
+SIM_SGAE_RATE = Decimal(str(sim_calc.SGAE_RATE))     # SGAE sobre el precio sin IVA — por defecto
+SIM_IVA_EXTRA = Decimal(str(sim_calc.IVA_TICKET))    # IVA de complementos — por defecto
 
 
 def _sim_tax_cfg(activity):
@@ -52017,10 +52027,18 @@ def _sim_tax_cfg(activity):
             return Decimal(str(v))
         except Exception:
             return default_frac * Decimal("100")
+    def _limpio(d):
+        """Sin ceros de adorno y SIN notación científica (va en un <input type="number">).
+
+        ⚠️ `Decimal.normalize()` no vale: `Decimal("10.0").normalize()` da `1E+1`, que un input
+        numérico no acepta. Y aquí el separador es el PUNTO (formato HTML), no la coma.
+        """
+        txt = format(d, "f")
+        return Decimal(txt.rstrip("0").rstrip(".")) if "." in txt else d
     return {
-        "iva_ticket_pct": _pct("iva_ticket", SIM_IVA_TICKET),
-        "iva_extra_pct": _pct("iva_extra", SIM_IVA_EXTRA),
-        "sgae_pct": _pct("sgae", SIM_SGAE_RATE),
+        "iva_ticket_pct": _limpio(_pct("iva_ticket", SIM_IVA_TICKET)),
+        "iva_extra_pct": _limpio(_pct("iva_extra", SIM_IVA_EXTRA)),
+        "sgae_pct": _limpio(_pct("sgae", SIM_SGAE_RATE)),
     }
 
 # Categorías de GASTOS del simulador (tarjetas «bocadillo», orden fijo) + icono FA.
@@ -52078,8 +52096,9 @@ def _sim_ticketing_summary(activity):
 
     Por entrada (vendible = aforo - invitaciones):
       - precio configurado = sin IVA, INCLUYE SGAE.
-      - SGAE = 7,65% del precio sin IVA · IVA = 10% sobre el precio sin IVA.
-      - neto (sin IVA y sin SGAE) = precio · (1 - 0,0765).
+      - SGAE y el IVA de entradas los dice `sim_calc` (hoy 7,6% y 10%); la rueda del
+        Ticketing los puede cambiar POR SIMULACIÓN (`activity.settings['tax']`).
+      - neto (sin IVA y sin SGAE) = precio · (1 - SGAE).
     """
     out = {
         "zones": {
@@ -52970,6 +52989,9 @@ def _simulation_detail_response(s, sim, public=False, public_token=""):
         ticketing_payload=ticketing_payload,
         calc=calc,
         tax_cfg=(_sim_tax_cfg(active_activity) if active_activity else _sim_tax_cfg(None)),
+        # Lo de la casa (para el texto de «por defecto» y los respaldos del JS): que salga
+        # del punto único, nunca escrito a mano en la plantilla.
+        sim_tax_defaults={k: float(v) for k, v in _sim_tax_cfg(None).items()},
         venue_tpl=venue_tpl,
         show_venue_tpl_prompt=show_venue_tpl_prompt,
         expenses_payload=expenses_payload,
@@ -64067,7 +64089,13 @@ def _sim_ticket_rows(act) -> list[dict]:
         rows.append({
             "name": name,
             "qty_for_sale": int(cat.quantity or 0),
-            "price": _sim_d(cat.price_net or 0),
+            # ⚠️⚠️ En la simulación el precio se escribe SIN IVA y en una actividad el precio del
+            # tipo de entrada es el DE VENTA AL PÚBLICO (con IVA). Copiándolo tal cual, la actividad
+            # nacía con los precios un 10% por debajo de lo que se iba a cobrar.
+            # ⚠️ En Decimal, no con `_money_or_zero`: ese parsea TEXTO con la regla del punto de la
+            # casa, y un float como 23.100000000000001 se leería como MILES.
+            "price": (_sim_d(cat.price_net or 0)
+                      * (Decimal("1") + Decimal(str(sim_calc.IVA_TICKET)))).quantize(Decimal("0.01")),
             "invites_total": int(cat.invitations or 0),
             "zone": zone,
         })
@@ -96408,14 +96436,21 @@ def _concert_build_calc_data(s, concert):
             _et_sold = int(_et_valid_sales_filter(s.query(func.count()), _et_ev)
                            .filter(EnterticketSale.is_invitation.is_(False)).scalar() or 0)
             if _et_rev and _et_sold > 0:
+                # ⚠️⚠️ LA RECAUDACIÓN DE ENTERTICKET LLEVA IVA (es lo que paga el comprador) y el
+                # motor espera el precio SIN IVA (`price_net`). Metiéndola tal cual, el IVA no se
+                # descontaba: el resultado salía casi un 10% ALTO y el punto de empate más bajo de
+                # lo que es (bug real de dinero, sep 2026). La SGAE la sigue quitando el motor.
                 categories.append({"zone": "PISTA", "quantity": _et_sold, "invitations": 0,
-                                   "price_net": float(_et_rev) / _et_sold, "extras": []})
+                                   "price_net": sim_calc.net_price_from_gross(float(_et_rev) / _et_sold),
+                                   "extras": []})
     except Exception:
         pass
     if not categories:
         for t in sorted((getattr(concert, "ticket_types", None) or []), key=lambda x: (x.name or "")):
+            # ⚠️ Igual con los tipos de entrada de la actividad: su precio es el DE VENTA AL PÚBLICO
+            # (con IVA), no el neto. En una SIMULACIÓN sí se escribe ya sin IVA y no se toca.
             categories.append({"zone": "PISTA", "quantity": int(_ff(t.qty_for_sale)), "invitations": 0,
-                               "price_net": _ff(t.price), "extras": []})
+                               "price_net": sim_calc.net_price_from_gross(_ff(t.price)), "extras": []})
     if not categories and concert.capacity and not concert.no_capacity:
         categories.append({"zone": "PISTA", "quantity": int(concert.capacity or 0), "invitations": 0, "price_net": 0.0, "extras": []})
     caches = []

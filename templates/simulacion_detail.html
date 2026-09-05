@@ -768,7 +768,7 @@
   <div class="alert alert-light border d-flex align-items-start gap-2">
     <i class="fa fa-circle-info mt-1"></i>
     <div class="small">
-      Precio <strong>sin IVA</strong> (incluye SGAE). El IVA de entradas es del <strong>10%</strong> y la SGAE el <strong>7,65%</strong> del precio sin IVA.
+      Precio <strong>sin IVA</strong> (incluye SGAE). El IVA de entradas es del <strong>{{ tax_cfg.iva_ticket_pct|pct }}%</strong> y la SGAE el <strong>{{ tax_cfg.sgae_pct|pct }}%</strong> del precio sin IVA.
       Las <strong>invitaciones</strong> se restan del aforo a la venta (no generan ingresos). Los <strong>complementos</strong> son importes por entrada (IVA incl., sin SGAE), p. ej. «Early Access».
     </div>
   </div>
@@ -797,7 +797,7 @@
         <div class="col-6 col-md-4"><label class="form-label small mb-0">IVA de complementos</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control" id="tkIvaExtra" value="{{ tax_cfg.iva_extra_pct }}"><span class="input-group-text">%</span></div></div>
         <div class="col-6 col-md-4"><label class="form-label small mb-0">SGAE (sobre precio sin IVA)</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control" id="tkSgae" value="{{ tax_cfg.sgae_pct }}"><span class="input-group-text">%</span></div></div>
       </div>
-      <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Por defecto: IVA entradas 10%, IVA complementos 10%, SGAE 7,65%. Al cambiarlos, todos los cálculos de esta fecha los usan.</div>
+      <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Por defecto: IVA entradas {{ sim_tax_defaults.iva_ticket_pct|pct }}%, IVA complementos {{ sim_tax_defaults.iva_extra_pct|pct }}%, SGAE {{ sim_tax_defaults.sgae_pct|pct }}%. Al cambiarlos, todos los cálculos de esta fecha los usan.</div>
     </div>
 
     {% set zone_colors = {'PISTA':'#E33D48','GRADA':'#007CA2','PALCO':'#F59E0B'} %}
@@ -1433,7 +1433,8 @@ function numv(x){
   try { initial = JSON.parse(document.getElementById('ticketingData').textContent || '[]'); } catch(e){}
 
   // Config fiscal (rueda): SGAE % configurable para la previsualización del neto.
-  function sgaeRate(){ var el=document.getElementById('tkSgae'); return el ? ((numv(el.value||'0')||0)/100) : 0.0765; }
+  var TAX_DEF = {{ sim_tax_defaults|tojson }};   // lo de la casa, dicho por el servidor (nada a mano)
+  function sgaeRate(){ var el=document.getElementById('tkSgae'); return el ? ((numv(el.value||'0')||0)/100) : (TAX_DEF.sgae_pct/100); }
   var cfgToggle=document.getElementById('tkCfgToggle');
   if(cfgToggle) cfgToggle.addEventListener('click', function(){ var p=document.getElementById('tkCfgPanel'); if(p) p.classList.toggle('d-none'); });
 
@@ -1487,7 +1488,7 @@ function numv(x){
 
   function collectTax(){
     function v(id, def){ var el=document.getElementById(id); var n=el?numv(el.value):NaN; return isNaN(n)?def:n; }
-    return { iva_ticket: v('tkIvaTicket', 10), iva_extra: v('tkIvaExtra', 10), sgae: v('tkSgae', 7.65) };
+    return { iva_ticket: v('tkIvaTicket', TAX_DEF.iva_ticket_pct), iva_extra: v('tkIvaExtra', TAX_DEF.iva_extra_pct), sgae: v('tkSgae', TAX_DEF.sgae_pct) };
   }
 
   function collect(){

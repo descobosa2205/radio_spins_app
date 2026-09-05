@@ -6,8 +6,14 @@ modelos ORM a un dict plano y llama a :func:`compute`.
 
 Convenciones (confirmadas con el usuario):
 - Todo el resultado se calcula en **neto sin IVA** (el IVA es neutro/recuperable).
-- Entradas: precio configurado = sin IVA, INCLUYE SGAE. IVA entradas 10%, SGAE 7,65%
-  del precio sin IVA. Neto de la entrada = precio · (1 − 0,0765).
+- Entradas: precio configurado = sin IVA, INCLUYE SGAE. IVA entradas 10%, SGAE 7,6%
+  del precio sin IVA. Neto de la entrada = precio · (1 − 0,076).
+  ⚠️ Es EXACTAMENTE la fórmula que usa ticketing sobre la recaudación con IVA:
+      IVA = bruta − bruta/1,1 · SGAE = (bruta − IVA) × 7,6% · neta = bruta − IVA − SGAE
+  (con 420,00 € de recaudación: IVA 38,18 · SGAE 29,02 · neta 352,80).
+  ⚠️⚠️ Si el precio que se tiene es el DE VENTA AL PÚBLICO (con IVA) —el de una actividad real o
+  el de Enterticket— hay que pasarlo antes por `net_price_from_gross`: metiéndolo como si ya
+  fuera neto, el IVA no se descuenta y el resultado sale casi un 10% ALTO.
 - Complementos: importe IVA incluido al **10%**; no llevan SGAE.
 - Rebate = 10% de la recaudación sin IVA (precio configurado) − 0,5 €/entrada vendida (mín. 0).
 - Barras = 6 €/entrada vendida (solo si el recinto permite barras).
@@ -19,7 +25,8 @@ Convenciones (confirmadas con el usuario):
 """
 
 IVA_TICKET = 0.10
-SGAE_RATE = 0.0765
+# SGAE 7,6% sobre la base sin IVA (lo confirmó ticketing en sep 2026; antes estaba en 7,65%).
+SGAE_RATE = 0.076
 IVA_GENERAL = 0.21      # cachés / comisiones cuando "incluye IVA"
 IVA_EXTRA = 0.10        # complementos (van con la entrada)
 REBATE_PCT = 0.10
@@ -41,6 +48,33 @@ def _f(v):
 
 def _net_of_iva(amount, includes_iva, rate=IVA_GENERAL):
     return amount / (1.0 + rate) if includes_iva else amount
+
+
+def net_price_from_gross(price_gross, iva_ticket=IVA_TICKET):
+    """De un precio DE VENTA AL PÚBLICO (con IVA) al precio sin IVA que espera este motor.
+
+    ⚠️ En una SIMULACIÓN el precio se escribe ya sin IVA, así que ahí no hace falta. Hace falta con
+    los precios REALES de una actividad y con la recaudación de Enterticket, que son lo que paga el
+    comprador: sin esto el IVA no se descuenta y el neto sale casi un 10% alto (y el punto de
+    empate, más bajo de lo que es)."""
+    try:
+        v = float(price_gross or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return v / (1.0 + float(iva_ticket or 0.0))
+
+
+def gross_price_from_net(price_net, iva_ticket=IVA_TICKET):
+    """El camino de vuelta: del precio sin IVA de una simulación al precio DE VENTA AL PÚBLICO.
+
+    ⚠️ Hace falta al convertir una simulación en actividad: los tipos de entrada de una actividad
+    guardan el precio con IVA (es lo que se cobra). Copiando el neto tal cual, la actividad nacía
+    con los precios un 10% más bajos de lo que se iba a cobrar."""
+    try:
+        v = float(price_net or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return v * (1.0 + float(iva_ticket or 0.0))
 
 
 def variable_amount(cfg, tickets_sold, taquilla_net, avg_price):

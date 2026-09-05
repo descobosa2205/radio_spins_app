@@ -113564,6 +113564,7 @@ def notifications_list():
                     "actor_name": ((n.actor_name or "").strip() or _nick),
                     "embed": bool((n.url or "").startswith("/vacaciones/aviso/")),
                     "icon": (n.icon or NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("", "fa-bell"))[1]),
+                    "urgent": _notice_is_urgent(n.kind, n.url),
                 })
                 if n.shown_at is None:
                     n.shown_at = _now_madrid()      # la primera vez que sale (informativo)
@@ -113723,6 +113724,19 @@ NOTIFICATION_KIND_META = {
     # del artista, su visto bueno, las creatividades, los IDs de plataforma).
     "DISCOGRAFICA": ("Novedad en un proyecto discográfico", "fa-compact-disc"),
 }
+
+# Los avisos que salen en ROJO. El resto son AMARILLOS, que es como se ven los avisos de la casa.
+# ⚠️ Urgente = lo que se está CAYENDO mientras nadie lo toca, no lo que «hay que hacer pronto»:
+#   · REMESA — hay dinero esperando una firma y hasta entonces no se le paga a nadie.
+#   · VENTA  — contratación ya ha dicho «sácala a la venta»: cada día parada es venta perdida.
+# Con la lista llena de tipos, el rojo deja de significar nada. Un aviso suelto se puede marcar
+# urgente sin estar aquí, con `_notify_user(..., urgent=True)`.
+NOTIFICATION_URGENT_KINDS = {"REMESA", "VENTA"}
+
+
+def _notice_is_urgent(kind, url="") -> bool:
+    """¿Este aviso va en rojo? Punto único: lo miran la campanita, la franja y «Mis avisos»."""
+    return (kind or "").strip().upper() in NOTIFICATION_URGENT_KINDS
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -115123,6 +115137,7 @@ def _notification_rows(session_db, user_id, *, limit=20, only_unread=False) -> l
             "embed": bool((n.url or "").startswith("/vacaciones/aviso/")),
             "unread": n.read_at is None,
             "shown": n.shown_at is not None,
+            "urgent": _notice_is_urgent(n.kind, n.url),
             "when": _format_madrid_datetime_label(n.created_at),
         })
     return filas

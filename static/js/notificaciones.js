@@ -162,7 +162,8 @@
     vistos[av.id] = true;
     porId[av.id] = av;
     var el = document.createElement('div');
-    el.className = 'notif-strip';
+    // Lo URGENTE en rojo; lo demás, amarillo (lo dice el servidor: `_notice_is_urgent`).
+    el.className = 'notif-strip' + (av.urgent ? ' notif-strip--urgent' : '');
     el.setAttribute('data-notif-id', av.id);
     el.innerHTML =
       '<button type="button" class="notif-strip__link">'

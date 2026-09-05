@@ -17,6 +17,14 @@
  *
  * ⚠️ El audio se pide SIEMPRE a nuestro endpoint puente (`data-pl-src`), nunca a Storage: por eso la
  * playlist puede decir que no se descarga.
+ *
+ * ⚠️⚠️ **LOS BOTONES DEL DISPOSITIVO** (Media Session): mientras suena, la playlist se comporta como
+ * lo que es —música—, así que la **pantalla de bloqueo del iPhone**, **CarPlay** en el coche, los
+ * **AirPods** (doble toque), el Centro de control, el reloj y los botones del volante pueden
+ * **pasar de canción, retroceder, parar y seguir**, y enseñan el título, el artista y la portada.
+ * Lo hace `mediaSession` (ver `initMediaSession`): metadatos al empezar cada tema, los mandos
+ * (`nexttrack`/`previoustrack`/`play`/`pause`/`stop`/`seekto`) y la posición, para que la barra del
+ * coche se mueva. Donde el navegador no lo tenga, no pasa nada: se ignora.
  */
 (function () {
   'use strict';
@@ -103,26 +111,152 @@
       audio.src = li.getAttribute('data-pl-src');
       audio.currentTime = 0;
       pinta();
+      // Lo que va a ver el coche (o la pantalla de bloqueo) y los botones que va a poder usar.
+      metadatos(li);
+      enganchaMandos();
       audio.play().catch(function () { pinta(); });
     }
 
+    /* ---------- LOS BOTONES DEL DISPOSITIVO (Media Session) ----------
+       Para que el iPhone, CarPlay, los AirPods o el reloj puedan pasar de canción hay que decirle al
+       sistema QUÉ está sonando y QUÉ se puede hacer. Es lo que convierte esto, para el coche, en
+       «música» y no en «un sonido de una web». */
+    var ms = (typeof navigator !== 'undefined' && navigator.mediaSession) ? navigator.mediaSession : null;
+
+    function abs(url) {
+      try { return new URL(url, window.location.href).href; } catch (e) { return url || ''; }
+    }
+    function metadatos(li) {
+      if (!ms || !window.MediaMetadata) return;
+      var portada = li.getAttribute('data-pl-cover') || '';
+      var arte = [];
+      if (portada) {
+        // ⚠️ Se declaran VARIOS tamaños con la misma imagen: cada sitio (la pantalla de bloqueo, el
+        // coche, el reloj) pide el que le cuadra y, sin candidatos, algunos no enseñan ninguna.
+        ['256x256', '512x512'].forEach(function (tam) {
+          arte.push({ src: abs(portada), sizes: tam, type: '' });
+        });
+      }
+      try {
+        ms.metadata = new MediaMetadata({
+          title: li.getAttribute('data-pl-title') || '',
+          artist: li.getAttribute('data-pl-artist') || '',
+          album: album,
+          artwork: arte
+        });
+      } catch (e) {}
+    }
+    function posicion() {
+      if (!ms || typeof ms.setPositionState !== 'function') return;
+      if (!isFinite(audio.duration) || audio.duration <= 0) return;
+      try {
+        ms.setPositionState({
+          duration: audio.duration,
+          playbackRate: audio.playbackRate || 1,
+          position: Math.min(audio.currentTime || 0, audio.duration)
+        });
+      } catch (e) {}
+    }
+    function mando(nombre, fn) {
+      if (!ms || typeof ms.setActionHandler !== 'function') return;
+      // ⚠️ Un mando que el navegador no conozca revienta: cada uno en su try.
+      try { ms.setActionHandler(nombre, fn); } catch (e) {}
+    }
+    // El «disco» es la playlist (o la pantalla): es lo que se lee debajo del tema en el coche.
+    var album = (root.getAttribute('data-pl-album') || '').trim()
+                || (document.title || '').split('·')[0].trim();
+
+    /* ⚠️ SALTAR DE TEMA es lo que hacen el volante, el doble toque de los AirPods y la pantalla de
+       bloqueo. `previous` se comporta como en cualquier reproductor: si ya lleva un rato sonando,
+       vuelve al principio del tema; si acaba de empezar, va al anterior. */
+    function siguienteTema() {
+      if (actual < 0) { suena(0); return; }
+      if (actual + 1 < filas.length) { var i = actual + 1; actual = -1; limpia(filas[i - 1]); suena(i); }
+      else { audio.pause(); }
+    }
+    function temaAnterior() {
+      if (actual < 0) { suena(0); return; }
+      if ((audio.currentTime || 0) > 3 || actual === 0) {
+        try { audio.currentTime = 0; } catch (e) {}
+        audio.play().catch(function () {});
+        return;
+      }
+      var i = actual - 1;
+      limpia(filas[actual]);
+      actual = -1;
+      suena(i);
+    }
+    function enganchaMandos() {
+      if (!ms || root.dataset.plMsReady === '1') return;
+      root.dataset.plMsReady = '1';
+      mando('play', function () { audio.play().catch(function () {}); });
+      mando('pause', function () { audio.pause(); });
+      mando('stop', function () { audio.pause(); try { audio.currentTime = 0; } catch (e) {} });
+      mando('nexttrack', siguienteTema);
+      mando('previoustrack', temaAnterior);
+      mando('seekbackward', function (d) {
+        var s = (d && d.seekOffset) || 10;
+        try { audio.currentTime = Math.max(0, (audio.currentTime || 0) - s); } catch (e) {}
+      });
+      mando('seekforward', function (d) {
+        var s = (d && d.seekOffset) || 10;
+        try { audio.currentTime = Math.min(audio.duration || 0, (audio.currentTime || 0) + s); } catch (e) {}
+      });
+      mando('seekto', function (d) {
+        if (!d || d.seekTime == null) return;
+        try { audio.currentTime = d.seekTime; } catch (e) {}
+        posicion();
+      });
+    }
+
     audio.addEventListener('timeupdate', progreso);
+    audio.addEventListener('timeupdate', posicion);
     audio.addEventListener('play', pinta);
     audio.addEventListener('pause', pinta);
+    audio.addEventListener('play', function () { if (ms) { try { ms.playbackState = 'playing'; } catch (e) {} } });
+    audio.addEventListener('pause', function () { if (ms) { try { ms.playbackState = 'paused'; } catch (e) {} } });
     audio.addEventListener('loadedmetadata', function () {
       if (actual < 0) return;
       var li = filas[actual];
       var etq = li.querySelector('[data-pl-durlabel]');
       if (etq && !etq.textContent.trim() && isFinite(audio.duration)) etq.textContent = fmt(audio.duration);
       progreso();
+      posicion();          // con la duración ya sabida, la barra del coche se puede mover
     });
     audio.addEventListener('ended', function () {
+      /* ⚠️ SE AVISA DE QUE ESE TEMA SE HA ESCUCHADO ENTERO. El reproductor no sabe nada de
+         valoraciones: solo lanza el evento y quien lo escuche decide (el mismo patrón que
+         `agenda:external-drop`). Es lo que abre la puntuación en una playlist de valoración. */
+      try {
+        var terminado = filas[actual];
+        document.dispatchEvent(new CustomEvent('playlist:ended', {
+          detail: { itemId: terminado && terminado.getAttribute('data-pl-item'), root: root }
+        }));
+      } catch (e) {}
       // Al terminar una canción se reproduce automáticamente la siguiente.
       var siguiente = actual + 1;
       limpia(filas[actual]);
       if (siguiente < filas.length) { actual = -1; suena(siguiente); }
-      else { actual = -1; }
+      else {
+        actual = -1;
+        // Se acabó la lista: el sistema deja de anunciar que hay música sonando.
+        if (ms) { try { ms.playbackState = 'none'; ms.metadata = null; } catch (e) {} }
+      }
     });
+
+    /* ⚠️ SI LAS FILAS CAMBIAN DE SITIO (una playlist de valoración se reordena por puntuación), el
+       array `filas` y el índice `actual` dejan de casar: se vuelven a leer del DOM y se busca por su
+       id la que está sonando. Sin esto, «siguiente» saltaría a otra canción. */
+    root.plReindex = function () {
+      var sonando = (actual >= 0 && filas[actual]) ? filas[actual].getAttribute('data-pl-item') : '';
+      filas = Array.prototype.slice.call(root.querySelectorAll('[data-pl-row]'))
+        .filter(function (li) { return !!li.getAttribute('data-pl-src'); });
+      actual = -1;
+      for (var i = 0; i < filas.length; i++) {
+        if (sonando && filas[i].getAttribute('data-pl-item') === sonando) { actual = i; break; }
+      }
+      pinta();
+    };
 
     // --- Clic en cualquier sitio de la línea (menos en los CONTROLES de dentro) ---
     /* ⚠️⚠️ Un clic en un CONTROL de la fila NO puede reproducir ni parar nada: en el listado de demos

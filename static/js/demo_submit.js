@@ -116,8 +116,22 @@
           });
       };
       // El audio primero (va directo a Storage con su barra de progreso).
-      if (typeof form.demoUploadAudio === 'function') form.demoUploadAudio(manda);
-      else manda();
+      // ⚠️ Se pueden mandar VARIAS de una vez: si alguna no ha subido, NO se envía el formulario.
+      if (typeof form.demoFaltaTitulo === 'function' && form.demoFaltaTitulo()) {
+        boton.disabled = false;
+        return;
+      }
+      if (typeof form.demoUploadAudio === 'function') {
+        form.demoUploadAudio(function (ok) {
+          if (ok === false) {
+            boton.disabled = false;
+            error.textContent = 'Algún audio no se ha podido subir: míralo en la lista y vuelve a intentarlo.';
+            error.classList.remove('d-none');
+            return;
+          }
+          manda();
+        });
+      } else manda();
     });
   }
 

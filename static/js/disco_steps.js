@@ -58,6 +58,50 @@
   window.app33DiscoTerceros = engancha;
 })();
 
+/* VARIOS PRODUCTORES (`[data-dp-producers]`): una fila por productor, con su buscador y su «+».
+   ⚠️ Cada buscador necesita IDs ÚNICOS (el macro `tercero` los usa para el typeahead y para el alta
+   rápida), así que la plantilla lleva el marcador `dpProducerNEW` y aquí se sustituye por uno nuevo
+   en cada fila. Después se vuelve a enganchar el buscador (`app33DiscoTerceros`). */
+(function () {
+  var n = 0;
+  function engancha() {
+    document.querySelectorAll('[data-dp-producers]').forEach(function (zona) {
+      if (zona.dataset.dpProdBound) return;
+      zona.dataset.dpProdBound = '1';
+      var filas = zona.querySelector('[data-dp-producer-rows]');
+      var tpl = zona.querySelector('[data-dp-producer-tpl]');
+
+      function nueva() {
+        if (!filas || !tpl) return null;
+        n += 1;
+        var html = tpl.innerHTML.split('dpProducerNEW').join('dpProducerNew' + n);
+        var caja = document.createElement('div');
+        caja.innerHTML = html.trim();
+        var nodo = caja.firstElementChild;
+        if (!nodo) return null;
+        filas.appendChild(nodo);
+        if (window.app33DiscoTerceros) window.app33DiscoTerceros();
+        var q = nodo.querySelector('input[type="text"]');
+        if (q) q.focus();
+        return nodo;
+      }
+      var add = zona.querySelector('[data-dp-producer-add]');
+      if (add) add.addEventListener('click', nueva);
+      zona.addEventListener('click', function (ev) {
+        var del = ev.target.closest('[data-dp-producer-del]');
+        if (!del) return;
+        var fila = del.closest('[data-dp-producer-row]');
+        if (fila) fila.remove();
+      });
+      // Sin ninguno todavía, se abre ya una fila: si no, el pop-up sale vacío.
+      if (filas && !filas.querySelector('[data-dp-producer-row]')) nueva();
+    });
+  }
+  if (document.readyState !== 'loading') engancha();
+  else document.addEventListener('DOMContentLoaded', engancha);
+  window.app33DiscoProductores = engancha;
+})();
+
 (function () {
   function valorDe(nombre, raiz) {
     var el = (raiz || document).querySelector('input[name="' + nombre + '"]:checked');

@@ -2242,9 +2242,30 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
 
 /* Volver "inteligente": cualquier botón de volver (los que empiezan por "Volver" con la flecha, o
    [data-smart-back]) regresa a la posición EXACTA anterior con history.back() cuando venimos de la
-   propia app; si no hay historial, sigue su href (página padre) como respaldo. Global. */
+   propia app; si no hay historial, sigue su href (página padre) como respaldo. Global.
+
+   ⚠️⚠️ **NUNCA SE VUELVE A UN FORMULARIO** (sep 2026). Al crear algo, la pantalla anterior del
+   historial suele ser **el paso de crearlo** (una playlist recién creada deja detrás su
+   `?edit=1`), así que el botón de volver te devolvía a rellenar el nombre y **daba la sensación de
+   que no se había creado nada**. Si lo de atrás es un formulario, se sigue el `href` —que es la
+   pantalla padre: el LISTADO de playlists—. Punto único `esFormulario(url)`. */
 (function () {
   'use strict';
+  // Lo que marca que una URL es un PASO DE FORMULARIO y no una pantalla a la que volver.
+  var PARAMS_FORM = ['edit', 'open_wizard', 'open', 'configurar', 'ordenar', 'map_edit',
+                     'crear', 'nuevo', 'wizard'];
+  var RUTAS_FORM = /\/(nuevo|nueva|crear|editar|alta|wizard|asistente)(\/|$)/i;
+  function esFormulario(href) {
+    try {
+      var u = new URL(href, window.location.href);
+      for (var i = 0; i < PARAMS_FORM.length; i++) {
+        var v = u.searchParams.get(PARAMS_FORM[i]);
+        // ⚠️ Solo cuenta si está PUESTO: un `?edit=0` no es un formulario.
+        if (v !== null && v !== '' && v !== '0' && v.toLowerCase() !== 'false') return true;
+      }
+      return RUTAS_FORM.test(u.pathname);
+    } catch (e) { return false; }
+  }
   function referrerUtil() {
     // Referrer de la PROPIA app y distinto de esta misma página (tras guardar con POST+redirect el
     // referrer es la propia ficha: ahí retroceder no llevaría «a la página de la que venías»).
@@ -2253,6 +2274,9 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
       var u = new URL(document.referrer);
       if (u.origin !== window.location.origin) return '';
       if (u.href === window.location.href) return '';
+      // ⚠️ Si de lo que venimos es un PASO DE FORMULARIO, retroceder llevaría a rellenarlo otra vez:
+      // ahí se sigue el href (la pantalla padre).
+      if (esFormulario(u.href)) return '';
       return u.href;
     } catch (e) { return ''; }
   }
@@ -2285,6 +2309,20 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     }
     // Si no venimos de otra página de la app (enlace directo, pestaña nueva o recarga tras guardar),
     // se sigue el href: el destino «padre» de esa pantalla.
+  });
+
+  /* SALIR DE UN FORMULARIO SIN DEJARLO EN EL HISTORIAL (`data-replace-history`).
+     Al terminar de crear algo se pasa del paso de edición a verlo: con un enlace normal, el paso de
+     edición se queda detrás y el botón de atrás DEL NAVEGADOR (que no controlamos) te devolvería a
+     él. Con `location.replace` esa entrada se sustituye, así que atrás lleva ya al listado. */
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest ? e.target.closest('a[data-replace-history]') : null;
+    if (!a) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+    var destino = a.getAttribute('href') || '';
+    if (!destino || destino.charAt(0) === '#') return;
+    e.preventDefault();
+    window.location.replace(destino);
   });
 })();
 

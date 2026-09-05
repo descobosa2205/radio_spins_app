@@ -13,9 +13,15 @@
 {% macro dur(seconds) %}{% if seconds %}{{ '%d:%02d'|format(seconds // 60, seconds % 60) }}{% endif %}{% endmacro %}
 
 {% macro pl_row(it, dl=false, badges='', menu='', note='') %}
+{# ⚠️ El título, el artista y la portada van también en `data-*`: son los que se le dan al SISTEMA
+   (pantalla de bloqueo del iPhone, CarPlay, los AirPods…) con la Media Session, y ahí hacen falta
+   los valores tal cual, no rascados del HTML. #}
 <li class="pl-item pl-row{{ ' is-mute' if not it.stream_url }}" data-pl-row
     data-pl-item="{{ it.id }}"
     {% if it.stream_url %}data-pl-src="{{ it.stream_url }}"{% endif %}
+    data-pl-title="{{ it.title }}"
+    data-pl-artist="{{ it.artist_name or '' }}"
+    data-pl-cover="{{ it.cover_url or DEFAULT_COVER_URL }}"
     data-pl-dur="{{ it.duration_seconds or '' }}">
   <div class="pl-row__cover">
     <img src="{{ it.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
@@ -46,6 +52,12 @@
       {% if it.authors %}
         <span class="pl-authors" title="{{ it.authors_tooltip or (it.authors | map(attribute='name') | join(' · ')) }}">
           <i class="fa fa-feather-pointed"></i>{{ it.authors | map(attribute='name') | join(', ') }}
+        </span>
+      {% endif %}
+      {# LOS PRODUCTORES (varios): su icono y sus nombres, como los autores. #}
+      {% if it.producers %}
+        <span class="pl-authors" title="{{ it.producers_tooltip or ('Producida por ' ~ (it.producers | map(attribute='name') | join(' · '))) }}">
+          <i class="fa fa-sliders"></i>{{ it.producers | map(attribute='name') | join(', ') }}
         </span>
       {% endif %}
       {# QUIÉN LA ENVIÓ (solo cuando la mandó alguien de fuera). #}

@@ -1,0 +1,102 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   LO VOTADO · dentro de la ficha de una playlist de selección/valoración.
+
+   · Los temas, **de los más votados a los menos**, con su nota media: al pinchar la nota sale el
+     DESGLOSE de qué ha puesto cada uno (en un POP-UP, sin salir de aquí).
+   · Debajo, QUIÉN HA VOTADO con su foto y **en qué punto está** cada uno; al pinchar a alguien se
+     ve SU orden. En los tres puntitos: compartir, copiar enlace, resetear y anular.
+   · El filtro **«Ver resultados incompletos»** enseña además lo que cada uno lleva hecho AHORA.
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div class="card mt-3" data-pvres
+     data-results-url="{{ url_for('playlist_vote_results_data', playlist_id=pl.id) }}"
+     data-action-url="{{ url_for('playlist_voter_action', playlist_id=pl.id, voter_id='VID', accion='ACC') }}">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-star-half-stroke me-2 text-danger"></i>{{ vote.kind_label }}
+      <span class="badge text-bg-light border ms-1">{{ vote.done_count }} de {{ vote.total_count }}</span>
+    </span>
+    <span class="d-flex align-items-center gap-2 flex-wrap">
+      {# ⚠️ Con esto se ve **lo que va haciendo cada uno en este momento**, no solo lo ya enviado. #}
+      <label class="filter-chip mb-0">
+        <input class="visually-hidden" type="checkbox" data-pvres-partial>
+        <i class="fa fa-hourglass-half me-1"></i>Ver resultados incompletos
+      </label>
+      {% if CAN_EDIT_DISCOGRAFICA %}
+        <a class="btn btn-sm btn-danger" href="{{ url_for('playlist_vote_send_view', playlist_id=pl.id) }}">
+          <i class="fa fa-paper-plane me-1"></i>Mandárselo a más gente</a>
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="card-body">
+    {% if vote.due_label %}
+      <div class="small text-muted mb-2"><i class="fa fa-calendar-day me-1"></i>Plazo: {{ vote.due_label }}</div>
+    {% endif %}
+    <div class="pv-results" data-pvres-rows>
+      <div class="text-muted small">Cargando…</div>
+    </div>
+  </div>
+
+  {# ---------- QUIÉN LO TIENE y en qué punto está ---------- #}
+  <div class="list-group list-group-flush">
+    {% for v in vote.voters %}
+      <div class="list-group-item d-flex align-items-center gap-2 flex-wrap" data-pvres-voter="{{ v.id }}">
+        <img class="pv-face" src="{{ v.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+        <button class="btn btn-link p-0 text-reset fw-semibold" type="button"
+                data-pvres-open="{{ v.id }}" data-name="{{ v.name|e }}"
+                title="Ver su orden">{{ v.name }}</button>
+        <span class="badge text-bg-{{ v.state_color }}"><i class="fa {{ v.state_icon }} me-1"></i>{{ v.state_label }}</span>
+        {% if v.progress_label %}<span class="small text-muted">{{ v.progress_label }}</span>{% endif %}
+        {% if CAN_EDIT_DISCOGRAFICA %}
+          <span class="ms-auto dropdown">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
+              <i class="fa fa-ellipsis"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><button class="dropdown-item" type="button"
+                          onclick="shareByMail('{{ vote.subject|e }}', '{{ v.url }}')">
+                <i class="fa fa-envelope fa-fw me-1"></i>Compartir por Email</button></li>
+              <li><button class="dropdown-item" type="button"
+                          onclick="shareByWhatsapp('{{ vote.subject|e }}', '{{ v.url }}')">
+                <i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+              <li><button class="dropdown-item" type="button"
+                          onclick="shareBySms('{{ vote.subject|e }}', '{{ v.url }}')">
+                <i class="fa fa-comment-sms fa-fw me-1"></i>SMS</button></li>
+              <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ v.url }}')">
+                <i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><button class="dropdown-item" type="button" data-pvres-act="reenviar" data-vid="{{ v.id }}">
+                <i class="fa fa-paper-plane fa-fw me-1"></i>Volver a mandárselo</button></li>
+              <li><button class="dropdown-item text-warning" type="button" data-pvres-act="reset" data-vid="{{ v.id }}"
+                          data-confirm="¿Borrar su valoración? Volverá a empezar, pero no tendrá que escuchar los temas otra vez.">
+                <i class="fa fa-rotate-left fa-fw me-1"></i>Resetear</button></li>
+              {% if v.state == 'CANCELLED' %}
+                <li><button class="dropdown-item text-success" type="button" data-pvres-act="reactivar" data-vid="{{ v.id }}">
+                  <i class="fa fa-rotate-right fa-fw me-1"></i>Volver a dejarle votar</button></li>
+              {% else %}
+                <li><button class="dropdown-item text-danger" type="button" data-pvres-act="anular" data-vid="{{ v.id }}"
+                            data-confirm="¿Anular a esta persona? Su enlace dejará de valer.">
+                  <i class="fa fa-ban fa-fw me-1"></i>Anular votante</button></li>
+              {% endif %}
+            </ul>
+          </span>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="list-group-item text-muted small">Todavía no se le ha mandado a nadie.</div>
+    {% endfor %}
+  </div>
+</div>
+
+{# ---------- EL POP-UP (el desglose de un tema · el orden de una persona) ----------
+   ⚠️ Un POP-UP, no otra pantalla: se mira sin salir de donde se está. #}
+<div class="modal fade" id="pvDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" data-pvres-title>Detalle</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" data-pvres-detail></div>
+    </div>
+  </div>
+</div>

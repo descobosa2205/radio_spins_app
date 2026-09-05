@@ -1,0 +1,156 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   LA PÁGINA DE QUIEN VOTA (su enlace).
+   ⚠️ STANDALONE a propósito (no hereda de layout.html): la abre gente de fuera, sin sesión.
+   ⚠️⚠️ Para PUNTUAR (o decidir) hay que **escuchar la canción entera**; y se puede hacer EN VARIAS
+   VECES: todo se guarda sobre la marcha, así que al volver se sigue donde se dejó.
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# ⚠️ El título y la sublínea los da el SERVIDOR (el mismo asunto del correo), y la miniatura es la
+     PORTADA de la playlist: así la tarjeta de WhatsApp y el SMS dicen de qué va. #}
+  <title>{{ share_title or 'Playlist' }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <meta property="og:type" content="music.playlist">
+  <meta property="og:title" content="{{ share_title or 'Playlist' }}">
+  {% if share_subtitle %}<meta property="og:description" content="{{ share_subtitle }}">{% endif %}
+  {% if public_url %}<meta property="og:url" content="{{ public_url }}">{% endif %}
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ og_image_url }}">
+  {% endif %}
+  <meta name="twitter:title" content="{{ share_title or 'Playlist' }}">
+  {% if share_subtitle %}<meta name="twitter:description" content="{{ share_subtitle }}">{% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
+</head>
+<body class="bg-body-tertiary"
+      data-default-photo-url="{{ DEFAULT_PHOTO_URL }}"
+      data-default-cover-url="{{ DEFAULT_COVER_URL }}"
+      data-default-avatar-url="{{ DEFAULT_AVATAR_URL }}">
+<div class="container py-4" style="max-width:900px;">
+
+{% if cerrado %}
+  {# El enlace ya no vale: se dice por qué, sin más. #}
+  <div class="pl-sheet text-center py-5">
+    <i class="fa fa-circle-check fa-2x text-muted mb-3 d-block"></i>
+    <h1 class="h5">{{ cerrado }}</h1>
+  </div>
+{% else %}
+  {% from '_playlist_row.html' import pl_row with context %}
+  <div class="pl-sheet" data-pv-vote
+       data-save-url="{{ save_url }}" data-submit-url="{{ submit_url }}">
+
+    {% if brand and brand.logo_url %}
+      <div class="pl-sheet__brand"><img src="{{ brand.logo_url }}" alt="{{ brand.company_name }}"></div>
+    {% endif %}
+
+    <h1 class="h5 text-center mb-3">{{ title }}</h1>
+    <p class="text-center text-muted">{{ intro }}</p>
+    {% if note %}<div class="pl-note"><i class="fa fa-note-sticky"></i><span>{{ note }}</span></div>{% endif %}
+
+    <div class="pl-head">
+      <img class="pl-head__cover" src="{{ pl.cover_url or DEFAULT_COVER_URL }}" alt="{{ pl.name }}" data-cover>
+      <div class="pl-head__main">
+        <div class="pl-head__eyebrow">{{ kind_label }}</div>
+        <h2 class="pl-head__title">{{ pl.name }}</h2>
+        <div class="pl-head__facts">
+          <span><i class="fa fa-music"></i>{{ pl.songs_count }} tema{{ '' if pl.songs_count == 1 else 's' }}</span>
+          {% if due_label %}<span><i class="fa fa-calendar-day"></i>hasta el {{ due_label }}</span>{% endif %}
+          <span data-pv-progress></span>
+        </div>
+      </div>
+    </div>
+
+    {# CÓMO VA y qué falta. Con selección, arriba se dice cuántas hay que dejar. #}
+    <div class="pv-bar">
+      {% if progress.wants_pick and progress.pick_count %}
+        <div class="pv-bar__rule">
+          <i class="fa fa-hand-pointer me-1"></i>Debes seleccionar solo {{ progress.pick_count }}
+          canción{{ '' if progress.pick_count == 1 else 'es' }}.
+        </div>
+      {% endif %}
+      <div class="pv-bar__msg{{ ' is-ok' if progress.ready }}" data-pv-msg>
+        {{ progress.message or ('¡Listo! Ya puedes enviarlo.' if progress.ready else '') }}
+      </div>
+      <div class="small text-muted">
+        Puedes dejarlo a medias: lo que hagas se guarda y, al volver, sigues donde lo dejaste.
+      </div>
+    </div>
+
+    <ol class="pl-list" data-playlist-player data-pl-album="{{ pl.name }}">
+      {% for it in items %}
+        {% set votar %}
+          {% if it.kind in ('SONG', 'DEMO') %}
+            <span class="pv-tools">
+              {# Hasta que no se escucha entera, no se puede decidir ni puntuar. #}
+              <span class="pv-lock{{ ' d-none' if it.vote_heard }}" data-pv-lock>
+                <i class="fa fa-lock me-1"></i>Escúchala entera para {{ 'decidir' if progress.wants_pick else 'puntuarla' }}
+              </span>
+              {% if progress.wants_pick %}
+                <span class="pv-pickbtns{{ ' d-none' if not it.vote_heard }}">
+                  <button class="pv-btn pv-btn--keep{{ ' is-on' if it.vote_state == 'KEEP' }}" type="button"
+                          data-pv-state="KEEP"><i class="fa fa-check me-1"></i>La elijo</button>
+                  <button class="pv-btn pv-btn--drop{{ ' is-on' if it.vote_state == 'DROP' }}" type="button"
+                          data-pv-state="DROP"><i class="fa fa-xmark me-1"></i>Descartar</button>
+                </span>
+              {% endif %}
+              {% if progress.wants_rate %}
+                {# La BARRA del 1 al 10: del rojo de la casa (menos) al azul (más). #}
+                <span class="pv-scores{{ ' d-none' if not it.vote_heard }}">
+                  {% for n in range(1, max_score + 1) %}
+                    <button class="pv-score pv-score--{{ n }}{{ ' is-on' if it.vote_score and n <= it.vote_score }}"
+                            type="button" data-pv-score="{{ n }}" title="{{ n }} de {{ max_score }}">{{ n }}</button>
+                  {% endfor %}
+                </span>
+              {% endif %}
+            </span>
+          {% endif %}
+        {% endset %}
+        {{ pl_row(it, dl=false, menu=votar) }}
+      {% endfor %}
+    </ol>
+
+    <div class="text-center mt-4">
+      <button class="btn btn-danger btn-lg{{ '' if progress.ready else ' d-none' }}" type="button" data-pv-submit>
+        <i class="fa fa-paper-plane me-1"></i>Enviar {{ 'mi selección' if progress.wants_pick and not progress.wants_rate else 'mis puntuaciones' }}
+      </button>
+    </div>
+  </div>
+{% endif %}
+
+</div>
+<script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/playlist_vote.js', v=ASSET_V) }}"></script>
+{% if not cerrado %}
+  {# ⚠️ LO QUE YA ESTABA PUESTO: se puede volver otro día y SEGUIR DONDE SE DEJÓ, así que el estado
+     de cada tema (escuchado, elegido, puntuado) lo manda el SERVIDOR y se aplica al cargar. #}
+  <script type="application/json" data-pv-saved>{{ saved|tojson }}</script>
+  <script>
+    (function () {
+      var caja = document.querySelector('[data-pv-saved]');
+      var guardado = [];
+      try { guardado = JSON.parse(caja.textContent || '[]'); } catch (e) {}
+      guardado.forEach(function (g) {
+        var li = document.querySelector('[data-pl-row][data-pl-item="' + g.id + '"]');
+        if (!li) return;
+        if (g.heard) li.dataset.pvHeard = '1';
+        if (g.state) li.dataset.pvState = g.state;
+        if (g.score) li.dataset.pvScore = String(g.score);
+        li.classList.toggle('is-heard', !!g.heard);
+        li.classList.toggle('is-kept', g.state === 'KEEP');
+        li.classList.toggle('is-dropped', g.state === 'DROP');
+      });
+    })();
+  </script>
+{% endif %}
+</body>
+</html>

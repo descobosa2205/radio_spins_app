@@ -6,9 +6,15 @@
    Lo mueve el mismo motor de las demos (`playlist.js`), que se engancha por `data-playlist-player`
    y necesita esta estructura (`data-pl-row` + `data-pl-src` + la zona del reproductor).
    ============================================================================ #}
-<ul class="pl-list list-unstyled mb-0 sync-player" data-playlist-player>
+{# ⚠️ El título, el artista y la portada van en `data-*` aunque aquí no se pinten: son los que ve el
+   SISTEMA (pantalla de bloqueo, CarPlay, AirPods) con la Media Session. #}
+<ul class="pl-list list-unstyled mb-0 sync-player" data-playlist-player
+    data-pl-album="{{ row.artist_name or '' }}">
   <li class="pl-row sync-player__row" data-pl-row data-pl-item="{{ row.id }}"
-      data-pl-src="{{ row.audio_url }}" data-pl-dur="{{ row.duration_seconds or '' }}">
+      data-pl-src="{{ row.audio_url }}" data-pl-dur="{{ row.duration_seconds or '' }}"
+      data-pl-title="{{ row.title }}"
+      data-pl-artist="{{ row.artist_name or '' }}"
+      data-pl-cover="{{ row.cover_url or DEFAULT_COVER_URL }}">
     <button type="button" class="sync-player__play" data-pl-toggle aria-label="{{ play_label }}">
       <i class="fa-solid fa-play" data-pl-icon></i>
     </button>

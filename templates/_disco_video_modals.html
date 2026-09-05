@@ -23,10 +23,36 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        {# ⚠️ PUEDE HABER MÁS DE UNO: una fila por productor. A cada uno hay que mandarle su
+           contrato (uno puede cubrir a varios). #}
         <div class="mb-3">
-          <label class="form-label">Productor del videoclip</label>
-          {{ tercero('dpVideoProducer', 'promoter_id', vd.producer.promoter_id, vd.producer.name, vd.producer.logo_url) }}
-          <div class="form-text">Se busca escribiendo; si no está, se crea con el «+».</div>
+          <label class="form-label">Productores del videoclip</label>
+          <div data-dp-producers>
+            <div data-dp-producer-rows>
+              {% for pr in (vd.producer.producers or []) %}
+                <div class="dp-prow" data-dp-producer-row>
+                  <div class="flex-grow-1">
+                    {{ tercero('dpVideoProducer' ~ loop.index, 'promoter_id[]', pr.id, pr.name, pr.logo_url) }}
+                  </div>
+                  <button class="btn btn-sm btn-link text-danger" type="button" data-dp-producer-del
+                          title="Quitarlo"><i class="fa fa-xmark"></i></button>
+                </div>
+              {% endfor %}
+            </div>
+            <button class="btn btn-sm btn-outline-secondary mt-1" type="button" data-dp-producer-add>
+              <i class="fa fa-plus me-1"></i>Añadir productor
+            </button>
+            <template data-dp-producer-tpl>
+              <div class="dp-prow" data-dp-producer-row>
+                <div class="flex-grow-1">
+                  {{ tercero('dpProducerNEW', 'promoter_id[]', '', '', '') }}
+                </div>
+                <button class="btn btn-sm btn-link text-danger" type="button" data-dp-producer-del
+                        title="Quitarlo"><i class="fa fa-xmark"></i></button>
+              </div>
+            </template>
+          </div>
+          <div class="form-text">Se busca escribiendo; si no está, se crea con el «+». Puede ser más de uno.</div>
         </div>
         <div class="mb-3">
           <label class="form-label">Condiciones económicas</label>
@@ -76,13 +102,47 @@
           {% if vd.producer.fee_label %}<div><i class="fa fa-euro-sign me-1 text-muted"></i>{{ vd.producer.fee_label }}{% if vd.producer.fee_amount_label or vd.producer.budget_amount_label %} · {{ vd.producer.fee_amount_label or vd.producer.budget_amount_label }}{% endif %}</div>{% endif %}
           {% if vd.producer.notes %}<div><i class="fa fa-note-sticky me-1 text-muted"></i>{{ vd.producer.notes }}</div>{% endif %}
         </div>
-        {% if vd.contract.file_url %}
-          <div class="mb-3"><a href="{{ vd.contract.file_url }}" target="_blank" rel="noopener">
-            <i class="fa fa-file-pdf me-1"></i>{{ vd.contract.file_name or 'Contrato' }}</a></div>
+        {# ⚠️⚠️ Con VARIOS productores, un contrato puede ser para UNO o para VARIOS: aquí se marca a
+           quiénes incluye. Con uno solo no se pregunta nada. #}
+        {% if vd.contract.count > 1 %}
+          <label class="form-label">¿Qué productores incluye este contrato?</label>
+          <div class="dp-prodpick mb-3">
+            {% for pr in vd.contract.producers %}
+              <label class="dp-prodpick__item{{ ' is-done' if pr.done }}">
+                <input type="checkbox" name="producer_ids[]" value="{{ pr.id }}" {{ 'checked' if not pr.done }}>
+                <img src="{{ pr.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+                <span class="dp-prodpick__name">{{ pr.name }}</span>
+                {% if pr.done %}
+                  <span class="badge text-bg-success" title="Ya tiene contrato{% if pr.done_label %} · {{ pr.done_label }}{% endif %}"><i class="fa fa-check"></i></span>
+                {% endif %}
+              </label>
+            {% endfor %}
+          </div>
+          {% if vd.contract.pending_names %}
+            <div class="alert alert-warning py-2 small">
+              <i class="fa fa-triangle-exclamation me-1"></i>La tarea no está terminada hasta que
+              <strong>todos</strong> tengan su contrato. Falta el de {{ vd.contract.pending_names }}.
+            </div>
+          {% endif %}
+        {% endif %}
+        {% if vd.contract.contracts %}
+          <div class="mb-3">
+            {% for c in vd.contract.contracts %}
+              <div class="small d-flex align-items-center gap-2 mb-1">
+                <i class="fa fa-file-contract text-muted"></i>
+                {% if c.file_url %}<a href="{{ c.file_url }}" target="_blank" rel="noopener">{{ c.file_name or 'Ver el contrato' }}</a>
+                {% else %}<span>{{ c.file_name or 'Contrato' }}</span>{% endif %}
+                <span class="text-muted">{{ c.names }}{% if c.done_label %} · {{ c.done_label }}{% endif %}</span>
+              </div>
+            {% endfor %}
+          </div>
         {% endif %}
         <label class="form-label">Contrato firmado <span class="text-muted small">(opcional)</span></label>
         <input class="form-control" type="file" name="contract">
-        <div class="form-text">Al guardar, la tarea queda hecha para todos.</div>
+        <div class="form-text">
+          {{ 'La tarea no queda hecha hasta que todos los productores tienen su contrato.'
+             if vd.contract.count > 1 else 'Al guardar, la tarea queda hecha para todos.' }}
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -446,3 +506,11 @@
     </form>
   </div>
 </div>
+
+{# ⚠️ El motor de los pop-ups (`data-dp-when`, el buscador de terceros y las filas de productor) lo
+   carga `_disco_project_steps.html`, que solo se incluye si el proyecto lleva AUDIO. En un VIDEOCLIP
+   SUELTO no hay pasos de audio, así que aquí hay que cargarlo (y solo entonces, para no traerlo
+   dos veces). #}
+{% if not has_audio %}
+  <script src="{{ url_for('static', filename='js/disco_steps.js') }}"></script>
+{% endif %}

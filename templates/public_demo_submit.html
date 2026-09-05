@@ -2,7 +2,10 @@
    Primero se IDENTIFICA con su DNI o CIF y después va añadiendo maquetas con el MISMO formulario que
    usamos nosotros, viéndolas y escuchándolas como las vemos aquí (`_playlist_row.html`).
    ⚠️ STANDALONE a propósito: la abre gente de fuera, sin sesión, y no tiene que ver el back office. #}
-{% from '_playlist_row.html' import pl_row %}
+{# ⚠️⚠️ `with context`: sin él la macro NO ve los globales (`DEFAULT_COVER_URL`,
+   `DEFAULT_AVATAR_URL`), así que las maquetas sin portada salían con `src=""` — un hueco que solo
+   salvaba el respaldo del navegador— en vez de con la imagen de «sin portada». #}
+{% from '_playlist_row.html' import pl_row with context %}
 <!doctype html>
 <html lang="es">
 <head>
@@ -100,7 +103,7 @@
         </button>
       </div>
 
-      <ol class="pl-list" data-playlist-player data-demo-rows>
+      <ol class="pl-list" data-playlist-player data-pl-album="Maquetas" data-demo-rows>
         {% for it in rows %}
           {% set quitar %}
             <button class="btn btn-sm btn-link text-danger" type="button" data-demo-remove="{{ it.id }}"

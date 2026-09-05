@@ -1024,7 +1024,20 @@ document.addEventListener('click', function (ev) {
              title="Abrir el proyecto">{{ r.artist_name or r.title }}</a>
           <span class="ctask__facts">
             <span class="ctask__fact"><i class="fa fa-compact-disc"></i>{{ r.title }}</span>
-            {% if r.producer %}<span class="ctask__fact"><i class="fa fa-user-tie"></i>{{ r.producer }}</span>{% endif %}
+            {# ⚠️ Los productores que FALTAN, con su foto o su logo: un contrato puede cubrir a
+               varios y la tarea no está hecha hasta que TODOS lo tienen. #}
+            {% if r.producers %}
+              <span class="ctask__fact">
+                <i class="fa fa-user-tie"></i>
+                {% for pr in r.producers %}
+                  <img class="ctask__face" src="{{ pr.logo_url or DEFAULT_AVATAR_URL }}" alt=""
+                       data-avatar="1" title="{{ pr.name }}">
+                {% endfor %}
+                {{ r.producer }}
+              </span>
+            {% elif r.producer %}
+              <span class="ctask__fact"><i class="fa fa-user-tie"></i>{{ r.producer }}</span>
+            {% endif %}
             {% if r.terms %}<span class="ctask__fact"><i class="fa fa-file-contract"></i>{{ r.terms }}</span>{% endif %}
             {% if r.release_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>sale el {{ r.release_label }}</span>{% endif %}
           </span>
@@ -1033,7 +1046,11 @@ document.addEventListener('click', function (ev) {
           </span>
         </div>
         <div class="ctask__tasks">
-          <span class="badge text-bg-warning text-dark"><i class="fa fa-file-signature me-1"></i>Enviar contrato de productor</span>
+          <span class="badge text-bg-warning text-dark"><i class="fa fa-file-signature me-1"></i>
+            {{ 'Enviar contrato de productor' if (r.producers_count or 1) <= 1 else 'Enviar los contratos de productor' }}</span>
+          {% if r.producers_done %}
+            <span class="badge text-bg-success" title="Ya tienen contrato"><i class="fa fa-check me-1"></i>{{ r.producers_done }}</span>
+          {% endif %}
           {% if r.asked_label %}<span class="badge text-bg-light border">pedido el {{ r.asked_label }}</span>{% endif %}
         </div>
       </div>

@@ -781,6 +781,10 @@ class SongDemo(Base):
     song = relationship("Song")
     authors = relationship("SongDemoAuthor", back_populates="demo",
                            cascade="all, delete-orphan", order_by="SongDemoAuthor.position")
+    # QUIÉN LA PRODUCE. ⚠️ Puede haber MÁS DE UNO (regla de la casa): por eso es una lista, como los
+    # autores, y no una columna suelta.
+    producers = relationship("SongDemoProducer", back_populates="demo",
+                             cascade="all, delete-orphan", order_by="SongDemoProducer.position")
 
     __table_args__ = (
         Index("idx_song_demos_status", "status", "created_at"),
@@ -815,6 +819,31 @@ class SongDemoAuthor(Base):
 
     __table_args__ = (
         Index("idx_song_demo_authors_demo", "demo_id", "position"),
+    )
+
+
+class SongDemoProducer(Base):
+    """PRODUCTORES de una maqueta. Igual que los autores: el productor es un TERCERO de la base (con
+    su ficha, su foto y sus datos) y, si no está, se crea al vuelo con el «+».
+
+    ⚠️ Son VARIOS a propósito: un tema lo pueden producir dos personas y en la app eso tiene que
+    poder decirse (la misma regla que en el proyecto discográfico)."""
+
+    __tablename__ = "song_demo_producers"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    demo_id = Column(PGUUID(as_uuid=True), ForeignKey("song_demos.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    name = Column(Text)                 # como se escribió (por si no es un tercero de la base)
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    demo = relationship("SongDemo", back_populates="producers")
+    promoter = relationship("Promoter")
+
+    __table_args__ = (
+        Index("idx_song_demo_producers_demo", "demo_id", "position"),
     )
 
 
@@ -1323,9 +1352,21 @@ class Playlist(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # ---- PLAYLIST DE SELECCIÓN / VALORACIÓN ----
+    # ⚠️ `vote_mode` VACÍO = playlist de siempre (se manda para escuchar y ya). Con valor, la playlist
+    # se manda a UNAS PERSONAS para que **puntúen** los temas, **elijan** unos cuantos, o las dos
+    # cosas; cada una tiene su enlace y su avance.
+    vote_mode = Column(Text, nullable=False, server_default=text("''"))   # '' | RATE | PICK | PICK_RATE
+    pick_count = Column(Integer)                    # cuántas hay que seleccionar (en PICK / PICK_RATE)
+    vote_due_date = Column(Date)                    # plazo máximo para contestar
+    vote_note = Column(Text)                        # la nota que se manda con la solicitud
+    vote_sent_at = Column(DateTime(timezone=True))
+
     company = relationship("GroupCompany")
     items = relationship("PlaylistItem", back_populates="playlist",
                          cascade="all, delete-orphan", order_by="PlaylistItem.position")
+    voters = relationship("PlaylistVoter", back_populates="playlist",
+                          cascade="all, delete-orphan", order_by="PlaylistVoter.created_at")
 
 
 class PlaylistItem(Base):
@@ -1356,6 +1397,74 @@ class PlaylistItem(Base):
 
     __table_args__ = (
         Index("idx_playlist_items_playlist", "playlist_id", "position"),
+    )
+
+
+class PlaylistVoter(Base):
+    """QUIÉN tiene que valorar (o seleccionar) una playlist. **Un enlace por persona**, para saber
+    quién ha votado qué.
+
+    Puede ser un TERCERO, alguien de la CASA o un ARTISTA: se apunta a quién apunta (`promoter_id` /
+    `user_id`) y, como respaldo, el nombre y el contacto con el que se le escribió.
+
+    ⚠️ `done_at` = ya ha contestado → **su enlace deja de valer**. `cancelled_at` = se le ha anulado
+    (tampoco puede votar). Volver a empezar es `playlist_voter_reset`, que borra lo votado pero
+    **NO** lo escuchado: no se le hace oír todo otra vez.
+    """
+
+    __tablename__ = "playlist_voters"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    playlist_id = Column(PGUUID(as_uuid=True), ForeignKey("playlists.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    token = Column(Text, unique=True, index=True)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    name = Column(Text)
+    email = Column(Text)
+    phone = Column(Text)
+    sent_at = Column(DateTime(timezone=True))
+    sent_channel = Column(Text)
+    # ⚠️ Cuándo ABRIÓ el enlace por primera vez: es lo que distingue «no lo ha visto» de «lo está
+    # escuchando». Lo que va haciendo se guarda sobre la marcha (`playlist_votes`), así que puede
+    # dejarlo a medias y **seguir donde lo dejó** otro día.
+    opened_at = Column(DateTime(timezone=True))
+    reminded_at = Column(DateTime(timezone=True))
+    done_at = Column(DateTime(timezone=True))
+    cancelled_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    playlist = relationship("Playlist", back_populates="voters")
+    promoter = relationship("Promoter")
+    artist = relationship("Artist")
+    votes = relationship("PlaylistVote", back_populates="voter", cascade="all, delete-orphan")
+
+
+class PlaylistVote(Base):
+    """LO QUE HA DICHO una persona de un tema: su nota (1-10) y si lo elige o lo descarta.
+
+    ⚠️ `heard` se conserva al resetear a alguien: ya ha escuchado el tema, no hay por qué hacérselo
+    oír otra vez."""
+
+    __tablename__ = "playlist_votes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    voter_id = Column(PGUUID(as_uuid=True), ForeignKey("playlist_voters.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    item_id = Column(PGUUID(as_uuid=True), ForeignKey("playlist_items.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    score = Column(Integer)               # 1..10 (None = sin puntuar)
+    state = Column(Text)                  # KEEP | DROP | None (sin decidir)
+    heard = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    voter = relationship("PlaylistVoter", back_populates="votes")
+    item = relationship("PlaylistItem")
+
+    __table_args__ = (
+        Index("idx_playlist_votes_voter_item", "voter_id", "item_id", unique=True),
     )
 
 
@@ -12197,6 +12306,18 @@ def ensure_song_demos_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_song_demo_authors_demo ON song_demo_authors(demo_id, position);",
+        # PRODUCTORES de la maqueta (varios: un tema lo pueden producir dos personas).
+        """
+        CREATE TABLE IF NOT EXISTS song_demo_producers (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            demo_id uuid NOT NULL REFERENCES song_demos(id) ON DELETE CASCADE,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            name text,
+            position integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_song_demo_producers_demo ON song_demo_producers(demo_id, position);",
         """
         CREATE TABLE IF NOT EXISTS song_demo_ratings (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -12261,6 +12382,48 @@ def ensure_playlists_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist ON playlist_items(playlist_id, position);",
+        # ---- PLAYLIST DE SELECCIÓN / VALORACIÓN ----
+        "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS vote_mode text NOT NULL DEFAULT '';",
+        "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS pick_count integer;",
+        "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS vote_due_date date;",
+        "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS vote_note text;",
+        "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS vote_sent_at timestamptz;",
+        """
+        CREATE TABLE IF NOT EXISTS playlist_voters (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            playlist_id uuid NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+            token text UNIQUE,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            artist_id uuid REFERENCES artists(id) ON DELETE SET NULL,
+            name text,
+            email text,
+            phone text,
+            sent_at timestamptz,
+            sent_channel text,
+            opened_at timestamptz,
+            reminded_at timestamptz,
+            done_at timestamptz,
+            cancelled_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_playlist_voters_playlist ON playlist_voters(playlist_id);",
+        "CREATE INDEX IF NOT EXISTS idx_playlist_voters_token ON playlist_voters(token);",
+        "ALTER TABLE IF EXISTS playlist_voters ADD COLUMN IF NOT EXISTS opened_at timestamptz;",
+        """
+        CREATE TABLE IF NOT EXISTS playlist_votes (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            voter_id uuid NOT NULL REFERENCES playlist_voters(id) ON DELETE CASCADE,
+            item_id uuid NOT NULL REFERENCES playlist_items(id) ON DELETE CASCADE,
+            score integer,
+            state text,
+            heard boolean NOT NULL DEFAULT false,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_playlist_votes_voter_item ON playlist_votes(voter_id, item_id);",
     ], label="ensure_playlists_schema")
 
 

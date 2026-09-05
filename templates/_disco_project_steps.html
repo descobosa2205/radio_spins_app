@@ -208,10 +208,38 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        <label class="form-label">Productor</label>
-        {{ tercero('dpProducerPick', 'producer_promoter_id', project.producer_promoter_id,
-                   (production.producer.name if production else ''),
-                   (production.producer.logo_url if production else '')) }}
+        {# ⚠️ PUEDE HABER MÁS DE UNO: una fila por productor, con su buscador y su «+» para crear el
+           tercero. La primera es la que manda para los materiales y los correos. #}
+        <label class="form-label">Productores</label>
+        <div data-dp-producers>
+          <div data-dp-producer-rows>
+            {% for pr in ((production.producer.producers if production else []) or []) %}
+              <div class="dp-prow" data-dp-producer-row>
+                <div class="flex-grow-1">
+                  {{ tercero('dpProducerPick' ~ loop.index, 'producer_promoter_id[]',
+                             pr.id, pr.name, pr.logo_url) }}
+                </div>
+                <button class="btn btn-sm btn-link text-danger" type="button" data-dp-producer-del
+                        title="Quitarlo"><i class="fa fa-xmark"></i></button>
+              </div>
+            {% endfor %}
+          </div>
+          <button class="btn btn-sm btn-outline-secondary mt-1" type="button" data-dp-producer-add>
+            <i class="fa fa-plus me-1"></i>Añadir productor
+          </button>
+          <div class="form-text">
+            Puedes poner más de uno. A cada uno hay que mandarle su contrato (uno puede cubrir a varios).
+          </div>
+          <template data-dp-producer-tpl>
+            <div class="dp-prow" data-dp-producer-row>
+              <div class="flex-grow-1">
+                {{ tercero('dpProducerNEW', 'producer_promoter_id[]', '', '', '') }}
+              </div>
+              <button class="btn btn-sm btn-link text-danger" type="button" data-dp-producer-del
+                      title="Quitarlo"><i class="fa fa-xmark"></i></button>
+            </div>
+          </template>
+        </div>
 
         <label class="form-label mt-3">¿Cómo se paga?</label>
         <div class="row g-2">
@@ -330,7 +358,7 @@
             <div class="psum-list__k">Lanzamiento</div><div class="psum-list__v">{{ row.title }}</div>
             {% if row.artist_name %}<div class="psum-list__k">Artista</div><div class="psum-list__v">{{ row.artist_name }}</div>{% endif %}
             {% if row.release_label %}<div class="psum-list__k">Fecha prevista</div><div class="psum-list__v">{{ row.release_label }}</div>{% endif %}
-            {% if pc.name %}<div class="psum-list__k">Productor</div><div class="psum-list__v">{{ pc.name }}</div>{% endif %}
+            {% if pc.name %}<div class="psum-list__k">{{ 'Productores' if (pc.producers|default([])|length) > 1 else 'Productor' }}</div><div class="psum-list__v">{{ pc.name }}</div>{% endif %}
             {% if pc.fee_label %}
               <div class="psum-list__k">Cómo se paga</div>
               <div class="psum-list__v">{{ pc.fee_label }}{% if pc.fee_amount_label %} · {{ pc.fee_amount_label }}{% elif pc.budget_amount_label %} · {{ pc.budget_amount_label }}{% endif %}</div>
@@ -338,6 +366,47 @@
             {% if pc.pct %}<div class="psum-list__k">Porcentaje</div><div class="psum-list__v">{{ pc.pct }} %</div>{% endif %}
           </div>
         </div>
+        {# ⚠️⚠️ CON VARIOS PRODUCTORES, un contrato puede ser para UNO o para VARIOS: aquí se marca a
+           quiénes incluye. Los que ya lo tienen salen marcados como hechos y desmarcados (para no
+           pisar el suyo sin querer). Con un solo productor no se pregunta nada. #}
+        {% set ctr = (production.producer_contract if production else None) %}
+        {% if ctr and ctr.count > 1 %}
+          <label class="form-label">¿Qué productores incluye este contrato?</label>
+          <div class="dp-prodpick mb-3">
+            {% for pr in ctr.producers %}
+              <label class="dp-prodpick__item{{ ' is-done' if pr.done }}">
+                <input type="checkbox" name="producer_ids[]" value="{{ pr.id }}"
+                       {{ 'checked' if not pr.done }}>
+                <img src="{{ pr.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+                <span class="dp-prodpick__name">{{ pr.name }}</span>
+                {% if pr.done %}
+                  <span class="badge text-bg-success" title="Ya tiene contrato{% if pr.done_label %} · {{ pr.done_label }}{% endif %}">
+                    <i class="fa fa-check"></i>
+                  </span>
+                {% endif %}
+              </label>
+            {% endfor %}
+          </div>
+          {% if ctr.pending_names %}
+            <div class="alert alert-warning py-2 small">
+              <i class="fa fa-triangle-exclamation me-1"></i>La tarea no está terminada hasta que
+              <strong>todos</strong> tengan su contrato. Falta el de {{ ctr.pending_names }}.
+            </div>
+          {% endif %}
+        {% endif %}
+        {# Los contratos que ya están, con a quién cubre cada uno. #}
+        {% if ctr and ctr.contracts %}
+          <div class="mb-3">
+            {% for c in ctr.contracts %}
+              <div class="small d-flex align-items-center gap-2 mb-1">
+                <i class="fa fa-file-signature text-muted"></i>
+                {% if c.file_url %}<a href="{{ c.file_url }}" target="_blank" rel="noopener">{{ c.file_name or 'Ver el contrato' }}</a>
+                {% else %}<span>{{ c.file_name or 'Contrato' }}</span>{% endif %}
+                <span class="text-muted">{{ c.names }}{% if c.done_label %} · {{ c.done_label }}{% endif %}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
         <label class="form-label">El contrato firmado (o el que se manda)</label>
         <label class="decl-drop d-block" for="dpProducerContractFile" role="button" tabindex="0"
                data-file-drop-for="#dpProducerContractFile">

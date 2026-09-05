@@ -2,19 +2,22 @@
    El MISMO formulario dentro y en el enlace público de envío de demos, así que quien nos manda una
    maqueta rellena exactamente lo que rellenamos nosotros.
 
-   Cada parte va en su propio BOCADILLO (`.demo-card`) para que se distingan de un vistazo:
+   ⚠️⚠️ SE PUEDEN SUBIR VARIAS DE UNA VEZ: al elegir (o arrastrar) varios audios sale **una fila por
+   maqueta**, en columna, con el hueco al lado para ponerle el nombre —lo que se escribe se queda en
+   ESA maqueta—. Todo lo demás (el artista, la portada, los autores, el productor, la letra y las
+   notas) es COMÚN al bloque; después, cada una se retoca yendo a editarla.
+
+   Cada parte va en su propio BOCADILLO (`.demo-card`):
    1) de quién es (con «Ningún artista» como PRIMERA opción, con icono en vez de foto)
-   2) el audio (arrastrando o eligiéndolo)
-   3) la portada (arrastrando o eligiéndola)
-   4) los autores (como en la entrega de masters: el autor es un tercero, con su % y su editorial)
-   5) la letra
-   6) las notas
+   2) los audios (arrastrando o eligiéndolos) + el título de cada uno
+   3) el título (solo cuando no hay ningún audio: una maqueta puede no traerlo)
+   4) quién la manda · 5) la portada · 6) los autores · 7) los productores · 8) la letra · 9) notas
 
    ⚠️ TODO es opcional menos el título. Espera: `demo_artists` (lista de {id,name,photo_url}),
-   `demo_roles` y `demo_author_search_url`. #}
+   `demo_roles` y `demo_author_search_url` (vacío en el enlace público: allí no se busca en la base). #}
 <div class="demo-cards">
 
-  {# ---------- 1) De quién es ---------- #}
+  {# ---------- 1) De quién es (COMÚN a todo el bloque) ---------- #}
   <div class="demo-card">
     <div class="demo-card__head"><i class="fa fa-user-music"></i>¿De quién es?</div>
     <div class="demo-card__body">
@@ -37,11 +40,64 @@
           </label>
         {% endfor %}
       </div>
+      <div class="form-text">El artista es el mismo para todas las maquetas que subas ahora.</div>
     </div>
   </div>
 
-  {# ---------- El TÍTULO (su propio módulo) ---------- #}
+  {# ---------- 2) LOS AUDIOS (varios) y el título de cada uno ---------- #}
   <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-file-audio"></i>Los audios</div>
+    <div class="demo-card__body">
+      <div class="decl-drop" role="button" tabindex="0" data-file-drop-for="[data-demo-audio]">
+        <i class="fa fa-music decl-drop__icon"></i>
+        <div class="fw-semibold">Arrastra aquí los audios</div>
+        <div class="small text-muted">o pincha para seleccionarlos (puedes elegir varios a la vez)</div>
+        <div class="small mt-1 fw-semibold text-success" data-demo-audio-name></div>
+      </div>
+      <input class="form-control mt-2" type="file" name="audio" data-demo-audio multiple
+             accept=".wav,.wave,.mp3,.m4a,.aac,.flac,.ogg">
+      <div class="form-text">Se suben directamente al almacenamiento, así que da igual lo que pesen.</div>
+
+      {# UNA FILA POR MAQUETA: el archivo a la izquierda y el hueco del nombre al lado. #}
+      <div class="demo-tracks mt-2 d-none" data-demo-list></div>
+
+      <div class="progress mt-2 d-none" data-demo-progress style="height:18px">
+        <div class="progress-bar bg-danger" data-demo-progress-bar style="width:0%">0%</div>
+      </div>
+      <input type="hidden" name="uploaded_json" data-demo-uploaded value="">
+      <input type="hidden" name="audio_sha256" data-demo-sha value="">
+      <input type="hidden" name="duplicate_ok" data-demo-dup-ok value="">
+      <div class="alert alert-warning mt-2 d-none" data-demo-dup-box></div>
+
+      {# La plantilla de una fila. ⚠️ Cada una lleva DENTRO sus ocultos: el orden del DOM es el orden
+         con el que se guardan, y lo que se escribe se queda en SU maqueta. #}
+      <template data-demo-track-tpl>
+        <div class="demo-track" data-demo-track>
+          <div class="demo-track__row">
+            <span class="demo-track__icon"><i class="fa fa-music"></i></span>
+            <span class="demo-track__file" data-demo-track-file></span>
+            <input class="form-control form-control-sm demo-track__title" data-demo-track-title
+                   autocomplete="off" placeholder="Cómo se llama el tema">
+            <span class="demo-track__state" data-demo-track-state></span>
+            <button class="btn btn-sm btn-link text-danger" type="button" data-demo-track-del
+                    title="Quitarla"><i class="fa fa-xmark"></i></button>
+          </div>
+          <div class="demo-track__bar d-none" data-demo-track-bar><span></span></div>
+          <div class="demo-track__warn d-none" data-demo-track-warn></div>
+          <input type="hidden" name="multi_title[]" data-demo-track-title-hidden value="">
+          <input type="hidden" name="multi_key[]" data-demo-track-key value="">
+          <input type="hidden" name="multi_name[]" data-demo-track-name value="">
+          <input type="hidden" name="multi_sha[]" data-demo-track-sha value="">
+          <input type="hidden" name="multi_dup_ok[]" data-demo-track-dup value="">
+        </div>
+      </template>
+    </div>
+  </div>
+
+  {# ---------- 3) El TÍTULO (solo cuando no hay ningún audio) ----------
+     Con audios, el nombre se pone en la fila de cada uno; este hueco se esconde y se DESHABILITA (si
+     no, un campo oculto obligatorio bloquearía el guardado). #}
+  <div class="demo-card" data-demo-title-card>
     <div class="demo-card__head"><i class="fa fa-music"></i>El título</div>
     <div class="demo-card__body">
       <input class="form-control" name="title" data-demo-title required autocomplete="off"
@@ -70,30 +126,7 @@
     </div>
   {% endif %}
 
-  {# ---------- 2) El audio ---------- #}
-  <div class="demo-card">
-    <div class="demo-card__head"><i class="fa fa-file-audio"></i>El audio</div>
-    <div class="demo-card__body">
-      <div class="decl-drop" role="button" tabindex="0" data-file-drop-for="[data-demo-audio]">
-        <i class="fa fa-music decl-drop__icon"></i>
-        <div class="fw-semibold">Arrastra aquí el audio</div>
-        <div class="small text-muted">o pincha para seleccionarlo (wav, mp3, m4a…)</div>
-        <div class="small mt-1 fw-semibold text-success" data-demo-audio-name></div>
-      </div>
-      <input class="form-control mt-2" type="file" name="audio" data-demo-audio
-             accept=".wav,.wave,.mp3,.m4a,.aac,.flac,.ogg">
-      <div class="form-text">Se sube directamente al almacenamiento, así que da igual lo que pese.</div>
-      <div class="progress mt-2 d-none" data-demo-progress style="height:18px">
-        <div class="progress-bar bg-danger" data-demo-progress-bar style="width:0%">0%</div>
-      </div>
-      <input type="hidden" name="uploaded_json" data-demo-uploaded value="">
-      <input type="hidden" name="audio_sha256" data-demo-sha value="">
-      <input type="hidden" name="duplicate_ok" data-demo-dup-ok value="">
-      <div class="alert alert-warning mt-2 d-none" data-demo-dup-box></div>
-    </div>
-  </div>
-
-  {# ---------- 3) La portada ---------- #}
+  {# ---------- 5) La portada ---------- #}
   <div class="demo-card">
     <div class="demo-card__head"><i class="fa fa-image"></i>La portada</div>
     <div class="demo-card__body">
@@ -117,7 +150,7 @@
     </div>
   </div>
 
-  {# ---------- 4) Los autores ---------- #}
+  {# ---------- 6) Los autores ---------- #}
   <div class="demo-card">
     <div class="demo-card__head"><i class="fa fa-feather-pointed"></i>Los autores</div>
     <div class="demo-card__body" data-demo-authors data-search-url="{{ demo_author_search_url }}">
@@ -151,7 +184,41 @@
     </div>
   </div>
 
-  {# ---------- 5) La letra ---------- #}
+  {# ---------- 7) LOS PRODUCTORES ----------
+     La misma sección que los autores: se busca el productor en la base (con su foto) y, si no está,
+     se crea con el «+». ⚠️ Pueden ser VARIOS: un tema lo pueden producir dos personas. #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-sliders"></i>El productor</div>
+    <div class="demo-card__body" data-demo-producers
+         data-search-url="{{ demo_author_search_url }}"
+         {% if demo_author_search_url %}data-create-url="{{ url_for('api_create_promoter') }}"{% endif %}>
+      <input type="hidden" name="producers_present" value="1">
+      <div data-demo-producer-rows></div>
+      <button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-demo-producer-add>
+        <i class="fa fa-plus me-1"></i>Añadir productor
+      </button>
+      <div class="form-text">Puedes poner más de uno.</div>
+      <template data-demo-producer-tpl>
+        <div class="demo-author" data-demo-producer>
+          <div class="demo-author__search">
+            <input class="form-control form-control-sm" data-demo-producer-name autocomplete="off"
+                   placeholder="Busca el productor{{ '' if demo_author_search_url else ' (escribe su nombre)' }}">
+            <input type="hidden" name="producer_promoter_id[]" data-demo-producer-id value="">
+            <input type="hidden" name="producer_name[]" data-demo-producer-hidden value="">
+            <div class="demo-author__list d-none" data-demo-producer-list></div>
+          </div>
+          {% if demo_author_search_url %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-demo-producer-new
+                    title="Crear el tercero con lo escrito"><i class="fa fa-plus"></i></button>
+          {% endif %}
+          <button class="btn btn-sm btn-link text-danger" type="button" data-demo-producer-del
+                  title="Quitar"><i class="fa fa-xmark"></i></button>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  {# ---------- 8) La letra ---------- #}
   <div class="demo-card">
     <div class="demo-card__head"><i class="fa fa-align-left"></i>La letra</div>
     <div class="demo-card__body">
@@ -160,7 +227,7 @@
     </div>
   </div>
 
-  {# ---------- 6) Notas ---------- #}
+  {# ---------- 9) Notas ---------- #}
   <div class="demo-card">
     <div class="demo-card__head"><i class="fa fa-note-sticky"></i>Notas</div>
     <div class="demo-card__body">

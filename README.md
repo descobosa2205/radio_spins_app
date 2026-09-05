@@ -189,6 +189,80 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-09-05 (3) — Playlist de SELECCIÓN y VALORACIÓN
+
+- **Botón «+ Playlist selección»** en Discográfica → Playlists, a la izquierda del de siempre. Su
+  asistente va en tres pasos: **nombre → temas → dinámica**, y al terminar se elige **a quién se le
+  manda**, con la previsualización del correo al lado (como el resto de avisos de la casa).
+- **Tres dinámicas**, con su icono: los que la reciben **puntúan**, **descartan y seleccionan**, o
+  **las dos cosas**. Con selección se dice **cuántas** hay que dejar, y se puede poner un **plazo**.
+- **Cada persona tiene su propio enlace**, así que se sabe quién ha votado qué.
+  · Para **puntuar (o decidir) hay que escuchar la canción entera**; hasta entonces sale su candado.
+  · La **barra del 1 al 10** va del rojo de la casa al azul, y al puntuar **la lista se reordena**:
+    la más votada, arriba.
+  · Con selección, arriba se lee **«Debes seleccionar solo N canciones»** y se va diciendo lo que
+    falta («tienes que descartar 1 más»); el botón de enviar solo sale cuando está todo.
+  · **Se puede hacer en varias veces**: todo se guarda sobre la marcha y, al volver otro día, **se
+    sigue donde se dejó**.
+- **Se ve en qué punto está cada uno**: pendiente (no ha abierto el enlace) · lo ha abierto ·
+  **escuchando (3 de 8)** · escuchado y pendiente de decidir · ya ha contestado · anulado, con lo que
+  lleva hecho. Y hay un filtro **«Ver resultados incompletos»** para ver lo que cada uno lleva
+  **ahora mismo**.
+- **Dentro**: los temas de más a menos votados; al pinchar la nota sale **quién ha puesto qué** y al
+  pinchar a una persona **su orden** — los dos en un **pop-up**, sin salir de la pantalla.
+- En los **tres puntitos** de cada persona: compartir por Email, WhatsApp o SMS, copiar su enlace,
+  **resetear** (borra su voto pero **no lo que ya escuchó**) y **anular** (su enlace deja de valer).
+- **Recordatorio automático** el día antes del plazo, con el mismo correo y el aviso del plazo
+  delante. Y cuando alguien termina, **aviso en la app** a quien la mandó.
+- Por lo demás es una **playlist normal**: se ordena, se le añaden o quitan temas, portada, nota,
+  descargas… y lo que se cambie lo ven todos.
+
+### 2026-09-05 (2) — Las playlists, desde el coche · metadatos en las descargas · el botón de volver
+
+- **PASAR DE CANCIÓN DESDE EL DISPOSITIVO.** Escuchando una playlist —compartida, desde el móvil o
+  desde dentro—, el teléfono la trata como lo que es, **música**: la **pantalla de bloqueo**, el
+  **Centro de control**, **CarPlay en el coche**, los botones del **volante**, el **reloj** y el
+  **doble toque de los AirPods** pasan de tema, retroceden, paran y siguen, y enseñan el **título,
+  el artista y la portada**. La barra del coche se mueve con la canción.
+  · «Anterior» se comporta como en cualquier reproductor: si el tema lleva un rato sonando vuelve a
+  su principio, y solo si acaba de empezar salta al anterior.
+- **LO QUE SE DESCARGA LLEVA PUESTO DE QUIÉN ES.** Una canción o una maqueta se baja ya con sus
+  datos dentro: **título, artista, autores, productores, disco, género, año y la portada**. Vale
+  para la descarga de una maqueta, la de un material de una canción (la ficha, la playlist y el
+  enlace público) y el MP3 que se le manda a un supervisor de sincronizaciones.
+  · **No se recodifica nada**: las etiquetas van delante del audio, así que no se pierde calidad.
+  · Si algo falla, el archivo se descarga igual (solo que sin etiquetas).
+- **Las maquetas SIN PORTADA salen con la imagen de «sin portada»**, la misma del repertorio, en el
+  listado, en la cabecera de lo que se comparte y en lo que ve el coche (antes quedaba un hueco).
+- ⚠️ **EL BOTÓN DE VOLVER YA NO TE DEVUELVE AL FORMULARIO.** Al crear algo, la flecha de arriba a la
+  izquierda te llevaba **al paso de crearlo** y parecía que no se había creado nada. Ahora lleva a la
+  **pantalla anterior de verdad** —en una playlist recién creada, al **listado de playlists**— y
+  nunca a un formulario; el botón de atrás del navegador tampoco.
+
+### 2026-09-05 — Varias demos de una vez, y el PRODUCTOR (que puede ser más de uno)
+
+- **Subir DEMOS: varias de una vez.** Se eligen (o se arrastran) varios audios y sale **una fila por
+  maqueta, en columna, con el hueco al lado para ponerle el nombre** — lo que se escribe se queda en
+  ESA maqueta—. El **artista es común a todas** y también lo son la portada, los autores, el
+  productor, la letra y las notas; después, cada una se retoca yendo a editarla.
+  · El nombre viene puesto con el del archivo, se pueden **añadir más audios en otra tanda** y cada
+    fila tiene su **barra de subida** y su aviso de «ese mismo audio ya está subido».
+  · **No se guarda ninguna si a alguna le falta el nombre**, ni si se ha elegido **dos veces el
+    mismo archivo**. Vale igual en el **enlace público** por el que otros nos mandan maquetas.
+- **EL PRODUCTOR de una maqueta**, en su propia sección como la de autores: se busca en la base (con
+  su foto o su logo) y, si no está, se crea con el **«+»**. **Puede haber más de uno**, y salen en la
+  fila de la maqueta con su icono.
+- ⚠️⚠️ **EN TODA LA APP, UN LANZAMIENTO PUEDE TENER VARIOS PRODUCTORES** (el proyecto discográfico y
+  el videoclip): se ponen en una fila por productor, con el mismo buscador y su «+».
+- **EL CONTRATO PUEDE SER PARA UNO O PARA VARIOS**: al subirlo, si hay más de un productor, **se
+  pregunta a cuáles incluye** con su listado (foto o logo y una casilla por cada uno; los que ya lo
+  tienen salen marcados como hechos). **La tarea NO está terminada hasta que TODOS los productores
+  tienen su contrato**: la ficha dice «1 de 3 · falta el de X», el aviso a Registros y Sello sigue
+  abierto y en su Inicio se ven las caras de los que faltan.
+- Al **añadir** un productor se pide su contrato; al **quitarlo**, se retira el suyo y **los de los
+  demás no se tocan**. Los materiales y el aviso de «adelante con el máster» se les mandan **a
+  todos**.
+
 ### 2026-09-02 — Al 90% de venta se pide solo el cartel de Sold Out
 
 - **Cuando una actividad que vende entradas llega al 90% de venta, se le pide SOLA a diseño la

@@ -176,9 +176,12 @@ from models import (
     DiscoApproval,
     DiscoApprovalVoter,
     SongDemoAuthor,
+    SongDemoProducer,
     SongDemoRating,
     Playlist,
     PlaylistItem,
+    PlaylistVoter,
+    PlaylistVote,
     DiscoProject,
     DiscoProjectTrack,
     DiscoProjectDateRequest,
@@ -362,6 +365,7 @@ import address_utils  # cómo se escribe una dirección (motor puro, único form
 import buyer_import  # importar compradores desde un fichero (motor puro)
 import sms_utils  # pasarela de SMS (avisos por mensaje de texto); sin credenciales no manda nada
 import ics_import  # lector de calendarios iCal (volcar el histórico de iCloud a la agenda)
+import audio_tags  # los METADATOS que van dentro de lo que se descarga (ID3 / RIFF INFO)
 from mrz_utils import (
     extract_fields as mrz_extract_fields,
     parse_mrz as mrz_parse,
@@ -490,7 +494,7 @@ _CSRF_EXEMPT_ENDPOINTS = {"public_artwork_dims", "public_afavor_liquidation", "p
     "public_invitation_request_resend",
     "public_invitation_request_recategorize",
     "public_song_master_delivery",
-    "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating",
+    "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating",
     "public_song_delivery_sign",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
@@ -889,7 +893,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -8551,6 +8555,152 @@ def _material_share_context(session_db, payload: dict) -> dict | None:
     return ctx
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# LOS METADATOS DE LO QUE SE DESCARGA
+#
+# Un archivo que sale de aquí tiene que llevar puesto **de quién es**: el título, el artista, los
+# AUTORES, los PRODUCTORES, el género, el año y la PORTADA. Si no, en el ordenador de quien lo
+# recibe queda un «pista 01» sin dueño.
+#
+# El motor es **`audio_tags.py`** (puro, con su prueba `tools/check_audio_tags.py`): escribe ID3v2.3
+# en el MP3 y un `LIST/INFO` en el WAV **sin recodificar nada** —las etiquetas van delante del
+# audio—. Aquí solo se reúnen los datos.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Tope de la portada que se mete DENTRO del archivo: una imagen enorme haría que un MP3 de 4 MB
+# pesara 20, y en un correo eso importa.
+AUDIO_TAG_COVER_MAX = 3 * 1024 * 1024
+
+
+def _audio_tag_cover(url: str):
+    """La PORTADA para meterla dentro del MP3: `(bytes, mimetype)` o None.
+
+    ⚠️ Es *best-effort*: si no se puede bajar (o pesa demasiado) se descarga el audio igual, solo que
+    sin carátula. Nunca se deja a nadie sin su archivo por una imagen."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    try:
+        data, mime = _download_remote_content(url)
+    except Exception:
+        return None
+    if not data or len(data) > AUDIO_TAG_COVER_MAX:
+        return None
+    mime = (mime or "").strip().lower()
+    if mime not in ("image/jpeg", "image/png"):
+        # Por la extensión, que es lo único que queda cuando Storage no dice el tipo.
+        ext = Path((url.split("?", 1)[0]).replace("\\", "/")).suffix.lower()
+        mime = "image/png" if ext == ".png" else ("image/jpeg" if ext in (".jpg", ".jpeg") else "")
+    if not mime:
+        return None
+    return (data, mime)
+
+
+def _audio_with_tags(data: bytes, ext: str, tags: dict, cover_url: str = "") -> bytes:
+    """El audio con sus metadatos puestos. Punto único de los DOS formatos (WAV y MP3).
+
+    ⚠️ La portada solo se baja cuando de verdad va a caber en el archivo (el WAV no lleva carátula)."""
+    if not data or not tags:
+        return data
+    ext = ("." + (ext or "").strip().lower().lstrip(".")) if ext else ""
+    portada = _audio_tag_cover(cover_url) if (ext == ".mp3" and cover_url) else None
+    try:
+        return audio_tags.with_tags(data, ext, tags, portada)
+    except Exception:
+        app.logger.exception("[descargas] no se pudieron poner los metadatos")
+        return data
+
+
+def _audio_tags_for_song(session_db, song) -> tuple[dict, str]:
+    """Los metadatos de una CANCIÓN y la URL de su portada: `(tags, cover_url)`.
+
+    Los AUTORES salen de su reparto editorial (`SongEditorialShare`, en el orden de siempre) y los
+    PRODUCTORES de `Song.producers`, que ya es una lista (una canción puede tener varios)."""
+    if song is None:
+        return {}, ""
+    artista = _song_primary_artist(session_db, song)
+    autores = []
+    try:
+        filas = (session_db.query(SongEditorialShare)
+                 .options(joinedload(SongEditorialShare.promoter))
+                 .filter(SongEditorialShare.song_id == song.id).all())
+        for sh in _editorial_shares_sorted(filas):
+            nombre = _promoter_display_name(getattr(sh, "promoter", None))
+            if nombre and nombre not in autores:
+                autores.append(nombre)
+    except Exception:
+        app.logger.exception("[descargas] no se pudieron leer los autores de la canción")
+    productores = [str(x).strip() for x in (getattr(song, "producers", None) or []) if str(x).strip()]
+    try:
+        generos = _song_genre_names(session_db, song.id)
+    except Exception:
+        generos = []
+    # ⚠️ `Song.genre` es el ESPEJO en texto de esa lista: si la lista está vacía (una canción antigua
+    # a la que nadie ha editado los géneros) se usa el texto, que es lo que se ve en su ficha.
+    if not generos and (getattr(song, "genre", None) or "").strip():
+        generos = [x.strip() for x in str(song.genre).split(",") if x.strip()]
+    # El DISCO del que sale (si está en alguno): es lo que agrupa en cualquier reproductor.
+    album = ""
+    try:
+        fila = (session_db.query(Album.title)
+                .join(AlbumTrack, AlbumTrack.album_id == Album.id)
+                .filter(AlbumTrack.song_id == song.id)
+                .order_by(Album.release_date.desc().nullslast()).first())
+        album = (fila[0] or "").strip() if fila else ""
+    except Exception:
+        album = ""
+    fecha = getattr(song, "release_date", None)
+    tags = {
+        "title": (getattr(song, "title", None) or "").strip(),
+        "artist": (getattr(artista, "name", None) or "").strip(),
+        "album": album,
+        "authors": autores,
+        "producers": productores,
+        "genre": " / ".join(generos),
+        "year": (fecha.strftime("%Y") if fecha else ""),
+        "comment": _audio_tags_comment(autores, productores),
+    }
+    return tags, (getattr(song, "cover_url", None) or "").strip()
+
+
+def _audio_tags_for_demo(session_db, demo) -> tuple[dict, str]:
+    """Los metadatos de una MAQUETA y la URL de su portada: `(tags, cover_url)`."""
+    if demo is None:
+        return {}, ""
+    autores = [a["name"] for a in _demo_author_rows(demo) if a.get("name") and a["name"] != "—"]
+    productores = [p["name"] for p in _demo_producer_rows(demo) if p.get("name") and p["name"] != "—"]
+    artista = (getattr(getattr(demo, "artist", None), "name", None) or "").strip()
+    if not artista:
+        artista = (getattr(demo, "sender_name", None) or "").strip()
+    fecha = getattr(demo, "created_at", None)
+    tags = {
+        "title": (getattr(demo, "title", None) or "").strip(),
+        "artist": artista,
+        # Las maquetas se agrupan juntas en cualquier reproductor.
+        "album": "Maquetas",
+        "authors": autores,
+        "producers": productores,
+        "genre": "",
+        "year": (fecha.strftime("%Y") if fecha else ""),
+        "comment": _audio_tags_comment(autores, productores,
+                                       (getattr(demo, "notes", None) or "").strip()),
+    }
+    return tags, (getattr(demo, "cover_url", None) or "").strip()
+
+
+def _audio_tags_comment(autores: list, productores: list, nota: str = "") -> str:
+    """El COMENTARIO del archivo: lo mismo, en texto, para el reproductor que no lea los campos
+    finos (que son unos cuantos)."""
+    partes = []
+    if autores:
+        partes.append("Autores: " + " · ".join(autores))
+    if productores:
+        partes.append("Productores: " + " · ".join(productores))
+    if (nota or "").strip():
+        partes.append(nota.strip())
+    return " | ".join(partes)
+
+
 def _material_download_name(label: str, title: str, artist_name: str, ext: str = "") -> str:
     """El nombre con el que se baja un material: **«Tipo_Título_Artista»**
     (p. ej. «Master 48 bits_Nombre de la canción_Nombre del artista.wav»).
@@ -8593,6 +8743,13 @@ def _song_material_download_payload(session_db, row, fmt: str = "original") -> t
             data, mimetype, ext = _convert_video_content(data, fmt, original_suffix)
     except Exception:
         pass
+    # ⚠️ Lo que se descarga lleva puesto DE QUIÉN ES (título, artista, autores, productores, género,
+    # año y portada). Solo el AUDIO: una imagen o un vídeo no llevan estas etiquetas.
+    if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and song is not None:
+        etiquetas, portada = _audio_tags_for_song(session_db, song)
+        if etiquetas:
+            etiquetas["comment"] = " | ".join([x for x in [label, etiquetas.get("comment") or ""] if x])
+            data = _audio_with_tags(data, ext, etiquetas, portada)
     return data, mimetype, _material_download_name(label, titulo, artista, ext)
 
 
@@ -23972,6 +24129,32 @@ def _demo_authors_tooltip(autores: list[dict]) -> str:
     return " · ".join(partes)
 
 
+def _demo_producer_rows(demo) -> list[dict]:
+    """Los PRODUCTORES de una maqueta (varios: un tema lo pueden producir dos personas).
+
+    El productor es un TERCERO de la base, así que su foto sale de su ficha; lo escrito a mano vale
+    igual (es lo que se guarda en `name`)."""
+    salida = []
+    for pr in (getattr(demo, "producers", None) or []):
+        tercero = getattr(pr, "promoter", None)
+        nombre = (getattr(pr, "name", None) or "").strip()
+        if not nombre and tercero is not None:
+            nombre = _promoter_display_name(tercero)
+        salida.append({
+            "id": str(pr.id),
+            "promoter_id": str(pr.promoter_id) if getattr(pr, "promoter_id", None) else "",
+            "name": nombre or "—",
+            "photo_url": (getattr(tercero, "logo_url", None) or "").strip(),
+        })
+    return salida
+
+
+def _demo_producers_tooltip(productores: list[dict]) -> str:
+    """El texto que sale al pasar el ratón por el icono de productores."""
+    nombres = [p["name"] for p in (productores or []) if p.get("name")]
+    return ("Producida por " + " · ".join(nombres)) if nombres else ""
+
+
 def _demo_submitted_by(demo) -> dict:
     """Quién ENVIÓ la maqueta por el enlace público (foto, nombre y fecha). Vacío si la subimos aquí."""
     tercero = getattr(demo, "submitted_by", None)
@@ -24044,6 +24227,9 @@ def _demo_row_payload(session_db, row) -> dict:
         "has_lyrics": bool((getattr(row, "lyrics", None) or "").strip()),
         "authors": _demo_author_rows(row),
         "authors_tooltip": _demo_authors_tooltip(_demo_author_rows(row)),
+        # LOS PRODUCTORES (varios): en la fila salen con su icono y sus nombres.
+        "producers": _demo_producer_rows(row),
+        "producers_tooltip": _demo_producers_tooltip(_demo_producer_rows(row)),
         # QUIÉN LA ENVIÓ (enlace público de envío de demos): foto, nombre y fecha.
         "sender": _demo_submitted_by(row),
         "audio_url": (row.audio_url or "").strip(),
@@ -24997,6 +25183,131 @@ def _disco_prod_money(value) -> str:
     return (format_eur(d) if d is not None else "")
 
 
+def _disco_producer_ids(project) -> list[str]:
+    """LOS PRODUCTORES del proyecto, en orden. ⚠️ PUEDEN SER VARIOS.
+
+    Viven en `production_payload['producer_ids']`; `DiscoProject.producer_promoter_id` guarda el
+    PRIMERO (es la columna con la que ya trabajaba media app: los materiales, los correos, la
+    entrega). Los proyectos de antes solo tienen la columna y se leen igual."""
+    prod = _disco_prod(project)
+    ids, vistos = [], set()
+    for x in (prod.get("producer_ids") or []):
+        clave = str(x or "").strip()
+        if clave and clave not in vistos:
+            vistos.add(clave)
+            ids.append(clave)
+    if ids:
+        return ids
+    uno = getattr(project, "producer_promoter_id", None)
+    return [str(uno)] if uno else []
+
+
+def _disco_producers(session_db, project) -> list[dict]:
+    """Los productores con su ficha (nombre y foto o logo), en el orden en el que se pusieron."""
+    filas = []
+    for pid in _disco_producer_ids(project):
+        try:
+            tercero = session_db.get(Promoter, to_uuid(pid))
+        except Exception:
+            tercero = None
+        if tercero is None:
+            continue
+        filas.append({
+            "id": str(tercero.id),
+            "promoter": tercero,
+            "name": ((getattr(tercero, "nick", None) or _promoter_display_name(tercero) or "").strip() or "—"),
+            "logo_url": (getattr(tercero, "logo_url", "") or ""),
+        })
+    return filas
+
+
+def _disco_producer_contract_rows(project) -> list[dict]:
+    """Los contratos de productor GUARDADOS. ⚠️ Un contrato puede cubrir a UNO o a VARIOS.
+
+    Lee también el formato ANTIGUO (`producer_contract`, uno solo): era de cuando el proyecto solo
+    admitía un productor, así que cubre al de la columna."""
+    prod = _disco_prod(project)
+    filas = [dict(x) for x in (prod.get("producer_contracts") or []) if isinstance(x, dict)]
+    viejo = prod.get("producer_contract") or {}
+    if isinstance(viejo, dict) and viejo.get("done_at"):
+        uno = str(getattr(project, "producer_promoter_id", "") or "")
+        filas.append({
+            "producer_ids": ([uno] if uno else []),
+            "file_url": (viejo.get("file_url") or ""),
+            "file_name": (viejo.get("file_name") or ""),
+            "done_at": (viejo.get("done_at") or ""),
+            "done_by": (viejo.get("done_by") or ""),
+            "legacy": True,
+        })
+    return filas
+
+
+def _disco_contract_state(productores: list[dict], contratos: list[dict], pedido: dict) -> dict:
+    """PUNTO ÚNICO de «cómo va el contrato de cada productor».
+
+    Lo usan el productor del PROYECTO y el del VIDEOCLIP, así que los dos se comportan igual.
+    ⚠️⚠️ Un contrato puede cubrir a UNO o a VARIOS productores, y **no está hecho hasta que TODOS
+    lo tienen**: `done` solo es cierto si no falta ninguno."""
+    pedido = dict(pedido or {})
+    por_productor = {}
+    for c in contratos:
+        for pid in (c.get("producer_ids") or []):
+            por_productor.setdefault(str(pid), c)
+    filas = []
+    for pr in (productores or []):
+        c = por_productor.get(pr["id"]) or {}
+        filas.append(dict(pr, **{
+            "done": bool(c.get("done_at")),
+            "done_at": (c.get("done_at") or ""),
+            "done_label": _iso_date_label(c.get("done_at")),
+            "done_by": (c.get("done_by") or ""),
+            "file_url": (c.get("file_url") or ""),
+            "file_name": (c.get("file_name") or ""),
+        }))
+    pendientes = [f for f in filas if not f["done"]]
+    hechos = [f for f in filas if f["done"]]
+    vistos = []
+    for c in contratos:
+        nombres = [f["name"] for f in filas if f["id"] in [str(x) for x in (c.get("producer_ids") or [])]]
+        vistos.append({
+            "file_url": (c.get("file_url") or ""),
+            "file_name": (c.get("file_name") or ""),
+            "done_label": _iso_date_label(c.get("done_at")),
+            "done_by": (c.get("done_by") or ""),
+            "producer_ids": [str(x) for x in (c.get("producer_ids") or [])],
+            "names": " · ".join(nombres),
+        })
+    return {
+        "producers": filas,
+        "pending": pendientes,
+        "pending_names": " · ".join(f["name"] for f in pendientes),
+        "done_names": " · ".join(f["name"] for f in hechos),
+        "contracts": vistos,
+        "count": len(filas),
+        "done_count": len(hechos),
+        "asked_at": (pedido.get("asked_at") or ""),
+        "asked_label": _iso_date_label(pedido.get("asked_at")),
+        "asked": bool(pedido.get("asked_at")),
+        # ⚠️ HECHO = TODOS los productores tienen su contrato (y hay al menos uno).
+        "done": bool(filas) and not pendientes,
+        "file_url": (hechos[0]["file_url"] if hechos else ""),
+        "done_label": (hechos[-1]["done_label"] if hechos else ""),
+        "done_by": (hechos[-1]["done_by"] if hechos else ""),
+    }
+
+
+def _disco_producer_contract_state(session_db, project) -> dict:
+    """EL CONTRATO DE CADA PRODUCTOR del proyecto (audio): en qué punto está.
+
+    Cuando se configura quién produce, a **Registros y Sello** les toca preparar y mandar el
+    contrato. Con varios productores, uno puede cubrir a varios y la tarea no se cierra hasta que
+    están todos."""
+    prod = _disco_prod(project)
+    return _disco_contract_state(_disco_producers(session_db, project),
+                                 _disco_producer_contract_rows(project),
+                                 prod.get("producer_contract") or {})
+
+
 def _disco_production_state(session_db, project) -> dict:
     """Las SUBTAREAS de producción: qué está decidido y qué falta.
 
@@ -25006,9 +25317,10 @@ def _disco_production_state(session_db, project) -> dict:
     · voces → quién las graba, cuánto cuesta, cuándo y dónde, y si hace falta logística (que se le
       pide a alguien de producción y le sale como tarea suya)."""
     prod = _disco_prod(project)
-    productor = None
-    if getattr(project, "producer_promoter_id", None):
-        productor = session_db.get(Promoter, project.producer_promoter_id)
+    # ⚠️ PUEDEN SER VARIOS: `productores` es la lista y `productor` el primero (lo que ya usaban la
+    # entrega de materiales y los correos).
+    productores = _disco_producers(session_db, project)
+    productor = (productores[0]["promoter"] if productores else None)
 
     def _tercero(pk):
         try:
@@ -25030,7 +25342,9 @@ def _disco_production_state(session_db, project) -> dict:
     filas = {
         "producer": {
             "promoter": productor,
-            "name": ((productor.nick or productor.name) if productor else ""),
+            "producers": productores,
+            # Con varios, el nombre son TODOS (es lo que se enseña en la tarea y en el contrato).
+            "name": " · ".join(p["name"] for p in productores),
             "logo_url": (getattr(productor, "logo_url", "") or ""),
             "fee_mode": fee_mode,
             "fee_label": dict((k, l) for k, l, _i in DISCO_PROD_FEE_MODES).get(fee_mode, ""),
@@ -25040,10 +25354,13 @@ def _disco_production_state(session_db, project) -> dict:
             "budget_amount_label": _disco_prod_money(prod.get("budget_amount")),
             "pct_mode": pct_mode,
             "pct": (prod.get("pct") or ""),
-            "done": bool(productor is not None and fee_mode),
+            "done": bool(productores and fee_mode),
             # ⚠️ «No lo sé todavía» deja el % como subtarea abierta a propósito.
-            "pct_pending": bool(productor is not None and pct_mode in ("", "UNKNOWN")),
+            "pct_pending": bool(productores and pct_mode in ("", "UNKNOWN")),
         },
+        # EL CONTRATO DE CADA PRODUCTOR (uno puede cubrir a varios; la tarea no está hecha hasta que
+        # TODOS lo tienen).
+        "producer_contract": _disco_producer_contract_state(session_db, project),
     }
     for clave in ("mix", "master"):
         d = prod.get(clave) or {}
@@ -26795,11 +27112,10 @@ def _disco_mix_notify_master(session_db, project) -> bool:
     Al PRODUCTOR, con la fecha máxima de entrega (la del calendario de entregas) y el enlace para
     subir los másters recordándole **qué es obligatorio** — que es el enlace de entrega de siempre,
     no otro sitio nuevo."""
-    productor = (session_db.get(Promoter, project.producer_promoter_id)
-                 if getattr(project, "producer_promoter_id", None) else None)
-    if productor is None:
+    # ⚠️ A TODOS los productores (pueden ser varios): el máster lo puede hacer cualquiera de ellos.
+    productores = _disco_producers(session_db, project)
+    if not productores:
         return False
-    correo, telefono = _promoter_email_phone(productor)
     entregas = _disco_delivery_state(session_db, project)
     plazo = next((f["date"] for f in entregas["rows"] if f["key"] == "master"), None) \
         or getattr(project, "materials_due_date", None)
@@ -26818,14 +27134,18 @@ def _disco_mix_notify_master(session_db, project) -> bool:
     html_correo = _disco_project_email_shell(
         session_db, project, title="Adelante con el máster", body_html=cuerpo,
         button_label="Subir los másters", button_url=enlace)
-    ok, _err = _send_optional_email(correo, "Adelante con el máster · %s"
-                                    % _disco_project_title(project), html_correo)
-    if not ok and telefono:
-        ok, _err = _send_optional_sms(session_db, telefono,
-                                      "OK a la mezcla final de %s: adelante con el máster%s · %s"
-                                      % (_disco_project_title(project),
-                                         (" (entrega %s)" % plazo.strftime("%d/%m")) if plazo else "",
-                                         enlace))
+    ok = False
+    for _pr in productores:
+        correo, telefono = _promoter_email_phone(_pr["promoter"])
+        salio, _err = _send_optional_email(correo, "Adelante con el máster · %s"
+                                           % _disco_project_title(project), html_correo)
+        if not salio and telefono:
+            salio, _err = _send_optional_sms(session_db, telefono,
+                                             "OK a la mezcla final de %s: adelante con el máster%s · %s"
+                                             % (_disco_project_title(project),
+                                                (" (entrega %s)" % plazo.strftime("%d/%m")) if plazo else "",
+                                                enlace))
+        ok = ok or bool(salio)
     if ok:
         prod = _disco_prod(project)
         fila = dict(prod.get("mix") or {})
@@ -27107,22 +27427,32 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                           hint="Quedó en «no lo sé todavía»")
                 # EL CONTRATO DEL PRODUCTOR lo manda REGISTROS+SELLO. Aquí, para el sello que lleva
                 # el proyecto, se ve como **Solicitado y pendiente de** esa persona.
-                _ctr = _disco_producer_contract(project)
+                # ⚠️ CON VARIOS PRODUCTORES hace falta el contrato de TODOS: la tarea no se cierra
+                # hasta que no falta ninguno (un contrato puede cubrir a uno o a varios).
+                _ctr = _disco_producer_contract_state(session_db, project)
+                _titulo_ctr = ("Contrato de los productores" if _ctr["count"] > 1
+                               else "Contrato del productor")
                 if _ctr["done"]:
-                    tarea("prod_contrato", "Contrato del productor", _ctr["file_url"],
+                    tarea("prod_contrato", _titulo_ctr, _ctr["file_url"],
                           "fa-file-signature", grupo="single", sub=True, state="done",
-                          value="Enviado%s%s" % ((" por %s" % _ctr["done_by"]) if _ctr["done_by"] else "",
-                                                 (" · %s" % _ctr["done_label"]) if _ctr["done_label"] else ""),
+                          value="Enviado%s%s%s" % (
+                              (" (%s)" % _ctr["done_names"]) if _ctr["count"] > 1 else "",
+                              (" por %s" % _ctr["done_by"]) if _ctr["done_by"] else "",
+                              (" · %s" % _ctr["done_label"]) if _ctr["done_label"] else ""),
                           menu=[{"label": "Volver a dejarlo pendiente", "icon": "fa-rotate-left",
                                  "post": url_for("disco_project_producer_contract",
                                                  project_id=project.id) + "?undo=1"}])
                 else:
                     _quien = _registros_sello_names(session_db)
-                    tarea("prod_contrato", "Contrato del productor", "", "fa-file-signature",
+                    _falta = ("Falta el de %s" % _ctr["pending_names"]) if _ctr["count"] > 1 else ""
+                    _valor = ("Solicitado · pendiente de %s" % _quien) if _quien else "Solicitado"
+                    if _ctr["count"] > 1:
+                        _valor = "%d de %d · %s" % (_ctr["done_count"], _ctr["count"], _valor)
+                    tarea("prod_contrato", _titulo_ctr, "", "fa-file-signature",
                           grupo="single", sub=True, state="sent",
-                          value=("Solicitado · pendiente de %s" % _quien) if _quien else "Solicitado",
+                          value=_valor,
                           people=_registros_sello_people(session_db),
-                          hint="Lo prepara y lo manda Registros",
+                          hint=(_falta or "Lo prepara y lo manda Registros"),
                           action_label="Subir el contrato", modal="#dpProducerContractModal")
             for clave, texto in (("mix", "Quién va a realizar la mezcla"),
                                  ("master", "Quién va a realizar el máster")):
@@ -27351,30 +27681,38 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                                                  or vd["producer"]["budget_amount_label"]))
                                        if (vd["producer"]["fee_amount_label"]
                                            or vd["producer"]["budget_amount_label"]) else ""),
-                  people=([{"name": vd["producer"]["name"], "photo_url": vd["producer"]["logo_url"]}]
-                          if vd["producer"]["name"] else []),
-                  menu=[{"label": "Cambiar el productor", "icon": "fa-pen",
+                  people=[{"name": p["name"], "photo_url": p["logo_url"]}
+                          for p in (vd["producer"].get("producers") or [])],
+                  menu=[{"label": "Cambiar los productores", "icon": "fa-pen",
                          "modal": "#dpVideoProducerModal"}])
             # El CONTRATO DE PRODUCCIÓN AUDIOVISUAL: lo manda Registros y Sello.
-            if vd["contract"]["done"]:
-                tarea("vid_contrato", "Contrato de producción audiovisual", "", "fa-file-contract",
+            # ⚠️ Con VARIOS productores hace falta el de todos: la tarea no se cierra hasta entonces.
+            _vc = vd["contract"]
+            _vtit = ("Contratos de producción audiovisual" if _vc["count"] > 1
+                     else "Contrato de producción audiovisual")
+            if _vc["done"]:
+                tarea("vid_contrato", _vtit, _vc["file_url"], "fa-file-contract",
                       sub=True, state="done", grupo="video",
-                      value="Enviado%s%s" % ((" por %s" % vd["contract"]["done_by"])
-                                             if vd["contract"]["done_by"] else "",
-                                             (" el %s" % vd["contract"]["done_label"])
-                                             if vd["contract"]["done_label"] else ""),
+                      value="Enviado%s%s%s" % ((" (%s)" % _vc["done_names"]) if _vc["count"] > 1 else "",
+                                               (" por %s" % _vc["done_by"]) if _vc["done_by"] else "",
+                                               (" el %s" % _vc["done_label"]) if _vc["done_label"] else ""),
                       menu=[{"label": "Volver a dejarlo pendiente", "icon": "fa-rotate-left",
                              "post": url_for("disco_video_contract", project_id=project.id) + "?undo=1"}])
             else:
                 _reg = _registros_sello_names(session_db)
-                tarea("vid_contrato", "Contrato de producción audiovisual", "", "fa-file-contract",
+                _valor = ("Solicitado y pendiente de %s" % _reg) if _reg else "Solicitado"
+                if _vc["count"] > 1:
+                    _valor = "%d de %d · %s" % (_vc["done_count"], _vc["count"], _valor)
+                tarea("vid_contrato", _vtit, "", "fa-file-contract",
                       sub=True, state="sent", grupo="video",
-                      value=("Solicitado y pendiente de %s" % _reg) if _reg else "Solicitado",
+                      value=_valor,
+                      hint=("Falta el de %s" % _vc["pending_names"]) if _vc["count"] > 1 else "",
                       people=_registros_sello_people(session_db),
                       action_label="Subir el contrato", modal="#dpVideoContractModal")
         else:
             tarea("vid_productor", "Quién produce el videoclip", "", "fa-clapperboard", True,
-                  grupo="video", hint="Con quién se rueda y en qué condiciones (sin porcentaje)",
+                  grupo="video",
+                  hint="Con quién se rueda y en qué condiciones (puede ser más de uno, sin porcentaje)",
                   action_label="Configurar", modal="#dpVideoProducerModal")
 
         # 2 · EL PLAZO MÁXIMO DE ENTREGA, y comunicárselo al productor
@@ -28270,12 +28608,10 @@ def _disco_video_state(session_db, project) -> dict:
     Lo usan las tareas del proyecto, sus pop-ups y los correos, así que todos dicen lo mismo."""
     video = _disco_video(project)
     prod_fila = dict(video.get("producer") or {})
-    productor = None
-    if prod_fila.get("promoter_id"):
-        try:
-            productor = session_db.get(Promoter, to_uuid(str(prod_fila["promoter_id"])))
-        except Exception:
-            productor = None
+    # ⚠️ PUEDEN SER VARIOS: `productores` es la lista y `productor` el primero (lo que ya leían los
+    # correos y los avisos del vídeo).
+    productores = _disco_video_producers(session_db, project)
+    productor = (productores[0]["promoter"] if productores else None)
     contrato = dict(video.get("contract") or {})
     plazo = dict(video.get("due") or {})
     logos = dict(video.get("logos") or {})
@@ -28323,8 +28659,10 @@ def _disco_video_state(session_db, project) -> dict:
     return {
         "producer": {
             "promoter": productor,
+            "producers": productores,
             "promoter_id": (str(prod_fila.get("promoter_id") or "")),
-            "name": (_promoter_display_name(productor) if productor is not None else ""),
+            # Con varios, el nombre son TODOS (es lo que se enseña en la tarea y en el contrato).
+            "name": " · ".join(p["name"] for p in productores),
             "logo_url": (getattr(productor, "logo_url", "") or ""),
             "email": correo_prod, "phone": tel_prod,
             "fee_mode": fee_mode,
@@ -28334,17 +28672,11 @@ def _disco_video_state(session_db, project) -> dict:
             "budget_amount": (prod_fila.get("budget_amount") or ""),
             "budget_amount_label": _disco_prod_money(prod_fila.get("budget_amount")),
             "notes": (prod_fila.get("notes") or ""),
-            "done": bool(productor is not None and fee_mode),
+            "done": bool(productores and fee_mode),
         },
-        "contract": {
-            "asked": bool(contrato.get("asked_at")),
-            "asked_label": _iso_date_label(contrato.get("asked_at")),
-            "done": bool(contrato.get("done_at")),
-            "done_label": _iso_date_label(contrato.get("done_at")),
-            "done_by": (contrato.get("done_by") or ""),
-            "file_url": (contrato.get("file_url") or ""),
-            "file_name": (contrato.get("file_name") or ""),
-        },
+        # ⚠️ EL CONTRATO es de CADA productor (uno puede cubrir a varios) y no está hecho hasta que
+        # TODOS lo tienen: lo decide el mismo motor que el del audio.
+        "contract": _disco_contract_state(productores, _disco_video_contract_rows(project), contrato),
         "due": {
             "date": fecha_plazo,
             "date_value": (fecha_plazo.isoformat() if fecha_plazo else ""),
@@ -28439,43 +28771,39 @@ def _disco_video_state(session_db, project) -> dict:
     }
 
 
-def _disco_producer_contract(project) -> dict:
-    """EL CONTRATO DEL PRODUCTOR: en qué punto está.
-
-    Cuando se configura quién produce, a **Registros y Sello** les toca preparar y mandar su
-    contrato; al SELLO que lleva el proyecto le sale como «Solicitado y pendiente de …». Se cierra
-    para todos cuando se sube el contrato."""
-    fila = dict((_disco_prod(project).get("producer_contract") or {}))
-    return {
-        "asked_at": (fila.get("asked_at") or ""),
-        "asked_label": _iso_date_label(fila.get("asked_at")),
-        "done_at": (fila.get("done_at") or ""),
-        "done_label": _iso_date_label(fila.get("done_at")),
-        "done_by": (fila.get("done_by") or ""),
-        "file_url": (fila.get("file_url") or ""),
-        "file_name": (fila.get("file_name") or ""),
-        "done": bool(fila.get("done_at")),
-        "asked": bool(fila.get("asked_at")),
-    }
-
-
 def _disco_producer_contract_ask(session_db, project) -> bool:
-    """Le pide a REGISTROS+SELLO el contrato del productor (una sola vez por productor).
+    """Le pide a REGISTROS+SELLO el contrato de los productores que TODAVÍA no lo tienen.
 
-    Se llama al configurar quién produce: es lo que dispara la tarea."""
-    if not getattr(project, "producer_promoter_id", None):
-        return False
-    estado = _disco_producer_contract(project)
-    if estado["asked"] or estado["done"]:
+    Se llama al configurar quién produce: es lo que dispara la tarea. ⚠️ Se vuelve a pedir si
+    aparece un productor NUEVO al que no se le había pedido (con varios productores hacen falta
+    tantos contratos como haga falta, y la tarea no se cierra hasta que están todos)."""
+    estado = _disco_producer_contract_state(session_db, project)
+    pendientes = [p["id"] for p in estado["pending"]]
+    if not pendientes:
         return False
     prod = _disco_prod(project)
-    prod["producer_contract"] = {"asked_at": _now_madrid().isoformat()}
+    fila = dict(prod.get("producer_contract") or {})
+    pedidos = set(str(x) for x in (fila.get("asked_for") or []))
+    if estado["asked"] and set(pendientes).issubset(pedidos):
+        return False                       # ya se pidió para todos los que faltan
+    fila["asked_at"] = fila.get("asked_at") or _now_madrid().isoformat()
+    fila["asked_for"] = sorted(pedidos | set(pendientes))
+    prod["producer_contract"] = fila
     project.production_payload = prod
+    # ⚠️ El payload es un JSONB y este patrón (leer, tocar y reasignar) NO escribe la segunda vez en
+    # la misma petición: hay que marcarlo a mano.
+    try:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(project, "production_payload")
+    except Exception:
+        pass
+    nombres = " · ".join(p["name"] for p in estado["pending"])
     try:
         artista = getattr(project, "artist", None)
         _notify_users(session_db, _registros_sello_user_ids(session_db), "REGISTROS",
                       "Enviar contrato de productor · %s" % _disco_project_title(project),
-                      "Hay que preparar y mandar el contrato del productor de este lanzamiento.",
+                      ("Hay que preparar y mandar el contrato de %s." % nombres) if nombres
+                      else "Hay que preparar y mandar el contrato del productor de este lanzamiento.",
                       url_for("disco_project_detail", project_id=project.id, tab="calendario"),
                       ref_type="DISCO_PRODUCER_CONTRACT", ref_id=str(project.id),
                       actor_name=(getattr(artista, "name", "") or None),
@@ -28594,7 +28922,10 @@ def _demos_context(session_db) -> dict:
                 .options(joinedload(SongDemo.artist), joinedload(SongDemo.promoter),
                          joinedload(SongDemo.submitted_by), joinedload(SongDemo.song),
                          selectinload(SongDemo.authors).joinedload(SongDemoAuthor.promoter),
-                         selectinload(SongDemo.authors).joinedload(SongDemoAuthor.publishing_company)))
+                         selectinload(SongDemo.authors).joinedload(SongDemoAuthor.publishing_company),
+                         # ⚠️ Los PRODUCTORES también en bloque: con 400 maquetas, una consulta por
+                         # fila sería inaceptable.
+                         selectinload(SongDemo.producers).joinedload(SongDemoProducer.promoter)))
     # ⚠️ Las maquetas que alguien está subiendo por el enlace público y AÚN NO HA ENVIADO no se ven
     # aquí: hasta que le da a «Enviar demos» no existen para nosotros.
     consulta = consulta.filter(or_(SongDemo.submitted_by_promoter_id.is_(None),
@@ -29059,6 +29390,7 @@ def _demo_apply_form(session_db, row, form, files) -> list:
                 row.audio_name = (fs.filename or "demo").replace("\\", "/")
                 row.mime_type = (getattr(fs, "mimetype", "") or "").strip() or None
     _demo_apply_authors(session_db, row, form)
+    _demo_apply_producers(session_db, row, form)
     row.updated_at = _now_madrid()
     return fallos
 
@@ -29107,6 +29439,143 @@ def _demo_apply_authors(session_db, row, form) -> None:
             position=len(nuevas),
         ))
     row.authors = nuevas
+
+
+def _demo_apply_producers(session_db, row, form) -> None:
+    """Los PRODUCTORES que llegan del formulario (varios, mismo patrón que los autores).
+
+    Se REEMPLAZAN por lo que venga; sin el centinela `producers_present` no se toca nada (así un
+    formulario antiguo o parcial no se lleva por delante los que ya estaban)."""
+    if not _truthy(form.get("producers_present")):
+        return
+    nombres = form.getlist("producer_name[]") if hasattr(form, "getlist") else []
+    ids = form.getlist("producer_promoter_id[]") if hasattr(form, "getlist") else []
+    nuevas = []
+    vistos = set()
+    for i in range(max(len(nombres), len(ids))):
+        pid = _safe_uuid(ids[i] if i < len(ids) else "")
+        nombre = ((nombres[i] if i < len(nombres) else "") or "").strip()
+        if not pid and not nombre:
+            continue
+        # El mismo productor dos veces no se apunta dos veces.
+        clave = str(pid) if pid else _norm_text_key(nombre)
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        nuevas.append(SongDemoProducer(promoter_id=pid, name=nombre or None, position=len(nuevas)))
+    row.producers = nuevas
+
+
+class _FormOverlay:
+    """Un formulario con algunos campos SUSTITUIDOS (el resto se lee del original).
+
+    Lo usa la subida de VARIAS maquetas de una vez: los campos comunes del bloque (el artista, la
+    portada, los autores, los productores, la letra y las notas) se leen tal cual y solo cambian el
+    título y el audio de cada una."""
+
+    def __init__(self, base, extra: dict):
+        self._base = base
+        self._extra = dict(extra or {})
+
+    def get(self, clave, default=None):
+        if clave in self._extra:
+            valor = self._extra[clave]
+            return default if valor is None else valor
+        return self._base.get(clave, default)
+
+    def getlist(self, clave):
+        if clave in self._extra:
+            valor = self._extra[clave]
+            if isinstance(valor, (list, tuple)):
+                return list(valor)
+            return [valor] if valor else []
+        return self._base.getlist(clave) if hasattr(self._base, "getlist") else []
+
+    def __contains__(self, clave):
+        return clave in self._extra or (clave in self._base)
+
+
+def _demo_multi_rows(form) -> list[dict]:
+    """Las maquetas que se están subiendo DE UNA VEZ (una por archivo).
+
+    Cada una trae su TÍTULO y su audio ya subido a Storage (su `key`); lo demás es común al bloque.
+    Devuelve [] cuando no es una subida múltiple (entonces se guarda una sola, como siempre)."""
+    if not hasattr(form, "getlist"):
+        return []
+    titulos = form.getlist("multi_title[]")
+    if not titulos:
+        return []
+    claves = form.getlist("multi_key[]")
+    nombres = form.getlist("multi_name[]")
+    huellas = form.getlist("multi_sha[]")
+    dups = form.getlist("multi_dup_ok[]")
+
+    def _en(lista, i):
+        return ((lista[i] if i < len(lista) else "") or "").strip()
+
+    filas = []
+    for i in range(len(titulos)):
+        filas.append({
+            "title": (titulos[i] or "").strip(),
+            "key": _en(claves, i),
+            "name": _en(nombres, i),
+            "sha": _en(huellas, i).lower(),
+            "dup_ok": _truthy(_en(dups, i)),
+        })
+    return filas
+
+
+def _demo_create_many(session_db, form, files, filas: list[dict], nueva_fila) -> tuple[list, list]:
+    """Crea UNA maqueta POR ARCHIVO con los campos COMUNES del bloque.
+
+    `nueva_fila()` devuelve una `SongDemo` recién hecha con lo propio de quien la crea (quién la
+    sube, el proyecto, el remitente…). Devuelve `(creadas, fallos)`.
+
+    ⚠️ La PORTADA se sube UNA sola vez y se le pone a todas: si no, el mismo archivo entraría en
+    Storage tantas veces como maquetas."""
+    fallos = []
+    portada_url = None
+    fs_portada = files.get("cover") if files else None
+    if fs_portada is not None and getattr(fs_portada, "filename", ""):
+        try:
+            portada_url = upload_image(fs_portada, "song_demos")
+        except Exception as exc:
+            app.logger.exception("[demos] no se pudo subir la portada del bloque")
+            return [], ["No se pudo subir la portada: %s" % exc]
+    vistas = set()
+    creadas = []
+    for fila in filas:
+        titulo = (fila.get("title") or "").strip()
+        if not titulo:
+            return [], ["Ponle un título a cada maqueta: falta el de «%s»."
+                        % ((fila.get("name") or "").strip() or "uno de los audios")]
+        # El MISMO archivo dos veces en el mismo bloque: se dice, no se guardan dos maquetas iguales.
+        huella = (fila.get("sha") or "").strip().lower()
+        if len(huella) == 64:
+            if huella in vistas:
+                return [], ["Has elegido dos veces el mismo audio («%s»)." % titulo]
+            vistas.add(huella)
+        overlay = _FormOverlay(form, {
+            "title": titulo,
+            "uploaded_json": (json.dumps({"audio": {"key": fila["key"], "name": fila.get("name") or titulo}})
+                              if fila.get("key") else ""),
+            "audio_sha256": huella,
+            "duplicate_ok": ("1" if fila.get("dup_ok") else ""),
+            "cover_remove": "",
+        })
+        row = nueva_fila()
+        # ⚠️ Los archivos van VACÍOS: el audio llega ya subido (su `key`) y la portada se ha subido
+        # arriba una sola vez. Con `files` de verdad, la portada entraría una vez por maqueta.
+        avisos = _demo_apply_form(session_db, row, overlay, {})
+        if avisos:
+            return [], ["«%s»: %s" % (titulo, " ".join(avisos))]
+        if portada_url:
+            row.cover_url = portada_url
+        session_db.add(row)
+        creadas.append(row)
+    if not creadas:
+        fallos.append("No has elegido ningún audio.")
+    return creadas, fallos
 
 
 # ---------------------------- PROYECTOS DISCOGRÁFICOS: endpoints -------------------------------
@@ -29899,14 +30368,12 @@ def _disco_materials_recipients(session_db, project) -> list[dict]:
     El productor es un tercero (su correo y su teléfono salen de su ficha); del artista se usan las
     cuentas configuradas para lo DISCOGRÁFICO (`_artist_notification_emails`, canal DISCOGRAFICA)."""
     filas = []
-    productor = (session_db.get(Promoter, project.producer_promoter_id)
-                 if getattr(project, "producer_promoter_id", None) else None)
-    if productor is not None:
-        correo_p, tel_p = _promoter_email_phone(productor)
-        filas.append({"role": "Productor",
-                      "name": ((productor.nick or productor.name or "").strip()),
+    # ⚠️ A TODOS los productores (pueden ser varios): los materiales se les reclaman a todos.
+    for _pr in _disco_producers(session_db, project):
+        correo_p, tel_p = _promoter_email_phone(_pr["promoter"])
+        filas.append({"role": "Productor", "name": _pr["name"],
                       "email": correo_p, "phone": tel_p,
-                      "promoter_id": str(productor.id)})
+                      "promoter_id": _pr["id"]})
     try:
         correos = _artist_notification_emails(session_db, project.artist_id, "DISCOGRAFICA") or []
     except Exception:
@@ -34076,8 +34543,21 @@ def disco_project_production_save(project_id):
             return (str(d) if d is not None else "")
 
         if seccion == "producer":
-            _productor_antes = getattr(project, "producer_promoter_id", None)
-            project.producer_promoter_id = _pk("producer_promoter_id")
+            _antes = _disco_producer_ids(project)
+            # ⚠️ PUEDEN SER VARIOS: llegan como `producer_promoter_id[]` (una fila por productor). Se
+            # admite el nombre suelto por si queda una pantalla vieja abierta.
+            _crudos = (f.getlist("producer_promoter_id[]") if hasattr(f, "getlist") else [])
+            if not _crudos:
+                _crudos = [f.get("producer_promoter_id") or ""]
+            _ids, _vistos = [], set()
+            for _x in _crudos:
+                _uid = _safe_uuid((_x or "").strip())
+                if _uid and str(_uid) not in _vistos:
+                    _vistos.add(str(_uid))
+                    _ids.append(str(_uid))
+            prod["producer_ids"] = _ids
+            # La columna guarda el PRIMERO: es la que ya usan los materiales y los correos.
+            project.producer_promoter_id = to_uuid(_ids[0]) if _ids else None
             modo = (f.get("fee_mode") or "").strip().upper()
             prod["fee_mode"] = modo if modo in dict((k, 1) for k, _l, _i in DISCO_PROD_FEE_MODES) else ""
             prod["fee_amount"] = (_importe("fee_amount") if prod["fee_mode"] == "FEE" else "")
@@ -34127,9 +34607,31 @@ def disco_project_production_save(project_id):
         # ⚠️ Con el PRODUCTOR configurado, a REGISTROS+SELLO les toca mandarle su CONTRATO: se les
         # pide aquí (una sola vez). Si se cambia de productor, el contrato vuelve a estar pendiente.
         if seccion == "producer":
-            if _productor_antes and str(_productor_antes) != str(project.producer_promoter_id or ""):
-                prod.pop("producer_contract", None)
+            # ⚠️ A quien se QUITA de la lista se le tira su contrato (ya no produce esto); a los que
+            # siguen NO se les toca, y a los NUEVOS se les pide el suyo. Antes, cambiar de productor
+            # borraba el contrato entero, que con varios se llevaría por delante los buenos.
+            _fuera = [x for x in _antes if x not in _ids]
+            if _fuera:
+                _quedan = []
+                for _c in _disco_producer_contract_rows(project):
+                    _cids = [str(y) for y in (_c.get("producer_ids") or []) if str(y) not in _fuera]
+                    if _cids:
+                        _c = dict(_c); _c["producer_ids"] = _cids; _c.pop("legacy", None)
+                        _quedan.append(_c)
+                prod["producer_contracts"] = _quedan
+                _ped = dict(prod.get("producer_contract") or {})
+                _ped.pop("done_at", None); _ped.pop("done_by", None)
+                _ped.pop("file_url", None); _ped.pop("file_name", None)
+                _ped["asked_for"] = [x for x in (_ped.get("asked_for") or []) if str(x) not in _fuera]
+                prod["producer_contract"] = _ped
                 project.production_payload = prod
+                # ⚠️ SEGUNDA ESCRITURA en la misma petición: el objeto ya estaba asignado, así que
+                # SQLAlchemy lo da por «unchanged» y no escribe nada sin dar ningún error.
+                try:
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(project, "production_payload")
+                except Exception:
+                    pass
             if _disco_producer_contract_ask(session_db, project):
                 prod = _disco_prod(project)
         # LOGÍSTICA de la grabación: le sale como tarea a quien se elija de producción.
@@ -35529,21 +36031,44 @@ def disco_video_producer_save(project_id):
         f = request.form
         video = _disco_video(project)
         fila = dict(video.get("producer") or {})
-        antes = str(fila.get("promoter_id") or "")
-        pid = (f.get("promoter_id") or "").strip()
+        antes = _disco_video_producer_ids(video)
+        # ⚠️ PUEDEN SER VARIOS: llegan como `promoter_id[]` (una fila por productor).
+        crudos = (f.getlist("promoter_id[]") if hasattr(f, "getlist") else [])
+        if not crudos:
+            crudos = [f.get("promoter_id") or ""]
+        ids, vistos = [], []
+        for x in crudos:
+            uid = _safe_uuid((x or "").strip())
+            if uid and str(uid) not in vistos:
+                vistos.append(str(uid))
+                ids.append(str(uid))
         modo = (f.get("fee_mode") or "").strip().upper()
-        fila["promoter_id"] = pid
+        fila["promoter_ids"] = ids
+        fila["promoter_id"] = (ids[0] if ids else "")     # el primero: lo que ya leían los correos
         fila["fee_mode"] = (modo if modo in DISCO_VIDEO_FEE_LABELS else "")
         fila["fee_amount"] = (f.get("fee_amount") or "").strip() if modo == "FEE" else ""
         fila["budget_amount"] = (f.get("budget_amount") or "").strip() if modo == "BUDGET" else ""
         fila["notes"] = (f.get("notes") or "").strip()
         video["producer"] = fila
-        # ⚠️ Si CAMBIA el productor, el contrato vuelve a estar pendiente: es otro contrato.
-        if pid and pid != antes:
-            video["contract"] = {}
+        # ⚠️ Al QUITAR a un productor se tira SU contrato (ya no produce esto); a los que siguen no se
+        # les toca y a los nuevos se les pide el suyo.
+        fuera = [x for x in antes if x not in ids]
+        if fuera:
+            quedan = []
+            for c in _disco_video_contract_rows(project):
+                cids = [str(y) for y in (c.get("producer_ids") or []) if str(y) not in fuera]
+                if cids:
+                    c = dict(c); c["producer_ids"] = cids; c.pop("legacy", None)
+                    quedan.append(c)
+            video["contracts"] = quedan
+            ped = dict(video.get("contract") or {})
+            for k in ("done_at", "done_by", "file_url", "file_name"):
+                ped.pop(k, None)
+            ped["asked_for"] = [x for x in (ped.get("asked_for") or []) if str(x) not in fuera]
+            video["contract"] = ped
         _disco_video_set(project, video)
         session_db.flush()
-        if pid and fila["fee_mode"]:
+        if ids and fila["fee_mode"]:
             _disco_video_contract_ask(session_db, project)
         session_db.commit()
         flash("Productor del videoclip guardado.", "success")
@@ -35556,20 +36081,97 @@ def disco_video_producer_save(project_id):
     return redirect(safe_next_or(destino))
 
 
-def _disco_video_contract_ask(session_db, project) -> bool:
-    """Le pide a REGISTROS+SELLO el CONTRATO DE PRODUCCIÓN AUDIOVISUAL (una vez por productor)."""
+def _disco_video_producer_ids(video: dict) -> list[str]:
+    """LOS PRODUCTORES del videoclip, en orden. ⚠️ PUEDEN SER VARIOS.
+
+    Viven en `video['producer']['promoter_ids']`; `promoter_id` guarda el PRIMERO (lo que ya leían
+    los correos y los avisos del vídeo)."""
+    fila = dict((video or {}).get("producer") or {})
+    ids, vistos = [], []
+    for x in (fila.get("promoter_ids") or []):
+        clave = str(x or "").strip()
+        if clave and clave not in vistos:
+            vistos.append(clave)
+            ids.append(clave)
+    if ids:
+        return ids
+    uno = str(fila.get("promoter_id") or "").strip()
+    return [uno] if uno else []
+
+
+def _disco_video_producers(session_db, project) -> list[dict]:
+    """Los productores del videoclip con su ficha (nombre y foto o logo)."""
+    filas = []
+    for pid in _disco_video_producer_ids(_disco_video(project)):
+        try:
+            tercero = session_db.get(Promoter, to_uuid(pid))
+        except Exception:
+            tercero = None
+        if tercero is None:
+            continue
+        filas.append({
+            "id": str(tercero.id),
+            "promoter": tercero,
+            "name": ((getattr(tercero, "nick", None) or _promoter_display_name(tercero) or "").strip() or "—"),
+            "logo_url": (getattr(tercero, "logo_url", "") or ""),
+        })
+    return filas
+
+
+def _disco_video_contract_rows(project) -> list[dict]:
+    """Los contratos audiovisuales guardados (uno puede cubrir a varios productores).
+
+    Lee también el formato ANTIGUO (`video['contract']` con su `done_at`), de cuando el videoclip
+    solo admitía un productor."""
     video = _disco_video(project)
-    contrato = dict(video.get("contract") or {})
-    if contrato.get("asked_at") or contrato.get("done_at"):
+    filas = [dict(x) for x in (video.get("contracts") or []) if isinstance(x, dict)]
+    viejo = dict(video.get("contract") or {})
+    if viejo.get("done_at"):
+        uno = str((video.get("producer") or {}).get("promoter_id") or "").strip()
+        filas.append({
+            "producer_ids": ([uno] if uno else []),
+            "file_url": (viejo.get("file_url") or ""),
+            "file_name": (viejo.get("file_name") or ""),
+            "done_at": (viejo.get("done_at") or ""),
+            "done_by": (viejo.get("done_by") or ""),
+            "legacy": True,
+        })
+    return filas
+
+
+def _disco_video_contract_state(session_db, project) -> dict:
+    """EL CONTRATO DE CADA PRODUCTOR del VIDEOCLIP (mismo motor que el del audio)."""
+    video = _disco_video(project)
+    return _disco_contract_state(_disco_video_producers(session_db, project),
+                                 _disco_video_contract_rows(project),
+                                 video.get("contract") or {})
+
+
+def _disco_video_contract_ask(session_db, project) -> bool:
+    """Le pide a REGISTROS+SELLO el CONTRATO DE PRODUCCIÓN AUDIOVISUAL.
+
+    ⚠️ Igual que el del audio: PUEDE HABER VARIOS PRODUCTORES y hace falta el contrato de todos, así
+    que se vuelve a pedir cuando aparece uno nuevo al que no se le había pedido."""
+    video = _disco_video(project)
+    estado = _disco_video_contract_state(session_db, project)
+    pendientes = [p["id"] for p in estado["pending"]]
+    if not pendientes:
         return False
-    contrato["asked_at"] = _now_madrid().isoformat()
+    contrato = dict(video.get("contract") or {})
+    pedidos = set(str(x) for x in (contrato.get("asked_for") or []))
+    if estado["asked"] and set(pendientes).issubset(pedidos):
+        return False
+    contrato["asked_at"] = contrato.get("asked_at") or _now_madrid().isoformat()
+    contrato["asked_for"] = sorted(pedidos | set(pendientes))
     video["contract"] = contrato
     _disco_video_set(project, video)
     artista = getattr(project, "artist", None)
+    _faltan = " · ".join(p["name"] for p in estado["pending"])
     try:
         _notify_users(session_db, _registros_sello_user_ids(session_db), "DISCOGRAFICA",
                       "Contrato de producción audiovisual · %s" % _disco_project_title(project),
-                      "Hay que preparar y mandar el contrato del productor del videoclip.",
+                      ("Hay que preparar y mandar el contrato de %s (videoclip)." % _faltan) if _faltan
+                      else "Hay que preparar y mandar el contrato del productor del videoclip.",
                       url_for("disco_project_detail", project_id=project.id, tab="calendario"),
                       ref_type="DISCO_VIDEO_CONTRACT", ref_id=str(project.id),
                       actor_name=(getattr(artista, "name", "") or ""),
@@ -35599,33 +36201,72 @@ def disco_video_contract(project_id):
             return forbid("Este contrato lo manda Registros.")
         video = _disco_video(project)
         contrato = dict(video.get("contract") or {})
+        estado_ctr = _disco_video_contract_state(session_db, project)
+        todos = [p["id"] for p in estado_ctr["producers"]]
         if _truthy(_flag_arg("undo")):
+            uno = (request.form.get("pid") or request.args.get("pid") or "").strip()
             for k in ("done_at", "done_by", "file_url", "file_name"):
                 contrato.pop(k, None)
+            if uno:
+                quedan = []
+                for c in _disco_video_contract_rows(project):
+                    cids = [str(y) for y in (c.get("producer_ids") or []) if str(y) != uno]
+                    if cids:
+                        c = dict(c); c["producer_ids"] = cids; c.pop("legacy", None)
+                        quedan.append(c)
+                video["contracts"] = quedan
+            else:
+                video["contracts"] = []
             video["contract"] = contrato
             _disco_video_set(project, video)
             session_db.commit()
             flash("El contrato audiovisual vuelve a estar pendiente.", "success")
             return redirect(safe_next_or(destino))
+        # ⚠️ A QUÉ PRODUCTORES incluye: uno puede cubrir a varios (con uno solo no se pregunta).
+        marcados = [x.strip() for x in request.form.getlist("producer_ids[]") if x.strip()]
+        incluidos = [x for x in marcados if x in todos]
+        if not incluidos:
+            incluidos = [p["id"] for p in estado_ctr["pending"]] or todos
+        if not incluidos:
+            flash("Antes hay que decir quién produce el videoclip.", "warning")
+            return redirect(safe_next_or(destino))
+        fila = {"producer_ids": incluidos, "file_url": "", "file_name": ""}
         doc = request.files.get("contract")
         if doc is not None and getattr(doc, "filename", ""):
             try:
-                contrato["file_url"] = upload_file(doc, "contratos-audiovisual")
-                contrato["file_name"] = (doc.filename or "").strip()
+                fila["file_url"] = upload_file(doc, "contratos-audiovisual")
+                fila["file_name"] = (doc.filename or "").strip()
             except Exception as exc:
                 flash("No se pudo subir el contrato: %s" % exc, "danger")
                 return redirect(safe_next_or(destino))
         estado = _current_user_state() or {}
-        contrato["done_at"] = _now_madrid().isoformat()
-        contrato["done_by"] = (estado.get("nick") or "")
+        fila["done_at"] = _now_madrid().isoformat()
+        fila["done_by"] = (estado.get("nick") or "")
+        contratos = []
+        for c in _disco_video_contract_rows(project):
+            cids = [str(y) for y in (c.get("producer_ids") or []) if str(y) not in incluidos]
+            if cids:
+                c = dict(c); c["producer_ids"] = cids; c.pop("legacy", None)
+                contratos.append(c)
+        contratos.append(fila)
+        video["contracts"] = contratos
         contrato.setdefault("asked_at", _now_madrid().isoformat())
+        for k in ("done_at", "done_by", "file_url", "file_name"):
+            contrato.pop(k, None)
         video["contract"] = contrato
         _disco_video_set(project, video)
-        _notify_resolve(session_db, "DISCO_VIDEO_CONTRACT", str(project.id))
+        session_db.flush()
+        nuevo_estado = _disco_video_contract_state(session_db, project)
+        # ⚠️ Solo se cierra el aviso cuando no falta NINGUNO.
+        if nuevo_estado["done"]:
+            _notify_resolve(session_db, "DISCO_VIDEO_CONTRACT", str(project.id))
         try:
+            quienes = " · ".join(p["name"] for p in nuevo_estado["producers"] if p["id"] in incluidos)
+            faltan = nuevo_estado["pending_names"]
             _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
                           "Contrato audiovisual enviado · %s" % _disco_project_title(project),
-                          "Ya está el contrato del productor del videoclip.", destino,
+                          ("Ya está el contrato de %s (videoclip)." % (quienes or "el productor"))
+                          + ((" Todavía falta el de %s." % faltan) if faltan else ""), destino,
                           ref_type="DISCO_VIDEO_CONTRACT_OK", ref_id=str(project.id))
         except Exception:
             app.logger.exception("[videoclip] no se pudo avisar del contrato audiovisual")
@@ -35646,8 +36287,13 @@ def _disco_video_notify_producer(session_db, project, *, title, body_html, subje
 
     ⚠️ El correo de un tercero es **`contact_email`** (`_promoter_email_phone`), nunca `.email`."""
     estado = _disco_video_state(session_db, project)
-    correo = (estado["producer"]["email"] or "").strip()
-    if not correo:
+    # ⚠️ A TODOS los productores del videoclip (pueden ser varios). Un correo por persona.
+    correos = []
+    for _pr in (estado["producer"].get("producers") or []):
+        _c, _t = _promoter_email_phone(_pr["promoter"])
+        if _c and _c not in correos:
+            correos.append(_c)
+    if not correos:
         return (False, "El productor del videoclip no tiene correo en su ficha.")
     cuerpo = body_html
     if button:
@@ -35655,9 +36301,14 @@ def _disco_video_notify_producer(session_db, project, *, title, body_html, subje
                    'style="display:inline-block;background:#E33D48;color:#fff;text-decoration:none;'
                    'padding:10px 18px;border-radius:8px;font-weight:700;">%s</a></div>'
                    % (html.escape(button[1]), html.escape(button[0])))
-    return _send_optional_email(
-        correo, subject,
-        _disco_project_email_shell(session_db, project, title=title, body_html=cuerpo))
+    html_correo = _disco_project_email_shell(session_db, project, title=title, body_html=cuerpo)
+    ok, err = False, ""
+    for _c in correos:
+        salio, _e = _send_optional_email(_c, subject, html_correo)
+        ok = ok or bool(salio)
+        if not salio and not err:
+            err = _e or ""
+    return (ok, ("" if ok else err))
 
 
 @app.post("/discografica/proyectos/<project_id>/video/plazo", endpoint="disco_video_due_save")
@@ -36273,8 +36924,11 @@ def _disco_video_material_url(session_db, project) -> str:
 @app.post("/discografica/proyectos/<project_id>/contrato-productor", endpoint="disco_project_producer_contract")
 @admin_required
 def disco_project_producer_contract(project_id):
-    """SUBIR EL CONTRATO DEL PRODUCTOR (lo hace Registros y Sello). Al subirlo, la tarea queda hecha
-    para todos: para quien lo manda y para el sello que lleva el proyecto.
+    """SUBIR EL CONTRATO DE UN PRODUCTOR (lo hace Registros y Sello).
+
+    ⚠️⚠️ PUEDE HABER VARIOS PRODUCTORES y **un contrato puede ser para uno o para varios**: por eso
+    se manda `producer_ids[]` (lo que se marca en el pop-up, con su foto o su logo). La tarea NO está
+    hecha hasta que TODOS los productores tienen contrato.
 
     ⚠️ No se exige `can_edit_discografica()`: lo hace Registros, que no tiene por qué poder editar
     discográfica. Se comprueba que sea de quien le toca (o dirección)."""
@@ -36290,15 +36944,52 @@ def disco_project_producer_contract(project_id):
                 or yo in _registros_sello_user_ids(session_db)):
             return forbid("Este contrato lo manda Registros.")
         prod = _disco_prod(project)
-        fila = dict(prod.get("producer_contract") or {})
-        if _truthy(request.form.get("undo")):
-            fila.pop("done_at", None); fila.pop("done_by", None)
-            fila.pop("file_url", None); fila.pop("file_name", None)
-            prod["producer_contract"] = fila
+        estado_ctr = _disco_producer_contract_state(session_db, project)
+        todos = [p["id"] for p in estado_ctr["producers"]]
+
+        def _guarda(contratos, pedido):
+            prod["producer_contracts"] = contratos
+            # El formato antiguo (un contrato suelto) deja de valer en cuanto se guarda la lista: si
+            # no, se leería DOS VECES (la lista y el viejo).
+            prod["producer_contract"] = pedido
             project.production_payload = prod
+            try:
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(project, "production_payload")
+            except Exception:
+                pass
+
+        # ---- Volver a dejarlo pendiente (todos, o solo el de un productor con `pid`) ----
+        if _truthy(request.form.get("undo")) or _truthy(request.args.get("undo")):
+            uno = (request.form.get("pid") or request.args.get("pid") or "").strip()
+            pedido = dict(prod.get("producer_contract") or {})
+            pedido.pop("done_at", None); pedido.pop("done_by", None)
+            pedido.pop("file_url", None); pedido.pop("file_name", None)
+            if uno:
+                quedan = []
+                for c in _disco_producer_contract_rows(project):
+                    ids = [str(x) for x in (c.get("producer_ids") or []) if str(x) != uno]
+                    if ids:
+                        c = dict(c); c["producer_ids"] = ids; c.pop("legacy", None)
+                        quedan.append(c)
+                _guarda(quedan, pedido)
+            else:
+                _guarda([], pedido)
             session_db.commit()
             flash("El contrato vuelve a estar pendiente.", "success")
             return redirect(safe_next_or(destino))
+
+        # ---- A QUÉ PRODUCTORES incluye este contrato ----
+        marcados = [x.strip() for x in request.form.getlist("producer_ids[]") if x.strip()]
+        incluidos = [x for x in marcados if x in todos]
+        if not incluidos:
+            # Sin marcar nada, el contrato es para los que faltan (con uno solo, no se pregunta).
+            incluidos = [p["id"] for p in estado_ctr["pending"]] or todos
+        if not incluidos:
+            flash("Antes hay que decir quién produce.", "warning")
+            return redirect(safe_next_or(destino))
+
+        fila = {"producer_ids": incluidos, "file_url": "", "file_name": ""}
         doc = request.files.get("contract")
         if doc is not None and getattr(doc, "filename", ""):
             try:
@@ -36310,20 +37001,41 @@ def disco_project_producer_contract(project_id):
         estado = _current_user_state() or {}
         fila["done_at"] = _now_madrid().isoformat()
         fila["done_by"] = (estado.get("nick") or "")
-        fila.setdefault("asked_at", _now_madrid().isoformat())
-        prod["producer_contract"] = fila
-        project.production_payload = prod
-        _notify_resolve(session_db, "DISCO_PRODUCER_CONTRACT", str(project.id))
+        # Se sustituye el contrato anterior de esos productores (uno por productor: el último vale).
+        contratos = []
+        for c in _disco_producer_contract_rows(project):
+            ids = [str(x) for x in (c.get("producer_ids") or []) if str(x) not in incluidos]
+            if ids:
+                c = dict(c); c["producer_ids"] = ids; c.pop("legacy", None)
+                contratos.append(c)
+        contratos.append(fila)
+        pedido = dict(prod.get("producer_contract") or {})
+        pedido.setdefault("asked_at", _now_madrid().isoformat())
+        pedido.pop("done_at", None); pedido.pop("done_by", None)
+        pedido.pop("file_url", None); pedido.pop("file_name", None)
+        _guarda(contratos, pedido)
+        session_db.flush()
+        nuevo_estado = _disco_producer_contract_state(session_db, project)
+        # ⚠️ El aviso solo se cierra cuando NO FALTA NINGUNO: con varios productores, subir el de
+        # uno no termina la tarea.
+        if nuevo_estado["done"]:
+            _notify_resolve(session_db, "DISCO_PRODUCER_CONTRACT", str(project.id))
         # Quien lleva el proyecto se entera de que ya está mandado.
         try:
+            quienes = " · ".join(p["name"] for p in nuevo_estado["producers"] if p["id"] in incluidos)
+            faltan = nuevo_estado["pending_names"]
             _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
                           "Contrato de productor enviado · %s" % _disco_project_title(project),
-                          "Ya está el contrato del productor.",
+                          ("Ya está el contrato de %s." % (quienes or "el productor"))
+                          + ((" Todavía falta el de %s." % faltan) if faltan else ""),
                           destino, ref_type="DISCO_PRODUCER_CONTRACT_OK", ref_id=str(project.id))
         except Exception:
             app.logger.exception("[proyectos] no se pudo avisar del contrato subido")
         session_db.commit()
-        flash("Contrato del productor guardado.", "success")
+        if nuevo_estado["pending_names"]:
+            flash("Contrato guardado. Todavía falta el de %s." % nuevo_estado["pending_names"], "warning")
+        else:
+            flash("Contrato del productor guardado.", "success")
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("[proyectos] no se pudo guardar el contrato del productor")
@@ -36421,12 +37133,31 @@ def discografica_demo_create():
     session_db = db()
     try:
         estado = _current_user_state() or {}
-        row = SongDemo(status="VALORANDO",
-                       created_by_user_id=_safe_uuid(estado.get("user_id")),
-                       created_by_nick=(estado.get("nick") or ""))
         # Una maqueta puede salir de un PROYECTO discográfico (el pop-up de «Subir demo» de su ficha):
         # queda vinculada a él y se ve en la ficha del lanzamiento hasta que haya másters.
-        row.project_id = _safe_uuid((request.form.get("project_id") or "").strip())
+        proyecto_id = _safe_uuid((request.form.get("project_id") or "").strip())
+
+        def _nueva():
+            fila = SongDemo(status="VALORANDO",
+                            created_by_user_id=_safe_uuid(estado.get("user_id")),
+                            created_by_nick=(estado.get("nick") or ""))
+            fila.project_id = proyecto_id
+            return fila
+
+        # ⚠️ SE PUEDEN SUBIR VARIAS DE UNA VEZ: cada archivo es una maqueta con su título y todo lo
+        # demás (artista, portada, autores, productores, letra y notas) COMÚN al bloque.
+        multi = _demo_multi_rows(request.form)
+        if multi:
+            creadas, fallos = _demo_create_many(session_db, request.form, request.files, multi, _nueva)
+            if fallos:
+                session_db.rollback()
+                flash(" ".join(fallos), "warning")
+                return redirect(safe_next_or(url_for("discografica_view", section="demos")))
+            session_db.commit()
+            flash(("Demo añadida." if len(creadas) == 1 else "%d demos añadidas." % len(creadas)),
+                  "success")
+            return redirect(safe_next_or(url_for("discografica_view", section="demos")))
+        row = _nueva()
         fallos = _demo_apply_form(session_db, row, request.form, request.files)
         if fallos:
             flash(" ".join(fallos), "warning")
@@ -36875,6 +37606,9 @@ def _demo_audio_download(session_db, demo, fmt: str):
             app.logger.exception("[demos] no se pudo convertir la maqueta a MP3")
     artista = (getattr(getattr(demo, "artist", None), "name", None) or "").strip()
     nombre = _material_download_name("Maqueta", (getattr(demo, "title", None) or "").strip(), artista, ext)
+    # ⚠️ El archivo se lleva puesto DE QUIÉN ES: título, artista, autores, productores y su portada.
+    etiquetas, portada = _audio_tags_for_demo(session_db, demo)
+    data = _audio_with_tags(data, ext, etiquetas, portada)
     return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=nombre)
 
 
@@ -37131,7 +37865,8 @@ def _demo_submit_drafts(session_db, promoter) -> list:
     return (session_db.query(SongDemo)
             .options(joinedload(SongDemo.artist), joinedload(SongDemo.submitted_by),
                      selectinload(SongDemo.authors).joinedload(SongDemoAuthor.promoter),
-                     selectinload(SongDemo.authors).joinedload(SongDemoAuthor.publishing_company))
+                     selectinload(SongDemo.authors).joinedload(SongDemoAuthor.publishing_company),
+                     selectinload(SongDemo.producers).joinedload(SongDemoProducer.promoter))
             .filter(SongDemo.submitted_by_promoter_id == promoter.id)
             .filter(SongDemo.submitted_at.is_(None))
             .order_by(SongDemo.created_at.asc()).all())
@@ -37328,19 +38063,37 @@ def public_demo_submit_add(token):
         promoter = _demo_submit_promoter(session_db)
         if promoter is None:
             return jsonify({"ok": False, "error": "Identifícate primero."}), 403
-        row = SongDemo(status="VALORANDO",
-                       submitted_by_promoter_id=promoter.id,
-                       created_by_nick=(_promoter_display_name(promoter) or "")[:120] or None)
+        def _nueva():
+            return SongDemo(status="VALORANDO",
+                            submitted_by_promoter_id=promoter.id,
+                            created_by_nick=(_promoter_display_name(promoter) or "")[:120] or None)
+
+        def _remite(fila):
+            """Quien la manda queda apuntado también como remitente de la maqueta."""
+            fila.sender_name = fila.sender_name or (_promoter_display_name(promoter) or None)
+            fila.sender_email = fila.sender_email or (getattr(promoter, "email", None) or None)
+            fila.sender_phone = fila.sender_phone or (getattr(promoter, "phone", None) or None)
+            if not fila.artist_id:
+                fila.promoter_id = fila.promoter_id or promoter.id
+
+        # También de fuera se pueden mandar VARIAS de una vez (el mismo formulario).
+        multi = _demo_multi_rows(request.form)
+        if multi:
+            creadas, fallos = _demo_create_many(session_db, request.form, request.files, multi, _nueva)
+            if fallos:
+                session_db.rollback()
+                return jsonify({"ok": False, "error": " ".join(fallos)}), 400
+            for fila in creadas:
+                _remite(fila)
+            session_db.commit()
+            ctx = _demo_submit_context(session_db, token, promoter)
+            return jsonify({"ok": True, "rows": ctx["rows"], "added": len(creadas)})
+        row = _nueva()
         fallos = _demo_apply_form(session_db, row, request.form, request.files)
         if fallos:
             session_db.rollback()
             return jsonify({"ok": False, "error": " ".join(fallos)}), 400
-        # Quien la manda queda apuntado también como remitente de la maqueta.
-        row.sender_name = row.sender_name or (_promoter_display_name(promoter) or None)
-        row.sender_email = row.sender_email or (getattr(promoter, "email", None) or None)
-        row.sender_phone = row.sender_phone or (getattr(promoter, "phone", None) or None)
-        if not row.artist_id:
-            row.promoter_id = row.promoter_id or promoter.id
+        _remite(row)
         session_db.add(row)
         session_db.commit()
         ctx = _demo_submit_context(session_db, token, promoter)
@@ -37726,6 +38479,396 @@ def _playlist_context(session_db, pl, *, token: str | None = None, all_extras: b
     }
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PLAYLIST DE SELECCIÓN / VALORACIÓN
+#
+# Una playlist normal se manda para ESCUCHARLA. Esta se manda para que **decidan**: quien la recibe
+# puntúa los temas, elige unos cuantos, o las dos cosas. Es la misma playlist de siempre (se ordena,
+# se le añaden temas, se le pone nota, se comparte…): lo único que cambia es que tiene DINÁMICA
+# (`vote_mode`) y **una lista de personas, cada una con su enlace**, para saber quién ha votado qué.
+#
+# ⚠️ Para puntuar (o para decidir) hay que **haber escuchado el tema entero**: el reproductor de la
+# casa avisa con el evento `playlist:ended` y hasta entonces no se deja.
+# ⚠️ Al terminar, **el enlace de esa persona deja de valer**. Se le puede RESETEAR (vuelve a empezar,
+# pero sin tener que volver a escucharlo todo) o ANULAR (ya no puede votar).
+# ═════════════════════════════════════════════════════════════════════════════
+
+PLAYLIST_VOTE_MODES = (
+    ("RATE", "Puntúan las canciones", "fa-star",
+     "Cada persona le pone nota del 1 al 10 a todos los temas."),
+    ("PICK", "Descartan y seleccionan", "fa-hand-pointer",
+     "Cada persona se queda con el número de temas que se diga."),
+    ("PICK_RATE", "Seleccionan y puntúan", "fa-star-half-stroke",
+     "Primero eligen los temas y, de los elegidos, ponen nota."),
+)
+PLAYLIST_VOTE_LABELS = dict((k, l) for k, l, _i, _d in PLAYLIST_VOTE_MODES)
+PLAYLIST_VOTE_KEYS = tuple(k for k, _l, _i, _d in PLAYLIST_VOTE_MODES)
+PLAYLIST_VOTE_MAX_SCORE = 10
+# El recordatorio sale el DÍA ANTES del plazo (y una sola vez: uno que insiste a diario deja de leerse).
+PLAYLIST_VOTE_REMIND_DAYS = 1
+
+
+def _playlist_is_vote(pl) -> bool:
+    """¿Es una playlist de selección o de valoración?"""
+    return (getattr(pl, "vote_mode", "") or "").strip().upper() in PLAYLIST_VOTE_KEYS
+
+
+def _playlist_vote_mode(pl) -> str:
+    modo = (getattr(pl, "vote_mode", "") or "").strip().upper()
+    return modo if modo in PLAYLIST_VOTE_KEYS else ""
+
+
+def _playlist_vote_wants(pl) -> tuple[bool, bool]:
+    """`(elige, puntúa)` — qué tiene que hacer quien la recibe."""
+    modo = _playlist_vote_mode(pl)
+    return (modo in ("PICK", "PICK_RATE"), modo in ("RATE", "PICK_RATE"))
+
+
+def _playlist_vote_word(pl) -> str:
+    """«valorar» · «seleccionar» · «seleccionar y valorar» — lo que hay que hacer, en una palabra."""
+    elige, puntua = _playlist_vote_wants(pl)
+    if elige and puntua:
+        return "seleccionar y valorar"
+    return "seleccionar" if elige else "valorar"
+
+
+def _playlist_vote_kind_label(pl) -> str:
+    """«Valoración» · «Selección» · «Valoración y selección» — para el asunto y los títulos."""
+    elige, puntua = _playlist_vote_wants(pl)
+    if elige and puntua:
+        return "Valoración y selección"
+    return "Selección" if elige else "Valoración"
+
+
+def _playlist_vote_artist_name(session_db, pl) -> str:
+    """El ARTISTA de la playlist, si todos sus temas son del mismo (es lo que va en el asunto)."""
+    nombres = []
+    for it in _playlist_items_ordered(session_db, pl):
+        if (it.kind or "").upper() not in ("SONG", "DEMO"):
+            continue
+        fila = _playlist_item_payload(session_db, pl, it)
+        nombre = (fila.get("artist_name") or "").strip()
+        if nombre and nombre not in nombres:
+            nombres.append(nombre)
+    return nombres[0] if len(nombres) == 1 else ""
+
+
+def _playlist_vote_subject(session_db, pl) -> str:
+    """El ASUNTO: «Valoración y selección de <playlist> de <artista>»."""
+    nombre = (getattr(pl, "name", None) or "").strip() or "la playlist"
+    artista = _playlist_vote_artist_name(session_db, pl)
+    return "%s de %s%s" % (_playlist_vote_kind_label(pl), nombre,
+                           (" de %s" % artista) if artista else "")
+
+
+def _playlist_vote_title(pl) -> str:
+    """El título centrado del correo: «Selección y Valoración de temas»."""
+    elige, puntua = _playlist_vote_wants(pl)
+    if elige and puntua:
+        return "Selección y Valoración de temas"
+    return "Selección de temas" if elige else "Valoración de temas"
+
+
+def _playlist_vote_intro(pl) -> str:
+    """El texto de la solicitud (lo que se le pide a quien la recibe)."""
+    elige, puntua = _playlist_vote_wants(pl)
+    n = int(getattr(pl, "pick_count", None) or 0)
+    if elige and puntua:
+        return ("Por favor escucha estos temas, valóralos y selecciona %d." % n) if n else \
+               "Por favor escucha estos temas, valóralos y selecciona los que más te gusten."
+    if elige:
+        return ("Por favor escucha estos temas y selecciona %d." % n) if n else \
+               "Por favor escucha estos temas y selecciona los que más te gusten."
+    return "Por favor escucha y valora los siguientes temas."
+
+
+def _playlist_vote_url(voter) -> str:
+    """El enlace de ESA persona (uno por votante: es lo que permite saber quién vota qué)."""
+    try:
+        return _external_url_for("public_playlist_vote", token=(voter.token or ""))
+    except Exception:
+        base = _public_base_url().rstrip("/")
+        return "%s/valorar-playlist/%s" % (base, (voter.token or ""))
+
+
+def _ensure_playlist_voter_token(session_db, voter) -> str:
+    """El token OPACO de un votante (no firmado: un enlace de hace meses sigue valiendo)."""
+    if (getattr(voter, "token", None) or "").strip():
+        return voter.token
+    voter.token = _uuid_token()
+    session_db.add(voter)
+    session_db.flush()
+    return voter.token
+
+
+def _playlist_voter_photo(session_db, voter) -> str:
+    """La FOTO o el LOGO de quien vota, resuelta EN VIVO (la ficha manda sobre lo que se guardó)."""
+    if getattr(voter, "promoter", None) is not None:
+        return (getattr(voter.promoter, "logo_url", None) or "").strip()
+    if getattr(voter, "artist", None) is not None:
+        return (getattr(voter.artist, "photo_url", None) or "").strip()
+    if getattr(voter, "user_id", None):
+        perfil = (session_db.query(UserProfile)
+                  .filter(UserProfile.user_id == voter.user_id).first())
+        return (getattr(perfil, "photo_url", None) or "").strip()
+    return ""
+
+
+# EN QUÉ PUNTO está cada persona. ⚠️ No basta con «enviado / contestado»: hay que poder ver **si
+# está escuchando**, si ya escuchó y le falta decidir, o si ni siquiera ha abierto el enlace.
+PLAYLIST_VOTER_STATES = (
+    ("NEW", "Sin enviar", "fa-circle", "secondary"),
+    ("PENDING", "Pendiente · no lo ha abierto", "fa-hourglass-start", "secondary"),
+    ("OPENED", "Lo ha abierto, sin escuchar", "fa-envelope-open", "info"),
+    ("LISTENING", "Escuchando temas", "fa-headphones", "info"),
+    ("PENDING_VOTE", "Escuchado, pendiente de decidir", "fa-clipboard-question", "warning"),
+    ("DONE", "Ya ha contestado", "fa-circle-check", "success"),
+    ("CANCELLED", "Anulado", "fa-ban", "danger"),
+)
+PLAYLIST_VOTER_STATE_META = dict((k, {"label": l, "icon": i, "color": c})
+                                 for k, l, i, c in PLAYLIST_VOTER_STATES)
+
+
+def _playlist_voter_state(voter, progreso: dict | None = None) -> tuple[str, str]:
+    """`(clave, etiqueta)` de en qué punto está esa persona.
+
+    Con `progreso` (lo que lleva hecho) se distingue **escuchando** de **pendiente de decidir**, que
+    es lo que hay que poder ver de un vistazo."""
+    if getattr(voter, "cancelled_at", None):
+        return ("CANCELLED", PLAYLIST_VOTER_STATE_META["CANCELLED"]["label"])
+    if getattr(voter, "done_at", None):
+        return ("DONE", PLAYLIST_VOTER_STATE_META["DONE"]["label"])
+    if not getattr(voter, "sent_at", None):
+        return ("NEW", PLAYLIST_VOTER_STATE_META["NEW"]["label"])
+    p = progreso or {}
+    escuchadas = int(p.get("heard") or 0)
+    total = int(p.get("total") or 0)
+    abierto = bool(getattr(voter, "opened_at", None))
+    if not abierto and not escuchadas:
+        return ("PENDING", PLAYLIST_VOTER_STATE_META["PENDING"]["label"])
+    if not escuchadas:
+        return ("OPENED", PLAYLIST_VOTER_STATE_META["OPENED"]["label"])
+    if total and escuchadas < total:
+        return ("LISTENING", "Escuchando temas (%d de %d)" % (escuchadas, total))
+    return ("PENDING_VOTE", PLAYLIST_VOTER_STATE_META["PENDING_VOTE"]["label"])
+
+
+def _playlist_vote_rows(session_db, voter_id):
+    """Lo que ha dicho una persona, por tema: `{item_id: PlaylistVote}`."""
+    filas = (session_db.query(PlaylistVote)
+             .filter(PlaylistVote.voter_id == voter_id).all())
+    return {str(v.item_id): v for v in filas}
+
+
+def _playlist_vote_or_create(session_db, voter, item_id):
+    """Su fila para ese tema (se crea si no la tenía)."""
+    fila = (session_db.query(PlaylistVote)
+            .filter(PlaylistVote.voter_id == voter.id)
+            .filter(PlaylistVote.item_id == to_uuid(str(item_id))).first())
+    if fila is None:
+        fila = PlaylistVote(voter_id=voter.id, item_id=to_uuid(str(item_id)))
+        session_db.add(fila)
+        session_db.flush()
+    return fila
+
+
+def _playlist_vote_progress(session_db, pl, voter) -> dict:
+    """CÓMO VA esa persona: qué le falta y si ya puede enviar.
+
+    PUNTO ÚNICO: lo usan la página pública (el aviso de arriba y el botón de enviar), el guardado
+    —que vuelve a comprobarlo: esconder el botón no basta— y el listado de quién va por dónde."""
+    temas = [it for it in _playlist_items_ordered(session_db, pl)
+             if (it.kind or "").upper() in ("SONG", "DEMO")]
+    avance = _playlist_progress_from(pl, temas, _playlist_vote_rows(session_db, voter.id))
+    avance["done"] = bool(getattr(voter, "done_at", None))
+    return avance
+
+
+def _playlist_vote_item_rows(session_db, pl, voter, *, token: str) -> list[dict]:
+    """Los temas tal como los ve QUIEN VOTA: la fila de siempre + lo suyo (escuchada, nota, elegida).
+
+    ⚠️ Se **ORDENAN por su puntuación** (de más a menos) en cuanto empieza a puntuar: es lo que pidió
+    Dani. Lo que no ha puntuado se queda detrás, en el orden de la playlist."""
+    filas = []
+    votos = _playlist_vote_rows(session_db, voter.id)
+    for it in _playlist_items_ordered(session_db, pl):
+        fila = _playlist_item_payload(session_db, pl, it)
+        clave = str(it.id)
+        v = votos.get(clave)
+        fila["vote_state"] = (getattr(v, "state", "") or "")
+        fila["vote_score"] = getattr(v, "score", None)
+        fila["vote_heard"] = bool(getattr(v, "heard", False))
+        # ⚠️ El audio va por el enlace de ESA persona (nunca la dirección de Storage).
+        if fila.get("stream_url"):
+            fila["stream_url"] = url_for("public_playlist_vote_audio", token=token, item_id=it.id)
+        fila["download_wav_url"] = ""
+        fila["download_mp3_url"] = ""
+        filas.append(fila)
+    suenan = [f for f in filas if f["kind"] in ("SONG", "DEMO")]
+    otras = [f for f in filas if f["kind"] not in ("SONG", "DEMO")]
+    if any(f["vote_score"] is not None for f in suenan):
+        suenan.sort(key=lambda f: (-(f["vote_score"] or 0), f["title"] or ""))
+        return suenan + otras       # los títulos y divisiones pierden su sitio al reordenar
+    return filas
+
+
+def _playlist_vote_results(session_db, pl, *, incluir_incompletos: bool = False) -> dict:
+    """LO VOTADO: los temas de más a menos puntuados, y quién ha dicho qué.
+
+    ⚠️ Por defecto se cuenta **solo lo ENVIADO** (`done_at`): una valoración a medias no puede mover
+    el orden de la lista. Con **`incluir_incompletos`** (el filtro «Ver resultados incompletos») se
+    enseña además **lo que cada uno lleva hecho AHORA MISMO**, para saber por dónde va la cosa —esas
+    filas van marcadas como parciales, para no confundirlas con un voto entregado—."""
+    temas = [it for it in _playlist_items_ordered(session_db, pl)
+             if (it.kind or "").upper() in ("SONG", "DEMO")]
+    votantes = [v for v in (getattr(pl, "voters", None) or []) if getattr(v, "done_at", None)]
+    if incluir_incompletos:
+        votantes = [v for v in (getattr(pl, "voters", None) or [])
+                    if not getattr(v, "cancelled_at", None) and getattr(v, "sent_at", None)]
+    if not temas:
+        return {"rows": [], "voters": [], "count": 0}
+    votos = {}
+    if votantes:
+        for v in (session_db.query(PlaylistVote)
+                  .filter(PlaylistVote.voter_id.in_([x.id for x in votantes])).all()):
+            votos.setdefault(str(v.item_id), []).append(v)
+    fichas = {}
+    for v in votantes:
+        fichas[str(v.id)] = {"id": str(v.id), "name": (v.name or "—"),
+                             "photo_url": _playlist_voter_photo(session_db, v),
+                             # ⚠️ PARCIAL = todavía no lo ha enviado: lo que se ve es lo que lleva.
+                             "partial": not bool(getattr(v, "done_at", None))}
+    filas = []
+    for it in temas:
+        base = _playlist_item_payload(session_db, pl, it)
+        mios = votos.get(str(it.id), [])
+        notas = [x.score for x in mios if x.score is not None]
+        elegido = sum(1 for x in mios if (x.state or "") == "KEEP")
+        detalle = []
+        for x in mios:
+            ficha = fichas.get(str(x.voter_id)) or {}
+            detalle.append({
+                "voter_id": str(x.voter_id),
+                "name": ficha.get("name") or "—",
+                "photo_url": ficha.get("photo_url") or "",
+                "score": x.score,
+                "state": (x.state or ""),
+                "partial": bool(ficha.get("partial")),
+            })
+        detalle.sort(key=lambda d: (-(d["score"] or 0), d["name"]))
+        media = (round(sum(notas) / len(notas), 1) if notas else None)
+        filas.append(dict(base, **{
+            "avg": media,
+            "avg_label": (("%g" % media) if media is not None else ""),
+            "votes": len(mios),
+            "kept": elegido,
+            "detail": detalle,
+        }))
+    elige, puntua = _playlist_vote_wants(pl)
+    # De más a menos: por nota si se puntúa, y si no por cuántos la han elegido.
+    filas.sort(key=lambda f: (-(f["avg"] if (puntua and f["avg"] is not None) else -1),
+                              -f["kept"], f["title"] or ""))
+    return {"rows": filas, "voters": list(fichas.values()), "count": len(votantes),
+            "partial": bool(incluir_incompletos)}
+
+
+def _playlist_votes_by_voter(session_db, votantes) -> dict:
+    """Lo votado por TODOS, en UNA consulta: `{voter_id: {item_id: PlaylistVote}}`.
+
+    ⚠️ Con veinte personas y veinte temas, una consulta por persona sería inaceptable."""
+    if not votantes:
+        return {}
+    salida = {}
+    for v in (session_db.query(PlaylistVote)
+              .filter(PlaylistVote.voter_id.in_([x.id for x in votantes])).all()):
+        salida.setdefault(str(v.voter_id), {})[str(v.item_id)] = v
+    return salida
+
+
+def _playlist_progress_from(pl, temas, votos: dict) -> dict:
+    """El avance de UNA persona a partir de lo que ya se ha leído (sin volver a consultar)."""
+    elige, puntua = _playlist_vote_wants(pl)
+    n_pedidas = int(getattr(pl, "pick_count", None) or 0)
+    escuchadas = sum(1 for it in temas if getattr(votos.get(str(it.id)), "heard", False))
+    elegidas = [it for it in temas if getattr(votos.get(str(it.id)), "state", "") == "KEEP"]
+    sin_decidir = [it for it in temas if not getattr(votos.get(str(it.id)), "state", "")]
+    a_puntuar = elegidas if elige else temas
+    sin_puntuar = [it for it in a_puntuar if getattr(votos.get(str(it.id)), "score", None) is None]
+    aviso, listo = "", True
+    if elige:
+        if n_pedidas and len(elegidas) > n_pedidas:
+            listo = False
+            aviso = "Tienes que descartar %d más." % (len(elegidas) - n_pedidas)
+        elif sin_decidir:
+            listo = False
+            aviso = ("Te quedan %d temas por decidir." % len(sin_decidir)) if len(sin_decidir) > 1 \
+                    else "Te queda 1 tema por decidir."
+        elif n_pedidas and len(elegidas) < n_pedidas:
+            listo = False
+            faltan = n_pedidas - len(elegidas)
+            aviso = "Te falta%s por seleccionar %d tema%s." % ("n" if faltan > 1 else "", faltan,
+                                                               "s" if faltan > 1 else "")
+    if puntua and listo and sin_puntuar:
+        listo = False
+        aviso = ("Te quedan %d temas por puntuar." % len(sin_puntuar)) if len(sin_puntuar) > 1 \
+                else "Te queda 1 tema por puntuar."
+    return {
+        "wants_pick": elige, "wants_rate": puntua, "pick_count": n_pedidas,
+        "total": len(temas), "heard": escuchadas, "kept": len(elegidas),
+        "dropped": sum(1 for it in temas if getattr(votos.get(str(it.id)), "state", "") == "DROP"),
+        "undecided": len(sin_decidir),
+        "rated": len(a_puntuar) - len(sin_puntuar), "to_rate": len(a_puntuar),
+        "ready": bool(temas) and listo, "message": aviso,
+    }
+
+
+def _playlist_voter_rows(session_db, pl) -> list[dict]:
+    """Las personas a las que se les ha mandado, con **en qué punto están** y sus acciones.
+
+    ⚠️ Se ve si están **escuchando**, si ya escucharon y les falta decidir, o si ni han abierto el
+    enlace: es lo que hace falta para saber cómo va la cosa sin preguntarle a nadie."""
+    votantes = list(getattr(pl, "voters", None) or [])
+    temas = [it for it in _playlist_items_ordered(session_db, pl)
+             if (it.kind or "").upper() in ("SONG", "DEMO")]
+    por_votante = _playlist_votes_by_voter(session_db, votantes)
+    salida = []
+    for v in votantes:
+        avance = _playlist_progress_from(pl, temas, por_votante.get(str(v.id), {}))
+        clave, etiqueta = _playlist_voter_state(v, avance)
+        meta = PLAYLIST_VOTER_STATE_META.get(clave, {})
+        salida.append({
+            "id": str(v.id),
+            "name": (v.name or "—"),
+            "email": (v.email or ""),
+            "phone": (v.phone or ""),
+            "photo_url": _playlist_voter_photo(session_db, v),
+            "state": clave,
+            "state_label": etiqueta,
+            "state_icon": meta.get("icon") or "fa-circle",
+            "state_color": meta.get("color") or "secondary",
+            "progress": avance,
+            # Lo que lleva hecho, en una línea (lo que se lee en el listado).
+            "progress_label": _playlist_progress_label(avance, clave),
+            "sent_label": _demo_dt_label(getattr(v, "sent_at", None)),
+            "opened_label": _demo_dt_label(getattr(v, "opened_at", None)),
+            "done_label": _demo_dt_label(getattr(v, "done_at", None)),
+            "url": _playlist_vote_url(v),
+        })
+    return salida
+
+
+def _playlist_progress_label(avance: dict, estado: str) -> str:
+    """«5 de 8 escuchadas · 3 puntuadas» — lo que lleva hecho, en una línea."""
+    if estado in ("NEW", "PENDING", "CANCELLED"):
+        return ""
+    partes = ["%d de %d escuchadas" % (avance.get("heard") or 0, avance.get("total") or 0)]
+    if avance.get("wants_pick"):
+        partes.append("%d elegidas" % (avance.get("kept") or 0))
+    if avance.get("wants_rate"):
+        partes.append("%d puntuadas" % (avance.get("rated") or 0))
+    return " · ".join(partes)
+
+
 def _playlist_duration_label(total_seconds: int) -> str:
     s = int(total_seconds or 0)
     if s <= 0:
@@ -37737,7 +38880,9 @@ def _playlist_duration_label(total_seconds: int) -> str:
 
 
 def _playlist_rows(session_db) -> list:
-    """El listado de playlists (una debajo de otra) con lo que se ve de cada una."""
+    """El listado de playlists (una debajo de otra) con lo que se ve de cada una.
+
+    ⚠️ Las de SELECCIÓN/VALORACIÓN lo dicen con su etiqueta y **cuántos han contestado ya**."""
     filas = []
     playlists = (session_db.query(Playlist)
                  .order_by(Playlist.created_at.desc())
@@ -37752,7 +38897,26 @@ def _playlist_rows(session_db) -> list:
                    .group_by(PlaylistItem.playlist_id).all()):
         cuenta[str(pid)] = int(n or 0)
     faltaban_tokens = any(not (getattr(p, "public_token", None) or "").strip() for p in playlists)
+    # Los VOTANTES de todas, en UNA consulta (con 400 playlists, una por fila sería inaceptable).
+    votantes, contestados = {}, {}
+    for pid, n in (session_db.query(PlaylistVoter.playlist_id, func.count(PlaylistVoter.id))
+                   .filter(PlaylistVoter.playlist_id.in_(ids))
+                   .group_by(PlaylistVoter.playlist_id).all()):
+        votantes[str(pid)] = int(n or 0)
+    for pid, n in (session_db.query(PlaylistVoter.playlist_id, func.count(PlaylistVoter.id))
+                   .filter(PlaylistVoter.playlist_id.in_(ids))
+                   .filter(PlaylistVoter.done_at.isnot(None))
+                   .group_by(PlaylistVoter.playlist_id).all()):
+        contestados[str(pid)] = int(n or 0)
     for p in playlists:
+        modo = _playlist_vote_mode(p)
+        etiqueta, icono, pista = "", "", ""
+        if modo:
+            total = votantes.get(str(p.id), 0)
+            hechos = contestados.get(str(p.id), 0)
+            icono = dict((k, i) for k, _l, i, _d in PLAYLIST_VOTE_MODES).get(modo, "fa-star")
+            etiqueta = (_playlist_vote_kind_label(p) + (" · %d de %d" % (hechos, total) if total else ""))
+            pista = PLAYLIST_VOTE_LABELS.get(modo, "")
         filas.append({
             "id": str(p.id),
             "name": (p.name or "").strip() or "Playlist",
@@ -37761,6 +38925,10 @@ def _playlist_rows(session_db) -> list:
             "songs_count": cuenta.get(str(p.id), 0),
             "created_at_label": _demo_dt_label(getattr(p, "created_at", None)),
             "created_by_nick": (p.created_by_nick or "").strip(),
+            "vote_mode": modo,
+            "vote_label": etiqueta,
+            "vote_icon": icono,
+            "vote_hint": pista,
             "url": url_for("playlist_detail_view", playlist_id=p.id),
             "public_url": _playlist_share_url(session_db, p),
             "share_subject": "Playlist %s" % ((p.name or "").strip() or ""),
@@ -37823,6 +38991,90 @@ def _playlist_email_html(ctx: dict, *, note: str = "") -> str:
         'padding:11px 20px;border-radius:999px;font-size:15px;">Escuchar</a></div>'
         '</td></tr></table></div>'
     )
+    partes.append('</div>')
+    return "".join(partes)
+
+
+def _playlist_vote_email_html(session_db, pl, ctx: dict, *, url: str, note: str = "",
+                              remind_days: int | None = None) -> str:
+    """EL CORREO de una playlist de selección/valoración. PUNTO ÚNICO: es el mismo HTML que se manda
+    y el que se previsualiza, así que no hay dos versiones que se desparejen.
+
+    Maqueta: **logo de la empresa arriba a la DERECHA** · el TÍTULO centrado («Selección y Valoración
+    de temas») · el texto de lo que se pide, justificado · el NOMBRE de la playlist centrado · el
+    LISTADO de los temas tal como se ve en la playlist · y el botón **Escuchar playlist**.
+
+    ⚠️ Estilos EN LÍNEA (los clientes de correo se comen las hojas de estilo) y **cada tema es un
+    enlace a la playlist**: pinchando cualquiera se llega a ella."""
+    def esc(v) -> str:
+        return str(escape("" if v is None else v))
+
+    brand = ctx.get("brand") or {}
+    pl_ctx = ctx.get("pl") or {}
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    if brand.get("logo_url"):
+        partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                      f'<img src="{esc(brand.get("logo_url"))}" alt="{esc(brand.get("company_name"))}" '
+                      'style="max-height:54px;max-width:190px;"></div>')
+    partes.append('<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">%s</h2>'
+                  % esc(_playlist_vote_title(pl)))
+    # ⚠️ EL RECORDATORIO es el MISMO correo con el aviso del plazo delante: no hay un segundo diseño.
+    if remind_days is not None:
+        dias = int(remind_days)
+        cuanto = ("hoy" if dias <= 0 else ("mañana" if dias == 1 else "%d días" % dias))
+        partes.append('<div style="margin:0 0 14px;padding:12px 14px;border-radius:12px;'
+                      'background:#fff8e1;border:1px solid #f2d98a;font-size:14px;line-height:1.7;'
+                      f'color:#7a5b00;"><strong>Recuerda que tienes {esc(cuanto)} para terminar de '
+                      f'{esc(_playlist_vote_word(pl))}.</strong></div>')
+    partes.append('<p style="margin:0 0 14px;font-size:15px;line-height:1.75;text-align:justify;">%s</p>'
+                  % esc(_playlist_vote_intro(pl)))
+    if (note or "").strip():
+        partes.append('<div style="margin:0 0 14px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;'
+                      f'white-space:pre-line;">{esc(note.strip())}</div>')
+    partes.append('<h3 style="text-align:center;font-size:18px;margin:18px 0 12px;">%s</h3>'
+                  % esc(pl_ctx.get("name")))
+
+    # EL LISTADO, como se ve en la playlist (portada · título · artista · duración).
+    filas = []
+    for it in (ctx.get("items") or []):
+        if it.get("kind") == "TITLE":
+            filas.append('<tr><td colspan="3" style="padding:12px 0 4px;font-weight:bold;font-size:15px;">'
+                         f'{esc(it.get("title"))}</td></tr>')
+            continue
+        if it.get("kind") == "DIVIDER":
+            filas.append('<tr><td colspan="3" style="padding:6px 0;">'
+                         '<div style="border-top:1px solid #e5e7eb;"></div></td></tr>')
+            continue
+        portada = _absolute_media_url(it.get("cover_url") or "") or ""
+        dur = it.get("duration_seconds") or 0
+        dur_txt = ("%d:%02d" % (dur // 60, dur % 60)) if dur else ""
+        filas.append(
+            '<tr>'
+            f'<td width="60" valign="middle" style="padding:6px 0;">'
+            + (f'<img src="{esc(portada)}" alt="" style="display:block;width:48px;height:48px;'
+               'object-fit:cover;border-radius:8px;border:1px solid #e5e7eb;background:#fff;">'
+               if portada else "")
+            + '</td>'
+            f'<td valign="middle" style="padding:6px 10px;">'
+            f'<a href="{esc(url)}" style="color:#111827;text-decoration:none;font-weight:bold;'
+            f'font-size:15px;">{esc(it.get("title"))}</a>'
+            + (f'<div style="font-size:13px;color:#6b7280;">{esc(it.get("artist_name"))}</div>'
+               if it.get("artist_name") else "")
+            + '</td>'
+            f'<td width="52" valign="middle" align="right" style="padding:6px 0;font-size:13px;'
+            f'color:#6b7280;">{esc(dur_txt)}</td>'
+            '</tr>')
+    partes.append('<div style="border:1px solid #e5e7eb;border-radius:18px;padding:10px 16px;background:#fcfcfd;">'
+                  '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+                  'style="border-collapse:collapse;">' + "".join(filas) + '</table></div>')
+    partes.append('<div style="margin:18px 0 0;text-align:center;">'
+                  f'<a href="{esc(url)}" style="display:inline-block;background:#E33D48;color:#fff;'
+                  'text-decoration:none;font-weight:bold;padding:12px 24px;border-radius:999px;'
+                  'font-size:15px;">Escuchar playlist</a></div>')
+    if getattr(pl, "vote_due_date", None) and remind_days is None:
+        partes.append('<p style="margin:14px 0 0;text-align:center;font-size:13px;color:#6b7280;">'
+                      f'Tienes de plazo hasta el {esc(pl.vote_due_date.strftime("%d/%m/%Y"))}.</p>')
     partes.append('</div>')
     return "".join(partes)
 
@@ -38012,11 +39264,350 @@ def playlist_detail_view(playlist_id):
         # Editando se mandan TODOS los extras: al encender un interruptor se ve al momento cómo va a
         # quedar, sin recargar (y sin perder lo que no esté guardado).
         ctx = _playlist_context(session_db, pl, all_extras=editando)
+        # ⚠️ Si es una playlist de SELECCIÓN/VALORACIÓN, además se ve LO VOTADO y quién va por dónde.
+        votacion = None
+        if _playlist_is_vote(pl):
+            filas_v = _playlist_voter_rows(session_db, pl)
+            votacion = {
+                "mode": _playlist_vote_mode(pl),
+                "kind_label": _playlist_vote_kind_label(pl),
+                "mode_label": PLAYLIST_VOTE_LABELS.get(_playlist_vote_mode(pl), ""),
+                "pick_count": int(getattr(pl, "pick_count", None) or 0),
+                "due_label": (pl.vote_due_date.strftime("%d/%m/%Y")
+                              if getattr(pl, "vote_due_date", None) else ""),
+                "subject": _playlist_vote_subject(session_db, pl),
+                "voters": filas_v,
+                "total_count": len(filas_v),
+                "done_count": sum(1 for v in filas_v if v["state"] == "DONE"),
+            }
         session_db.commit()        # puede haberse creado el token público
-        return render_template("playlist_detail.html", edit_mode=editando,
+        return render_template("playlist_detail.html", edit_mode=editando, vote=votacion,
                                picker=(_playlist_picker_song_groups(session_db) if editando else None),
                                demo_groups=(_playlist_picker_demo_groups(session_db) if editando else None),
                                **ctx)
+    finally:
+        session_db.close()
+
+
+# ---------------------------------------------------------------------------
+# PLAYLIST DE SELECCIÓN / VALORACIÓN · los endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/discografica/playlists/seleccion", endpoint="playlist_vote_create")
+@admin_required
+def playlist_vote_create():
+    """Crea una playlist DE SELECCIÓN/VALORACIÓN con el asistente: nombre → temas → dinámica.
+
+    Es una playlist normal (se ordena, se le añaden temas, se comparte…) con dos cosas más: su
+    DINÁMICA y, después, las PERSONAS a las que se les manda."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para crear playlists.")
+    nombre = (request.form.get("name") or "").strip()
+    modo = (request.form.get("vote_mode") or "").strip().upper()
+    destino = url_for("discografica_view", section="playlists")
+    if not nombre:
+        _flash_form_error("Ponle un nombre a la playlist.", ["name"], "#playlistVoteModal")
+        return redirect(destino)
+    if modo not in PLAYLIST_VOTE_KEYS:
+        _flash_form_error("Dinos qué tienen que hacer los que la reciban.",
+                          ["vote_mode"], "#playlistVoteModal")
+        return redirect(destino)
+    elige = modo in ("PICK", "PICK_RATE")
+    n_pedidas = 0
+    if elige:
+        try:
+            n_pedidas = int((request.form.get("pick_count") or "0").strip() or 0)
+        except ValueError:
+            n_pedidas = 0
+        if n_pedidas <= 0:
+            _flash_form_error("Di cuántas canciones hay que seleccionar.",
+                              ["pick_count"], "#playlistVoteModal")
+            return redirect(destino)
+    session_db = db()
+    try:
+        estado = _current_user_state() or {}
+        pl = Playlist(name=nombre,
+                      vote_mode=modo,
+                      pick_count=(n_pedidas or None),
+                      vote_due_date=parse_optional_date(request.form.get("due_date")),
+                      created_by_user_id=to_uuid(estado.get("user_id")) if estado.get("user_id") else None,
+                      created_by_nick=(estado.get("nick") or "").strip() or None)
+        session_db.add(pl)
+        session_db.flush()
+        _ensure_playlist_token(session_db, pl)
+        # LOS TEMAS elegidos en el paso 2 (el mismo buscador que el de una playlist normal).
+        _playlist_apply_wizard_items(session_db, pl, request.form)
+        if not [it for it in pl.items if (it.kind or "").upper() in ("SONG", "DEMO")]:
+            session_db.rollback()
+            _flash_form_error("Elige al menos una canción o maqueta.", [], "#playlistVoteModal")
+            return redirect(destino)
+        session_db.commit()
+        # Se sigue por donde toca: a quién se le manda.
+        return redirect(url_for("playlist_vote_send_view", playlist_id=pl.id))
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[playlist] no se pudo crear la playlist de selección")
+        flash("No se pudo crear la playlist: %s" % e, "danger")
+        return redirect(destino)
+    finally:
+        session_db.close()
+
+
+def _playlist_apply_wizard_items(session_db, pl, form) -> None:
+    """Los temas que llegan del asistente (`wz_items`, el mismo formato que el editor)."""
+    crudo = (form.get("wz_items") or "").strip()
+    if not crudo:
+        return
+    try:
+        filas = json.loads(crudo)
+    except Exception:
+        filas = []
+    pl.items = []
+    for i, r in enumerate(filas if isinstance(filas, list) else []):
+        if not isinstance(r, dict):
+            continue
+        kind = (r.get("kind") or "SONG").strip().upper()
+        if kind not in ("SONG", "DEMO"):
+            continue
+        song_id = _safe_uuid(r.get("song_id"))
+        demo_id = _safe_uuid(r.get("demo_id"))
+        if not song_id and not demo_id:
+            continue
+        pl.items.append(PlaylistItem(kind=kind, song_id=song_id, demo_id=demo_id,
+                                     title=(r.get("title") or "").strip() or None, position=i))
+
+
+@app.get("/discografica/playlists/<playlist_id>/valoracion", endpoint="playlist_vote_send_view")
+@admin_required
+def playlist_vote_send_view(playlist_id):
+    """A QUIÉN se le manda, con la PREVISUALIZACIÓN al lado (como el resto de avisos de la casa)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        if not _playlist_is_vote(pl):
+            flash("Esta playlist no es de selección ni de valoración.", "warning")
+            return redirect(url_for("playlist_detail_view", playlist_id=pl.id))
+        ctx = _playlist_context(session_db, pl)
+        return render_template(
+            "playlist_vote_send.html",
+            pl_row=ctx["pl"], playlist=pl, items=ctx["items"],
+            voters=_playlist_voter_rows(session_db, pl),
+            subject=_playlist_vote_subject(session_db, pl),
+            vote_mode_label=PLAYLIST_VOTE_LABELS.get(_playlist_vote_mode(pl), ""),
+            kind_label=_playlist_vote_kind_label(pl),
+            back_url=url_for("playlist_detail_view", playlist_id=pl.id),
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/playlists/<playlist_id>/valoracion/previa", endpoint="playlist_vote_preview")
+@admin_required
+def playlist_vote_preview(playlist_id):
+    """La PREVISUALIZACIÓN, compuesta por el SERVIDOR con el MISMO HTML que se manda."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        datos = request.get_json(silent=True) or {}
+        ctx = _playlist_context(session_db, pl)
+        html_correo = _playlist_vote_email_html(
+            session_db, pl, ctx,
+            url=_playlist_share_url(session_db, pl),      # en la previa, el enlace general
+            note=(datos.get("note") or ""))
+        return jsonify({"ok": True, "html": html_correo,
+                        "subject": _playlist_vote_subject(session_db, pl)})
+    finally:
+        session_db.close()
+
+
+def _playlist_voter_from_form(session_db, pl, fila: dict):
+    """Da de alta (o reutiliza) a una persona de la lista de votantes.
+
+    Puede ser un TERCERO, alguien de la CASA o un ARTISTA; lo que identifica a cada uno es su
+    correo (o su teléfono), que es con lo que se le escribe."""
+    correo = (fila.get("email") or "").strip().lower()
+    telefono = _normalize_phone_value(fila.get("phone") or "") or ""
+    nombre = (fila.get("name") or "").strip() or correo or telefono
+    if not correo and not telefono:
+        return None
+    # ⚠️ La misma persona no se apunta dos veces: se busca por su correo (o su teléfono).
+    for v in (getattr(pl, "voters", None) or []):
+        if correo and (v.email or "").strip().lower() == correo:
+            return v
+        if not correo and telefono and _normalize_phone_value(v.phone or "") == telefono:
+            return v
+    voter = PlaylistVoter(playlist_id=pl.id, name=nombre[:200],
+                          email=(correo or None), phone=(telefono or None),
+                          promoter_id=_safe_uuid(fila.get("promoter_id")),
+                          user_id=_safe_uuid(fila.get("user_id")),
+                          artist_id=_safe_uuid(fila.get("artist_id")))
+    session_db.add(voter)
+    session_db.flush()
+    _ensure_playlist_voter_token(session_db, voter)
+    return voter
+
+
+@app.post("/discografica/playlists/<playlist_id>/valoracion/enviar", endpoint="playlist_vote_send")
+@admin_required
+def playlist_vote_send(playlist_id):
+    """MANDA la solicitud: **un enlace por persona**, para saber quién vota qué."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        if not _playlist_is_vote(pl):
+            return jsonify({"ok": False, "error": "Esta playlist no es de selección ni de valoración."}), 400
+        datos = request.get_json(silent=True) or {}
+        nota = (datos.get("note") or "").strip()
+        plazo = parse_optional_date(datos.get("due_date"))
+        if plazo:
+            pl.vote_due_date = plazo
+        pl.vote_note = nota or None
+        destinatarios = [x for x in (datos.get("to") or []) if isinstance(x, dict)]
+        if not destinatarios:
+            return jsonify({"ok": False, "error": "Elige a quién se le manda."}), 400
+        ctx = _playlist_context(session_db, pl)
+        enviados, fallos = 0, []
+        asunto = _playlist_vote_subject(session_db, pl)
+        for fila in destinatarios:
+            voter = _playlist_voter_from_form(session_db, pl, fila)
+            if voter is None:
+                continue
+            if getattr(voter, "cancelled_at", None):
+                continue                       # anulado: no se le vuelve a escribir
+            enlace = _playlist_vote_url(voter)
+            html_correo = _playlist_vote_email_html(session_db, pl, ctx, url=enlace, note=nota)
+            canal = (fila.get("channel") or "EMAIL").strip().upper()
+            ok, err = (False, "")
+            if canal == "SMS" and (voter.phone or ""):
+                ok, err = _send_optional_sms(session_db, voter.phone,
+                                             "%s · %s" % (asunto, enlace))
+            elif (voter.email or ""):
+                ok, err = _send_optional_email(voter.email, asunto, html_correo)
+            else:
+                err = "sin correo ni teléfono"
+            if ok:
+                voter.sent_at = _now_madrid()
+                voter.sent_channel = canal
+                enviados += 1
+            else:
+                fallos.append("%s (%s)" % (voter.name or "—", err or "no salió"))
+        if enviados:
+            pl.vote_sent_at = _now_madrid()
+        session_db.commit()
+        return jsonify({"ok": True, "sent": enviados, "errors": fallos,
+                        "url": url_for("playlist_detail_view", playlist_id=pl.id)})
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[playlist] no se pudo mandar la solicitud de valoración")
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+    finally:
+        session_db.close()
+
+
+def _playlist_voter_or_404(session_db, pl, voter_id):
+    v = session_db.get(PlaylistVoter, to_uuid(str(voter_id)))
+    if v is None or str(v.playlist_id) != str(pl.id):
+        abort(404)
+    return v
+
+
+@app.post("/discografica/playlists/<playlist_id>/valoracion/votante/<voter_id>/<accion>",
+          endpoint="playlist_voter_action")
+@admin_required
+def playlist_voter_action(playlist_id, voter_id, accion):
+    """Lo que se hace con una persona de la lista: **resetear**, **anular**, **reactivar** o
+    **volver a mandárselo**.
+
+    ⚠️ RESETEAR borra su nota y su selección pero **NO lo escuchado**: no hay por qué hacerle oír
+    todo otra vez."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    accion = (accion or "").strip().lower()
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        voter = _playlist_voter_or_404(session_db, pl, voter_id)
+        if accion == "reset":
+            for v in (voter.votes or []):
+                v.score = None
+                v.state = None                 # ⚠️ `heard` se conserva a propósito
+                v.updated_at = _now_madrid()
+            voter.done_at = None
+            mensaje = "Se ha borrado su valoración: puede volver a empezar."
+        elif accion == "anular":
+            voter.cancelled_at = _now_madrid()
+            mensaje = "Ya no puede votar."
+        elif accion == "reactivar":
+            voter.cancelled_at = None
+            mensaje = "Vuelve a poder votar."
+        elif accion == "reenviar":
+            ctx = _playlist_context(session_db, pl)
+            enlace = _playlist_vote_url(voter)
+            ok, err = (False, "sin correo")
+            if (voter.email or ""):
+                ok, err = _send_optional_email(
+                    voter.email, _playlist_vote_subject(session_db, pl),
+                    _playlist_vote_email_html(session_db, pl, ctx, url=enlace,
+                                              note=(pl.vote_note or "")))
+            if not ok:
+                session_db.rollback()
+                return jsonify({"ok": False, "error": "No se pudo reenviar: %s" % (err or "")}), 400
+            voter.sent_at = _now_madrid()
+            mensaje = "Se le ha vuelto a mandar."
+        else:
+            return jsonify({"ok": False, "error": "No sé qué hacer con eso."}), 400
+        session_db.commit()
+        return jsonify({"ok": True, "message": mensaje})
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[playlist] no se pudo actuar sobre el votante")
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/playlists/<playlist_id>/valoracion/resultados", endpoint="playlist_vote_results_data")
+@admin_required
+def playlist_vote_results_data(playlist_id):
+    """Lo votado, para los POP-UPS (el desglose de un tema y el orden de una persona).
+
+    ⚠️ Con `?incompletos=1` se enseña además **lo que cada uno lleva hecho ahora mismo**."""
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        parcial = _truthy(request.args.get("incompletos"))
+        return jsonify({"ok": True, **_playlist_vote_results(session_db, pl,
+                                                             incluir_incompletos=parcial)})
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/playlists/buscador", endpoint="playlist_picker_open")
+@admin_required
+def playlist_picker_open():
+    """El mismo buscador de temas, pero SIN playlist: lo usa el paso 2 del asistente (todavía no
+    existe la playlist)."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
+    try:
+        fuente = (request.args.get("source") or "").strip().lower()
+        artista = (request.args.get("artist") or "").strip()
+        if fuente == "demos":
+            if artista:
+                return jsonify({"ok": True, "rows": _playlist_picker_demos(session_db, artista)})
+            return jsonify({"ok": True, "groups": _playlist_picker_demo_groups(session_db)})
+        if fuente == "repertorio":
+            if artista:
+                return jsonify({"ok": True, "rows": _playlist_picker_songs(session_db, artista)})
+            return jsonify({"ok": True, **_playlist_picker_song_groups(session_db)})
+        return jsonify({"ok": False, "error": "Dinos de dónde: demos o repertorio."}), 400
     finally:
         session_db.close()
 
@@ -38288,6 +39879,233 @@ def _playlist_by_token(session_db, token):
     if not pl:
         abort(404)
     return pl
+
+
+# ---------------------------------------------------------------------------
+# LA PÁGINA DE QUIEN VOTA (su enlace)
+#
+# ⚠️ Se puede hacer EN VARIAS VECES: todo lo que va haciendo (lo escuchado, la nota y lo elegido) se
+# guarda sobre la marcha, así que si lo deja a medias, al volver **sigue donde lo dejó**.
+# ---------------------------------------------------------------------------
+
+def _playlist_voter_by_token(session_db, token):
+    return (session_db.query(PlaylistVoter)
+            .filter(PlaylistVoter.token == (token or "").strip()).first()
+            if (token or "").strip() else None)
+
+
+def _playlist_vote_gate(session_db, token):
+    """`(playlist, votante, motivo)`. Con `motivo`, el enlace ya no vale y se dice por qué."""
+    voter = _playlist_voter_by_token(session_db, token)
+    if voter is None:
+        return (None, None, "Este enlace no vale.")
+    pl = session_db.get(Playlist, voter.playlist_id)
+    if pl is None or not _playlist_is_vote(pl):
+        return (None, None, "Este enlace ya no vale.")
+    if getattr(voter, "cancelled_at", None):
+        return (pl, voter, "Ya no está disponible: se ha anulado tu participación.")
+    if getattr(voter, "done_at", None):
+        return (pl, voter, "Ya has enviado tu respuesta. ¡Gracias!")
+    return (pl, voter, "")
+
+
+@app.get("/valorar-playlist/<token>", endpoint="public_playlist_vote")
+def public_playlist_vote(token):
+    """La playlist tal como la ve QUIEN TIENE QUE VOTAR (o seleccionar)."""
+    session_db = db()
+    try:
+        pl, voter, motivo = _playlist_vote_gate(session_db, token)
+        if pl is None:
+            return render_template("public_playlist_vote.html", cerrado=motivo, pl=None), 404
+        if not motivo and not getattr(voter, "opened_at", None):
+            # Cuándo lo abrió: es lo que distingue «no lo ha visto» de «lo está escuchando».
+            voter.opened_at = _now_madrid()
+            session_db.commit()
+        base = _playlist_context(session_db, pl)
+        filas = [] if motivo else _playlist_vote_item_rows(session_db, pl, voter, token=token)
+        avance = {} if motivo else _playlist_vote_progress(session_db, pl, voter)
+        ctx = {
+            "cerrado": motivo,
+            "pl": base["pl"], "brand": base["brand"], "items": filas,
+            "voter": {"id": str(voter.id), "name": (voter.name or "")},
+            "progress": avance,
+            "vote_mode": _playlist_vote_mode(pl),
+            "kind_label": _playlist_vote_kind_label(pl),
+            "title": _playlist_vote_title(pl),
+            "intro": _playlist_vote_intro(pl),
+            "note": (pl.vote_note or ""),
+            "max_score": PLAYLIST_VOTE_MAX_SCORE,
+            "due_label": (pl.vote_due_date.strftime("%d/%m/%Y") if getattr(pl, "vote_due_date", None) else ""),
+            "save_url": url_for("public_playlist_vote_save", token=token),
+            "submit_url": url_for("public_playlist_vote_submit", token=token),
+            "public_url": _external_url_for("public_playlist_vote", token=token),
+            # LA PREVISUALIZACIÓN al compartir el enlace (WhatsApp, SMS): título, sublínea y la
+            # PORTADA de la playlist. Es la misma miniatura que la de la playlist normal.
+            "share_title": _playlist_vote_subject(session_db, pl),
+            "share_subtitle": _playlist_vote_intro(pl),
+            "og_image_url": (_external_url_for("public_playlist_og_image",
+                                               token=_ensure_playlist_token(session_db, pl))
+                             if (pl.cover_url or "") or base["items"] else ""),
+            # ⚠️ Lo que YA tenía puesto: al volver otro día se sigue donde se dejó, así que el
+            # estado de cada tema lo manda el SERVIDOR y la pantalla lo aplica al cargar.
+            "saved": [{"id": f["id"], "heard": f.get("vote_heard"),
+                       "state": f.get("vote_state") or "", "score": f.get("vote_score")}
+                      for f in filas if f.get("kind") in ("SONG", "DEMO")],
+        }
+        session_db.commit()
+        return render_template("public_playlist_vote.html", **ctx)
+    finally:
+        session_db.close()
+
+
+@app.get("/valorar-playlist/<token>/audio/<item_id>", endpoint="public_playlist_vote_audio")
+def public_playlist_vote_audio(token, item_id):
+    """El audio, por NUESTRO puente (la dirección de Storage no sale nunca a la página)."""
+    session_db = db()
+    try:
+        pl, voter, motivo = _playlist_vote_gate(session_db, token)
+        if pl is None or (motivo and not getattr(voter, "done_at", None)):
+            abort(404)
+        item = _playlist_item_or_404(session_db, pl, item_id)
+        url, _n = _playlist_item_audio_source(session_db, item)
+    finally:
+        session_db.close()
+    return _playlist_audio_response(url)
+
+
+@app.post("/valorar-playlist/<token>/guardar", endpoint="public_playlist_vote_save")
+def public_playlist_vote_save(token):
+    """Lo que va haciendo: **escuchado**, **nota** y **elegido/descartado**.
+
+    ⚠️ Se guarda AL MOMENTO, tema a tema: así se puede dejar a medias y seguir otro día.
+    ⚠️⚠️ Para PUNTUAR (o para decidir) hay que **haber escuchado el tema entero**: se comprueba aquí,
+    no solo en la pantalla."""
+    session_db = db()
+    try:
+        pl, voter, motivo = _playlist_vote_gate(session_db, token)
+        if pl is None or motivo:
+            return jsonify({"ok": False, "error": motivo or "Este enlace no vale."}), 403
+        datos = request.get_json(silent=True) or {}
+        item = _playlist_item_or_404(session_db, pl, datos.get("item_id"))
+        fila = _playlist_vote_or_create(session_db, voter, item.id)
+        if datos.get("heard"):
+            fila.heard = True
+        if "score" in datos or "state" in datos:
+            if not fila.heard:
+                return jsonify({"ok": False,
+                                "error": "Para %s tienes que escuchar la canción completa."
+                                         % ("puntuarla" if "score" in datos else "decidir")}), 400
+        if "score" in datos:
+            try:
+                nota = int(datos.get("score") or 0)
+            except (TypeError, ValueError):
+                nota = 0
+            fila.score = nota if 1 <= nota <= PLAYLIST_VOTE_MAX_SCORE else None
+        if "state" in datos:
+            estado = (datos.get("state") or "").strip().upper()
+            fila.state = estado if estado in ("KEEP", "DROP") else None
+        fila.updated_at = _now_madrid()
+        session_db.flush()
+        avance = _playlist_vote_progress(session_db, pl, voter)
+        session_db.commit()
+        return jsonify({"ok": True, "progress": avance})
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[playlist] no se pudo guardar el voto")
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/valorar-playlist/<token>/enviar", endpoint="public_playlist_vote_submit")
+def public_playlist_vote_submit(token):
+    """ENVÍA la respuesta. A partir de aquí su enlace deja de valer y se avisa a quien la mandó."""
+    session_db = db()
+    try:
+        pl, voter, motivo = _playlist_vote_gate(session_db, token)
+        if pl is None or motivo:
+            return jsonify({"ok": False, "error": motivo or "Este enlace no vale."}), 403
+        avance = _playlist_vote_progress(session_db, pl, voter)
+        # ⚠️ Se vuelve a comprobar aquí: esconder el botón no basta.
+        if not avance.get("ready"):
+            return jsonify({"ok": False,
+                            "error": avance.get("message") or "Todavía te queda algo por hacer."}), 400
+        voter.done_at = _now_madrid()
+        session_db.flush()
+        _playlist_vote_notify_done(session_db, pl, voter)
+        session_db.commit()
+        return jsonify({"ok": True, "message": "¡Gracias! Ya hemos recibido tu respuesta."})
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[playlist] no se pudo enviar la valoración")
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+    finally:
+        session_db.close()
+
+
+def _playlist_vote_notify_done(session_db, pl, voter) -> None:
+    """Aviso por la app a QUIEN LA MANDÓ: «X ya ha valorado <playlist>»."""
+    destino = getattr(pl, "created_by_user_id", None)
+    if not destino:
+        return
+    palabra = "valorado" if _playlist_vote_mode(pl) == "RATE" else "contestado"
+    try:
+        _notify_user(session_db, str(destino), "DISCOGRAFICA",
+                     "%s ya ha %s «%s»" % ((voter.name or "Alguien"), palabra,
+                                           (pl.name or "la playlist")),
+                     "Ya puedes ver su %s en la playlist."
+                     % ("valoración" if palabra == "valorado" else "respuesta"),
+                     url_for("playlist_detail_view", playlist_id=pl.id),
+                     ref_type="PLAYLIST_VOTE", ref_id=str(pl.id),
+                     actor_name=(voter.name or None),
+                     actor_photo=(_playlist_voter_photo(session_db, voter) or None))
+    except Exception:
+        app.logger.exception("[playlist] no se pudo avisar de la valoración recibida")
+
+
+def _playlist_vote_reminder_sweep() -> dict:
+    """RECORDATORIO del plazo: el DÍA ANTES, a quien todavía no ha contestado.
+
+    Es el MISMO correo con el aviso del plazo delante (`remind_days`), no un segundo diseño.
+    ⚠️ **Una sola vez** (`reminded_at`): uno que insiste todos los días deja de leerse."""
+    hoy = today_local()
+    salida = {"avisados": 0, "playlists": 0}
+    session_db = db()
+    try:
+        playlists = (session_db.query(Playlist)
+                     .filter(Playlist.vote_due_date.isnot(None))
+                     .filter(Playlist.vote_due_date >= hoy)
+                     .filter(Playlist.vote_mode != "")
+                     .limit(200).all())
+        for pl in playlists:
+            faltan = (pl.vote_due_date - hoy).days
+            if faltan > PLAYLIST_VOTE_REMIND_DAYS:
+                continue
+            pendientes = [v for v in (pl.voters or [])
+                          if v.sent_at and not v.done_at and not v.cancelled_at and not v.reminded_at]
+            if not pendientes:
+                continue
+            ctx = _playlist_context(session_db, pl)
+            salida["playlists"] += 1
+            for v in pendientes:
+                if not (v.email or ""):
+                    continue
+                html_correo = _playlist_vote_email_html(
+                    session_db, pl, ctx, url=_playlist_vote_url(v),
+                    note=(pl.vote_note or ""), remind_days=faltan)
+                ok, _err = _send_optional_email(
+                    v.email, "Recordatorio · %s" % _playlist_vote_subject(session_db, pl),
+                    html_correo)
+                if ok:
+                    v.reminded_at = _now_madrid()
+                    salida["avisados"] += 1
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[playlist] no se pudo recordar el plazo de la valoración")
+    finally:
+        session_db.close()
+    return salida
 
 
 @app.get("/playlist/<token>", endpoint="public_playlist_view")
@@ -74224,7 +76042,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -78070,6 +79888,8 @@ def inject_personnel_globals():
         # Placeholder de PORTADA (canción/álbum) cuando no hay portada: disco gris sobre fondo gris
         # claro, para cubrir el hueco sin fingir que es la portada real.
         "DEFAULT_COVER_URL": url_for("static", filename="img/cover_placeholder.svg"),
+        # Las dinámicas de una playlist de SELECCIÓN/VALORACIÓN (con su icono), para el asistente.
+        "playlist_vote_modes": PLAYLIST_VOTE_MODES,
         "SECTION_ICONS": SECTION_ICONS,
         # Icono ÚNICO por tipo de invitación (Pista/Grada/Palcos), en rojo de marca, como SVG para que
         # sea idéntico en toda la app, correos, enlaces y PDF.
@@ -111345,7 +113165,10 @@ def cron_expired_documents():
                     # ⚠️ Va aquí a propósito: su cron propio (`/cron/actualizar-ventas`) existe
                     # igualmente, pero así no hace falta dar de alta otra tarea en el servidor —
                     # el mismo criterio que las entregas de masters y las liquidaciones «a favor».
-                    "ventas_propias": _sales_own_sweep()})
+                    "ventas_propias": _sales_own_sweep(),
+                    # Y el RECORDATORIO del plazo de una playlist de selección/valoración (el día
+                    # antes, una sola vez, a quien todavía no ha contestado).
+                    "playlists_valoracion": _playlist_vote_reminder_sweep()})
 
 
 @app.post("/documentos/pedir", endpoint="person_doc_request_send")
@@ -130375,7 +132198,7 @@ def _home_producer_contracts(limit: int = 12) -> list[dict]:
                      .filter(DiscoProject.producer_promoter_id.isnot(None))
                      .order_by(DiscoProject.release_date.asc().nullslast()).limit(200).all())
         for p in proyectos:
-            ctr = _disco_producer_contract(p)
+            ctr = _disco_producer_contract_state(session_db, p)
             if ctr["done"] or not ctr["asked"]:
                 continue
             pr = _disco_production_state(session_db, p)
@@ -130387,8 +132210,13 @@ def _home_producer_contracts(limit: int = 12) -> list[dict]:
                 "artist_name": (getattr(artista, "name", "") or ""),
                 "artist_photo": (getattr(artista, "photo_url", "") or ""),
                 "release_label": (p.release_date.strftime("%d/%m/%Y") if getattr(p, "release_date", None) else ""),
-                "producer": (productor.get("name") or ""),
+                # ⚠️ Los que FALTAN, con su foto o su logo: un contrato puede cubrir a varios y lo
+                # que hay que preparar es el de los que todavía no lo tienen.
+                "producer": (ctr["pending_names"] or productor.get("name") or ""),
                 "producer_logo": (productor.get("logo_url") or ""),
+                "producers": ctr["pending"],
+                "producers_done": ctr["done_names"],
+                "producers_count": ctr["count"],
                 "terms": " · ".join([x for x in [
                     productor.get("fee_label"),
                     productor.get("fee_amount_label") or productor.get("budget_amount_label"),
@@ -141080,6 +142908,9 @@ def public_sync_song_download():
             datos, mime, _ext = _convert_audio_content_to_mp3(
                 crudo, os.path.splitext(urlsplit(url).path)[1] or ".wav")
             if datos:
+                # El archivo que le llega al supervisor lleva puesto de quién es.
+                etiquetas, portada = _audio_tags_for_song(session_db, song)
+                datos = _audio_with_tags(datos, ".mp3", etiquetas, portada)
                 return send_file(BytesIO(datos), mimetype=(mime or "audio/mpeg"), as_attachment=True,
                                  download_name="%s.mp3" % nombre)
         except Exception:

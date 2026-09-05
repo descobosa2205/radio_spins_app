@@ -53,7 +53,11 @@
     <ul class="dropdown-menu dropdown-menu-end">
       {% if can_edit %}
         {% if edit_mode %}
-          <li><a class="dropdown-item" href="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
+          {# ⚠️ `data-replace-history`: al salir de la edición, ese paso NO se queda en el historial.
+             Si no, el botón de atrás (el nuestro y el del navegador) te devolvía a rellenar el
+             formulario y parecía que la playlist no se había creado. #}
+          <li><a class="dropdown-item" data-replace-history
+                 href="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
             <i class="fa fa-eye fa-fw me-1"></i>Ver la playlist</a></li>
         {% else %}
           <li><a class="dropdown-item" href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=1) }}">

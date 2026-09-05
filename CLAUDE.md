@@ -1306,6 +1306,43 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   con **los días que faltan** para entregarla (`_disco_days_left_label`, punto único; en rojo si se
   pasó el plazo). Así todo lo de diseño de un proyecto se ve junto y no repartido.
 
+- ⚠️⚠️ **UN LANZAMIENTO PUEDE TENER VARIOS PRODUCTORES** (sep 2026), tanto en el **proyecto**
+  (audio) como en el **videoclip**. Se ponen con **una fila por productor** (el buscador de terceros
+  de siempre y su «+»); el pop-up las monta `disco_steps.js` (`[data-dp-producers]`, que sustituye el
+  marcador `dpProducerNEW` por un id único y vuelve a enganchar el buscador).
+  · **DÓNDE VIVEN**: `production_payload['producer_ids']` (audio) y
+  `video['producer']['promoter_ids']` (vídeo). ⚠️ `DiscoProject.producer_promoter_id` sigue guardando
+  el **PRIMERO**: es la columna con la que ya trabajaba media app (los materiales, los correos, la
+  entrega, el cuadro de dirección), así que nada de eso hubo que tocarlo. Puntos únicos
+  `_disco_producer_ids` / `_disco_producers` y `_disco_video_producer_ids` / `_disco_video_producers`.
+  · **A TODOS**: el aviso del **plazo de entrega de materiales** (`_disco_materials_recipients`) y el
+  **«adelante con el máster»** (`_disco_mix_notify_master`) se mandan a todos los productores, un
+  correo por persona.
+  ⚠️⚠️ **EL CONTRATO PUEDE SER PARA UNO O PARA VARIOS, Y LA TAREA NO ESTÁ HECHA HASTA QUE TODOS LO
+  TIENEN.** Al subirlo, si hay más de un productor **se pregunta a cuáles incluye** (`producer_ids[]`,
+  con su foto o su logo y una casilla por cada uno; los que ya lo tienen salen marcados como hechos y
+  desmarcados, para no pisar el suyo sin querer). Con **uno solo no se pregunta nada** y, sin marcar
+  nada, el contrato va **a los que faltan**.
+  · Motor ÚNICO **`_disco_contract_state(productores, contratos, pedido)`** —lo usan el productor del
+  proyecto (`_disco_producer_contract_state`) y el del videoclip (`_disco_video_contract_state`), así
+  que los dos se comportan igual—: devuelve cada productor con su estado, `pending`/`pending_names`,
+  `done_count`/`count` y un **`done` que solo es cierto si no falta ninguno**.
+  · Los contratos se guardan en **`production_payload['producer_contracts']`** (y `video['contracts']`),
+  una fila por contrato con **`producer_ids`**. ⚠️ El formato **ANTIGUO** (un contrato suelto en
+  `producer_contract` / `video['contract']`) se sigue LEYENDO como el contrato del productor de la
+  columna: era de cuando solo podía haber uno.
+  · **`_disco_producer_contract_ask` se vuelve a pedir** cuando aparece un productor NUEVO al que no
+  se le había pedido (`asked_for` guarda a quiénes se pidió). Al **QUITAR** a un productor se tira
+  **su** contrato y **los de los demás no se tocan** (antes, cambiar de productor borraba el contrato
+  entero, que con varios se llevaría por delante los buenos).
+  ⚠️ El **aviso** (`DISCO_PRODUCER_CONTRACT` / `DISCO_VIDEO_CONTRACT`) **solo se cierra cuando no
+  falta ninguno**: subir el de uno no termina la tarea. En Inicio, `_home_producer_contracts` enseña
+  **las caras de los que faltan** (`.ctask__face`) y quién ya lo tiene.
+  ⚠️ Al escribir en el payload **dos veces en la misma petición** hay que `flag_modified`: el patrón
+  de leer-copiar-reasignar no escribe la segunda vez (la trampa de siempre del JSONB).
+  ⚠️ En un **VIDEOCLIP SUELTO** no se incluye `_disco_project_steps.html` (no hay pasos de audio), que
+  es quien carga `disco_steps.js`: `_disco_video_modals.html` lo carga él cuando `has_audio` es falso.
+
 - **PROYECTO · EL CONTRATO DEL PRODUCTOR** (ago 2026): al configurar **quién produce** se le pide
   automáticamente a quien es **REGISTROS y SELLO a la vez** (`_registros_sello_user_ids`; si no hay
   nadie con las dos cosas se cae a Registros) que prepare y mande su contrato
@@ -2084,6 +2121,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `SUPPORT_READ_ENDPOINTS`), y si no está se **crea el tercero sobre la marcha** con lo escrito
   (`api_create_promoter`). **No se piden correo ni teléfono**; lo que hubiera guardado no se pierde
   (solo se tocan esos campos si de verdad llegan en el formulario).
+  · ⚠️⚠️ **SE PUEDEN SUBIR VARIAS DE UNA VEZ** (sep 2026): al elegir (o arrastrar) varios audios sale
+  **UNA FILA POR MAQUETA**, en columna, con el hueco al lado para ponerle el nombre. Lo que se
+  escribe se queda en **ESA** maqueta —cada fila lleva DENTRO sus ocultos (`multi_title[]` ·
+  `multi_key[]` · `multi_name[]` · `multi_sha[]` · `multi_dup_ok[]`), así que **el orden del DOM es
+  el orden con el que se guardan**—. Todo lo demás (el artista, la portada, los autores, el
+  productor, la letra y las notas) es **COMÚN al bloque**; después, cada una se retoca yendo a
+  editarla.
+  · Motor: **`_demo_multi_rows`** (las filas que llegan) + **`_FormOverlay`** (un formulario con el
+  título y el audio SUSTITUIDOS, el resto se lee del original) + **`_demo_create_many`**, que usan
+  el alta de dentro **y** el enlace público. Así no hay dos versiones de «crear una maqueta»: se
+  llama al `_demo_apply_form` de siempre una vez por fila.
+  ⚠️ **La PORTADA se sube UNA sola vez** y se le pone a todas (a `_demo_apply_form` se le pasan los
+  archivos VACÍOS: el audio llega ya subido con su `key`). Con `files` de verdad, el mismo archivo
+  entraría en Storage tantas veces como maquetas.
+  ⚠️ **Si a alguna le falta el nombre no se guarda NINGUNA**, y **el mismo archivo dos veces en el
+  mismo bloque** se dice y se rebota (el navegador lo avisa y el servidor lo vuelve a comprobar).
+  ⚠️ El hueco COMÚN del título solo se ve **cuando no hay filas** y, si las hay, se **DESHABILITA**:
+  oculto y obligatorio bloquearía el guardado. **Editando** una maqueta el múltiple se apaga
+  (`elAudio.multiple = false`): ahí solo hay una.
+  ⚠️ En `demo_form.js`, la función de las filas se llama **`pistas()`**, no `filas()`: la sección de
+  AUTORES declara `var filas` en el MISMO ámbito (`var` es de función) y la machacaría — el clásico
+  «filas is not a function» sin ningún error a la vista.
+  · **EL PRODUCTOR, en su propia sección** (como la de autores): se busca en la base con su foto y,
+  si no está, se crea con el **«+»** (`api_create_promoter` **sin `force_new`**: si hay alguien
+  parecido, el 409 devuelve la lista y se ofrece elegirlo o crearlo igualmente). ⚠️ **PUEDEN SER
+  VARIOS**: modelo **`SongDemoProducer`** (hermano de `SongDemoAuthor`), con centinela
+  `producers_present` y punto único `_demo_apply_producers`. En la fila de la maqueta salen con su
+  icono (`fa-sliders`) y sus nombres. En el enlace público es un campo de texto (allí no hay sesión
+  con la que buscar ni crear terceros).
   · **EL MISMO AUDIO no se sube dos veces sin avisar**: el navegador calcula la **huella sha256** del
   archivo y pregunta (`discografica_demo_audio_check`); si ese mismo audio ya está, dice **con qué
   nombre** y deja subirlo igualmente o no, y si se sube con el MISMO nombre **pide otro** para
@@ -2092,6 +2158,130 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Descargar el audio** (`discografica_demo_audio_download`) da a elegir **WAV o MP3** y lo
   **descarga** (antes abría la URL de Storage en una pestaña). Punto único `_demo_audio_download`, que
   usa también la descarga de una playlist.
+
+- **PLAYLIST DE SELECCIÓN / VALORACIÓN** (sep 2026): una playlist normal se manda para ESCUCHARLA;
+  esta se manda para que **decidan**. Botón **«+ Playlist selección»** a la izquierda de
+  «+ Playlist», con su asistente de TRES pasos (nombre → temas → dinámica) y, al terminar, la
+  pantalla de **a quién se le manda**.
+  · **TRES DINÁMICAS** (`PLAYLIST_VOTE_MODES`, cada una con su icono): **RATE** (puntúan) · **PICK**
+  (descartan y seleccionan) · **PICK_RATE** (seleccionan y, de lo elegido, puntúan). Vive en
+  `Playlist.vote_mode` (**vacío = playlist de siempre**), con `pick_count` (cuántas hay que
+  seleccionar), `vote_due_date` (el plazo) y `vote_note`.
+  · **UN ENLACE POR PERSONA** (`PlaylistVoter`, token OPACO): es lo que permite saber **quién ha
+  votado qué**. Lo que dice cada uno va en `PlaylistVote` (`score` 1-10 · `state` KEEP/DROP ·
+  `heard`).
+  ⚠️⚠️ **PARA PUNTUAR (O DECIDIR) HAY QUE HABER ESCUCHADO EL TEMA ENTERO.** El reproductor de la
+  casa avisa con el evento **`playlist:ended`** —no sabe nada de valoraciones: solo avisa, como
+  `agenda:external-drop`— y hasta entonces la fila sale con su candado. **Se comprueba también en el
+  SERVIDOR** (`public_playlist_vote_save`): esconder los botones no basta.
+  ⚠️⚠️ **SE PUEDE HACER EN VARIAS VECES**: cada cosa se guarda AL MOMENTO, así que se puede dejar a
+  medias y **seguir donde se dejó** otro día (el estado de cada tema lo manda el servidor en
+  `saved` y la pantalla lo aplica al cargar). El enlace no caduca hasta que se ENVÍA.
+  · **La BARRA del 1 al 10** va del **rojo** de la casa (menos) al **azul** (más), que son los dos
+  colores de la marca. Al puntuar, **la lista se reordena**: la más votada, arriba.
+  ⚠️ Reordenar el DOM rompe el índice del reproductor: por eso `playlist.js` expone
+  **`root.plReindex()`**, que vuelve a leer las filas y busca por su id la que está sonando. Sin eso,
+  «siguiente» saltaría a otra canción.
+  · **EN QUÉ PUNTO ESTÁ CADA UNO** (`PLAYLIST_VOTER_STATES`, punto único `_playlist_voter_state`):
+  sin enviar · **pendiente** (no ha abierto el enlace) · lo ha abierto sin escuchar · **escuchando
+  (3 de 8)** · **escuchado, pendiente de decidir** · ya ha contestado · anulado. Se ve en la ficha y
+  en la pantalla de envío, con lo que lleva hecho («5 de 8 escuchadas · 3 puntuadas»).
+  ⚠️ `PlaylistVoter.opened_at` es lo que distingue «no lo ha visto» de «lo está escuchando».
+  · **FILTRO «Ver resultados incompletos»**: enseña además **lo que cada uno lleva hecho ahora
+  mismo**, marcado como parcial. Por defecto solo cuenta lo ENVIADO: una valoración a medias no
+  puede mover el orden de la lista.
+  · **DENTRO**: los temas **de más a menos votados**; al pinchar la nota sale el **desglose** de qué
+  ha puesto cada uno y al pinchar a una persona **su orden**, los dos **en un POP-UP**, sin salir.
+  · **En los TRES PUNTITOS de cada persona**: compartir por Email (se lo reenvía solo a él),
+  WhatsApp, SMS, copiar enlace, **resetear** y **anular**.
+  ⚠️⚠️ **RESETEAR borra su nota y su selección pero NO lo ESCUCHADO**: no hay por qué hacerle oír
+  todo otra vez (lo pidió así Dani). **ANULAR** deja su enlace sin valer, diciéndolo.
+  · **EL CORREO** (punto único `_playlist_vote_email_html`, el mismo que se manda y que se
+  previsualiza): logo de la empresa arriba a la **derecha** · «Selección y Valoración de temas»
+  centrado · el texto de lo que se pide, justificado · el **nombre de la playlist** centrado · el
+  **listado de los temas** como se ve en la playlist (cada uno es un enlace a ella) · y el botón
+  **Escuchar playlist**. **El RECORDATORIO es ESE MISMO correo** con el aviso del plazo delante
+  (`remind_days`), no un segundo diseño.
+  · **ASUNTO**: «Valoración y selección de \<playlist\> de \<artista\>» (`_playlist_vote_subject`;
+  el artista solo si todos los temas son del mismo).
+  · **RECORDATORIO**: `_playlist_vote_reminder_sweep`, colgado del **cron diario de documentos** —el
+  día ANTES del plazo y **una sola vez** (`reminded_at`): uno que insiste a diario deja de leerse—.
+  · Al terminar, **aviso por la app a quien la mandó** («X ya ha valorado …»).
+  ⚠️⚠️ **LA RUTA NO PUEDE SER `/enviar`**: eso ya lo tenía «compartir la playlist por correo»
+  (`playlist_send_email`) y dos reglas iguales se pisan —lo cazó `tools/check_botones.py`—. Van bajo
+  **`/valoracion/…`**.
+  ⚠️ Por lo demás **es una playlist normal**: se ordena, se le añaden o quitan temas, se le pone
+  portada y nota, sus interruptores de descarga/letra/autores… y lo que se cambie lo ven todos, que
+  la página de cada uno lee los temas EN VIVO.
+
+- ⚠️⚠️ **LOS BOTONES DEL DISPOSITIVO: pasar de canción desde el iPhone, CarPlay o los AirPods**
+  (sep 2026, **Media Session** en `playlist.js`). Escuchando una playlist —compartida o desde
+  dentro—, el móvil la trata como lo que es, MÚSICA: la **pantalla de bloqueo**, el **Centro de
+  control**, **CarPlay en el coche**, los botones del **volante**, el **reloj** y el **doble toque de
+  los AirPods** pueden **pasar de tema, retroceder, parar y seguir**, y enseñan el **título, el
+  artista y la portada**.
+  · `initPlayer` pone, al empezar cada tema: **`mediaSession.metadata`** (título · artista · «disco»
+  · carátula), los **mandos** (`play` · `pause` · `stop` · `nexttrack` · `previoustrack` ·
+  `seekbackward` · `seekforward` · `seekto`) y la **posición** (`setPositionState`, que es lo que
+  mueve la barra del coche). Al acabar la lista se suelta (`playbackState = 'none'`).
+  · **`previoustrack` se comporta como en cualquier reproductor**: si el tema lleva más de 3
+  segundos sonando vuelve a su principio, y solo si acaba de empezar salta al anterior.
+  ⚠️ Los datos NO se rascan del HTML: la fila los emite en **`data-pl-title` / `data-pl-artist` /
+  `data-pl-cover`** (`_playlist_row.html`) y el reproductor el «disco» en **`data-pl-album`**
+  (la playlist, «Maquetas», el repertorio de Syncros…). Una pantalla nueva con reproductor tiene que
+  emitirlos, o el coche enseñará el tema en blanco.
+  ⚠️ La CARÁTULA se declara con **varios tamaños** (256 y 512) apuntando a la misma imagen: sin
+  candidatos, algunos sitios (el reloj, el coche) no enseñan ninguna. Y va en **absoluto**.
+  ⚠️ Cada mando se registra **en su propio `try`**: uno que el navegador no conozca revienta
+  `setActionHandler` y se llevaría por delante a los demás. Donde no haya `mediaSession`, no pasa
+  nada.
+  Probado en el navegador con audio de verdad: siguiente · anterior · pausa · seguir · el paso
+  automático al acabar, y los metadatos siguiendo al tema.
+
+- ⚠️⚠️ **LO QUE SE DESCARGA LLEVA PUESTO DE QUIÉN ES** (sep 2026). Una canción o una maqueta que sale
+  de aquí lleva DENTRO sus metadatos: **título · artista · AUTORES · PRODUCTORES · disco · género ·
+  año · comentario · PORTADA**. Sin eso, en el ordenador de quien lo recibe queda un «pista 01» sin
+  dueño.
+  · Motor **`audio_tags.py`** (PURO: ni Flask ni BD ni ffmpeg) con su prueba de regresión
+  **`tools/check_audio_tags.py`**, que además **lee lo escrito con ffmpeg de verdad** — un lector
+  escrito por uno mismo puede estar de acuerdo con su propio error.
+  ⚠️⚠️ **NO SE RECODIFICA NADA**: en el **MP3** se le quita el ID3v2 que trajera y se le antepone el
+  nuestro (**ID3v2.3**, que es el que entienden Windows, iTunes y los coches), y en el **WAV** va un
+  `LIST/INFO` de RIFF. Son bytes DELANTE del audio: ni se toca el sonido ni se pierde calidad.
+  ⚠️ **La etiqueta anterior se QUITA**: si no, el archivo acaba con dos y cada programa lee una.
+  · Los AUTORES van en **TCOM** («compositor»), que es donde los enseñan iTunes y el coche; los
+  PRODUCTORES en **TXXX:PRODUCER** y en **IPLS**; y los dos, además, **en el comentario**, para el
+  reproductor que no lea los campos finos. En el WAV, `IWRI` (autores) e `IENG` (productores).
+  · En app.py: `_audio_tags_for_song` / `_audio_tags_for_demo` (reúnen los datos) + **`_audio_with_tags`**
+  (el punto único que las pone). Enganchado en los CUATRO caminos: la descarga de una **maqueta**
+  (`_demo_audio_download`, que es también la de una playlist), la de un **material de canción**
+  (`_song_material_download_payload`: la ficha, la playlist y el enlace público) y el MP3 que se le
+  manda a un **supervisor** (`public_sync_song_download`).
+  ⚠️ La **PORTADA solo se mete en el MP3** (un WAV no lleva carátula) y con tope de tamaño
+  (`AUDIO_TAG_COVER_MAX`): una imagen enorme convertiría un MP3 de 4 MB en uno de 20.
+  ⚠️ Es *best-effort*: si algo falla, **el archivo se descarga igual** sin etiquetas. Nunca se deja a
+  nadie sin su descarga por no poder ponerle el nombre.
+
+- ⚠️⚠️ **EL BOTÓN DE VOLVER NUNCA LLEVA A UN FORMULARIO** (sep 2026). Al crear algo, la pantalla
+  anterior del historial suele ser **el paso de crearlo** (una playlist recién creada deja detrás su
+  `?edit=1`), así que la flecha de volver te devolvía a rellenar el nombre y **daba la sensación de
+  que no se había creado nada**. El «volver inteligente» de `scripts.js` mira ahora si lo de atrás es
+  un formulario (punto único **`esFormulario(url)`**: los parámetros `edit`, `open_wizard`, `open`,
+  `configurar`, `ordenar`, `map_edit`, `crear`, `nuevo`, `wizard` **puestos**, o una ruta
+  `/nuevo|/crear|/editar|/alta|/wizard`) y, si lo es, **sigue el `href`** — que es la pantalla padre:
+  el LISTADO.
+  ⚠️ Solo cuenta si el parámetro está PUESTO: un `?edit=0` no es un formulario.
+  · Y para que tampoco falle el botón de atrás **DEL NAVEGADOR** (que no controlamos), el enlace que
+  SALE de un paso de formulario se marca con **`data-replace-history`** (hoy, «Ver la playlist»):
+  usa `location.replace`, así esa entrada no se queda en el historial.
+  Probado en el navegador: crear una playlist → «Ver la playlist» → Volver **lleva al listado**.
+
+- ⚠️⚠️ **UN `{% from %}` SIN `with context` NO VE LOS GLOBALES** (bug real, sep 2026, la misma trampa
+  que ya documentaba el pop-up de marketing): `_playlist_row.html` se importaba así en TRES pantallas,
+  con lo que `DEFAULT_COVER_URL` y `DEFAULT_AVATAR_URL` llegaban **vacíos** y las maquetas sin
+  portada salían con `<img src="">` — solo se salvaban porque el respaldo del navegador les ponía la
+  imagen después—. Ahora se importa **`with context`** y la imagen de «sin portada» la pone el
+  SERVIDOR, que es lo que hace falta para que también valga en el `data-pl-cover` que ve el coche.
 
 - ⚠️⚠️ **UN CLIC EN UN CONTROL DE LA FILA NO REPRODUCE NI PARA NADA** (bug real, ago 2026). En el
   listado de demos (y en una playlist) cada línea lleva **sus tres puntitos**, sus etiquetas y sus

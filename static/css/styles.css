@@ -2048,6 +2048,10 @@ div.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spaci
 }
 .ctask__fact { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
 .ctask__fact i { color: var(--brand-accent); opacity: .85; width: 1em; text-align: center; }
+/* Las CARAS que van dentro de un dato de la fila (p. ej. los productores a los que falta mandar
+   su contrato): pequeñas y en línea, delante del texto. */
+.ctask__face { width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
+               border: 1px solid var(--line-2); margin-right: -.35rem; }
 .ctask__go { margin-left: auto; color: var(--muted-2); flex-shrink: 0; }
 .ctask__tasks { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; padding-left: 2.4rem; }
 .ctask__noart {
@@ -4503,6 +4507,114 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .demo-author__opt:hover{ background:#f3f5f9; }
 .demo-author__opt img{ width:24px; height:24px; border-radius:50%; object-fit:cover; }
 .demo-author__pct{ max-width:5.5rem; }
+/* ===== PLAYLIST DE SELECCIÓN / VALORACIÓN =====
+   La barra del 1 al 10 va del ROJO de la casa (menos) al AZUL (más), que son los dos colores de la
+   marca: no hace falta inventar una escala nueva. */
+.pv-bar{ border:1px solid #e5e8ee; border-radius:14px; background:#fbfcfe; padding:.6rem .8rem; margin:.8rem 0; }
+.pv-bar__rule{ font-weight:700; color:var(--brand-primary); margin-bottom:.2rem; }
+.pv-bar__msg{ font-size:.9rem; color:#8a6d3b; }
+.pv-bar__msg.is-ok{ color:#198754; font-weight:600; }
+.pv-tools{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; }
+.pv-lock{ font-size:.78rem; color:#8a909a; }
+.pv-pickbtns{ display:inline-flex; gap:.3rem; }
+.pv-btn{ border:1px solid #e5e8ee; background:#fff; border-radius:999px; padding:.15rem .6rem;
+         font-size:.8rem; color:#374151; }
+.pv-btn--keep.is-on{ border-color:#198754; background:rgba(25,135,84,.1); color:#146c43; font-weight:700; }
+.pv-btn--drop.is-on{ border-color:var(--brand-primary); background:rgba(227,61,72,.08);
+                     color:var(--brand-primary); font-weight:700; }
+.pv-scores{ display:inline-flex; gap:2px; }
+.pv-score{ width:1.55rem; height:1.55rem; border-radius:6px; border:1px solid #e5e8ee; background:#fff;
+           font-size:.72rem; color:#8a909a; padding:0; line-height:1; }
+.pv-score:hover{ border-color:#cfd4dd; }
+/* El degradado rojo → azul, nota a nota. */
+.pv-score--1.is-on{ background:#e33d48; } .pv-score--2.is-on{ background:#d94a58; }
+.pv-score--3.is-on{ background:#cf5768; } .pv-score--4.is-on{ background:#c46478; }
+.pv-score--5.is-on{ background:#b07189; } .pv-score--6.is-on{ background:#957e99; }
+.pv-score--7.is-on{ background:#7a8ba9; } .pv-score--8.is-on{ background:#5c96b4; }
+.pv-score--9.is-on{ background:#3ca0bb; } .pv-score--10.is-on{ background:#007ca2; }
+.pv-score.is-on{ color:#fff; border-color:transparent; font-weight:700; }
+/* Lo descartado se APAGA (sigue ahí, pero se ve que está fuera). */
+.pl-row.is-dropped{ opacity:.45; }
+.pl-row.is-kept{ background:rgba(25,135,84,.05); }
+.pv-face{ width:28px; height:28px; border-radius:50%; object-fit:cover; border:1px solid #e5e8ee; flex:0 0 auto; }
+
+/* Lo elegido en el asistente y los resultados de dentro. */
+.pv-pick__box{ border:1px solid #e5e8ee; border-radius:12px; padding:.4rem; max-height:16rem; overflow:auto; background:#fff; }
+.pv-artist, .pv-song{ display:flex; align-items:center; gap:.5rem; width:100%; text-align:left; border:0;
+                      background:transparent; padding:.35rem .45rem; border-radius:8px; font-size:.88rem; }
+.pv-artist:hover, .pv-song:hover{ background:#f3f5f9; }
+.pv-artist img, .pv-song img{ width:30px; height:30px; border-radius:8px; object-fit:cover; flex:0 0 auto; }
+.pv-artist img{ border-radius:50%; }
+.pv-artist__ico{ width:30px; height:30px; border-radius:50%; background:#eef1f6; color:#8a909a;
+                 display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; }
+.pv-song.is-added{ opacity:.5; }
+.pv-song__main, .pv-row__main, .pv-res__main, .pv-dest__main{ min-width:0; flex:1 1 auto; }
+.pv-song__t, .pv-row__t, .pv-res__t{ display:block; font-weight:600; overflow:hidden;
+                                     text-overflow:ellipsis; white-space:nowrap; }
+.pv-song__a, .pv-row__a, .pv-res__a{ display:block; font-size:.78rem; color:#6b7280; }
+.pv-chosen{ display:flex; flex-direction:column; gap:.3rem; }
+.pv-row{ display:flex; align-items:center; gap:.5rem; border:1px solid #e5e8ee; border-radius:10px;
+         padding:.3rem .45rem; background:#fff; }
+.pv-row img{ width:34px; height:34px; border-radius:8px; object-fit:cover; flex:0 0 auto; }
+.pv-row__grip{ color:#c2c8d2; cursor:grab; }
+.pv-row.is-drag{ opacity:.5; }
+.pv-results{ display:flex; flex-direction:column; gap:.35rem; }
+.pv-res{ display:flex; align-items:center; gap:.55rem; border:1px solid #e5e8ee; border-radius:10px;
+         padding:.35rem .5rem; background:#fff; }
+.pv-res img{ width:38px; height:38px; border-radius:8px; object-fit:cover; flex:0 0 auto; }
+.pv-res__n{ width:1.4rem; text-align:center; font-weight:700; color:#8a909a; flex:0 0 auto; }
+.pv-res__avg{ border:0; background:var(--brand-accent); color:#fff; font-weight:700; border-radius:999px;
+              padding:.15rem .65rem; font-size:.9rem; flex:0 0 auto; }
+.pv-res__avg.is-empty{ background:#eef1f6; color:#8a909a; }
+.pv-vrow{ display:flex; align-items:center; gap:.5rem; padding:.35rem 0; border-bottom:1px solid #f1f3f7; }
+.pv-vrow__cover{ width:32px; height:32px; border-radius:7px; object-fit:cover; flex:0 0 auto; }
+.pv-vrow__score{ font-weight:700; color:var(--brand-accent); }
+.pv-dest{ display:flex; align-items:center; gap:.5rem; border:1px solid #e5e8ee; border-radius:10px;
+          padding:.3rem .45rem; background:#fff; margin-bottom:.3rem; }
+
+/* ===== PROYECTO · VARIOS PRODUCTORES =====
+   Una fila por productor (buscador + «+» + quitar) y, al subir el contrato, el listado con sus
+   fotos o logos para marcar a cuáles incluye. */
+.dp-prow{ display:flex; align-items:flex-start; gap:.35rem; margin-bottom:.35rem; }
+.dp-prodpick{ display:flex; flex-direction:column; gap:.35rem; }
+.dp-prodpick__item{
+  display:flex; align-items:center; gap:.5rem; margin:0; cursor:pointer;
+  border:1px solid #e5e8ee; border-radius:10px; padding:.35rem .6rem; background:#fff;
+}
+.dp-prodpick__item:hover{ border-color:#cfd4dd; }
+.dp-prodpick__item img{ width:28px; height:28px; border-radius:50%; object-fit:cover; flex:0 0 auto;
+                        border:1px solid #e5e8ee; }
+.dp-prodpick__name{ flex:1 1 auto; min-width:0; font-size:.9rem; }
+.dp-prodpick__item:has(input:checked){ border-color:var(--brand-primary); background:rgba(227,61,72,.05); }
+.dp-prodpick__item.is-done{ background:#f6f8fc; }
+
+/* ===== SUBIR VARIAS MAQUETAS DE UNA VEZ =====
+   Una FILA por archivo, en columna: el nombre del archivo a la izquierda y el hueco del título al
+   lado. Lo que se escribe se queda en ESA maqueta (cada fila lleva dentro sus ocultos). */
+.demo-tracks{ display:flex; flex-direction:column; gap:.4rem; }
+.demo-track{ border:1px solid #e5e8ee; border-radius:10px; padding:.4rem .5rem; background:#fbfcfe; }
+.demo-track__row{ display:flex; align-items:center; gap:.45rem; }
+.demo-track__icon{
+  width:26px; height:26px; flex:0 0 auto; border-radius:8px; background:#eef1f6; color:#8a909a;
+  display:inline-flex; align-items:center; justify-content:center; font-size:.75rem;
+}
+.demo-track__file{
+  flex:0 1 11rem; min-width:0; font-size:.78rem; color:#6b7280;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.demo-track__title{ flex:1 1 10rem; min-width:7rem; }
+.demo-track__state{ font-size:.9rem; width:1.2rem; text-align:center; flex:0 0 auto; }
+.demo-track__state.is-ok{ color:#198754; }
+.demo-track__state.is-bad{ color:var(--brand-primary); }
+.demo-track__bar{ height:5px; border-radius:99px; background:#e9edf3; margin-top:.35rem; overflow:hidden; }
+.demo-track__bar > span{ display:block; height:100%; width:0; background:var(--brand-primary); }
+.demo-track__warn{ font-size:.78rem; margin-top:.35rem; color:#8a6d3b; }
+.demo-track.is-bad{ border-color:var(--brand-primary); background:rgba(227,61,72,.05); }
+@media (max-width: 575.98px){
+  .demo-track__row{ flex-wrap:wrap; }
+  .demo-track__file{ flex:1 1 100%; }
+  .demo-track__title{ flex:1 1 100%; }
+}
 @media (max-width: 575.98px){
   .demo-row__body{ height:auto; }
   .demo-row__note{ padding-left:0; }

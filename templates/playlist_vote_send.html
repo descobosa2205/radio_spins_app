@@ -1,0 +1,104 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ═══════════════════════════════════════════════════════════════════════════
+   A QUIÉN SE LE MANDA una playlist de selección/valoración.
+   La misma pantalla que el resto de avisos de la casa: a la IZQUIERDA a quién y la nota, a la
+   DERECHA la PREVISUALIZACIÓN, que compone el SERVIDOR con el MISMO HTML que se manda (así no hay
+   dos versiones que se desparejen).
+   ⚠️ **Un enlace por persona**: es lo que permite saber quién ha votado qué.
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ back_url }}"
+     title="Volver a la playlist" aria-label="Volver a la playlist"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+  <h5 class="m-0"><i class="fa fa-paper-plane me-2 text-danger"></i>{{ kind_label }} · {{ pl_row.name }}</h5>
+  <span class="badge text-bg-light border">{{ vote_mode_label }}</span>
+  {% if playlist.pick_count %}
+    <span class="badge text-bg-warning text-dark">Seleccionan {{ playlist.pick_count }}</span>
+  {% endif %}
+</div>
+
+<div class="row g-3" data-pvsend
+     data-preview-url="{{ url_for('playlist_vote_preview', playlist_id=playlist.id) }}"
+     data-send-url="{{ url_for('playlist_vote_send', playlist_id=playlist.id) }}"
+     data-search-url="{{ url_for('buyers_campaign_contacts') }}"
+     data-create-url="{{ url_for('api_create_promoter') }}"
+     data-done-url="{{ back_url }}">
+
+  {# ---------- A QUIÉN ---------- #}
+  <div class="col-12 col-lg-5">
+    <div class="card mb-3">
+      <div class="card-header fw-semibold"><i class="fa fa-users me-2 text-muted"></i>¿A quién se lo mandamos?</div>
+      <div class="card-body">
+        {# ⚠️ Barra de búsqueda con resultados EN VIVO y con foto (terceros, personal y artistas),
+           no un desplegable; y el «+» para crear un tercero sobre la marcha. #}
+        <div class="demo-author__search mb-2">
+          <div class="input-group">
+            <input class="form-control" data-pvsend-q autocomplete="off"
+                   placeholder="Busca por nombre en terceros, personal o artistas…">
+            <button class="btn btn-outline-secondary" type="button" data-pvsend-new
+                    title="Crear el tercero con lo escrito"><i class="fa fa-plus"></i></button>
+          </div>
+          <div class="demo-author__list d-none" data-pvsend-list></div>
+        </div>
+        <div data-pvsend-picked></div>
+        <div class="form-text" data-pvsend-empty>Todavía no has elegido a nadie.</div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header fw-semibold"><i class="fa fa-note-sticky me-2 text-muted"></i>Nota</div>
+      <div class="card-body">
+        <textarea class="form-control" rows="3" data-pvsend-note
+                  placeholder="Lo que quieras contarles (opcional)">{{ playlist.vote_note or '' }}</textarea>
+        <label class="form-label mt-3">Plazo máximo</label>
+        <input class="form-control" type="date" data-pvsend-due
+               value="{{ playlist.vote_due_date.isoformat() if playlist.vote_due_date else '' }}">
+        <div class="form-text">El día antes se les manda un recordatorio.</div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-end gap-2">
+      <button class="btn btn-danger" type="button" data-pvsend-send>
+        <i class="fa fa-paper-plane me-1"></i>Enviar</button>
+    </div>
+    <div class="alert alert-warning mt-3 d-none" data-pvsend-error></div>
+  </div>
+
+  {# ---------- LA PREVISUALIZACIÓN ---------- #}
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+        <span class="fw-semibold"><i class="fa fa-envelope me-2 text-muted"></i>Así lo van a recibir</span>
+        <span class="small text-muted" data-pvsend-subject>{{ subject }}</span>
+      </div>
+      <div class="card-body bg-body-tertiary">
+        <div class="bg-white rounded-3 p-3" data-pvsend-preview>
+          <div class="text-muted small">Cargando…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if voters %}
+  {# LOS QUE YA LO TIENEN: en qué punto está cada uno. #}
+  <div class="card mt-3">
+    <div class="card-header fw-semibold"><i class="fa fa-list-check me-2 text-muted"></i>Ya se les ha mandado</div>
+    <div class="list-group list-group-flush">
+      {% for v in voters %}
+        <div class="list-group-item d-flex align-items-center gap-2 flex-wrap">
+          <img class="pv-face" src="{{ v.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+          <span class="fw-semibold">{{ v.name }}</span>
+          <span class="badge text-bg-{{ v.state_color }}"><i class="fa {{ v.state_icon }} me-1"></i>{{ v.state_label }}</span>
+          {% if v.progress_label %}<span class="small text-muted">{{ v.progress_label }}</span>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/playlist_vote_send.js', v=ASSET_V) }}"></script>
+{% endblock %}

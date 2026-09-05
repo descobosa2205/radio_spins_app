@@ -15,9 +15,15 @@
    lee el navegador; solo dentro del back office). #}
 
 {# La LÍNEA de cada tema es el mismo punto único que usa el listado de demos. #}
-{% from '_playlist_row.html' import pl_row %}
+{# ⚠️⚠️ `with context`: sin él la macro NO ve los globales (`DEFAULT_COVER_URL`,
+   `DEFAULT_AVATAR_URL`), así que las maquetas sin portada salían con `src=""` — un hueco que solo
+   salvaba el respaldo del navegador— en vez de con la imagen de «sin portada». #}
+{% from '_playlist_row.html' import pl_row with context %}
 
+{# ⚠️ `data-pl-album`: es lo que el coche (CarPlay) y la pantalla de bloqueo enseñan debajo del
+   tema. En una maqueta compartida, «Maqueta»; en una playlist, su nombre. #}
 <div class="pl-sheet" data-playlist-player
+     data-pl-album="{{ 'Maqueta' if demo_share else pl.name }}"
      {% if duration_save_base %}data-duration-base="{{ duration_save_base }}"{% endif %}>
 
   {# ⚠️ El LOGO de la empresa del grupo solo cuando la playlist SALE DE CASA: en el enlace público y en
@@ -32,9 +38,9 @@
      Los BOTONES van en esta misma línea, a la derecha (solo dentro del back office: en el enlace
      público `playlist_actions` no está puesto y no se pinta ninguno). #}
   <div class="pl-head">
-    {% if pl.cover_url %}
-      <img class="pl-head__cover" src="{{ pl.cover_url }}" alt="{{ pl.name }}" data-cover>
-    {% endif %}
+    {# ⚠️ SIEMPRE se pinta la portada: sin ella (una maqueta que no la tiene) va la imagen de «sin
+       portada», la misma del repertorio — no un hueco vacío. #}
+    <img class="pl-head__cover" src="{{ pl.cover_url or DEFAULT_COVER_URL }}" alt="{{ pl.name }}" data-cover>
     <div class="pl-head__main">
       <div class="pl-head__eyebrow">Playlist</div>
       <h1 class="pl-head__title">{{ pl.name }}</h1>

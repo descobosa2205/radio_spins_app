@@ -17,6 +17,13 @@
      title="Volver a las playlists" aria-label="Volver a las playlists"><i class="fa fa-arrow-left"></i></a>
 </div>
 
+{# LO VOTADO, cuando la playlist es de SELECCIÓN/VALORACIÓN: los temas de más a menos votados,
+   quién ha contestado y en qué punto está cada uno. #}
+{% if vote and not edit_mode %}{% include '_playlist_vote_panel.html' %}{% endif %}
+{% if vote and not edit_mode %}
+  <script src="{{ url_for('static', filename='js/playlist_vote.js', v=ASSET_V) }}"></script>
+{% endif %}
+
 {% if edit_mode %}
   {# ============ MODO EDICIÓN ============
      Va dentro de la MISMA hoja (`pl-sheet`) que la vista, para que se edite con el aspecto con el que

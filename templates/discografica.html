@@ -1125,7 +1125,10 @@
 
      Primero se eligen los ARTISTAS con maquetas —con «Sin artista» como primera opción, y solo si de
      verdad hay maquetas sin artista— y al entrar en uno se ven las suyas. #}
-  {% from '_playlist_row.html' import pl_row %}
+  {# ⚠️⚠️ `with context`: sin él la macro NO ve los globales (`DEFAULT_COVER_URL`,
+   `DEFAULT_AVATAR_URL`), así que las maquetas sin portada salían con `src=""` — un hueco que solo
+   salvaba el respaldo del navegador— en vez de con la imagen de «sin portada». #}
+{% from '_playlist_row.html' import pl_row with context %}
   {% set d = demos_ctx or {'rows': [], 'groups': [], 'subject': None} %}
 
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -1204,7 +1207,7 @@
 
     {% if d.rows %}
       <div class="pl-sheet">
-        <ol class="pl-list" data-playlist-player>
+        <ol class="pl-list" data-playlist-player data-pl-album="Maquetas">
           {% for row in d.rows %}
             {# Las etiquetas de la demo (valoración, repertorio y la «i» con quién y cuándo) y sus tres
                puntitos se montan aquí y se le pasan a la fila compartida. #}
@@ -1674,6 +1677,33 @@
         var quitarBox = form.querySelector('[data-demo-cover-remove-box]');
         if (quitarBox) quitarBox.classList.add('d-none');
         var filas = form.querySelector('[data-demo-author-rows]'); if (filas) filas.innerHTML = '';
+        var prods = form.querySelector('[data-demo-producer-rows]'); if (prods) prods.innerHTML = '';
+        // Las filas de las maquetas que se estaban subiendo (una por archivo).
+        var pistas = form.querySelector('[data-demo-list]');
+        if (pistas) { pistas.innerHTML = ''; pistas.classList.add('d-none'); }
+      }
+
+      /* El hueco COMÚN del título solo se ve cuando no hay filas (con varias maquetas, el nombre va
+         en cada fila). ⚠️ Además se DESHABILITA: oculto y obligatorio bloquearía el guardado. */
+      function modoTitulo(hayFilas) {
+        var card = form.querySelector('[data-demo-title-card]');
+        var campo = form.querySelector('[data-demo-title]');
+        if (card) card.classList.toggle('d-none', !!hayFilas);
+        if (campo) campo.disabled = !!hayFilas;
+      }
+
+      function pintaProductores(lista) {
+        var filas = form.querySelector('[data-demo-producer-rows]');
+        var tpl = form.querySelector('[data-demo-producer-tpl]');
+        if (!filas || !tpl) return;
+        filas.innerHTML = '';
+        (lista || []).forEach(function (p) {
+          var nodo = tpl.content.firstElementChild.cloneNode(true);
+          nodo.querySelector('[data-demo-producer-name]').value = p.name || '';
+          nodo.querySelector('[data-demo-producer-hidden]').value = p.name || '';
+          nodo.querySelector('[data-demo-producer-id]').value = p.promoter_id || '';
+          filas.appendChild(nodo);
+        });
       }
 
       function pintaAutores(lista) {
@@ -1701,11 +1731,18 @@
         var editar = ev.target.closest('[data-demo-edit]');
         if (!nuevo && !editar) return;
         limpia();
+        var elAudio = form.querySelector('[data-demo-audio]');
         if (nuevo) {
           form.action = CREAR;
-          document.getElementById('demoModalTitle').innerHTML = '<i class="fa fa-music me-2"></i>Nueva demo';
+          // ⚠️ AL AÑADIR se pueden subir VARIAS de una vez; EDITANDO solo hay una.
+          if (elAudio) elAudio.multiple = true;
+          modoTitulo(false);
+          document.getElementById('demoModalTitle').innerHTML =
+            '<i class="fa fa-music me-2"></i>Nuevas demos';
           return;
         }
+        if (elAudio) elAudio.multiple = false;
+        modoTitulo(false);
         var d = {};
         try { d = JSON.parse(editar.getAttribute('data-demo') || '{}'); } catch (e) {}
         form.action = EDITAR.replace('DID', editar.getAttribute('data-demo-edit'));
@@ -1726,6 +1763,7 @@
         var quitarBox = form.querySelector('[data-demo-cover-remove-box]');
         if (quitarBox) quitarBox.classList.toggle('d-none', !d.cover_url);
         pintaAutores(d.authors || []);
+        pintaProductores(d.producers || []);
       });
     })();
   </script>
@@ -1740,9 +1778,17 @@
       <span class="badge text-bg-light border">{{ (playlist_rows or [])|length }}</span>
     </div>
     {% if CAN_EDIT_DISCOGRAFICA %}
-      <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#playlistNewModal">
-        <i class="fa fa-plus me-1"></i>Playlist
-      </button>
+      <div class="d-flex gap-2 flex-wrap">
+        {# ⚠️ A la IZQUIERDA: una playlist de SELECCIÓN se manda para que decidan (puntúen, elijan o
+           las dos cosas), no solo para escucharla. #}
+        <button class="btn btn-outline-danger btn-sm" type="button"
+                data-bs-toggle="modal" data-bs-target="#playlistVoteModal">
+          <i class="fa fa-plus me-1"></i>Playlist selección
+        </button>
+        <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#playlistNewModal">
+          <i class="fa fa-plus me-1"></i>Playlist
+        </button>
+      </div>
     {% endif %}
   </div>
 
@@ -1760,6 +1806,11 @@
                 {%- if row.created_at_label %} · creada el {{ row.created_at_label }}{% if row.created_by_nick %} por {{ row.created_by_nick }}{% endif %}{% endif %}
               </span>
             </span>
+            {# Si es de SELECCIÓN/VALORACIÓN se dice, con cuántos han contestado ya. #}
+            {% if row.vote_label %}
+              <span class="badge text-bg-warning text-dark" title="{{ row.vote_hint }}">
+                <i class="fa {{ row.vote_icon }} me-1"></i>{{ row.vote_label }}</span>
+            {% endif %}
             {# El icono dice si esa playlist se puede descargar o no. #}
             {% if row.allow_download %}
               <span class="badge text-bg-success" title="Se puede descargar"><i class="fa fa-download"></i></span>
@@ -1816,6 +1867,7 @@
         </form>
       </div>
     </div>
+    {% include '_playlist_vote_wizard.html' %}
   {% endif %}
 
 {% elif section == 'proyectos' %}

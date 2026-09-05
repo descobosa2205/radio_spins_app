@@ -1,0 +1,107 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   ASISTENTE · PLAYLIST DE SELECCIÓN / VALORACIÓN
+
+   Una playlist normal se manda para ESCUCHARLA; esta se manda para que **decidan**. Tres pasos:
+     1) el NOMBRE
+     2) los TEMAS (el mismo buscador que el editor: demos y repertorio, por artista)
+     3) la DINÁMICA (con su icono) y, si hay selección, CUÁNTAS y el PLAZO
+
+   Al terminar se va a la pantalla de **a quién se le manda**, con la previsualización al lado.
+   ⚠️ Cada asistente CARGA SU MOTOR (`step_wizard.js`): sin él el modal se abre EN BLANCO y no avanza,
+   y no salta ningún error (bug real del asistente de proyectos).
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div class="modal fade" id="playlistVoteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('playlist_vote_create') }}"
+          data-step-wizard data-autosave="playlist-seleccion"
+          data-autosave-title="la playlist de selección"
+          data-picker-url="{{ url_for('playlist_picker_open') }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-star-half-stroke me-2 text-danger"></i>Nueva playlist de selección</h5>
+          <div class="small text-muted">Para que quien la reciba escuche y decida.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="sw-progress mb-3" data-sw-progress></div>
+
+        {# ---------- 1 · EL NOMBRE ---------- #}
+        <section class="sw-step" data-step="1" data-title="Nombre">
+          <label class="form-label">¿Cómo se llama?</label>
+          <input class="form-control form-control-lg" name="name" required autocomplete="off"
+                 placeholder="Cómo se llama la playlist">
+          <div class="form-text">Es lo que verá quien la reciba.</div>
+        </section>
+
+        {# ---------- 2 · LOS TEMAS ---------- #}
+        <section class="sw-step" data-step="2" data-title="Temas">
+          <label class="form-label">¿Qué temas lleva?</label>
+          <div class="pv-pick" data-pv-picker>
+            <div class="d-flex gap-2 flex-wrap mb-2">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-pv-source="repertorio">
+                <i class="fa fa-music me-1"></i>Del repertorio</button>
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-pv-source="demos">
+                <i class="fa fa-compact-disc me-1"></i>De las maquetas</button>
+              <button class="btn btn-sm btn-link d-none" type="button" data-pv-back>
+                <i class="fa fa-arrow-left me-1"></i>Volver</button>
+            </div>
+            <div class="pv-pick__box" data-pv-list>
+              <div class="text-muted small">Elige de dónde: del repertorio o de las maquetas.</div>
+            </div>
+          </div>
+          <div class="fw-semibold small mt-3 mb-1">
+            Elegidos <span class="badge text-bg-light border" data-pv-count>0</span>
+          </div>
+          {# Lo elegido, en columna y arrastrable: el orden del DOM es el orden de la playlist. #}
+          <div class="pv-chosen" data-pv-chosen></div>
+          <input type="hidden" name="wz_items" data-pv-items value="[]">
+        </section>
+
+        {# ---------- 3 · LA DINÁMICA ---------- #}
+        <section class="sw-step" data-step="3" data-title="Dinámica">
+          <label class="form-label">¿Qué tienen que hacer los que la reciban?</label>
+          <div class="row g-2">
+            {% for key, label, icon, ayuda in playlist_vote_modes %}
+              <div class="col-12 col-md-4">
+                <label class="promo-pick h-100">
+                  <input type="radio" name="vote_mode" value="{{ key }}" required
+                         {% if loop.first %}checked{% endif %}>
+                  <i class="fa {{ icon }}"></i>
+                  <span class="promo-pick__t">{{ label }}</span>
+                  <span class="promo-pick__d">{{ ayuda }}</span>
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+
+          {# CUÁNTAS hay que seleccionar: solo cuando la dinámica lo lleva. #}
+          <div class="row g-3 mt-2 d-none" data-pv-when-pick>
+            <div class="col-12 col-md-4">
+              <label class="form-label">¿Cuántas hay que seleccionar?</label>
+              <input class="form-control" type="number" min="1" step="1" name="pick_count"
+                     placeholder="Ej. 5">
+            </div>
+          </div>
+          <div class="row g-3 mt-1">
+            <div class="col-12 col-md-4">
+              <label class="form-label">Plazo máximo <span class="text-muted small">(opcional)</span></label>
+              <input class="form-control" type="date" name="due_date">
+              <div class="form-text">El día antes se les manda un recordatorio.</div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-sw-prev>Atrás</button>
+        <button type="button" class="btn btn-danger" data-sw-next>Siguiente</button>
+        <button class="btn btn-danger" data-sw-submit>
+          <i class="fa fa-arrow-right me-1"></i>Continuar: a quién se le manda</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/playlist_vote.js', v=ASSET_V) }}"></script>

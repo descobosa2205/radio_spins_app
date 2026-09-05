@@ -94,7 +94,8 @@
         <h2 class="h5 mb-0">{% if view == 'onestop' %}<i class="fa-solid fa-clapperboard me-1 text-muted"></i>{% endif %}{{ selected }}</h2>
         <span class="text-muted small ms-2">{{ total }} {{ t.song_one if total == 1 else t.songs }}</span>
       </div>
-      <ul class="pl-list rep-list list-unstyled mb-0" data-playlist-player>
+      <ul class="pl-list rep-list list-unstyled mb-0" data-playlist-player
+          data-pl-album="Repertorio para sincronizaciones">
         {% import '_sync_song_row.html' as syncrow with context %}
         {% for row in rows %}{{ syncrow.sync_row(row) }}{% endfor %}
       </ul>

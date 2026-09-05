@@ -211,8 +211,26 @@
         <div class="metric"><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
         <div class="metric"><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
         {% if CAN_VIEW_ECON %}
-          <div class="metric"><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ (gross_map.get(c.id, 0) or 0)|eur }}</div></div>
-          <div class="metric"><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ (net_map.get(c.id, 0) or 0)|eur }}</div></div>
+          {# ⚠️ En lo que vendemos NOSOTROS con Enterticket, la recaudación neta es la de verdad:
+             el bruto SIN el IVA (10%) ni la SGAE (7,6%). Y se enseñan los ingresos totales y los
+             gastos de distribución, como en el resumen de la ticketera. Sale del punto único
+             `_et_revenue_breakdown`, el mismo que la pestaña de Ticketing. #}
+          {% set _m = (et_map[c.id].money if (et_map is defined and et_map.get(c.id)) else None) %}
+          {% if _m and _m.sold %}
+            <div class="metric"><small class="text-muted d-block">Recaudación bruta base</small><div class="fw-semibold">{{ _m.gross_base|eur }}</div></div>
+            <div class="metric" title="Sin el IVA ({{ _m.vat_pct }}%) ni la SGAE ({{ _m.sgae_pct }}%)">
+              <small class="text-muted d-block">Recaudación neta base</small>
+              <div class="fw-semibold text-success">{{ _m.net_base|eur }}</div></div>
+            <div class="metric" title="Precio base + gastos de distribución">
+              <small class="text-muted d-block">Ingresos totales</small>
+              <div class="fw-semibold">{{ _m.income_total|eur }}</div></div>
+            <div class="metric" title="Los gastos de distribución menos la ticketera ({{ _m.ticketer_unit|eur }} por entrada) y la pasarela ({{ _m.gateway_pct }}%)">
+              <small class="text-muted d-block">Gastos distribución</small>
+              <div class="fw-semibold {{ 'text-danger' if _m.gd_net < 0 else '' }}">{{ _m.gd_net|eur }}</div></div>
+          {% else %}
+            <div class="metric"><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ (gross_map.get(c.id, 0) or 0)|eur }}</div></div>
+            <div class="metric"><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ (net_map.get(c.id, 0) or 0)|eur }}</div></div>
+          {% endif %}
           {% if (c.ticketers|selectattr('rebate_mode')|list|length) > 0 %}
           <div class="metric"><small class="text-muted d-block">Rebate neto</small><div class="fw-semibold">{{ (rebate_net_map.get(c.id, 0) or 0)|eur }}</div></div>
           {% endif %}

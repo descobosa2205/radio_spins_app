@@ -59999,6 +59999,10 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
                         "date": _last_local.strftime("%d/%m/%Y") if _last_local else "",
                         "is_today": bool(_last_local and _last_local.date() == today_local()),
                         "synced": bool(_ev.last_synced_at),
+                        # EL RESUMEN DE VENTAS de ese evento (neta sin IVA ni SGAE, y el reparto de
+                        # los gastos de distribución). Punto único: el mismo que la pestaña de
+                        # Ticketing, así que no pueden decir cosas distintas.
+                        "money": _et_revenue_breakdown(session, _ev),
                     }
                     if _ev.last_synced_at:
                         et_stamp = max(et_stamp, int(_ev.last_synced_at.timestamp()))
@@ -134032,6 +134036,95 @@ def _et_valid_sales_filter(q, ev):
                     EnterticketSale.refunded.is_(False))
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#  LO QUE DE VERDAD SE INGRESA POR LAS ENTRADAS (eventos sincronizados con Enterticket)
+#
+#  De lo que paga el comprador no nos queda todo: hay que quitar el IVA, la SGAE y lo que se llevan
+#  la ticketera y la pasarela de pago. Este es el punto ÚNICO que lo calcula, y de él beben la
+#  pestaña de Ticketing y el reporte de ventas, así que no pueden decir cosas distintas.
+#
+#  LO QUE PAGA EL COMPRADOR = PRECIO BASE + GASTOS DE DISTRIBUCIÓN (lo que Enterticket llama GD).
+#    · `EnterticketSale.price` = precio base · `fees` = gastos de distribución · `total` = los dos.
+#
+#  DE LA RECAUDACIÓN (el precio base):
+#    IVA (10%)  = bruta − (bruta / 1,1)
+#    SGAE (7,6%) = (bruta − IVA) × 7,6%
+#    NETA       = bruta − IVA − SGAE
+#    (con 420,00 € → IVA 38,18 · SGAE 29,02 · neta 352,80)
+#
+#  DE LOS GASTOS DE DISTRIBUCIÓN, lo que nos queda:
+#    GD nuestro = GD − (0,50 € + IVA = 0,61 €) × entradas − (0,35% + IVA = 0,42%) de lo cobrado
+#
+#  ⚠️ La comisión de la ticketera y la de la pasarela se aplican SOLO a las ventas que llevan
+#  gastos de distribución (las de taquilla o RRPP no los llevan): restárselas a todas dejaría el
+#  GD en negativo por unas ventas que nunca pasaron por ahí.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+ET_VAT_PCT = Decimal("10")            # IVA de la entrada
+ET_SGAE_PCT = Decimal("7.6")          # derechos de autor, sobre la base ya sin IVA
+ET_TICKETER_FEE = Decimal("0.61")     # 0,50 € + IVA, por entrada vendida con gastos de distribución
+ET_GATEWAY_PCT = Decimal("0.42")      # 0,35% + IVA, sobre lo que pasa por la pasarela de pago
+
+
+def _et_net_from_gross(bruta: Decimal) -> dict:
+    """De la recaudación BRUTA base a la NETA: se quitan el IVA (10%) y la SGAE (7,6%)."""
+    bruta = _et_money(bruta)
+    if bruta <= 0:
+        return {"gross": Decimal("0"), "vat": Decimal("0"), "sgae": Decimal("0"),
+                "net": Decimal("0")}
+    iva = _et_money(bruta - (bruta / (Decimal("1") + ET_VAT_PCT / Decimal("100"))))
+    sgae = _et_money((bruta - iva) * ET_SGAE_PCT / Decimal("100"))
+    return {"gross": bruta, "vat": iva, "sgae": sgae, "net": _et_money(bruta - iva - sgae)}
+
+
+def _et_revenue_breakdown(session_db, ev) -> dict:
+    """EL RESUMEN DE VENTAS de un evento de Enterticket, con todo lo que hay que descontar.
+
+    Devuelve, en euros: la recaudación bruta base y su neta (sin IVA ni SGAE), los ingresos totales
+    (base + gastos de distribución), el precio base, los gastos de distribución brutos y lo que nos
+    queda de ellos tras la ticketera y la pasarela."""
+    if ev is None:
+        return {}
+    fila = (_et_valid_sales_filter(session_db.query(
+                func.coalesce(func.sum(EnterticketSale.price), 0).label("base"),
+                func.coalesce(func.sum(EnterticketSale.fees), 0).label("gd"),
+                func.count().label("n")), ev)
+            .filter(EnterticketSale.is_invitation.is_(False)).first())
+    base = _et_money(getattr(fila, "base", 0))
+    gd = _et_money(getattr(fila, "gd", 0))
+    vendidas = int(getattr(fila, "n", 0) or 0)
+    # Las entradas que SÍ llevan gastos de distribución (las de taquilla no): son las únicas a las
+    # que se les descuenta la comisión de la ticketera y la de la pasarela.
+    con_gd = int(_et_valid_sales_filter(session_db.query(func.count()), ev)
+                 .filter(EnterticketSale.is_invitation.is_(False),
+                         EnterticketSale.fees > 0).scalar() or 0)
+    cobrado_con_gd = _et_money(
+        _et_valid_sales_filter(session_db.query(func.coalesce(func.sum(EnterticketSale.total), 0)), ev)
+        .filter(EnterticketSale.is_invitation.is_(False), EnterticketSale.fees > 0).scalar())
+    neto = _et_net_from_gross(base)
+    ticketera = _et_money(ET_TICKETER_FEE * con_gd)
+    pasarela = _et_money(cobrado_con_gd * ET_GATEWAY_PCT / Decimal("100"))
+    gd_neto = _et_money(gd - ticketera - pasarela)
+    return {
+        "sold": vendidas,
+        "with_gd": con_gd,
+        # Recaudación (el precio de la entrada)
+        "gross_base": neto["gross"], "vat": neto["vat"], "sgae": neto["sgae"],
+        "net_base": neto["net"],
+        # Resumen de ventas, como lo da la ticketera
+        "income_total": _et_money(base + gd),
+        "base_price": base,
+        "gd_total": gd,
+        "ticketer_fee": ticketera,
+        "gateway_fee": pasarela,
+        "gd_net": gd_neto,
+        # Lo que de verdad queda: la recaudación neta más lo que nos quede de los gastos.
+        "net_income": _et_money(neto["net"] + gd_neto),
+        "vat_pct": ET_VAT_PCT, "sgae_pct": ET_SGAE_PCT,
+        "ticketer_unit": ET_TICKETER_FEE, "gateway_pct": ET_GATEWAY_PCT,
+    }
+
+
 def _et_ticketing_context(s, ev: EnterticketEvent) -> dict:
     """Informe de venta del evento para la pestaña Ticketing: KPIs, tipos con barra de estado,
     vendidas hoy, recaudación, invitaciones por concepto y serie diaria."""
@@ -134095,6 +134188,9 @@ def _et_ticketing_context(s, ev: EnterticketEvent) -> dict:
         "capacity_on_sale": ev.capacity_on_sale or total_on_sale,
         "series": series,
         "last_synced_label": _et_fmt_dt(ev.last_synced_at),
+        # LO QUE DE VERDAD SE INGRESA: la neta (sin IVA ni SGAE) y el reparto de los gastos de
+        # distribución. Punto único `_et_revenue_breakdown`.
+        "money": _et_revenue_breakdown(s, ev),
     }
 
 

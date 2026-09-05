@@ -35,12 +35,81 @@
     <div class="sim-stat"><div class="sim-stat__n text-success" id="et-kpi-sold">{{ et_ctx.total_sold|k }}</div><div class="sim-stat__l">Vendidas (<span id="et-kpi-pct">{{ et_ctx.pct_total }}</span>%)</div></div>
     <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-available">{{ et_ctx.total_available|k }}</div><div class="sim-stat__l">Disponibles</div></div>
     <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if et_ctx.sold_today else '' }}" id="et-kpi-today">{{ et_ctx.sold_today|k }}</div><div class="sim-stat__l">Vendidas hoy</div></div>
-    <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-revenue">{{ et_ctx.total_revenue|eur }}</div><div class="sim-stat__l">Recaudación</div></div>
+    <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-revenue">{{ et_ctx.total_revenue|eur }}</div><div class="sim-stat__l">Recaudación bruta</div></div>
+    {% if et_ctx.money %}
+      <div class="sim-stat" title="La recaudación sin el IVA (10%) ni la SGAE (7,6%)">
+        <div class="sim-stat__n text-success">{{ et_ctx.money.net_base|eur }}</div>
+        <div class="sim-stat__l">Recaudación neta</div></div>
+    {% endif %}
     <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-inv">{{ et_ctx.invitations_total|k }}</div><div class="sim-stat__l">Invitaciones</div></div>
     <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-blocked">{{ et_ctx.blocked_count|k }}</div><div class="sim-stat__l">Bloqueadas</div></div>
     {% if concert.capacity and not concert.no_capacity %}<div class="sim-stat"><div class="sim-stat__n">{{ concert.capacity|k }}</div><div class="sim-stat__l">Aforo total</div></div>{% endif %}
   </div>
   <div class="et-bar mb-3" title="Estado global de la venta"><div class="et-bar__fill {{ 'full' if et_ctx.pct_total >= 100 else ('hot' if et_ctx.pct_total >= 85 else '') }}" id="et-bar-total" style="width:{{ [et_ctx.pct_total, 100]|min }}%"></div></div>
+
+  {# ══════════════ RESUMEN DE VENTAS ══════════════
+     Lo que paga el comprador es el PRECIO BASE + los GASTOS DE DISTRIBUCIÓN, y de ahí hay que
+     quitar el IVA, la SGAE y lo que se llevan la ticketera y la pasarela. Sale del punto único
+     `_et_revenue_breakdown`, el mismo que usa el reporte de ventas. #}
+  {% if et_ctx.money and et_ctx.money.sold %}
+    {% set m = et_ctx.money %}
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="fa fa-coins text-danger"></i><strong>Resumen de ventas</strong>
+        <span class="small text-muted ms-auto">{{ m.sold|k }} entradas vendidas</span>
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          {# LA RECAUDACIÓN (el precio de la entrada) #}
+          <div class="col-12 col-lg-6">
+            <div class="small text-muted mb-1"><i class="fa fa-ticket me-1"></i>Recaudación</div>
+            <table class="table table-sm mb-0">
+              <tbody>
+                <tr><td>Recaudación bruta base</td>
+                    <td class="text-end fw-semibold">{{ m.gross_base|eur }}</td></tr>
+                <tr><td class="text-muted">− IVA ({{ m.vat_pct }}%)</td>
+                    <td class="text-end text-muted">−{{ m.vat|eur }}</td></tr>
+                <tr><td class="text-muted">− SGAE ({{ m.sgae_pct }}%)</td>
+                    <td class="text-end text-muted">−{{ m.sgae|eur }}</td></tr>
+                <tr class="table-light"><td class="fw-semibold">Recaudación neta base</td>
+                    <td class="text-end fw-semibold text-success">{{ m.net_base|eur }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          {# LOS GASTOS DE DISTRIBUCIÓN (lo que Enterticket llama GD) #}
+          <div class="col-12 col-lg-6">
+            <div class="small text-muted mb-1"><i class="fa fa-receipt me-1"></i>Ingresos y gastos de distribución</div>
+            <table class="table table-sm mb-0">
+              <tbody>
+                <tr><td>Ingresos totales</td>
+                    <td class="text-end fw-semibold">{{ m.income_total|eur }}</td></tr>
+                <tr><td class="text-muted">Precio base</td>
+                    <td class="text-end text-muted">{{ m.base_price|eur }}</td></tr>
+                <tr><td class="text-muted">Gastos de distribución (GD)</td>
+                    <td class="text-end text-muted">{{ m.gd_total|eur }}</td></tr>
+                <tr><td class="text-muted ps-3">− ticketera ({{ m.ticketer_unit|eur }} × {{ m.with_gd|k }})</td>
+                    <td class="text-end text-muted">−{{ m.ticketer_fee|eur }}</td></tr>
+                <tr><td class="text-muted ps-3">− pasarela de pago ({{ m.gateway_pct }}%)</td>
+                    <td class="text-end text-muted">−{{ m.gateway_fee|eur }}</td></tr>
+                <tr class="table-light"><td class="fw-semibold">Gastos de distribución netos</td>
+                    <td class="text-end fw-semibold {{ 'text-danger' if m.gd_net < 0 else 'text-success' }}">{{ m.gd_net|eur }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="d-flex justify-content-end align-items-center gap-2 mt-2 pt-2 border-top">
+          <span class="text-muted">Lo que queda (neta + gastos de distribución netos):</span>
+          <span class="fs-5 fw-semibold text-success">{{ m.net_income|eur }}</span>
+        </div>
+        {% if m.gd_net < 0 %}
+          <div class="alert alert-warning mt-2 mb-0 small">
+            Los gastos de distribución salen en negativo: lo que cobra la ticketera por entrada
+            ({{ m.ticketer_unit|eur }}) es más de lo que se está cobrando de gastos.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
 
   <ul class="nav nav-pills mb-3" role="tablist">
     <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#et-pane-ventas" type="button"><i class="fa fa-chart-column me-1"></i>Ventas por tipo</button></li>

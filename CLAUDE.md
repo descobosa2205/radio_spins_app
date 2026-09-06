@@ -8942,6 +8942,22 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ofrece con «Seguir con eso»; lo enviado se borra al cargar la página siguiente.
   ⚠️ Un asistente de alta NUEVO tiene que llevar `autocomplete="off"` en su `<form>`.
 
+- **COMPRADORES · LAS BASES SE AGRUPAN POR DE QUIÉN SON** (sep 2026, lo pidió Dani: «igual que las
+  actividades»). `/compradores` abre con una **rejilla de sujetos** —artistas, eventos, ciclos y
+  festivales NUESTROS y giras compradas— con **cuántas bases de datos** tiene cada uno; al pinchar
+  uno (`?sujeto=artist:<id>` · `event:<id>` · `cycle:<id>` · `tour:<id>`) se ven SUS listados, y
+  «Todas las bases» (`?sujeto=todos`) es la rejilla completa de antes.
+  · Punto único **`_buyer_subject_keys(concert, legacy)`**: cada listado lleva `subjects` (lo rellenan
+  `_buyer_source` y `_buyer_sources_list`). Una base puede estar bajo **VARIOS** sujetos —la fecha de
+  una gira comprada es también del artista, la de un ciclo también— (el mismo criterio que una
+  actividad de un ciclo, que sale en Conciertos y en Festivales/Ciclos). Una actividad de **EVENTO**
+  va bajo el evento, **nunca bajo su artista espejo**; sin actividad registrada manda lo apuntado en el
+  listado (`subject_kind`/`subject_id`), y sin nada, «Sin actividad vinculada» (al final).
+  · **`_buyer_subject_groups`** resuelve nombres y fotos **en bloque** (una consulta por tipo). Un
+  sujeto borrado no se pinta: sus listados siguen en «Todas las bases».
+  ⚠️ Los pop-ups de envío ofrecen **las bases que se están viendo** (`sources` ya filtrado): dentro
+  de un artista, las suyas; en «Todas», todas. El «Volver» de un listado vuelve a **su** sujeto.
+
 - ⚠️⚠️ **COMPARTIR CARTELERÍA · LO QUE SE MANDA ES LA PÁGINA, Y SU TÍTULO LO DICE TODO** (sep 2026).
   Al compartir **un cartel** se mandaba la **URL cruda de Storage**: en WhatsApp salía un enlace
   pelado (una URL de Storage no tiene `og:` ninguna) y lo que se abría era el archivo suelto — «la

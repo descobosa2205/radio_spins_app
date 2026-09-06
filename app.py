@@ -141956,6 +141956,7 @@ def _buyer_source(session_db, *, event_pk: str = "", list_pk: str = "") -> dict 
             "venue": ev.venue_name or "", "town": ev.venue_town or "",
             "image": _buyer_source_image(session_db, ev.concert, ev.artist_image or ev.image_url or ""),
             "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
+            "subjects": _buyer_subject_keys(ev.concert, None),
             "row": ev,
         }
     if list_pk:
@@ -141980,6 +141981,7 @@ def _buyer_source(session_db, *, event_pk: str = "", list_pk: str = "") -> dict 
             "town": ((getattr(c, "manual_municipality", "") or "") if c is not None else ""),
             "image": _buyer_source_image(session_db, c, extra.get("image", "")),
             "concert_id": (str(bl.concert_id) if bl.concert_id else ""),
+            "subjects": _buyer_subject_keys(c, extra),
             "subject_kind": (extra.get("subject_kind") or ("EVENT" if (c is not None and c.event_id) else ("ARTIST" if c is not None else ""))),
             "subject_id": (extra.get("subject_id") or ((str(c.event_id) if c.event_id else str(c.artist_id)) if c is not None else "")),
             "legacy": bool(c is None and (bl.legacy_date or bl.subject_id)),
@@ -142072,6 +142074,7 @@ def _buyer_sources_list(session_db) -> list[dict]:
                 "venue": ev.venue_name or "", "town": ev.venue_town or "",
                 "image": _buyer_source_image(session_db, ev.concert, ev.artist_image or ev.image_url or ""),
                 "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
+                "subjects": _buyer_subject_keys(ev.concert, None),
                 "buyers": int(r.buyers or 0), "emails": int(r.emails or 0),
                 "sms": int(r.sms or 0),
             })
@@ -142098,12 +142101,88 @@ def _buyer_sources_list(session_db) -> list[dict]:
             "town": (getattr(c, "manual_municipality", "") or "") if c is not None else "",
             "image": _buyer_source_image(session_db, c, extra.get("image", "")),
             "concert_id": (str(bl.concert_id) if bl.concert_id else ""),
+            "subjects": _buyer_subject_keys(c, extra),
             "buyers": int(getattr(r, "buyers", 0) or 0),
             "emails": int(getattr(r, "emails", 0) or 0),
             "sms": int(getattr(r, "sms", 0) or 0),
         })
     salida.sort(key=lambda x: x["sort"], reverse=True)
     return salida
+
+
+def _buyer_subject_keys(concert, legacy: dict | None) -> list[str]:
+    """DE QUIÉN es un listado de compradores: las claves de los sujetos bajo los que se agrupa en la
+    rejilla (`artist:<id>` · `event:<id>` · `cycle:<id>` · `tour:<id>`), igual que se agrupan las
+    actividades.
+
+    ⚠️ Un listado puede estar bajo VARIOS: la fecha de una gira comprada es también del artista, y la
+    de un ciclo nuestro también — el mismo criterio que una actividad de un ciclo, que sale en
+    Conciertos y en Festivales/Ciclos. ⚠️ Una actividad de EVENTO va bajo el evento, nunca bajo su
+    artista ESPEJO (que no debe verse en ningún sitio). Sin actividad registrada manda lo apuntado en
+    el propio listado (`subject_kind`/`subject_id`); sin nada, «otros»."""
+    keys: list[str] = []
+    if concert is not None:
+        art = getattr(concert, "artist", None)
+        ev_id = getattr(concert, "event_id", None) or (getattr(art, "event_id", None) if art is not None else None)
+        if ev_id:
+            keys.append(f"event:{ev_id}")
+        elif getattr(concert, "artist_id", None):
+            keys.append(f"artist:{concert.artist_id}")
+        if getattr(concert, "cycle_festival_id", None):
+            keys.append(f"cycle:{concert.cycle_festival_id}")
+        if getattr(concert, "purchased_tour_id", None):
+            keys.append(f"tour:{concert.purchased_tour_id}")
+    elif legacy:
+        kind = (legacy.get("subject_kind") or "").upper()
+        sid = (legacy.get("subject_id") or "").strip()
+        if sid and kind == "EVENT":
+            keys.append(f"event:{sid}")
+        elif sid and kind == "ARTIST":
+            keys.append(f"artist:{sid}")
+    return keys or ["otros"]
+
+
+def _buyer_subject_groups(session_db, sources: list[dict]) -> list[dict]:
+    """La rejilla de DE QUIÉN SON las bases de compradores: artistas, eventos, ciclos y festivales
+    nuestros y giras compradas, cada uno con cuántas bases tiene. Los nombres y las fotos se resuelven
+    EN BLOQUE (una consulta por tipo), no una por listado. Un sujeto que ya no existe no se pinta (sus
+    listados siguen en «Todas las bases»); lo que no cuelga de ninguna actividad va al final."""
+    cuenta: dict[str, int] = {}
+    for src in sources:
+        for k in (src.get("subjects") or ["otros"]):
+            cuenta[k] = cuenta.get(k, 0) + 1
+    ids: dict[str, set] = {"artist": set(), "event": set(), "cycle": set(), "tour": set()}
+    for k in cuenta:
+        kind, _, sid = k.partition(":")
+        u = _safe_uuid(sid) if (kind in ids and sid) else None
+        if u:
+            ids[kind].add(u)
+    meta: dict[str, dict] = {}
+    if ids["artist"]:
+        for a in session_db.query(Artist).filter(Artist.id.in_(list(ids["artist"]))).all():
+            meta[f"artist:{a.id}"] = {"name": a.name or "Artista", "photo": a.photo_url or "", "round": True, "badge": "", "icon": "fa-user"}
+    if ids["event"]:
+        for e in session_db.query(AppEvent).filter(AppEvent.id.in_(list(ids["event"]))).all():
+            meta[f"event:{e.id}"] = {"name": e.name or "Evento", "photo": e.logo_url or "", "round": True, "badge": "Evento", "icon": "fa-star"}
+    if ids["cycle"]:
+        for cf in session_db.query(CycleFestival).filter(CycleFestival.id.in_(list(ids["cycle"]))).all():
+            meta[f"cycle:{cf.id}"] = {"name": cf.name or "Ciclo", "photo": cf.logo_url or "", "round": False,
+                                     "badge": CYCLE_FESTIVAL_KIND_LABELS.get((cf.kind or "FESTIVAL").upper(), "Ciclo"),
+                                     "icon": "fa-calendar-week"}
+    if ids["tour"]:
+        for t in session_db.query(PurchasedTour).filter(PurchasedTour.id.in_(list(ids["tour"]))).all():
+            meta[f"tour:{t.id}"] = {"name": t.name or "Gira", "photo": t.logo_url or "", "round": False,
+                                    "badge": "Gira comprada", "icon": "fa-route"}
+    filas = []
+    for k, n in cuenta.items():
+        m = meta.get(k)
+        if m is None:
+            if k != "otros":
+                continue
+            m = {"name": "Sin actividad vinculada", "photo": "", "round": True, "badge": "", "icon": "fa-ticket"}
+        filas.append({"key": k, "kind": k.partition(":")[0], "count": n, "url": url_for("buyers_view", sujeto=k), **m})
+    filas.sort(key=lambda r: (r["key"] == "otros", _norm_text_key(r["name"])))
+    return filas
 
 
 def _buyers_base_query(session_db, source: dict):
@@ -142619,6 +142698,19 @@ def buyers_view():
         if source is None and vista == "listado":
             vista = "listados"
         sources = _buyer_sources_list(s) if vista == "listados" else []
+        # DE QUIÉN SON las bases: la rejilla de sujetos y, con `?sujeto=`, solo los listados de ese
+        # (o «todos», la rejilla completa). Los pop-ups de envío ofrecen las bases que se están viendo.
+        sujeto = (request.args.get("sujeto") or "").strip()
+        subject_groups, drill_subject = [], None
+        if vista == "listados":
+            subject_groups = _buyer_subject_groups(s, sources)
+            if sujeto == "todos":
+                drill_subject = {"key": "todos", "kind": "all", "name": "Todas las bases", "photo": "",
+                                 "round": True, "badge": "", "icon": "fa-layer-group", "count": len(sources)}
+            elif sujeto:
+                drill_subject = next((g for g in subject_groups if g["key"] == sujeto), None)
+                if drill_subject is not None:
+                    sources = [src for src in sources if sujeto in (src.get("subjects") or [])]
         buyers, categorias = [], []
         totals = {"buyers": 0, "tickets": 0, "emails": 0, "sms": 0}
         company = None
@@ -142688,6 +142780,7 @@ def buyers_view():
         return render_template(
             "compradores.html", title="Compradores",
             sources=sources, buyers=buyers, totals=totals, vista=vista,
+            subject_groups=subject_groups, drill_subject=drill_subject,
             source=source, company=company, categorias=categorias, filtros=filtros,
             cycle=ciclo,
             # EL HISTÓRICO de lo que ya se le ha mandado a este listado (solo dentro de uno).

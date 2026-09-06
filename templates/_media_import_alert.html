@@ -1,0 +1,19 @@
+{# AVISO de contactos subidos que TODAVÍA no se han colocado en su medio.
+   Se puede cerrar la ventana de la vinculación y seguir con otra cosa: mientras quede alguno, este
+   aviso sale arriba en Medios para poder volver y terminar. Punto único (lo incluyen el listado de
+   medios y la ficha de un medio), así que los dos dicen lo mismo. #}
+{% if media_import_pending %}
+  <div class="alert alert-warning d-flex align-items-center gap-2 flex-wrap mb-3">
+    <i class="fa fa-file-import fa-lg"></i>
+    <div class="flex-grow-1">
+      <strong>Quedan {{ media_import_pending.pending }} contacto{{ 's' if media_import_pending.pending != 1 }} por colocar</strong>
+      de la subida{% if media_import_pending.file_name %} «{{ media_import_pending.file_name }}»{% endif %}{% if media_import_pending.by %}, de {{ media_import_pending.by }}{% endif %}.
+      <span class="text-muted">Hasta que no se arrastren a su medio no se guardan en ningún sitio.</span>
+      {% if media_import_pending.others %}
+        <span class="text-muted">· Y hay {{ media_import_pending.others }} subida{{ 's' if media_import_pending.others != 1 }} más a medias.</span>
+      {% endif %}
+    </div>
+    <a class="btn btn-sm btn-warning" href="{{ media_import_pending.url }}">
+      <i class="fa fa-arrow-right-to-bracket me-1"></i>Seguir colocándolos</a>
+  </div>
+{% endif %}

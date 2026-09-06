@@ -4,8 +4,16 @@
   <div>
     <h3 class="m-0">Medios</h3>
   </div>
-  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMediaModal"><i class="fa fa-plus me-1"></i>Añadir medio</button>
+  <div class="d-flex gap-2">
+    {# SUBIR CONTACTOS DESDE UN FICHERO: va justo ANTES de «Añadir medio». #}
+    <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#mediaImportModal"
+            title="Subir contactos desde un fichero" aria-label="Subir contactos desde un fichero">
+      <i class="fa fa-file-import"></i></button>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMediaModal"><i class="fa fa-plus me-1"></i>Añadir medio</button>
+  </div>
 </div>
+
+{% include '_media_import_alert.html' %}
 
 <form class="card card-body mb-4" method="get" id="mediaFilterForm">
   <div class="row g-3 align-items-end">
@@ -117,6 +125,8 @@
     </div>
   </div>
 </div>
+
+{% include '_media_import_modal.html' %}
 {% endblock %}
 
 {% block scripts %}

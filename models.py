@@ -4293,16 +4293,26 @@ class MediaOutlet(Base):
 
 
 class MediaContact(Base):
+    """Una persona de un medio.
+
+    · `nick` es como la llamamos nosotros (lo que se ve primero); el nombre completo va, como en el
+      resto de la casa, repartido en `first_name`/`last_name`.
+    · `program` es TEXTO: un programa existe porque hay alguien en él. Se compara SIN acentos ni
+      mayúsculas (`_media_program_snap`) para que «La Ventana» y «la ventana» no sean dos.
+    · `press_releases` = a esta persona se le mandan las NOTAS DE PRENSA."""
+
     __tablename__ = "media_contacts"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"), nullable=False)
     program = Column(Text)
     role = Column(Text)
+    nick = Column(Text)
     first_name = Column(Text)
     last_name = Column(Text)
     phone = Column(Text)
     email = Column(Text)
+    press_releases = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -4362,6 +4372,63 @@ class MediaPromotionRecord(Base):
         Index("idx_media_promotion_records_artist_date", "artist_id", "promoted_at"),
         Index("idx_media_promotion_records_promotion_id", "promotion_id"),
     )
+
+
+class MediaContactImport(Base):
+    """UNA subida de contactos desde un fichero.
+
+    ⚠️ Se GUARDA porque el reparto es un trabajo que se puede dejar a medias: se cierra la ventana,
+    se sigue con otra cosa y los que faltan se ven en el aviso de arriba de Medios hasta que se
+    coloquen. Cuando no queda ninguno pendiente, la subida se cierra sola."""
+
+    __tablename__ = "media_contact_imports"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    file_name = Column(Text)
+    press_releases = Column(Boolean, nullable=False, server_default=text("false"))
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))   # ACTIVE | DONE
+    rows_total = Column(Integer, nullable=False, server_default=text("0"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    closed_at = Column(DateTime(timezone=True))
+
+    rows = relationship(
+        "MediaContactImportRow",
+        back_populates="batch",
+        cascade="all, delete-orphan",
+        order_by="MediaContactImportRow.position",
+    )
+
+
+class MediaContactImportRow(Base):
+    """Cada contacto que ha traído el fichero, a la espera de que alguien lo arrastre a su medio."""
+
+    __tablename__ = "media_contact_import_rows"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    import_id = Column(PGUUID(as_uuid=True), ForeignKey("media_contact_imports.id", ondelete="CASCADE"), nullable=False)
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    nick = Column(Text)
+    first_name = Column(Text)
+    last_name = Column(Text)
+    program = Column(Text)
+    role = Column(Text)
+    phone = Column(Text)
+    email = Column(Text)
+    media_name = Column(Text)          # lo que decía el fichero, para poder sugerir el medio
+    status = Column(Text, nullable=False, server_default=text("'PENDING'"))  # PENDING | ASSIGNED | SKIPPED
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="SET NULL"))
+    contact_id = Column(PGUUID(as_uuid=True), ForeignKey("media_contacts.id", ondelete="SET NULL"))
+    assigned_at = Column(DateTime(timezone=True))
+    assigned_by_nick = Column(Text)
+
+    batch = relationship("MediaContactImport", back_populates="rows")
+
+    __table_args__ = (
+        Index("idx_media_contact_import_rows_batch", "import_id", "status", "position"),
+    )
+
 
 
 
@@ -10056,6 +10123,49 @@ def ensure_promocion_prensa_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_media_locations_media ON media_locations(media_id);',
+        # CONTACTOS DE UN MEDIO: el NICK (como le llamamos) y si recibe las NOTAS DE PRENSA.
+        # ⚠️ Cada columna en su PROPIA sentencia: dentro de un ALTER con varias, si una ya existe el
+        # resto tampoco se aplica y la app revienta al consultar la tabla.
+        'ALTER TABLE IF EXISTS media_contacts ADD COLUMN IF NOT EXISTS nick text;',
+        'ALTER TABLE IF EXISTS media_contacts ADD COLUMN IF NOT EXISTS press_releases boolean NOT NULL DEFAULT false;',
+        'CREATE INDEX IF NOT EXISTS idx_media_contacts_press ON media_contacts(media_id) WHERE press_releases;',
+        # SUBIDA DE CONTACTOS DESDE UN FICHERO: se guarda porque el reparto (arrastrar cada uno a
+        # su medio) se puede dejar a medias y se retoma desde el aviso de Medios.
+        """
+        CREATE TABLE IF NOT EXISTS media_contact_imports (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            file_name text,
+            press_releases boolean NOT NULL DEFAULT false,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            rows_total integer NOT NULL DEFAULT 0,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            closed_at timestamptz
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS media_contact_import_rows (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            import_id uuid NOT NULL REFERENCES media_contact_imports(id) ON DELETE CASCADE,
+            position integer NOT NULL DEFAULT 0,
+            nick text,
+            first_name text,
+            last_name text,
+            program text,
+            role text,
+            phone text,
+            email text,
+            media_name text,
+            status text NOT NULL DEFAULT 'PENDING',
+            media_id uuid REFERENCES media_outlets(id) ON DELETE SET NULL,
+            contact_id uuid REFERENCES media_contacts(id) ON DELETE SET NULL,
+            assigned_at timestamptz,
+            assigned_by_nick text
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_media_contact_import_rows_batch ON media_contact_import_rows(import_id, status, position);',
+        'CREATE INDEX IF NOT EXISTS idx_media_contact_imports_user ON media_contact_imports(created_by_user_id, status);',
         """
         ALTER TABLE IF EXISTS promotions
             ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'MARKETING',

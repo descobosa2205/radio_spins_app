@@ -1,0 +1,108 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ══════════════════ COLOCAR LOS CONTACTOS SUBIDOS EN SU MEDIO ══════════════════
+   A la IZQUIERDA lo que trajo el fichero y a la DERECHA todos los medios: se arrastra cada contacto
+   al suyo y se guarda ahí al momento (desaparece de la izquierda). Con el dedo —o si se prefiere
+   pinchar— vale igual: se pincha el contacto y luego su medio.
+   ⚠️ Se puede cerrar sin terminar: lo que quede sigue esperando y Medios lo avisa arriba. #}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('media_outlets_view') }}" class="btn btn-outline-secondary btn-volver"
+     title="Volver a medios" aria-label="Volver a medios"><i class="fa fa-arrow-left"></i></a>
+  <form method="post" action="{{ url_for('media_contacts_import_close', import_id=batch.id) }}"
+        data-confirm="¿Dar por terminada la subida? Los contactos que queden sin colocar se descartan.">
+    <button class="btn btn-outline-danger"><i class="fa fa-flag-checkered me-1"></i>Terminar</button>
+  </form>
+</div>
+
+<div class="d-flex justify-content-between align-items-end mb-3 flex-wrap gap-2">
+  <div>
+    <h3 class="m-0">Colocar los contactos</h3>
+    <div class="small text-muted">
+      {% if batch.file_name %}{{ batch.file_name }} · {% endif %}{{ batch.rows_total }} contacto{{ 's' if batch.rows_total != 1 }} en el fichero
+      {% if batch.press_releases %}<span class="badge text-bg-light border ms-1"><i class="fa fa-newspaper me-1"></i>Todos reciben notas de prensa</span>{% endif %}
+    </div>
+  </div>
+  <div class="mci-counters">
+    <span class="mci-counter"><b data-mci-pending>{{ rows|length }}</b> por colocar</span>
+    <span class="mci-counter is-ok"><b data-mci-done>{{ assigned_count }}</b> colocados</span>
+  </div>
+</div>
+
+<div class="mci" data-mci
+     data-url-assign="{{ url_for('media_contacts_import_assign', import_id=batch.id) }}"
+     data-url-skip="{{ url_for('media_contacts_import_skip', import_id=batch.id) }}"
+     data-url-back="{{ url_for('media_outlets_view') }}">
+
+  {# ---------- IZQUIERDA: lo que falta por colocar ---------- #}
+  <div class="mci-col">
+    <div class="mci-col__head">
+      <span><i class="fa fa-user-group me-1"></i>Contactos del fichero</span>
+      <input type="search" class="form-control form-control-sm mci-search" placeholder="Buscar…" data-mci-search-rows>
+    </div>
+    <div class="mci-list" data-mci-rows>
+      {% for row in rows %}
+        <div class="mci-card" draggable="true" data-mci-row="{{ row.id }}"
+             data-search="{{ (row.name ~ ' ' ~ row.program ~ ' ' ~ row.role ~ ' ' ~ row.email ~ ' ' ~ row.media_name)|lower }}"
+             data-media-name="{{ row.media_name }}">
+          <div class="mci-card__main">
+            <div class="mci-card__name">{{ row.name }}
+              {% if row.role %}<span class="mc-row__role">{{ row.role }}</span>{% endif %}
+            </div>
+            <div class="mci-card__sub">
+              {% if row.full_name and row.full_name != row.name %}<span><i class="fa fa-id-card"></i>{{ row.full_name }}</span>{% endif %}
+              {% if row.program %}<span><i class="fa fa-microphone-lines"></i>{{ row.program }}</span>{% endif %}
+              {% if row.phone %}<span><i class="fa fa-phone"></i>{{ row.phone }}</span>{% endif %}
+              {% if row.email %}<span><i class="fa fa-envelope"></i>{{ row.email }}</span>{% endif %}
+            </div>
+            {% if row.media_name %}
+              <div class="mci-card__hint"><i class="fa fa-newspaper"></i>El fichero dice: <b>{{ row.media_name }}</b></div>
+            {% endif %}
+          </div>
+          <button type="button" class="btn btn-sm btn-link text-muted mci-card__skip"
+                  data-mci-skip="{{ row.id }}" title="Descartar este contacto"><i class="fa fa-xmark"></i></button>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="mci-empty {{ '' if not rows else 'd-none' }}" data-mci-empty>
+      <i class="fa fa-circle-check"></i>
+      <div class="fw-semibold mt-2">Ya está todo colocado</div>
+      <a class="btn btn-primary btn-sm mt-2" href="{{ url_for('media_outlets_view') }}">Volver a medios</a>
+    </div>
+  </div>
+
+  {# ---------- DERECHA: los medios (y crear uno nuevo sobre la marcha) ---------- #}
+  <div class="mci-col">
+    <div class="mci-col__head">
+      <span><i class="fa fa-tower-broadcast me-1"></i>Medios</span>
+      <span class="d-flex gap-2">
+        <input type="search" class="form-control form-control-sm mci-search" placeholder="Buscar medio…" data-mci-search-media>
+        {# El alta rápida de la casa: lo creado se deja en este select oculto y de ahí sale su tarjeta. #}
+        <select id="mciNewMedia" class="d-none"></select>
+        <button type="button" class="btn btn-sm btn-primary qc-open" data-quick-create="media"
+                data-target="mciNewMedia" title="Crear un medio nuevo"><i class="fa fa-plus"></i></button>
+      </span>
+    </div>
+    <div class="mci-list" data-mci-media>
+      {% for m in medios %}
+        <div class="mci-media" data-mci-drop="{{ m.id }}" data-search="{{ (m.name ~ ' ' ~ m.type)|lower }}"
+             data-name="{{ m.name }}">
+          <img src="{{ m.logo or DEFAULT_AVATAR_URL }}" alt="" class="mci-media__logo" data-avatar="1">
+          <div class="mci-media__main">
+            <div class="mci-media__name">{{ m.name }}</div>
+            <div class="mci-media__sub">{{ m.type }} · <span data-mci-count>{{ m.contacts }}</span> contacto<span data-mci-count-s>{{ '' if m.contacts == 1 else 's' }}</span></div>
+          </div>
+          <i class="fa fa-arrow-down-to-line mci-media__drop"></i>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="mci-toast" data-mci-toast hidden></div>
+{% endblock %}
+
+{% block scripts %}
+{# ⚠️ El alta rápida (`_quick_create_modals.html`) YA la incluye `layout.html`: volver a incluirla
+   aquí dejaría DOS `#qcModal-media` en el DOM y `getElementById` cogería cualquiera. #}
+<script src="{{ url_for('static', filename='js/media_contact_import.js', v=ASSET_V) }}"></script>
+{% endblock %}

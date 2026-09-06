@@ -7,6 +7,8 @@
   </form>
 </div>
 
+{% include '_media_import_alert.html' %}
+
 <div class="artist-hero mb-3">
   <div class="d-flex flex-wrap gap-3 align-items-center">
     <span class="logo-country-wrap flex-shrink-0">
@@ -45,79 +47,174 @@
 </ul>
 
 {% if tab == 'contactos' %}
-  <div class="card mb-3">
-    <div class="card-body">
-      <h5 class="mb-3">Añadir contacto</h5>
-      <form method="post" class="row g-2">
-        <input type="hidden" name="mode" value="add_contact">
-        <div class="col-md-3"><input type="text" name="program" class="form-control" placeholder="Programa"></div>
-        <div class="col-md-2"><input type="text" name="role" class="form-control" placeholder="Cargo"></div>
-        <div class="col-md-2"><input type="text" name="first_name" class="form-control" placeholder="Nombre"></div>
-        <div class="col-md-2"><input type="text" name="last_name" class="form-control" placeholder="Apellidos"></div>
-        <div class="col-md-1"><input type="text" name="phone" class="form-control" placeholder="Tel."></div>
-        <div class="col-md-2"><input type="email" name="email" class="form-control" placeholder="Email"></div>
-        <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Añadir contacto</button></div>
-      </form>
-    </div>
+  {# ═══════════════════ CONTACTOS DEL MEDIO ═══════════════════
+     · Se añaden y se editan en un POP-UP (el mismo para las dos cosas).
+     · El listado va PRIMERO con quien no es de ningún programa y después AGRUPADO por programas.
+     · Al lado de cada uno, el interruptor de NOTAS DE PRENSA (se ve su estado) y sus tres puntitos. #}
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h5 class="m-0">Contactos {% if contacts %}<span class="text-muted fw-normal">· {{ contacts|length }}</span>{% endif %}</h5>
+    <button type="button" class="btn btn-primary" data-mc-new>
+      <i class="fa fa-user-plus me-1"></i>Añadir contacto</button>
   </div>
-  <div class="row g-3">
-    {% for contact in contacts %}
-      <div class="col-12 col-lg-6">
-        <div class="card h-100">
-          <div class="card-body d-flex justify-content-between align-items-start gap-3">
-            <div>
-              <div class="fw-semibold">{{ [contact.first_name, contact.last_name]|select|join(' ') or 'Contacto' }}</div>
-              <div class="small text-muted">{{ contact.program or 'Sin programa' }}{% if contact.role %} · {{ contact.role }}{% endif %}</div>
-              <div class="small mt-2">{{ contact.phone or 'Sin teléfono' }}</div>
-              <div class="small text-muted">{{ contact.email or 'Sin email' }}</div>
-            </div>
-            <div class="dropdown">
-              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
-              <ul class="dropdown-menu dropdown-menu-end">
-                {% set share_text = ([outlet.name, contact.program, contact.role, [contact.first_name, contact.last_name]|select|join(' '), contact.phone, contact.email]|select|join(' · ')) %}
-                {% if contact.email %}<li><a class="dropdown-item" href="mailto:{{ contact.email }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por Mail</a></li>{% endif %}
-                {% if contact.phone %}<li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ share_text|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>{% endif %}
-                {% if contact.phone %}<li><a class="dropdown-item" href="sms:{{ contact.phone }}?body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</a></li>{% endif %}
-                <li><button type="button" class="dropdown-item copy-media-contact" data-share-text="{{ share_text }}"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-                <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editContactModal{{ contact.id }}">Editar</button></li>
-                <li><hr class="dropdown-divider"></li>
-                <li>
-                  <form method="post" action="{{ url_for('media_contact_delete', media_id=outlet.id, contact_id=contact.id) }}" onsubmit="return confirm('¿Eliminar contacto?');">
-                    <button class="dropdown-item text-danger">Eliminar</button>
-                  </form>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
 
-          <div class="modal fade" id="editContactModal{{ contact.id }}" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-lg modal-dialog-centered">
-              <div class="modal-content">
-                <form method="post">
-                  <input type="hidden" name="mode" value="update_contact">
-                  <input type="hidden" name="contact_id" value="{{ contact.id }}">
-                  <div class="modal-header"><h5 class="modal-title">Editar contacto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                  <div class="modal-body">
-                    <div class="row g-3">
-                      <div class="col-md-3"><label class="form-label">Programa</label><input type="text" name="program" class="form-control" value="{{ contact.program or '' }}"></div>
-                      <div class="col-md-2"><label class="form-label">Cargo</label><input type="text" name="role" class="form-control" value="{{ contact.role or '' }}"></div>
-                      <div class="col-md-2"><label class="form-label">Nombre</label><input type="text" name="first_name" class="form-control" value="{{ contact.first_name or '' }}"></div>
-                      <div class="col-md-2"><label class="form-label">Apellidos</label><input type="text" name="last_name" class="form-control" value="{{ contact.last_name or '' }}"></div>
-                      <div class="col-md-1"><label class="form-label">Tel.</label><input type="text" name="phone" class="form-control" value="{{ contact.phone or '' }}"></div>
-                      <div class="col-md-2"><label class="form-label">Email</label><input type="email" name="email" class="form-control" value="{{ contact.email or '' }}"></div>
-                    </div>
-                  </div>
-                  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar cambios</button></div>
-                </form>
-              </div>
-            </div>
-          </div>
+  {% macro mc_row(contact) %}
+    {% set nombre = contact_name(contact) %}
+    {% set completo = contact_full_name(contact) %}
+    {% set share_text = ([outlet.name, contact.program, contact.role, (completo or nombre), contact.phone, contact.email]|select|join(' · ')) %}
+    <div class="mc-row">
+      <span class="mc-row__ava"><i class="fa fa-user"></i></span>
+      <div class="mc-row__main">
+        <div class="mc-row__name">
+          {{ nombre }}
+          {% if contact.role %}<span class="mc-row__role">{{ contact.role }}</span>{% endif %}
+        </div>
+        <div class="mc-row__sub">
+          {% if completo and completo != nombre %}<span><i class="fa fa-id-card"></i>{{ completo }}</span>{% endif %}
+          {% if contact.phone %}<a href="tel:{{ contact.phone }}"><i class="fa fa-phone"></i>{{ contact.phone }}</a>{% endif %}
+          {% if contact.email %}<a href="mailto:{{ contact.email }}"><i class="fa fa-envelope"></i>{{ contact.email }}</a>{% endif %}
+          {% if not completo and not contact.phone and not contact.email %}<span class="text-muted">Sin datos de contacto</span>{% endif %}
         </div>
       </div>
-    {% else %}
-      <div class="col-12"><div class="alert alert-light border">Todavía no hay contactos en este medio.</div></div>
-    {% endfor %}
+
+      {# NOTAS DE PRENSA: el interruptor de los accesos, que se guarda al momento. #}
+      <span class="pl-switch{{ ' is-on' if contact.press_releases }}" data-mc-press-box
+            title="Si se marca, esta persona recibe las notas de prensa">
+        <span class="pl-switch__ico"><i class="fa fa-newspaper"></i></span>
+        <label class="sw dl m-0">
+          <input type="checkbox" role="switch" data-mc-press
+                 data-mc-url="{{ url_for('media_contact_press_toggle', media_id=outlet.id, contact_id=contact.id) }}"
+                 {% if contact.press_releases %}checked{% endif %}>
+          <span class="tr"></span>
+        </label>
+        <span class="pl-switch__lab">Notas de prensa</span>
+      </span>
+
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Opciones"><i class="fa fa-ellipsis"></i></button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><button type="button" class="dropdown-item" data-mc-edit
+                data-mc-id="{{ contact.id }}"
+                data-mc-nick="{{ contact.nick or '' }}"
+                data-mc-full="{{ completo }}"
+                data-mc-program="{{ contact.program or '' }}"
+                data-mc-role="{{ contact.role or '' }}"
+                data-mc-phone="{{ contact.phone or '' }}"
+                data-mc-email="{{ contact.email or '' }}"
+                data-mc-press="{{ '1' if contact.press_releases else '' }}">
+            <i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+          {% if contact.email %}<li><a class="dropdown-item" href="mailto:{{ contact.email }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por Mail</a></li>{% endif %}
+          {% if contact.phone %}<li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ share_text|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>{% endif %}
+          {% if contact.phone %}<li><a class="dropdown-item" href="sms:{{ contact.phone }}?body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</a></li>{% endif %}
+          <li><button type="button" class="dropdown-item copy-media-contact" data-share-text="{{ share_text }}"><i class="fa fa-link fa-fw me-1"></i>Copiar los datos</button></li>
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <form method="post" action="{{ url_for('media_contact_delete', media_id=outlet.id, contact_id=contact.id) }}"
+                  data-confirm="¿Eliminar a «{{ nombre|e }}» de los contactos de este medio?">
+              <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
+            </form>
+          </li>
+        </ul>
+      </div>
+    </div>
+  {% endmacro %}
+
+  {% for grupo in contact_groups %}
+    {% if contact_groups|length > 1 or grupo.name %}
+      <div class="mc-group__head">
+        <i class="fa {{ 'fa-microphone-lines' if grupo.name else 'fa-user-group' }}"></i>
+        <span>{{ grupo.name or 'Sin programa' }}</span>
+        <span class="mc-group__n">{{ grupo.rows|length }}</span>
+      </div>
+    {% endif %}
+    <div class="mc-list mb-3">
+      {% for contact in grupo.rows %}{{ mc_row(contact) }}{% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-light border">Todavía no hay contactos en este medio.</div>
+  {% endfor %}
+
+  {# ---------- EL POP-UP (añadir y editar) ---------- #}
+  <div class="modal fade" id="mediaContactModal" tabindex="-1" aria-hidden="true"
+       data-mc-programs="{{ media_programs|tojson|forceescape }}">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <form method="post" data-autosave="medio-contacto" data-autosave-title="un contacto del medio">
+          <input type="hidden" name="mode" value="add_contact" data-mc-mode>
+          <input type="hidden" name="contact_id" value="" data-mc-contact-id>
+          <div class="modal-header">
+            <h5 class="modal-title"><span data-mc-title>Nuevo contacto</span></h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="demo-cards">
+
+              <div class="demo-card">
+                <div class="demo-card__head"><i class="fa fa-user"></i>¿Quién es?</div>
+                <div class="demo-card__body">
+                  <div class="row g-2">
+                    <div class="col-12 col-md-5">
+                      <label class="form-label">Nick <span class="text-muted small fw-normal">(como le llamamos)</span></label>
+                      <input class="form-control" name="nick" data-mc-f="nick" autocomplete="off">
+                    </div>
+                    <div class="col-12 col-md-7">
+                      <label class="form-label">Nombre completo</label>
+                      <input class="form-control" name="full_name" data-mc-f="full" autocomplete="off">
+                    </div>
+                    <div class="col-12 col-md-7">
+                      <label class="form-label">Programa</label>
+                      {# Se escribe y salen los programas que ya tiene el medio; lo que no esté, se crea. #}
+                      <input class="form-control" name="program" data-mc-f="program" data-mc-prog
+                             autocomplete="off" placeholder="Escribe el programa…">
+                      <div class="form-text">Si no está, se crea con lo que escribas.</div>
+                    </div>
+                    <div class="col-12 col-md-5">
+                      <label class="form-label">Cargo</label>
+                      <input class="form-control" name="role" data-mc-f="role" autocomplete="off"
+                             placeholder="Redactor, director…">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="demo-card">
+                <div class="demo-card__head"><i class="fa fa-address-book"></i>Datos de contacto</div>
+                <div class="demo-card__body">
+                  <div class="row g-2">
+                    <div class="col-12 col-md-5">
+                      <label class="form-label">Teléfono</label>
+                      <input class="form-control" name="phone" data-mc-f="phone" autocomplete="off">
+                    </div>
+                    <div class="col-12 col-md-7">
+                      <label class="form-label">Email</label>
+                      <input type="email" class="form-control" name="email" data-mc-f="email" autocomplete="off">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="demo-card">
+                <div class="demo-card__head"><i class="fa fa-newspaper"></i>Notas de prensa</div>
+                <div class="demo-card__body d-flex align-items-center justify-content-between gap-3">
+                  <div>
+                    <div class="fw-semibold">Recibe las notas de prensa</div>
+                    <div class="form-text m-0">Al activarlo, esta persona entra en el envío de notas de prensa.</div>
+                  </div>
+                  <label class="sw dl m-0">
+                    <input type="checkbox" role="switch" name="press_releases" value="1" data-mc-f="press">
+                    <span class="tr"></span>
+                  </label>
+                </div>
+              </div>
+
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary" data-mc-submit>Añadir contacto</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 {% elif tab == 'vinculaciones' %}
   {% include '_entity_links_panel.html' %}
@@ -179,15 +276,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-document.querySelectorAll('.copy-media-contact').forEach(function(btn){
-  btn.addEventListener('click', async function(){
-    try {
-      await navigator.clipboard.writeText(btn.dataset.shareText || '');
-      btn.textContent = 'Copiado';
-      setTimeout(() => { btn.textContent = 'Copiar enlace'; }, 1200);
-    } catch (err) {}
-  });
-});
-</script>
+{# El pop-up de un contacto, el buscador de programas y el interruptor de notas de prensa. #}
+<script src="{{ url_for('static', filename='js/media_contacts.js', v=ASSET_V) }}"></script>
 {% endblock %}

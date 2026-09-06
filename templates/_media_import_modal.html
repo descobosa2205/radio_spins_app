@@ -1,0 +1,81 @@
+{# ══════════ SUBIR CONTACTOS DE MEDIOS DESDE UN FICHERO (Excel o CSV) ══════════
+   El fichero → las columnas (con un ejemplo de cada una; lo que no se reconoce se pregunta o se
+   omite) → y de ahí a la pantalla de vinculación, donde se arrastra cada contacto a su medio.
+   El JS vive en static/js/media_contact_import.js. #}
+<div class="modal fade" id="mediaImportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" data-media-import
+         data-url-analyze="{{ url_for('media_contacts_import_analyze') }}"
+         data-url-create="{{ url_for('media_contacts_import_create') }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-file-import me-2 text-danger"></i>Subir contactos</h5>
+          <div class="text-muted small" data-mi-subtitle>Excel (.xlsx) o CSV. Las columnas se reconocen solas.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="alert alert-danger d-none" data-mi-error></div>
+
+        {# ── Paso 1 · el fichero ───────────────────────────────────────────────── #}
+        <div data-mi-step="file">
+          <label class="pi-drop" for="mediaImportFile" role="button" tabindex="0" data-file-drop-for="#mediaImportFile">
+            <i class="fa fa-file-import pi-drop__icon"></i>
+            <div class="fw-semibold">Arrastra aquí el fichero</div>
+            <div class="small text-muted">o pincha para seleccionarlo (.xlsx o .csv)</div>
+            <div class="small mt-1 fw-semibold text-success" data-mi-filename></div>
+          </label>
+          <input class="form-control mt-2" type="file" id="mediaImportFile" accept=".xlsx,.xlsm,.csv,.txt">
+
+          {# La opción de marcar a TODOS para recibir notas de prensa: se decide al subir. #}
+          <div class="demo-card mt-3">
+            <div class="demo-card__head"><i class="fa fa-newspaper"></i>Notas de prensa</div>
+            <div class="demo-card__body d-flex align-items-center justify-content-between gap-3">
+              <div>
+                <div class="fw-semibold">Marcar a todos para recibir notas de prensa</div>
+                <div class="form-text m-0">Se puede quitar después a quien no toque, uno a uno.</div>
+              </div>
+              <label class="sw dl m-0">
+                <input type="checkbox" role="switch" data-mi-press>
+                <span class="tr"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="d-flex justify-content-end mt-3">
+            <button class="btn btn-primary" type="button" data-mi-analyze disabled>
+              <i class="fa fa-magnifying-glass me-1"></i>Leer el fichero</button>
+          </div>
+        </div>
+
+        {# ── Paso 2 · las columnas ─────────────────────────────────────────────── #}
+        <div class="d-none" data-mi-step="columns">
+          <div class="alert alert-warning py-2 px-3 small d-none" data-mi-unknown></div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle pi-cols">
+              <thead class="table-light">
+                <tr>
+                  <th>Columna del fichero</th>
+                  <th>Ejemplo</th>
+                  <th style="width:34%">¿Qué es?</th>
+                </tr>
+              </thead>
+              <tbody data-mi-cols></tbody>
+            </table>
+          </div>
+          <div class="small text-muted">
+            Lo que no haga falta se deja en <strong>«Omitir esta columna»</strong>: no se sube.
+            <span data-mi-press-note class="d-none"><br><i class="fa fa-newspaper me-1"></i>Todos entrarán marcados para recibir notas de prensa.</span>
+          </div>
+          <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-outline-secondary" type="button" data-mi-back>Atrás</button>
+            <button class="btn btn-success" type="button" data-mi-create>
+              <i class="fa fa-cloud-arrow-up me-1"></i>Subir contactos</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/media_contact_import.js', v=ASSET_V) }}"></script>

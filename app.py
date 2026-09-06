@@ -363,6 +363,7 @@ import promoter_import  # motor puro de IMPORTACIÓN de terceros (columnas de un
 import royalty_statement_read  # motor puro de LECTURA de una liquidación de royalties (líneas e importes)
 import address_utils  # cómo se escribe una dirección (motor puro, único formato)
 import buyer_import  # importar compradores desde un fichero (motor puro)
+import media_contact_import  # importar contactos de medios desde un fichero (motor puro)
 import sms_utils  # pasarela de SMS (avisos por mensaje de texto); sin credenciales no manda nada
 import ics_import  # lector de calendarios iCal (volcar el histórico de iCloud a la agenda)
 import audio_tags  # los METADATOS que van dentro de lo que se descarga (ID3 / RIFF INFO)
@@ -69685,6 +69686,8 @@ from models import (
     UserActivityLog,
     MediaOutlet,
     MediaContact,
+    MediaContactImport,
+    MediaContactImportRow,
     MediaLocation,
     MediaPromotionRecord,
     PromotionRequest,
@@ -93512,6 +93515,104 @@ def personnel_user_password_regenerate(user_id):
     return redirect(safe_next_or(url_for("personnel_view")))
 
 
+# =========================================================
+# CONTACTOS DE UN MEDIO
+# Una persona de un medio pertenece (o no) a un PROGRAMA, y el programa es TEXTO: existe porque hay
+# alguien en él. Por eso se compara SIN acentos ni mayúsculas —si no, «La Ventana» y «la ventana»
+# serían dos grupos distintos— y al escribir uno nuevo se conserva la ortografía del que ya estaba.
+# =========================================================
+
+def _media_contact_full_name(contact) -> str:
+    """El nombre completo tal como está guardado (nombre + apellidos)."""
+    if not contact:
+        return ""
+    return " ".join([x for x in [
+        (getattr(contact, "first_name", "") or "").strip(),
+        (getattr(contact, "last_name", "") or "").strip(),
+    ] if x]).strip()
+
+
+def _media_contact_name(contact) -> str:
+    """Cómo se le llama en los listados: su NICK y, si no tiene, su nombre completo.
+
+    Punto único: lo usan la ficha del medio y cualquier sitio que enseñe un contacto."""
+    if not contact:
+        return ""
+    return (getattr(contact, "nick", "") or "").strip() or _media_contact_full_name(contact) or "Contacto"
+
+
+def _media_programs(session_db, media_id) -> list:
+    """Los programas que YA existen en ese medio: los de sus contactos y los de su histórico, sin
+    repetir (comparando sin acentos ni mayúsculas) y por orden alfabético."""
+    try:
+        mid = to_uuid(media_id)
+    except Exception:
+        return []
+    valores = [r[0] for r in session_db.query(MediaContact.program).filter(MediaContact.media_id == mid).all()]
+    valores += [r[0] for r in session_db.query(MediaPromotionRecord.program_name)
+                .filter(MediaPromotionRecord.media_id == mid).all()]
+    vistos, salida = set(), []
+    for valor in valores:
+        texto = " ".join((valor or "").split())
+        clave = _norm_text_key(texto)
+        if not clave or clave in vistos:
+            continue
+        vistos.add(clave)
+        salida.append(texto)
+    return sorted(salida, key=_norm_text_key)
+
+
+def _media_program_snap(session_db, media_id, texto) -> str | None:
+    """Un programa escrito a mano se queda con la ORTOGRAFÍA del que ya existe cuando es el mismo.
+    Lo que no está, se crea tal cual se ha escrito (un programa nuevo es escribirlo)."""
+    limpio = " ".join((texto or "").split())
+    if not limpio:
+        return None
+    clave = _norm_text_key(limpio)
+    for existente in _media_programs(session_db, media_id):
+        if _norm_text_key(existente) == clave:
+            return existente
+    return limpio
+
+
+def _media_contact_groups(contacts) -> list:
+    """Cómo se lee el listado de contactos: PRIMERO los que no son de ningún programa y después,
+    agrupados por programa (alfabéticamente). Dentro de cada grupo, por su nombre."""
+    sueltos, grupos, orden = [], {}, []
+    for contact in (contacts or []):
+        nombre = " ".join((contact.program or "").split())
+        clave = _norm_text_key(nombre)
+        if not clave:
+            sueltos.append(contact)
+            continue
+        if clave not in grupos:
+            grupos[clave] = {"name": nombre, "rows": []}
+            orden.append(clave)
+        grupos[clave]["rows"].append(contact)
+    salida = []
+    if sueltos:
+        salida.append({"name": "", "rows": sueltos})
+    for clave in sorted(orden, key=lambda k: _norm_text_key(grupos[k]["name"])):
+        salida.append(grupos[clave])
+    for grupo in salida:
+        grupo["rows"] = sorted(grupo["rows"], key=lambda c: _norm_text_key(_media_contact_name(c)))
+    return salida
+
+
+def _media_contact_apply_form(session_db, contact, form, media_id) -> None:
+    """Lo que llega del pop-up de un contacto (alta y edición: el MISMO formulario, así que se
+    guarda igual desde los dos sitios)."""
+    contact.nick = (form.get("nick") or "").strip() or None
+    nombre, apellidos = _split_full_name(form.get("full_name") or "")
+    contact.first_name = nombre or None
+    contact.last_name = apellidos or None
+    contact.program = _media_program_snap(session_db, media_id, form.get("program"))
+    contact.role = (form.get("role") or "").strip() or None
+    contact.phone = (form.get("phone") or "").strip() or None
+    contact.email = (form.get("email") or "").strip() or None
+    contact.press_releases = _truthy(form.get("press_releases"))
+
+
 @app.route("/medios", methods=["GET", "POST"], endpoint="media_outlets_view")
 @admin_required
 def media_outlets_view():
@@ -93581,7 +93682,9 @@ def media_outlets_view():
                 .distinct()
             )
         media_rows = query.order_by(func.lower(MediaOutlet.name).asc()).all()
-        return render_template("media_outlets.html", media_rows=media_rows, media_types=MEDIA_TYPES, selected_types=f_types, query_text=q, country_options=country_options_es())
+        return render_template("media_outlets.html", media_rows=media_rows, media_types=MEDIA_TYPES,
+                               selected_types=f_types, query_text=q, country_options=country_options_es(),
+                               media_import_pending=_media_import_pending(session_db))
     finally:
         session_db.close()
 
@@ -93617,31 +93720,27 @@ def media_outlet_detail_view(media_id):
                 session_db.commit()
                 flash("Medio actualizado.", "success")
                 return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab=tab))
-            if mode == "add_contact":
-                session_db.add(MediaContact(
-                    media_id=outlet.id,
-                    program=(request.form.get("program") or "").strip() or None,
-                    role=(request.form.get("role") or "").strip() or None,
-                    first_name=(request.form.get("first_name") or "").strip() or None,
-                    last_name=(request.form.get("last_name") or "").strip() or None,
-                    phone=(request.form.get("phone") or "").strip() or None,
-                    email=(request.form.get("email") or "").strip() or None,
-                ))
+            if mode in ("add_contact", "update_contact"):
+                # El MISMO pop-up para añadir y para editar, así que se guarda igual desde los dos.
+                contact = None
+                if mode == "update_contact":
+                    contact_id = (request.form.get("contact_id") or "").strip()
+                    contact = session_db.get(MediaContact, to_uuid(contact_id)) if contact_id else None
+                    if not contact or contact.media_id != outlet.id:
+                        flash("Contacto no encontrado.", "warning")
+                        return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab="contactos"))
+                # Lo único que se exige es saber cómo se llama.
+                if not ((request.form.get("nick") or "").strip() or (request.form.get("full_name") or "").strip()):
+                    _flash_form_error(
+                        "No se ha guardado el contacto: dinos al menos cómo se llama (el nick o su nombre completo).",
+                        campos=["nick", "full_name"], abrir="mediaContactModal")
+                    return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab="contactos"))
+                if contact is None:
+                    contact = MediaContact(media_id=outlet.id)
+                    session_db.add(contact)
+                _media_contact_apply_form(session_db, contact, request.form, outlet.id)
                 session_db.commit()
-                flash("Contacto añadido.", "success")
-                return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab="contactos"))
-            if mode == "update_contact":
-                contact_id = (request.form.get("contact_id") or "").strip()
-                contact = session_db.get(MediaContact, to_uuid(contact_id)) if contact_id else None
-                if contact and contact.media_id == outlet.id:
-                    contact.program = (request.form.get("program") or "").strip() or None
-                    contact.role = (request.form.get("role") or "").strip() or None
-                    contact.first_name = (request.form.get("first_name") or "").strip() or None
-                    contact.last_name = (request.form.get("last_name") or "").strip() or None
-                    contact.phone = (request.form.get("phone") or "").strip() or None
-                    contact.email = (request.form.get("email") or "").strip() or None
-                    session_db.commit()
-                    flash("Contacto actualizado.", "success")
+                flash("Contacto añadido." if mode == "add_contact" else "Contacto actualizado.", "success")
                 return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab="contactos"))
             if mode == "add_history":
                 session_db.add(MediaPromotionRecord(
@@ -93660,6 +93759,8 @@ def media_outlet_detail_view(media_id):
 
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
         contacts = session_db.query(MediaContact).filter(MediaContact.media_id == outlet.id).order_by(MediaContact.created_at.asc()).all()
+        contact_groups = _media_contact_groups(contacts)
+        media_programs = _media_programs(session_db, outlet.id)
         history_query = session_db.query(MediaPromotionRecord).options(joinedload(MediaPromotionRecord.artist)).filter(MediaPromotionRecord.media_id == outlet.id)
         f_artist = (request.args.get("artist") or "").strip()
         f_search = (request.args.get("search") or "").strip()
@@ -93680,6 +93781,10 @@ def media_outlet_detail_view(media_id):
             outlet=outlet,
             tab=tab,
             contacts=contacts,
+            contact_groups=contact_groups,
+            media_programs=media_programs,
+            contact_name=_media_contact_name,
+            contact_full_name=_media_contact_full_name,
             history_rows=history_rows,
             artists=artists,
             filter_artist=f_artist,
@@ -93692,6 +93797,7 @@ def media_outlet_detail_view(media_id):
             entity_link_context={'type': 'media', 'id': str(outlet.id), 'label': outlet.name or 'medio'},
             entity_link_types=APP33_ENTITY_LINK_TYPES,
             entity_links_can_edit=True,
+            media_import_pending=_media_import_pending(session_db),
         )
     finally:
         session_db.close()
@@ -93712,6 +93818,29 @@ def media_outlet_delete(media_id):
     return redirect(url_for("media_outlets_view"))
 
 
+@app.post("/medios/<media_id>/contactos/<contact_id>/notas-de-prensa", endpoint="media_contact_press_toggle")
+@admin_required
+def media_contact_press_toggle(media_id, contact_id):
+    """A esta persona se le mandan (o se dejan de mandar) las NOTAS DE PRENSA.
+
+    Se guarda AL MOMENTO, sin recargar: es un interruptor, como los de una playlist."""
+    session_db = db()
+    try:
+        contact = session_db.get(MediaContact, to_uuid(contact_id))
+        if not contact or str(contact.media_id) != str(to_uuid(media_id)):
+            return jsonify({"ok": False, "error": "Contacto no encontrado."}), 404
+        datos = request.get_json(silent=True) or {}
+        contact.press_releases = _truthy(datos.get("on"))
+        session_db.commit()
+        return jsonify({"ok": True, "on": bool(contact.press_releases)})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo cambiar el envío de notas de prensa")
+        return jsonify({"ok": False, "error": "No se pudo guardar."}), 400
+    finally:
+        session_db.close()
+
+
 @app.post("/medios/<media_id>/contactos/<contact_id>/delete")
 @admin_required
 def media_contact_delete(media_id, contact_id):
@@ -93725,6 +93854,364 @@ def media_contact_delete(media_id, contact_id):
     finally:
         session_db.close()
     return redirect(url_for("media_outlet_detail_view", media_id=media_id, tab="contactos"))
+
+
+# =========================================================
+# SUBIR CONTACTOS DE MEDIOS DESDE UN FICHERO
+# Se lee el fichero, se dice a qué corresponde cada columna y lo que trae queda A LA ESPERA de que
+# alguien lo arrastre a su medio. ⚠️ El reparto se puede dejar a medias: por eso se guarda (la
+# subida y cada contacto) y por eso Medios avisa arriba mientras quede alguno sin colocar.
+# =========================================================
+
+MEDIA_IMPORT_MAX_ROWS = 4000
+
+
+def _media_import_row_payload(row) -> dict:
+    """Un contacto pendiente, tal como lo pinta la pantalla de vinculación."""
+    completo = " ".join([x for x in [(row.first_name or "").strip(), (row.last_name or "").strip()] if x]).strip()
+    return {
+        "id": str(row.id),
+        "nick": (row.nick or "").strip(),
+        "full_name": completo,
+        "name": (row.nick or "").strip() or completo or "Contacto",
+        "program": (row.program or "").strip(),
+        "role": (row.role or "").strip(),
+        "phone": (row.phone or "").strip(),
+        "email": (row.email or "").strip(),
+        "media_name": (row.media_name or "").strip(),
+    }
+
+
+def _media_import_pending_rows(session_db, import_id):
+    return (session_db.query(MediaContactImportRow)
+            .filter(MediaContactImportRow.import_id == import_id,
+                    MediaContactImportRow.status == "PENDING")
+            .order_by(MediaContactImportRow.position.asc()).all())
+
+
+def _media_import_close_if_done(session_db, batch) -> bool:
+    """Una subida sin nada pendiente se cierra SOLA (la regla de la casa: lo que ya no espera a
+    nadie desaparece sin que haya que pinchar nada)."""
+    if not batch or batch.status != "ACTIVE":
+        return False
+    # ⚠️⚠️ La sesión es `autoflush=False`: sin este flush, la cuenta NO ve el estado que se acaba de
+    # cambiar (el contacto recién colocado seguiría contando como pendiente y la subida no se
+    # cerraría nunca). Es la misma trampa que ya salió en `_accounting_bag_close_if_done`.
+    session_db.flush()
+    quedan = (session_db.query(func.count(MediaContactImportRow.id))
+              .filter(MediaContactImportRow.import_id == batch.id,
+                      MediaContactImportRow.status == "PENDING").scalar() or 0)
+    if quedan:
+        return False
+    batch.status = "DONE"
+    batch.closed_at = _now_madrid()
+    return True
+
+
+def _media_import_pending(session_db):
+    """La subida que TODAVÍA tiene contactos sin colocar (la más reciente), o None.
+
+    Punto único del aviso de arriba: lo usan el listado de medios y la ficha de un medio, así que
+    los dos dicen lo mismo. Es *best-effort*: si algo falla, la pantalla se pinta igual."""
+    try:
+        # ⚠️ Se avisa de la MÁS ANTIGUA que sigue esperando (y se dice si hay más): con la más
+        # reciente, una subida que alguien dejó a medias quedaría enterrada por la siguiente.
+        lotes = (session_db.query(MediaContactImport)
+                 .filter(MediaContactImport.status == "ACTIVE")
+                 .order_by(MediaContactImport.created_at.asc()).all())
+        if not lotes:
+            return None
+        # ⚠️ Aquí NO se escribe nada (ni se cierra lo que ya no tiene pendientes): esto lo llama una
+        # pantalla mientras pinta, y un commit a mitad expiraría lo que ya se ha consultado.
+        cuentas = dict(session_db.query(MediaContactImportRow.import_id,
+                                        func.count(MediaContactImportRow.id))
+                       .filter(MediaContactImportRow.import_id.in_([l.id for l in lotes]),
+                               MediaContactImportRow.status == "PENDING")
+                       .group_by(MediaContactImportRow.import_id).all())
+        vivos = [l for l in lotes if int(cuentas.get(l.id, 0) or 0) > 0]
+        if not vivos:
+            return None
+        batch = vivos[0]
+        return {
+            "id": str(batch.id),
+            "pending": int(cuentas.get(batch.id, 0) or 0),
+            "total": int(batch.rows_total or 0),
+            "file_name": (batch.file_name or "").strip(),
+            "by": (batch.created_by_nick or "").strip(),
+            "others": len(vivos) - 1,
+            "url": url_for("media_contacts_import_view", import_id=batch.id),
+        }
+    except Exception:
+        app.logger.exception("[medios] no se pudo mirar la subida de contactos pendiente")
+        return None
+
+
+def _media_import_payload():
+    """Lo que manda la pantalla: las filas del fichero y a qué campo va cada columna."""
+    datos = request.get_json(silent=True) or {}
+    filas = datos.get("rows") or []
+    mapeo = {}
+    for clave, valor in (datos.get("mapping") or {}).items():
+        try:
+            mapeo[int(clave)] = valor
+        except Exception:
+            continue
+    return datos, filas, mapeo
+
+
+@app.post("/medios/importar/leer", endpoint="media_contacts_import_analyze")
+@admin_required
+def media_contacts_import_analyze():
+    """Lee el fichero y devuelve sus columnas con el campo reconocido y un ejemplo de cada una."""
+    fichero = request.files.get("file")
+    if not fichero or not (fichero.filename or "").strip():
+        return jsonify({"ok": False, "error": "Elige un fichero (Excel o CSV)."}), 400
+    try:
+        analisis = media_contact_import.parse_file(fichero.read(), fichero.filename or "")
+    except Exception as exc:
+        app.logger.exception("[medios] no se pudo leer el fichero de contactos")
+        return jsonify({"ok": False, "error": "No se pudo leer el fichero: %s" % exc}), 400
+    if not analisis.get("rows"):
+        return jsonify({"ok": False, "error": "El fichero no tiene ninguna fila con datos."}), 400
+    return jsonify({
+        "ok": True,
+        "columns": analisis["columns"],
+        "rows": analisis["rows"],
+        "sheet_rows": analisis["sheet_rows"],
+        "fields": [{"key": k, "label": media_contact_import.FIELD_LABELS[k]}
+                   for k in media_contact_import.FIELD_KEYS],
+        "ignore": media_contact_import.TARGET_IGNORE,
+        "filename": (fichero.filename or ""),
+    })
+
+
+@app.post("/medios/importar/crear", endpoint="media_contacts_import_create")
+@admin_required
+def media_contacts_import_create():
+    """Guarda lo que trae el fichero como contactos PENDIENTES de colocar en su medio."""
+    datos, filas, mapeo = _media_import_payload()
+    contactos, descartadas = media_contact_import.contact_rows(
+        media_contact_import.apply_mapping(filas, mapeo))
+    if not contactos:
+        return jsonify({"ok": False, "error": ("Ninguna fila trae con qué llamar a la persona (ni "
+                                               "nick ni nombre): di qué columna es el nombre.")}), 400
+    if len(contactos) > MEDIA_IMPORT_MAX_ROWS:
+        return jsonify({"ok": False,
+                        "error": "El fichero trae %s contactos: el tope es %s."
+                                 % (len(contactos), MEDIA_IMPORT_MAX_ROWS)}), 400
+    session_db = db()
+    try:
+        estado = _current_user_state() or {}
+        batch = MediaContactImport(
+            file_name=(datos.get("filename") or "").strip()[:200] or None,
+            press_releases=_truthy(datos.get("press_all")),
+            status="ACTIVE",
+            rows_total=len(contactos),
+            created_by_user_id=to_uuid(estado.get("user_id")) if estado.get("user_id") else None,
+            created_by_nick=(estado.get("nick") or "").strip() or None,
+        )
+        session_db.add(batch)
+        session_db.flush()
+        for pos, fila in enumerate(contactos):
+            session_db.add(MediaContactImportRow(
+                import_id=batch.id, position=pos,
+                nick=fila["nick"] or None,
+                first_name=fila["first_name"] or None,
+                last_name=fila["last_name"] or None,
+                program=fila["program"] or None,
+                role=fila["role"] or None,
+                phone=fila["phone"] or None,
+                email=fila["email"] or None,
+                media_name=fila["media_name"] or None,
+            ))
+        session_db.commit()
+        return jsonify({"ok": True, "total": len(contactos), "skipped": descartadas,
+                        "url": url_for("media_contacts_import_view", import_id=batch.id)})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo guardar la subida de contactos")
+        return jsonify({"ok": False, "error": "No se pudo guardar lo que traía el fichero."}), 400
+    finally:
+        session_db.close()
+
+
+@app.get("/medios/importar/<import_id>", endpoint="media_contacts_import_view")
+@admin_required
+def media_contacts_import_view(import_id):
+    """La pantalla de vinculación: a la IZQUIERDA lo que falta por colocar y a la DERECHA los
+    medios, para ir arrastrando cada contacto al suyo."""
+    session_db = db()
+    try:
+        batch = session_db.get(MediaContactImport, to_uuid(import_id))
+        if not batch:
+            flash("Esa subida de contactos ya no existe.", "warning")
+            return redirect(url_for("media_outlets_view"))
+        pendientes = _media_import_pending_rows(session_db, batch.id)
+        colocados = (session_db.query(func.count(MediaContactImportRow.id))
+                     .filter(MediaContactImportRow.import_id == batch.id,
+                             MediaContactImportRow.status == "ASSIGNED").scalar() or 0)
+        outlets = session_db.query(MediaOutlet).order_by(func.lower(MediaOutlet.name).asc()).all()
+        # Cuántos contactos tiene ya cada medio: UNA consulta, no una por fila.
+        cuentas = dict(session_db.query(MediaContact.media_id, func.count(MediaContact.id))
+                       .group_by(MediaContact.media_id).all())
+        medios = [{
+            "id": str(o.id),
+            "name": o.name or "",
+            "type": o.media_type or "",
+            "logo": o.logo_url or "",
+            "contacts": int(cuentas.get(o.id, 0) or 0),
+        } for o in outlets]
+        return render_template(
+            "media_contacts_import.html",
+            batch=batch,
+            rows=[_media_import_row_payload(r) for r in pendientes],
+            assigned_count=int(colocados),
+            medios=medios,
+            media_types=MEDIA_TYPES,
+        )
+    finally:
+        session_db.close()
+
+
+def _media_import_same_contact(session_db, media_id, fila):
+    """¿Esa persona ya está en ese medio? Se identifica por su EMAIL y, si no lo trae, por su
+    nombre (sin acentos ni mayúsculas). Un contacto no se duplica: se le completa lo que le falte."""
+    email = (fila.email or "").strip().lower()
+    nombre = _norm_text_key(" ".join([x for x in [(fila.nick or "").strip(),
+                                                  (fila.first_name or "").strip(),
+                                                  (fila.last_name or "").strip()] if x]))
+    for c in session_db.query(MediaContact).filter(MediaContact.media_id == media_id).all():
+        if email and (c.email or "").strip().lower() == email:
+            return c
+        if nombre:
+            suyo = _norm_text_key(" ".join([x for x in [(c.nick or "").strip(),
+                                                        (c.first_name or "").strip(),
+                                                        (c.last_name or "").strip()] if x]))
+            if suyo and suyo == nombre:
+                return c
+    return None
+
+
+@app.post("/medios/importar/<import_id>/asignar", endpoint="media_contacts_import_assign")
+@admin_required
+def media_contacts_import_assign(import_id):
+    """Arrastrado a su medio: se guarda ahí como contacto y desaparece de la lista de pendientes."""
+    session_db = db()
+    try:
+        batch = session_db.get(MediaContactImport, to_uuid(import_id))
+        if not batch:
+            return jsonify({"ok": False, "error": "Esa subida ya no existe."}), 404
+        datos = request.get_json(silent=True) or {}
+        fila = session_db.get(MediaContactImportRow, to_uuid(datos.get("row_id") or ""))
+        if not fila or fila.import_id != batch.id:
+            return jsonify({"ok": False, "error": "Ese contacto ya no está."}), 404
+        if fila.status != "PENDING":
+            return jsonify({"ok": False, "error": "Ese contacto ya se había colocado."}), 409
+        outlet = session_db.get(MediaOutlet, to_uuid(datos.get("media_id") or ""))
+        if not outlet:
+            return jsonify({"ok": False, "error": "Ese medio no existe."}), 404
+
+        contacto = _media_import_same_contact(session_db, outlet.id, fila)
+        creado = contacto is None
+        if creado:
+            contacto = MediaContact(media_id=outlet.id)
+            session_db.add(contacto)
+            contacto.nick = (fila.nick or "").strip() or None
+            contacto.first_name = (fila.first_name or "").strip() or None
+            contacto.last_name = (fila.last_name or "").strip() or None
+            contacto.role = (fila.role or "").strip() or None
+            contacto.phone = (fila.phone or "").strip() or None
+            contacto.email = (fila.email or "").strip() or None
+        else:
+            # Ya estaba: solo se le COMPLETA lo que tenga vacío (lo escrito no se pisa nunca).
+            for campo in ("nick", "first_name", "last_name", "role", "phone", "email"):
+                if not (getattr(contacto, campo, "") or "").strip():
+                    valor = (getattr(fila, campo, "") or "").strip()
+                    if valor:
+                        setattr(contacto, campo, valor)
+        if not (contacto.program or "").strip():
+            contacto.program = _media_program_snap(session_db, outlet.id, fila.program)
+        if batch.press_releases:
+            contacto.press_releases = True          # se marca, nunca se desmarca
+        session_db.flush()
+
+        fila.status = "ASSIGNED"
+        fila.media_id = outlet.id
+        fila.contact_id = contacto.id
+        fila.assigned_at = _now_madrid()
+        fila.assigned_by_nick = ((_current_user_state() or {}).get("nick") or "").strip() or None
+        cerrada = _media_import_close_if_done(session_db, batch)
+        quedan = (session_db.query(func.count(MediaContactImportRow.id))
+                  .filter(MediaContactImportRow.import_id == batch.id,
+                          MediaContactImportRow.status == "PENDING").scalar() or 0)
+        contactos_medio = (session_db.query(func.count(MediaContact.id))
+                           .filter(MediaContact.media_id == outlet.id).scalar() or 0)
+        session_db.commit()
+        return jsonify({"ok": True, "created": creado, "pending": int(quedan), "done": bool(cerrada),
+                        "media_contacts": int(contactos_medio),
+                        "media_name": outlet.name or "", "row_id": str(fila.id)})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo colocar el contacto importado")
+        return jsonify({"ok": False, "error": "No se pudo guardar el contacto en ese medio."}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/medios/importar/<import_id>/descartar", endpoint="media_contacts_import_skip")
+@admin_required
+def media_contacts_import_skip(import_id):
+    """Ese contacto no se quiere: se descarta (no se guarda en ningún medio)."""
+    session_db = db()
+    try:
+        batch = session_db.get(MediaContactImport, to_uuid(import_id))
+        if not batch:
+            return jsonify({"ok": False, "error": "Esa subida ya no existe."}), 404
+        datos = request.get_json(silent=True) or {}
+        fila = session_db.get(MediaContactImportRow, to_uuid(datos.get("row_id") or ""))
+        if not fila or fila.import_id != batch.id:
+            return jsonify({"ok": False, "error": "Ese contacto ya no está."}), 404
+        fila.status = "SKIPPED"
+        cerrada = _media_import_close_if_done(session_db, batch)
+        quedan = (session_db.query(func.count(MediaContactImportRow.id))
+                  .filter(MediaContactImportRow.import_id == batch.id,
+                          MediaContactImportRow.status == "PENDING").scalar() or 0)
+        session_db.commit()
+        return jsonify({"ok": True, "pending": int(quedan), "done": bool(cerrada)})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo descartar el contacto importado")
+        return jsonify({"ok": False, "error": "No se pudo descartar."}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/medios/importar/<import_id>/cerrar", endpoint="media_contacts_import_close")
+@admin_required
+def media_contacts_import_close(import_id):
+    """Dar por terminada la subida: lo que quede sin colocar se descarta (se dice cuánto era)."""
+    session_db = db()
+    try:
+        batch = session_db.get(MediaContactImport, to_uuid(import_id))
+        if batch:
+            quedan = (session_db.query(MediaContactImportRow)
+                      .filter(MediaContactImportRow.import_id == batch.id,
+                              MediaContactImportRow.status == "PENDING").all())
+            for fila in quedan:
+                fila.status = "SKIPPED"
+            batch.status = "DONE"
+            batch.closed_at = _now_madrid()
+            session_db.commit()
+            if quedan:
+                flash("Subida terminada. Se han descartado %s contactos sin colocar." % len(quedan), "warning")
+            else:
+                flash("Subida terminada.", "success")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[medios] no se pudo cerrar la subida de contactos")
+    finally:
+        session_db.close()
+    return redirect(url_for("media_outlets_view"))
 
 
 # =========================================================

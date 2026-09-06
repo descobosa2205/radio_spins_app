@@ -9855,3 +9855,55 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   en CI. Los parciales (`_x.html`) no se revisan sueltos: se revisan al pegarlos en su página.
   · **Al tocar plantillas, pasarla**: hoy quedan **0 botones muertos** (los cuatro que encontró
   —copiar en la ficha de empresa, probar Cabify y los dos de Registros— están arreglados).
+
+- **CONTACTOS DE UN MEDIO · la ficha, los programas y las NOTAS DE PRENSA** (sep 2026). Los contactos
+  de un medio se añaden y se editan en un **POP-UP** (`#mediaContactModal`, el MISMO para las dos
+  cosas, con los bocadillos de la casa: **¿quién es?** —nick · nombre completo · programa · cargo—,
+  **datos de contacto** —teléfono · email— y **notas de prensa**). El formulario de seis huecos
+  sueltos que había encima de la lista se retiró.
+  · **`MediaContact.nick`** (como le llamamos, lo que se ve primero) y **`press_releases`** (a esta
+  persona se le mandan las notas de prensa) son columnas nuevas. El nombre completo se parte con
+  `_split_full_name`, el punto único de la casa.
+  · **EL PROGRAMA ES TEXTO**: un programa existe porque hay alguien en él. Se escribe y salen los que
+  YA tiene el medio (`_media_programs`: los de sus contactos **y** los de su histórico), y lo que no
+  esté se crea con lo escrito. ⚠️ Se compara **sin acentos ni mayúsculas** (`_media_program_snap`,
+  que conserva la ortografía del que ya estaba): si no, «La Ventana» y «la ventana» serían dos grupos.
+  · **EL LISTADO**: primero quien **no es de ningún programa** y después, **agrupado por programa**
+  (alfabéticamente) — punto único `_media_contact_groups`. Al lado de cada uno, el **interruptor** de
+  notas de prensa (el `.pl-switch` + `.sw dl` de las playlists: verde encendido, gris apagado, y se
+  guarda al momento con `media_contact_press_toggle`) y sus **tres puntitos**.
+  ⚠️ El pop-up se rellena **EN EL PROPIO CLIC** (con `modal_stack.js` por medio, `shown.bs.modal` no
+  siempre llega) y todo el JS (`static/js/media_contacts.js`) va por **delegación en `document`**.
+  ⚠️ Los programas del medio viajan al pop-up en un **atributo** (`data-mc-programs` con
+  `|tojson|forceescape`; dentro de un `<script>` sería al revés: ahí `forceescape` rompe el JS).
+
+- **SUBIR CONTACTOS DE MEDIOS DESDE UN FICHERO** (sep 2026). Icono de subida **a la izquierda de
+  «+ Añadir medio»** en `/medios`: se sube un Excel o un CSV, se dice a qué corresponde cada columna
+  y después **se arrastra cada contacto a su medio**.
+  · **Motor puro `media_contact_import.py`**, con el MISMO lector que terceros y compradores
+  (`promoter_import.read_rows` / `parse_columns`): lo único propio es a qué campos de un contacto va
+  cada columna (**Medio · Nick · Nombre completo · Nombre · Apellidos · Programa · Cargo · Teléfono ·
+  Email**). Lo que no se reconoce **no se calla**: se pregunta o se omite.
+  · **SE GUARDA** (`MediaContactImport` + `MediaContactImportRow`, `ensure_promocion_prensa_schema`)
+  porque el reparto se puede dejar a medias: se cierra la ventana y, mientras quede alguno sin
+  colocar, **Medios avisa arriba** (`_media_import_pending` + `_media_import_alert.html`, en el
+  listado y en la ficha de un medio). ⚠️ Se avisa de la subida **MÁS ANTIGUA** que sigue esperando
+  (y se dice si hay más): con la más reciente, lo que alguien dejó a medias quedaría enterrado.
+  · **LA PANTALLA DE VINCULACIÓN** (`/medios/importar/<id>`): a la izquierda los contactos y a la
+  derecha los medios, con su buscador cada uno. Se **arrastra** (HTML5) o —con el dedo— se **pincha
+  el contacto y luego su medio**: siempre hay camino sin arrastrar. Al soltarlo se guarda al momento
+  y desaparece de la izquierda. Arriba a la derecha de los medios, el «+» crea uno **sobre la
+  marcha** (el alta rápida de la casa, `data-quick-create="media"`, que deja lo creado en un
+  `<select>` oculto: de su `change` sale la tarjeta nueva).
+  · **Al subir se puede marcar a TODOS para recibir notas de prensa** (se puede quitar después, uno
+  a uno).
+  ⚠️⚠️ **UN CONTACTO NO SE DUPLICA**: se identifica por su **email** y, si no lo trae, por su
+  **nombre** (sin acentos ni mayúsculas); al que ya está solo se le **completa lo que tenga vacío**
+  (lo escrito no se pisa nunca) y se dice que ya estaba.
+  ⚠️⚠️ **LA SESIÓN ES `autoflush=False`**: `_media_import_close_if_done` hace `flush()` **antes de
+  contar**, o la cuenta no ve el contacto que se acaba de colocar y la subida **no se cierra nunca**
+  (bug real que sacó la prueba; la misma trampa que `_accounting_bag_close_if_done`).
+  ⚠️ La subida **se cierra sola** cuando no queda nada pendiente, y «Terminar» descarta lo que quede
+  **diciendo cuánto era**.
+  ⚠️ Los endpoints se llaman `media_contacts_import_*` y `media_contact_press_toggle`: empiezan por
+  `media_`, así que ya caen en `databases.media` en los DOS mapeos sin tocar nada.

@@ -900,7 +900,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -52740,10 +52740,15 @@ def _press_thumbnail_bytes(session_db, pr, width: int = 600) -> bytes | None:
 
 
 def _press_og_image_bytes(session_db, pr) -> bytes | None:
-    """La tarjeta del enlace (1200×630): la parte de arriba de la nota."""
+    """La tarjeta del enlace (1200×630): la FOTO DE MINIATURA elegida al hacer la nota y, si no se
+    eligió ninguna, la parte de arriba de la nota."""
     if not PILLOW_AVAILABLE:
         return None
     from PIL import Image
+    if (getattr(pr, "thumb_url", "") or "").strip():
+        propia = _og_image_jpeg_bytes(_absolute_media_url(pr.thumb_url.strip()))
+        if propia:
+            return propia
     datos = _press_thumbnail_bytes(session_db, pr, width=1200)
     if not datos:
         return None
@@ -53522,6 +53527,13 @@ def promo_press_view():
                                           "count": 0, "kind": (row["subjects"][0]["kind"] if row["subjects"] else "ARTIST"),
                                           "multi": len(row["subjects"]) > 1})
             g["count"] += 1
+        # El CÓDIGO DE INSERCIÓN de cada sujeto (para pegarlo en cualquier web).
+        for g in grupos.values():
+            try:
+                kind_g, ids_g = (g["id"] or "").split(":", 1)
+                g["embed_snippet"] = _press_embed_snippet(kind_g, ids_g) if (kind_g and ids_g) else ""
+            except Exception:
+                g["embed_snippet"] = ""
         sujeto = (request.args.get("sujeto") or "").strip()
         vista = rows
         etiqueta = ""
@@ -53669,6 +53681,7 @@ def _press_editor_context(s, pr) -> dict:
         "next_url": url_for("promo_press_send_view", release_id=pr.id),
         "files_url": url_for("promo_press_files", release_id=pr.id),
         "image_url": url_for("promo_press_image_upload", release_id=pr.id),
+        "thumb_save_url": url_for("promo_press_thumb_save", release_id=pr.id),
         "photos_url_tpl": url_for("promo_press_album_photos", release_id=pr.id, album_id="__ALBUM__"),
         "pitch": _press_pitch_for(s, pr),
         "design_asset": _press_design_asset(s, pr),
@@ -54439,6 +54452,114 @@ def promo_press_contact_search():
         s.close()
 
 
+@app.post("/notas-de-prensa/<release_id>/miniatura", endpoint="promo_press_thumb_save")
+@admin_required
+def promo_press_thumb_save(release_id):
+    """La FOTO DE MINIATURA de la nota (se elige en el editor, de las fotos, los materiales o subida):
+    es la tarjeta del enlace al mandarla por WhatsApp o SMS y la miniatura del módulo insertable en
+    una web. Vacía = se vuelve a la parte de arriba de la nota."""
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            return jsonify({"ok": False, "error": "No existe."}), 404
+        if not _press_edit_ok(pr):
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        datos = request.get_json(silent=True) or {}
+        url = str(datos.get("url") or "").strip()[:900]
+        if url and not (url.startswith("http") or url.startswith("/") or url.startswith("file://")):
+            return jsonify({"ok": False, "error": "Esa imagen no vale."}), 400
+        pr.thumb_url = url or None
+        pr.updated_at = _now_madrid()          # así se renueva la tarjeta og cacheada
+        s.commit()
+        return jsonify({"ok": True, "url": (_absolute_media_url(url) if url else "")})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo guardar la miniatura")
+        return jsonify({"ok": False, "error": "No se pudo guardar."}), 400
+    finally:
+        s.close()
+
+
+# ── EL CÓDIGO DE INSERCIÓN: las notas ENVIADAS de un artista o evento, en cualquier web ─────────
+
+PRESS_EMBED_KINDS = ("ARTIST", "EVENT", "TOUR", "CYCLE", "COMPANY")
+
+
+def _press_embed_ids(ids: str) -> list:
+    """Los UUID de la clave del módulo («id1,id2»); lo que no sea un UUID se ignora (no revienta)."""
+    return [u for u in (_safe_uuid(x.strip()) for x in str(ids or "").split(",") if x.strip()) if u]
+
+
+def _press_embed_items(session_db, kind: str, ids: str, limit: int = 60) -> list[dict]:
+    """Las notas de prensa ENVIADAS de ese sujeto, de la más reciente a la más antigua, con lo que
+    pinta el módulo: miniatura, titular, resumen, fecha y sus enlaces (la página y su versión embebida).
+    ⚠️ Solo las ENVIADAS (ni borradores ni programadas), y una nota es UNA aunque se haya reenviado."""
+    kind = (kind or "").upper()
+    uuids = _press_embed_ids(ids)
+    if kind not in PRESS_EMBED_KINDS or not uuids:
+        return []
+    q = session_db.query(PressRelease).filter(PressRelease.status == "SENT", _press_is_press_clause())
+    if kind == "ARTIST":
+        conds = [PressRelease.artist_ids.contains([str(u)]) for u in uuids]
+        conds.append(and_(PressRelease.subject_kind == "ARTIST", PressRelease.subject_id.in_(uuids)))
+        q = q.filter(or_(*conds))
+    else:
+        q = q.filter(PressRelease.subject_kind == kind, PressRelease.subject_id.in_(uuids))
+    filas = q.order_by(PressRelease.sent_at.desc().nullslast(), PressRelease.created_at.desc()).limit(limit).all()
+    out = []
+    for pr in filas:
+        tok = pr.public_token or _press_ensure_token(session_db, pr)
+        fecha = pr.sent_at or pr.created_at
+        version = (pr.updated_at.isoformat() if pr.updated_at else "")
+        out.append({
+            "id": str(pr.id),
+            "title": (pr.title or "").strip() or press_render.headline_of(pr.design or {}) or "Nota de prensa",
+            "summary": press_render.summary_of(pr.design or {}),
+            "date": (fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if fecha else ""),
+            "thumb": (_absolute_media_url(pr.thumb_url.strip()) if (pr.thumb_url or "").strip()
+                      else _external_url_for("public_press_og_image", token=tok, v=version)),
+            "url": _press_public_url(pr, tok),
+            "embed_url": _external_url_for("public_press_release", token=tok, embed=1),
+        })
+    return out
+
+
+def _press_embed_snippet(kind: str, ids: str) -> str:
+    """El CÓDIGO HTML que se pega en cualquier web: el hueco y el script (que trae las notas ya
+    ENVIADAS de ese artista o evento y se pone al día solo en cada carga)."""
+    clave = "%s:%s" % ((kind or "").upper(), ids)
+    src = _external_url_for("public_press_embed_js", kind=(kind or "").upper(), ids=ids)
+    return ('<div data-np33="%s"></div>\n<script src="%s" async></script>' % (html.escape(clave, quote=True), html.escape(src, quote=True)))
+
+
+@app.get("/np/insercion/<kind>/<ids>.js", endpoint="public_press_embed_js")
+def public_press_embed_js(kind, ids):
+    """El MÓDULO INSERTABLE: la librería (`static/js/press_embed.js`) y, detrás, las notas enviadas de
+    ese sujeto. Se genera en cada carga, así la web de fuera enseña siempre lo último enviado."""
+    kind = (kind or "").upper()
+    if kind not in PRESS_EMBED_KINDS or not _press_embed_ids(ids):
+        abort(404)
+    s = db()
+    try:
+        with app.test_request_context(base_url=_public_base_url() or request.url_root):
+            items = _press_embed_items(s, kind, ids)
+    finally:
+        s.close()
+    try:
+        lib = open(os.path.join(app.static_folder, "js", "press_embed.js"), "r", encoding="utf-8").read()
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudo leer la librería del módulo insertable")
+        abort(500)
+    datos = {"key": "%s:%s" % (kind, ids), "items": items, "empty": "Todavía no hay notas de prensa."}
+    cuerpo = "%s\n;window.np33Embed.boot(%s, document.currentScript);\n" % (lib, json.dumps(datos, ensure_ascii=False))
+    resp = make_response(cuerpo)
+    resp.headers["Content-Type"] = "application/javascript; charset=utf-8"
+    resp.headers["Cache-Control"] = "public, max-age=120"
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
+
+
 @app.get("/notas-de-prensa/buscar-personal", endpoint="promo_press_staff_search")
 @admin_required
 def promo_press_staff_search():
@@ -54627,7 +54748,7 @@ def public_press_release(token):
                                      _press_subject_label(s, pr, filas),
                                      fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if fecha else "")
         return render_template(
-            "public_press_release.html", pr=pr, embed=False, is_campaign=_press_is_campaign(pr),
+            "public_press_release.html", pr=pr, embed=_truthy(request.args.get("embed")), is_campaign=_press_is_campaign(pr),
             web_html=_press_web_html(s, pr, token),
             og_title=og_title, og_description=(titular or " ".join([x for x in [tipo, nombre] if x]))[:180],
             og_image_url=_external_url_for("public_press_og_image", token=pr.public_token or token,
@@ -80059,7 +80180,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -84025,7 +84146,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):

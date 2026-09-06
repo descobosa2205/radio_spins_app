@@ -35,6 +35,28 @@
     try { navigator.clipboard.writeText(url); } catch (e) {}
   });
 
+  /* ---------- el CÓDIGO DE INSERCIÓN de un artista o evento ---------- */
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-pr-embed]');
+    if (b) {
+      ev.preventDefault();
+      var m = document.getElementById('prEmbedModal'); if (!m || !window.bootstrap) return;
+      var ta = m.querySelector('[data-pr-embed-code]'); if (ta) ta.value = b.getAttribute('data-pr-embed-code') || '';
+      var l = m.querySelector('[data-pr-embed-label]'); if (l) l.textContent = b.getAttribute('data-pr-embed-label') || '';
+      var c = m.querySelector('[data-pr-embed-copy]'); if (c) c.innerHTML = '<i class="fa fa-copy me-1"></i>Copiar el código';
+      bootstrap.Modal.getOrCreateInstance(m).show();
+      return;
+    }
+    var cp = ev.target.closest('[data-pr-embed-copy]');
+    if (!cp) return;
+    var m2 = cp.closest('.modal'), ta2 = m2 && m2.querySelector('[data-pr-embed-code]');
+    if (!ta2) return;
+    function hecho() { cp.innerHTML = '<i class="fa fa-check me-1"></i>Copiado'; }
+    ta2.select();
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta2.value).then(hecho, function () { try { document.execCommand('copy'); } catch (e) {} hecho(); });
+    else { try { document.execCommand('copy'); } catch (e) {} hecho(); }
+  });
+
   /* ---------- envíos y aperturas ---------- */
   var statsUrl = '', statsRows = null;
   function pintaStats(kind) {

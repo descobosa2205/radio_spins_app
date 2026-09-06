@@ -7059,6 +7059,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   el host de la cuenta de PIES, la baja (botón y un clic) y que un publicitario ya no la incluye pero
   uno por la compra sí, y el listado de una actividad no registrada.
 
+- **NOTAS DE PRENSA · EL CÓDIGO DE INSERCIÓN (el módulo para cualquier web) y la MINIATURA** (sep 2026):
+  · En la pestaña de notas, cada galleta (artista, evento, gira, ciclo, empresa) tiene sus **⋯ →
+  «Copiar código de inserción»** (`_press_embed_snippet`, pop-up `#prEmbedModal`): un `<div
+  data-np33="KIND:ids">` y un `<script src="/np/insercion/<KIND>/<ids>.js" async>` que se pegan en
+  cualquier web. **`public_press_embed_js`** devuelve la librería **`static/js/press_embed.js`** más
+  `np33Embed.boot(DATA, document.currentScript)` con las notas de ese sujeto (`_press_embed_items`):
+  se genera en cada carga (caché de 2 min), así la web de fuera **se pone al día sola**.
+  ⚠️⚠️ **Solo las ENVIADAS** (`status == 'SENT'` y `_press_is_press_clause()`): ni borradores ni
+  programadas ni los diseños de un envío a compradores; y **un reenvío es la misma nota** (una fila
+  de `PressRelease`), así que no se repite — solo salen las nuevas. Las de un ARTISTA se buscan en
+  `artist_ids` (una nota de varios artistas sale en el módulo de cada uno).
+  · El módulo: **100% del ancho de la PANTALLA** (`.np33--bleed`, `width:100vw` con el margen
+  negativo; `data-np33-bleed="0"` lo deja al ancho del hueco), **fondo transparente**, una tarjeta por
+  nota (miniatura · fecha · titular · resumen, `press_render.summary_of`) que **se desplaza a
+  izquierda y derecha** (scroll-snap + flechas) y **al pinchar abre la nota en un POP-UP dentro de la
+  misma web**: un `iframe` a la página pública con **`?embed=1`** (sin barra ni pie). **Detecta si el
+  fondo de la web es claro u oscuro** (`esOscuro`: sube por los contenedores hasta el primer color de
+  fondo real; si todos son transparentes, `prefers-color-scheme`) y pone la letra acorde
+  (`.np33--dark`). No usa nada de la web anfitriona y todo su CSS lleva el prefijo `np33-`.
+  · **La MINIATURA se elige al hacer la nota** (botón «Miniatura» en la barra del editor, con el
+  MISMO selector que una imagen: fotos, materiales o subir; `imgTarget = '__thumb__'` →
+  `promo_press_thumb_save`, `PressRelease.thumb_url`). Es **la tarjeta del enlace** al mandarla por
+  WhatsApp, enlace o SMS (`_press_og_image_bytes` la pasa por `_og_image_jpeg_bytes` a 1200×630) y la
+  miniatura del módulo; sin ella, la parte de arriba de la nota, como antes.
+  ⚠️ Es un endpoint PÚBLICO (en las tres listas) y responde con `Access-Control-Allow-Origin: *`.
+  Probado con la app real (`/tmp/mcx/test_lote2.py`): borrador fuera · enviada dentro con su titular,
+  resumen, miniatura y enlace embebido · la de otro artista fuera · og 1200×630 desde la miniatura ·
+  la página `?embed=1` sin barra ni pie · los ⋯ con el código en la galleta.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

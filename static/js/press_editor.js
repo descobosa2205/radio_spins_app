@@ -704,9 +704,31 @@
   function abreImagen(b) {
     if (!imgModal || !window.bootstrap || !b) return;
     imgTarget = b.id;
+    var tt = imgModal.querySelector('.modal-title'); if (tt) tt.innerHTML = '<i class="fa fa-image me-2 text-danger"></i>Elegir la imagen';
     pintaImgTab('photos'); pintaAlbums(); pintaMateriales();
     bootstrap.Modal.getOrCreateInstance(imgModal).show();
   }
+  /* La FOTO DE MINIATURA de la nota (la tarjeta del enlace y la del módulo insertable): el MISMO selector
+     que una imagen, con el destino `__thumb__`. */
+  function abreMiniatura() {
+    if (!imgModal || !window.bootstrap) return;
+    imgTarget = '__thumb__';
+    var tt = imgModal.querySelector('.modal-title'); if (tt) tt.innerHTML = '<i class="fa fa-image-portrait me-2 text-danger"></i>La foto de miniatura de la nota';
+    pintaImgTab('photos'); pintaAlbums(); pintaMateriales();
+    bootstrap.Modal.getOrCreateInstance(imgModal).show();
+  }
+  function guardaMiniatura(url) {
+    post(root.getAttribute('data-thumb-url'), { url: url || '' }).then(function (js) {
+      if (!js || !js.ok) { alert((js && js.error) || 'No se pudo guardar la miniatura.'); return; }
+      var im = root.querySelector('[data-pr-thumb-img]'), ico = root.querySelector('[data-pr-thumb-ico]');
+      if (im) { im.src = js.url || ''; im.classList.toggle('d-none', !js.url); }
+      if (ico) ico.classList.toggle('d-none', !!js.url);
+      marca(js.url ? 'Miniatura guardada' : 'Miniatura quitada');
+    });
+  }
+  root.addEventListener('click', function (ev) {
+    if (ev.target.closest('[data-pr-thumb-pick]')) abreMiniatura();
+  });
   function pintaImgTab(t) {
     imgModal.querySelectorAll('[data-pr-img-tab]').forEach(function (x) { x.classList.toggle('active', x.getAttribute('data-pr-img-tab') === t); });
     imgModal.querySelectorAll('[data-pr-img-pane]').forEach(function (p) { p.classList.toggle('d-none', p.getAttribute('data-pr-img-pane') !== t); });
@@ -742,6 +764,11 @@
       : '<div class="text-muted small">No hay materiales con imagen para este lanzamiento.</div>';
   }
   function usaImagen(url, w, h) {
+    if (imgTarget === '__thumb__') {
+      guardaMiniatura(url);
+      var inst0 = window.bootstrap && bootstrap.Modal.getInstance(imgModal); if (inst0) inst0.hide();
+      return;
+    }
     var b = bloque(imgTarget); if (!b) return;
     function aplica(ww, hh) {
       b.ref = { url: url, w: ww || 0, h: hh || 0, alt: (b.ref || {}).alt || '' };

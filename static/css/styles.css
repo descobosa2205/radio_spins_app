@@ -6581,3 +6581,6 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 /* ── Compradores · un listado de una ACTIVIDAD NO REGISTRADA (anterior a la app) ── */
 .bi-act--legacy{ border-style:dashed; }
 .bi-act--legacy .bi-act__ico{ color:#6b7280; }
+/* ── Notas de prensa · el botón de la MINIATURA en el editor ── */
+.pr-thumb-btn{ display:inline-flex; align-items:center; gap:.35rem; }
+.pr-thumb-btn img{ width:26px; height:26px; border-radius:6px; object-fit:cover; border:1px solid #e5e7eb; }

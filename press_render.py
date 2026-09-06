@@ -295,6 +295,27 @@ def headline_of(design: dict) -> str:
     return ""
 
 
+def summary_of(design: dict, max_len: int = 220) -> str:
+    """El RESUMEN de la nota (para el módulo insertable en una web): los TEXTOS del diseño (no el
+    titular), de arriba abajo, recortados a `max_len` en una palabra entera."""
+    bl = blocks_of(design)
+    titular = headline_of(design)
+    trozos = []
+    for b in sorted([x for x in bl if x["type"] in TEXT_TYPES], key=lambda x: (x["y"], x["x"])):
+        t = " ".join(plain_text_of_html(b.get("html") or "").split())
+        if not t or t == titular:
+            continue
+        if b["type"] == "title" and trozos == [] and t.startswith(titular):
+            t = t[len(titular):].strip()
+        if t:
+            trozos.append(t)
+    texto = " ".join(trozos).strip()
+    if len(texto) <= max_len:
+        return texto
+    corte = texto[:max_len].rsplit(" ", 1)[0].rstrip(" ,;:.")
+    return (corte or texto[:max_len]) + "…"
+
+
 def compute_bands(blocks: list[dict]) -> list[dict]:
     """Las FRANJAS horizontales del correo: cada una empieza donde empieza un bloque y llega hasta
     donde acaba el más bajo de los que se solapan con ella en vertical."""

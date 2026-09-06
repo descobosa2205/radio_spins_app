@@ -15,6 +15,7 @@
      data-next-url="{{ next_url }}"
      data-files-url="{{ files_url }}" data-image-url="{{ image_url }}" data-photos-url="{{ photos_url_tpl }}"
      data-staff-url="{{ url_for('promo_press_staff_search') }}" data-campaign="{{ '1' if campaign else '' }}"
+     data-thumb-url="{{ thumb_save_url }}"
      data-design-asset="{{ design_asset|tojson|forceescape }}" data-corporate="{{ palette_corporate|tojson|forceescape }}"
      data-can-edit="{{ '1' if can_edit else '' }}">
 
@@ -36,6 +37,12 @@
         {# El PITCH del lanzamiento, para leerlo y copiarlo mientras se redacta la nota. #}
         <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#prPitchModal" title="El pitch del {{ pitch.kind_label|lower }}: se puede copiar"><i class="fa fa-comment-dots me-1"></i>Ver pitch</button>
       {% endif %}
+      {# La FOTO DE MINIATURA de la nota: la tarjeta del enlace (WhatsApp, SMS) y la miniatura del módulo
+         insertable en una web. Se elige con el mismo selector que una imagen (fotos, materiales o subir). #}
+      <button class="btn btn-outline-secondary btn-sm pr-thumb-btn" type="button" data-pr-thumb-pick title="La foto de miniatura de la nota (para WhatsApp, SMS y el módulo de la web)">
+        <img src="{{ pr.thumb_url or '' }}" alt="" data-pr-thumb-img class="{{ '' if pr.thumb_url else 'd-none' }}">
+        <i class="fa fa-image-portrait me-1" data-pr-thumb-ico {% if pr.thumb_url %}class="fa fa-image-portrait me-1 d-none"{% endif %}></i>Miniatura
+      </button>
       <label class="btn btn-outline-secondary btn-sm mb-0" title="Subir o cambiar la imagen de fondo (el contenido no se toca)">
         <i class="fa fa-image me-1"></i>Fondo
         <input type="file" accept="image/*" class="d-none" data-pr-bg-file>

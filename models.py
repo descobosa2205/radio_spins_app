@@ -4492,6 +4492,9 @@ class PressRelease(Base):
     about_kind = Column(Text, nullable=False, server_default=text("'SUBJECT'"))
     about_id = Column(PGUUID(as_uuid=True))
     title = Column(Text)                       # el TITULAR (se saca del bloque de titular al guardar)
+    # La FOTO de MINIATURA que se elige al hacer la nota: la tarjeta del enlace (WhatsApp, SMS) y la
+    # miniatura del módulo insertable en una web. Sin ella, la parte de arriba de la nota.
+    thumb_url = Column(Text)
     background_url = Column(Text)
     background_w = Column(Integer)
     background_h = Column(Integer)
@@ -10436,6 +10439,7 @@ def ensure_promocion_prensa_schema():
         'CREATE INDEX IF NOT EXISTS idx_press_releases_about ON press_releases(about_kind, about_id);',
         # PRESS (una nota) · CAMPAIGN (el diseño del correo de un envío a compradores).
         "ALTER TABLE IF EXISTS press_releases ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'PRESS';",
+        "ALTER TABLE IF EXISTS press_releases ADD COLUMN IF NOT EXISTS thumb_url text;",
         """
         CREATE TABLE IF NOT EXISTS press_release_recipients (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -142762,6 +142762,33 @@ def _buyers_import_payload():
     return datos, filas, mapeo
 
 
+def _buyer_import_legacy_from_payload(datos: dict) -> tuple[dict | None, str | None]:
+    """La ACTIVIDAD NO REGISTRADA del pop-up de importar (`legacy`): devuelve `(datos_limpios, error)`.
+    Sin bloque `legacy` devuelve `(None, None)`. Lo comparten «preparar» y «crear» para que el aviso
+    (falta el nombre, falta la fecha) salga en el resumen y no al final, y para que los dos pasos
+    acepten exactamente lo mismo."""
+    legacy = datos.get("legacy") if isinstance(datos.get("legacy"), dict) else None
+    if not legacy:
+        return None, None
+    nombre = (legacy.get("name") or "").strip()[:200]
+    if not nombre:
+        return None, "Ponle nombre a la actividad."
+    fecha = parse_optional_date(legacy.get("date") or "")
+    if not fecha:
+        return None, "Di la fecha de la actividad."
+    kind = (datos.get("subject_kind") or "ARTIST").strip().upper()
+    return {
+        "name": nombre, "date": fecha,
+        "subject_kind": (kind if kind in ("ARTIST", "EVENT") else "ARTIST"),
+        "subject_id": _safe_uuid((datos.get("subject_id") or "").strip()),
+        "address": ((legacy.get("address") or "").strip()[:300] or None),
+        "postal_code": ((legacy.get("postal_code") or "").strip()[:20] or None),
+        "city": ((legacy.get("city") or "").strip()[:120] or None),
+        "province": ((legacy.get("province") or "").strip()[:120] or None),
+        "country": ((legacy.get("country") or "").strip()[:80] or None),
+    }, None
+
+
 @app.post("/compradores/importar/preparar", endpoint="buyers_import_prepare")
 @admin_required
 def buyers_import_prepare():
@@ -142775,13 +142802,18 @@ def buyers_import_prepare():
         source = _buyer_source(s, event_pk=(datos.get("event") or ""),
                                list_pk=(datos.get("lista") or ""))
         if source is None:
+            # Una ACTIVIDAD NO REGISTRADA vale igual que una del sistema: aquí solo se comprueba
+            # que trae nombre y fecha (el listado se crea al importar, no al preparar).
+            legacy, err = _buyer_import_legacy_from_payload(datos)
+            if err:
+                return jsonify({"ok": False, "error": err}), 400
             concert_pk = (datos.get("concert_id") or "").strip()
-            if not concert_pk:
+            if not concert_pk and not legacy:
                 return jsonify({"ok": False, "error": "Falta el listado o la actividad."}), 400
             # Todavía NO se crea nada: el resumen se hace contra un listado que no existe
             # (sin `pk`, así que nadie está «ya en el listado»).
-            source = {"kind": "MANUAL", "pk": "", "concert_id": concert_pk, "manual": True,
-                      "label": ""}
+            source = {"kind": "MANUAL", "pk": "", "concert_id": (concert_pk if not legacy else ""),
+                      "manual": True, "label": (legacy["name"] if legacy else "")}
         grupos, sin_contacto = _buyer_import_group(buyer_import.apply_mapping(filas, mapeo))
         if not grupos:
             return jsonify({"ok": False,
@@ -142804,25 +142836,18 @@ def buyers_import_create():
     try:
         source = _buyer_source(s, event_pk=(datos.get("event") or ""),
                               list_pk=(datos.get("lista") or ""))
-        legacy = datos.get("legacy") if isinstance(datos.get("legacy"), dict) else None
+        legacy, err = _buyer_import_legacy_from_payload(datos)
+        if source is None and err:
+            return jsonify({"ok": False, "error": err}), 400
         if source is None and legacy:
             # UNA ACTIVIDAD QUE NO ESTÁ EN EL SISTEMA (anterior a la app): el listado guarda de quién
             # era, su nombre, su fecha y su dirección; no se da de alta ninguna actividad.
             estado = _current_user_state() or {}
-            nombre = (legacy.get("name") or "").strip()[:200]
-            if not nombre:
-                return jsonify({"ok": False, "error": "Ponle nombre a la actividad."}), 400
-            fecha = parse_optional_date(legacy.get("date") or "")
-            if not fecha:
-                return jsonify({"ok": False, "error": "Di la fecha de la actividad."}), 400
-            kind = (datos.get("subject_kind") or "ARTIST").strip().upper()
-            bl = BuyerList(name=nombre, source="MANUAL", subject_kind=(kind if kind in ("ARTIST", "EVENT") else "ARTIST"),
-                           subject_id=_safe_uuid((datos.get("subject_id") or "").strip()), legacy_date=fecha,
-                           legacy_address=((legacy.get("address") or "").strip()[:300] or None),
-                           legacy_postal_code=((legacy.get("postal_code") or "").strip()[:20] or None),
-                           legacy_municipality=((legacy.get("city") or "").strip()[:120] or None),
-                           legacy_province=((legacy.get("province") or "").strip()[:120] or None),
-                           legacy_country=((legacy.get("country") or "").strip()[:80] or None),
+            bl = BuyerList(name=legacy["name"], source="MANUAL", subject_kind=legacy["subject_kind"],
+                           subject_id=legacy["subject_id"], legacy_date=legacy["date"],
+                           legacy_address=legacy["address"], legacy_postal_code=legacy["postal_code"],
+                           legacy_municipality=legacy["city"], legacy_province=legacy["province"],
+                           legacy_country=legacy["country"],
                            created_by_user_id=_safe_uuid(estado.get("user_id")), created_by_nick=(estado.get("nick") or ""))
             s.add(bl)
             s.commit()

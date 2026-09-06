@@ -7053,6 +7053,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **No se da de alta ninguna actividad**: `BuyerList.subject_kind/subject_id` + `legacy_*`
   (`_buyer_list_legacy` pinta fecha, lugar e imagen), y el correo de esa base se diseña como del
   artista o del evento (`_campaign_design_ensure`).
+  ⚠️⚠️ **EL POP-UP PASA POR «PREPARAR» ANTES DE «CREAR»** (bug real, sep 2026: «Falta el listado o la
+  actividad» al subir el listado de una actividad no registrada). El bloque `legacy` solo lo leía
+  `buyers_import_create`; `buyers_import_prepare` —el paso del RESUMEN, que es el que pulsa la
+  persona— exigía listado o actividad y rebotaba. La prueba no lo cazó porque llamaba a «crear»
+  directamente. Punto único **`_buyer_import_legacy_from_payload`** (valida nombre y fecha y limpia
+  los campos), usado por los DOS pasos: así el aviso de «ponle nombre» sale en el resumen y los dos
+  aceptan exactamente lo mismo. Regla: un paso NUEVO en un flujo de varios POST se prueba **en el
+  orden en que lo pulsa la persona**, no solo su endpoint final.
   Probado con la app real (`/tmp/mcx/test_lote2.py`, 66 comprobaciones): contactos con foto y
   departamento, etiquetas sin duplicar y chips del envío, la imagen del evento en vivo, el diseño del
   correo y su permiso, la paleta con el logo de quien firma, tres bases sin repetir a Bea, el From y

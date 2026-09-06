@@ -1,9 +1,12 @@
 {# ENVÍO A COMPRADORES (SMS o correo).
-   1 ¿A quién? (todo el listado o los filtros, con su icono) → el TOTAL de envíos.
-   2 El mensaje (correo: asunto, título, texto, botón y adjuntos · SMS: texto, enlace y adjuntos,
-     con el contador de caracteres y los trozos que va a costar).
-   3 Cómo va a quedar: la previsualización la compone el SERVIDOR con el MISMO código que el envío,
-     así que lo que se ve es exactamente lo que sale.
+   1 ¿A quién? (todo el listado o los filtros, con su icono · o VARIAS bases a la vez, desde la rejilla
+     de compradores: una persona en varias entra UNA vez) → el TOTAL de envíos.
+   2 ¿Qué comunicación es? POR LA COMPRA (va a todos, sin baja) o PUBLICITARIA (lleva abajo «No recibir
+     más comunicaciones publicitarias» y respeta a quien se dio de baja). Siempre que se manda algo.
+   3 Quién firma (y desde qué cuenta de correo sale) y el contenido: en un CORREO se DISEÑA con el
+     editor de las notas de prensa (mismas opciones y módulos: logo, cartelería, audios, fotos…); en un
+     SMS, el texto, el enlace y los adjuntos con su contador.
+   4 Cómo va a quedar: la previsualización la compone el SERVIDOR con el MISMO código que el envío.
    El JS vive en static/js/buyer_campaign.js. #}
 <div class="modal fade" id="buyerCampaignModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
@@ -16,8 +19,13 @@
          data-url-sender="{{ url_for('buyers_campaign_sender_save') }}"
          data-url-test="{{ url_for('buyers_campaign_test') }}"
          data-url-contacts="{{ url_for('buyers_campaign_contacts') }}"
-         data-event="{{ source.pk if source.kind == 'ET' else '' }}"
-         data-lista="{{ source.pk if source.kind == 'MANUAL' else '' }}"
+         data-url-design="{{ url_for('buyers_campaign_design_start') }}"
+         data-url-mail-account="{{ url_for('buyers_campaign_mail_account_save') }}"
+         data-event="{{ source.pk if (source and source.kind == 'ET') else '' }}"
+         data-lista="{{ source.pk if (source and source.kind == 'MANUAL') else '' }}"
+         data-multi="{{ '' if source else '1' }}"
+         data-draft="{{ (campaign_draft or none)|tojson|forceescape }}"
+         data-sender-accounts="{{ (sender_accounts or {})|tojson|forceescape }}"
          data-sms-ready="{{ '1' if sms_ready else '0' }}">
       <div class="modal-header">
         <div>
@@ -26,7 +34,7 @@
             <i class="fa fa-envelope me-2 text-danger d-none" data-bc-icon-mail></i>
             <span data-bc-title>Envío de SMS</span>
           </h5>
-          <div class="text-muted small">{{ source.label }}{% if source.date and source.date != '—' %} · {{ source.date }}{% endif %}</div>
+          <div class="text-muted small">{% if source %}{{ source.label }}{% if source.date and source.date != '—' %} · {{ source.date }}{% endif %}{% else %}A una o varias bases de compradores: quien esté en varias recibe UN solo envío.{% endif %}</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
@@ -41,10 +49,29 @@
         {# ── 1 · ¿A quién? ─────────────────────────────────────────────────────────── #}
         <div class="bc-card">
           <div class="bc-card__t"><i class="fa fa-users me-2 text-danger"></i>¿A quién se le manda?</div>
-          <div class="bc-who">
+          {% if not source %}
+            {# VARIAS BASES: se marcan las que se quieran. Una persona que esté en varias entra UNA vez. #}
+            <div class="small text-muted mb-2">Marca las bases de compradores. Quien esté en varias recibe <b>un solo</b> envío.</div>
+            <div class="bc-sources" data-bc-sources>
+              {% for ev in sources %}
+                <label class="bc-source">
+                  <input type="checkbox" class="form-check-input" data-bc-source data-kind="{{ ev.kind }}" data-pk="{{ ev.pk }}">
+                  {% if ev.image %}<img src="{{ ev.image }}" alt="" data-avatar="1">{% else %}<span class="bc-source__ph"><i class="fa fa-ticket"></i></span>{% endif %}
+                  <span class="bc-source__t"><b>{{ ev.label }}</b><small>{{ ev.date }}{% if ev.venue %} · {{ ev.venue }}{% endif %} · {{ ev.buyers|k }} compradores · <i class="fa fa-at"></i> {{ ev.emails|k }} · <i class="fa fa-comment-sms"></i> {{ ev.sms|k }}</small></span>
+                </label>
+              {% else %}
+                <div class="text-muted small">Todavía no hay ninguna base de compradores.</div>
+              {% endfor %}
+            </div>
+            <div class="mt-2 d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bc-sources-all>Marcar todas</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bc-sources-none>Ninguna</button>
+            </div>
+          {% endif %}
+          <div class="bc-who {% if not source %}mt-3{% endif %}">
             <label class="bc-who__opt">
               <input type="radio" name="bc_who" value="todos" checked>
-              <span><i class="fa fa-user-group"></i><span class="fw-semibold">Todos los compradores de este listado</span></span>
+              <span><i class="fa fa-user-group"></i><span class="fw-semibold">{% if source %}Todos los compradores de este listado{% else %}Todos los compradores de las bases marcadas{% endif %}</span></span>
             </label>
             <label class="bc-who__opt">
               <input type="radio" name="bc_who" value="filtros">
@@ -84,7 +111,23 @@
           </div>
         </div>
 
-        {# ── 2 · El mensaje ────────────────────────────────────────────────────────── #}
+        {# ── 2 · ¿Qué comunicación es? ─────────────────────────────────────────────────
+           POR LA COMPRA (entradas, horarios, cambios…) va a TODOS y no lleva baja. PUBLICITARIO lleva
+           abajo «No recibir más comunicaciones publicitarias» (compatible con la baja en un clic del
+           iPhone) y no se manda a quien ya se dio de baja. Se pregunta SIEMPRE. #}
+        <div class="bc-card">
+          <div class="bc-card__t"><i class="fa fa-circle-question me-2 text-danger"></i>¿Qué comunicación es?</div>
+          <div class="bc-purpose">
+            {% for key, label, icon, desc in purpose_kinds %}
+              <label class="bc-purpose__opt">
+                <input type="radio" name="bc_purpose" value="{{ key }}" {% if loop.first %}checked{% endif %}>
+                <span><i class="fa {{ icon }}"></i><span><span class="fw-semibold d-block">{{ label }}</span><small>{{ desc }}</small></span></span>
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# ── 3 · Quién firma y el contenido ─────────────────────────────────────────── #}
         <div class="bc-card">
           <div class="bc-card__t"><i class="fa fa-pen-to-square me-2 text-danger"></i>El mensaje</div>
 
@@ -168,6 +211,18 @@
             </div>
           {% endif %}
           <div class="form-text mb-2" data-bc-company-note></div>
+          {# DESDE QUÉ CORREO sale: la cuenta de la actividad → la de quien firma → la de la app (con el
+             nombre de quien firma, en todos los casos). #}
+          <div class="small mb-2 d-none" data-bc-only="EMAIL">
+            <i class="fa fa-at me-1 text-muted"></i>Saldrá desde <b data-bc-mail-from>…</b>
+            {% if sender_accounts and sender_accounts.concert_id and mail_accounts %}
+              <span class="ms-2 text-muted">· Cuenta de correo de esta actividad:</span>
+              <select class="form-select form-select-sm d-inline-block w-auto align-middle ms-1" data-bc-concert-account data-concert="{{ sender_accounts.concert_id }}">
+                <option value="">la de quien firma (o la de la app)</option>
+                {% for a in mail_accounts %}<option value="{{ a.id }}" {% if sender_accounts.concert_account == a.id %}selected{% endif %}>{{ a.label }} · {{ a.email }}</option>{% endfor %}
+              </select>
+            {% endif %}
+          </div>
 
           {# Si quien manda no tiene nombre abreviado para el SMS, se pone aquí mismo. #}
           <div class="bc-shortname d-none mb-2" data-bc-shortname>
@@ -187,38 +242,25 @@
 
           <div class="d-none" data-bc-only="EMAIL">
             <label class="form-label small mb-1">Asunto del correo</label>
-            <input class="form-control" data-bc-subject maxlength="200" placeholder="Tu entrada para…">
+            <input class="form-control" data-bc-subject maxlength="200" placeholder="Si se deja vacío, el titular del correo">
           </div>
 
+          {# EL CONTENIDO DEL CORREO SE DISEÑA con el editor de las notas de prensa (fondo, titular, textos
+             y los módulos: el logo de la empresa, la cartelería, audios, fotos, enlaces…). #}
           <div class="mt-2 d-none" data-bc-only="EMAIL">
-            <label class="form-label small mb-1">Título</label>
-            <input class="form-control" data-bc-title-in maxlength="200" placeholder="Lo que va en grande debajo del logo">
-          </div>
-
-          <div class="mt-2">
-            <label class="form-label small mb-1">Texto</label>
-            <textarea class="form-control" rows="5" data-bc-body placeholder="Lo que quieres decirles…"></textarea>
-            <div class="d-flex justify-content-between align-items-center mt-1 flex-wrap gap-2">
-              <div class="small text-muted d-none" data-bc-only="SMS" data-bc-counter></div>
-              <div class="small text-muted d-none" data-bc-only="EMAIL">Una línea en blanco separa párrafos.</div>
+            <label class="form-label small mb-1">El contenido</label>
+            <div class="bc-design" data-bc-design-box>
+              <i class="fa fa-wand-magic-sparkles fa-lg text-muted" data-bc-design-ico></i>
+              <div class="flex-grow-1 small" data-bc-design-text>Todavía no está diseñado. Se diseña como una nota de prensa: fondo, titular, textos, el logo y la cartelería.</div>
+              <button type="button" class="btn btn-sm btn-primary" data-bc-design><i class="fa fa-pen-ruler me-1"></i>Diseñar el contenido</button>
             </div>
           </div>
 
-          {# El botón del correo: va justo debajo del texto, a la derecha #}
-          <div class="mt-2 d-none" data-bc-only="EMAIL">
-            <button class="btn btn-sm btn-outline-secondary" type="button" data-bc-add-button>
-              <i class="fa fa-hand-pointer me-1"></i>Añadir un botón
-            </button>
-            <div class="row g-2 mt-2 d-none" data-bc-button-fields>
-              <div class="col-12 col-md-5">
-                <input class="form-control form-control-sm" data-bc-button-label maxlength="60" placeholder="Nombre del botón">
-              </div>
-              <div class="col-12 col-md-6">
-                <input class="form-control form-control-sm" data-bc-button-url type="url" placeholder="https://…">
-              </div>
-              <div class="col-12 col-md-1 d-flex">
-                <button class="btn btn-sm btn-outline-danger w-100" type="button" data-bc-button-del title="Quitar el botón"><i class="fa fa-trash"></i></button>
-              </div>
+          <div class="mt-2 d-none" data-bc-only="SMS">
+            <label class="form-label small mb-1">Texto</label>
+            <textarea class="form-control" rows="5" data-bc-body placeholder="Lo que quieres decirles…"></textarea>
+            <div class="d-flex justify-content-between align-items-center mt-1 flex-wrap gap-2">
+              <div class="small text-muted" data-bc-counter></div>
             </div>
           </div>
 
@@ -236,17 +278,17 @@
             </div>
           </div>
 
-          {# Adjuntos: el pop-up de arrastrar o elegir #}
-          <div class="mt-3">
+          {# Adjuntos (SMS): el pop-up de arrastrar o elegir. En el correo van dentro del diseño. #}
+          <div class="mt-3 d-none" data-bc-only="SMS">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#buyerCampaignFilesModal">
               <i class="fa fa-paperclip me-1"></i>Adjuntar documentos o fotos
             </button>
-            <span class="small text-muted ms-2 d-none" data-bc-only="SMS">En un SMS se manda como un enlace corto para verlos.</span>
+            <span class="small text-muted ms-2">En un SMS se manda como un enlace corto para verlos.</span>
             <div class="bc-files mt-2" data-bc-files></div>
           </div>
         </div>
 
-        {# ── 3 · Cómo va a quedar ──────────────────────────────────────────────────── #}
+        {# ── 4 · Cómo va a quedar ──────────────────────────────────────────────────── #}
         <div class="bc-card">
           <div class="bc-card__t"><i class="fa fa-eye me-2 text-danger"></i>Cómo va a quedar</div>
           <div class="d-none" data-bc-only="EMAIL">

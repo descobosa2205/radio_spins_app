@@ -88,13 +88,20 @@
               {% endfor %}
               <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none d-none" data-pr-type-toggle>quitar todos los de este tipo</button>
             </div>
+            {# Las ETIQUETAS de los medios: se ven las que tienen los medios a la vista (al elegir un tipo, las de
+               ese tipo). Encendida = todos sus medios marcados; al pincharla se marcan o se quitan de golpe. #}
+            <div class="pr-tchips pr-tagchips mb-2 d-none" data-pr-tagchips>
+              <span class="small text-muted me-1"><i class="fa fa-tags me-1"></i>Etiquetas:</span>
+              <span data-pr-tagchips-list></span>
+            </div>
             <div class="pr-recip-groups" data-pr-groups>
               {% for g in candidates %}
                 {% set _tipo = media_type_label(g.media_type) %}
-                <div class="pr-recip-group" data-media-type="{{ _tipo|lower }}" data-search="{{ (g.media_name ~ ' ' ~ (g.contacts|map(attribute='name')|join(' ')) ~ ' ' ~ (g.contacts|map(attribute='email')|join(' ')))|lower }}">
+                <div class="pr-recip-group" data-media-type="{{ _tipo|lower }}" data-media-tags="{{ (g.tags or [])|join('|') }}" data-search="{{ (g.media_name ~ ' ' ~ (g.contacts|map(attribute='name')|join(' ')) ~ ' ' ~ (g.contacts|map(attribute='email')|join(' ')) ~ ' ' ~ ((g.tags or [])|join(' ')))|lower }}">
                   <div class="pr-recip-group__head">
                     <img src="{{ g.media_logo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
                     <b>{{ g.media_name }}</b><span class="text-muted small">· <i class="fa {{ media_type_icon(g.media_type) }} me-1"></i>{{ _tipo }}</span>
+                    {% for t in g.tags or [] %}<span class="badge media-tag"><i class="fa fa-tag me-1"></i>{{ t }}</span>{% endfor %}
                     <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none" data-pr-group-toggle>quitar todos</button>
                   </div>
                   {% for c in g.contacts %}

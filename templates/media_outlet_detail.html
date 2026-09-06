@@ -21,6 +21,7 @@
       <h3 class="m-0">{{ outlet.name }}</h3>
       <div class="small text-muted">{{ outlet.address or 'Sin dirección' }}</div>
       <span class="badge text-bg-light border mt-2">{{ outlet.media_type }}</span>
+      {% for t in media_tags or [] %}<span class="badge media-tag mt-2"><i class="fa fa-tag me-1"></i>{{ t }}</span>{% endfor %}
       {% if (outlet.country_code or 'ES') != 'ES' %}<span class="badge text-bg-light border mt-2">{{ outlet.country_name or country_name_es(outlet.country_code) }}</span>{% endif %}
     </div>
   </div>
@@ -35,6 +36,29 @@
       <div class="col-md-4"><label class="form-label">Logotipo</label><input type="file" name="logo" class="form-control" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.heic,.heif"></div>
       <div class="col-md-4"><label class="form-label">País</label><select name="country_code" class="form-select select-country">{% for country in country_options %}<option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == (outlet.country_code or 'ES') %}selected{% endif %}>{{ country.name }}</option>{% endfor %}</select></div>
       <div class="col-12"><label class="form-label">Dirección</label><span data-address-autocomplete class="d-block position-relative"><input type="text" name="address" class="form-control" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…" value="{{ outlet.address or '' }}"></span></div>
+      {# ETIQUETAS del medio (con centinela: sin el campo, un guardado parcial no las tocaría). Las etiquetas y sus
+         ocultos los pinta el SERVIDOR; el motor es `song_genres.js`, global y por delegación. #}
+      <div class="col-12">
+        <label class="form-label"><i class="fa fa-tags me-1"></i>Etiquetas del medio</label>
+        <input type="hidden" name="media_tags_present" value="1">
+        <div class="position-relative" data-genre-picker data-genre-field="media_tags[]">
+          <div class="d-flex flex-wrap" data-genre-chips>
+            {% for t in media_tags or [] %}
+              <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 me-2 mb-2" data-genre-chip>
+                <span>{{ t }}</span>
+                <button type="button" class="btn btn-sm p-0 border-0 bg-transparent text-danger" data-genre-del aria-label="Quitar"><i class="fa fa-times"></i></button>
+                <input type="hidden" name="media_tags[]" value="{{ t }}">
+              </span>
+            {% endfor %}
+          </div>
+          <div class="input-group">
+            <input class="form-control" data-genre-input autocomplete="off" placeholder="Busca una etiqueta, o escribe una nueva y pulsa +">
+            <button type="button" class="btn btn-outline-secondary" data-genre-add title="Añadir la etiqueta que has escrito (para una que todavía no existe)"><i class="fa fa-plus"></i></button>
+          </div>
+          <div class="ta-results" data-genre-results></div>
+          <script type="application/json" data-genre-catalog>{{ (media_tag_catalog or [])|tojson }}</script>
+        </div>
+      </div>
       <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Guardar datos básicos</button></div>
     </form>
   </div>

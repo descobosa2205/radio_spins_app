@@ -344,6 +344,7 @@ from models import (
     ensure_expense_split_schema,
     ensure_song_demos_schema,
     ensure_song_genres_schema,
+    ensure_media_tags_schema,
     ensure_playlists_schema,
     ensure_disco_projects_schema,
     ensure_song_radio_schema,
@@ -472,6 +473,8 @@ if CALDAV_ONLY:
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
 _CSRF_EXEMPT_ENDPOINTS = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
     "concert_artwork_public_upload",
+    # LA BAJA DE PUBLICIDAD de un comprador: el POST llega del propio cliente de correo (un clic).
+    "public_buyer_unsubscribe",
     # ACTUALIZAR VENTAS: el promotor de fuera no tiene sesión (su enlace es el token).
     "public_sales_update", "public_sales_update_save", "public_sales_derive",
     "public_sales_update_og_image",
@@ -897,7 +900,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -3810,6 +3813,7 @@ def _send_optional_email(
     account=None,
     pace_ms: int | None = None,
     reconnect_every: int | None = None,
+    extra_headers: dict | None = None,
 ) -> tuple[bool, str | None]:
     """Manda un correo (UNO por persona) por el SMTP de la casa o por una CUENTA PROPIA.
 
@@ -3823,8 +3827,10 @@ def _send_optional_email(
       conexión nueva cada N—. Con cuenta propia mandan los de la cuenta.
     · `auto_submitted=False`: un correo ESCRITO por una persona (una nota de prensa) no lleva las
       cabeceras de «esto lo manda una máquina»: se puede contestar y no es un aviso automático.
-    · `personalize(destinatario) -> (html, texto)`: un cuerpo DISTINTO para cada persona (su token de
-      apertura) dentro de la MISMA conexión.
+    · `personalize(destinatario) -> (html, texto)` —o `(html, texto, cabeceras)`—: un cuerpo DISTINTO
+      para cada persona (su token de apertura, su enlace de baja) dentro de la MISMA conexión; las
+      cabeceras de la tupla (p. ej. `List-Unsubscribe`) van en ESE correo.
+    · `extra_headers`: cabeceras para TODOS los correos del envío.
     · `on_result(destinatario, ok, error)`: el resultado de CADA envío, para apuntarlo uno a uno."""
     raw_recipients: list[str] = []
     if isinstance(to_email, (list, tuple, set)):
@@ -3925,11 +3931,18 @@ def _send_optional_email(
             msg['Auto-Submitted'] = 'auto-generated'
             msg['X-Auto-Response-Suppress'] = 'All'
         cuerpo_html, cuerpo_texto = html_body, text_body
+        cabeceras = dict(extra_headers or {})
         if personalize is not None:
             try:
-                cuerpo_html, cuerpo_texto = personalize(destinatario)
+                res = personalize(destinatario)
+                cuerpo_html, cuerpo_texto = res[0], res[1]
+                if len(res) > 2 and isinstance(res[2], dict):
+                    cabeceras.update(res[2])
             except Exception:
                 app.logger.exception('[correo] no se pudo personalizar el cuerpo')
+        for k, v in cabeceras.items():
+            if k and v:
+                msg[str(k)] = str(v)
         # La versión de TEXTO se saca del propio HTML: un correo cuya parte de texto no dice lo mismo
         # (o es un «este mensaje contiene una versión HTML») es una señal clásica de spam.
         msg.set_content(cuerpo_texto or _html_to_text(cuerpo_html))
@@ -6534,6 +6547,84 @@ def _song_genre_catalog(session_db) -> list[str]:
     """El catálogo completo, para sugerir en el campo (datalist)."""
     return [(g.name or "").strip() for g in
             session_db.query(MusicGenre).order_by(MusicGenre.name.asc()).all() if (g.name or "").strip()]
+
+
+# ── ETIQUETAS DE UN MEDIO: para CALIFICARLOS y elegirlos por grupos en un envío de prensa ──
+# Mismo patrón que los géneros de una canción: un catálogo ABIERTO (`MediaTag`, con `norm_key` único
+# para no duplicar «Radio local» y «radio local») y una N:M con orden (`MediaOutletTag`).
+
+def _media_tag_get_or_create(session_db, name: str):
+    """La etiqueta del catálogo con ese nombre, creándola si no está. None si el nombre está vacío."""
+    limpio = re.sub(r"\s+", " ", str(name or "").strip().lstrip("#"))[:60]
+    clave = _norm_genre_key(limpio)
+    if not clave:
+        return None
+    fila = session_db.query(MediaTag).filter(MediaTag.norm_key == clave).first()
+    if fila is None:
+        fila = MediaTag(name=limpio, norm_key=clave)
+        session_db.add(fila)
+        try:
+            session_db.flush()
+        except Exception:
+            session_db.rollback()          # otro worker la acaba de crear: se coge la que ya está
+            fila = session_db.query(MediaTag).filter(MediaTag.norm_key == clave).first()
+    return fila
+
+
+def _media_tag_names(session_db, media_id) -> list[str]:
+    """Las etiquetas de UN medio, en su orden."""
+    mid = to_uuid(str(media_id or "")) or None
+    if not mid:
+        return []
+    filas = (session_db.query(MediaOutletTag).options(joinedload(MediaOutletTag.tag))
+             .filter(MediaOutletTag.media_id == mid)
+             .order_by(MediaOutletTag.position.asc(), MediaOutletTag.created_at.asc()).all())
+    return [(getattr(f.tag, "name", "") or "").strip() for f in filas if getattr(f, "tag", None)]
+
+
+def _media_tags_map(session_db, media_ids) -> dict[str, list[str]]:
+    """Las etiquetas de MUCHOS medios, en UNA consulta (listados, envío de prensa)."""
+    ids = [to_uuid(str(x)) for x in (media_ids or []) if to_uuid(str(x))]
+    if not ids:
+        return {}
+    salida: dict[str, list[str]] = {}
+    for f in (session_db.query(MediaOutletTag).options(joinedload(MediaOutletTag.tag))
+              .filter(MediaOutletTag.media_id.in_(ids))
+              .order_by(MediaOutletTag.position.asc(), MediaOutletTag.created_at.asc()).all()):
+        nombre = (getattr(f.tag, "name", "") or "").strip()
+        if nombre:
+            salida.setdefault(str(f.media_id), []).append(nombre)
+    return salida
+
+
+def _apply_media_tags(session_db, outlet, nombres, *, present: bool = True) -> list[str]:
+    """Fija las etiquetas de un medio (crea las que falten en el catálogo). Con `present=False` el
+    formulario no traía el campo y NO se toca nada (un guardado parcial no puede borrarlas: el
+    centinela de siempre). Un campo suelto puede traer «Radio, Local»: se parte por comas."""
+    if not present or outlet is None:
+        return _media_tag_names(session_db, getattr(outlet, "id", None))
+    vistos, finales = set(), []
+    for bruto in (nombres or []):
+        for trozo in re.split(r"[,;]", str(bruto or "")):
+            fila = _media_tag_get_or_create(session_db, trozo)
+            if fila is None or str(fila.id) in vistos:
+                continue
+            vistos.add(str(fila.id))
+            finales.append(fila)
+    session_db.query(MediaOutletTag).filter(MediaOutletTag.media_id == outlet.id).delete(synchronize_session=False)
+    for i, fila in enumerate(finales):
+        session_db.add(MediaOutletTag(media_id=outlet.id, tag_id=fila.id, position=i))
+    session_db.flush()
+    return [(f.name or "").strip() for f in finales]
+
+
+def _media_tag_catalog(session_db) -> list[str]:
+    """El catálogo completo, para sugerir al escribir (así no se crean dos parecidas)."""
+    try:
+        return [(t.name or "").strip() for t in session_db.query(MediaTag).order_by(MediaTag.name.asc()).all()
+                if (t.name or "").strip()]
+    except Exception:
+        return []
 
 
 def _song_one_stop_map(session_db, songs) -> dict[str, dict]:
@@ -51420,6 +51511,53 @@ def _press_can_edit(pr) -> bool:
     return (pr.status or "DRAFT") != "SENT"
 
 
+def _press_is_campaign(pr) -> bool:
+    """¿Este diseño es el CORREO de un envío a compradores (y no una nota de prensa)?"""
+    return (getattr(pr, "purpose", "PRESS") or "PRESS").upper() == "CAMPAIGN"
+
+
+def _press_is_press_clause():
+    """La condición de «es una NOTA DE PRENSA» para las consultas: los diseños de los envíos a
+    compradores viven en la misma tabla y no salen en ninguna lista de notas."""
+    return or_(PressRelease.purpose.is_(None), PressRelease.purpose == "PRESS")
+
+
+def _press_edit_ok(pr) -> bool:
+    """QUIÉN puede editar este diseño: una nota de prensa, quien edita Promoción; el correo de un
+    envío a compradores, quien manda envíos a compradores (ticketing), que no tiene por qué tener
+    Promoción. Punto único de los endpoints del editor."""
+    if pr is not None and _press_is_campaign(pr):
+        return can_edit_buyers()
+    return can_edit_promo()
+
+
+def _press_request_is_campaign() -> bool:
+    """¿La petición al editor es sobre el diseño de un ENVÍO A COMPRADORES? Lo mira el gate de
+    permisos: esos endpoints son `promo_press_*` (sección Promoción) pero ese diseño lo trabaja
+    ticketing, así que se resuelven contra `databases.buyers`. Cacheado por petición."""
+    rid = (request.view_args or {}).get("release_id") if request else None
+    if not rid:
+        return False
+    try:
+        cache = g.setdefault("_press_campaign_req", {})
+        if rid in cache:
+            return cache[rid]
+    except Exception:
+        cache = None
+    valor = False
+    session_db = db()
+    try:
+        fila = session_db.query(PressRelease.purpose).filter(PressRelease.id == to_uuid(rid)).first()
+        valor = bool(fila and (fila[0] or "PRESS").upper() == "CAMPAIGN")
+    except Exception:
+        valor = False
+    finally:
+        session_db.close()
+    if cache is not None:
+        cache[rid] = valor
+    return valor
+
+
 # ── QUIÉN y SOBRE QUÉ ────────────────────────────────────────────────────────────────────────
 
 def _press_company_is_house(name: str) -> bool:
@@ -51750,6 +51888,120 @@ def _press_song_row(session_db, song, token: str, *, masters: dict | None = None
     }
 
 
+def _press_staff_row(session_db, user, prof) -> dict:
+    """Una persona de la casa como CONTACTO de una nota: su nombre, su foto, su correo, su móvil y
+    «Contacto de <Departamento>» (sus departamentos, normalizados al catálogo)."""
+    deptos = _profile_departments(prof) if prof is not None else []
+    etiqueta = ("Contacto de %s" % " y ".join(deptos[:2])) if deptos else "Contacto"
+    nombre = ((prof.nick if prof is not None else "") or
+              " ".join([x for x in [(getattr(prof, "first_name", "") or ""), (getattr(prof, "last_name", "") or "")] if x]).strip() or
+              (user.email or "").split("@")[0])
+    return {"user_id": str(user.id), "name": nombre, "email": (user.email or "").strip().lower(),
+            "phone": _user_sms_phone(session_db, user.id), "role_label": etiqueta,
+            "photo": _absolute_media_url((getattr(prof, "photo_url", "") or "").strip()) if (prof is not None and (prof.photo_url or "").strip()) else "",
+            "department_label": " · ".join(deptos) or "Sin departamento"}
+
+
+def _press_staff_rows(session_db, q: str = "", *, ids=None) -> list[dict]:
+    """El PERSONAL de la casa (actual: sin eliminados, bloqueados ni espejos externos) con su foto,
+    para añadirlo como contacto de una nota. Con `q` filtra por nombre o correo; con `ids`, solo esos."""
+    inactivos = {str(x) for x in _inactive_user_ids(session_db)}
+    consulta = session_db.query(User, UserProfile).outerjoin(UserProfile, UserProfile.user_id == User.id)
+    q = (q or "").strip()
+    if ids is not None:
+        uuids = [to_uuid(str(x)) for x in ids if to_uuid(str(x))]
+        if not uuids:
+            return []
+        consulta = consulta.filter(User.id.in_(uuids))
+    elif q:
+        like = _sa_contains_text
+        consulta = consulta.filter(or_(like(User.email, q), like(UserProfile.nick, q),
+                                       like(UserProfile.first_name, q), like(UserProfile.last_name, q)))
+    filas = []
+    for u, prof in consulta.limit(80).all():
+        if str(u.id) in inactivos:
+            continue
+        filas.append(_press_staff_row(session_db, u, prof))
+    filas.sort(key=lambda f: (f["name"] or "").casefold())
+    if ids is not None:                      # en el orden en que se añadieron
+        orden = {str(x): i for i, x in enumerate(ids)}
+        filas.sort(key=lambda f: orden.get(f["user_id"], 999))
+    return filas
+
+
+def _press_contact_rows(session_db, pr, ref: dict | None) -> list[dict]:
+    """Los CONTACTOS del módulo de contacto de una nota, en este orden y siempre: (1) el de PRENSA
+    (Nuria, promocion@), (2) QUIEN CREA la nota y (3) los que se hayan añadido a mano
+    (`ref['user_ids']`, personal de la casa), cada uno con «Contacto de <Departamento>» y, debajo, lo
+    mismo que la tarjeta de prensa: nombre · correo · teléfono."""
+    ref = ref if isinstance(ref, dict) else {}
+    filas = [{"kind": "press", "fixed": True, "name": PRESS_CONTACT_NAME, "role_label": PRESS_CONTACT_ROLE,
+              "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE, "photo": "", "user_id": ""}]
+    vistos_email = {PRESS_CONTACT_EMAIL.lower()}
+    ids = []
+    creador = getattr(pr, "created_by_user_id", None)
+    if creador:
+        ids.append(str(creador))
+    for x in (ref.get("user_ids") or []) if isinstance(ref.get("user_ids"), list) else []:
+        if str(x) not in ids and to_uuid(str(x)):
+            ids.append(str(x))
+    if ids:
+        por_id = {f["user_id"]: f for f in _press_staff_rows(session_db, ids=ids)}
+        for uid in ids:
+            f = por_id.get(uid)
+            if not f or (f["email"] and f["email"] in vistos_email):
+                continue
+            vistos_email.add(f["email"])
+            filas.append(dict(f, kind=("creator" if str(creador) == uid else "extra"), fixed=(str(creador) == uid)))
+    return filas
+
+
+def _press_artwork_data(session_db, ref: dict, *, editing_hint: bool = False) -> dict:
+    """Lo que enseña el módulo de CARTELERÍA: los carteles APROBADOS de la actividad (o los GENERALES
+    de su gira, ciclo o evento), con el enlace a su página pública —la MISMA que se comparte con el
+    artista y el promotor— y a su ZIP. `ref` = {"concert_id"} o {"group_kind", "group_id"}."""
+    ref = ref if isinstance(ref, dict) else {}
+    carteles, titulo, gallery, zip_url = [], "Cartelería", "", ""
+    if ref.get("concert_id"):
+        c = session_db.get(Concert, to_uuid(ref["concert_id"]))
+        if c is not None:
+            req = getattr(c, "artwork_request", None)
+            carteles = [a for a in ((getattr(req, "assets", None) or []) if req else [])
+                        if not bool(getattr(a, "is_archived", False))
+                        and (getattr(a, "validation_status", None) or "APPROVED") == "APPROVED"
+                        and _artwork_asset_category(a) == "POSTER"]
+            titulo = "Cartelería · %s" % (_press_concert_label(c)[0] if c else "")
+            if carteles:
+                gallery = _concert_artwork_share_url(session_db, c)
+                zip_url = gallery.replace("/carteles/", "/carteles/", 1)
+                try:
+                    zip_url = _external_url_for("public_artwork_download_all", token=_ensure_concert_artwork_share_token(session_db, c))
+                except Exception:
+                    zip_url = ""
+    elif ref.get("group_kind") and ref.get("group_id"):
+        kind = str(ref["group_kind"]).upper()
+        gid = to_uuid(str(ref["group_id"]))
+        owner = _artwork_group_owner(session_db, kind, gid) if gid else None
+        if owner is not None:
+            carteles = list(_artwork_group_context(session_db, kind, gid).get("gk_assets") or [])
+            titulo = "Cartelería general · %s" % ((getattr(owner, "name", "") or "").strip())
+            if carteles:
+                gallery = _group_artwork_share_url(session_db, kind, gid)
+                try:
+                    req = _artwork_group_request(session_db, kind, gid)
+                    zip_url = _external_url_for("public_artwork_download_all", token=_ensure_group_artwork_share_token(session_db, req)) if req is not None else ""
+                except Exception:
+                    zip_url = ""
+    fotos = []
+    for a in carteles:
+        src = _artwork_image_src(a)
+        if src:
+            fotos.append({"thumb": _absolute_media_url(src), "url": _absolute_media_url(src),
+                          "label": (getattr(a, "format_label", "") or "").strip()})
+    return {"title": titulo[:120], "count": len(carteles), "posters": fotos[:6],
+            "gallery_url": gallery, "download_url": zip_url, "pending": not carteles}
+
+
 def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:
     """Rellena `data` en cada MÓDULO del diseño con lo que hay que enseñar (portadas, nombres,
     enlaces con el `token` que toque). Los textos van tal cual (los sanea el motor)."""
@@ -51812,8 +52064,10 @@ def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:
                     "icon_url": _external_url_for("brand_icon_png", nombre=l["icon_name"], c=l["color"], s=64, f="brands"),
                 } for l in enlaces if (elegidos is None or l["key"] in elegidos)]
             elif tipo == "contact":
-                data.update({"name": PRESS_CONTACT_NAME, "role_label": PRESS_CONTACT_ROLE,
-                             "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE})
+                # SIEMPRE el de prensa y quien crea la nota; además, los que se añadan a mano.
+                data["contacts"] = _press_contact_rows(session_db, pr, ref)
+            elif tipo == "artwork":
+                data.update(_press_artwork_data(session_db, ref))
             elif tipo == "photos" and ref.get("album_id"):
                 album = session_db.get(PhotoAlbum, to_uuid(ref["album_id"]))
                 if album:
@@ -52190,8 +52444,32 @@ def _press_assets(session_db, pr) -> dict:
                             "html": pinta("links", {"album_id": str(a.id)})})
     fotos = [{"kind": "photos", "ref": {"album_id": al["id"]}, "label": al["name"], "cover": al["cover"],
               "sub": "%s fotos" % al["count"], "html": pinta("photos", {"album_id": al["id"]})} for al in _press_photo_albums(session_db, pr)]
-    contacto = [{"kind": "contact", "ref": {}, "label": PRESS_CONTACT_NAME, "cover": "", "sub": PRESS_CONTACT_ROLE,
-                 "html": pinta("contact", {})}]
+    contacto = [{"kind": "contact", "ref": {}, "label": "Contactos", "cover": "",
+                 "sub": "Prensa · quien crea la nota · y los que se añadan", "html": pinta("contact", {})}]
+    # La CARTELERÍA: la de la actividad y, aparte, la GENERAL de su gira, ciclo o evento (un módulo
+    # por cada una; cada uno enlaza a la MISMA página pública que se comparte con el artista).
+    carteles = []
+    if kind == "ACTIVITY" and about is not None:
+        try:
+            propia = _press_artwork_data(session_db, {"concert_id": str(about.id)})
+            if propia.get("count"):
+                carteles.append({"kind": "artwork", "ref": {"concert_id": str(about.id)}, "label": "Cartelería de la actividad",
+                                 "cover": (propia["posters"][0]["thumb"] if propia.get("posters") else ""),
+                                 "sub": "%d cartel%s" % (propia["count"], "" if propia["count"] == 1 else "es"),
+                                 "html": pinta("artwork", {"concert_id": str(about.id)})})
+            for gk, gid in _concert_group_refs(about):
+                general = _press_artwork_data(session_db, {"group_kind": gk, "group_id": str(gid)})
+                if general.get("count"):
+                    carteles.append({"kind": "artwork", "ref": {"group_kind": gk, "group_id": str(gid)}, "label": general["title"],
+                                     "cover": (general["posters"][0]["thumb"] if general.get("posters") else ""),
+                                     "sub": "%d cartel%s · general" % (general["count"], "" if general["count"] == 1 else "es"),
+                                     "html": pinta("artwork", {"group_kind": gk, "group_id": str(gid)})})
+        except Exception:
+            app.logger.exception("[notas de prensa] no se pudo leer la cartelería para el editor")
+    # Los LOGOS: el de la empresa del grupo de la actividad (o del sujeto), el del ciclo o festival, el
+    # del evento y las versiones subidas en «Logotipos» de esa empresa. Se arrastran como una imagen
+    # (se mueven y se redimensionan libremente, como todo).
+    logos = _press_brand_logo_items(session_db, pr, about)
     # Las IMÁGENES de los MATERIALES de lo que se manda (para el módulo de imagen integrada): las
     # portadas, las miniaturas de los videoclips, la cartelería de la actividad y el diseño de Diseño.
     imagenes, vistas = [], set()
@@ -52235,8 +52513,77 @@ def _press_assets(session_db, pr) -> dict:
     except Exception:
         app.logger.exception("[notas de prensa] no se pudieron leer las playlists")
     return {"audios": audios, "albums": discos, "videos": clips, "links": enlaces, "photos": fotos, "contact": contacto,
-            "playlists": listas, "images": imagenes,
+            "artwork": carteles, "logos": logos, "playlists": listas, "images": imagenes,
             "fonts": [{"css": css, "label": label} for css, label in press_render.FONTS]}
+
+
+def _press_brand_logo_items(session_db, pr, about=None) -> list[dict]:
+    """Los LOGOS que se ofrecen en el editor como imagen arrastrable: la empresa del grupo de la
+    actividad (la que factura o promueve), su ciclo o festival, su evento, la empresa que es SUJETO
+    de la nota, el remitente de un envío a compradores, y las versiones de «Logotipos» de esas
+    empresas (`BrandLogo`). Sin repetir una misma imagen."""
+    items, vistas = [], set()
+
+    def add(url, label, sub):
+        u = (url or "").strip().rstrip("?")
+        if not u or u in vistas:
+            return
+        vistas.add(u)
+        items.append({"kind": "image", "ref": {"url": u, "w": 0, "h": 0, "alt": label or ""},
+                      "label": label or "Logo", "cover": u, "sub": sub or "Logo"})
+
+    empresas = []
+    try:
+        kind = (pr.about_kind or "SUBJECT").upper()
+        if kind == "ACTIVITY" and about is not None:
+            for cid in (getattr(about, "billing_company_id", None), getattr(about, "group_company_id", None)):
+                co = session_db.get(GroupCompany, cid) if cid else None
+                if co is not None and co not in empresas:
+                    empresas.append(co)
+            if getattr(about, "cycle_festival_id", None):
+                cf = session_db.get(CycleFestival, about.cycle_festival_id)
+                if cf is not None:
+                    add(cf.logo_url, cf.name or "Ciclo", PRESS_CYCLE_KIND_LABELS.get((cf.kind or "").upper(), "Ciclo"))
+                    if cf.managing_company_id:
+                        co = session_db.get(GroupCompany, cf.managing_company_id)
+                        if co is not None and co not in empresas:
+                            empresas.append(co)
+            if getattr(about, "event_id", None):
+                ev = session_db.get(AppEvent, about.event_id)
+                if ev is not None:
+                    add(ev.logo_url, ev.name or "Evento", "Logo del evento")
+        if (pr.subject_kind or "").upper() == "COMPANY" and pr.subject_id:
+            co = session_db.get(GroupCompany, pr.subject_id)
+            if co is not None and co not in empresas:
+                empresas.append(co)
+        if (pr.subject_kind or "").upper() == "EVENT" and pr.subject_id:
+            ev = session_db.get(AppEvent, pr.subject_id)
+            if ev is not None:
+                add(ev.logo_url, ev.name or "Evento", "Logo del evento")
+        if (pr.subject_kind or "").upper() == "CYCLE" and pr.subject_id:
+            cf = session_db.get(CycleFestival, pr.subject_id)
+            if cf is not None:
+                add(cf.logo_url, cf.name or "Ciclo", "Logo")
+        # El REMITENTE del envío a compradores cuyo diseño es esta nota (su empresa o su ciclo).
+        if (getattr(pr, "purpose", "PRESS") or "PRESS").upper() == "CAMPAIGN":
+            camp = session_db.query(BuyerCampaign).filter(BuyerCampaign.design_release_id == pr.id).first()
+            if camp is not None:
+                if camp.cycle_id:
+                    cf = session_db.get(CycleFestival, camp.cycle_id)
+                    if cf is not None:
+                        add(cf.logo_url, cf.name or "Ciclo", "Quien manda el envío")
+                if camp.company_id:
+                    co = session_db.get(GroupCompany, camp.company_id)
+                    if co is not None and co not in empresas:
+                        empresas.insert(0, co)
+        for co in empresas:
+            add(co.logo_url, co.name or "Empresa", "Empresa del grupo")
+            for l in _brand_logo_rows(session_db, "COMPANY", co.id):
+                if (l.get("kind") or "IMAGE").upper() == "IMAGE":
+                    add(l.get("url"), "%s · %s" % (co.name or "Empresa", l.get("name") or "Logo"), "Logotipos de la empresa")
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudieron leer los logos para el editor")
+    return items
 
 
 # ── LO QUE SE VE: correo, página, miniatura, PDF ─────────────────────────────────────────────
@@ -52498,7 +52845,7 @@ def _press_pdf_bytes(session_db, pr) -> bytes:
                 pass
         c.setFont("Helvetica-Bold", 11 * k)
         titulo = {"audio": d.get("title"), "album": d.get("title"), "video": d.get("title") or "Videoclip",
-                  "links": "Escúchalo en", "contact": d.get("role_label") or "Contacto de prensa",
+                  "links": "Escúchalo en", "contact": "Contactos", "artwork": d.get("title") or "Cartelería",
                   "photos": d.get("album_name") or "Fotos", "files": d.get("title") or "Archivos adjuntos",
                   "playlist": "Playlist · %s" % (d.get("title") or "")}.get(tipo) or ""
         c.drawString(tx, top - 16 * k, (titulo or "")[:80])
@@ -52521,11 +52868,16 @@ def _press_pdf_bytes(session_db, pr) -> bytes:
             for it in d.get("items") or []:
                 lineas.append(("%s: %s" % (it.get("label") or "", it.get("url") or ""), it.get("url") or ""))
         elif tipo == "contact":
-            lineas.append(d.get("name") or "")
-            if d.get("email"):
-                lineas.append((d["email"], "mailto:" + d["email"]))
-            if d.get("phone"):
-                lineas.append(d["phone"])
+            for ct in (d.get("contacts") or ([d] if d.get("name") else [])):
+                lineas.append("%s · %s" % ((ct.get("role_label") or "Contacto"), (ct.get("name") or "")))
+                if ct.get("email"):
+                    lineas.append((ct["email"], "mailto:" + ct["email"]))
+                if ct.get("phone"):
+                    lineas.append(ct["phone"])
+        elif tipo == "artwork":
+            lineas.append("%s cartel%s" % (d.get("count") or 0, "" if (d.get("count") or 0) == 1 else "es"))
+            if d.get("gallery_url"):
+                lineas.append(("Ver la cartelería: %s" % d["gallery_url"], d["gallery_url"]))
         elif tipo == "photos":
             lineas.append("%s fotos" % (d.get("count") or 0))
             if d.get("gallery_url"):
@@ -52644,7 +52996,7 @@ def _press_rows_for_entity(kind: str, oid) -> list[dict]:
     session_db = db()
     try:
         oid_u = to_uuid(oid)
-        q = session_db.query(PressRelease)
+        q = session_db.query(PressRelease).filter(_press_is_press_clause())
         if kind == "ARTIST":
             q = q.filter(or_(PressRelease.artist_ids.contains([str(oid_u)]),
                              and_(PressRelease.subject_kind == "ARTIST", PressRelease.subject_id == oid_u)))
@@ -52678,9 +53030,11 @@ def _press_recipient_candidates(session_db) -> list[dict]:
              .filter(MediaContact.press_releases.is_(True), MediaContact.email.isnot(None), MediaContact.email != "")
              .order_by(func.lower(MediaOutlet.name).asc(), MediaContact.created_at.asc()).all())
     medios: dict = {}
+    etiquetas = _media_tags_map(session_db, {str(m.id) for _c, m in filas})
     for c, m in filas:
         g = medios.setdefault(str(m.id), {"media_id": str(m.id), "media_name": m.name or "—", "media_logo": m.logo_url or "",
-                                          "media_type": m.media_type or "", "contacts": []})
+                                          "media_type": m.media_type or "", "tags": etiquetas.get(str(m.id), []),
+                                          "contacts": []})
         g["contacts"].append({"kind": "MEDIA", "ref_id": str(c.id), "name": _media_contact_name(c),
                               "full_name": _media_contact_full_name(c), "email": (c.email or "").strip().lower(),
                               "role": (c.role or "").strip(), "program": (c.program or "").strip(), "media_name": m.name or ""})
@@ -52694,12 +53048,19 @@ def _press_recipient_groups(session_db, medios: list[dict]) -> dict:
     ASOCIACIONES (APM, Arte: sus miembros). Una misma persona entra UNA vez aunque esté en varios
     grupos: lo comprueba la pantalla por su correo, y el alta vuelve a comprobarlo."""
     tipos: dict = {}
+    por_etiqueta: dict = {}
     for g in medios:
         etiqueta = _media_type_label(g.get("media_type"))
         x = tipos.setdefault(etiqueta.casefold(), {"key": etiqueta.casefold(), "label": etiqueta,
                                                    "icon": _media_type_icon(etiqueta), "media": 0, "contacts": 0})
         x["media"] += 1
         x["contacts"] += len(g.get("contacts") or [])
+        # Las ETIQUETAS de los medios (con cuántos medios y contactos lleva cada una): se eligen
+        # medios por etiqueta y, al marcar un tipo entero, se ve qué etiquetas van dentro.
+        for t in (g.get("tags") or []):
+            y = por_etiqueta.setdefault(_norm_genre_key(t), {"key": _norm_genre_key(t), "label": t, "media": 0, "contacts": 0})
+            y["media"] += 1
+            y["contacts"] += len(g.get("contacts") or [])
     promueven = set()
     for (pid,) in session_db.query(Concert.promoter_id).filter(Concert.promoter_id.isnot(None)).distinct().all():
         promueven.add(pid)
@@ -52722,6 +53083,7 @@ def _press_recipient_groups(session_db, medios: list[dict]) -> dict:
         for k in asociaciones:
             por_asociacion[k].append(fila)
     return {"media_types": sorted(tipos.values(), key=lambda x: x["label"].casefold()),
+            "media_tags": sorted(por_etiqueta.values(), key=lambda x: x["label"].casefold()),
             "promoters": promotores,
             "assoc": [{"key": k, "label": lbl, "desc": desc, "icon": ico, "rows": por_asociacion[k]}
                       for k, lbl, desc, ico in PROMOTER_ASSOCIATIONS]}
@@ -53148,7 +53510,8 @@ def promo_press_view():
     (galletas) y, al pinchar uno, sus notas."""
     s = db()
     try:
-        filas = s.query(PressRelease).order_by(PressRelease.created_at.desc()).limit(400).all()
+        filas = (s.query(PressRelease).filter(_press_is_press_clause())
+                 .order_by(PressRelease.created_at.desc()).limit(400).all())
         stats = _press_stats_map(s, [r.id for r in filas])
         rows = [_press_row(s, r, stats.get(str(r.id))) for r in filas]
         grupos: dict = {}
@@ -53262,7 +53625,7 @@ def _press_existing_unsent(session_db, kind: str, subject_id, artist_ids: list, 
     """Las notas de prensa SIN ENVIAR (borrador o programada) que ya hay sobre lo MISMO: el mismo
     single, disco o actividad —o, en una nota «sobre el propio sujeto», el mismo sujeto—. Las
     ENVIADAS no cuentan: si ya salió una, lo que se quiere es mandar una nueva."""
-    q = session_db.query(PressRelease).filter(PressRelease.status != "SENT")
+    q = session_db.query(PressRelease).filter(PressRelease.status != "SENT", _press_is_press_clause())
     about_kind = (about_kind or "SUBJECT").upper()
     if about_kind != "SUBJECT" and about_id:
         q = q.filter(PressRelease.about_kind == about_kind, PressRelease.about_id == to_uuid(about_id))
@@ -53294,7 +53657,7 @@ def _press_existing_unsent(session_db, kind: str, subject_id, artist_ids: list, 
 def _press_editor_context(s, pr) -> dict:
     filas = _press_subject_rows(s, pr)
     tipo, nombre, img = _press_kind_and_name(s, pr, rows=filas)
-    return {
+    ctx = {
         "pr": pr, "row": _press_row(s, pr, _press_stats_map(s, [pr.id]).get(str(pr.id))),
         "subjects": filas, "kind_label": tipo, "about_name": nombre, "about_cover": img,
         "design_json": json.dumps(pr.design or {"width": press_render.WIDTH, "bg": {}, "blocks": []}),
@@ -53312,11 +53675,28 @@ def _press_editor_context(s, pr) -> dict:
         "palette_corporate": PRESS_CORPORATE_COLORS,
         "fonts": [{"css": css, "label": label} for css, label in press_render.FONTS],
         "email_subject": _press_email_subject(s, pr),
-        "can_edit": _press_can_edit(pr) and can_edit_promo(),
-        "can_edit_promo": can_edit_promo(),
+        "can_edit": _press_can_edit(pr) and _press_edit_ok(pr),
+        "can_edit_promo": _press_edit_ok(pr),
         "sender_label": _press_sender_label(pr),
         "press_contact": {"name": PRESS_CONTACT_NAME, "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE},
+        # Si este diseño es el CORREO de un ENVÍO A COMPRADORES: de qué envío, y a dónde se vuelve.
+        "campaign": _press_campaign_context(s, pr),
     }
+    if ctx["campaign"]:
+        ctx["next_url"] = ctx["campaign"]["return_url"]
+    return ctx
+
+
+def _press_campaign_context(s, pr) -> dict | None:
+    """El envío a compradores cuyo correo es este diseño (o None si es una nota de prensa)."""
+    if not _press_is_campaign(pr):
+        return None
+    camp = s.query(BuyerCampaign).filter(BuyerCampaign.design_release_id == pr.id).order_by(BuyerCampaign.created_at.desc()).first()
+    if camp is None:
+        return {"id": "", "label": "Envío a compradores", "return_url": url_for("buyers_view")}
+    return {"id": str(camp.id), "label": "Envío a compradores",
+            "return_url": _campaign_return_url(s, camp),
+            "purpose": (camp.purpose or "PURCHASE").upper()}
 
 
 @app.get("/notas-de-prensa/<release_id>/editar", endpoint="promo_press_edit")
@@ -53453,13 +53833,13 @@ def promo_press_album_photos(release_id, album_id):
 def promo_press_image_upload(release_id):
     """Sube una IMAGEN para un bloque de imagen (la que va integrada en el cuerpo del correo) y
     devuelve su URL y sus medidas: con ellas el editor mantiene la proporción al redimensionarla."""
-    if not can_edit_promo():
-        return jsonify({"ok": False, "error": "No tienes permiso."}), 403
     s = db()
     try:
         pr = _press_by_id(s, release_id)
         if not pr or not _press_can_edit(pr):
             return jsonify({"ok": False, "error": "Esa nota no se puede editar."}), 409
+        if not _press_edit_ok(pr):
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
         fs = request.files.get("file")
         if not fs or not (fs.filename or "").strip():
             return jsonify({"ok": False, "error": "Elige una imagen."}), 400
@@ -53503,7 +53883,7 @@ def promo_press_files(release_id):
         if not bid:
             return jsonify({"ok": False, "error": "Falta el bloque."}), 400
         if request.method == "POST":
-            if not can_edit_promo():
+            if not _press_edit_ok(pr):
                 return jsonify({"ok": False, "error": "No tienes permiso."}), 403
             if not _press_can_edit(pr):
                 return jsonify({"ok": False, "error": "Una nota ya enviada no se puede editar."}), 409
@@ -53560,14 +53940,14 @@ def promo_press_files(release_id):
 @app.post("/notas-de-prensa/<release_id>/adjuntos/<file_id>/borrar", endpoint="promo_press_file_delete")
 @admin_required
 def promo_press_file_delete(release_id, file_id):
-    if not can_edit_promo():
-        return jsonify({"ok": False, "error": "No tienes permiso."}), 403
     s = db()
     try:
         pr = _press_by_id(s, release_id)
         f = s.get(PressReleaseFile, to_uuid(file_id)) if pr else None
         if not pr or f is None or f.release_id != pr.id:
             return jsonify({"ok": False, "error": "No existe."}), 404
+        if not _press_edit_ok(pr):
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
         if not _press_can_edit(pr):
             return jsonify({"ok": False, "error": "Una nota ya enviada no se puede editar."}), 409
         bid = f.block_id
@@ -53616,13 +53996,13 @@ def promo_press_stats_json():
 @admin_required
 def promo_press_save(release_id):
     """Guarda el diseño (los bloques). El titular se saca del bloque de titular."""
-    if not can_edit_promo():
-        return jsonify({"ok": False, "error": "No tienes permiso para editar notas de prensa."}), 403
     s = db()
     try:
         pr = _press_by_id(s, release_id)
         if not pr:
             return jsonify({"ok": False, "error": "No existe."}), 404
+        if not _press_edit_ok(pr):
+            return jsonify({"ok": False, "error": "No tienes permiso para editar este diseño."}), 403
         if not _press_can_edit(pr):
             return jsonify({"ok": False, "error": "Una nota ya enviada no se puede editar."}), 409
         datos = request.get_json(silent=True) or {}
@@ -53766,13 +54146,13 @@ def _press_bg_palette_ensure(session_db, pr) -> None:
 @admin_required
 def promo_press_background(release_id):
     """Sube (o REEMPLAZA) el fondo. Los bloques no se tocan: cambiar el fondo no altera el contenido."""
-    if not can_edit_promo():
-        return jsonify({"ok": False, "error": "No tienes permiso."}), 403
     s = db()
     try:
         pr = _press_by_id(s, release_id)
         if not pr or not _press_can_edit(pr):
             return jsonify({"ok": False, "error": "Esa nota no se puede editar."}), 409
+        if not _press_edit_ok(pr):
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
         fs = request.files.get("file")
         url_tpl = (request.form.get("template_id") or "").strip()
         fuente = (request.form.get("source") or "").strip().lower()
@@ -54059,6 +54439,18 @@ def promo_press_contact_search():
         s.close()
 
 
+@app.get("/notas-de-prensa/buscar-personal", endpoint="promo_press_staff_search")
+@admin_required
+def promo_press_staff_search():
+    """El personal de la casa (con foto, correo, móvil y departamento) para añadirlo como CONTACTO
+    de una nota. Sin `q` devuelve a todo el personal actual."""
+    s = db()
+    try:
+        return jsonify({"ok": True, "rows": _press_staff_rows(s, request.args.get("q") or "")})
+    finally:
+        s.close()
+
+
 @app.post("/notas-de-prensa/<release_id>/prueba", endpoint="promo_press_test_send")
 @admin_required
 def promo_press_test_send(release_id):
@@ -54231,10 +54623,11 @@ def public_press_release(token):
         tipo, nombre, _img = _press_kind_and_name(s, pr, rows=filas)
         titular = press_render.headline_of(pr.design or {})
         fecha = (pr.sent_at or pr.scheduled_at or pr.created_at)
-        og_title = "Nota de prensa · %s · %s" % (_press_subject_label(s, pr, filas),
-                                                 fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if fecha else "")
+        og_title = "%s · %s · %s" % (("Comunicación" if _press_is_campaign(pr) else "Nota de prensa"),
+                                     _press_subject_label(s, pr, filas),
+                                     fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if fecha else "")
         return render_template(
-            "public_press_release.html", pr=pr, embed=False,
+            "public_press_release.html", pr=pr, embed=False, is_campaign=_press_is_campaign(pr),
             web_html=_press_web_html(s, pr, token),
             og_title=og_title, og_description=(titular or " ".join([x for x in [tipo, nombre] if x]))[:180],
             og_image_url=_external_url_for("public_press_og_image", token=pr.public_token or token,
@@ -73260,6 +73653,8 @@ from models import (
     UserActivityLog,
     MediaOutlet,
     MediaContact,
+    MediaTag,
+    MediaOutletTag,
     MediaContactImport,
     MediaContactImportRow,
     PressRelease,
@@ -73421,6 +73816,7 @@ def _bootstrap_schema_bg():
         (ensure_afavor_schema, "ensure_afavor_schema"),
         (ensure_expense_split_schema, "ensure_expense_split_schema"),
         (ensure_song_genres_schema, "ensure_song_genres_schema"),
+        (ensure_media_tags_schema, "ensure_media_tags_schema"),
         (ensure_song_demos_schema, "ensure_song_demos_schema"),
         (ensure_playlists_schema, "ensure_playlists_schema"),
         (ensure_disco_projects_schema, "ensure_disco_projects_schema"),
@@ -79663,7 +80059,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -81009,6 +81405,10 @@ def _resolve_request_resource_key() -> str | None:
     # ⚠️ `promo_` (con guion bajo) es la PROMOCIÓN de prensa y NO pisa a `promotion_`, que es
     # Marketing: "promotion_create" no empieza por "promo_". Todo lo nuevo de promoción se llama
     # `promo_*` justamente para heredar el permiso de su sección sin mapear uno a uno.
+    if endpoint.startswith("promo_press_") and _press_request_is_campaign():
+        # El editor de notas de prensa trabajando sobre el CORREO DE UN ENVÍO A COMPRADORES: lo usa
+        # ticketing, que no tiene por qué tener Promoción.
+        return "databases.buyers"
     if endpoint == "promo_view" or endpoint.startswith("promo_"):
         # ABRIR la ficha de una promoción lo tiene que poder hacer también quien la produce o quien
         # viaja con el artista, que no tienen por qué tener la sección de Promoción (mismo criterio
@@ -83625,7 +84025,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -97232,6 +97632,7 @@ def media_outlets_view():
             )
             session_db.add(outlet)
             session_db.flush()
+            _apply_media_tags(session_db, outlet, request.form.getlist("media_tags[]"), present=True)
             programs = request.form.getlist("contact_program")
             roles = request.form.getlist("contact_role")
             first_names = request.form.getlist("contact_first_name")
@@ -97255,10 +97656,18 @@ def media_outlets_view():
             return redirect(url_for("media_outlet_detail_view", media_id=outlet.id))
 
         f_types = [(x or "").strip() for x in request.args.getlist("type") if (x or "").strip()]
+        f_tags = [_norm_genre_key(x) for x in request.args.getlist("tag") if _norm_genre_key(x)]
         q = (request.args.get("q") or "").strip()
         query = session_db.query(MediaOutlet)
         if f_types:
             query = query.filter(MediaOutlet.media_type.in_(f_types))
+        if f_tags:
+            # Filtrar por ETIQUETA: los medios que lleven ALGUNA de las marcadas. ⚠️ Con una subconsulta,
+            # no con un JOIN + DISTINCT: Postgres no admite ordenar por `lower(name)` con DISTINCT.
+            con_etiqueta = (session_db.query(MediaOutletTag.media_id)
+                            .join(MediaTag, MediaTag.id == MediaOutletTag.tag_id)
+                            .filter(MediaTag.norm_key.in_(f_tags)))
+            query = query.filter(MediaOutlet.id.in_(con_etiqueta))
         if q:
             like = f"%{q}%"
             query = (
@@ -97278,9 +97687,21 @@ def media_outlets_view():
                 .distinct()
             )
         media_rows = query.order_by(func.lower(MediaOutlet.name).asc()).all()
+        # Las etiquetas de cada medio (UNA consulta) y cuántos medios lleva cada etiqueta (para los chips).
+        tag_counts = []
+        try:
+            for nombre, clave, n in (session_db.query(MediaTag.name, MediaTag.norm_key, func.count(MediaOutletTag.media_id))
+                                     .join(MediaOutletTag, MediaOutletTag.tag_id == MediaTag.id)
+                                     .group_by(MediaTag.name, MediaTag.norm_key).order_by(MediaTag.name.asc()).all()):
+                tag_counts.append({"name": nombre, "key": clave, "count": int(n or 0), "on": clave in f_tags})
+        except Exception:
+            app.logger.exception("[medios] no se pudieron contar las etiquetas")
         return render_template("media_outlets.html", media_rows=media_rows, media_types=MEDIA_TYPES,
                                selected_types=f_types, query_text=q, country_options=country_options_es(),
-                               media_import_pending=_media_import_pending(session_db))
+                               media_import_pending=_media_import_pending(session_db),
+                               media_tags_map=_media_tags_map(session_db, [m.id for m in media_rows]),
+                               media_tag_catalog=_media_tag_catalog(session_db), tag_counts=tag_counts,
+                               selected_tags=f_tags)
     finally:
         session_db.close()
 
@@ -97304,6 +97725,9 @@ def media_outlet_detail_view(media_id):
                 outlet.name = (request.form.get("name") or outlet.name or "").strip() or outlet.name
                 outlet.address = (request.form.get("address") or "").strip() or None
                 outlet.country_code, outlet.country_name = _country_payload_from_form(request.form)
+                # Las ETIQUETAS del medio, con centinela: un formulario que no traiga el campo no las toca.
+                _apply_media_tags(session_db, outlet, request.form.getlist("media_tags[]"),
+                                  present=("media_tags_present" in request.form))
                 logo = request.files.get("logo")
                 if logo and getattr(logo, "filename", ""):
                     outlet.logo_url = upload_image(logo, "media")
@@ -97388,6 +97812,8 @@ def media_outlet_detail_view(media_id):
             filter_start=f_start.isoformat() if f_start else "",
             filter_end=f_end.isoformat() if f_end else "",
             media_types=MEDIA_TYPES,
+            media_tags=_media_tag_names(session_db, outlet.id),
+            media_tag_catalog=_media_tag_catalog(session_db),
             country_options=country_options_es(),
             entity_links=_entity_link_rows(session_db, 'media', outlet.id),
             entity_link_context={'type': 'media', 'id': str(outlet.id), 'label': outlet.name or 'medio'},
@@ -112562,6 +112988,8 @@ def _mail_account_row(acc) -> dict:
         "smtp_username": usuario, "has_password": bool(acc.smtp_password), "is_active": bool(acc.is_active),
         "pause_ms": acc.pause_ms or 0, "reconnect_every": acc.reconnect_every or 0, "hourly_cap": acc.hourly_cap or 0,
         "dkim_selector": acc.dkim_selector or "", "domain": dominio,
+        "company_id": (str(acc.company_id) if getattr(acc, "company_id", None) else ""),
+        "cycle_id": (str(acc.cycle_id) if getattr(acc, "cycle_id", None) else ""),
         # ¿El usuario con el que se autentica es del MISMO dominio que el remitente? Si no, SPF/DKIM
         # no pueden cuadrar y el correo va a spam (la pista que ya da la tabla de arriba).
         "aligned": bool(dominio and (not usuario or "@" not in usuario or usuario.split("@", 1)[1].lower() == dominio)),
@@ -112575,7 +113003,14 @@ def _mail_account_row(acc) -> dict:
 
 def _mail_accounts_context(session_db) -> dict:
     filas = [_mail_account_row(a) for a in session_db.query(MailAccount).order_by(MailAccount.created_at.asc()).all()]
-    return {"rows": filas, "security_kinds": MAIL_SECURITY_KINDS, "ports": MAIL_SECURITY_PORTS,
+    try:
+        empresas = [{"id": str(c.id), "name": c.name or ""} for c in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()]
+        ciclos = [{"id": str(c.id), "name": c.name or ""} for c in
+                  session_db.query(CycleFestival).filter(CycleFestival.event_id.is_(None)).order_by(CycleFestival.name.asc()).limit(200).all()]
+    except Exception:
+        empresas, ciclos = [], []
+    return {"rows": filas, "companies": empresas, "cycles": ciclos,
+            "security_kinds": MAIL_SECURITY_KINDS, "ports": MAIL_SECURITY_PORTS,
             "promo_email": PRESS_SENDER_PROMO_EMAIL, "promo_name": PRESS_SENDER_PROMO_NAME,
             "promo_missing": not any(f["is_promo"] for f in filas),
             "active_count": sum(1 for f in filas if f["is_active"])}
@@ -112627,6 +113062,10 @@ def mail_account_save():
         acc.label = (f.get("label") or "").strip() or None
         acc.from_name = (f.get("from_name") or "").strip() or None
         acc.reply_to = (f.get("reply_to") or "").strip().lower() or None
+        # DE QUIÉN es este buzón: por su empresa (o su ciclo) salen los envíos a compradores que firma.
+        if "owner_present" in f:
+            acc.company_id = _safe_uuid((f.get("company_id") or "").strip()) if (f.get("company_id") or "").strip() else None
+            acc.cycle_id = _safe_uuid((f.get("cycle_id") or "").strip()) if (f.get("cycle_id") or "").strip() else None
         acc.smtp_username = (f.get("smtp_username") or "").strip() or email
         clave = (f.get("smtp_password") or "").strip()
         if _truthy(f.get("clear_password")):
@@ -137011,7 +137450,7 @@ def _home_press_tasks(limit: int = 12) -> list[dict]:
                 existente = None
                 if clave in ("SINGLE", "ALBUM"):
                     existente = (session_db.query(PressRelease)
-                                 .filter(PressRelease.about_kind == clave, PressRelease.about_id == oid)
+                                 .filter(PressRelease.about_kind == clave, PressRelease.about_id == oid, _press_is_press_clause())
                                  .order_by(PressRelease.created_at.desc()).first())
                 if existente is not None:
                     nota_url = url_for("promo_press_detail", release_id=existente.id)
@@ -141284,18 +141723,25 @@ def _buyer_campaign_rows(session_db, *, event_pk: str = "", list_pk: str = "", l
     """Las comunicaciones ya mandadas a ese listado, de la más reciente a la más antigua."""
     q = session_db.query(BuyerCampaign)
     if event_pk:
-        q = q.filter(BuyerCampaign.event_id == _safe_uuid(event_pk))
+        q = q.filter(or_(BuyerCampaign.event_id == _safe_uuid(event_pk),
+                         BuyerCampaign.sources_json.contains([{"kind": "ET", "pk": str(event_pk)}])))
     elif list_pk:
-        q = q.filter(BuyerCampaign.list_id == _safe_uuid(list_pk))
+        q = q.filter(or_(BuyerCampaign.list_id == _safe_uuid(list_pk),
+                         BuyerCampaign.sources_json.contains([{"kind": "MANUAL", "pk": str(list_pk)}])))
     else:
         return []
-    # ⚠️ Las PRUEBAS no son comunicaciones a los compradores: no se listan.
-    q = q.filter(func.coalesce(BuyerCampaign.status, "") != "PRUEBA")
+    # ⚠️ Las PRUEBAS no son comunicaciones a los compradores: no se listan. Ni un BORRADOR que
+    # todavía no se ha mandado a nadie (el diseño de un correo que se está preparando).
+    q = q.filter(func.coalesce(BuyerCampaign.status, "") != "PRUEBA",
+                 ~and_(func.coalesce(BuyerCampaign.status, "") == "DRAFT", func.coalesce(BuyerCampaign.total, 0) == 0))
     filas = []
     for c in q.order_by(BuyerCampaign.created_at.desc()).limit(limit).all():
         cuando = c.sent_at or c.created_at
         filas.append({
             "id": str(c.id),
+            "purpose": (c.purpose or "PURCHASE").upper(),
+            "purpose_label": CAMPAIGN_PURPOSE_LABELS.get((c.purpose or "PURCHASE").upper(), ""),
+            "purpose_icon": CAMPAIGN_PURPOSE_ICONS.get((c.purpose or "PURCHASE").upper(), "fa-ticket"),
             "channel": (c.channel or "").upper(),
             "channel_label": ("SMS" if (c.channel or "").upper() == "SMS" else "Correo"),
             "icon": ("fa-comment-sms" if (c.channel or "").upper() == "SMS" else "fa-envelope"),
@@ -141332,13 +141778,41 @@ def _buyer_campaign_detail(session_db, campaign_id) -> dict | None:
         "total": int(c.total or 0), "ok": int(c.sent_ok or 0), "fail": int(c.sent_fail or 0),
         "status": (c.status or ""), "by": (c.created_by_nick or ""),
         "sms_sender": (c.sms_sender or ""),
+        "purpose": (c.purpose or "PURCHASE").upper(),
+        "purpose_label": CAMPAIGN_PURPOSE_LABELS.get((c.purpose or "PURCHASE").upper(), ""),
+        "purpose_icon": CAMPAIGN_PURPOSE_ICONS.get((c.purpose or "PURCHASE").upper(), "fa-ticket"),
+        "opt_outs": sum(1 for r in dest if r.opted_out_at is not None),
+        "has_design": bool(c.design_release_id),
+        "sources": [x for x in (_buyer_source(session_db, event_pk=(f["pk"] if f["kind"] == "ET" else ""),
+                                             list_pk=(f["pk"] if f["kind"] == "MANUAL" else ""))
+                                for f in _campaign_sources(c)) if x],
         "brand": marca,
         "source": _buyer_source(session_db,
                                 event_pk=(str(c.event_id) if c.event_id else ""),
                                 list_pk=(str(c.list_id) if c.list_id else "")),
         "recipients": [{"name": (r.name or ""), "target": (r.target or ""),
-                        "status": (r.status or ""), "error": (r.error or "")} for r in dest],
+                        "status": (r.status or ""), "error": (r.error or ""),
+                        "opted_out": r.opted_out_at is not None} for r in dest],
     }
+
+
+def _buyer_source_image(session_db, concert, fallback: str = "") -> str:
+    """LA IMAGEN de un listado de compradores es la de SU ACTIVIDAD, resuelta EN VIVO: el logo del
+    EVENTO si la actividad es de un evento y, si no, la foto del artista. ⚠️ Antes se enseñaba la
+    imagen que Enterticket tenía guardada (o la del artista espejo): al cambiar la imagen del evento
+    en la app se seguía viendo la antigua (bug real). Sin actividad, `fallback` (la de ET)."""
+    if concert is None:
+        return (fallback or "").strip()
+    try:
+        if getattr(concert, "event_id", None):
+            ev = session_db.get(AppEvent, concert.event_id)
+            if ev is not None and (ev.logo_url or "").strip():
+                return ev.logo_url.strip()
+        if concert.artist is not None and (concert.artist.photo_url or "").strip():
+            return concert.artist.photo_url.strip()
+    except Exception:
+        pass
+    return (fallback or "").strip()
 
 
 def _buyer_source(session_db, *, event_pk: str = "", list_pk: str = "") -> dict | None:
@@ -141359,7 +141833,7 @@ def _buyer_source(session_db, *, event_pk: str = "", list_pk: str = "") -> dict 
             "label": _et_event_display_label(ev), "name": ev.name,
             "date": (ev.event_date.strftime("%d/%m/%Y") if ev.event_date else "—"),
             "venue": ev.venue_name or "", "town": ev.venue_town or "",
-            "image": ev.artist_image or ev.image_url or "",
+            "image": _buyer_source_image(session_db, ev.concert, ev.artist_image or ev.image_url or ""),
             "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
             "row": ev,
         }
@@ -141376,16 +141850,43 @@ def _buyer_source(session_db, *, event_pk: str = "", list_pk: str = "") -> dict 
         if c is not None:
             recinto = ((c.venue.name if c.venue else "") or (c.manual_venue_name or "")
                        or (c.manual_municipality or ""))
+        extra = _buyer_list_legacy(session_db, bl) if c is None else {}
         return {
             "kind": "MANUAL", "pk": str(bl.id), "manual": True,
-            "label": bl.name or (artista or "Listado de compradores"), "name": bl.name or "",
-            "date": (c.date.strftime("%d/%m/%Y") if (c is not None and c.date) else "—"),
-            "venue": recinto, "town": (getattr(c, "manual_municipality", "") or "") if c is not None else "",
-            "image": ((c.artist.photo_url or "") if (c is not None and c.artist) else ""),
+            "label": bl.name or (artista or extra.get("subject_name") or "Listado de compradores"), "name": bl.name or "",
+            "date": (c.date.strftime("%d/%m/%Y") if (c is not None and c.date) else (extra.get("date") or "—")),
+            "venue": recinto or extra.get("place", ""),
+            "town": ((getattr(c, "manual_municipality", "") or "") if c is not None else ""),
+            "image": _buyer_source_image(session_db, c, extra.get("image", "")),
             "concert_id": (str(bl.concert_id) if bl.concert_id else ""),
+            "subject_kind": (extra.get("subject_kind") or ("EVENT" if (c is not None and c.event_id) else ("ARTIST" if c is not None else ""))),
+            "subject_id": (extra.get("subject_id") or ((str(c.event_id) if c.event_id else str(c.artist_id)) if c is not None else "")),
+            "legacy": bool(c is None and (bl.legacy_date or bl.subject_id)),
             "row": bl,
         }
     return None
+
+
+def _buyer_list_legacy(session_db, bl) -> dict:
+    """Lo que se sabe de la ACTIVIDAD NO REGISTRADA de un listado: de quién era (con su foto o su logo),
+    su fecha y su lugar (en el formato único de la casa)."""
+    out = {"subject_kind": (bl.subject_kind or "").upper(), "subject_id": (str(bl.subject_id) if bl.subject_id else ""),
+           "subject_name": "", "image": "", "date": "", "place": ""}
+    try:
+        if out["subject_kind"] == "EVENT" and bl.subject_id:
+            ev = session_db.get(AppEvent, bl.subject_id)
+            if ev is not None:
+                out["subject_name"], out["image"] = (ev.name or ""), (ev.logo_url or "")
+        elif out["subject_kind"] == "ARTIST" and bl.subject_id:
+            a = session_db.get(Artist, bl.subject_id)
+            if a is not None:
+                out["subject_name"], out["image"] = (a.name or ""), (a.photo_url or "")
+        if bl.legacy_date:
+            out["date"] = bl.legacy_date.strftime("%d/%m/%Y")
+        out["place"] = _place_label(bl.legacy_municipality or "", bl.legacy_province or "", bl.legacy_country or "")
+    except Exception:
+        app.logger.exception("[compradores] no se pudo leer la actividad no registrada del listado")
+    return out
 
 
 def _buyer_source_company(session_db, source: dict | None):
@@ -141448,7 +141949,7 @@ def _buyer_sources_list(session_db) -> list[dict]:
                 "date": (ev.event_date.strftime("%d/%m/%Y") if ev.event_date else "—"),
                 "sort": ev.event_date or date(1900, 1, 1),
                 "venue": ev.venue_name or "", "town": ev.venue_town or "",
-                "image": ev.artist_image or ev.image_url or "",
+                "image": _buyer_source_image(session_db, ev.concert, ev.artist_image or ev.image_url or ""),
                 "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
                 "buyers": int(r.buyers or 0), "emails": int(r.emails or 0),
                 "sms": int(r.sms or 0),
@@ -141465,15 +141966,16 @@ def _buyer_sources_list(session_db) -> list[dict]:
         if c is not None:
             recinto = ((c.venue.name if c.venue else "") or (c.manual_venue_name or "")
                        or (c.manual_municipality or ""))
+        extra = _buyer_list_legacy(session_db, bl) if c is None else {}
         salida.append({
             "kind": "MANUAL", "pk": str(bl.id), "manual": True,
             "label": bl.name or ((c.artist.name if (c is not None and c.artist) else "")
-                                 or "Listado de compradores"),
-            "date": (c.date.strftime("%d/%m/%Y") if (c is not None and c.date) else "—"),
-            "sort": (c.date if (c is not None and c.date) else date(1900, 1, 1)),
-            "venue": recinto,
+                                 or extra.get("subject_name") or "Listado de compradores"),
+            "date": (c.date.strftime("%d/%m/%Y") if (c is not None and c.date) else (extra.get("date") or "—")),
+            "sort": (c.date if (c is not None and c.date) else (bl.legacy_date or date(1900, 1, 1))),
+            "venue": recinto or extra.get("place", ""),
             "town": (getattr(c, "manual_municipality", "") or "") if c is not None else "",
-            "image": ((c.artist.photo_url or "") if (c is not None and c.artist) else ""),
+            "image": _buyer_source_image(session_db, c, extra.get("image", "")),
             "concert_id": (str(bl.concert_id) if bl.concert_id else ""),
             "buyers": int(getattr(r, "buyers", 0) or 0),
             "emails": int(getattr(r, "emails", 0) or 0),
@@ -142056,6 +142558,12 @@ def buyers_view():
                                "marketing": bool(b.accepts_marketing),
                                "last": b.last_purchase_at, "cats": []})
         ciclo = _buyer_source_cycle(s, source) if (vista == "listado" and source) else None
+        companies_all = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        borrador_envio = None
+        if (request.args.get("campaign") or "").strip():
+            camp_b = s.get(BuyerCampaign, _safe_uuid(request.args.get("campaign")))
+            if camp_b is not None and (camp_b.status or "DRAFT").upper() == "DRAFT" and not int(camp_b.total or 0):
+                borrador_envio = _campaign_draft_payload(s, camp_b)
         return render_template(
             "compradores.html", title="Compradores",
             sources=sources, buyers=buyers, totals=totals, vista=vista,
@@ -142080,10 +142588,17 @@ def buyers_view():
             filter_defs=BUYER_FILTER_DEFS, order_defs=BUYER_ORDER_DEFS,
             can_edit=can_edit_buyers(), rows_limit=BUYER_ROWS_LIMIT,
             subjects=(_buyer_subject_options(s) if can_edit_buyers() else []),
-            companies=s.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
+            companies=companies_all,
             sms_ready=_sms_available(),
             et_configured=et_api.enterticket_configured(),
             q=filtros["q"],
+            # Lo del ENVÍO: por la compra o publicitario, desde qué cuenta sale, el borrador que se
+            # está preparando (`?campaign=`, al volver del editor) y las cuentas para la actividad.
+            purpose_kinds=CAMPAIGN_PURPOSES,
+            campaign_draft=borrador_envio,
+            sender_accounts=_campaign_sender_accounts(s, source, companies_all, ciclo),
+            mail_accounts=[{"id": str(a.id), "label": (a.label or a.from_name or a.from_email), "email": a.from_email}
+                           for a in s.query(MailAccount).filter(MailAccount.is_active.is_(True)).order_by(MailAccount.created_at.asc()).all()],
         )
     finally:
         s.close()
@@ -142168,6 +142683,29 @@ def buyers_import_create():
     try:
         source = _buyer_source(s, event_pk=(datos.get("event") or ""),
                               list_pk=(datos.get("lista") or ""))
+        legacy = datos.get("legacy") if isinstance(datos.get("legacy"), dict) else None
+        if source is None and legacy:
+            # UNA ACTIVIDAD QUE NO ESTÁ EN EL SISTEMA (anterior a la app): el listado guarda de quién
+            # era, su nombre, su fecha y su dirección; no se da de alta ninguna actividad.
+            estado = _current_user_state() or {}
+            nombre = (legacy.get("name") or "").strip()[:200]
+            if not nombre:
+                return jsonify({"ok": False, "error": "Ponle nombre a la actividad."}), 400
+            fecha = parse_optional_date(legacy.get("date") or "")
+            if not fecha:
+                return jsonify({"ok": False, "error": "Di la fecha de la actividad."}), 400
+            kind = (datos.get("subject_kind") or "ARTIST").strip().upper()
+            bl = BuyerList(name=nombre, source="MANUAL", subject_kind=(kind if kind in ("ARTIST", "EVENT") else "ARTIST"),
+                           subject_id=_safe_uuid((datos.get("subject_id") or "").strip()), legacy_date=fecha,
+                           legacy_address=((legacy.get("address") or "").strip()[:300] or None),
+                           legacy_postal_code=((legacy.get("postal_code") or "").strip()[:20] or None),
+                           legacy_municipality=((legacy.get("city") or "").strip()[:120] or None),
+                           legacy_province=((legacy.get("province") or "").strip()[:120] or None),
+                           legacy_country=((legacy.get("country") or "").strip()[:80] or None),
+                           created_by_user_id=_safe_uuid(estado.get("user_id")), created_by_nick=(estado.get("nick") or ""))
+            s.add(bl)
+            s.commit()
+            source = _buyer_source(s, list_pk=str(bl.id))
         if source is None:
             concert_pk = (datos.get("concert_id") or "").strip()
             if not concert_pk:
@@ -142335,8 +142873,184 @@ def _campaign_sms_preview(session_db, body: str, link_url: str, files: list[dict
             "text": limpio}
 
 
-def _campaign_email_html(session_db, camp, *, files_url: str = "") -> str:
-    """El correo del envío. Es el MISMO HTML que se enseña en la previsualización y el que sale."""
+CAMPAIGN_TOKEN_PLACEHOLDER = "__BC_TOKEN__"
+# POR LA COMPRA (va a TODOS, sin baja) · PUBLICITARIO (lleva la baja y respeta a quien se dio de baja).
+CAMPAIGN_PURPOSES = [
+    ("PURCHASE", "Relacionado con la compra", "fa-ticket",
+     "Entradas, horarios, accesos, cambios… Se manda a TODOS los compradores y no lleva opción de darse de baja."),
+    ("MARKETING", "Publicitario", "fa-bullhorn",
+     "Abajo del todo lleva «No recibir más comunicaciones publicitarias» (también en un clic desde el iPhone). "
+     "A quien se dé de baja no se le vuelve a incluir en los envíos publicitarios."),
+]
+CAMPAIGN_PURPOSE_LABELS = {k: lbl for k, lbl, _i, _d in CAMPAIGN_PURPOSES}
+CAMPAIGN_PURPOSE_ICONS = {k: ico for k, _l, ico, _d in CAMPAIGN_PURPOSES}
+
+
+def _campaign_is_marketing(camp) -> bool:
+    return (getattr(camp, "purpose", "PURCHASE") or "PURCHASE").upper() == "MARKETING"
+
+
+def _campaign_sources(camp) -> list[dict]:
+    """Las BASES a las que va (o fue) el envío: `sources_json` y, en los de antes, su evento o listado."""
+    fuentes = []
+    for f in (camp.sources_json or []) if isinstance(camp.sources_json, list) else []:
+        if isinstance(f, dict) and f.get("pk") and (f.get("kind") or "").upper() in ("ET", "MANUAL"):
+            if not any(x["kind"] == f["kind"].upper() and x["pk"] == str(f["pk"]) for x in fuentes):
+                fuentes.append({"kind": f["kind"].upper(), "pk": str(f["pk"])})
+    if not fuentes:
+        if camp.event_id:
+            fuentes.append({"kind": "ET", "pk": str(camp.event_id)})
+        elif camp.list_id:
+            fuentes.append({"kind": "MANUAL", "pk": str(camp.list_id)})
+    return fuentes
+
+
+def _campaign_sources_resolved(session_db, camp) -> list[dict]:
+    salida = []
+    for f in _campaign_sources(camp):
+        src = _buyer_source(session_db, event_pk=(f["pk"] if f["kind"] == "ET" else ""),
+                            list_pk=(f["pk"] if f["kind"] == "MANUAL" else ""))
+        if src:
+            salida.append(src)
+    return salida
+
+
+def _campaign_sources_from_payload(session_db, datos: dict) -> list[dict]:
+    """Las bases que manda la pantalla: varias (`sources`) o la de siempre (`event` / `lista`)."""
+    salida, vistas = [], set()
+    for f in (datos.get("sources") or []) if isinstance(datos.get("sources"), list) else []:
+        if not isinstance(f, dict):
+            continue
+        kind = (f.get("kind") or "").upper()
+        pk = str(f.get("pk") or "").strip()
+        if kind not in ("ET", "MANUAL") or not pk or (kind, pk) in vistas:
+            continue
+        src = _buyer_source(session_db, event_pk=(pk if kind == "ET" else ""), list_pk=(pk if kind == "MANUAL" else ""))
+        if src:
+            vistas.add((kind, pk))
+            salida.append(src)
+    if not salida:
+        uno = _campaign_source_from_payload(session_db, datos)
+        if uno:
+            salida.append(uno)
+    return salida
+
+
+def _campaign_return_url(session_db, camp) -> str:
+    """A dónde se vuelve desde el editor del correo: la pantalla de compradores con el pop-up del
+    envío ya abierto sobre este borrador (`?campaign=`)."""
+    fuentes = _campaign_sources(camp)
+    args = {"open": "email", "campaign": str(camp.id)}
+    if len(fuentes) == 1:
+        f = fuentes[0]
+        args["vista"] = "listado"
+        args["event" if f["kind"] == "ET" else "lista"] = f["pk"]
+    return url_for("buyers_view", **args)
+
+
+def _campaign_design(session_db, camp):
+    """El DISEÑO del correo (un `PressRelease` con `purpose='CAMPAIGN'`), o None."""
+    if not getattr(camp, "design_release_id", None):
+        return None
+    return session_db.get(PressRelease, camp.design_release_id)
+
+
+def _campaign_has_design(session_db, camp) -> bool:
+    pr = _campaign_design(session_db, camp)
+    return bool(pr is not None and press_render.blocks_of(pr.design or {}))
+
+
+def _campaign_design_ensure(session_db, camp, fuentes: list[dict]):
+    """El diseño del correo de este envío, creándolo si no lo tiene: de quién es (el artista o el
+    evento de la actividad de la primera base; sin actividad, la empresa que firma) y sobre qué va
+    (esa actividad). Con eso el editor ofrece SUS módulos: audios, cartelería, fotos, logos…"""
+    pr = _campaign_design(session_db, camp)
+    if pr is not None:
+        return pr
+    estado = _current_user_state() or {}
+    concert = None
+    for src in fuentes:
+        if src.get("concert_id"):
+            concert = session_db.get(Concert, to_uuid(src["concert_id"]))
+            if concert is not None:
+                break
+    pr = PressRelease(purpose="CAMPAIGN", status="DRAFT", sender_kind="BACKOFFICE",
+                      design={"width": press_render.WIDTH, "bg": {}, "blocks": []},
+                      created_by_user_id=_safe_uuid(estado.get("user_id")),
+                      created_by_nick=(estado.get("nick") or ""))
+    if concert is not None:
+        if getattr(concert, "event_id", None):
+            pr.subject_kind, pr.subject_id, pr.artist_ids = "EVENT", concert.event_id, []
+        else:
+            pr.subject_kind, pr.subject_id = "ARTIST", None
+            pr.artist_ids = [str(concert.artist_id)] if concert.artist_id else []
+        pr.about_kind, pr.about_id = "ACTIVITY", concert.id
+    elif any(f.get("subject_id") for f in fuentes):
+        # Un listado de una ACTIVIDAD NO REGISTRADA: de quién era (su artista o su evento).
+        f = next(f for f in fuentes if f.get("subject_id"))
+        if (f.get("subject_kind") or "").upper() == "EVENT":
+            pr.subject_kind, pr.subject_id, pr.artist_ids = "EVENT", to_uuid(f["subject_id"]), []
+        else:
+            pr.subject_kind, pr.subject_id, pr.artist_ids = "ARTIST", None, [str(f["subject_id"])]
+        pr.about_kind = "SUBJECT"
+    elif camp.company_id:
+        pr.subject_kind, pr.subject_id, pr.artist_ids, pr.about_kind = "COMPANY", camp.company_id, [], "SUBJECT"
+    else:
+        pr.subject_kind, pr.artist_ids, pr.about_kind = "ARTIST", [], "SUBJECT"
+    pr.public_token = _uuid_token()
+    session_db.add(pr)
+    session_db.flush()
+    camp.design_release_id = pr.id
+    session_db.flush()
+    return pr
+
+
+def _campaign_unsubscribe_url(token: str) -> str:
+    return _external_url_for("public_buyer_unsubscribe", token=(token or "prueba"))
+
+
+def _campaign_email_from_design(session_db, camp, pr, *, token: str = CAMPAIGN_TOKEN_PLACEHOLDER) -> str:
+    """El correo compuesto con el DISEÑO (las bandas del motor de las notas de prensa) y, si el envío
+    es PUBLICITARIO, el botón de BAJA abajo del todo con el token del destinatario."""
+    tok = _press_ensure_token(session_db, pr)
+    design = _press_prepared_design(session_db, pr, tok)
+    cuerpo = press_render.render_email(design)
+    titular = press_render.headline_of(pr.design or {}) or (camp.subject or "").strip() or "Comunicación"
+    enlace = _press_public_url(pr, tok)
+    baja = ""
+    if _campaign_is_marketing(camp):
+        baja = ('<tr><td align="center" style="padding:8px 8px 4px 8px;">'
+                '<a href="%s" style="display:inline-block;padding:9px 16px;border-radius:999px;border:1px solid #cbd5e1;'
+                'color:#374151;font-family:%s;font-size:12px;text-decoration:none;background:#ffffff;">'
+                'No recibir más comunicaciones publicitarias</a></td></tr>'
+                % (_html_escape_attr(_campaign_unsubscribe_url(token)), press_render.DEFAULT_FONT))
+    return (
+        '<!doctype html><html lang="es"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta name="x-apple-disable-message-reformatting">'
+        '<title>%s</title></head>'
+        '<body style="margin:0;padding:0;background:#f3f4f6;">'
+        '<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px;">%s</div>'
+        '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;">'
+        '<tr><td align="center" style="padding:14px 8px 4px 8px;font-family:%s;font-size:12px;color:#6b7280;">'
+        '<a href="%s" style="color:#6b7280;text-decoration:underline;">Ver en el navegador</a></td></tr>'
+        '<tr><td align="center" style="padding:0 0 18px 0;">%s</td></tr>'
+        '%s'
+        '<tr><td align="center" style="padding:0 8px 22px 8px;font-family:%s;font-size:11px;color:#9ca3af;">'
+        '%s · <a href="%s" style="color:#9ca3af;">ver en el navegador</a></td></tr>'
+        '</table></body></html>'
+        % (_html_escape_attr(titular), _html_escape_attr(titular), press_render.DEFAULT_FONT, _html_escape_attr(enlace),
+           cuerpo, baja, press_render.DEFAULT_FONT,
+           _html_escape_attr(_campaign_brand(session_db, camp).get("name") or "33 Producciones"), _html_escape_attr(enlace)))
+
+
+def _campaign_email_html(session_db, camp, *, files_url: str = "", token: str = CAMPAIGN_TOKEN_PLACEHOLDER) -> str:
+    """El correo del envío. Es el MISMO HTML que se enseña en la previsualización y el que sale.
+    Con un DISEÑO (el editor de las notas de prensa) se compone con él; los correos de antes (título,
+    texto, botón y adjuntos) se siguen componiendo como siempre, para verlos tal cual salieron."""
+    pr = _campaign_design(session_db, camp)
+    if pr is not None and press_render.blocks_of(pr.design or {}):
+        return _campaign_email_from_design(session_db, camp, pr, token=token)
     marca = _campaign_brand(session_db, camp)
     # ⚠️ Este correo SALE DE CASA, así que si quien lo manda todavía no tiene logo se cae al de la
     # casa (en las pantallas de dentro se enseña el icono de empresa, pero aquí hay que enseñar una
@@ -142442,6 +143156,72 @@ def _campaign_brand(session_db, camp) -> dict:
             "sms_sender": remitente, "company": company, "cycle": cycle}
 
 
+def _mail_account_for_owner(session_db, *, company_id=None, cycle_id=None):
+    """La cuenta de correo ACTIVA de una empresa del grupo o de un ciclo (Integraciones → Correo,
+    «De quién es esta cuenta»), o None."""
+    try:
+        q = session_db.query(MailAccount).filter(MailAccount.is_active.is_(True))
+        if cycle_id is not None:
+            acc = q.filter(MailAccount.cycle_id == cycle_id).order_by(MailAccount.created_at.asc()).first()
+            if acc is not None:
+                return acc
+        if company_id is not None:
+            return q.filter(MailAccount.company_id == company_id).order_by(MailAccount.created_at.asc()).first()
+    except Exception:
+        app.logger.exception("[envios] no se pudo leer la cuenta de correo de quien firma")
+    return None
+
+
+def _campaign_mail_sender(session_db, camp) -> dict:
+    """DESDE QUÉ CORREO sale el envío: la cuenta propia de la ACTIVIDAD (`Concert.mail_account_id`) →
+    la del CICLO que firma → la de la EMPRESA que firma → y si no hay ninguna, el remitente de la
+    app. En todos los casos el NOMBRE que ve quien lo recibe es el de quien firma (la empresa o el
+    ciclo elegidos), como pidió Dani: «el título será como si lo enviara lo seleccionado»."""
+    marca = _campaign_brand(session_db, camp)
+    acc = None
+    for src in _campaign_sources_resolved(session_db, camp):
+        if src.get("concert_id"):
+            c = session_db.get(Concert, to_uuid(src["concert_id"]))
+            if c is not None and getattr(c, "mail_account_id", None):
+                acc = session_db.get(MailAccount, c.mail_account_id)
+                if acc is not None and acc.is_active:
+                    break
+                acc = None
+    if acc is None:
+        acc = _mail_account_for_owner(session_db,
+                                      company_id=(marca["company"].id if marca.get("company") is not None else None),
+                                      cycle_id=(marca["cycle"].id if (marca["kind"] == "CYCLE" and marca.get("cycle") is not None) else None))
+    nombre = (marca.get("name") or "").strip() or None
+    if acc is not None:
+        return {"from_name": nombre or (acc.from_name or acc.label or None), "from_email": acc.from_email,
+                "reply_to": (acc.reply_to or None), "account": acc,
+                "label": "%s <%s>" % (nombre or acc.from_name or "", acc.from_email)}
+    return {"from_name": nombre, "from_email": None, "reply_to": None, "account": None,
+            "label": ("%s (desde el remitente de la app)" % nombre) if nombre else "El remitente de la app"}
+
+
+def _campaign_sender_accounts(session_db, source: dict | None, companies, cycle) -> dict:
+    """Para la pantalla: desde qué cuenta saldría el envío según a quién se elija firmar
+    (`COMPANY:<id>` / `CYCLE:<id>`) y la cuenta propia de la ACTIVIDAD del listado, si la tiene."""
+    salida = {"concert_id": "", "concert_account": "", "by_sender": {}}
+    concert = None
+    if source and source.get("concert_id"):
+        concert = session_db.get(Concert, to_uuid(source["concert_id"]))
+    if concert is not None:
+        salida["concert_id"] = str(concert.id)
+        if getattr(concert, "mail_account_id", None):
+            acc = session_db.get(MailAccount, concert.mail_account_id)
+            if acc is not None and acc.is_active:
+                salida["concert_account"] = str(acc.id)
+    for co in companies or []:
+        acc = _mail_account_for_owner(session_db, company_id=co.id)
+        salida["by_sender"]["COMPANY:%s" % co.id] = (acc.from_email if acc is not None else "")
+    if cycle is not None:
+        acc = _mail_account_for_owner(session_db, cycle_id=cycle.id)
+        salida["by_sender"]["CYCLE:%s" % cycle.id] = (acc.from_email if acc is not None else "")
+    return salida
+
+
 def _campaign_sms_sender(session_db, camp) -> str:
     """El remitente del SMS: el nombre abreviado de quien manda el envío (la empresa del grupo que
     promueve o el ciclo, según lo que se haya marcado).
@@ -142463,17 +143243,22 @@ def _campaign_build_recipients(session_db, camp, source: dict, filtros: dict) ->
     Es el MISMO filtrado que la pantalla (`_buyers_apply_filters`), con lo que el canal exige (un
     SMS necesita teléfono y un correo necesita email), así que el total que se ve antes de mandar es
     exactamente a quién se le manda."""
-    q = _buyers_apply_filters(_buyers_base_query(session_db, source), filtros,
-                              channel=camp.channel)
+    # ⚠️ Puede ir a VARIAS bases: una persona que esté en varias entra UNA sola vez. Y si el envío es
+    # PUBLICITARIO no se le manda a quien pidió no recibir más publicidad; si es por la COMPRA, sí.
+    fuentes = [source] if source else _campaign_sources_resolved(session_db, camp)
     vistos, filas = set(), []
-    for be, b in q.all():
-        destino = (b.email or "") if camp.channel == "EMAIL" else (b.phone or "")
-        destino = destino.strip()
-        if not destino or destino.lower() in vistos:
-            continue
-        vistos.add(destino.lower())
-        filas.append(BuyerCampaignRecipient(campaign_id=camp.id, buyer_id=b.id,
-                                            name=(b.name or ""), target=destino))
+    for src in fuentes:
+        q = _buyers_apply_filters(_buyers_base_query(session_db, src), filtros, channel=camp.channel)
+        if _campaign_is_marketing(camp):
+            q = q.filter(Buyer.marketing_opt_out_at.is_(None))
+        for be, b in q.all():
+            destino = (b.email or "") if camp.channel == "EMAIL" else (b.phone or "")
+            destino = destino.strip()
+            if not destino or destino.lower() in vistos:
+                continue
+            vistos.add(destino.lower())
+            filas.append(BuyerCampaignRecipient(campaign_id=camp.id, buyer_id=b.id, name=(b.name or ""), target=destino,
+                                                token=(_uuid_token() if camp.channel == "EMAIL" else None)))
     for fila in filas:
         session_db.add(fila)
     camp.total = len(filas)
@@ -142503,6 +143288,21 @@ def _campaign_send_pending(session_db, camp) -> dict:
     if camp.channel == "EMAIL":
         cuerpo_html = _campaign_email_html(session_db, camp, files_url=files_url)
         asunto = (camp.subject or camp.title or "").strip() or "Información importante"
+        remitente = _campaign_mail_sender(session_db, camp)
+        publicitario = _campaign_is_marketing(camp)
+        # ⚠️ Un correo por persona, con SU enlace de baja (si es publicitario) y las cabeceras que el
+        # iPhone y Gmail usan para ofrecer la baja en un clic (`List-Unsubscribe` + `…-Post`).
+        por_destino = {(r.target or "").strip().lower(): r for r in pendientes}
+
+        def personaliza(destinatario):
+            r = por_destino.get((destinatario or "").strip().lower())
+            tok = (r.token if (r is not None and r.token) else "") or "prueba"
+            html_p = cuerpo_html.replace(CAMPAIGN_TOKEN_PLACEHOLDER, tok)
+            cabeceras = {}
+            if publicitario and r is not None and r.token:
+                url_baja = _campaign_unsubscribe_url(r.token)
+                cabeceras = {"List-Unsubscribe": "<%s>" % url_baja, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
+            return html_p, _html_to_text(html_p), cabeceras
     else:
         texto = _campaign_sms_text(session_db, camp, files_url=files_url)
         remitente = _campaign_sms_sender(session_db, camp)
@@ -142523,7 +143323,10 @@ def _campaign_send_pending(session_db, camp) -> dict:
                 # ⚠️ Los adjuntos van como IMÁGENES y ENLACES dentro del correo, no como
                 # ficheros pegados: mandar el mismo PDF a miles de direcciones es la forma más
                 # rápida de acabar en spam (y de que el envío tarde una eternidad).
-                ok, error = _send_optional_email([r.target], asunto, cuerpo_html)
+                ok, error = _send_optional_email([r.target], asunto, cuerpo_html, personalize=personaliza,
+                                                 from_name=remitente["from_name"], from_email=remitente["from_email"],
+                                                 reply_to=remitente["reply_to"], account=remitente["account"],
+                                                 auto_submitted=False)
             else:
                 # `max_segments=0` = no se recorta: los trozos de más ya se han avisado y aceptado.
                 ok, error = _send_optional_sms(session_db, r.target, texto, kind="CAMPAIGN",
@@ -142726,7 +143529,8 @@ def buyers_campaign_attach():
 @app.post("/compradores/envio/previsualizar", endpoint="buyers_campaign_preview")
 @admin_required
 def buyers_campaign_preview():
-    """Cuántos envíos van a salir y cómo queda el mensaje (el MISMO HTML que se manda)."""
+    """Cuántos envíos van a salir y cómo queda el mensaje (el MISMO HTML que se manda).
+    Con `campaign_id` (el borrador cuyo correo se ha DISEÑADO) el correo sale de su diseño."""
     if not can_edit_buyers():
         return jsonify({"ok": False, "error": "No tienes permiso para mandar envíos."}), 403
     datos = request.get_json(silent=True) or {}
@@ -142735,20 +143539,34 @@ def buyers_campaign_preview():
         return jsonify({"ok": False, "error": "Canal desconocido."}), 400
     s = db()
     try:
-        source = _campaign_source_from_payload(s, datos)
-        if source is None:
+        fuentes = _campaign_sources_from_payload(s, datos)
+        if not fuentes:
             return jsonify({"ok": False, "error": "Falta el listado de compradores."}), 400
         filtros = _campaign_filters_from_payload(datos)
-        q = _buyers_apply_filters(_buyers_base_query(s, source), filtros, channel=canal)
-        total = q.with_entities(func.count(BuyerEvent.id)).scalar() or 0
-        # Los que se quedan fuera por no tener el dato de ese canal (se dice, no se esconde).
-        sin_dato = ((_buyers_apply_filters(_buyers_base_query(s, source), filtros)
-                     .with_entities(func.count(BuyerEvent.id)).scalar() or 0) - total)
+        borrador = _campaign_draft_from_payload(s, datos)
+        proposito = _campaign_purpose_from_payload(datos)
+        # El TOTAL: una persona en varias bases cuenta UNA vez; en un envío publicitario, sin los que
+        # se dieron de baja. Es el MISMO criterio que el envío (`_campaign_build_recipients`).
+        vistos, sin_dato = set(), 0
+        for src in fuentes:
+            q = _buyers_apply_filters(_buyers_base_query(s, src), filtros, channel=canal)
+            if proposito == "MARKETING":
+                q = q.filter(Buyer.marketing_opt_out_at.is_(None))
+            for _be, b in q.all():
+                destino = ((b.email or "") if canal == "EMAIL" else (b.phone or "")).strip().lower()
+                if destino:
+                    vistos.add(destino)
+            sin_dato += (_buyers_apply_filters(_buyers_base_query(s, src), filtros)
+                         .with_entities(func.count(BuyerEvent.id)).scalar() or 0)
+        total = len(vistos)
+        sin_dato = max(0, int(sin_dato) - total)
         ficheros = _campaign_files_clean(datos.get("files"))
-        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, source, datos)
+        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, fuentes[0] if len(fuentes) == 1 else None, datos)
         # Campaña de PEGA (no se guarda): solo para componer con el mismo código que el envío.
-        borrador = BuyerCampaign(
-            channel=canal, company_id=company_id, cycle_id=cycle_id, sender_kind=sender_kind,
+        pega = BuyerCampaign(
+            channel=canal, company_id=company_id, cycle_id=cycle_id, sender_kind=sender_kind, purpose=proposito,
+            design_release_id=(borrador.design_release_id if borrador is not None else None),
+            sources_json=[{"kind": f["kind"], "pk": f["pk"]} for f in fuentes],
             subject=(datos.get("subject") or "").strip(),
             title=(datos.get("title") or "").strip(),
             body=(datos.get("body") or ""),
@@ -142756,20 +143574,159 @@ def buyers_campaign_preview():
             button_url=(datos.get("button_url") or "").strip(),
             link_url=(datos.get("link_url") or "").strip(),
             files_json=ficheros)
-        salida = {"ok": True, "total": int(total), "sin_dato": max(0, int(sin_dato))}
-        marca = _campaign_brand(s, borrador)
+        salida = {"ok": True, "total": int(total), "sin_dato": max(0, int(sin_dato)), "purpose": proposito}
+        marca = _campaign_brand(s, pega)
         salida["sender_kind"] = marca["kind"]
         salida["sender_name"] = marca["name"]
         salida["sender_short"] = marca["sms_sender"]
         if canal == "EMAIL":
-            salida["html"] = _campaign_email_html(s, borrador)
-            salida["subject"] = (borrador.subject or borrador.title or "").strip()
+            tiene = _campaign_has_design(s, pega)
+            salida["has_design"] = tiene
+            salida["html"] = _campaign_email_html(s, pega, token="prueba") if tiene else ""
+            salida["subject"] = (pega.subject or (press_render.headline_of(_campaign_design(s, pega).design or {}) if tiene else "") or "").strip()
+            salida["mail_from"] = _campaign_mail_sender(s, pega)["label"]
         else:
-            sms = _campaign_sms_preview(s, borrador.body, borrador.link_url, ficheros)
+            sms = _campaign_sms_preview(s, pega.body, pega.link_url, ficheros)
             salida.update(sms)
-            salida["sender"] = _campaign_sms_sender(s, borrador)
+            salida["sender"] = _campaign_sms_sender(s, pega)
             salida["sms_ready"] = _sms_available()
         return jsonify(salida)
+    finally:
+        s.close()
+
+
+def _campaign_purpose_from_payload(datos: dict) -> str:
+    p = (datos.get("purpose") or "PURCHASE").strip().upper()
+    return p if p in CAMPAIGN_PURPOSE_LABELS else "PURCHASE"
+
+
+def _campaign_draft_from_payload(session_db, datos: dict):
+    """El BORRADOR de envío (el que tiene el diseño del correo) que manda la pantalla, si es un
+    borrador de verdad (sin mandar a nadie todavía)."""
+    cid = (datos.get("campaign_id") or "").strip()
+    if not cid:
+        return None
+    camp = session_db.get(BuyerCampaign, _safe_uuid(cid))
+    if camp is None or (camp.status or "DRAFT").upper() not in ("DRAFT",) or int(camp.total or 0):
+        return None
+    return camp
+
+
+def _campaign_draft_payload(session_db, camp) -> dict:
+    """Lo que la pantalla necesita para reabrir el pop-up sobre un borrador ya diseñado."""
+    pr = _campaign_design(session_db, camp)
+    tiene = bool(pr is not None and press_render.blocks_of(pr.design or {}))
+    return {"id": str(camp.id), "purpose": (camp.purpose or "PURCHASE").upper(),
+            "sender_kind": (camp.sender_kind or "COMPANY").upper(),
+            "company_id": (str(camp.company_id) if camp.company_id else ""),
+            "cycle_id": (str(camp.cycle_id) if camp.cycle_id else ""),
+            "subject": ((camp.subject or "").strip() or (press_render.headline_of(pr.design or {}) if pr is not None else "")),
+            "has_design": tiene, "sources": _campaign_sources(camp),
+            "editor_url": (url_for("promo_press_edit", release_id=pr.id) if pr is not None else "")}
+
+
+@app.post("/compradores/envio/disenar", endpoint="buyers_campaign_design_start")
+@admin_required
+def buyers_campaign_design_start():
+    """Deja el envío como BORRADOR (a qué bases, quién firma, por la compra o publicitario) y abre el
+    EDITOR de su correo: el mismo diseñador que las notas de prensa, con los módulos de esa actividad
+    (cartelería, logos, audios, fotos…). Al terminar se vuelve al pop-up con el correo ya hecho."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso para mandar envíos."}), 403
+    datos = request.get_json(silent=True) or {}
+    s = db()
+    try:
+        fuentes = _campaign_sources_from_payload(s, datos)
+        if not fuentes:
+            return jsonify({"ok": False, "error": "Elige al menos una base de compradores."}), 400
+        estado = _current_user_state() or {}
+        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, fuentes[0] if len(fuentes) == 1 else None, datos)
+        camp = _campaign_draft_from_payload(s, datos)
+        if camp is None:
+            camp = BuyerCampaign(channel="EMAIL", status="DRAFT",
+                                 created_by_user_id=_safe_uuid(estado.get("user_id")),
+                                 created_by_nick=(estado.get("nick") or ""))
+            s.add(camp)
+        camp.event_id = to_uuid(fuentes[0]["pk"]) if fuentes[0]["kind"] == "ET" else None
+        camp.list_id = to_uuid(fuentes[0]["pk"]) if fuentes[0]["kind"] == "MANUAL" else None
+        camp.sources_json = [{"kind": f["kind"], "pk": f["pk"]} for f in fuentes]
+        camp.company_id, camp.cycle_id, camp.sender_kind = company_id, cycle_id, sender_kind
+        camp.purpose = _campaign_purpose_from_payload(datos)
+        camp.filters_json = _campaign_filters_from_payload(datos)
+        camp.subject = (datos.get("subject") or "").strip()[:300] or None
+        s.flush()
+        pr = _campaign_design_ensure(s, camp, fuentes)
+        s.commit()
+        return jsonify({"ok": True, "campaign_id": str(camp.id),
+                        "editor_url": url_for("promo_press_edit", release_id=pr.id)})
+    except Exception as exc:
+        s.rollback()
+        app.logger.exception("[envios] no se pudo preparar el diseño del correo")
+        return jsonify({"ok": False, "error": "No se pudo abrir el editor: %s" % exc}), 500
+    finally:
+        s.close()
+
+
+@app.post("/compradores/envio/cuenta-correo", endpoint="buyers_campaign_mail_account_save")
+@admin_required
+def buyers_campaign_mail_account_save():
+    """La CUENTA DE CORREO propia de una ACTIVIDAD para los envíos a sus compradores
+    (`Concert.mail_account_id`; vacío = la de quien firma, o la de la app)."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+    datos = request.get_json(silent=True) or {}
+    s = db()
+    try:
+        c = s.get(Concert, _safe_uuid(datos.get("concert_id") or ""))
+        if c is None:
+            return jsonify({"ok": False, "error": "Esa actividad no existe."}), 404
+        acc_id = (datos.get("mail_account_id") or "").strip()
+        acc = s.get(MailAccount, _safe_uuid(acc_id)) if acc_id else None
+        if acc_id and (acc is None or not acc.is_active):
+            return jsonify({"ok": False, "error": "Esa cuenta de correo no está activa."}), 400
+        c.mail_account_id = acc.id if acc is not None else None
+        s.commit()
+        return jsonify({"ok": True, "label": (acc.from_email if acc is not None else "")})
+    except Exception as exc:
+        s.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        s.close()
+
+
+@app.route("/baja/<token>", methods=["GET", "POST"], endpoint="public_buyer_unsubscribe")
+def public_buyer_unsubscribe(token):
+    """NO RECIBIR MÁS COMUNICACIONES PUBLICITARIAS: el enlace de abajo de un correo publicitario (y
+    el de la baja en un clic del iPhone / Gmail, que hace un POST aquí con `List-Unsubscribe=One-Click`).
+    El token es el del DESTINATARIO, así que la baja se apunta a la persona sin pedirle nada. A partir
+    de ahí no entra en los envíos publicitarios; los relacionados con su compra le siguen llegando."""
+    token = (token or "").strip()
+    s = db()
+    try:
+        r = (s.query(BuyerCampaignRecipient).filter(BuyerCampaignRecipient.token == token).first()
+             if token and token != "prueba" else None)
+        camp = s.get(BuyerCampaign, r.campaign_id) if r is not None else None
+        marca = _campaign_brand(s, camp) if camp is not None else {}
+        un_clic = ("List-Unsubscribe" in (request.form or {})) or "one-click" in (request.headers.get("Content-Type") or "").lower()
+        hecho = False
+        if request.method == "POST" and r is not None:
+            ahora = datetime.now(TZ_MADRID)
+            r.opted_out_at = r.opted_out_at or ahora
+            b = s.get(Buyer, r.buyer_id) if r.buyer_id else None
+            if b is None and (r.target or "").strip():
+                b = s.query(Buyer).filter(func.lower(Buyer.email) == r.target.strip().lower()).first()
+            if b is not None:
+                b.marketing_opt_out_at = b.marketing_opt_out_at or ahora
+            s.commit()
+            hecho = True
+            if un_clic:
+                return Response("OK", mimetype="text/plain")
+        return render_template("public_buyer_unsubscribe.html",
+                               valido=(r is not None), prueba=(token == "prueba"),
+                               ya=bool(r is not None and r.opted_out_at is not None and not hecho), hecho=hecho,
+                               brand_name=(marca.get("name") or "33 Producciones"),
+                               brand_logo=_absolute_media_url(marca.get("logo_url") or "") if marca.get("logo_url") else "",
+                               target=((r.target or "") if r is not None else "")), (200 if (r is not None or token == "prueba") else 404)
     finally:
         s.close()
 
@@ -142863,7 +143820,8 @@ def buyers_campaign_test():
 
     ⚠️ No toca la campaña de verdad: no crea destinatarios ni marca a nadie. Se guarda como envío de
     **PRUEBA** (`status='PRUEBA'`) porque hace falta una fila para la página de los adjuntos… y
-    porque un envío que sale de la casa no puede ser invisible."""
+    porque un envío que sale de la casa no puede ser invisible. Un correo DISEÑADO se prueba con el
+    diseño del borrador (`campaign_id`) y sale desde la cuenta que le toque."""
     if not can_edit_buyers():
         return jsonify({"ok": False, "error": "No tienes permiso para mandar envíos."}), 403
     datos = request.get_json(silent=True) or {}
@@ -142871,23 +143829,30 @@ def buyers_campaign_test():
     destinos = [str(x or "").strip() for x in (datos.get("targets") or []) if str(x or "").strip()]
     if not destinos:
         return jsonify({"ok": False, "error": "Dime a quién le mando la prueba."}), 400
-    if not (datos.get("body") or "").strip():
-        return jsonify({"ok": False, "error": "Escribe el mensaje antes de probarlo."}), 400
     if canal == "SMS" and not _sms_available():
         return jsonify({"ok": False, "error": ("La pasarela de SMS está sin configurar o apagada "
                                                "(Integraciones → SMS).")}), 400
     s = db()
     try:
-        source = _campaign_source_from_payload(s, datos)
-        if source is None:
+        fuentes = _campaign_sources_from_payload(s, datos)
+        if not fuentes:
             return jsonify({"ok": False, "error": "Falta el listado de compradores."}), 400
+        borrador = _campaign_draft_from_payload(s, datos)
+        if canal == "EMAIL":
+            if not (borrador is not None and _campaign_has_design(s, borrador)) and not (datos.get("body") or "").strip():
+                return jsonify({"ok": False, "error": "Diseña el contenido del correo antes de probarlo."}), 400
+        elif not (datos.get("body") or "").strip():
+            return jsonify({"ok": False, "error": "Escribe el mensaje antes de probarlo."}), 400
         estado = _current_user_state() or {}
-        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, source, datos)
+        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, fuentes[0] if len(fuentes) == 1 else None, datos)
         camp = BuyerCampaign(
             channel=canal,
-            event_id=(to_uuid(source["pk"]) if source["kind"] == "ET" else None),
-            list_id=(to_uuid(source["pk"]) if source["kind"] == "MANUAL" else None),
+            event_id=(to_uuid(fuentes[0]["pk"]) if fuentes[0]["kind"] == "ET" else None),
+            list_id=(to_uuid(fuentes[0]["pk"]) if fuentes[0]["kind"] == "MANUAL" else None),
+            sources_json=[{"kind": f["kind"], "pk": f["pk"]} for f in fuentes],
             company_id=company_id, cycle_id=cycle_id, sender_kind=sender_kind,
+            purpose=_campaign_purpose_from_payload(datos),
+            design_release_id=(borrador.design_release_id if borrador is not None else None),
             subject=(datos.get("subject") or "").strip()[:300],
             title=(datos.get("title") or "").strip()[:300],
             body=(datos.get("body") or ""),
@@ -142903,27 +143868,32 @@ def buyers_campaign_test():
         files_url = _campaign_files_url(s, camp)
         ok_n, fallos = 0, []
         if canal == "EMAIL":
-            cuerpo = _campaign_email_html(s, camp, files_url=files_url)
-            asunto = "[PRUEBA] " + ((camp.subject or camp.title or "").strip() or "Envío de prueba")
+            cuerpo = _campaign_email_html(s, camp, files_url=files_url, token="prueba")
+            asunto = "[PRUEBA] " + ((camp.subject or camp.title or "").strip()
+                                    or (press_render.headline_of(_campaign_design(s, camp).design or {}) if _campaign_design(s, camp) is not None else "")
+                                    or "Envío de prueba")
+            remitente = _campaign_mail_sender(s, camp)
             for destino in destinos[:20]:
                 if "@" not in destino:
                     fallos.append("%s: no es un correo" % destino)
                     continue
-                ok, error = _send_optional_email([destino], asunto, cuerpo)
+                ok, error = _send_optional_email([destino], asunto, cuerpo, from_name=remitente["from_name"],
+                                                 from_email=remitente["from_email"], reply_to=remitente["reply_to"],
+                                                 account=remitente["account"], auto_submitted=False)
                 if ok:
                     ok_n += 1
                 else:
                     fallos.append("%s: %s" % (destino, error or "no salió"))
         else:
             texto = _campaign_sms_text(s, camp, files_url=files_url)
-            remitente = _campaign_sms_sender(s, camp)
+            remitente_sms = _campaign_sms_sender(s, camp)
             for destino in destinos[:20]:
                 numero = _normalize_phone_value(destino)
                 if not numero or not numero.startswith("+"):
                     fallos.append("%s: no es un teléfono" % destino)
                     continue
                 ok, error = _send_optional_sms(s, numero, texto, kind="CAMPAIGN_TEST",
-                                               sender=remitente, max_segments=0, force=True)
+                                               sender=remitente_sms, max_segments=0, force=True)
                 if ok:
                     ok_n += 1
                 else:
@@ -142946,7 +143916,8 @@ def buyers_campaign_test():
 @app.post("/compradores/envio/enviar", endpoint="buyers_campaign_send")
 @admin_required
 def buyers_campaign_send():
-    """Crea el envío con sus destinatarios y manda la primera tanda."""
+    """Crea el envío con sus destinatarios y manda la primera tanda. Un correo va con el DISEÑO del
+    borrador (`campaign_id`, el que se abrió en el editor); un SMS, con su texto."""
     if not can_edit_buyers():
         return jsonify({"ok": False, "error": "No tienes permiso para mandar envíos."}), 403
     datos = request.get_json(silent=True) or {}
@@ -142954,48 +143925,59 @@ def buyers_campaign_send():
     if canal not in ("EMAIL", "SMS"):
         return jsonify({"ok": False, "error": "Canal desconocido."}), 400
     cuerpo = (datos.get("body") or "").strip()
-    if not cuerpo:
+    if canal == "SMS" and not cuerpo:
         return jsonify({"ok": False, "error": "Escribe el mensaje."}), 400
-    if canal == "EMAIL" and not (datos.get("subject") or "").strip():
-        return jsonify({"ok": False, "error": "Pon el asunto del correo."}), 400
     if canal == "SMS" and not _sms_available():
         return jsonify({"ok": False,
                         "error": ("La pasarela de SMS está sin configurar o apagada "
                                   "(Integraciones → SMS).")}), 400
     s = db()
     try:
-        source = _campaign_source_from_payload(s, datos)
-        if source is None:
+        fuentes = _campaign_sources_from_payload(s, datos)
+        if not fuentes:
             return jsonify({"ok": False, "error": "Falta el listado de compradores."}), 400
         filtros = _campaign_filters_from_payload(datos)
         estado = _current_user_state() or {}
-        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, source, datos)
-        camp = BuyerCampaign(
-            channel=canal,
-            event_id=(to_uuid(source["pk"]) if source["kind"] == "ET" else None),
-            list_id=(to_uuid(source["pk"]) if source["kind"] == "MANUAL" else None),
-            company_id=company_id, cycle_id=cycle_id, sender_kind=sender_kind,
-            subject=(datos.get("subject") or "").strip()[:300],
-            title=(datos.get("title") or "").strip()[:300],
-            body=cuerpo,
-            button_label=(datos.get("button_label") or "").strip()[:80],
-            button_url=(datos.get("button_url") or "").strip()[:900],
-            link_url=(datos.get("link_url") or "").strip()[:900],
-            files_json=_campaign_files_clean(datos.get("files")),
-            filters_json=filtros,
-            created_by_user_id=_safe_uuid(estado.get("user_id")),
-            created_by_nick=(estado.get("nick") or ""),
-            status="DRAFT")
+        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, fuentes[0] if len(fuentes) == 1 else None, datos)
+        borrador = _campaign_draft_from_payload(s, datos) if canal == "EMAIL" else None
+        if canal == "EMAIL":
+            if borrador is not None and not _campaign_has_design(s, borrador):
+                return jsonify({"ok": False, "error": "El correo todavía no tiene contenido: diséñalo antes de enviarlo."}), 400
+            if borrador is None and not cuerpo:
+                return jsonify({"ok": False, "error": "Diseña el contenido del correo antes de enviarlo."}), 400
+        camp = borrador if borrador is not None else BuyerCampaign(
+            channel=canal, created_by_user_id=_safe_uuid(estado.get("user_id")),
+            created_by_nick=(estado.get("nick") or ""), status="DRAFT")
+        if borrador is None:
+            s.add(camp)
+        camp.event_id = to_uuid(fuentes[0]["pk"]) if fuentes[0]["kind"] == "ET" else None
+        camp.list_id = to_uuid(fuentes[0]["pk"]) if fuentes[0]["kind"] == "MANUAL" else None
+        camp.sources_json = [{"kind": f["kind"], "pk": f["pk"]} for f in fuentes]
+        camp.company_id, camp.cycle_id, camp.sender_kind = company_id, cycle_id, sender_kind
+        camp.purpose = _campaign_purpose_from_payload(datos)
+        camp.filters_json = filtros
+        asunto = (datos.get("subject") or "").strip()[:300]
+        if canal == "EMAIL" and not asunto and borrador is not None:
+            asunto = (press_render.headline_of((_campaign_design(s, camp) or camp).design or {}) or "")[:300]
+        if canal == "EMAIL" and not asunto:
+            return jsonify({"ok": False, "error": "Pon el asunto del correo."}), 400
+        camp.subject = asunto or None
+        camp.title = (datos.get("title") or "").strip()[:300] or None
+        camp.body = cuerpo or None
+        camp.button_label = (datos.get("button_label") or "").strip()[:80] or None
+        camp.button_url = (datos.get("button_url") or "").strip()[:900] or None
+        camp.link_url = (datos.get("link_url") or "").strip()[:900] or None
+        camp.files_json = _campaign_files_clean(datos.get("files"))
         if canal == "SMS":
             camp.sms_sender = _campaign_sms_sender(s, camp)[:11] or None
-        s.add(camp)
         s.flush()
-        total = _campaign_build_recipients(s, camp, source, filtros)
+        total = _campaign_build_recipients(s, camp, None, filtros)
         if not total:
             s.rollback()
             return jsonify({"ok": False, "error": (
-                "No hay nadie a quien mandarlo: de los compradores elegidos, ninguno tiene %s."
-                % ("email" if canal == "EMAIL" else "teléfono"))}), 400
+                "No hay nadie a quien mandarlo: de los compradores elegidos, ninguno tiene %s%s."
+                % ("email" if canal == "EMAIL" else "teléfono",
+                   " (o todos pidieron no recibir publicidad)" if _campaign_is_marketing(camp) else ""))}), 400
         if canal == "SMS":
             files_url = _campaign_files_url(s, camp)
             camp.segments = sms_utils.segments(_campaign_sms_text(s, camp, files_url=files_url))

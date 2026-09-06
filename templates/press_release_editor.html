@@ -14,15 +14,21 @@
      data-detail-url="{{ url_for('promo_press_detail', release_id=pr.id) }}"
      data-next-url="{{ next_url }}"
      data-files-url="{{ files_url }}" data-image-url="{{ image_url }}" data-photos-url="{{ photos_url_tpl }}"
+     data-staff-url="{{ url_for('promo_press_staff_search') }}" data-campaign="{{ '1' if campaign else '' }}"
      data-design-asset="{{ design_asset|tojson|forceescape }}" data-corporate="{{ palette_corporate|tojson|forceescape }}"
      data-can-edit="{{ '1' if can_edit else '' }}">
 
   <div class="pr-editor__top">
-    <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a la nota (se guarda como borrador)" aria-label="Volver a la nota"><i class="fa fa-arrow-left"></i></a>
+    {% if campaign %}
+      <a href="{{ campaign.return_url }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver al envío (el correo se guarda)" aria-label="Volver al envío"><i class="fa fa-arrow-left"></i></a>
+    {% else %}
+      <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a la nota (se guarda como borrador)" aria-label="Volver a la nota"><i class="fa fa-arrow-left"></i></a>
+    {% endif %}
     <div class="pr-editor__who">
+      {% if campaign %}<span class="badge text-bg-danger"><i class="fa fa-envelope me-1"></i>Envío a compradores</span>{% endif %}
       {% for s in subjects %}{{ press_subject_chip(s) }}{% endfor %}
       <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
-      <span class="badge text-bg-light border">{{ row.status_label }}</span>
+      {% if not campaign %}<span class="badge text-bg-light border">{{ row.status_label }}</span>{% endif %}
     </div>
     <div class="pr-editor__actions">
       <span class="pr-editor__saved text-muted small" data-pr-saved></span>
@@ -42,7 +48,11 @@
       </div>
       <button class="btn btn-outline-secondary btn-sm" type="button" data-pr-preview><i class="fa fa-envelope-open-text me-1"></i>Vista previa</button>
       <button class="btn btn-outline-primary btn-sm" type="button" data-pr-save title="Guardar y seguir diseñando"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
-      <button class="btn btn-primary" type="button" data-pr-next title="Guardar y pasar a enviar la nota"><i class="fa fa-paper-plane me-1"></i>Siguiente: enviar<i class="fa fa-arrow-right ms-2"></i></button>
+      {% if campaign %}
+        <button class="btn btn-primary" type="button" data-pr-next title="Guardar el correo y volver al envío (a quién y enviar)"><i class="fa fa-paper-plane me-1"></i>Siguiente: enviar<i class="fa fa-arrow-right ms-2"></i></button>
+      {% else %}
+        <button class="btn btn-primary" type="button" data-pr-next title="Guardar y pasar a enviar la nota"><i class="fa fa-paper-plane me-1"></i>Siguiente: enviar<i class="fa fa-arrow-right ms-2"></i></button>
+      {% endif %}
     </div>
   </div>
 
@@ -53,7 +63,7 @@
           <div class="pr-canvas__empty" data-pr-empty>
             <i class="fa fa-image"></i>
             <div class="fw-semibold mt-2">Sube la imagen de fondo</div>
-            <div class="small text-muted">La cabecera con los logos y el hueco para los textos. Después arrastra el titular, el texto y los módulos encima.</div>
+            <div class="small text-muted">{% if campaign %}La imagen de fondo del correo. Después arrastra el titular, el texto, el logo y la cartelería encima.{% else %}La cabecera con los logos y el hueco para los textos. Después arrastra el titular, el texto y los módulos encima.{% endif %}</div>
             <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
               <label class="btn btn-primary btn-sm mb-0"><i class="fa fa-upload me-1"></i>Subir el fondo<input type="file" accept="image/*" class="d-none" data-pr-bg-file></label>
               {% if design_asset.available and design_asset.is_image %}
@@ -122,14 +132,6 @@
       <div class="pr-side__group d-none" data-pr-props>
         <div class="pr-side__title"><i class="fa fa-sliders"></i>Bloque seleccionado</div>
         <div data-pr-props-body></div>
-      </div>
-      <div class="pr-side__group">
-        <div class="pr-side__title"><i class="fa fa-keyboard"></i>Atajos</div>
-        <div class="small text-muted">Con un bloque seleccionado: <b>Supr</b> lo elimina · <b>⌘C</b> / <b>⌘V</b> lo copian y pegan · las <b>flechas</b> lo mueven (con ⇧, de 10 en 10). Al arrastrar o cambiar el tamaño salen las guías para alinearlo con los demás; con <b>Alt</b> pulsado no se imanta. Una imagen o un módulo de archivos se configuran <b>pinchándolos</b>.</div>
-      </div>
-      <div class="pr-side__group">
-        <div class="pr-side__title"><i class="fa fa-circle-info"></i>Cómo llegará</div>
-        <div class="small text-muted">Asunto: <b>{{ email_subject }}</b>. El correo lleva exactamente este diseño; los textos se pueden seleccionar y copiar.</div>
       </div>
     </aside>
   </div>
@@ -241,6 +243,30 @@
       </div>
       <div class="small text-muted mt-2 d-none" data-pr-files-progress></div>
       <div class="pr-files mt-3" data-pr-files-list><div class="text-muted small">Todavía no hay archivos.</div></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-primary" data-bs-dismiss="modal"><i class="fa fa-check me-1"></i>Listo</button>
+    </div>
+  </div></div>
+</div>
+
+{# ---------- Los CONTACTOS del módulo de contacto ----------
+   SIEMPRE el de prensa y quien crea la nota (no se quitan) y, debajo, los que se añadan del personal
+   de la casa (se buscan por su nombre, con su foto): cada uno sale como «Contacto de <Departamento>». #}
+<div class="modal fade" id="prContactsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content" data-pr-contacts-modal>
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fa fa-address-card me-2 text-danger"></i>Contactos de la nota</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <div class="small text-muted mb-2">El contacto de prensa y quien crea la nota salen siempre. Añade a quien haga falta del personal: sale como <b>Contacto de</b> su departamento, con su correo y su teléfono.</div>
+      <div class="pr-contacts" data-pr-contacts-list><div class="text-muted small">Cargando…</div></div>
+      <div class="mt-3">
+        <label class="form-label small text-muted mb-1"><i class="fa fa-user-plus me-1"></i>Añadir otro (personal de la empresa)</label>
+        <input class="form-control" data-pr-contacts-search autocomplete="off" placeholder="Escribe su nombre…">
+        <div class="pr-pick-grid mt-2" data-pr-contacts-results></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button type="button" class="btn btn-primary" data-bs-dismiss="modal"><i class="fa fa-check me-1"></i>Listo</button>

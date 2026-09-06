@@ -50,7 +50,7 @@ FONTS = [
 ]
 
 TEXT_TYPES = ("title", "text")
-MODULE_TYPES = ("audio", "album", "video", "links", "contact", "photos", "image", "files", "playlist")
+MODULE_TYPES = ("audio", "album", "video", "links", "contact", "photos", "image", "files", "playlist", "artwork")
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # 1) SANEAR el HTML que llega del editor
@@ -415,6 +415,7 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
             "image": ("Imagen", "Pincha para elegir la foto: de nuestras fotos, de los materiales del lanzamiento, o súbela"),
             "files": ("Archivos adjuntos", "Pincha para subir los archivos (o carpetas) que se van a poder descargar"),
             "playlist": ("Playlist", "Elige la playlist en el panel de la derecha"),
+            "artwork": ("Cartelería", "Esta actividad todavía no tiene carteles aprobados"),
         }.get(tipo, ("Módulo", "Falta configurarlo")))
     if tipo == "image":
         # Una IMAGEN integrada en el cuerpo (no un adjunto): ocupa el ancho del bloque y, si lleva
@@ -526,22 +527,62 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
             return ""
         return ('<div style="text-align:%s;font-size:0;line-height:0;">%s</div>' % (align, "".join(iconos)))
     if tipo == "contact":
-        filas = []
-        if d.get("email"):
-            filas.append('<div style="margin-top:4px;"><img src="%s" width="13" height="13" alt="" style="vertical-align:-2px;margin-right:6px;border:0;">'
-                         '<a href="mailto:%s" style="color:%s;text-decoration:none;">%s</a></div>'
-                         % (_e(icons.get("envelope") or ""), _e(d["email"]), BRAND_BLUE, _e(d["email"])))
-        if d.get("phone"):
-            filas.append('<div style="margin-top:4px;"><img src="%s" width="13" height="13" alt="" style="vertical-align:-2px;margin-right:6px;border:0;">'
-                         '<a href="tel:%s" style="color:%s;text-decoration:none;">%s</a></div>'
-                         % (_e(icons.get("phone") or ""), _e(re.sub(r"[^\d+]", "", d["phone"])), BRAND_BLUE, _e(d["phone"])))
-        return (_card_open("background:#f8fafc;") +
+        # SIEMPRE el contacto de PRENSA y QUIEN CREA la nota; además, los que se añadan (personal de la
+        # casa). Cada uno con su función —«Contacto de prensa», «Contacto de Producción»…— y, debajo,
+        # lo mismo: nombre · correo · teléfono. Los de antes (un solo contacto en `data`) se siguen leyendo.
+        contactos = d.get("contacts") if isinstance(d.get("contacts"), list) else None
+        if contactos is None:
+            contactos = [d] if (d.get("name") or d.get("email")) else []
+        tarjetas = []
+        for i, ct in enumerate(contactos):
+            filas = []
+            if ct.get("email"):
+                filas.append('<div style="margin-top:4px;"><img src="%s" width="13" height="13" alt="" style="vertical-align:-2px;margin-right:6px;border:0;">'
+                             '<a href="mailto:%s" style="color:%s;text-decoration:none;">%s</a></div>'
+                             % (_e(icons.get("envelope") or ""), _e(ct["email"]), BRAND_BLUE, _e(ct["email"])))
+            if ct.get("phone"):
+                filas.append('<div style="margin-top:4px;"><img src="%s" width="13" height="13" alt="" style="vertical-align:-2px;margin-right:6px;border:0;">'
+                             '<a href="tel:%s" style="color:%s;text-decoration:none;">%s</a></div>'
+                             % (_e(icons.get("phone") or ""), _e(re.sub(r"[^\d+]", "", ct["phone"])), BRAND_BLUE, _e(ct["phone"])))
+            foto = ('<img src="%s" width="40" height="40" alt="" style="width:40px;height:40px;border-radius:50%%;object-fit:cover;border:0;display:block;">'
+                    % _e(ct["photo"])) if ct.get("photo") else ""
+            tarjetas.append(
+                '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;%s"><tr>'
+                '%s<td valign="top" style="vertical-align:top;">'
                 '<div style="font-family:%s;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:%s;">%s</div>'
-                % (DEFAULT_FONT, MUTED, _e(d.get("role_label") or "Contacto de prensa"))
-                + '<div style="font-family:%s;font-size:15px;font-weight:800;color:%s;margin-top:2px;">%s</div>'
-                % (DEFAULT_FONT, TEXT_COLOR, _e(d.get("name") or ""))
-                + '<div style="font-family:%s;font-size:13px;">%s</div>' % (DEFAULT_FONT, "".join(filas))
-                + _CARD_CLOSE)
+                '<div style="font-family:%s;font-size:15px;font-weight:800;color:%s;margin-top:2px;">%s</div>'
+                '<div style="font-family:%s;font-size:13px;">%s</div></td></tr></table>'
+                % (("border-top:1px solid #e5e7eb;margin-top:10px;padding-top:10px;" if i else ""),
+                   ('<td width="50" valign="top" style="width:50px;vertical-align:top;padding-right:10px;">%s</td>' % foto) if foto else "",
+                   DEFAULT_FONT, MUTED, _e(ct.get("role_label") or "Contacto de prensa"),
+                   DEFAULT_FONT, TEXT_COLOR, _e(ct.get("name") or ""),
+                   DEFAULT_FONT, "".join(filas)))
+        return _card_open("background:#f8fafc;") + "".join(tarjetas) + _CARD_CLOSE
+    if tipo == "artwork":
+        # La CARTELERÍA de la actividad (o la general de su gira, ciclo o evento): los carteles en
+        # rejilla y el botón a su página pública —la misma que se comparte con el artista—.
+        fotos = (d.get("posters") or [])[:6]
+        celdas = []
+        for f in fotos:
+            celdas.append('<td width="%d%%" style="padding:2px;"><a href="%s" target="_blank" style="display:block;">'
+                          '<img src="%s" width="100%%" alt="" style="width:100%%;display:block;border-radius:6px;border:0;"></a></td>'
+                          % (int(100 / max(1, min(3, len(fotos)))), _e(d.get("gallery_url") or f.get("url") or ""), _e(f.get("thumb") or f.get("url") or "")))
+        rejilla = ""
+        if celdas:
+            rejilla = '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>' + "".join(celdas[:3]) + "</tr>"
+            if len(celdas) > 3:
+                rejilla += "<tr>" + "".join(celdas[3:6]) + "</tr>"
+            rejilla += "</table>"
+        botones = _button("Ver la cartelería", d.get("gallery_url") or "", icon_url=icons.get("images"))
+        if opts.get("download") and d.get("download_url"):
+            botones += _button("Descargar los carteles", d["download_url"], filled=False, icon_url=icons.get("download"))
+        n = int(d.get("count") or 0)
+        return (_card_open() +
+                '<div style="font-family:%s;font-size:15px;font-weight:800;color:%s;">%s</div>'
+                % (DEFAULT_FONT, TEXT_COLOR, _e(d.get("title") or "Cartelería"))
+                + ('<div style="margin-top:2px;">%s</div>' % _chip("%d cartel%s" % (n, "" if n == 1 else "es"), icons.get("images")) if n else "")
+                + ('<div style="margin-top:8px;">%s</div>' % rejilla if rejilla else "")
+                + '<div style="margin-top:8px;">%s</div>' % botones + _CARD_CLOSE)
     if tipo == "photos":
         fotos = (d.get("photos") or [])[:6]
         celdas = []
@@ -675,8 +716,12 @@ def plain_text(design: dict) -> str:
         elif b["type"] == "links":
             trozos.append("\n".join("%s: %s" % (it.get("label") or "", it.get("url") or "") for it in d.get("items") or [] if it.get("url")))
         elif b["type"] == "contact":
-            trozos.append("%s: %s · %s · %s" % (d.get("role_label") or "Contacto de prensa", d.get("name") or "",
-                                                 d.get("email") or "", d.get("phone") or ""))
+            contactos = d.get("contacts") if isinstance(d.get("contacts"), list) else ([d] if d.get("name") else [])
+            trozos.append("\n".join("%s: %s · %s · %s" % (ct.get("role_label") or "Contacto de prensa", ct.get("name") or "",
+                                                            ct.get("email") or "", ct.get("phone") or "") for ct in contactos))
+        elif b["type"] == "artwork":
+            if not d.get("pending"):
+                trozos.append("%s%s" % (d.get("title") or "Cartelería", (" · " + d["gallery_url"]) if d.get("gallery_url") else ""))
         elif b["type"] == "photos":
             trozos.append("%s%s" % (d.get("album_name") or "Fotos", (" · " + d["gallery_url"]) if d.get("gallery_url") else ""))
         elif b["type"] == "image":

@@ -22,12 +22,17 @@
       channel: 'SMS',
       files: [],
       campaign: null,
+      draft: null,          // el BORRADOR cuyo correo se ha DISEÑADO (vuelve del editor con ?campaign=)
+      hasDesign: false,
       total: 0,
       segments: 1,
       timer: null,
       test: [],
       testTimer: null
     };
+    var multi = root.dataset.multi === '1';
+    var senderAccounts = {};
+    try { senderAccounts = JSON.parse(root.dataset.senderAccounts || '{}') || {}; } catch (e) { senderAccounts = {}; }
     var urls = {
       preview: root.dataset.urlPreview,
       send: root.dataset.urlSend,
@@ -36,7 +41,9 @@
       attach: root.dataset.urlAttach,
       sender: root.dataset.urlSender,
       test: root.dataset.urlTest,
-      contacts: root.dataset.urlContacts
+      contacts: root.dataset.urlContacts,
+      design: root.dataset.urlDesign,
+      mailAccount: root.dataset.urlMailAccount
     };
     var smsReady = root.dataset.smsReady === '1';
     var errBox = q('[data-bc-error]');
@@ -82,22 +89,85 @@
         programaPreview();
         return;
       }
-      if (ev.target.matches('[data-bc-cat], [data-bc-flag]')) { programaPreview(); return; }
+      if (ev.target.matches('[data-bc-cat], [data-bc-flag], [data-bc-source]')) {
+        if (ev.target.matches('[data-bc-source]')) { var lab = ev.target.closest('.bc-source'); if (lab) lab.classList.toggle('is-on', ev.target.checked); }
+        programaPreview(); return;
+      }
       if (ev.target.name === 'bc_sender') { pintaEmpresaNota(); programaPreview(); return; }
+      if (ev.target.name === 'bc_purpose') { programaPreview(); return; }
+      if (ev.target.matches('[data-bc-concert-account]')) {
+        // La CUENTA DE CORREO de esta actividad: se guarda en la actividad y se repinta el «saldrá desde».
+        fetch(urls.mailAccount, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ concert_id: ev.target.getAttribute('data-concert'), mail_account_id: ev.target.value }) })
+          .then(function (r) { return r.json(); }).then(function (d) { if (!d.ok) error(d.error || 'No se pudo guardar la cuenta.'); programaPreview(); });
+        return;
+      }
       if (ev.target.matches('[data-bc-accept]')) { pintaBotonEnviar(); }
     });
+    root.addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-bc-sources-all]') || ev.target.closest('[data-bc-sources-none]')) {
+        var on = !!ev.target.closest('[data-bc-sources-all]');
+        qa('[data-bc-source]').forEach(function (c) { c.checked = on; var l = c.closest('.bc-source'); if (l) l.classList.toggle('is-on', on); });
+        programaPreview(); return;
+      }
+      if (ev.target.closest('[data-bc-design]')) { abreDiseno(); }
+    });
+
+    /* ---------- el CONTENIDO del correo: se DISEÑA con el editor de las notas de prensa ---------- */
+    function abreDiseno() {
+      var btn = q('[data-bc-design]'); if (btn) btn.disabled = true;
+      var p = payload();
+      if (multi && !p.sources.length) { if (btn) btn.disabled = false; return error('Marca al menos una base de compradores.'); }
+      fetch(urls.design, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) { if (btn) btn.disabled = false; return error(data.error || 'No se pudo abrir el editor.'); }
+          window.location.href = data.editor_url;
+        })
+        .catch(function () { if (btn) btn.disabled = false; error('No se pudo abrir el editor.'); });
+    }
+    function pintaDiseno() {
+      var box = q('[data-bc-design-box]'), txt = q('[data-bc-design-text]'), btn = q('[data-bc-design]'), ico = q('[data-bc-design-ico]');
+      if (!box) return;
+      box.classList.toggle('is-ready', !!st.hasDesign);
+      if (ico) ico.className = 'fa fa-lg ' + (st.hasDesign ? 'fa-circle-check text-success' : 'fa-wand-magic-sparkles text-muted');
+      if (txt) txt.innerHTML = st.hasDesign
+        ? '<b>Contenido diseñado.</b> Abajo se ve tal como va a llegar; se puede volver a editar.'
+        : 'Todavía no está diseñado. Se diseña como una nota de prensa: fondo, titular, textos, el logo y la cartelería.';
+      if (btn) btn.innerHTML = '<i class="fa ' + (st.hasDesign ? 'fa-pen' : 'fa-pen-ruler') + ' me-1"></i>' + (st.hasDesign ? 'Editar el contenido' : 'Diseñar el contenido');
+    }
+    function aplicaBorrador() {
+      // Se vuelve del editor con el borrador (`?campaign=`): se repone lo elegido y se enseña el correo.
+      var d = null; try { d = JSON.parse(root.dataset.draft || 'null'); } catch (e) { d = null; }
+      if (!d || !d.id) return;
+      st.draft = d.id; st.hasDesign = !!d.has_design;
+      var pur = root.querySelector('input[name="bc_purpose"][value="' + (d.purpose || 'PURCHASE') + '"]'); if (pur) pur.checked = true;
+      var sid = (d.sender_kind === 'CYCLE') ? d.cycle_id : d.company_id;
+      var snd = root.querySelector('input[name="bc_sender"][data-kind="' + (d.sender_kind || 'COMPANY') + '"][data-id="' + (sid || '') + '"]'); if (snd) snd.checked = true;
+      var sub = q('[data-bc-subject]'); if (sub && !sub.value) sub.value = d.subject || '';
+      (d.sources || []).forEach(function (f) {
+        var c = root.querySelector('[data-bc-source][data-kind="' + f.kind + '"][data-pk="' + f.pk + '"]');
+        if (c) { c.checked = true; var l = c.closest('.bc-source'); if (l) l.classList.add('is-on'); }
+      });
+      pintaDiseno();
+    }
 
     root.addEventListener('input', function (ev) {
       if (ev.target.matches('[data-bc-body], [data-bc-subject], [data-bc-title-in], [data-bc-link], [data-bc-button-label], [data-bc-button-url]')) {
         programaPreview();
       }
     });
+    // Los botones de «Marcar todas» de las bases y el de diseñar viven en el propio pop-up.
 
     function quienManda() {
       var r = root.querySelector('input[name="bc_sender"]:checked');
       if (!r) return null;
       return { kind: r.getAttribute('data-kind') || 'COMPANY', id: r.getAttribute('data-id') || '',
                name: r.getAttribute('data-name') || '', sms: r.getAttribute('data-sms') || '' };
+    }
+    function proposito() { var r = root.querySelector('input[name="bc_purpose"]:checked'); return r ? r.value : 'PURCHASE'; }
+    function fuentes() {
+      return qa('[data-bc-source]:checked').map(function (c) { return { kind: c.getAttribute('data-kind'), pk: c.getAttribute('data-pk') }; });
     }
 
     function pintaEmpresaNota() {
@@ -111,7 +181,7 @@
             ? 'El SMS saldrá como <strong>' + esc(quien.sms) + '</strong>.'
             : 'Sin nombre abreviado, el SMS sale con el remitente general de la casa.';
         } else {
-          nota.innerHTML = 'En el correo va su logo arriba a la derecha.';
+          nota.innerHTML = 'El correo sale con su nombre; su logo se arrastra al diseño desde la paleta de la derecha.';
         }
       }
       // El nombre abreviado solo hace falta para el SMS.
@@ -260,6 +330,9 @@
         channel: st.channel,
         event: root.dataset.event || '',
         lista: root.dataset.lista || '',
+        sources: fuentes(),
+        purpose: proposito(),
+        campaign_id: st.draft || '',
         todos: todos ? '1' : '',
         cat: todos ? [] : qa('[data-bc-cat]:checked').map(function (i) { return i.value; }),
         flags: todos ? [] : qa('[data-bc-flag]:checked').map(function (i) { return i.value; }),
@@ -300,7 +373,11 @@
         }
         if (st.channel === 'EMAIL') {
           var marco = q('[data-bc-preview-mail]');
-          if (marco) marco.srcdoc = data.html || '';
+          if (marco) marco.srcdoc = data.html || '<div style="font-family:Arial;color:#6b7280;padding:24px;text-align:center">Diseña el contenido para verlo aquí.</div>';
+          st.hasDesign = !!data.has_design;
+          pintaDiseno();
+          var mf = q('[data-bc-mail-from]'); if (mf) mf.textContent = data.mail_from || '…';
+          var sub = q('[data-bc-subject]'); if (sub && !sub.value && data.subject) sub.placeholder = data.subject;
           st.segments = 1;
           pintaSegmentos(null);
         } else {
@@ -341,11 +418,11 @@
       if (!btn) return;
       var lbl = q('[data-bc-send-label]');
       var cuerpo = ((q('[data-bc-body]') || {}).value || '').trim();
-      var asunto = ((q('[data-bc-subject]') || {}).value || '').trim();
       var acepta = q('[data-bc-accept]');
-      var falta = (!st.total || !cuerpo ||
-        (st.channel === 'EMAIL' && !asunto) ||
-        (st.channel === 'SMS' && !smsReady) ||
+      // Un CORREO exige el contenido DISEÑADO (el asunto, si no se pone, es el titular del diseño).
+      var falta = (!st.total ||
+        (st.channel === 'EMAIL' && !st.hasDesign) ||
+        (st.channel === 'SMS' && (!cuerpo || !smsReady)) ||
         (st.segments > 1 && acepta && !acepta.checked));
       btn.disabled = !!falta;
       if (lbl) lbl.textContent = st.total ? ('Enviar a ' + st.total) : 'Enviar';
@@ -575,6 +652,7 @@
 
     pintaFiles();
     setChannel('SMS');
+    aplicaBorrador();
   }
 
   function boot() { document.querySelectorAll('[data-buyer-campaign]').forEach(init); }

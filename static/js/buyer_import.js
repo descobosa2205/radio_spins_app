@@ -101,7 +101,7 @@
           if (!data.ok || !(data.activities || []).length) {
             zona.innerHTML = '<div class="alert alert-warning mb-0">Ese ' +
               (st.subject.kind === 'EVENT' ? 'evento' : 'artista') +
-              ' no tiene ninguna actividad dada de alta.</div>';
+              ' no tiene ninguna actividad dada de alta: guárdalo en una actividad no registrada (abajo).</div>';
             return;
           }
           zona.innerHTML = '';
@@ -118,6 +118,7 @@
             b.addEventListener('click', function () {
               st.concert = a.id;
               st.concertLabel = a.label + ' · ' + a.date;
+              st.legacy = null;
               st.event = '';
               st.lista = '';
               pintaDestino();
@@ -143,11 +144,36 @@
       var texto = '';
       if (st.event || st.lista) texto = 'Se añaden al listado <strong>' + esc(root.dataset.scopeLabel || '') + '</strong>.';
       else if (st.concert) texto = 'Se creará el listado de <strong>' + esc(st.concertLabel) + '</strong>.';
+      else if (st.legacy) texto = 'Se creará el listado de <strong>' + esc(st.legacy.name) + ' · ' + esc(st.legacy.date_label) + '</strong> (actividad no registrada' + (st.legacy.place ? ', ' + esc(st.legacy.place) : '') + ').';
       caja.innerHTML = texto;
       caja.classList.toggle('d-none', !texto);
       var atras = q('[data-bi-back="activity"]');
-      if (atras) atras.classList.toggle('d-none', !st.concert);
+      if (atras) atras.classList.toggle('d-none', !(st.concert || st.legacy));
     }
+
+    /* ---------- una actividad que NO está en el sistema (anterior a la app) ---------- */
+    root.addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-bi-legacy-open]')) {
+        var panel = q('[data-bi-legacy]'); if (panel) { panel.classList.remove('d-none'); var n = q('[data-bi-legacy-name]'); if (n) n.focus(); }
+        return;
+      }
+      if (!ev.target.closest('[data-bi-legacy-go]')) return;
+      var nombre = ((q('[data-bi-legacy-name]') || {}).value || '').trim();
+      var fecha = ((q('[data-bi-legacy-date]') || {}).value || '').trim();
+      var ciudad = ((q('[data-bi-legacy-city]') || {}).value || '').trim();
+      var prov = ((q('[data-bi-legacy-province]') || {}).value || '').trim();
+      if (!nombre) { error('Ponle nombre a la actividad.'); return; }
+      if (!fecha) { error('Di la fecha de la actividad.'); return; }
+      error('');
+      st.legacy = { name: nombre, date: fecha, date_label: fecha.split('-').reverse().join('/'),
+                    address: ((q('[data-bi-legacy-address]') || {}).value || '').trim(),
+                    postal_code: ((q('[data-bi-legacy-cp]') || {}).value || '').trim(),
+                    city: ciudad, province: prov, country: ((q('[data-bi-legacy-country]') || {}).value || '').trim(),
+                    place: [ciudad, prov].filter(Boolean).join(', ') };
+      st.concert = ''; st.concertLabel = ''; st.event = ''; st.lista = '';
+      pintaDestino();
+      step('file');
+    });
 
     /* ---------- paso 1: el fichero ---------- */
     var input = q('#buyerImportFile');
@@ -228,7 +254,8 @@
     }
 
     function payload(extra) {
-      var base = { rows: st.rows, mapping: mapeo(), event: st.event, lista: st.lista, concert_id: st.concert };
+      var base = { rows: st.rows, mapping: mapeo(), event: st.event, lista: st.lista, concert_id: st.concert,
+                   legacy: st.legacy || null, subject_kind: (st.subject && st.subject.kind) || '', subject_id: (st.subject && st.subject.id) || '' };
       return Object.assign(base, extra || {});
     }
 
@@ -320,12 +347,13 @@
       if (!t) return;
       var scope = t.getAttribute('data-bi-scope') || '';
       if (scope === 'new' || !scope) {
-        st.event = ''; st.lista = ''; st.concert = ''; st.concertLabel = '';
+        st.event = ''; st.lista = ''; st.concert = ''; st.concertLabel = ''; st.legacy = null;
         st.subject = null;
+        var panelL = q('[data-bi-legacy]'); if (panelL) panelL.classList.add('d-none');
         pintaDestino();
         step('subject');
       } else {
-        st.concert = '';
+        st.concert = ''; st.legacy = null;
         st.event = scope.indexOf('event:') === 0 ? scope.slice(6) : '';
         st.lista = scope.indexOf('lista:') === 0 ? scope.slice(6) : '';
         pintaDestino();

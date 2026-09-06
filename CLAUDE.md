@@ -6969,6 +6969,96 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `<button>` de dentro vale y se conserva la accesibilidad de teclado.
   ⚠️ La tarjeta perdió el `border-danger`: los dos módulos se ven ya idénticos.
 
+- **NOTAS DE PRENSA · CONTACTOS, CARTELERÍA, LOGOS y ETIQUETAS DE MEDIOS** (sep 2026):
+  · **El editor ya no enseña «Atajos» ni «Cómo llegará»** (estorbaban): los atajos siguen funcionando
+  (Supr · ⌘C/⌘X/⌘V/⌘D · flechas · Escape · ⌘S viven en `press_editor.js`), solo se quitó el texto.
+  · **El módulo de CONTACTO es una LISTA** (`data['contacts']`, punto único `_press_contact_rows`):
+  **SIEMPRE** el de prensa (Nuria) y **QUIEN CREA la nota** (`PressRelease.created_by_user_id`), y
+  debajo los que se añadan del **PERSONAL de la casa** (`ref['user_ids']`, con su foto): cada uno sale
+  como **«Contacto de <Departamento>»** (`_press_staff_row`, con `_profile_departments` y el móvil de
+  `_user_sms_phone`) y, debajo, igual que la tarjeta de prensa: nombre · correo · teléfono. Pinchar el
+  módulo (o «Añadir otro» en su panel) abre `#prContactsModal`: los fijos con «Siempre», los añadidos
+  con papelera, y el buscador de personal (`promo_press_staff_search`, `/notas-de-prensa/buscar-personal`).
+  ⚠️ El HTML de la lista lo pinta el SERVIDOR (`promo_press_block_html` → `data.contacts`); el pop-up
+  solo enseña ese `data`. Los diseños antiguos con un solo contacto en `data` se siguen leyendo.
+  · **Módulo nuevo `artwork` (CARTELERÍA)**: los carteles APROBADOS de la actividad
+  (`_press_artwork_data`, ref `{"concert_id"}`) y, como módulos aparte, la cartelería **GENERAL** de su
+  gira, ciclo o evento (ref `{"group_kind", "group_id"}`, uno por grupo). Enlaza a la **MISMA página
+  pública** que se comparte con el artista (`_concert_artwork_share_url` / `_group_artwork_share_url`)
+  y al ZIP si se marca la descarga. Sin carteles se ve como hueco en el editor y no se pinta fuera.
+  · **LOGOS en la paleta** (`_press_brand_logo_items`, grupo `logos`): el de la empresa del grupo de la
+  actividad (la que factura o promueve), su ciclo, su evento, la empresa SUJETO, el remitente de un
+  envío a compradores y las versiones de «Logotipos» (`BrandLogo`). Son items **`kind: image` con la
+  URL ya puesta**: al arrastrarlos se colocan sin preguntar (180 de ancho) y se mueven y redimensionan
+  como todo; `nuevoBloque('image', …, {ref})` respeta la URL preset y `midePreset` mide la imagen.
+  · **ETIQUETAS DE MEDIOS** (`MediaTag` + `MediaOutletTag`, `ensure_media_tags_schema`; mismo patrón
+  que los géneros de una canción): catálogo ABIERTO con `norm_key` único («Radio Local» = «radio
+  local»); helpers `_media_tag_get_or_create` · `_media_tag_names` · `_media_tags_map` (UNA consulta)
+  · `_apply_media_tags(…, present=)` (centinela `media_tags_present`) · `_media_tag_catalog`. Se
+  editan en el alta y en la ficha del medio con el MISMO gestor que los géneros (`song_genres.js`,
+  `data-genre-field="media_tags[]"`), salen como etiqueta (`.media-tag`) junto al tipo en la tarjeta y
+  en la cabecera, y **se filtra por ellas** en `/medios?tag=` (⚠️ con una SUBCONSULTA, no JOIN +
+  DISTINCT: Postgres no admite ordenar por `lower(name)` con DISTINCT — lo sacó la prueba).
+  · **En el ENVÍO de una nota** cada medio lleva `data-media-tags` y hay una fila de **chips de
+  etiqueta** (`data-pr-tagchips`, `pintaEtiquetas` en `press_send.js`): se ofrecen las de los medios A
+  LA VISTA (los del tipo elegido), una está encendida cuando TODOS sus medios están marcados (a medias,
+  `.is-half`), y al pincharla se marcan o se quitan de golpe. Así, tras «todas las radios», se ve qué
+  etiquetas van dentro por si se quiere quitar alguna; y al revés, se eligen medios por etiqueta.
+  `_press_recipient_groups` devuelve además `media_tags` (medios y contactos por etiqueta).
+
+- ⚠️⚠️ **ENVÍOS A COMPRADORES · el correo SE DISEÑA, por la COMPRA o PUBLICITARIO, a VARIAS bases y
+  desde la cuenta de QUIEN FIRMA** (sep 2026). Vale igual desde `/compradores` que desde la pestaña
+  Ticketing de una actividad (que llega aquí con `?open=email`).
+  · **LA IMAGEN de un listado es la de SU ACTIVIDAD, en vivo** (`_buyer_source_image`: el logo del
+  EVENTO si la actividad es de un evento; si no, la foto del artista; sin actividad, la de ET). Antes
+  se enseñaba la que Enterticket tenía guardada y al cambiar la imagen del evento seguía la antigua.
+  · **EL CONTENIDO DEL CORREO ES UN DISEÑO**: un `PressRelease` con **`purpose='CAMPAIGN'`**
+  (`BuyerCampaign.design_release_id`), hecho con el MISMO editor de las notas de prensa —mismas
+  opciones y módulos: logo de quien firma, cartelería de la actividad y la general, audios, fotos…—.
+  Los campos de antes del correo (título, texto, botón, adjuntos) **desaparecen** del pop-up; el SMS
+  sigue igual. Flujo: ¿a quién? → **¿por la compra o publicitario?** → quién firma (y desde qué cuenta
+  sale) → **«Diseñar el contenido»** (`buyers_campaign_design_start` deja el envío en BORRADOR con su
+  diseño y abre `promo_press_edit`) → el editor vuelve con `?open=email&campaign=<id>`
+  (`_campaign_return_url`, `campaign_draft` → `data-draft`) → asunto (si se deja vacío, el titular) →
+  enviar. `_campaign_email_html` compone con el diseño (`_campaign_email_from_design`, bandas del
+  motor) y, para los correos antiguos, con el título/texto de siempre.
+  ⚠️ **Un diseño CAMPAIGN no es una nota**: `_press_is_press_clause()` lo deja fuera de la pestaña,
+  del panel de las fichas, de «ya hay una nota sin enviar» y de la tarea del proyecto; la página
+  pública dice «Comunicación». ⚠️ **Su PERMISO es el de COMPRADORES**: `_press_edit_ok(pr)` en los
+  endpoints del editor (guardar, fondo, imagen, adjuntos) y, en el gate, `_press_request_is_campaign()`
+  resuelve `promo_press_*` a `databases.buyers` para esos diseños (ticketing no tiene Promoción).
+  · **¿QUÉ COMUNICACIÓN ES?** (`BuyerCampaign.purpose`, `CAMPAIGN_PURPOSES`, con iconos, SIEMPRE):
+  **PURCHASE** va a TODOS y no lleva baja; **MARKETING** lleva abajo del todo el botón **«No recibir
+  más comunicaciones publicitarias»** (con el TOKEN del destinatario, `BuyerCampaignRecipient.token`)
+  y las cabeceras **`List-Unsubscribe` + `List-Unsubscribe-Post: List-Unsubscribe=One-Click`**, que son
+  lo que el iPhone y Gmail usan para ofrecer la baja en un clic. `public_buyer_unsubscribe`
+  (`/baja/<token>`, GET con botón · POST, también el «one-click» del cliente de correo) apunta
+  **`Buyer.marketing_opt_out_at`** (y `opted_out_at` en el envío): a partir de ahí **no entra en los
+  envíos publicitarios** (`_campaign_build_recipients`) pero **sí en los de la compra**. En las tres
+  listas de públicos y exenta de CSRF. Un `personalize` de `_send_optional_email` puede devolver
+  `(html, texto, cabeceras)` y hay `extra_headers=`.
+  · **VARIAS BASES**: desde la rejilla de `/compradores` hay «Envío de SMS» y «Envío de Email»; en el
+  pop-up se marcan las bases (`sources_json`, `data-bc-source`) y **quien está en varias recibe UNO**
+  (dedupe por correo/teléfono). El histórico de cada base enseña el envío (`sources_json.contains`) y
+  la ficha dice «N bases»; `event_id`/`list_id` guardan la primera.
+  · **DESDE QUÉ CORREO SALE** (`_campaign_mail_sender`): la cuenta propia de la **ACTIVIDAD**
+  (`Concert.mail_account_id`, se pone en el propio pop-up, `buyers_campaign_mail_account_save`) → la
+  del **CICLO** que firma → la de la **EMPRESA** que firma (`MailAccount.company_id` / `cycle_id`,
+  «De quién es esta cuenta» en Integraciones → Correo) → el remitente de la app. En TODOS los casos el
+  **NOMBRE** es el de quien firma («como si lo enviara lo seleccionado»). El pop-up lo dice («Saldrá
+  desde…», `mail_from` de la previsualización).
+  · **UN LISTADO DE UNA ACTIVIDAD NO REGISTRADA** (anterior a la app): en «Añadir un listado», tras
+  elegir artista/evento, abajo del todo «La actividad no está en el sistema»: nombre, fecha y dónde
+  fue (la barra de dirección de la casa, `data-addr-reveal`: con el municipio rellena la provincia).
+  **No se da de alta ninguna actividad**: `BuyerList.subject_kind/subject_id` + `legacy_*`
+  (`_buyer_list_legacy` pinta fecha, lugar e imagen), y el correo de esa base se diseña como del
+  artista o del evento (`_campaign_design_ensure`).
+  Probado con la app real (`/tmp/mcx/test_lote2.py`, 66 comprobaciones): contactos con foto y
+  departamento, etiquetas sin duplicar y chips del envío, la imagen del evento en vivo, el diseño del
+  correo y su permiso, la paleta con el logo de quien firma, tres bases sin repetir a Bea, el From y
+  el host de la cuenta de PIES, la baja (botón y un clic) y que un publicitario ya no la incluye pero
+  uno por la compra sí, y el listado de una actividad no registrada.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

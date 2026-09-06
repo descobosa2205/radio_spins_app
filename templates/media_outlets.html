@@ -29,6 +29,17 @@
         {% endfor %}
       </div>
     </div>
+    {% if tag_counts %}
+    {# Las ETIQUETAS que califican a los medios: se filtra por ellas (los medios que lleven alguna de las marcadas). #}
+    <div class="col-12">
+      <label class="form-label d-block"><i class="fa fa-tags me-1"></i>Etiquetas</label>
+      <div class="d-flex flex-wrap gap-2">
+        {% for t in tag_counts %}
+          <label class="filter-chip {{ 'is-on' if t.on else '' }}"><input type="checkbox" class="d-none" name="tag" value="{{ t.name }}" {% if t.on %}checked{% endif %}><i class="fa fa-tag"></i>{{ t.name }}<span class="filter-chip__n">{{ t.count }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
     <div class="col-12 d-flex justify-content-end gap-2">
       <a href="{{ url_for('media_outlets_view') }}" class="btn btn-outline-secondary">Limpiar</a>
       <button class="btn btn-primary">Filtrar</button>
@@ -60,6 +71,8 @@
               <div class="fw-semibold">{{ outlet.name }}</div>
               <div class="small text-muted">{{ outlet.address or 'Sin dirección' }}</div>
               <span class="badge text-bg-light border mt-2">{{ outlet.media_type }}</span>
+              {# Las ETIQUETAS del medio, al lado de su tipo. #}
+              {% for t in media_tags_map.get(outlet.id|string, []) %}<span class="badge media-tag mt-2"><i class="fa fa-tag me-1"></i>{{ t }}</span>{% endfor %}
               {% if (outlet.country_code or 'ES') != 'ES' %}<span class="badge text-bg-light border mt-2">{{ outlet.country_name or country_name_es(outlet.country_code) }}</span>{% endif %}
             </div>
           </div>
@@ -93,6 +106,21 @@
               <div class="col-md-6"><label class="form-label">Logotipo</label><input type="file" name="logo" class="form-control" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.heic,.heif"></div>
               <div class="col-md-6"><label class="form-label">País</label><select name="country_code" class="form-select select-country">{% for country in country_options %}<option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == 'ES' %}selected{% endif %}>{{ country.name }}</option>{% endfor %}</select></div>
               <div class="col-12"><label class="form-label">Dirección</label><span data-address-autocomplete class="d-block position-relative"><input type="text" name="address" class="form-control" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…"></span></div>
+              {# ETIQUETAS para calificar el medio: se escribe y salen las que ya existen (para no duplicarlas);
+                 lo que no exista se crea al vuelo. El motor es `song_genres.js` (global, por delegación). #}
+              <div class="col-12">
+                <label class="form-label"><i class="fa fa-tags me-1"></i>Etiquetas del medio</label>
+                <input type="hidden" name="media_tags_present" value="1">
+                <div class="position-relative" data-genre-picker data-genre-field="media_tags[]">
+                  <div class="d-flex flex-wrap" data-genre-chips></div>
+                  <div class="input-group">
+                    <input class="form-control" data-genre-input autocomplete="off" placeholder="Busca una etiqueta, o escribe una nueva y pulsa +">
+                    <button type="button" class="btn btn-outline-secondary" data-genre-add title="Añadir la etiqueta que has escrito (para una que todavía no existe)"><i class="fa fa-plus"></i></button>
+                  </div>
+                  <div class="ta-results" data-genre-results></div>
+                  <script type="application/json" data-genre-catalog>{{ (media_tag_catalog or [])|tojson }}</script>
+                </div>
+              </div>
             </div>
           </div>
           <div class="media-step d-none" data-step="2">
@@ -137,6 +165,11 @@
   const cards = Array.from(document.querySelectorAll('.js-media-card'));
   const noResults = document.getElementById('mediaNoLiveResults');
   const typeChecks = Array.from(document.querySelectorAll('#mediaFilterForm input[name="type"]'));
+  // Los chips de ETIQUETA se aplican al momento (recargan con el filtro puesto).
+  Array.from(document.querySelectorAll('#mediaFilterForm input[name="tag"]')).forEach(cb => cb.addEventListener('change', () => {
+    const chip = cb.closest('.filter-chip'); if (chip) chip.classList.toggle('is-on', cb.checked);
+    const form = document.getElementById('mediaFilterForm'); if (form) form.submit();
+  }));
   const normalize = (value) => window.normalizeSearchText ? window.normalizeSearchText(value) : String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
   function applyMediaFilters(){
     const q = normalize(searchInput && searchInput.value);

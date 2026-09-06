@@ -40,6 +40,27 @@
     qa('[data-pr-groups] .pr-recip-group').forEach(function (g) { g.classList.toggle('d-none', !!tipoActual && (g.getAttribute('data-media-type') || '') !== tipoActual); });
     var tt = q('[data-pr-type-toggle]');
     if (tt) { tt.classList.toggle('d-none', !tipoActual); pintaToggleTipo(); }
+    pintaEtiquetas();
+  }
+  /* ---------- las ETIQUETAS de los medios ----------
+     Se ofrecen las de los medios a la vista (los del tipo elegido, o todos). Una etiqueta está
+     ENCENDIDA cuando todos los contactos de sus medios están marcados; al pincharla se marcan (o se
+     quitan) todos los medios que la llevan. Así, tras marcar «todas las radios», se ve qué etiquetas
+     van dentro por si se quiere quitar alguna; y al revés, se eligen medios por etiqueta. */
+  function tagsDe(g) { return (g.getAttribute('data-media-tags') || '').split('|').filter(Boolean); }
+  function gruposConTag(tag) { return gruposDelTipo().filter(function (g) { return tagsDe(g).indexOf(tag) >= 0; }); }
+  function pintaEtiquetas() {
+    var caja = q('[data-pr-tagchips]'), lista = q('[data-pr-tagchips-list]'); if (!caja || !lista) return;
+    var vistos = {}, tags = [];
+    gruposDelTipo().forEach(function (g) { tagsDe(g).forEach(function (t) { if (!vistos[t]) { vistos[t] = 1; tags.push(t); } }); });
+    tags.sort(function (a, b) { return a.localeCompare(b); });
+    caja.classList.toggle('d-none', !tags.length);
+    lista.innerHTML = tags.map(function (t) {
+      var gs = gruposConTag(t), total = 0, marcados = 0;
+      gs.forEach(function (g) { g.querySelectorAll('[data-pr-recip]').forEach(function (c) { total++; if (c.checked) marcados++; }); });
+      var estado = (total && marcados === total) ? 'is-on' : (marcados ? 'is-half' : '');
+      return '<button type="button" class="pr-tchip ' + estado + '" data-pr-tagchip="' + esc(t) + '" title="' + gs.length + ' medio' + (gs.length === 1 ? '' : 's') + ' · ' + marcados + ' de ' + total + ' contactos marcados"><i class="fa fa-tag"></i>' + esc(t) + ' <small>' + gs.length + '</small></button>';
+    }).join('');
   }
   function gruposDelTipo() { return qa('[data-pr-groups] .pr-recip-group').filter(function (g) { return !tipoActual || (g.getAttribute('data-media-type') || '') === tipoActual; }); }
   function pintaToggleTipo() {
@@ -59,6 +80,14 @@
   root.addEventListener('click', function (ev) {
     var ch = ev.target.closest('[data-pr-gchip]');
     if (ch) { ev.preventDefault(); muestraSeccion(ch.getAttribute('data-pr-gchip')); return; }
+    var tg = ev.target.closest('[data-pr-tagchip]');
+    if (tg) {
+      ev.preventDefault();
+      var gts = gruposConTag(tg.getAttribute('data-pr-tagchip'));
+      var todos = gts.length && gts.every(function (g) { return Array.prototype.every.call(g.querySelectorAll('[data-pr-recip]'), function (c) { return c.checked; }); });
+      gts.forEach(function (g) { g.querySelectorAll('[data-pr-recip]').forEach(function (c) { c.checked = !todos; }); });
+      cuenta(); return;
+    }
     var tc = ev.target.closest('[data-pr-tchip]');
     if (tc) { ev.preventDefault(); filtraTipo(tc.getAttribute('data-pr-tchip')); return; }
     var tt = ev.target.closest('[data-pr-type-toggle]');
@@ -112,7 +141,7 @@
     var t = q('[data-pr-total]'); if (t) t.textContent = n + (n === 1 ? ' destinatario' : ' destinatarios');
     var ac = q('[data-pr-active-count]'); if (ac) ac.textContent = qa('[data-pr-groups] [data-pr-recip]:checked').length;
     var go = q('[data-pr-go]'); if (go) go.disabled = !n;
-    cuentaGrupos(); pintaToggleTipo();
+    cuentaGrupos(); pintaToggleTipo(); pintaEtiquetas();
     etiqueta();
   }
   function etiqueta() {

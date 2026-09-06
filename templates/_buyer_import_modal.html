@@ -61,6 +61,44 @@
           <div class="sw-step__q mb-2"><i class="fa fa-calendar-day me-2 text-danger"></i>¿A qué actividad corresponde?</div>
           <div class="text-muted small mb-2" data-bi-activity-of></div>
           <div class="bi-acts" data-bi-activities></div>
+          {# UNA ACTIVIDAD QUE NO ESTÁ EN EL SISTEMA (anterior a la app): abajo del todo, se le pone nombre,
+             fecha y dónde fue —basta escribir el municipio: la barra rellena provincia y demás— y después se
+             sube el fichero. No se da de alta ninguna actividad: el listado guarda esos datos. #}
+          <button type="button" class="bi-act bi-act--legacy mt-2" data-bi-legacy-open>
+            <i class="fa fa-clock-rotate-left bi-act__ico"></i>
+            <span class="bi-act__body"><span class="bi-act__t">La actividad no está en el sistema (es anterior)</span>
+            <span class="bi-act__s">Guardar el listado en una actividad no registrada: su nombre, su fecha y dónde fue</span></span>
+          </button>
+          <div class="border rounded-3 p-3 mt-2 d-none" data-bi-legacy data-address-autocomplete data-addr-reveal>
+            <div class="row g-2">
+              <div class="col-12 col-md-7">
+                <label class="form-label small mb-0">Nombre de la actividad</label>
+                <input class="form-control form-control-sm" data-bi-legacy-name placeholder="Concierto en…, Festival…">
+              </div>
+              <div class="col-12 col-md-5">
+                <label class="form-label small mb-0">Fecha</label>
+                <input class="form-control form-control-sm" type="date" data-bi-legacy-date>
+              </div>
+              <div class="col-12 position-relative">
+                <label class="form-label small mb-0">¿Dónde fue?</label>
+                <input class="form-control form-control-sm" data-addr="search" autocomplete="off" placeholder="Escribe el municipio (o la dirección) y elige una sugerencia…">
+                <div class="form-text">Con el municipio basta: se rellenan la provincia y el resto.
+                  <a href="#" data-addr-manual>Escribirlo a mano</a>.</div>
+              </div>
+              <div class="col-12 d-none" data-addr-parts>
+                <div class="row g-2">
+                  <div class="col-md-5"><label class="form-label small mb-0">Dirección</label><input class="form-control form-control-sm" data-addr="address" data-bi-legacy-address autocomplete="off" placeholder="Calle y número (si se sabe)"></div>
+                  <div class="col-md-4"><label class="form-label small mb-0">Municipio</label><input class="form-control form-control-sm" data-addr="city" data-bi-legacy-city autocomplete="off"></div>
+                  <div class="col-md-3"><label class="form-label small mb-0">Código postal</label><input class="form-control form-control-sm" data-addr="postal_code" data-bi-legacy-cp autocomplete="off"></div>
+                  <div class="col-md-6"><label class="form-label small mb-0">Provincia</label><input class="form-control form-control-sm" data-addr="province" data-bi-legacy-province autocomplete="off"></div>
+                  <div class="col-md-6"><label class="form-label small mb-0">País</label><input class="form-control form-control-sm" data-addr="country" data-bi-legacy-country autocomplete="off" placeholder="España"></div>
+                </div>
+              </div>
+              <div class="col-12 d-flex justify-content-end">
+                <button type="button" class="btn btn-sm btn-primary" data-bi-legacy-go>Continuar y subir el fichero <i class="fa fa-arrow-right ms-1"></i></button>
+              </div>
+            </div>
+          </div>
           <div class="d-flex justify-content-between mt-3">
             <button class="btn btn-outline-secondary" type="button" data-bi-back="subject">Atrás</button>
           </div>

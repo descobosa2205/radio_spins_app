@@ -24,6 +24,8 @@
   var toolbar = root.querySelector('[data-pr-toolbar]');
   var canEdit = root.getAttribute('data-can-edit') === '1';
   var filesUrl = root.getAttribute('data-files-url') || '';
+  var staffUrl = root.getAttribute('data-staff-url') || '';
+  var esCampana = root.getAttribute('data-campaign') === '1';
   var imageUrl = root.getAttribute('data-image-url') || '';
   var photosUrlTpl = root.getAttribute('data-photos-url') || '';
   var designAsset = {}; try { designAsset = JSON.parse(root.getAttribute('data-design-asset') || '{}') || {}; } catch (e) {}
@@ -194,7 +196,11 @@
     if (!b) { box.classList.add('d-none'); return; }
     box.classList.remove('d-none');
     var o = b.opts || {};
-    var html = '<div class="small text-muted mb-2">' + esc({ title: 'Titular', text: 'Texto', audio: 'Audio', album: 'Repertorio del disco', video: 'Videoclip', links: 'Enlaces de plataformas', contact: 'Contacto de prensa', photos: 'Fotos', image: 'Imagen', files: 'Archivos adjuntos', playlist: 'Playlist' }[b.type] || b.type) + '</div>';
+    var html = '<div class="small text-muted mb-2">' + esc({ title: 'Titular', text: 'Texto', audio: 'Audio', album: 'Repertorio del disco', video: 'Videoclip', links: 'Enlaces de plataformas', contact: 'Contactos', photos: 'Fotos', image: 'Imagen', files: 'Archivos adjuntos', playlist: 'Playlist', artwork: 'Cartelería' }[b.type] || b.type) + '</div>';
+    if (b.type === 'contact') {
+      html += '<div class="small text-muted mb-2">Salen siempre el contacto de prensa y quien crea la nota; se pueden añadir otros del personal.</div>' +
+        '<button type="button" class="btn btn-sm btn-outline-primary" data-pr-contacts-open><i class="fa fa-user-plus me-1"></i>Añadir otro</button>';
+    }
     if (b.type === 'image') {
       html += '<label class="form-label small text-muted mb-1">Enlace al pinchar la imagen <span class="fw-normal">(opcional)</span></label>' +
         '<input class="form-control form-control-sm mb-2" data-pr-opt-text="href" value="' + esc(o.href || '') + '" placeholder="https://…">' +
@@ -215,10 +221,10 @@
         '<select class="form-select form-select-sm" data-pr-playlist><option value="">Elige la playlist…</option>' +
         pls.map(function (pl) { return '<option value="' + esc(pl.ref.playlist_id) + '"' + (pl.ref.playlist_id === actual ? ' selected' : '') + '>' + esc(pl.label) + ' · ' + esc(pl.sub || '') + '</option>'; }).join('') + '</select>';
     }
-    if (b.type === 'audio' || b.type === 'album' || b.type === 'video' || b.type === 'photos') {
+    if (b.type === 'audio' || b.type === 'album' || b.type === 'video' || b.type === 'photos' || b.type === 'artwork') {
       html += '<label class="form-check"><input type="checkbox" class="form-check-input" data-pr-opt="download"' + (o.download ? ' checked' : '') + '> Se puede <b>descargar</b>' +
-        (b.type === 'photos' ? ' (las fotos)' : (b.type === 'video' ? ' (el vídeo)' : ' (el audio)')) + '</label>' +
-        '<div class="form-text">Sin marcarlo solo se ' + (b.type === 'photos' ? 've' : (b.type === 'video' ? 've' : 'escucha')) + '.</div>';
+        (b.type === 'photos' ? ' (las fotos)' : (b.type === 'artwork' ? ' (los carteles)' : (b.type === 'video' ? ' (el vídeo)' : ' (el audio)'))) + '</label>' +
+        '<div class="form-text">Sin marcarlo solo se ' + ((b.type === 'photos' || b.type === 'artwork' || b.type === 'video') ? 've' : 'escucha') + '.</div>';
     }
     if (b.type === 'links') {
       html += '<div class="small fw-semibold mb-1">Alineación</div><div class="btn-group btn-group-sm" role="group">' +
@@ -250,6 +256,7 @@
     if (ev.target.closest('[data-pr-del]') && sel) { borra(sel); return; }
     if (ev.target.closest('[data-pr-image-pick]') && sel) { abreImagen(bloque(sel)); return; }
     if (ev.target.closest('[data-pr-files-open]') && sel) { abreArchivos(bloque(sel)); return; }
+    if (ev.target.closest('[data-pr-contacts-open]') && sel) { abreContactos(bloque(sel)); return; }
     var cp = ev.target.closest('[data-pr-color-pick]');
     if (cp && sel) { var bc = bloque(sel); bc.opts = bc.opts || {}; bc.opts.color = cp.getAttribute('data-pr-color-pick'); marca(); refrescaModulo(bc); pintaProps(bc); return; }
     if (ev.target.closest('[data-pr-dup]') && sel) {
@@ -317,6 +324,7 @@
       // Un CLIC (sin mover) sobre una imagen o unos adjuntos abre su configuración.
       if (b && b.type === 'image') abreImagen(b);
       else if (b && b.type === 'files') abreArchivos(b);
+      else if (b && b.type === 'contact') abreContactos(b);
       return;
     }
     marca();
@@ -541,9 +549,15 @@
   /* ---------- añadir: desde la paleta (arrastrando o pinchando) ---------- */
   function nuevoBloque(tipo, x, y, extra) {
     var b = { id: uid(), type: tipo, x: (x == null ? 40 : x), y: y, w: 520, h: 60 };
-    if (tipo === 'title') { b.h = 60; b.html = '<p>Titular de la nota de prensa</p>'; b.style = { size: 28, bold: true, align: 'left', line: 1.2, color: '#111827' }; }
-    else if (tipo === 'text') { b.h = 120; b.html = '<p>Escribe o pega aquí el texto de la nota…</p>'; b.style = { size: 15, bold: false, align: 'left', line: 1.45, color: '#111827' }; }
-    else if (tipo === 'image') { b.ref = { url: '', w: 0, h: 0, alt: '' }; b.opts = { href: '' }; b.h = 150; }
+    if (tipo === 'title') { b.h = 60; b.html = esCampana ? '<p>Titular del correo</p>' : '<p>Titular de la nota de prensa</p>'; b.style = { size: 28, bold: true, align: 'left', line: 1.2, color: '#111827' }; }
+    else if (tipo === 'text') { b.h = 120; b.html = esCampana ? '<p>Escribe o pega aquí el texto…</p>' : '<p>Escribe o pega aquí el texto de la nota…</p>'; b.style = { size: 15, bold: false, align: 'left', line: 1.45, color: '#111827' }; }
+    else if (tipo === 'image') {
+      // Un LOGO de la paleta llega ya con su URL: se coloca sin preguntar (más pequeño, como un logo).
+      var pre = (extra && extra.ref && extra.ref.url) ? extra.ref : null;
+      b.ref = pre ? { url: pre.url, w: pre.w || 0, h: pre.h || 0, alt: pre.alt || '' } : { url: '', w: 0, h: 0, alt: '' };
+      b.opts = { href: '' }; b.h = 150;
+      if (pre) { b.w = 180; b.h = 90; }
+    }
     else if (tipo === 'files') { b.ref = {}; b.opts = { title: 'Archivos adjuntos', color: (corporate[0] || '#E33D48') }; b.h = 96; }
     else if (tipo === 'playlist') { b.ref = (extra && extra.ref) || {}; b.opts = {}; b.h = 120; }
     else { b.ref = (extra && extra.ref) || {}; b.opts = { download: false, align: 'center' }; b.h = 90; }
@@ -553,7 +567,8 @@
     canvas.style.height = Math.round(canvasH()) + 'px'; escala();
     marca(); selecciona(b.id);
     if (tipo === 'title' || tipo === 'text') { var t = elDe(b.id).querySelector('.pr-blk__text'); t.focus(); document.execCommand('selectAll', false, null); }
-    if (tipo === 'image') abreImagen(b);            // se elige la imagen en cuanto se coloca
+    if (tipo === 'image' && !(b.ref && b.ref.url)) abreImagen(b);   // se elige la imagen en cuanto se coloca
+    if (tipo === 'image' && b.ref && b.ref.url) { refrescaModulo(b); midePreset(b); }
     if (tipo === 'files') abreArchivos(b);          // y los archivos se suben en cuanto se coloca
     return b;
   }
@@ -582,9 +597,10 @@
     var box = root.querySelector('[data-pr-modules]');
     fetch(root.getAttribute('data-assets-url')).then(function (r) { return r.json(); }).then(function (js) {
       assets = js || {};
-      var grupos = [['audios', 'Audio (escuchar / descargar)', 'fa-music'], ['albums', 'Repertorio del disco', 'fa-compact-disc'], ['videos', 'Videoclip', 'fa-film'],
+      var grupos = [['logos', 'Logos (se arrastran como una imagen)', 'fa-building'], ['artwork', 'Cartelería', 'fa-clapperboard'],
+                    ['audios', 'Audio (escuchar / descargar)', 'fa-music'], ['albums', 'Repertorio del disco', 'fa-compact-disc'], ['videos', 'Videoclip', 'fa-film'],
                     ['links', 'Enlaces de plataformas', 'fa-link'], ['photos', 'Fotos', 'fa-images'], ['playlists', 'Playlists', 'fa-list-ul'],
-                    ['contact', 'Contacto de prensa', 'fa-address-card']];
+                    ['contact', 'Contactos', 'fa-address-card']];
       var html = '';
       grupos.forEach(function (g) {
         var items = assets[g[0]] || [];
@@ -764,6 +780,83 @@
       dropImg.addEventListener('dragleave', function () { dropImg.classList.remove('is-over'); });
       dropImg.addEventListener('drop', function (ev) { ev.preventDefault(); dropImg.classList.remove('is-over'); var f = ev.dataTransfer.files && ev.dataTransfer.files[0]; if (f) subeImagen(f); });
     }
+  }
+
+  /* ---------- los CONTACTOS del módulo de contacto: prensa + quien crea la nota + los que se añadan ---------- */
+  var contactsModal = document.getElementById('prContactsModal'), contactsTarget = null, staffTimer = null;
+  function midePreset(b) {
+    // Un logo que llega sin medidas: se miden al cargarlo para no deformarlo al redimensionar.
+    if (!b || !b.ref || !b.ref.url || (b.ref.w > 0 && b.ref.h > 0)) return;
+    var im = new Image();
+    im.onload = function () {
+      b.ref.w = im.naturalWidth; b.ref.h = im.naturalHeight;
+      if (b.ref.w > 0) b.h = Math.round(b.w * b.ref.h / b.ref.w);
+      pintaBloque(b); canvas.style.height = Math.round(canvasH()) + 'px'; escala(); marca();
+    };
+    im.src = b.ref.url;
+  }
+  function abreContactos(b) {
+    if (!contactsModal || !window.bootstrap || !b) return;
+    contactsTarget = b.id;
+    pintaContactos(b);
+    var inp = contactsModal.querySelector('[data-pr-contacts-search]'); if (inp) inp.value = '';
+    contactsModal.querySelector('[data-pr-contacts-results]').innerHTML = '';
+    bootstrap.Modal.getOrCreateInstance(contactsModal).show();
+    buscaPersonal('');
+  }
+  function tarjetaContacto(c, quitable) {
+    return '<div class="pr-contact">' +
+      (c.photo ? '<img class="pr-contact__ava" src="' + esc(c.photo) + '" alt="" data-avatar="1">' : '<span class="pr-contact__ava pr-contact__ava--ico"><i class="fa fa-user"></i></span>') +
+      '<span class="pr-contact__t"><small>' + esc(c.role_label || 'Contacto') + '</small><b>' + esc(c.name || '') + '</b>' +
+      '<span class="text-muted">' + esc(c.email || '') + (c.phone ? ' · ' + esc(c.phone) : '') + '</span></span>' +
+      (quitable ? '<button type="button" class="btn btn-sm btn-outline-danger" data-pr-contact-del="' + esc(c.user_id) + '" title="Quitar"><i class="fa fa-trash"></i></button>'
+                : '<span class="badge text-bg-light border">Siempre</span>') + '</div>';
+  }
+  function pintaContactos(b) {
+    var box = contactsModal.querySelector('[data-pr-contacts-list]');
+    // Lo pinta el SERVIDOR (el mismo renderizador): se le pide el módulo y se lee su `data`.
+    box.innerHTML = '<div class="text-muted small">Cargando…</div>';
+    post(root.getAttribute('data-block-url'), { id: b.id, type: b.type, ref: b.ref || {}, opts: b.opts || {}, w: b.w }).then(function (js) {
+      var lista = (js && js.data && js.data.contacts) || [];
+      box.innerHTML = lista.length ? lista.map(function (c) { return tarjetaContacto(c, !c.fixed); }).join('') : '<div class="text-muted small">Sin contactos.</div>';
+      var el = elDe(b.id); if (el && js && js.ok) { el.querySelector('.pr-blk__mod').innerHTML = js.html || ''; b.html_cache = js.html; ajustaAltoModulo(b); }
+    });
+  }
+  function buscaPersonal(q) {
+    var box = contactsModal.querySelector('[data-pr-contacts-results]');
+    fetch(staffUrl + '?q=' + encodeURIComponent(q || '')).then(function (r) { return r.json(); }).then(function (js) {
+      var b = bloque(contactsTarget); var ya = ((b && b.ref && b.ref.user_ids) || []).map(String);
+      var rows = ((js && js.rows) || []).filter(function (r) { return ya.indexOf(String(r.user_id)) < 0; });
+      box.innerHTML = rows.length ? rows.map(function (r) {
+        return '<button type="button" class="pr-pick" data-pr-contact-add="' + esc(r.user_id) + '" title="' + esc(r.department_label || '') + '">' +
+          (r.photo ? '<img src="' + esc(r.photo) + '" alt="" loading="lazy">' : '<span class="pr-pick__ph"><i class="fa fa-user"></i></span>') +
+          '<span class="pr-pick__t">' + esc(r.name || '') + '<small>' + esc(r.department_label || '') + '</small></span></button>';
+      }).join('') : '<div class="text-muted small">Nadie con ese nombre.</div>';
+    }).catch(function () { box.innerHTML = '<div class="text-danger small">No se pudo buscar.</div>'; });
+  }
+  if (contactsModal) {
+    contactsModal.addEventListener('input', function (ev) {
+      if (!ev.target.matches('[data-pr-contacts-search]')) return;
+      clearTimeout(staffTimer); var v = ev.target.value;
+      staffTimer = setTimeout(function () { buscaPersonal(v); }, 200);
+    });
+    contactsModal.addEventListener('click', function (ev) {
+      var b = bloque(contactsTarget); if (!b) return;
+      var add = ev.target.closest('[data-pr-contact-add]');
+      if (add) {
+        b.ref = b.ref || {}; b.ref.user_ids = (b.ref.user_ids || []).map(String);
+        var uid = add.getAttribute('data-pr-contact-add');
+        if (b.ref.user_ids.indexOf(uid) < 0) b.ref.user_ids.push(uid);
+        delete b.html_cache; marca(); pintaContactos(b); buscaPersonal(contactsModal.querySelector('[data-pr-contacts-search]').value);
+        return;
+      }
+      var del = ev.target.closest('[data-pr-contact-del]');
+      if (del) {
+        var quitar = del.getAttribute('data-pr-contact-del');
+        b.ref = b.ref || {}; b.ref.user_ids = (b.ref.user_ids || []).map(String).filter(function (x) { return x !== quitar; });
+        delete b.html_cache; marca(); pintaContactos(b); buscaPersonal(contactsModal.querySelector('[data-pr-contacts-search]').value);
+      }
+    });
   }
 
   /* ---------- los ARCHIVOS ADJUNTOS: subirlos (también carpetas), su nombre y su color ---------- */

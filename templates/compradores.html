@@ -29,6 +29,13 @@
 {% if vista == 'listados' %}
   <div class="d-flex gap-2 flex-wrap flex-row-reverse mb-3">
     {% if can_edit %}
+    {# ENVÍOS desde aquí: se eligen UNA O VARIAS bases dentro del pop-up (quien esté en varias recibe uno). #}
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#buyerCampaignModal" data-bc-channel="SMS">
+      <i class="fa fa-comment-sms me-1"></i>Envío de SMS
+    </button>
+    <button type="button" class="btn btn-accent" data-bs-toggle="modal" data-bs-target="#buyerCampaignModal" data-bc-channel="EMAIL">
+      <i class="fa fa-envelope me-1"></i>Envío de Email
+    </button>
     <button class="btn btn-success" type="button" data-bs-toggle="modal"
             data-bs-target="#buyerImportModal" data-bi-scope="new">
       <i class="fa fa-file-import me-1"></i>Añadir desde fichero
@@ -327,14 +334,14 @@
 
 {% if can_edit %}
   {% include '_buyer_import_modal.html' %}
-  {% if vista == 'listado' and source %}{% include '_buyer_campaign_modal.html' %}{% endif %}
+  {% if (vista == 'listado' and source) or vista == 'listados' %}{% include '_buyer_campaign_modal.html' %}{% endif %}
 
   {# ⚠️ SE LLEGA AQUÍ DESDE LA PESTAÑA DE TICKETING con el pop-up ya pedido (`?open=sms|email|
      importar`): los filtros y las opciones de envío viven SOLO aquí, así que desde allí se viene
      con el listado abierto en vez de duplicar el formulario (lo que se cambie se ve igual en los
      dos sitios). El helper `app33AutoOpenModal` es el global de la casa. #}
   {% set abrir = (request.args.get('open') or '')|lower %}
-  {% if abrir and vista == 'listado' and source %}
+  {% if abrir and ((vista == 'listado' and source) or (vista == 'listados' and abrir in ('sms', 'email'))) %}
     <script>
       (function () {
         /* ⚠️ SE PINCHA UN BOTÓN DE VERDAD, no se abre el modal a mano: así pasa por EL MISMO
@@ -356,9 +363,9 @@
           b.setAttribute('data-bs-target', target);
           if (que === 'sms') b.setAttribute('data-bc-channel', 'SMS');
           if (que === 'email') b.setAttribute('data-bc-channel', 'EMAIL');
-          if (que === 'importar') {
+          if (que === 'importar' && {{ 'true' if source else 'false' }}) {
             b.setAttribute('data-bi-scope',
-              {{ (('event:' ~ source.pk) if source.kind == 'ET' else ('lista:' ~ source.pk))|tojson }});
+              {{ ((('event:' ~ source.pk) if source.kind == 'ET' else ('lista:' ~ source.pk)) if source else '')|tojson }});
           }
           document.body.appendChild(b);
           b.click();

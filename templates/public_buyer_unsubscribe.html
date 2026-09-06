@@ -1,0 +1,49 @@
+<!doctype html>
+{# NO RECIBIR MÁS COMUNICACIONES PUBLICITARIAS: la página del enlace de abajo de un correo publicitario
+   a compradores. Standalone (no hay sesión). El botón hace el POST que apunta la baja a esa persona;
+   el iPhone y Gmail hacen ese mismo POST «en un clic» desde su aviso (List-Unsubscribe). #}
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Comunicaciones publicitarias · {{ brand_name }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
+</head>
+<body class="bg-light">
+<div class="container py-4" style="max-width:560px">
+  <div class="card shadow-sm">
+    <div class="card-body p-4 text-center">
+      {% if brand_logo %}
+        <div class="text-end mb-2"><img src="{{ brand_logo }}" alt="{{ brand_name }}" style="max-height:56px;max-width:170px;object-fit:contain"></div>
+      {% endif %}
+      {% if not valido and not prueba %}
+        <i class="fa fa-link-slash fa-2x text-muted mb-3"></i>
+        <h1 class="h5">Este enlace ya no vale</h1>
+        <p class="text-muted mb-0">No hemos encontrado a quién corresponde. Si quieres dejar de recibir comunicaciones publicitarias, contesta al correo que te llegó y lo apuntamos nosotros.</p>
+      {% elif prueba %}
+        <i class="fa fa-vial fa-2x text-muted mb-3"></i>
+        <h1 class="h5">Es un correo de prueba</h1>
+        <p class="text-muted mb-0">En el envío de verdad, este botón da de baja de las comunicaciones publicitarias a quien lo pulsa.</p>
+      {% elif hecho or ya %}
+        <i class="fa fa-circle-check fa-2x text-success mb-3"></i>
+        <h1 class="h5">Hecho: no recibirás más comunicaciones publicitarias</h1>
+        <p class="text-muted mb-0">{% if target %}<b>{{ target }}</b> queda fuera de los envíos publicitarios de {{ brand_name }}.{% endif %}
+          Lo relacionado con tus compras (entradas, horarios, cambios) te seguirá llegando.</p>
+      {% else %}
+        <i class="fa fa-bell-slash fa-2x text-muted mb-3"></i>
+        <h1 class="h5">¿No quieres recibir más comunicaciones publicitarias?</h1>
+        <p class="text-muted">Dejarás de recibir los correos publicitarios de {{ brand_name }}{% if target %} en <b>{{ target }}</b>{% endif %}.
+          Lo relacionado con tus compras (entradas, horarios, cambios) te seguirá llegando.</p>
+        <form method="post">
+          <button class="btn btn-danger btn-lg px-4"><i class="fa fa-bell-slash me-2"></i>No recibir más comunicaciones publicitarias</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+</body>
+</html>

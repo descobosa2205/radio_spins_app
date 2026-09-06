@@ -1455,6 +1455,23 @@
         <label class="form-label small mb-0">Selector DKIM (opcional, para comprobarlo)</label>
         <input class="form-control form-control-sm" name="dkim_selector" value="{{ a.dkim_selector if a else '' }}" placeholder="default · mail · selector1…">
       </div>
+      {# DE QUIÉN ES ESTE BUZÓN: por la cuenta de su empresa (o de su ciclo) salen los envíos a
+         compradores que firma esa empresa o ese ciclo (si la actividad no tiene la suya). #}
+      <input type="hidden" name="owner_present" value="1">
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-0">Es el buzón de la empresa del grupo…</label>
+        <select class="form-select form-select-sm" name="company_id">
+          <option value="">— ninguna en concreto —</option>
+          {% for co in mail.companies %}<option value="{{ co.id }}" {% if a and a.company_id == co.id %}selected{% endif %}>{{ co.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-0">…o del ciclo o festival</label>
+        <select class="form-select form-select-sm" name="cycle_id">
+          <option value="">— ninguno —</option>
+          {% for cf in mail.cycles %}<option value="{{ cf.id }}" {% if a and a.cycle_id == cf.id %}selected{% endif %}>{{ cf.name }}</option>{% endfor %}
+        </select>
+      </div>
       <div class="col-4 col-md-2">
         <label class="form-label small mb-0" title="Un respiro entre un correo y el siguiente">Respiro (ms)</label>
         <input class="form-control form-control-sm" name="pause_ms" type="number" min="0" max="60000" value="{{ a.pause_ms if a else 800 }}">

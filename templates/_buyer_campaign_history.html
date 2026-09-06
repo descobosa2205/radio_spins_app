@@ -21,6 +21,7 @@
              href="{{ c.url }}">
             <span class="badge text-bg-{{ 'primary' if c.channel == 'SMS' else 'info' }}">
               <i class="fa {{ c.icon }} me-1"></i>{{ c.channel_label }}</span>
+            {% if c.purpose_icon %}<i class="fa {{ c.purpose_icon }} text-muted" title="{{ c.purpose_label }}"></i>{% endif %}
             <span class="flex-grow-1 min-w-0">
               <span class="d-block text-truncate">{{ c.subject or (c.body[:70] ~ ('…' if c.body|length > 70 else '')) or 'Sin asunto' }}</span>
               <span class="small text-muted">{{ c.when }}{% if c.by %} · {{ c.by }}{% endif %}</span>

@@ -6548,3 +6548,36 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
   .pr-send__preview{ position:static; }
   .pr-send__frame{ height:60vh; }
 }
+
+/* ── Notas de prensa · los CONTACTOS del módulo de contacto (pop-up) ── */
+.pr-contacts{ display:flex; flex-direction:column; gap:.4rem; }
+.pr-contact{ display:flex; align-items:center; gap:.65rem; border:1px solid #e9ecef; border-radius:12px; padding:.45rem .65rem; }
+.pr-contact__ava{ width:40px; height:40px; border-radius:50%; object-fit:cover; flex:0 0 auto; background:#f1f3f5; }
+.pr-contact__ava--ico{ display:inline-flex; align-items:center; justify-content:center; color:#8b95a1; }
+.pr-contact__t{ flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.2; font-size:.9rem; }
+.pr-contact__t small{ text-transform:uppercase; letter-spacing:.04em; color:#6b7280; font-size:.68rem; }
+.pr-contact__t .text-muted{ font-size:.8rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* ── Medios · las ETIQUETAS que los califican ── */
+.media-tag{ background:#e8f4f9; color:#07607e; border:1px solid #cfe6ef; font-weight:600; }
+.pr-tagchips .pr-tchip.is-half{ background:#fdecee; border-color:var(--brand-primary,#E33D48); color:#111827; }
+.pr-tagchips .pr-tchip.is-half i{ color:var(--brand-primary,#E33D48); }
+/* ── Envíos a compradores · por la compra o publicitario, las bases y desde qué correo ── */
+.bc-purpose{ display:flex; flex-wrap:wrap; gap:.5rem; }
+.bc-purpose__opt{ flex:1 1 220px; position:relative; cursor:pointer; margin:0; }
+.bc-purpose__opt input{ position:absolute; opacity:0; pointer-events:none; }
+.bc-purpose__opt > span{ display:flex; align-items:flex-start; gap:.6rem; border:1px solid rgba(0,0,0,.1); border-radius:12px; padding:.6rem .75rem; background:#fff; }
+.bc-purpose__opt > span i{ font-size:1.25rem; color:#9aa4b0; margin-top:.1rem; }
+.bc-purpose__opt input:checked + span{ border-color:var(--brand-primary,#E33D48); box-shadow:0 0 0 2px rgba(227,61,72,.15); }
+.bc-purpose__opt input:checked + span i{ color:var(--brand-primary,#E33D48); }
+.bc-purpose__opt small{ display:block; color:#6b7280; line-height:1.25; }
+.bc-sources{ display:flex; flex-direction:column; gap:.35rem; max-height:16rem; overflow:auto; }
+.bc-source{ display:flex; align-items:center; gap:.6rem; border:1px solid #e9ecef; border-radius:10px; padding:.4rem .6rem; cursor:pointer; margin:0; }
+.bc-source img, .bc-source .bc-source__ph{ width:36px; height:36px; border-radius:8px; object-fit:cover; background:#f1f3f5; display:inline-flex; align-items:center; justify-content:center; color:#8b95a1; flex:0 0 auto; }
+.bc-source__t{ flex:1; min-width:0; font-size:.88rem; line-height:1.2; }
+.bc-source__t small{ display:block; color:#6b7280; }
+.bc-source.is-on{ border-color:var(--brand-primary,#E33D48); background:#fff7f7; }
+.bc-design{ display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; border:2px dashed #cbd5e1; border-radius:12px; padding:.75rem .9rem; }
+.bc-design.is-ready{ border-style:solid; border-color:#c3e6cb; background:#f6fff8; }
+/* ── Compradores · un listado de una ACTIVIDAD NO REGISTRADA (anterior a la app) ── */
+.bi-act--legacy{ border-style:dashed; }
+.bi-act--legacy .bi-act__ico{ color:#6b7280; }

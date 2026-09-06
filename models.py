@@ -2757,6 +2757,9 @@ class Concert(Base):
     sales_request_last_at = Column(DateTime(timezone=True))
     sales_request_count = Column(Integer, nullable=False, server_default=text("0"))
     sales_request_token = Column(Text)
+    # La CUENTA DE CORREO propia de esta actividad para los envíos a sus compradores (si no, sale
+    # por la de la empresa del grupo o del ciclo que firma, y si tampoco, por la de la app).
+    mail_account_id = Column(PGUUID(as_uuid=True), ForeignKey("mail_accounts.id", ondelete="SET NULL"))
     #  · `sales_request_error*` = el último intento que NO salió, para no reintentar cada hora todo
     #    el día con un correo que está mal y para poder DECIRLO en la ficha.
     sales_request_error_at = Column(DateTime(timezone=True))
@@ -4297,6 +4300,34 @@ class MediaOutlet(Base):
     )
 
 
+class MediaTag(Base):
+    """Catálogo de ETIQUETAS de un medio («Radio local», «Prensa musical», «Podcast de entrevistas»…).
+
+    Es un catálogo ABIERTO: se crea lo que haga falta al vuelo desde el propio campo, y `norm_key`
+    (sin acentos, minúsculas) es único, así que «Radio Local» y «radio local» son la misma etiqueta y
+    no se duplican. Mismo patrón que los géneros de una canción (`MusicGenre`)."""
+
+    __tablename__ = "media_tags"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    norm_key = Column(Text, nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class MediaOutletTag(Base):
+    """Etiquetas de un medio (N:M, con orden)."""
+
+    __tablename__ = "media_outlet_tags"
+
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"), primary_key=True)
+    tag_id = Column(PGUUID(as_uuid=True), ForeignKey("media_tags.id", ondelete="CASCADE"), primary_key=True)
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    tag = relationship("MediaTag")
+
+
 class MediaContact(Base):
     """Una persona de un medio.
 
@@ -4467,6 +4498,10 @@ class PressRelease(Base):
     design = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     status = Column(Text, nullable=False, server_default=text("'DRAFT'"))
     sender_kind = Column(Text, nullable=False, server_default=text("'BACKOFFICE'"))
+    # PRESS = una nota de prensa · CAMPAIGN = el DISEÑO del correo de un ENVÍO A COMPRADORES
+    # (`BuyerCampaign.design_release_id`): se diseña con el mismo editor y no sale en las listas
+    # de notas de prensa.
+    purpose = Column(Text, nullable=False, server_default=text("'PRESS'"))
     scheduled_at = Column(DateTime(timezone=True))
     sent_at = Column(DateTime(timezone=True))
     public_token = Column(Text, unique=True)
@@ -6978,6 +7013,10 @@ class MailAccount(Base):
     reconnect_every = Column(Integer, nullable=False, server_default=text("40"))
     hourly_cap = Column(Integer, nullable=False, server_default=text("0"))
     dkim_selector = Column(Text)                           # para poder comprobar el registro DKIM
+    # De quién es este buzón: la EMPRESA DEL GRUPO o el CICLO/FESTIVAL en cuyo nombre salen los
+    # envíos a compradores (si la actividad no tiene una cuenta propia, sale por la de quien firma).
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    cycle_id = Column(PGUUID(as_uuid=True), ForeignKey("cycle_festivals.id", ondelete="SET NULL"))
     last_test_at = Column(DateTime(timezone=True))
     last_test_ok = Column(Boolean)
     last_test_info = Column(Text)
@@ -7062,6 +7101,11 @@ def ensure_mail_accounts_schema():
         """,
         # Una dirección = una cuenta (da igual cómo se escriba).
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_mail_accounts_from_email ON mail_accounts (lower(from_email));",
+        # De qué empresa del grupo o ciclo es la cuenta, y la cuenta propia de una ACTIVIDAD para los
+        # envíos a sus compradores. ⚠️ Cada columna en su propia sentencia.
+        "ALTER TABLE mail_accounts ADD COLUMN IF NOT EXISTS company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL;",
+        "ALTER TABLE mail_accounts ADD COLUMN IF NOT EXISTS cycle_id uuid REFERENCES cycle_festivals(id) ON DELETE SET NULL;",
+        "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS mail_account_id uuid REFERENCES mail_accounts(id) ON DELETE SET NULL;",
     ]
     _exec_ddl_statements(stmts, "mail_accounts")
 
@@ -10390,6 +10434,8 @@ def ensure_promocion_prensa_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_press_releases_status_sched ON press_releases(status, scheduled_at);',
         'CREATE INDEX IF NOT EXISTS idx_press_releases_about ON press_releases(about_kind, about_id);',
+        # PRESS (una nota) · CAMPAIGN (el diseño del correo de un envío a compradores).
+        "ALTER TABLE IF EXISTS press_releases ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'PRESS';",
         """
         CREATE TABLE IF NOT EXISTS press_release_recipients (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -11645,6 +11691,10 @@ class Buyer(Base):
     name = Column(Text)
     phone = Column(Text)
     accepts_marketing = Column(Boolean, nullable=False, server_default=text("false"))
+    # Cuándo pidió NO RECIBIR MÁS COMUNICACIONES PUBLICITARIAS (desde el enlace de baja de un
+    # correo): a partir de ahí no entra en los envíos publicitarios; los relacionados con la compra
+    # le siguen llegando.
+    marketing_opt_out_at = Column(DateTime(timezone=True))
     events_count = Column(Integer, nullable=False, server_default=text("0"))
     tickets_count = Column(Integer, nullable=False, server_default=text("0"))
     amount_total = Column(Numeric, nullable=False, server_default=text("0"))
@@ -11697,6 +11747,18 @@ class BuyerList(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     name = Column(Text, nullable=False)
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"))
+    # UNA ACTIVIDAD QUE NO ESTÁ EN EL SISTEMA (anterior a la app): el listado no cuelga de ningún
+    # `Concert`; guarda de quién era (`subject_kind` ARTIST | EVENT + `subject_id`) y lo que se sabe
+    # de ella: su nombre (`name`), su fecha y su dirección (con el municipio y la provincia sueltos,
+    # para pintar el lugar como en toda la app).
+    subject_kind = Column(Text)
+    subject_id = Column(PGUUID(as_uuid=True))
+    legacy_date = Column(Date)
+    legacy_address = Column(Text)
+    legacy_postal_code = Column(Text)
+    legacy_municipality = Column(Text)
+    legacy_province = Column(Text)
+    legacy_country = Column(Text)
     source = Column(Text, nullable=False, server_default=text("'MANUAL'"))
     notes = Column(Text)
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
@@ -11734,6 +11796,16 @@ class BuyerCampaign(Base):
     sender_kind = Column(Text, nullable=False, server_default=text("'COMPANY'"))
     cycle_id = Column(PGUUID(as_uuid=True), ForeignKey("cycle_festivals.id", ondelete="SET NULL"))
     sms_sender = Column(Text)                         # el remitente con el que salió el SMS
+    # El CONTENIDO del correo es un DISEÑO (el mismo editor que las notas de prensa): un
+    # `PressRelease` con `purpose='CAMPAIGN'`. Lo de `title`/`body`/`button_*` queda para los
+    # correos de antes y para el SMS.
+    design_release_id = Column(PGUUID(as_uuid=True), ForeignKey("press_releases.id", ondelete="SET NULL"))
+    # PURCHASE = relacionado con la COMPRA (va a todos) · MARKETING = publicitario (lleva la baja y
+    # no se manda a quien se dio de baja).
+    purpose = Column(Text, nullable=False, server_default=text("'PURCHASE'"))
+    # Un envío puede ir a VARIAS bases a la vez: [{"kind": "ET"|"MANUAL", "pk": "..."}]. La primera
+    # se apunta también en `event_id`/`list_id` (lo que ya leía el histórico).
+    sources_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     subject = Column(Text)                            # correo: asunto
     title = Column(Text)                              # correo: título
     body = Column(Text)                               # correo: texto · SMS: el mensaje
@@ -11757,6 +11829,7 @@ class BuyerCampaign(Base):
     event = relationship("EnterticketEvent")
     buyer_list = relationship("BuyerList")
     company = relationship("GroupCompany")
+    design_release = relationship("PressRelease")
 
     __table_args__ = (
         Index("idx_buyer_campaigns_event", "event_id"),
@@ -11778,6 +11851,10 @@ class BuyerCampaignRecipient(Base):
     status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE|ENVIADO|ERROR
     error = Column(Text)
     sent_at = Column(DateTime(timezone=True))
+    # El TOKEN de su enlace de BAJA de publicidad (uno por destinatario: así la baja se apunta a la
+    # persona sin pedirle nada) y cuándo la pidió desde este envío.
+    token = Column(Text, unique=True)
+    opted_out_at = Column(DateTime(timezone=True))
 
     __table_args__ = (
         UniqueConstraint("campaign_id", "target", name="uq_buyer_campaign_target"),
@@ -11940,6 +12017,15 @@ def ensure_enterticket_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_buyer_lists_concert ON buyer_lists(concert_id);",
+        # Un listado de una ACTIVIDAD NO REGISTRADA (anterior a la app). ⚠️ Cada columna en su sentencia.
+        "ALTER TABLE buyer_lists ADD COLUMN IF NOT EXISTS subject_kind text;",
+        "ALTER TABLE buyer_lists ADD COLUMN IF NOT EXISTS subject_id uuid;",
+        "ALTER TABLE buyer_lists ADD COLUMN IF NOT EXISTS legacy_date date;",
+        "ALTER TABLE buyer_lists ADD COLUMN IF NOT EXISTS legacy_address text;",
+        "ALTER TABLE buyer_lists ADD COLUMN IF NOT EXISTS legacy_postal_code text;",
+        "ALTER TABLE buyer_lists ADD COLUMN IF NOT EXISTS legacy_municipality text;",
+        "ALTER TABLE buyer_lists ADD COLUMN IF NOT EXISTS legacy_province text;",
+        "ALTER TABLE buyer_lists ADD COLUMN IF NOT EXISTS legacy_country text;",
         # El origen de una fila de comprador×listado es UNO de los dos (evento de ET o listado).
         "ALTER TABLE buyer_events ALTER COLUMN event_id DROP NOT NULL;",
         "ALTER TABLE buyer_events ADD COLUMN IF NOT EXISTS list_id uuid REFERENCES buyer_lists(id) ON DELETE CASCADE;",
@@ -11981,6 +12067,16 @@ def ensure_enterticket_schema():
         """,
         "ALTER TABLE buyer_campaigns ADD COLUMN IF NOT EXISTS sender_kind text NOT NULL DEFAULT 'COMPANY';",
         "ALTER TABLE buyer_campaigns ADD COLUMN IF NOT EXISTS cycle_id uuid REFERENCES cycle_festivals(id) ON DELETE SET NULL;",
+        # El contenido del correo es un DISEÑO (el editor de las notas de prensa) · por la compra o
+        # publicitario · varias bases a la vez. ⚠️ Cada columna en su propia sentencia.
+        "ALTER TABLE buyer_campaigns ADD COLUMN IF NOT EXISTS design_release_id uuid REFERENCES press_releases(id) ON DELETE SET NULL;",
+        "ALTER TABLE buyer_campaigns ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'PURCHASE';",
+        "ALTER TABLE buyer_campaigns ADD COLUMN IF NOT EXISTS sources_json jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        # La BAJA de publicidad: el token del enlace de cada destinatario y cuándo la pidió.
+        "ALTER TABLE buyer_campaign_recipients ADD COLUMN IF NOT EXISTS token text;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_buyer_campaign_recipient_token ON buyer_campaign_recipients(token) WHERE token IS NOT NULL;",
+        "ALTER TABLE buyer_campaign_recipients ADD COLUMN IF NOT EXISTS opted_out_at timestamptz;",
+        "ALTER TABLE buyers ADD COLUMN IF NOT EXISTS marketing_opt_out_at timestamptz;",
         # Nombre abreviado con el que sale un SMS «en nombre del ciclo o festival».
         "ALTER TABLE cycle_festivals ADD COLUMN IF NOT EXISTS sms_sender text;",
         "CREATE INDEX IF NOT EXISTS idx_buyer_campaigns_event ON buyer_campaigns(event_id);",
@@ -12638,6 +12734,32 @@ def ensure_song_genres_schema():
         "CREATE INDEX IF NOT EXISTS idx_song_genres_song ON song_genres(song_id);",
         "CREATE INDEX IF NOT EXISTS idx_song_genres_genre ON song_genres(genre_id);",
     ])
+
+
+def ensure_media_tags_schema():
+    """Etiquetas de un medio (catálogo + N:M). Idempotente, sin Alembic."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS media_tags (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            norm_key text NOT NULL UNIQUE,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS media_outlet_tags (
+            media_id uuid NOT NULL REFERENCES media_outlets(id) ON DELETE CASCADE,
+            tag_id uuid NOT NULL REFERENCES media_tags(id) ON DELETE CASCADE,
+            position integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now(),
+            PRIMARY KEY (media_id, tag_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_media_outlet_tags_media ON media_outlet_tags(media_id);",
+        "CREATE INDEX IF NOT EXISTS idx_media_outlet_tags_tag ON media_outlet_tags(tag_id);",
+    ], "media_tags")
 
 
 def ensure_song_demos_schema():

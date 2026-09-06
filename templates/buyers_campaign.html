@@ -13,11 +13,12 @@
     <span class="badge text-bg-{{ 'primary' if camp.channel == 'SMS' else 'info' }} fs-6">
       <i class="fa {{ 'fa-comment-sms' if camp.channel == 'SMS' else 'fa-envelope' }} me-1"></i>
       {{ camp.channel_label }}</span>
+    {% if camp.purpose_label %}<span class="badge text-bg-light border fs-6" title="Tipo de comunicación"><i class="fa {{ camp.purpose_icon }} me-1"></i>{{ camp.purpose_label }}</span>{% endif %}
     <div class="flex-grow-1 min-w-0">
       <div class="fw-semibold text-truncate">
         {{ camp.subject or camp.title or ('Mensaje de ' ~ camp.channel_label|lower) }}</div>
       <div class="small text-muted">
-        {% if camp.source %}{{ camp.source.label }} · {% endif %}{{ camp.when }}
+        {% if camp.sources and camp.sources|length > 1 %}{{ camp.sources|length }} bases ({{ camp.sources|map(attribute='label')|join(' · ') }}) · {% elif camp.source %}{{ camp.source.label }} · {% endif %}{{ camp.when }}
         {% if camp.by %} · lo mandó {{ camp.by }}{% endif %}
         {% if camp.sms_sender %} · remitente «{{ camp.sms_sender }}»{% endif %}
       </div>
@@ -25,6 +26,7 @@
     <div class="text-end">
       <div><strong>{{ camp.ok }}</strong> <span class="text-muted small">de {{ camp.total }}</span></div>
       {% if camp.fail %}<div class="small text-danger">{{ camp.fail }} no salieron</div>{% endif %}
+      {% if camp.opt_outs %}<div class="small text-muted" title="Pidieron no recibir más comunicaciones publicitarias desde este envío"><i class="fa fa-bell-slash me-1"></i>{{ camp.opt_outs }} se dieron de baja</div>{% endif %}
       {% if camp.status == 'SENDING' %}<div class="small text-muted">Enviándose…</div>{% endif %}
     </div>
   </div>
@@ -67,6 +69,7 @@
                 <td class="small">{{ r.name or '—' }}</td>
                 <td class="small text-muted">{{ r.target }}</td>
                 <td class="text-end">
+                  {% if r.opted_out %}<i class="fa fa-bell-slash text-muted me-1" title="Se dio de baja de las comunicaciones publicitarias"></i>{% endif %}
                   {% if r.status == 'ENVIADO' %}<i class="fa fa-check text-success" title="Enviado"></i>
                   {% elif r.status == 'ERROR' %}<i class="fa fa-xmark text-danger" title="{{ r.error }}"></i>
                   {% else %}<i class="fa fa-clock text-muted" title="Pendiente"></i>{% endif %}

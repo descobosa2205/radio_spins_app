@@ -8,7 +8,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ og_title or 'Nota de prensa' }}</title>
+  <title>{{ og_title or ('Comunicación' if is_campaign else 'Nota de prensa') }}</title>
   {% if not embed %}
     <meta property="og:type" content="article">
     <meta property="og:title" content="{{ og_title }}">
@@ -49,7 +49,7 @@
       </div>
     {% endif %}
     <div class="pr-viewer" data-pr-view>{{ web_html|safe }}</div>
-    {% if not embed %}<div class="foot">33 Producciones · Nota de prensa</div>{% endif %}
+    {% if not embed %}<div class="foot">33 Producciones · {{ 'Comunicación' if is_campaign else 'Nota de prensa' }}</div>{% endif %}
   </div>
   <script src="{{ url_for('static', filename='js/press_view.js', v=ASSET_V) }}"></script>
 </body>

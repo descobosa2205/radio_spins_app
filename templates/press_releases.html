@@ -1,0 +1,143 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ═══════════════ PROMOCIÓN → NOTAS DE PRENSA ═══════════════
+   Agrupadas por artista / evento / gira / ciclo (galletas, como en Actividades) y, al pinchar uno,
+   sus notas: la miniatura de lo que se ve, el titular y la fecha de envío, el artista con su foto,
+   qué es (Single, Disco, Concierto…), a cuántos se ha mandado y cuántos la han abierto, y sus tres
+   puntitos. El JS vive en static/js/press_list.js. #}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h2 class="mb-1"><i class="fa {{ icon }} me-2 text-danger"></i>{{ title }}</h2>
+    <div class="text-muted">{{ subtitle }}</div>
+  </div>
+  {% if can_edit_promo %}
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#pressCreateModal">
+      <i class="fa fa-plus me-1"></i> Nota de prensa</button>
+  {% endif %}
+</div>
+
+<ul class="nav nav-tabs contract-tabs mb-3">
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('promo_view') }}"><i class="fa fa-microphone-lines me-1"></i>Promociones</a></li>
+  <li class="nav-item"><a class="nav-link active" href="{{ url_for('promo_press_view') }}"><i class="fa fa-newspaper me-1"></i>Notas de prensa</a></li>
+</ul>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    {% if press_sujeto %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('promo_press_view') }}" title="Volver"><i class="fa fa-arrow-left"></i></a>
+      <h5 class="m-0">{{ press_sujeto_label or 'Notas de prensa' }}</h5>
+    {% else %}
+      <h5 class="m-0">Notas de prensa</h5>
+    {% endif %}
+    <span class="badge text-bg-light border">{{ press_rows|length }}</span>
+  </div>
+</div>
+
+{% if not press_sujeto %}
+  {# ---------- LAS GALLETAS: un sujeto por tarjeta, con su foto y cuántas notas tiene ---------- #}
+  {% if press_groups %}
+    <div class="row g-3 mb-4">
+      {% for g in press_groups %}
+        <div class="col-6 col-md-4 col-xl-3">
+          <a class="card h-100 text-decoration-none text-reset promo-subject-card"
+             href="{{ url_for('promo_press_view', sujeto=g.id) }}">
+            <div class="card-body d-flex align-items-center gap-3">
+              {% if g.photo %}<img src="{{ g.photo }}" class="promo-row__cover" alt="" data-avatar="1">
+              {% else %}<span class="promo-row__cover promo-row__cover--ph"><i class="fa {{ 'fa-users' if g.multi else ('fa-calendar-star' if g.kind == 'EVENT' else ('fa-route' if g.kind == 'TOUR' else ('fa-calendar-week' if g.kind == 'CYCLE' else 'fa-user-music'))) }}"></i></span>{% endif %}
+              <div style="min-width:0">
+                <div class="fw-semibold text-truncate">{{ g.label }}</div>
+                <div class="small text-muted">{{ g.count }} nota{{ '' if g.count == 1 else 's' }} de prensa</div>
+              </div>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+    <h6 class="text-muted mb-2">Todas</h6>
+  {% endif %}
+{% endif %}
+
+{# ---------- LAS NOTAS ---------- #}
+{% if press_rows %}
+  <div class="prl-list">
+    {% for r in press_rows %}
+      <div class="prl-row">
+        <a class="prl-row__thumb" href="{{ r.detail_url }}" title="Ver la nota">
+          {% if r.has_bg %}<img src="{{ r.thumb_url }}" alt="" loading="lazy">
+          {% else %}<span class="prl-row__thumb-ph"><i class="fa fa-newspaper"></i></span>{% endif %}
+        </a>
+        <div class="prl-row__main">
+          <div class="prl-row__top">
+            <a class="prl-row__title" href="{{ r.detail_url }}">{{ r.title }}</a>
+            <span class="prl-row__date"><i class="fa fa-paper-plane"></i>{{ r.date_label or 'Sin enviar' }}</span>
+            <span class="badge {{ 'text-bg-success' if r.status == 'SENT' else ('text-bg-warning text-dark' if r.status == 'SCHEDULED' else 'text-bg-light border') }}">{{ r.status_label }}</span>
+          </div>
+          <div class="prl-row__who">
+            {% for s in r.subjects %}{{ artist_chip(s.label, s.photo) }}{% endfor %}
+            <span class="prl-row__kind"><i class="fa fa-tag"></i>{{ r.kind_label }}{% if r.about_name %} · {{ r.about_name }}{% endif %}</span>
+          </div>
+        </div>
+        <div class="prl-row__stats">
+          <button type="button" class="prl-stat" data-pr-stats="{{ url_for('promo_press_recipients_json', release_id=r.id) }}" data-pr-stats-kind="sent" title="A cuántas personas se ha enviado">
+            <b>{{ r.sent }}</b><span>enviados</span></button>
+          <button type="button" class="prl-stat prl-stat--open" data-pr-stats="{{ url_for('promo_press_recipients_json', release_id=r.id) }}" data-pr-stats-kind="opened" title="Cuántos la han abierto">
+            <b>{{ r.opened }}</b><span>abiertos</span></button>
+        </div>
+        <div class="dropdown prl-row__menu">
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Opciones"><i class="fa fa-ellipsis"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="{{ r.detail_url }}"><i class="fa fa-eye fa-fw me-1"></i>Ver</a></li>
+            {% if r.can_edit and can_edit_promo %}
+              <li><a class="dropdown-item" href="{{ r.edit_url }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</a></li>
+            {% endif %}
+            {% if can_edit_promo %}
+              <li><a class="dropdown-item" href="{{ r.send_url }}{{ '?modo=resend' if r.status == 'SENT' else '' }}"><i class="fa fa-paper-plane fa-fw me-1"></i>{{ 'Reenviar' if r.status == 'SENT' else 'Enviar' }}</a></li>
+            {% endif %}
+            <li><a class="dropdown-item" href="{{ r.pdf_url }}" data-dl-bar><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
+            {% if r.public_url %}
+              <li><hr class="dropdown-divider"></li>
+              {% if can_edit_promo %}
+                <li><a class="dropdown-item" href="{{ r.send_url }}?modo=share"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</a></li>
+              {% endif %}
+              <li><button type="button" class="dropdown-item" data-pr-share="wa" data-pr-url="{{ r.public_url }}" data-pr-title="Nota de prensa · {{ r.subject_label|e }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+              <li><button type="button" class="dropdown-item" data-pr-share="sms" data-pr-url="{{ r.public_url }}" data-pr-title="Nota de prensa · {{ r.subject_label|e }}"><i class="fa fa-comment-sms fa-fw me-1"></i>SMS</button></li>
+              <li><button type="button" class="dropdown-item" data-pr-share="copy" data-pr-url="{{ r.public_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+            {% endif %}
+            {% if can_edit_promo %}
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="{{ url_for('promo_press_delete', release_id=r.id) }}"
+                      data-confirm="¿Eliminar la nota de prensa «{{ r.title|e }}»? Se borra también el registro de a quién se mandó.">
+                  <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
+                </form>
+              </li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="alert alert-light border">Todavía no hay notas de prensa{% if can_edit_promo %}. Crea la primera con «+ Nota de prensa»{% endif %}.</div>
+{% endif %}
+
+{# ---------- POP-UP: a quién se le ha mandado y quién la ha abierto ---------- #}
+<div class="modal fade" id="pressStatsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" data-pr-stats-title>Envíos</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <ul class="nav nav-pills mb-3 gap-1" data-pr-stats-tabs>
+        <li class="nav-item"><button type="button" class="nav-link active" data-pr-stats-tab="sent">Envíos</button></li>
+        <li class="nav-item"><button type="button" class="nav-link" data-pr-stats-tab="opened">Aperturas</button></li>
+      </ul>
+      <div data-pr-stats-body><div class="text-muted small">Cargando…</div></div>
+    </div>
+  </div></div>
+</div>
+
+{% if can_edit_promo %}{% include '_press_release_wizard_modal.html' %}{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/press_list.js', v=ASSET_V) }}"></script>
+{% endblock %}

@@ -1,0 +1,32 @@
+{# Las FOTOS de un módulo de una nota de prensa (galería pública). La descarga solo si la nota la
+   permite (`opts.download`), y lo comprueba el servidor. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ album.name }} · {{ subject_label }}</title>
+  <style>
+    body{ margin:0; background:#111; color:#eee; font-family:Arial,Helvetica,sans-serif; }
+    .top{ display:flex; align-items:center; gap:12px; padding:14px 16px; }
+    .top a{ color:#eee; text-decoration:none; font-size:14px; border:1px solid #444; border-radius:999px; padding:6px 12px; }
+    .top h1{ font-size:18px; margin:0; flex:1; }
+    .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; padding:0 16px 30px; }
+    .grid a{ display:block; aspect-ratio:1/1; overflow:hidden; border-radius:8px; background:#222; }
+    .grid img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .dl{ background:#E33D48; border-color:#E33D48 !important; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <a href="{{ back_url }}">← Volver a la nota</a>
+    <h1>{{ album.name }} <span style="color:#999;font-size:14px;font-weight:normal">· {{ photos|length }} fotos · {{ subject_label }}</span></h1>
+    {% if allow_download %}<a class="dl" href="{{ zip_url }}">⤓ Descargar todas</a>{% endif %}
+  </div>
+  <div class="grid">
+    {% for f in photos %}
+      <a href="{{ f.url }}" target="_blank" rel="noopener" title="{{ f.title }}"{% if allow_download %} download{% endif %}><img src="{{ f.thumb }}" alt="{{ f.title }}" loading="lazy"></a>
+    {% endfor %}
+  </div>
+</body>
+</html>

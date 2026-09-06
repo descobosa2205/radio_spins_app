@@ -1,0 +1,152 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ═══════════════ ENVIAR UNA NOTA DE PRENSA ═══════════════
+   Tres pasos a la izquierda —QUIÉN la manda · CUÁNDO · A QUIÉN— y la previsualización del correo a
+   la derecha. Antes de mandar se pregunta si se quiere recibir una PRUEBA. El motor es
+   static/js/press_send.js. `mode`: send (la primera vez) · resend (otra tanda) · share (por email). #}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" title="Volver a la nota" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    {% for s in subjects %}{{ artist_chip(s.label, s.photo) }}{% endfor %}
+    <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
+  </div>
+</div>
+
+<div class="pr-send" data-pr-send data-send-url="{{ send_url }}" data-test-url="{{ test_url }}" data-search-url="{{ search_url }}"
+     data-mode="{{ mode }}" data-my-email="{{ my_email }}" data-sender="{{ pr.sender_kind or 'BACKOFFICE' }}">
+  <div class="pr-send__steps">
+    <h4 class="mb-1">{{ 'Compartir por email' if mode == 'share' else ('Reenviar la nota de prensa' if mode == 'resend' else 'Enviar la nota de prensa') }}</h4>
+    <div class="text-muted small mb-3">Asunto: <b>{{ email_subject }}</b></div>
+
+    {# ── 1 · QUIÉN LA MANDA ── #}
+    <div class="demo-card mb-3">
+      <div class="demo-card__head"><i class="fa fa-at"></i>1 · ¿Quién la manda?</div>
+      <div class="demo-card__body">
+        <div class="pr-senders">
+          {% for key, nombre, sub, icono in sender_kinds %}
+            <label class="pr-sender{{ ' is-on' if (pr.sender_kind or 'BACKOFFICE') == key }}">
+              <input type="radio" name="sender_kind" value="{{ key }}" {% if (pr.sender_kind or 'BACKOFFICE') == key %}checked{% endif %}>
+              <span class="pr-sender__ico">{% if icono == 'favicon' %}<img src="{{ url_for('static', filename='android-chrome-192x192.png') }}" alt="">{% else %}<i class="fa fa-microphone-lines"></i>{% endif %}</span>
+              <span class="pr-sender__t"><b>{{ nombre }}</b><small>{{ sub }}</small></span>
+            </label>
+          {% endfor %}
+        </div>
+        <div class="form-text mt-2">Cada correo sale <b>suelto</b>, uno por persona, con su versión en texto y su remitente bien formado: es lo que hace que no acabe en la bandeja de spam.</div>
+      </div>
+    </div>
+
+    {# ── 2 · CUÁNDO ── #}
+    <div class="demo-card mb-3">
+      <div class="demo-card__head"><i class="fa fa-clock"></i>2 · ¿Cuándo se envía?</div>
+      <div class="demo-card__body">
+        <div class="d-flex flex-wrap gap-2">
+          <label class="invitation-radio-option"><input type="radio" name="when" value="now" checked><i class="fa fa-paper-plane"></i><span>Enviarla ahora</span></label>
+          <label class="invitation-radio-option"><input type="radio" name="when" value="schedule"><i class="fa fa-calendar-check"></i><span>Programarla</span></label>
+        </div>
+        <div class="mt-2 d-none" data-pr-when-schedule>
+          <label class="form-label small">Día y hora (hora de Madrid)</label>
+          <input type="datetime-local" class="form-control" data-pr-scheduled min="{{ now_label }}">
+          <div class="form-text">Se mandará sola a esa hora, aunque nadie esté en la app.</div>
+        </div>
+      </div>
+    </div>
+
+    {# ── 3 · A QUIÉN ── #}
+    <div class="demo-card mb-3">
+      <div class="demo-card__head"><i class="fa fa-users"></i>3 · ¿A quién se envía?</div>
+      <div class="demo-card__body">
+        {% if mode != 'share' %}
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+            <label class="form-check m-0"><input type="checkbox" class="form-check-input me-2" data-pr-all-active checked>Todos los contactos activos para notas de prensa <span class="badge text-bg-light border" data-pr-active-count></span></label>
+            <input type="search" class="form-control form-control-sm" style="max-width:14rem" placeholder="Filtrar…" data-pr-filter>
+          </div>
+          <div class="pr-recip-groups" data-pr-groups>
+            {% for g in candidates %}
+              <div class="pr-recip-group" data-search="{{ (g.media_name ~ ' ' ~ (g.contacts|map(attribute='name')|join(' ')) ~ ' ' ~ (g.contacts|map(attribute='email')|join(' ')))|lower }}">
+                <div class="pr-recip-group__head">
+                  <img src="{{ g.media_logo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+                  <b>{{ g.media_name }}</b><span class="text-muted small">· {{ g.media_type }}</span>
+                  <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none" data-pr-group-toggle>quitar todos</button>
+                </div>
+                {% for c in g.contacts %}
+                  <label class="pr-recip-item" data-search="{{ (c.name ~ ' ' ~ c.email ~ ' ' ~ c.program)|lower }}">
+                    <input type="checkbox" class="form-check-input" checked data-pr-recip
+                           data-kind="MEDIA" data-ref="{{ c.ref_id }}" data-email="{{ c.email }}" data-name="{{ c.name }}" data-media="{{ c.media_name }}">
+                    <span class="pr-recip-item__t"><b>{{ c.name }}</b>{% if c.full_name and c.full_name != c.name %} <span class="text-muted">· {{ c.full_name }}</span>{% endif %}
+                      <small>{{ c.email }}{% if c.program %} · {{ c.program }}{% endif %}{% if c.role %} · {{ c.role }}{% endif %}</small></span>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="alert alert-light border mb-0 small">Ningún contacto de medios está marcado para recibir notas de prensa. Se marcan en Bases de datos → Medios → Contactos.</div>
+            {% endfor %}
+          </div>
+          <hr>
+        {% endif %}
+
+        {% if previous and mode == 'resend' %}
+          <div class="mb-2">
+            <label class="form-check m-0"><input type="checkbox" class="form-check-input me-2" data-pr-prev-toggle checked>Volver a mandársela a quienes ya la recibieron <span class="badge text-bg-light border">{{ previous|length }}</span></label>
+            <div class="pr-recip-groups mt-1 d-none" data-pr-prev-list>
+              {% for p in previous %}
+                <label class="pr-recip-item"><input type="checkbox" class="form-check-input" checked data-pr-recip data-kind="{{ p.kind }}" data-ref="{{ p.ref_id }}" data-email="{{ p.email }}" data-name="{{ p.name }}" data-media="{{ p.media_name }}"><span class="pr-recip-item__t"><b>{{ p.name or p.email }}</b><small>{{ p.email }}{% if p.media_name %} · {{ p.media_name }}{% endif %}</small></span></label>
+              {% endfor %}
+            </div>
+            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-pr-prev-show>ver la lista</button>
+          </div>
+          <hr>
+        {% endif %}
+
+        <label class="form-label small fw-semibold">Añadir a alguien de la base de datos</label>
+        <div class="position-relative mb-2">
+          <input type="search" class="form-control" placeholder="Terceros, personal de la oficina, contactos de cualquier medio…" data-pr-search autocomplete="off">
+        </div>
+        <label class="form-label small fw-semibold">O escribe correos directamente</label>
+        <div class="input-group mb-2">
+          <input type="text" class="form-control" placeholder="nombre@medio.es, otro@medio.es" data-pr-manual>
+          <button class="btn btn-outline-secondary" type="button" data-pr-manual-add><i class="fa fa-plus"></i></button>
+        </div>
+        <div class="pr-recip-groups" data-pr-added></div>
+      </div>
+    </div>
+
+    <div class="pr-send__foot">
+      <div class="text-muted small" data-pr-total>0 destinatarios</div>
+      <button type="button" class="btn btn-primary btn-lg" data-pr-go><i class="fa fa-paper-plane me-1"></i><span data-pr-go-label>Enviar</span></button>
+    </div>
+  </div>
+
+  <div class="pr-send__preview">
+    <div class="pr-send__preview-head"><i class="fa fa-envelope-open-text me-1 text-danger"></i>Así llega el correo</div>
+    <iframe src="{{ preview_url }}" title="Vista previa" class="pr-send__frame"></iframe>
+  </div>
+</div>
+
+{# ── ¿Quieres una prueba antes? ── #}
+<div class="modal fade" id="prConfirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fa fa-vial me-2 text-danger"></i>¿Quieres recibir un email de prueba antes?</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div data-pr-confirm-step="ask">
+        <p class="mb-2">Te la mandamos a <b>{{ my_email or 'tu correo' }}</b> para que compruebes que está todo bien antes de <span data-pr-confirm-verb>enviarla</span>.</p>
+        <div class="d-flex gap-2 flex-wrap">
+          <button type="button" class="btn btn-outline-primary" data-pr-test><i class="fa fa-vial me-1"></i>Sí, mándame la prueba</button>
+          <button type="button" class="btn btn-primary" data-pr-confirm-go>No, <span data-pr-confirm-verb2>enviar</span> ya</button>
+        </div>
+      </div>
+      <div class="d-none" data-pr-confirm-step="sent">
+        <div class="alert alert-success py-2 mb-2"><i class="fa fa-check me-1"></i>Prueba enviada a <b data-pr-test-to></b>. Cuando la hayas mirado, sigue.</div>
+        <div class="d-flex gap-2 flex-wrap">
+          <button type="button" class="btn btn-primary" data-pr-confirm-go><i class="fa fa-paper-plane me-1"></i>Continuar y <span data-pr-confirm-verb3>enviar</span></button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Todavía no</button>
+        </div>
+      </div>
+      <div class="alert alert-danger py-2 mt-2 d-none" data-pr-confirm-error></div>
+    </div>
+  </div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/press_send.js', v=ASSET_V) }}"></script>
+{% endblock %}

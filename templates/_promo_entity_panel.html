@@ -31,6 +31,30 @@
         </div>
       </div>
     {% endif %}
+    {# NOTAS DE PRENSA de esta ficha: el titular, la miniatura y la fecha de envío (o «Borrador»).
+       La lista la da el global `press_entity_rows(kind, id)`; la ficha dice de qué es. #}
+    {% set _pr_kind = 'SONG' if song is defined else ('ALBUM' if album is defined else ('CONCERT' if concert is defined else ('ARTIST' if artist is defined else ''))) %}
+    {% set _pr_id = (song.id if song is defined else (album.id if album is defined else (concert.id if concert is defined else (artist.id if artist is defined else '')))) %}
+    {% set _pr_rows = press_entity_rows(_pr_kind, _pr_id) if _pr_kind else [] %}
+    {% if _pr_rows %}
+      <div class="mb-3">
+        <div class="fw-semibold small text-muted mb-2"><i class="fa fa-newspaper me-1"></i>Notas de prensa</div>
+        <div class="d-flex flex-column gap-2">
+          {% for r in _pr_rows %}
+            <a href="{{ r.detail_url }}" class="d-flex align-items-center gap-3 text-decoration-none text-reset border rounded-3 p-2">
+              <span class="prl-row__thumb" style="flex-basis:64px;width:64px;height:64px">
+                {% if r.has_bg %}<img src="{{ r.thumb_url }}" alt="">{% else %}<span class="prl-row__thumb-ph"><i class="fa fa-newspaper"></i></span>{% endif %}
+              </span>
+              <span class="flex-grow-1" style="min-width:0">
+                <span class="d-block fw-semibold text-truncate">{{ r.title }}</span>
+                <span class="small text-muted">{{ r.kind_label }}{% if r.about_name %} · {{ r.about_name }}{% endif %} · {{ r.date_label or 'sin enviar' }}</span>
+              </span>
+              <span class="badge {{ 'text-bg-success' if r.status == 'SENT' else ('text-bg-warning text-dark' if r.status == 'SCHEDULED' else 'text-bg-light border') }}">{{ r.status_label }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
     {% if promo_entity_rows %}
       <div class="list-group list-group-flush">
         {% for row in promo_entity_rows %}

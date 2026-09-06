@@ -364,6 +364,7 @@ import royalty_statement_read  # motor puro de LECTURA de una liquidación de ro
 import address_utils  # cómo se escribe una dirección (motor puro, único formato)
 import buyer_import  # importar compradores desde un fichero (motor puro)
 import media_contact_import  # importar contactos de medios desde un fichero (motor puro)
+import press_render  # notas de prensa: el diseño → correo, página, PDF y miniatura (motor puro)
 import sms_utils  # pasarela de SMS (avisos por mensaje de texto); sin credenciales no manda nada
 import ics_import  # lector de calendarios iCal (volcar el histórico de iCloud a la agenda)
 import audio_tags  # los METADATOS que van dentro de lo que se descarga (ID3 / RIFF INFO)
@@ -467,7 +468,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
     "concert_artwork_public_upload",
     # ACTUALIZAR VENTAS: el promotor de fuera no tiene sesión (su enlace es el token).
     "public_sales_update", "public_sales_update_save", "public_sales_derive",
@@ -894,7 +895,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -1570,6 +1571,7 @@ def inject_globals():
         money_text=_money_edit_text,
         concert_is_free=_concert_is_free,
         linked_mini=linked_mini,
+        press_entity_rows=_press_rows_for_entity,
         # DIRECCIÓN FISCAL: se pide en piezas (Holded las necesita separadas) y se muestra junta.
         fiscal_parts=_fiscal_parts_for_form,
         fiscal_address_text=_fiscal_address_text,
@@ -3635,7 +3637,24 @@ def _send_optional_email(
     text_body: str | None = None,
     reply_to: str | None = None,
     attachments: list[dict] | None = None,
+    *,
+    from_name: str | None = None,
+    from_email: str | None = None,
+    auto_submitted: bool = True,
+    personalize=None,
+    on_result=None,
 ) -> tuple[bool, str | None]:
+    """Manda un correo (UNO por persona) por el SMTP de la casa.
+
+    · `from_name` / `from_email`: un REMITENTE distinto del de la app (p. ej. «Promoción | 33
+      Producciones» <promocion@…>). ⚠️ El SMTP tiene que admitir mandar con esa dirección (un alias
+      de la misma cuenta o del mismo dominio), y para que no acabe en spam el dominio del From tiene
+      que ser el que firma DKIM/SPF.
+    · `auto_submitted=False`: un correo ESCRITO por una persona (una nota de prensa) no lleva las
+      cabeceras de «esto lo manda una máquina»: se puede contestar y no es un aviso automático.
+    · `personalize(destinatario) -> (html, texto)`: un cuerpo DISTINTO para cada persona (su token de
+      apertura) dentro de la MISMA conexión.
+    · `on_result(destinatario, ok, error)`: el resultado de CADA envío, para apuntarlo uno a uno."""
     raw_recipients: list[str] = []
     if isinstance(to_email, (list, tuple, set)):
         iterable = list(to_email)
@@ -3666,10 +3685,10 @@ def _send_optional_email(
     port = int((os.getenv('SMTP_PORT') or '587').strip() or '587')
     username = (os.getenv('SMTP_USERNAME') or '').strip()
     password = (os.getenv('SMTP_PASSWORD') or '').strip()
-    sender = (os.getenv('SMTP_FROM_EMAIL') or username or '').strip()
+    sender = ((from_email or '').strip() or os.getenv('SMTP_FROM_EMAIL') or username or '').strip()
     # ⚠️ El nombre que se ve. Sin variable puesta era «Radio Spins App», una marca que el que lo
     # recibe no conoce: eso solo puede ayudar a que parezca phishing.
-    sender_name = (os.getenv('SMTP_FROM_NAME') or '33 Producciones').strip()
+    sender_name = ((from_name or '').strip() or os.getenv('SMTP_FROM_NAME') or '33 Producciones').strip()
     use_ssl = _truthy(os.getenv('SMTP_SSL'))
     use_tls = not use_ssl if os.getenv('SMTP_TLS') is None else _truthy(os.getenv('SMTP_TLS'))
 
@@ -3694,14 +3713,21 @@ def _send_optional_email(
         # como sospechoso (muchos relés los añaden, pero no todos).
         msg['Date'] = formatdate(localtime=True)
         msg['Message-ID'] = make_msgid(domain=dominio_from)
-        # Es un aviso de una máquina: así los servidores no le contestan con autorespuestas ni lo
-        # tratan como correo escrito a mano.
-        msg['Auto-Submitted'] = 'auto-generated'
-        msg['X-Auto-Response-Suppress'] = 'All'
+        if auto_submitted:
+            # Es un aviso de una máquina: así los servidores no le contestan con autorespuestas ni lo
+            # tratan como correo escrito a mano.
+            msg['Auto-Submitted'] = 'auto-generated'
+            msg['X-Auto-Response-Suppress'] = 'All'
+        cuerpo_html, cuerpo_texto = html_body, text_body
+        if personalize is not None:
+            try:
+                cuerpo_html, cuerpo_texto = personalize(destinatario)
+            except Exception:
+                app.logger.exception('[correo] no se pudo personalizar el cuerpo')
         # La versión de TEXTO se saca del propio HTML: un correo cuya parte de texto no dice lo mismo
         # (o es un «este mensaje contiene una versión HTML») es una señal clásica de spam.
-        msg.set_content(text_body or _html_to_text(html_body))
-        msg.add_alternative(html_body, subtype='html')
+        msg.set_content(cuerpo_texto or _html_to_text(cuerpo_html))
+        msg.add_alternative(cuerpo_html, subtype='html')
         for attachment in attachments or []:
             if not isinstance(attachment, dict):
                 continue
@@ -3734,8 +3760,12 @@ def _send_optional_email(
             for destinatario in recipients:
                 try:
                     smtp.send_message(_compone(destinatario), to_addrs=[destinatario])
+                    if on_result is not None:
+                        on_result(destinatario, True, None)
                 except Exception as exc:
                     fallos.append('%s: %s' % (destinatario, exc))
+                    if on_result is not None:
+                        on_result(destinatario, False, str(exc))
         if fallos and len(fallos) == len(recipients):
             return False, '; '.join(fallos)[:500]
         if fallos:
@@ -3744,6 +3774,12 @@ def _send_optional_email(
             return True, 'No salió para: ' + '; '.join(fallos)[:300]
         return True, None
     except Exception as exc:
+        if on_result is not None:
+            for destinatario in recipients:
+                try:
+                    on_result(destinatario, False, str(exc))
+                except Exception:
+                    pass
         return False, str(exc)
 
 
@@ -50936,6 +50972,2032 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
         s.close()
 
 
+# =========================================================
+# NOTAS DE PRENSA (Promoción → Notas de prensa)
+# Una nota es un DISEÑO (`PressRelease.design`: el fondo con la cabecera y los logos, y encima el
+# titular, los textos y los módulos —audio, repertorio, videoclip, enlaces, fotos, contacto—) del
+# que salen, sin segundas versiones, el CORREO, la PÁGINA pública, el PDF y la MINIATURA
+# (`press_render.py`, motor puro). Se manda a los contactos de los medios marcados para recibir
+# notas de prensa (y a quien se añada), se puede PROGRAMAR, y cada destinatario lleva su TOKEN para
+# saber quién la ha ABIERTO.
+# =========================================================
+
+PRESS_CONTACT_NAME = "Nuria Chillón"
+PRESS_CONTACT_ROLE = "Contacto de prensa"
+PRESS_CONTACT_EMAIL = "promocion@33producciones.es"
+PRESS_CONTACT_PHONE = "+34 915001883"
+PRESS_SENDER_PROMO_NAME = "Promoción | 33 Producciones"
+PRESS_SENDER_PROMO_EMAIL = "promocion@33producciones.es"
+# (clave, cómo se llama, con qué correo sale, icono)
+PRESS_SENDER_KINDS = [
+    ("BACKOFFICE", "Back office", "El remitente de siempre de la app", "favicon"),
+    ("PROMO33", PRESS_SENDER_PROMO_NAME, PRESS_SENDER_PROMO_EMAIL, "promo"),
+]
+PRESS_SUBJECT_KINDS = {"ARTIST": "Artista", "EVENT": "Evento", "TOUR": "Gira", "CYCLE": "Ciclo"}
+PRESS_ABOUT_KINDS = {"ACTIVITY": "Actividad", "SINGLE": "Single", "ALBUM": "Disco", "SUBJECT": "Sobre el artista"}
+PRESS_CYCLE_KIND_LABELS = {"FESTIVAL": "Festival", "CICLO": "Ciclo", "GIRA": "Gira", "EVENTO": "Evento"}
+PRESS_STATUS_LABELS = {"DRAFT": "Borrador", "SCHEDULED": "Programada", "SENT": "Enviada"}
+PRESS_SEND_BUDGET_SECONDS = 45          # lo que se manda dentro de la petición; el resto, en un hilo
+PRESS_TOKEN_PLACEHOLDER = "__PR_TOKEN__"  # en el correo se sustituye por el token de cada persona
+PRESS_MAX_RECIPIENTS = 3000
+_PRESS_THUMB_CACHE: dict = {}
+_PRESS_BG_GUARD = threading.Lock()
+_PRESS_BG_ACTIVE: set = set()
+
+
+def _press_placeholder(design_or_url: str, token: str) -> str:
+    return (design_or_url or "").replace(PRESS_TOKEN_PLACEHOLDER, token or "")
+
+
+def _press_by_id(session_db, release_id):
+    try:
+        return session_db.get(PressRelease, to_uuid(release_id))
+    except Exception:
+        return None
+
+
+def _press_ensure_token(session_db, pr) -> str:
+    """El token público de la nota: OPACO y creado con COMMIT (con un flush sin commit se perdería
+    y un enlace ya mandado dejaría de valer — la regla de la casa)."""
+    if not (pr.public_token or "").strip():
+        pr.public_token = _uuid_token()
+        session_db.commit()
+    return pr.public_token
+
+
+def _press_can_edit(pr) -> bool:
+    return (pr.status or "DRAFT") != "SENT"
+
+
+# ── QUIÉN y SOBRE QUÉ ────────────────────────────────────────────────────────────────────────
+
+def _press_subject_options(session_db) -> list[dict]:
+    """Lo que se puede elegir al crear una nota: los ARTISTAS (los activos primero), los EVENTOS,
+    las GIRAS compradas y los CICLOS / FESTIVALES nuestros (`CycleFestival`, que son los que
+    promovemos nosotros: un festival de otro al que va un artista es una actividad, no un sujeto)."""
+    filas = []
+    try:
+        activos = _active_artist_ids(session_db)
+    except Exception:
+        activos = set()
+    for a in (session_db.query(Artist).filter(Artist.event_id.is_(None))
+              .order_by(func.lower(Artist.name).asc()).all()):
+        filas.append({"kind": "ARTIST", "id": str(a.id), "label": a.name or "—", "photo": a.photo_url or "",
+                      "active": str(a.id) in activos, "sub": "Artista", "icon": "fa-user-music"})
+    for e in session_db.query(AppEvent).order_by(func.lower(AppEvent.name).asc()).all():
+        filas.append({"kind": "EVENT", "id": str(e.id), "label": e.name or "—", "photo": e.logo_url or "",
+                      "active": True, "sub": "Evento", "icon": "fa-calendar-star"})
+    hoy = today_local()
+    for t in session_db.query(PurchasedTour).order_by(PurchasedTour.start_date.desc().nullslast()).all():
+        fin = getattr(t, "end_date", None)
+        filas.append({"kind": "TOUR", "id": str(t.id), "label": t.name or "—", "photo": t.logo_url or "",
+                      "active": (not fin or fin >= hoy - timedelta(days=90))
+                      and (getattr(t, "status", "ACTIVA") or "ACTIVA") != "ARCHIVADA",
+                      "sub": "Gira", "icon": "fa-route"})
+    for c in session_db.query(CycleFestival).order_by(CycleFestival.start_date.desc().nullslast()).all():
+        fin = getattr(c, "end_date", None)
+        filas.append({"kind": "CYCLE", "id": str(c.id), "label": c.name or "—", "photo": c.logo_url or "",
+                      "active": (not fin or fin >= hoy - timedelta(days=90))
+                      and (getattr(c, "status", "ACTIVO") or "ACTIVO") != "ARCHIVADO",
+                      "sub": PRESS_CYCLE_KIND_LABELS.get((c.kind or "").upper(), "Ciclo"), "icon": "fa-calendar-week"})
+    return filas
+
+
+def _press_artist_ids(session_db, subject_kind: str, subject_id, artist_ids: list) -> list:
+    """Los artistas de los que HABLA la nota (para buscar sus canciones, discos y fotos)."""
+    kind = (subject_kind or "").upper()
+    if kind == "ARTIST":
+        out = []
+        for x in artist_ids or []:
+            try:
+                out.append(to_uuid(x))
+            except Exception:
+                pass
+        return out
+    if kind == "EVENT":
+        espejo = session_db.query(Artist).filter(Artist.event_id == to_uuid(subject_id)).first() if subject_id else None
+        return [espejo.id] if espejo else []
+    if kind == "TOUR":
+        t = session_db.get(PurchasedTour, to_uuid(subject_id)) if subject_id else None
+        if not t:
+            return []
+        ids = [to_uuid(x) for x in (t.artist_ids or []) if x] if isinstance(t.artist_ids, list) else []
+        if t.artist_id and t.artist_id not in ids:
+            ids.insert(0, t.artist_id)
+        return ids
+    if kind == "CYCLE":
+        c = session_db.get(CycleFestival, to_uuid(subject_id)) if subject_id else None
+        ids = []
+        if c is not None:
+            for r in (session_db.query(Concert.artist_id).filter(Concert.cycle_festival_id == c.id)
+                      .distinct().limit(40).all()):
+                if r[0]:
+                    ids.append(r[0])
+        return ids
+    return []
+
+
+def _press_concerts_query(session_db, subject_kind: str, subject_id, artist_ids: list):
+    q = session_db.query(Concert).options(joinedload(Concert.venue), joinedload(Concert.artist))
+    kind = (subject_kind or "").upper()
+    if kind == "ARTIST":
+        ids = [to_uuid(x) for x in artist_ids or [] if x]
+        if not ids:
+            return None
+        return q.filter(or_(Concert.artist_id.in_(ids),
+                            *[Concert.artist_ids.contains([str(i)]) for i in ids]))
+    if kind == "EVENT":
+        eid = to_uuid(subject_id)
+        espejo = session_db.query(Artist).filter(Artist.event_id == eid).first()
+        conds = [Concert.event_id == eid]
+        if espejo:
+            conds.append(Concert.artist_id == espejo.id)
+        return q.filter(or_(*conds))
+    if kind == "TOUR":
+        return q.filter(Concert.purchased_tour_id == to_uuid(subject_id))
+    if kind == "CYCLE":
+        return q.filter(Concert.cycle_festival_id == to_uuid(subject_id))
+    return None
+
+
+def _press_concert_label(c) -> tuple[str, str]:
+    """(qué es · nombre o lugar, fecha) de una actividad."""
+    tipo = _activity_kind_label(getattr(c, "activity_type", None))
+    nombre = (getattr(c, "festival_name", "") or "").strip()
+    lugar = _place_label(_concert_city(c) or "", _concert_province_value(c) or "", _concert_country_value(c) or "")
+    fecha = c.date.strftime("%d/%m/%Y") if getattr(c, "date", None) else ""
+    return ("%s · %s" % (tipo, nombre or lugar or "—")), fecha
+
+
+def _press_about_options(session_db, subject_kind: str, subject_id, artist_ids: list) -> dict:
+    """Sobre qué puede ir la nota: las ACTIVIDADES, los SINGLES y los DISCOS del sujeto."""
+    salida = {"activities": [], "singles": [], "albums": []}
+    hoy = today_local()
+    q = _press_concerts_query(session_db, subject_kind, subject_id, artist_ids)
+    if q is not None:
+        filas = q.filter(Concert.date >= hoy - timedelta(days=120)).order_by(Concert.date.asc()).limit(80).all()
+        if len(filas) < 12:
+            filas += q.filter(Concert.date < hoy - timedelta(days=120)).order_by(Concert.date.desc()).limit(12 - len(filas)).all()
+        for c in filas:
+            etiqueta, fecha = _press_concert_label(c)
+            salida["activities"].append({"id": str(c.id), "label": etiqueta, "sub": fecha,
+                                         "cover": _concert_poster_url(c) or (c.artist.photo_url if c.artist else "") or "",
+                                         "icon": QUAD_ACTIVITY_ICONS.get(_activity_kind_key(c.activity_type), "fa-calendar-day")
+                                         if "QUAD_ACTIVITY_ICONS" in globals() else "fa-calendar-day"})
+    ids = _press_artist_ids(session_db, subject_kind, subject_id, artist_ids)
+    if ids:
+        canciones = (session_db.query(Song).join(SongArtist, SongArtist.song_id == Song.id)
+                     .filter(SongArtist.artist_id.in_(ids)).order_by(Song.release_date.desc().nullslast())
+                     .limit(60).all())
+        vistos = set()
+        for s in canciones:
+            if s.id in vistos:
+                continue
+            vistos.add(s.id)
+            salida["singles"].append({"id": str(s.id), "label": s.title or "—",
+                                      "sub": s.release_date.strftime("%d/%m/%Y") if s.release_date else "",
+                                      "cover": s.cover_url or "", "icon": "fa-music"})
+        for a in (session_db.query(Album).filter(Album.artist_id.in_(ids))
+                  .order_by(Album.release_date.desc().nullslast()).limit(40).all()):
+            salida["albums"].append({"id": str(a.id), "label": a.title or "—",
+                                     "sub": a.release_date.strftime("%d/%m/%Y") if a.release_date else "",
+                                     "cover": a.cover_url or "", "icon": "fa-compact-disc"})
+    return salida
+
+
+def _press_subject_rows(session_db, pr) -> list[dict]:
+    """De quién es la nota, con su foto: los artistas (puede haber varios) o el evento / la gira /
+    el ciclo."""
+    kind = (pr.subject_kind or "ARTIST").upper()
+    filas = []
+    if kind == "ARTIST":
+        ids = []
+        for x in (pr.artist_ids or []):
+            try:
+                ids.append(to_uuid(x))
+            except Exception:
+                pass
+        if ids:
+            por_id = {a.id: a for a in session_db.query(Artist).filter(Artist.id.in_(ids)).all()}
+            for i in ids:
+                a = por_id.get(i)
+                if a:
+                    filas.append({"kind": "ARTIST", "id": str(a.id), "label": a.name or "—",
+                                  "photo": a.photo_url or "", "url": url_for("artist_detail_view", artist_id=a.id)})
+    elif kind == "EVENT" and pr.subject_id:
+        e = session_db.get(AppEvent, pr.subject_id)
+        if e:
+            filas.append({"kind": "EVENT", "id": str(e.id), "label": e.name or "—", "photo": e.logo_url or "",
+                          "url": url_for("event_detail_view", eid=e.id)})
+    elif kind == "TOUR" and pr.subject_id:
+        t = session_db.get(PurchasedTour, pr.subject_id)
+        if t:
+            filas.append({"kind": "TOUR", "id": str(t.id), "label": t.name or "—", "photo": t.logo_url or "",
+                          "url": url_for("purchased_tour_detail", tid=t.id)})
+    elif kind == "CYCLE" and pr.subject_id:
+        c = session_db.get(CycleFestival, pr.subject_id)
+        if c:
+            filas.append({"kind": "CYCLE", "id": str(c.id), "label": c.name or "—", "photo": c.logo_url or "",
+                          "url": url_for("cycle_festival_detail", cfid=c.id),
+                          "cycle_kind": PRESS_CYCLE_KIND_LABELS.get((c.kind or "").upper(), "Ciclo")})
+    return filas
+
+
+def _press_subject_label(session_db, pr, rows=None) -> str:
+    filas = rows if rows is not None else _press_subject_rows(session_db, pr)
+    return " · ".join([r["label"] for r in filas]) or "—"
+
+
+def _press_about_obj(session_db, pr):
+    kind = (pr.about_kind or "SUBJECT").upper()
+    if not pr.about_id:
+        return None
+    if kind == "ACTIVITY":
+        return session_db.get(Concert, pr.about_id)
+    if kind == "SINGLE":
+        return session_db.get(Song, pr.about_id)
+    if kind == "ALBUM":
+        return session_db.get(Album, pr.about_id)
+    return None
+
+
+def _press_kind_and_name(session_db, pr, about=None, rows=None) -> tuple[str, str, str]:
+    """(la ETIQUETA de qué es la nota, el NOMBRE de eso, la portada o el cartel)."""
+    kind = (pr.about_kind or "SUBJECT").upper()
+    about = about if about is not None else _press_about_obj(session_db, pr)
+    if kind == "ACTIVITY" and about is not None:
+        etiqueta, _fecha = _press_concert_label(about)
+        tipo = _activity_kind_label(getattr(about, "activity_type", None))
+        nombre = (about.festival_name or "").strip() or _place_label(_concert_city(about) or "", _concert_province_value(about) or "",
+                                                                    _concert_country_value(about) or "")
+        return tipo, nombre, (_concert_poster_url(about) or "")
+    if kind == "SINGLE" and about is not None:
+        return "Single", (about.title or "").strip(), (about.cover_url or "")
+    if kind == "ALBUM" and about is not None:
+        return "Disco", (about.title or "").strip(), (about.cover_url or "")
+    filas = rows if rows is not None else _press_subject_rows(session_db, pr)
+    if filas and filas[0].get("kind") == "CYCLE":
+        return filas[0].get("cycle_kind") or "Ciclo", "", (filas[0].get("photo") or "")
+    return PRESS_SUBJECT_KINDS.get((pr.subject_kind or "ARTIST").upper(), "Artista"), "", (filas[0]["photo"] if filas else "")
+
+
+def _press_email_subject(session_db, pr) -> str:
+    """«Nota de prensa: <artista o evento>, <tipo>, <nombre o municipio, provincia>»."""
+    filas = _press_subject_rows(session_db, pr)
+    tipo, nombre, _img = _press_kind_and_name(session_db, pr, rows=filas)
+    partes = ["Nota de prensa: %s" % _press_subject_label(session_db, pr, filas), tipo]
+    if nombre:
+        partes.append(nombre)
+    return ", ".join([p for p in partes if p])
+
+
+def _press_public_url(pr, token: str = "") -> str:
+    """El enlace de la nota. Con el token de un DESTINATARIO, la apertura se le apunta a él."""
+    return _external_url_for("public_press_release", token=(token or pr.public_token or ""))
+
+
+def _press_icons() -> dict:
+    """Los iconos de los módulos como PNG de nuestro dominio (en un correo no hay fuente de iconos)."""
+    def ico(nombre, color="007CA2", size=32, familia=None):
+        try:
+            args = {"nombre": nombre, "c": color, "s": size}
+            if familia:
+                args["f"] = familia
+            return _external_url_for("brand_icon_png", **args)
+        except Exception:
+            return ""
+    return {"play": ico("play", "ffffff"), "download": ico("download", "E33D48"), "calendar": ico("calendar-days", "6b7280"),
+            "list": ico("list-ol", "6b7280"), "images": ico("images", "ffffff"), "envelope": ico("envelope", "007CA2"),
+            "phone": ico("phone", "007CA2")}
+
+
+# ── RESOLVER los módulos del diseño (lo que hay que ENSEÑAR de cada uno) ─────────────────────
+
+def _press_song_row(session_db, song, token: str, *, masters: dict | None = None) -> dict:
+    artista = _song_primary_artist(session_db, song)
+    master = masters.get(song.id) if masters is not None else _song_master_material(session_db, song.id)
+    return {
+        "title": (song.title or "").strip(),
+        "cover_url": _absolute_media_url(song.cover_url or "") if song.cover_url else "",
+        "artist_name": (artista.name if artista else "") or "",
+        "artist_photo": _absolute_media_url(artista.photo_url or "") if (artista and artista.photo_url) else "",
+        "release_label": song.release_date.strftime("%d/%m/%Y") if song.release_date else "",
+        "listen_url": _external_url_for("public_press_audio", token=token, song_id=str(song.id)) if master else "",
+        "download_url": _external_url_for("public_press_download", token=token, kind="song", item_id=str(song.id)) if master else "",
+    }
+
+
+def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:
+    """Rellena `data` en cada MÓDULO del diseño con lo que hay que enseñar (portadas, nombres,
+    enlaces con el `token` que toque). Los textos van tal cual (los sanea el motor)."""
+    design = dict(design or {})
+    bloques = []
+    iconos = _press_icons()
+    for raw in (design.get("blocks") or []):
+        if not isinstance(raw, dict):
+            continue
+        b = dict(raw)
+        tipo = str(b.get("type") or "").lower()
+        ref = b.get("ref") if isinstance(b.get("ref"), dict) else {}
+        data = {"icons": iconos}
+        try:
+            if tipo == "audio" and ref.get("song_id"):
+                song = session_db.get(Song, to_uuid(ref["song_id"]))
+                if song:
+                    data.update(_press_song_row(session_db, song, token))
+            elif tipo == "album" and ref.get("album_id"):
+                album = session_db.get(Album, to_uuid(ref["album_id"]))
+                if album:
+                    filas = (session_db.query(AlbumTrack).options(joinedload(AlbumTrack.song))
+                             .filter(AlbumTrack.album_id == album.id).order_by(AlbumTrack.track_number.asc()).all())
+                    ids = [t.song_id for t in filas if t.song_id]
+                    masters = {}
+                    if ids:
+                        for m in (session_db.query(SongMaterial).filter(SongMaterial.song_id.in_(ids),
+                                                                         func.upper(SongMaterial.category) == "MASTER").all()):
+                            masters.setdefault(m.song_id, m)
+                    data.update({
+                        "title": (album.title or "").strip(),
+                        "cover_url": _absolute_media_url(album.cover_url or "") if album.cover_url else "",
+                        "artist_name": (album.artist.name if album.artist else "") or "",
+                        "artist_photo": _absolute_media_url(album.artist.photo_url or "") if (album.artist and album.artist.photo_url) else "",
+                        "release_label": album.release_date.strftime("%d/%m/%Y") if album.release_date else "",
+                        "tracks": [{
+                            "n": t.track_number, "title": (t.song.title if t.song else "") or "",
+                            "listen_url": _external_url_for("public_press_audio", token=token, song_id=str(t.song_id)) if masters.get(t.song_id) else "",
+                            "download_url": _external_url_for("public_press_download", token=token, kind="song", item_id=str(t.song_id)) if masters.get(t.song_id) else "",
+                        } for t in filas],
+                    })
+            elif tipo == "video" and ref.get("song_id"):
+                song = session_db.get(Song, to_uuid(ref["song_id"]))
+                video = (session_db.query(SongMaterial).filter(SongMaterial.song_id == to_uuid(ref["song_id"]),
+                                                               func.upper(SongMaterial.category) == "VIDEOCLIP")
+                         .order_by(SongMaterial.slot_key.asc(), SongMaterial.created_at.desc()).first())
+                if song and video:
+                    data.update({
+                        "title": "Videoclip · %s" % ((song.title or "").strip()),
+                        "poster_url": _absolute_media_url(video.poster_url or song.cover_url or "") if (video.poster_url or song.cover_url) else "",
+                        "play_url": _external_url_for("public_press_video", token=token, material_id=str(video.id)),
+                        "download_url": _external_url_for("public_press_download", token=token, kind="video", item_id=str(video.id)),
+                    })
+            elif tipo == "links" and (ref.get("song_id") or ref.get("album_id")):
+                item = session_db.get(Song, to_uuid(ref["song_id"])) if ref.get("song_id") else session_db.get(Album, to_uuid(ref["album_id"]))
+                enlaces = _platform_links_for_item(item) if item is not None else []
+                elegidos = ref.get("keys") if isinstance(ref.get("keys"), list) else None
+                data["items"] = [{
+                    "key": l["key"], "label": l["label"], "url": l["url"],
+                    "icon_url": _external_url_for("brand_icon_png", nombre=l["icon_name"], c=l["color"], s=64, f="brands"),
+                } for l in enlaces if (elegidos is None or l["key"] in elegidos)]
+            elif tipo == "contact":
+                data.update({"name": PRESS_CONTACT_NAME, "role_label": PRESS_CONTACT_ROLE,
+                             "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE})
+            elif tipo == "photos" and ref.get("album_id"):
+                album = session_db.get(PhotoAlbum, to_uuid(ref["album_id"]))
+                if album:
+                    fotos = _press_album_photos(session_db, album)
+                    data.update({
+                        "album_name": (album.name or "").strip(),
+                        "count": len(fotos),
+                        "photos": [{"thumb": _absolute_media_url(p.poster_url or p.file_url or ""),
+                                    "url": _absolute_media_url(p.file_url or "")} for p in fotos[:6]],
+                        "gallery_url": _external_url_for("public_press_photos", token=token, album_id=str(album.id)),
+                        "download_url": _external_url_for("public_press_photos_zip", token=token, album_id=str(album.id)),
+                    })
+        except Exception:
+            app.logger.exception("[notas de prensa] no se pudo resolver un módulo (%s)", tipo)
+        b["data"] = data
+        bloques.append(b)
+    design["blocks"] = bloques
+    return design
+
+
+def _press_album_photos(session_db, album) -> list:
+    """Las fotos (no vídeos, no descartadas) de un álbum, en su orden."""
+    items = (session_db.query(PhotoAlbumItem).filter(PhotoAlbumItem.album_id == album.id)
+             .order_by(PhotoAlbumItem.sort_order.asc(), PhotoAlbumItem.created_at.asc()).all())
+    ids = [i.photo_id for i in items]
+    if not ids:
+        return []
+    por_id = {p.id: p for p in session_db.query(Photo).filter(Photo.id.in_(ids), Photo.discarded.is_(False)).all()}
+    return [por_id[i] for i in ids if i in por_id and (por_id[i].kind or "IMAGE").upper() == "IMAGE"]
+
+
+def _press_photo_albums(session_db, pr) -> list[dict]:
+    """Los álbumes de fotos que se pueden arrastrar a la nota: los del artista (o los artistas), los
+    del evento y los de la actividad de la que va la nota."""
+    ids = _press_artist_ids(session_db, pr.subject_kind, pr.subject_id, pr.artist_ids or [])
+    conds = []
+    if ids:
+        conds.append(PhotoAlbum.artist_id.in_(ids))
+    if (pr.subject_kind or "").upper() == "EVENT" and pr.subject_id:
+        conds.append(and_(PhotoAlbum.owner_type == "EVENT", PhotoAlbum.owner_id == pr.subject_id))
+    if (pr.about_kind or "").upper() == "ACTIVITY" and pr.about_id:
+        conds.append(and_(PhotoAlbum.owner_type == "CONCERT", PhotoAlbum.owner_id == pr.about_id))
+    if not conds:
+        return []
+    salida = []
+    for al in session_db.query(PhotoAlbum).filter(or_(*conds)).order_by(PhotoAlbum.created_at.desc()).limit(40).all():
+        fotos = _press_album_photos(session_db, al)
+        if not fotos:
+            continue
+        portada = None
+        if al.cover_photo_id:
+            portada = next((p for p in fotos if p.id == al.cover_photo_id), None)
+        portada = portada or fotos[0]
+        salida.append({"id": str(al.id), "name": al.name or "Fotos", "count": len(fotos),
+                       "cover": portada.poster_url or portada.file_url or ""})
+    return salida
+
+
+def _press_assets(session_db, pr) -> dict:
+    """Lo que se puede ARRASTRAR a la nota, según de qué sea: audios (singles), discos, videoclips,
+    enlaces de plataforma, fotos y el contacto de prensa. Cada uno con su `html` ya pintado (el
+    MISMO renderizador que el correo), para que el editor enseñe lo que va a llegar."""
+    token = _press_ensure_token(session_db, pr)
+    ids = _press_artist_ids(session_db, pr.subject_kind, pr.subject_id, pr.artist_ids or [])
+    about = _press_about_obj(session_db, pr)
+    kind = (pr.about_kind or "SUBJECT").upper()
+    canciones, albumes = [], []
+    if kind == "SINGLE" and about is not None:
+        canciones = [about]
+    elif kind == "ALBUM" and about is not None:
+        albumes = [about]
+        canciones = [t.song for t in (session_db.query(AlbumTrack).options(joinedload(AlbumTrack.song))
+                                       .filter(AlbumTrack.album_id == about.id).order_by(AlbumTrack.track_number.asc()).all()) if t.song]
+    if ids:
+        extra = (session_db.query(Song).join(SongArtist, SongArtist.song_id == Song.id)
+                 .filter(SongArtist.artist_id.in_(ids)).order_by(Song.release_date.desc().nullslast()).limit(24).all())
+        vistos = {s.id for s in canciones}
+        for s in extra:
+            if s.id not in vistos:
+                canciones.append(s)
+                vistos.add(s.id)
+        vistos_a = {a.id for a in albumes}
+        for a in (session_db.query(Album).filter(Album.artist_id.in_(ids))
+                  .order_by(Album.release_date.desc().nullslast()).limit(12).all()):
+            if a.id not in vistos_a:
+                albumes.append(a)
+
+    def pinta(tipo, ref, opts=None):
+        bloque = {"type": tipo, "x": 0, "y": 0, "w": 520, "h": 80, "ref": ref, "opts": opts or {}}
+        resuelto = _press_resolve_blocks(session_db, pr, {"blocks": [bloque]}, token)
+        b = press_render.blocks_of(resuelto)
+        return press_render.module_html(b[0]) if b else ""
+
+    song_ids = [s.id for s in canciones]
+    masters, videos = set(), {}
+    if song_ids:
+        for m in session_db.query(SongMaterial).filter(SongMaterial.song_id.in_(song_ids)).all():
+            cat = (m.category or "").upper()
+            if cat == "MASTER":
+                masters.add(m.song_id)
+            elif cat == "VIDEOCLIP":
+                videos.setdefault(m.song_id, m)
+    audios = [{"kind": "audio", "ref": {"song_id": str(s.id)}, "label": s.title or "—", "cover": s.cover_url or "",
+               "sub": "Audio · %s" % (s.release_date.strftime("%d/%m/%Y") if s.release_date else "sin fecha"),
+               "html": pinta("audio", {"song_id": str(s.id)})} for s in canciones if s.id in masters]
+    discos = [{"kind": "album", "ref": {"album_id": str(a.id)}, "label": a.title or "—", "cover": a.cover_url or "",
+               "sub": "Repertorio del disco", "html": pinta("album", {"album_id": str(a.id)})} for a in albumes]
+    clips = [{"kind": "video", "ref": {"song_id": str(s.id)}, "label": "Videoclip · %s" % (s.title or "—"),
+              "cover": (videos[s.id].poster_url or s.cover_url or ""), "sub": "Videoclip",
+              "html": pinta("video", {"song_id": str(s.id)})} for s in canciones if s.id in videos]
+    enlaces = []
+    for s in canciones:
+        ls = _song_platform_links(s)
+        if ls:
+            enlaces.append({"kind": "links", "ref": {"song_id": str(s.id)}, "label": s.title or "—", "cover": s.cover_url or "",
+                            "sub": "Enlaces · " + ", ".join(l["label"] for l in ls), "items": [{"key": l["key"], "label": l["label"]} for l in ls],
+                            "html": pinta("links", {"song_id": str(s.id)})})
+    for a in albumes:
+        ls = _album_platform_links(a)
+        if ls:
+            enlaces.append({"kind": "links", "ref": {"album_id": str(a.id)}, "label": a.title or "—", "cover": a.cover_url or "",
+                            "sub": "Enlaces · " + ", ".join(l["label"] for l in ls), "items": [{"key": l["key"], "label": l["label"]} for l in ls],
+                            "html": pinta("links", {"album_id": str(a.id)})})
+    fotos = [{"kind": "photos", "ref": {"album_id": al["id"]}, "label": al["name"], "cover": al["cover"],
+              "sub": "%s fotos" % al["count"], "html": pinta("photos", {"album_id": al["id"]})} for al in _press_photo_albums(session_db, pr)]
+    contacto = [{"kind": "contact", "ref": {}, "label": PRESS_CONTACT_NAME, "cover": "", "sub": PRESS_CONTACT_ROLE,
+                 "html": pinta("contact", {})}]
+    return {"audios": audios, "albums": discos, "videos": clips, "links": enlaces, "photos": fotos, "contact": contacto,
+            "fonts": [{"css": css, "label": label} for css, label in press_render.FONTS]}
+
+
+# ── LO QUE SE VE: correo, página, miniatura, PDF ─────────────────────────────────────────────
+
+def _press_prepared_design(session_db, pr, token: str) -> dict:
+    return _press_resolve_blocks(session_db, pr, pr.design or {}, token)
+
+
+def _press_web_html(session_db, pr, token: str) -> str:
+    return press_render.render_web(_press_prepared_design(session_db, pr, token))
+
+
+def _press_email_html(session_db, pr, *, token: str = PRESS_TOKEN_PLACEHOLDER, with_pixel: bool = True) -> tuple[str, str]:
+    """El correo entero (HTML y texto) con el TOKEN del destinatario donde toque. Con el marcador
+    por defecto se compone UNA vez y se sustituye por persona (es lo que hace `_press_send_pending`)."""
+    design = _press_prepared_design(session_db, pr, token)
+    cuerpo = press_render.render_email(design)
+    titular = press_render.headline_of(pr.design or {}) or _press_email_subject(session_db, pr)
+    enlace = _press_public_url(pr, token)
+    pixel = ('<img src="%s" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;">'
+             % _external_url_for("public_press_open", token=token)) if with_pixel else ""
+    html_out = (
+        '<!doctype html><html lang="es"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta name="x-apple-disable-message-reformatting">'
+        '<title>%s</title></head>'
+        '<body style="margin:0;padding:0;background:#f3f4f6;">'
+        # El PREHEADER: lo que enseña el resumen del correo (el Apple Watch, la lista de la bandeja)
+        # es el TITULAR, no el primer texto que pille.
+        '<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px;">%s</div>'
+        '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;">'
+        '<tr><td align="center" style="padding:14px 8px 4px 8px;font-family:%s;font-size:12px;color:#6b7280;">'
+        '<a href="%s" style="color:#6b7280;text-decoration:underline;">Ver la nota de prensa en el navegador</a></td></tr>'
+        '<tr><td align="center" style="padding:0 0 18px 0;">%s</td></tr>'
+        '<tr><td align="center" style="padding:0 8px 22px 8px;font-family:%s;font-size:11px;color:#9ca3af;">'
+        '33 Producciones · <a href="%s" style="color:#9ca3af;">ver en el navegador</a></td></tr>'
+        '</table>%s</body></html>'
+        % (_html_escape_attr(titular), _html_escape_attr(titular), press_render.DEFAULT_FONT, _html_escape_attr(enlace),
+           cuerpo, press_render.DEFAULT_FONT, _html_escape_attr(enlace), pixel))
+    texto = "%s\n\n%s\n\nVer la nota de prensa: %s" % (titular, press_render.plain_text(design), enlace)
+    return html_out, texto
+
+
+def _html_escape_attr(v) -> str:
+    return html.escape(str(v or ""), quote=True)
+
+
+def _press_font_path(bold: bool = False) -> str | None:
+    """Una tipografía de verdad para la miniatura: las Vera que trae ReportLab (Pillow solo trae una
+    de mapa de bits diminuta)."""
+    try:
+        import reportlab
+        base = os.path.join(os.path.dirname(reportlab.__file__), "fonts")
+        ruta = os.path.join(base, "VeraBd.ttf" if bold else "Vera.ttf")
+        return ruta if os.path.exists(ruta) else None
+    except Exception:
+        return None
+
+
+def _press_thumbnail_bytes(session_db, pr, width: int = 600) -> bytes | None:
+    """La MINIATURA de la nota: el fondo con el titular y los textos encima (pintados con Pillow), a
+    `width` de ancho. Es «lo que se ve»: la usan el listado, la ficha y la previsualización del
+    enlace. Cacheada por versión (`updated_at`) en memoria."""
+    if not PILLOW_AVAILABLE:
+        return None
+    from PIL import Image, ImageDraw, ImageFont
+    clave = (str(pr.id), (pr.updated_at.isoformat() if pr.updated_at else ""), int(width))
+    hit = _PRESS_THUMB_CACHE.get(clave)
+    if hit:
+        return hit
+    design = pr.design or {}
+    bloques = press_render.blocks_of(design)
+    alto = int(round(press_render.canvas_height(design, bloques) * width / press_render.WIDTH))
+    k = width / float(press_render.WIDTH)
+    lienzo = Image.new("RGB", (int(width), max(120, alto)), (255, 255, 255))
+    bg = (design.get("bg") or {})
+    if bg.get("url"):
+        try:
+            datos, _mime = _download_remote_content(bg["url"], timeout=20)
+            fondo = Image.open(BytesIO(datos)).convert("RGB")
+            fh = int(round(fondo.height * width / float(fondo.width)))
+            fondo = fondo.resize((int(width), max(1, fh)), Image.LANCZOS)
+            lienzo.paste(fondo, (0, 0))
+        except Exception:
+            app.logger.exception("[notas de prensa] no se pudo leer el fondo para la miniatura")
+    draw = ImageDraw.Draw(lienzo)
+    for b in bloques:
+        if b["type"] not in press_render.TEXT_TYPES:
+            # Un módulo se insinúa con una tarjeta clarita: la miniatura es del titular y el texto.
+            x, y, w, h = [int(round(v * k)) for v in (b["x"], b["y"], b["w"], b["h"])]
+            try:
+                draw.rounded_rectangle([x, y, x + w, y + max(h, 24)], radius=int(10 * k), fill=(248, 250, 252), outline=(229, 231, 235))
+            except Exception:
+                pass
+            continue
+        st = b.get("style") or {}
+        texto = press_render.plain_text_of_html(b.get("html") or "")
+        if not texto:
+            continue
+        tam = max(8, int(round(float(st.get("size", 15)) * k)))
+        ruta = _press_font_path(bool(st.get("bold")))
+        try:
+            fuente = ImageFont.truetype(ruta, tam) if ruta else ImageFont.load_default()
+        except Exception:
+            fuente = ImageFont.load_default()
+        color = st.get("color") or "#111827"
+        x, y, w = int(round(b["x"] * k)), int(round(b["y"] * k)), int(round(b["w"] * k))
+        alto_linea = int(round(tam * float(st.get("line", 1.3))))
+        lineas = []
+        for parrafo in texto.split("\n"):
+            palabras, actual = parrafo.split(" "), ""
+            for pal in palabras:
+                prueba = (actual + " " + pal).strip()
+                try:
+                    ancho = draw.textlength(prueba, font=fuente)
+                except Exception:
+                    ancho = len(prueba) * tam * 0.55
+                if ancho <= w or not actual:
+                    actual = prueba
+                else:
+                    lineas.append(actual)
+                    actual = pal
+            lineas.append(actual)
+        tope_y = y + int(round(b["h"] * k))
+        for i, linea in enumerate(lineas):
+            yy = y + i * alto_linea
+            if yy + alto_linea > tope_y + alto_linea:
+                break
+            try:
+                ancho = draw.textlength(linea, font=fuente)
+            except Exception:
+                ancho = len(linea) * tam * 0.55
+            align = st.get("align") or "left"
+            xx = x if align in ("left", "justify") else (x + (w - ancho) / 2 if align == "center" else x + w - ancho)
+            draw.text((xx, yy), linea, font=fuente, fill=color)
+    salida = BytesIO()
+    lienzo.save(salida, format="JPEG", quality=84, optimize=True)
+    datos = salida.getvalue()
+    if len(_PRESS_THUMB_CACHE) > 200:
+        _PRESS_THUMB_CACHE.clear()
+    _PRESS_THUMB_CACHE[clave] = datos
+    return datos
+
+
+def _press_og_image_bytes(session_db, pr) -> bytes | None:
+    """La tarjeta del enlace (1200×630): la parte de arriba de la nota."""
+    if not PILLOW_AVAILABLE:
+        return None
+    from PIL import Image
+    datos = _press_thumbnail_bytes(session_db, pr, width=1200)
+    if not datos:
+        return None
+    try:
+        img = Image.open(BytesIO(datos)).convert("RGB")
+        if img.height >= 630:
+            img = img.crop((0, 0, 1200, 630))
+        else:
+            fondo = Image.new("RGB", (1200, 630), (255, 255, 255))
+            fondo.paste(img, (0, (630 - img.height) // 2))
+            img = fondo
+        out = BytesIO()
+        img.save(out, format="JPEG", quality=85, optimize=True)
+        return out.getvalue()
+    except Exception:
+        return None
+
+
+def _press_pdf_bytes(session_db, pr) -> bytes:
+    """La nota en PDF: el lienzo entero en UNA página (a lo alto que haga falta): el fondo y, encima,
+    cada bloque donde está. Los textos con su formato (negrita, cursiva, enlaces, color); los
+    módulos, como tarjetas con su portada y sus enlaces."""
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError("ReportLab no está disponible.")
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.utils import ImageReader
+    from reportlab.lib.enums import TA_LEFT
+    from reportlab.platypus import Frame
+    design = _press_prepared_design(session_db, pr, pr.public_token or "")
+    bloques = press_render.blocks_of(design)
+    W = 595.27  # A4 de ancho
+    k = W / float(press_render.WIDTH)
+    alto = max(841.89, press_render.canvas_height(design, bloques) * k)
+    buf = BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(W, alto))
+    bg = design.get("bg") or {}
+    if bg.get("url"):
+        try:
+            datos, _m = _download_remote_content(bg["url"], timeout=20)
+            img = ImageReader(BytesIO(datos))
+            iw, ih = img.getSize()
+            fh = W * ih / float(iw)
+            c.drawImage(img, 0, alto - fh, width=W, height=fh, preserveAspectRatio=False, mask="auto")
+        except Exception:
+            app.logger.exception("[notas de prensa] no se pudo pintar el fondo en el PDF")
+    styles = getSampleStyleSheet()
+    for b in bloques:
+        x, y, w, h = b["x"] * k, b["y"] * k, b["w"] * k, b["h"] * k
+        top = alto - y
+        if b["type"] in press_render.TEXT_TYPES:
+            st = b.get("style") or {}
+            align = {"left": TA_LEFT, "center": TA_CENTER, "right": TA_RIGHT, "justify": TA_JUSTIFY}
+            flows = []
+            for para in press_render.paragraphs_for_pdf(b):
+                estilo = ParagraphStyle(
+                    "pr_%s" % b.get("id", ""), parent=styles["BodyText"],
+                    fontName=press_render.rl_font_for(st.get("font", ""), bool(st.get("bold"))),
+                    fontSize=float(st.get("size", 15)) * k, leading=float(st.get("size", 15)) * k * float(st.get("line", 1.4)),
+                    textColor=colors.HexColor(st.get("color") or "#111827") if str(st.get("color") or "").startswith("#") else colors.black,
+                    alignment=align.get(para.get("align") or st.get("align") or "left", TA_LEFT), spaceAfter=3)
+                try:
+                    flows.append(Paragraph(para["markup"], estilo))
+                except Exception:
+                    flows.append(Paragraph(html.escape(press_render.plain_text_of_html(para["markup"])), estilo))
+            # El marco es más alto que el bloque para que un texto que crece no se corte.
+            marco = Frame(x, max(0, top - max(h, 20) - 400), w, max(h, 20) + 400, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0, showBoundary=0)
+            marco.addFromList(flows, c)
+            continue
+        d = b.get("data") or {}
+        tipo = b["type"]
+        # Un módulo: tarjeta clarita con lo suyo.
+        c.setFillColor(colors.HexColor("#f8fafc"))
+        c.setStrokeColor(colors.HexColor("#e5e7eb"))
+        alto_mod = max(h, 70 * k)
+        c.roundRect(x, top - alto_mod, w, alto_mod, 8, stroke=1, fill=1)
+        c.setFillColor(colors.HexColor("#111827"))
+        tx = x + 10
+        portada = d.get("cover_url") or d.get("poster_url") or ""
+        if portada and tipo in ("audio", "album", "video"):
+            try:
+                pd, _m = _download_remote_content(portada, timeout=12)
+                lado = min(alto_mod - 16, 70 * k)
+                c.drawImage(ImageReader(BytesIO(pd)), x + 8, top - 8 - lado, width=lado, height=lado, mask="auto")
+                tx = x + 8 + lado + 10
+            except Exception:
+                pass
+        c.setFont("Helvetica-Bold", 11 * k)
+        titulo = {"audio": d.get("title"), "album": d.get("title"), "video": d.get("title") or "Videoclip",
+                  "links": "Escúchalo en", "contact": d.get("role_label") or "Contacto de prensa",
+                  "photos": d.get("album_name") or "Fotos"}.get(tipo) or ""
+        c.drawString(tx, top - 16 * k, (titulo or "")[:80])
+        c.setFont("Helvetica", 9 * k)
+        yy = top - 30 * k
+        lineas = []
+        if tipo in ("audio", "album"):
+            lineas.append(d.get("artist_name") or "")
+            if d.get("release_label"):
+                lineas.append("Publicación: %s" % d["release_label"])
+            if d.get("listen_url"):
+                lineas.append(("Escuchar: %s" % d["listen_url"], d["listen_url"]))
+            if tipo == "album":
+                for t in (d.get("tracks") or [])[:14]:
+                    lineas.append("%s. %s" % (t.get("n") or "", t.get("title") or ""))
+        elif tipo == "video":
+            if d.get("play_url"):
+                lineas.append(("Ver el videoclip: %s" % d["play_url"], d["play_url"]))
+        elif tipo == "links":
+            for it in d.get("items") or []:
+                lineas.append(("%s: %s" % (it.get("label") or "", it.get("url") or ""), it.get("url") or ""))
+        elif tipo == "contact":
+            lineas.append(d.get("name") or "")
+            if d.get("email"):
+                lineas.append((d["email"], "mailto:" + d["email"]))
+            if d.get("phone"):
+                lineas.append(d["phone"])
+        elif tipo == "photos":
+            lineas.append("%s fotos" % (d.get("count") or 0))
+            if d.get("gallery_url"):
+                lineas.append(("Ver las fotos: %s" % d["gallery_url"], d["gallery_url"]))
+        for l in lineas:
+            if yy < top - alto_mod + 8:
+                break
+            if isinstance(l, tuple):
+                c.setFillColor(colors.HexColor("#007CA2"))
+                c.drawString(tx, yy, l[0][:110])
+                c.linkURL(l[1], (tx, yy - 2, x + w - 6, yy + 9 * k), relative=0)
+                c.setFillColor(colors.HexColor("#111827"))
+            else:
+                c.drawString(tx, yy, str(l)[:110])
+            yy -= 12 * k
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+# ── LISTADOS ─────────────────────────────────────────────────────────────────────────────────
+
+def _press_stats_map(session_db, ids: list) -> dict:
+    """Cuántos envíos y cuántas aperturas tiene cada nota: DOS consultas agrupadas (no una por fila)."""
+    if not ids:
+        return {}
+    out = {str(i): {"sent": 0, "opened": 0, "pending": 0, "forwarded": 0} for i in ids}
+    filas = (session_db.query(PressReleaseRecipient.release_id,
+                              func.count(PressReleaseRecipient.id).filter(PressReleaseRecipient.sent_at.isnot(None)),
+                              func.count(PressReleaseRecipient.id).filter(PressReleaseRecipient.opened_at.isnot(None)),
+                              func.count(PressReleaseRecipient.id).filter(PressReleaseRecipient.sent_at.is_(None), PressReleaseRecipient.error.is_(None)),
+                              func.count(PressReleaseRecipient.id).filter(PressReleaseRecipient.forwarded.is_(True)))
+             .filter(PressReleaseRecipient.release_id.in_(ids), PressReleaseRecipient.batch != "TEST")
+             .group_by(PressReleaseRecipient.release_id).all())
+    for rid, enviados, abiertos, pendientes, reenviadas in filas:
+        out[str(rid)] = {"sent": int(enviados or 0), "opened": int(abiertos or 0),
+                         "pending": int(pendientes or 0), "forwarded": int(reenviadas or 0)}
+    return out
+
+
+def _press_row(session_db, pr, stats: dict | None = None) -> dict:
+    filas = _press_subject_rows(session_db, pr)
+    tipo, nombre, _img = _press_kind_and_name(session_db, pr, rows=filas)
+    st = stats or {"sent": 0, "opened": 0, "pending": 0, "forwarded": 0}
+    estado = (pr.status or "DRAFT").upper()
+    fecha = pr.sent_at or pr.scheduled_at
+    return {
+        "id": str(pr.id),
+        "title": (pr.title or "").strip() or press_render.headline_of(pr.design or {}) or "Sin titular",
+        "status": estado, "status_label": PRESS_STATUS_LABELS.get(estado, estado),
+        "date": fecha, "date_label": (fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if fecha else ""),
+        "kind_label": tipo, "about_name": nombre,
+        "subjects": filas, "subject_label": " · ".join(r["label"] for r in filas) or "—",
+        "group_id": ("%s:%s" % ((pr.subject_kind or "ARTIST"), (filas[0]["id"] if (pr.subject_kind or "").upper() != "ARTIST" and filas else
+                                                              ",".join(r["id"] for r in filas)))),
+        "sent": st["sent"], "opened": st["opened"], "pending": st["pending"], "forwarded": st["forwarded"],
+        "thumb_url": url_for("promo_press_thumb", release_id=pr.id, v=(pr.updated_at.isoformat() if pr.updated_at else "")),
+        "detail_url": url_for("promo_press_detail", release_id=pr.id),
+        "edit_url": url_for("promo_press_edit", release_id=pr.id),
+        "send_url": url_for("promo_press_send_view", release_id=pr.id),
+        "pdf_url": url_for("promo_press_pdf", release_id=pr.id),
+        "public_url": _press_public_url(pr) if pr.public_token else "",
+        "can_edit": _press_can_edit(pr),
+        "has_bg": bool(pr.background_url),
+    }
+
+
+def _press_rows_for_entity(kind: str, oid) -> list[dict]:
+    """Las notas de prensa de una FICHA (artista, canción, disco, actividad), para su panel de
+    Promoción. Global de plantilla: abre su propia sesión (como `linked_mini`) y es *best-effort*."""
+    kind = (kind or "").upper()
+    session_db = db()
+    try:
+        oid_u = to_uuid(oid)
+        q = session_db.query(PressRelease)
+        if kind == "ARTIST":
+            q = q.filter(or_(PressRelease.artist_ids.contains([str(oid_u)]),
+                             and_(PressRelease.subject_kind == "ARTIST", PressRelease.subject_id == oid_u)))
+        elif kind == "SONG":
+            q = q.filter(PressRelease.about_kind == "SINGLE", PressRelease.about_id == oid_u)
+        elif kind == "ALBUM":
+            q = q.filter(PressRelease.about_kind == "ALBUM", PressRelease.about_id == oid_u)
+        elif kind == "CONCERT":
+            q = q.filter(PressRelease.about_kind == "ACTIVITY", PressRelease.about_id == oid_u)
+        elif kind in ("EVENT", "TOUR", "CYCLE"):
+            q = q.filter(PressRelease.subject_kind == kind, PressRelease.subject_id == oid_u)
+        else:
+            return []
+        filas = q.order_by(PressRelease.created_at.desc()).limit(20).all()
+        stats = _press_stats_map(session_db, [r.id for r in filas])
+        return [_press_row(session_db, r, stats.get(str(r.id))) for r in filas]
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudieron leer las notas de la ficha")
+        return []
+    finally:
+        session_db.close()
+
+
+# ── A QUIÉN se le manda ──────────────────────────────────────────────────────────────────────
+
+def _press_recipient_candidates(session_db) -> list[dict]:
+    """Los contactos de los medios marcados para recibir NOTAS DE PRENSA, agrupados por medio (solo
+    los que tienen correo: sin correo no hay a quién mandársela)."""
+    filas = (session_db.query(MediaContact, MediaOutlet)
+             .join(MediaOutlet, MediaOutlet.id == MediaContact.media_id)
+             .filter(MediaContact.press_releases.is_(True), MediaContact.email.isnot(None), MediaContact.email != "")
+             .order_by(func.lower(MediaOutlet.name).asc(), MediaContact.created_at.asc()).all())
+    medios: dict = {}
+    for c, m in filas:
+        g = medios.setdefault(str(m.id), {"media_id": str(m.id), "media_name": m.name or "—", "media_logo": m.logo_url or "",
+                                          "media_type": m.media_type or "", "contacts": []})
+        g["contacts"].append({"kind": "MEDIA", "ref_id": str(c.id), "name": _media_contact_name(c),
+                              "full_name": _media_contact_full_name(c), "email": (c.email or "").strip().lower(),
+                              "role": (c.role or "").strip(), "program": (c.program or "").strip(), "media_name": m.name or ""})
+    return list(medios.values())
+
+
+def _press_contact_search(session_db, q: str) -> list[dict]:
+    """Buscar a quien añadir a mano: terceros, personal de la oficina y contactos de cualquier medio."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        return []
+    out, vistos = [], set()
+
+    def add(kind, ref_id, name, email, sub, photo=""):
+        email = (email or "").strip().lower()
+        if not email or email in vistos:
+            return
+        vistos.add(email)
+        out.append({"kind": kind, "ref_id": str(ref_id) if ref_id else "", "name": name or email, "email": email,
+                    "sub": sub or "", "photo": photo or ""})
+
+    like = _sa_contains_text
+    for c, m in (session_db.query(MediaContact, MediaOutlet).join(MediaOutlet, MediaOutlet.id == MediaContact.media_id)
+                 .filter(MediaContact.email.isnot(None), MediaContact.email != "")
+                 .filter(or_(like(MediaContact.nick, q), like(MediaContact.first_name, q), like(MediaContact.last_name, q),
+                             like(MediaContact.email, q), like(MediaContact.program, q), like(MediaOutlet.name, q)))
+                 .limit(15).all()):
+        add("MEDIA", c.id, _media_contact_name(c), c.email, " · ".join([x for x in [m.name, c.program, c.role] if x]), m.logo_url or "")
+    clausula = _promoter_search_clause(session_db, q)
+    if clausula is not None:
+        for p in session_db.query(Promoter).filter(clausula).limit(15).all():
+            correo, _tel = _promoter_email_phone(p)
+            add("PROMOTER", p.id, _promoter_display_name(p), correo, "Tercero", p.logo_url or "")
+    inactivos = _inactive_user_ids(session_db)
+    for u, prof in (session_db.query(User, UserProfile).outerjoin(UserProfile, UserProfile.user_id == User.id)
+                    .filter(or_(like(User.email, q), like(UserProfile.nick, q), like(UserProfile.first_name, q), like(UserProfile.last_name, q)))
+                    .limit(10).all()):
+        if str(u.id) in {str(x) for x in inactivos}:
+            continue
+        add("USER", u.id, (prof.nick if prof else "") or u.email, u.email, "Personal de la oficina", (prof.photo_url if prof else "") or "")
+    return out[:30]
+
+
+def _press_add_recipients(session_db, pr, filas: list, batch: str) -> int:
+    """Da de alta los destinatarios (sin repetir un correo que ya esté PENDIENTE en la nota)."""
+    ya = {(r.email or "").strip().lower() for r in pr.recipients if r.sent_at is None and r.error is None}
+    n = 0
+    for f in filas or []:
+        email = (str((f or {}).get("email") or "")).strip().lower()
+        if not email or "@" not in email or email in ya:
+            continue
+        ya.add(email)
+        ref = (f.get("ref_id") or "").strip()
+        try:
+            ref_u = to_uuid(ref) if ref else None
+        except Exception:
+            ref_u = None
+        # ⚠️ Se cuelga de la RELACIÓN (no `session.add`): la sesión es `autoflush=False` y lo que
+        # se añade suelto no se ve en `pr.recipients` hasta el flush — el envío no encontraba a
+        # nadie pendiente y daba la nota por ENVIADA sin mandar nada (lo sacó la prueba).
+        pr.recipients.append(PressReleaseRecipient(
+            token=_uuid_token(), email=email, name=(f.get("name") or "").strip()[:200] or None,
+            kind=(f.get("kind") or "MANUAL").strip().upper()[:20] or "MANUAL", ref_id=ref_u,
+            media_name=(f.get("media_name") or "").strip()[:200] or None, batch=batch,
+        ))
+        n += 1
+        if n >= PRESS_MAX_RECIPIENTS:
+            break
+    session_db.flush()
+    return n
+
+
+def _press_sender_for(pr) -> dict:
+    """Con qué remitente sale el correo: el de la app o «Promoción | 33 Producciones»."""
+    if (pr.sender_kind or "").upper() == "PROMO33":
+        return {"from_name": PRESS_SENDER_PROMO_NAME, "from_email": PRESS_SENDER_PROMO_EMAIL, "reply_to": PRESS_SENDER_PROMO_EMAIL}
+    return {"from_name": None, "from_email": None, "reply_to": None}
+
+
+def _press_send_pending(session_db, pr, *, budget: float = PRESS_SEND_BUDGET_SECONDS) -> dict:
+    """Manda lo que queda por mandar, UN correo por persona (con su token), dentro de un presupuesto
+    de tiempo. Cada destinatario queda marcado en cuanto se le manda: si el hilo muere, la próxima
+    pasada sigue con los que faltan y NADIE recibe dos veces."""
+    inicio = time.time()
+    enviados, fallos = 0, 0
+    session_db.flush()          # la sesión es autoflush=False: lo recién añadido tiene que verse
+    def _pendientes():
+        return (session_db.query(PressReleaseRecipient)
+                .filter(PressReleaseRecipient.release_id == pr.id, PressReleaseRecipient.sent_at.is_(None),
+                        PressReleaseRecipient.error.is_(None), PressReleaseRecipient.batch != "TEST")
+                .order_by(PressReleaseRecipient.created_at.asc()).all())
+    pendientes = _pendientes()
+    if not pendientes:
+        return {"sent": 0, "failed": 0, "left": 0}
+    asunto = _press_email_subject(session_db, pr)
+    html_base, texto_base = _press_email_html(session_db, pr)
+    remitente = _press_sender_for(pr)
+    por_email = {}
+    for r in pendientes:
+        por_email.setdefault((r.email or "").lower(), r)
+
+    def personaliza(destinatario):
+        r = por_email.get((destinatario or "").lower())
+        tok = r.token if r else (pr.public_token or "")
+        return _press_placeholder(html_base, tok), _press_placeholder(texto_base, tok)
+
+    resultados = {}
+
+    def apunta(destinatario, ok, error):
+        resultados[(destinatario or "").lower()] = (ok, error)
+
+    lote = 40
+    for i in range(0, len(pendientes), lote):
+        if time.time() - inicio > budget:
+            break
+        trozo = pendientes[i:i + lote]
+        _send_optional_email([r.email for r in trozo], asunto, "", personalize=personaliza, on_result=apunta,
+                             from_name=remitente["from_name"], from_email=remitente["from_email"],
+                             reply_to=remitente["reply_to"], auto_submitted=False)
+        ahora = _now_madrid()
+        for r in trozo:
+            ok, error = resultados.get((r.email or "").lower(), (False, "No se llegó a mandar."))
+            if ok:
+                r.sent_at = ahora
+                r.error = None
+                enviados += 1
+            else:
+                r.error = (str(error or "No se pudo mandar.")[:300])
+                fallos += 1
+        session_db.commit()
+    quedan = len(_pendientes())
+    alguno = (session_db.query(func.count(PressReleaseRecipient.id))
+              .filter(PressReleaseRecipient.release_id == pr.id, PressReleaseRecipient.sent_at.isnot(None)).scalar() or 0)
+    if quedan == 0 and (pr.status or "DRAFT").upper() != "SENT" and alguno:
+        pr.status = "SENT"
+        pr.sent_at = pr.sent_at or _now_madrid()
+        session_db.commit()
+    return {"sent": enviados, "failed": fallos, "left": quedan}
+
+
+def _press_send_bg(release_pk: str) -> None:
+    """Sigue mandando en un HILO hasta que no queden (mismo patrón que los envíos a compradores)."""
+    clave = str(release_pk)
+    with _PRESS_BG_GUARD:
+        if clave in _PRESS_BG_ACTIVE:
+            return
+        _PRESS_BG_ACTIVE.add(clave)
+    try:
+        with app.test_request_context(base_url=_public_base_url() or "https://app.33producciones.es"):
+            for _ronda in range(200):
+                s = db()
+                try:
+                    pr = s.get(PressRelease, to_uuid(release_pk))
+                    if pr is None:
+                        return
+                    datos = _press_send_pending(s, pr)
+                except Exception:
+                    app.logger.exception("[notas de prensa] fallo mandando en segundo plano")
+                    return
+                finally:
+                    s.close()
+                if not datos.get("left"):
+                    return
+    finally:
+        with _PRESS_BG_GUARD:
+            _PRESS_BG_ACTIVE.discard(clave)
+
+
+def _press_send_bg_start(release_pk: str) -> None:
+    threading.Thread(target=_press_send_bg, args=(str(release_pk),), daemon=True).start()
+
+
+def _press_sweep() -> dict:
+    """Las notas PROGRAMADAS cuya hora ya ha llegado: se mandan. Lo llaman el cron y el reloj de
+    dentro (`_press_scheduler_loop`), con un cerrojo de Postgres para que dos workers no manden la
+    misma a la vez."""
+    salida = {"started": 0}
+    with _pleo_pg_lock("press_release_sweep") as tengo:
+        if not tengo:
+            return {"started": 0, "skipped": "otro proceso"}
+        s = db()
+        try:
+            ahora = _now_madrid()
+            filas = (s.query(PressRelease).filter(PressRelease.status == "SCHEDULED",
+                                                  PressRelease.scheduled_at.isnot(None),
+                                                  PressRelease.scheduled_at <= ahora).all())
+            for pr in filas:
+                # Se marca como «mandando» ANTES de mandar: así otra pasada no la vuelve a coger.
+                pr.status = "SENDING"
+                s.commit()
+                try:
+                    with app.test_request_context(base_url=_public_base_url() or "https://app.33producciones.es"):
+                        datos = _press_send_pending(s, pr, budget=20)
+                except Exception:
+                    app.logger.exception("[notas de prensa] no se pudo mandar la programada %s", pr.id)
+                    pr.status = "SCHEDULED"
+                    s.commit()
+                    continue
+                if datos.get("left"):
+                    _press_send_bg_start(str(pr.id))
+                elif (pr.status or "") != "SENT":
+                    # Sin destinatarios que mandar: no hay nada que esperar, queda enviada igual.
+                    pr.status = "SENT"
+                    pr.sent_at = pr.sent_at or _now_madrid()
+                    s.commit()
+                salida["started"] += 1
+        except Exception:
+            app.logger.exception("[notas de prensa] fallo en el barrido de programadas")
+        finally:
+            s.close()
+    return salida
+
+
+def _press_scheduler_loop():
+    """El RELOJ de dentro: cada minuto mira si hay alguna nota programada que ya toque mandar. Es
+    la red de seguridad del cron (que en Render va como mucho cada hora): así una nota programada
+    a las 10:00 sale a las 10:00, y con el cerrojo de la BD da igual cuántos workers haya."""
+    time.sleep(90)
+    while True:
+        try:
+            _press_sweep()
+        except Exception:
+            app.logger.exception("[notas de prensa] fallo en el reloj de programadas")
+        time.sleep(60)
+
+
+threading.Thread(target=_press_scheduler_loop, daemon=True).start()
+
+
+def _press_track_open(session_db, token: str, via: str):
+    """Apunta una APERTURA a un destinatario (el píxel del correo o el enlace de la nota).
+    «Reenviada» es una SOSPECHA razonable: aperturas desde otro dispositivo Y otra red que la
+    primera. Se dice así, «posiblemente reenviada», nunca como certeza."""
+    r = session_db.query(PressReleaseRecipient).filter(PressReleaseRecipient.token == (token or "")).first()
+    if r is None:
+        return None
+    try:
+        ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "")[:64]
+        ua = (request.headers.get("User-Agent") or "")[:200]
+    except Exception:
+        ip, ua = "", ""
+    ahora = _now_madrid()
+    aperturas = list(r.opens or [])
+    aperturas.append({"at": ahora.isoformat(), "ip": ip, "ua": ua, "via": via})
+    r.opens = aperturas[-100:]
+    r.open_count = int(r.open_count or 0) + 1
+    if not r.opened_at:
+        r.opened_at = ahora
+    # Un proxy de imágenes (Gmail) no dice nada del dispositivo: no cuenta para la sospecha.
+    reales = [(a.get("ip") or "", (a.get("ua") or "")[:60]) for a in r.opens
+              if "GoogleImageProxy" not in (a.get("ua") or "") and a.get("ip")]
+    if len({x[0].rsplit(".", 1)[0] for x in reales}) >= 2 and len({x[1] for x in reales}) >= 2:
+        r.forwarded = True
+    try:
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+    return r
+
+
+# ── PANTALLAS ────────────────────────────────────────────────────────────────────────────────
+
+@app.get("/notas-de-prensa", endpoint="promo_press_view")
+@admin_required
+def promo_press_view():
+    """La pestaña «Notas de prensa» de Promoción: agrupadas por artista / evento / gira / ciclo
+    (galletas) y, al pinchar uno, sus notas."""
+    s = db()
+    try:
+        filas = s.query(PressRelease).order_by(PressRelease.created_at.desc()).limit(400).all()
+        stats = _press_stats_map(s, [r.id for r in filas])
+        rows = [_press_row(s, r, stats.get(str(r.id))) for r in filas]
+        grupos: dict = {}
+        for row in rows:
+            clave = row["group_id"]
+            g = grupos.setdefault(clave, {"id": clave, "label": row["subject_label"],
+                                          "photo": (row["subjects"][0]["photo"] if row["subjects"] else ""),
+                                          "count": 0, "kind": (row["subjects"][0]["kind"] if row["subjects"] else "ARTIST"),
+                                          "multi": len(row["subjects"]) > 1})
+            g["count"] += 1
+        sujeto = (request.args.get("sujeto") or "").strip()
+        vista = rows
+        etiqueta = ""
+        if sujeto:
+            vista = [r for r in rows if r["group_id"] == sujeto]
+            etiqueta = (grupos.get(sujeto) or {}).get("label") or ""
+        return render_template(
+            "press_releases.html",
+            press_rows=vista, press_groups=sorted(grupos.values(), key=lambda g: (g["label"] or "").casefold()),
+            press_sujeto=sujeto, press_sujeto_label=etiqueta,
+            press_subjects=_press_subject_options(s),
+            can_edit_promo=can_edit_promo(),
+            title="Promoción", icon="fa-microphone-lines",
+            subtitle="Entrevistas, junts de prensa y phoners: las promociones y las peticiones que llegan.",
+        )
+    finally:
+        s.close()
+
+
+@app.get("/notas-de-prensa/sobre-que", endpoint="promo_press_about_options")
+@admin_required
+def promo_press_about_options():
+    """Las opciones del segundo paso del asistente (las actividades, singles y discos del sujeto)."""
+    s = db()
+    try:
+        kind = (request.args.get("kind") or "ARTIST").strip().upper()
+        sid = (request.args.get("id") or "").strip()
+        artist_ids = [x for x in (request.args.get("artists") or "").split(",") if x.strip()]
+        if kind == "ARTIST" and sid and sid not in artist_ids:
+            artist_ids.append(sid)
+        return jsonify({"ok": True, **_press_about_options(s, kind, sid or None, artist_ids)})
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudieron leer las opciones")
+        return jsonify({"ok": False, "error": "No se pudieron leer las opciones."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/crear", endpoint="promo_press_create")
+@admin_required
+def promo_press_create():
+    if not can_edit_promo():
+        return jsonify({"ok": False, "error": "No tienes permiso para crear notas de prensa."}), 403
+    datos = request.get_json(silent=True) or {}
+    kind = (datos.get("subject_kind") or "ARTIST").strip().upper()
+    if kind not in PRESS_SUBJECT_KINDS:
+        return jsonify({"ok": False, "error": "Di de quién es la nota."}), 400
+    artist_ids = [str(x).strip() for x in (datos.get("artist_ids") or []) if str(x).strip()]
+    subject_id = (datos.get("subject_id") or "").strip()
+    about_kind = (datos.get("about_kind") or "SUBJECT").strip().upper()
+    about_id = (datos.get("about_id") or "").strip()
+    if about_kind not in PRESS_ABOUT_KINDS:
+        about_kind = "SUBJECT"
+    if about_kind != "SUBJECT" and not about_id:
+        return jsonify({"ok": False, "error": "Elige sobre qué va la nota."}), 400
+    if kind == "ARTIST" and not artist_ids:
+        return jsonify({"ok": False, "error": "Elige al menos un artista."}), 400
+    if kind != "ARTIST" and not subject_id:
+        return jsonify({"ok": False, "error": "Elige de quién es la nota."}), 400
+    s = db()
+    try:
+        estado = _current_user_state() or {}
+        pr = PressRelease(
+            subject_kind=kind,
+            subject_id=(to_uuid(subject_id) if subject_id else (to_uuid(artist_ids[0]) if artist_ids else None)),
+            artist_ids=(artist_ids if kind == "ARTIST" else []),
+            about_kind=about_kind, about_id=(to_uuid(about_id) if about_id else None),
+            design={"width": press_render.WIDTH, "bg": {}, "blocks": []},
+            status="DRAFT", public_token=_uuid_token(),
+            created_by_user_id=(to_uuid(estado.get("user_id")) if estado.get("user_id") else None),
+            created_by_nick=(estado.get("nick") or "").strip() or None,
+        )
+        # Una plantilla de fondo elegida al crear: se carga ya puesta.
+        tpl_id = (datos.get("template_id") or "").strip()
+        if tpl_id:
+            tpl = s.get(PressReleaseTemplate, to_uuid(tpl_id))
+            if tpl:
+                pr.background_url, pr.background_w, pr.background_h = tpl.background_url, tpl.background_w, tpl.background_h
+                pr.design = {"width": press_render.WIDTH, "blocks": [],
+                             "bg": {"url": tpl.background_url, "w": tpl.background_w, "h": tpl.background_h}}
+        s.add(pr)
+        s.commit()
+        return jsonify({"ok": True, "url": url_for("promo_press_edit", release_id=pr.id)})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo crear")
+        return jsonify({"ok": False, "error": "No se pudo crear la nota."}), 400
+    finally:
+        s.close()
+
+
+def _press_editor_context(s, pr) -> dict:
+    filas = _press_subject_rows(s, pr)
+    tipo, nombre, img = _press_kind_and_name(s, pr, rows=filas)
+    return {
+        "pr": pr, "row": _press_row(s, pr, _press_stats_map(s, [pr.id]).get(str(pr.id))),
+        "subjects": filas, "kind_label": tipo, "about_name": nombre, "about_cover": img,
+        "design_json": json.dumps(pr.design or {"width": press_render.WIDTH, "bg": {}, "blocks": []}),
+        "assets_url": url_for("promo_press_assets", release_id=pr.id),
+        "save_url": url_for("promo_press_save", release_id=pr.id),
+        "bg_url": url_for("promo_press_background", release_id=pr.id),
+        "templates_url": url_for("promo_press_templates"),
+        "preview_url": url_for("promo_press_preview", release_id=pr.id),
+        "fonts": [{"css": css, "label": label} for css, label in press_render.FONTS],
+        "email_subject": _press_email_subject(s, pr),
+        "can_edit": _press_can_edit(pr) and can_edit_promo(),
+        "can_edit_promo": can_edit_promo(),
+        "press_contact": {"name": PRESS_CONTACT_NAME, "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE},
+    }
+
+
+@app.get("/notas-de-prensa/<release_id>/editar", endpoint="promo_press_edit")
+@admin_required
+def promo_press_edit(release_id):
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            flash("Esa nota de prensa no existe.", "warning")
+            return redirect(url_for("promo_press_view"))
+        if not _press_can_edit(pr):
+            flash("Una nota de prensa ya ENVIADA no se puede editar.", "warning")
+            return redirect(url_for("promo_press_detail", release_id=pr.id))
+        _press_ensure_token(s, pr)
+        return render_template("press_release_editor.html", **_press_editor_context(s, pr))
+    finally:
+        s.close()
+
+
+@app.get("/notas-de-prensa/<release_id>", endpoint="promo_press_detail")
+@admin_required
+def promo_press_detail(release_id):
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            flash("Esa nota de prensa no existe.", "warning")
+            return redirect(url_for("promo_press_view"))
+        _press_ensure_token(s, pr)
+        ctx = _press_editor_context(s, pr)
+        ctx["web_html"] = _press_web_html(s, pr, pr.public_token)
+        ctx["recipients"] = [{
+            "id": str(r.id), "email": r.email, "name": r.name or "", "media_name": r.media_name or "", "kind": r.kind,
+            "batch": r.batch, "sent_at": r.sent_at, "error": r.error or "", "opened_at": r.opened_at,
+            "open_count": int(r.open_count or 0), "forwarded": bool(r.forwarded),
+        } for r in sorted(pr.recipients, key=lambda z: (z.sent_at or z.created_at or _now_madrid()), reverse=True) if r.batch != "TEST"]
+        return render_template("press_release_detail.html", **ctx)
+    finally:
+        s.close()
+
+
+@app.get("/notas-de-prensa/<release_id>/recursos", endpoint="promo_press_assets")
+@admin_required
+def promo_press_assets(release_id):
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            return jsonify({"ok": False, "error": "No existe."}), 404
+        return jsonify({"ok": True, **_press_assets(s, pr)})
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudieron leer los recursos")
+        return jsonify({"ok": False, "error": "No se pudieron leer los módulos."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/<release_id>/modulo", endpoint="promo_press_block_html")
+@admin_required
+def promo_press_block_html(release_id):
+    """El HTML de UN módulo con sus opciones (descarga, alineación): el editor lo pide al cambiarlas,
+    para enseñar exactamente lo que va a llegar (un solo renderizador)."""
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            return jsonify({"ok": False, "error": "No existe."}), 404
+        _press_ensure_token(s, pr)
+        raw = request.get_json(silent=True) or {}
+        bloque = {"type": raw.get("type"), "x": 0, "y": 0, "w": raw.get("w") or 520, "h": raw.get("h") or 80,
+                  "ref": raw.get("ref") if isinstance(raw.get("ref"), dict) else {},
+                  "opts": raw.get("opts") if isinstance(raw.get("opts"), dict) else {}}
+        resuelto = _press_resolve_blocks(s, pr, {"blocks": [bloque]}, pr.public_token)
+        b = press_render.blocks_of(resuelto)
+        return jsonify({"ok": True, "html": press_render.module_html(b[0]) if b else ""})
+    finally:
+        s.close()
+
+
+@app.get("/notas-de-prensa/<release_id>/envios", endpoint="promo_press_recipients_json")
+@admin_required
+def promo_press_recipients_json(release_id):
+    """A quién se le ha mandado y quién la ha abierto (para los dos pop-ups del listado)."""
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            return jsonify({"ok": False, "error": "No existe."}), 404
+        filas = []
+        for r in sorted(pr.recipients, key=lambda z: (z.sent_at or z.created_at or _now_madrid()), reverse=True):
+            if r.batch == "TEST":
+                continue
+            filas.append({
+                "email": r.email, "name": r.name or "", "media_name": r.media_name or "", "kind": r.kind, "batch": r.batch,
+                "sent_at": r.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.sent_at else "",
+                "error": r.error or "", "opened": bool(r.opened_at),
+                "opened_at": r.opened_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if r.opened_at else "",
+                "open_count": int(r.open_count or 0), "forwarded": bool(r.forwarded),
+            })
+        return jsonify({"ok": True, "rows": filas})
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/<release_id>/guardar", endpoint="promo_press_save")
+@admin_required
+def promo_press_save(release_id):
+    """Guarda el diseño (los bloques). El titular se saca del bloque de titular."""
+    if not can_edit_promo():
+        return jsonify({"ok": False, "error": "No tienes permiso para editar notas de prensa."}), 403
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            return jsonify({"ok": False, "error": "No existe."}), 404
+        if not _press_can_edit(pr):
+            return jsonify({"ok": False, "error": "Una nota ya enviada no se puede editar."}), 409
+        datos = request.get_json(silent=True) or {}
+        design = datos.get("design") if isinstance(datos.get("design"), dict) else {}
+        bloques_limpios = []
+        for b in press_render.blocks_of(design):
+            limpio = {"id": str(b.get("id") or _uuid_token()[:8])[:24], "type": b["type"],
+                      "x": round(b["x"], 1), "y": round(b["y"], 1), "w": round(b["w"], 1), "h": round(b["h"], 1)}
+            if b["type"] in press_render.TEXT_TYPES:
+                limpio["html"] = b.get("html") or ""
+                limpio["style"] = b.get("style") or {}
+            else:
+                limpio["ref"] = {k: (v if isinstance(v, (list, str, int, float, bool)) else str(v)) for k, v in (b.get("ref") or {}).items()}
+                limpio["opts"] = {k: (v if isinstance(v, (list, str, int, float, bool)) else str(v)) for k, v in (b.get("opts") or {}).items()}
+            bloques_limpios.append(limpio)
+        bg = design.get("bg") if isinstance(design.get("bg"), dict) else {}
+        nuevo = {"width": press_render.WIDTH,
+                 "bg": {"url": (bg.get("url") or pr.background_url or ""), "w": int(_num_or(bg.get("w"), pr.background_w or 0)),
+                        "h": int(_num_or(bg.get("h"), pr.background_h or 0))},
+                 "blocks": bloques_limpios}
+        pr.design = nuevo
+        pr.title = (press_render.headline_of(nuevo) or "")[:300] or None
+        pr.updated_at = _now_madrid()
+        s.commit()
+        _PRESS_THUMB_CACHE.clear()
+        return jsonify({"ok": True, "title": pr.title or "", "updated_at": pr.updated_at.isoformat()})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo guardar el diseño")
+        return jsonify({"ok": False, "error": "No se pudo guardar."}), 400
+    finally:
+        s.close()
+
+
+def _num_or(v, default):
+    try:
+        return float(v)
+    except Exception:
+        return float(default or 0)
+
+
+@app.post("/notas-de-prensa/<release_id>/fondo", endpoint="promo_press_background")
+@admin_required
+def promo_press_background(release_id):
+    """Sube (o REEMPLAZA) el fondo. Los bloques no se tocan: cambiar el fondo no altera el contenido."""
+    if not can_edit_promo():
+        return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr or not _press_can_edit(pr):
+            return jsonify({"ok": False, "error": "Esa nota no se puede editar."}), 409
+        fs = request.files.get("file")
+        url_tpl = (request.form.get("template_id") or "").strip()
+        if url_tpl:
+            tpl = s.get(PressReleaseTemplate, to_uuid(url_tpl))
+            if not tpl:
+                return jsonify({"ok": False, "error": "Esa plantilla ya no existe."}), 404
+            url, w, h = tpl.background_url, tpl.background_w, tpl.background_h
+        else:
+            if not fs or not (fs.filename or "").strip():
+                return jsonify({"ok": False, "error": "Elige una imagen."}), 400
+            datos = fs.read()
+            try:
+                from PIL import Image
+                img = Image.open(BytesIO(datos))
+                w, h = img.size
+            except Exception:
+                return jsonify({"ok": False, "error": "No se pudo leer la imagen."}), 400
+            fs.stream.seek(0)
+            url = upload_image(fs, "press_releases")
+            if not url:
+                return jsonify({"ok": False, "error": "No se pudo subir la imagen."}), 400
+        pr.background_url, pr.background_w, pr.background_h = url, int(w or 0), int(h or 0)
+        design = dict(pr.design or {})
+        design["bg"] = {"url": url, "w": int(w or 0), "h": int(h or 0)}
+        design.setdefault("width", press_render.WIDTH)
+        design.setdefault("blocks", [])
+        pr.design = design
+        pr.updated_at = _now_madrid()
+        s.commit()
+        _PRESS_THUMB_CACHE.clear()
+        return jsonify({"ok": True, "bg": design["bg"]})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo subir el fondo")
+        return jsonify({"ok": False, "error": "No se pudo cambiar el fondo."}), 400
+    finally:
+        s.close()
+
+
+@app.route("/notas-de-prensa/plantillas", methods=["GET", "POST"], endpoint="promo_press_templates")
+@admin_required
+def promo_press_templates():
+    """Los fondos guardados como PLANTILLA (nombre + imagen). GET: la lista · POST: guardar uno."""
+    s = db()
+    try:
+        if request.method == "POST":
+            if not can_edit_promo():
+                return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+            nombre = (request.form.get("name") or "").strip()[:120]
+            if not nombre:
+                return jsonify({"ok": False, "error": "Ponle un nombre a la plantilla."}), 400
+            url = (request.form.get("background_url") or "").strip()
+            w = int(_num_or(request.form.get("w"), 0))
+            h = int(_num_or(request.form.get("h"), 0))
+            fs = request.files.get("file")
+            if fs and (fs.filename or "").strip():
+                datos = fs.read()
+                try:
+                    from PIL import Image
+                    w, h = Image.open(BytesIO(datos)).size
+                except Exception:
+                    return jsonify({"ok": False, "error": "No se pudo leer la imagen."}), 400
+                fs.stream.seek(0)
+                url = upload_image(fs, "press_releases") or ""
+            if not url:
+                return jsonify({"ok": False, "error": "Falta la imagen del fondo."}), 400
+            tpl = PressReleaseTemplate(name=nombre, background_url=url, background_w=w or None, background_h=h or None,
+                                       created_by_nick=((_current_user_state() or {}).get("nick") or "").strip() or None)
+            s.add(tpl)
+            s.commit()
+        filas = s.query(PressReleaseTemplate).order_by(PressReleaseTemplate.created_at.desc()).all()
+        return jsonify({"ok": True, "templates": [{"id": str(t.id), "name": t.name, "url": t.background_url,
+                                                   "w": t.background_w, "h": t.background_h} for t in filas]})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] plantillas")
+        return jsonify({"ok": False, "error": "No se pudo guardar la plantilla."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/plantillas/<template_id>/eliminar", endpoint="promo_press_template_delete")
+@admin_required
+def promo_press_template_delete(template_id):
+    if not can_edit_promo():
+        return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+    s = db()
+    try:
+        tpl = s.get(PressReleaseTemplate, to_uuid(template_id))
+        if tpl:
+            s.delete(tpl)
+            s.commit()
+        return jsonify({"ok": True})
+    finally:
+        s.close()
+
+
+@app.get("/notas-de-prensa/<release_id>/previa", endpoint="promo_press_preview")
+@admin_required
+def promo_press_preview(release_id):
+    """El correo tal como va a llegar (para el iframe de la previsualización)."""
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            abort(404)
+        _press_ensure_token(s, pr)
+        modo = (request.args.get("modo") or "email").strip().lower()
+        if modo == "web":
+            cuerpo = _press_web_html(s, pr, pr.public_token)
+            return render_template("public_press_release.html", web_html=cuerpo, pr=pr, embed=True,
+                                   og_title="", og_description="", og_image_url="", public_url="")
+        html_out, _txt = _press_email_html(s, pr, token=pr.public_token, with_pixel=False)
+        return make_response(html_out, 200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"})
+    finally:
+        s.close()
+
+
+@app.get("/notas-de-prensa/<release_id>/miniatura.jpg", endpoint="promo_press_thumb")
+@admin_required
+def promo_press_thumb(release_id):
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            abort(404)
+        datos = _press_thumbnail_bytes(s, pr, width=int(request.args.get("w") or 600))
+    finally:
+        s.close()
+    if not datos:
+        return redirect(url_for("static", filename="img/cover_placeholder.png"))
+    resp = make_response(datos)
+    resp.headers["Content-Type"] = "image/jpeg"
+    resp.headers["Cache-Control"] = "private, max-age=300"
+    return resp
+
+
+@app.get("/notas-de-prensa/<release_id>/pdf", endpoint="promo_press_pdf")
+@admin_required
+def promo_press_pdf(release_id):
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            abort(404)
+        _press_ensure_token(s, pr)
+        datos = _press_pdf_bytes(s, pr)
+        nombre = _safe_download_filename("Nota de prensa %s" % (_press_subject_label(s, pr)), "nota_de_prensa") + ".pdf"
+    finally:
+        s.close()
+    resp = send_file(BytesIO(datos), mimetype="application/pdf", as_attachment=True, download_name=nombre)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.post("/notas-de-prensa/<release_id>/eliminar", endpoint="promo_press_delete")
+@admin_required
+def promo_press_delete(release_id):
+    if not can_edit_promo():
+        flash("No tienes permiso para eliminar notas de prensa.", "danger")
+        return redirect(url_for("promo_press_view"))
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if pr:
+            s.delete(pr)
+            s.commit()
+            flash("Nota de prensa eliminada.", "success")
+    finally:
+        s.close()
+    return redirect(url_for("promo_press_view"))
+
+
+@app.get("/notas-de-prensa/<release_id>/enviar", endpoint="promo_press_send_view")
+@admin_required
+def promo_press_send_view(release_id):
+    """La pantalla de ENVIAR (o reenviar / compartir por correo), en tres pasos: quién la manda ·
+    cuándo · a quién, con la previsualización a la derecha."""
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            flash("Esa nota de prensa no existe.", "warning")
+            return redirect(url_for("promo_press_view"))
+        _press_ensure_token(s, pr)
+        modo = (request.args.get("modo") or "").strip().lower()
+        if modo not in ("send", "resend", "share"):
+            modo = "resend" if (pr.status or "") == "SENT" else "send"
+        ctx = _press_editor_context(s, pr)
+        ctx.update({
+            "mode": modo,
+            "candidates": _press_recipient_candidates(s),
+            "previous": [{"email": r.email, "name": r.name or "", "kind": r.kind, "ref_id": str(r.ref_id) if r.ref_id else "",
+                          "media_name": r.media_name or ""} for r in pr.recipients if r.batch != "TEST" and r.sent_at],
+            "sender_kinds": PRESS_SENDER_KINDS,
+            "send_url": url_for("promo_press_send", release_id=pr.id),
+            "test_url": url_for("promo_press_test_send", release_id=pr.id),
+            "search_url": url_for("promo_press_contact_search"),
+            "my_email": _current_user_email(),
+            "now_label": _now_madrid().strftime("%Y-%m-%dT%H:%M"),
+        })
+        return render_template("press_release_send.html", **ctx)
+    finally:
+        s.close()
+
+
+@app.get("/notas-de-prensa/buscar-contactos", endpoint="promo_press_contact_search")
+@admin_required
+def promo_press_contact_search():
+    s = db()
+    try:
+        return jsonify({"ok": True, "rows": _press_contact_search(s, request.args.get("q") or "")})
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/<release_id>/prueba", endpoint="promo_press_test_send")
+@admin_required
+def promo_press_test_send(release_id):
+    """El correo de PRUEBA, a quien está configurando la nota."""
+    if not can_edit_promo():
+        return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            return jsonify({"ok": False, "error": "No existe."}), 404
+        _press_ensure_token(s, pr)
+        datos = request.get_json(silent=True) or {}
+        destino = (datos.get("email") or _current_user_email() or "").strip()
+        if not destino:
+            return jsonify({"ok": False, "error": "No sabemos tu correo: escríbelo."}), 400
+        sender = (datos.get("sender_kind") or pr.sender_kind or "BACKOFFICE").strip().upper()
+        if sender in ("BACKOFFICE", "PROMO33"):
+            pr.sender_kind = sender
+            s.commit()
+        html_out, texto = _press_email_html(s, pr, token=pr.public_token, with_pixel=False)
+        remitente = _press_sender_for(pr)
+        ok, error = _send_optional_email(destino, "[PRUEBA] " + _press_email_subject(s, pr), html_out, text_body=texto,
+                                         from_name=remitente["from_name"], from_email=remitente["from_email"],
+                                         reply_to=remitente["reply_to"], auto_submitted=False)
+        if not ok:
+            return jsonify({"ok": False, "error": "No se pudo mandar la prueba: %s" % (error or "")}), 400
+        s.add(PressReleaseRecipient(release_id=pr.id, token=_uuid_token(), email=destino.lower(), name="Prueba",
+                                    kind="USER", batch="TEST", sent_at=_now_madrid()))
+        s.commit()
+        return jsonify({"ok": True, "email": destino})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo mandar la prueba")
+        return jsonify({"ok": False, "error": "No se pudo mandar la prueba."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/<release_id>/enviar", endpoint="promo_press_send")
+@admin_required
+def promo_press_send(release_id):
+    """ENVIAR ahora o PROGRAMAR. Los destinatarios se dan de alta con su token y se manda un correo
+    por persona (la primera tanda aquí, el resto en un hilo). Con `modo=share|resend` sobre una nota
+    ya enviada, se añade otra tanda y su estado no cambia."""
+    if not can_edit_promo():
+        return jsonify({"ok": False, "error": "No tienes permiso para enviar notas de prensa."}), 403
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            return jsonify({"ok": False, "error": "No existe."}), 404
+        _press_ensure_token(s, pr)
+        datos = request.get_json(silent=True) or {}
+        sender = (datos.get("sender_kind") or pr.sender_kind or "BACKOFFICE").strip().upper()
+        if sender in ("BACKOFFICE", "PROMO33"):
+            pr.sender_kind = sender
+        filas = datos.get("recipients") if isinstance(datos.get("recipients"), list) else []
+        if not filas:
+            return jsonify({"ok": False, "error": "No hay a quién mandarla: elige al menos un destinatario."}), 400
+        if not (pr.design or {}).get("blocks"):
+            return jsonify({"ok": False, "error": "La nota está vacía: añade el titular y el texto antes de mandarla."}), 400
+        modo = (datos.get("mode") or "send").strip().lower()
+        batch = {"send": "SEND", "resend": "RESEND", "share": "SHARE"}.get(modo, "SEND")
+        n = _press_add_recipients(s, pr, filas, batch)
+        if n == 0:
+            return jsonify({"ok": False, "error": "Ninguno de los destinatarios tiene un correo válido (o ya estaban)."}), 400
+        cuando = (datos.get("when") or "now").strip().lower()
+        if cuando == "schedule":
+            texto_fecha = (datos.get("scheduled_at") or "").strip()
+            try:
+                fecha = datetime.fromisoformat(texto_fecha)
+            except Exception:
+                s.rollback()
+                return jsonify({"ok": False, "error": "La fecha y la hora de envío no son válidas."}), 400
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=TZ_MADRID)
+            if fecha <= _now_madrid():
+                s.rollback()
+                return jsonify({"ok": False, "error": "La hora programada ya ha pasado: elige una posterior o envíala ahora."}), 400
+            pr.scheduled_at = fecha
+            if (pr.status or "") != "SENT":
+                pr.status = "SCHEDULED"
+            s.commit()
+            if (pr.status or "") == "SENT":
+                # Una tanda nueva programada sobre una nota ya enviada: la manda el reloj igual.
+                pr.status = "SCHEDULED"
+                s.commit()
+            return jsonify({"ok": True, "scheduled": True, "count": n,
+                            "when": fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M"),
+                            "url": url_for("promo_press_detail", release_id=pr.id)})
+        pr.scheduled_at = None
+        if (pr.status or "") != "SENT":
+            pr.status = "SENDING"
+        s.commit()
+        resultado = _press_send_pending(s, pr)
+        if resultado.get("left"):
+            _press_send_bg_start(str(pr.id))
+        elif (pr.status or "") != "SENT":
+            pr.status = "SENT"
+            pr.sent_at = pr.sent_at or _now_madrid()
+            s.commit()
+        return jsonify({"ok": True, "scheduled": False, "count": n, **resultado,
+                        "url": url_for("promo_press_detail", release_id=pr.id)})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo enviar")
+        return jsonify({"ok": False, "error": "No se pudo enviar la nota."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/<release_id>/cancelar-programacion", endpoint="promo_press_unschedule")
+@admin_required
+def promo_press_unschedule(release_id):
+    if not can_edit_promo():
+        flash("No tienes permiso.", "danger")
+        return redirect(url_for("promo_press_view"))
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if pr and (pr.status or "") == "SCHEDULED":
+            for r in pr.recipients:
+                if r.sent_at is None and r.error is None:
+                    s.delete(r)
+            pr.status = "SENT" if any(r.sent_at for r in pr.recipients) else "DRAFT"
+            pr.scheduled_at = None
+            s.commit()
+            flash("Programación cancelada: la nota vuelve a borrador.", "success")
+    finally:
+        s.close()
+    return redirect(url_for("promo_press_detail", release_id=release_id))
+
+
+@app.get("/cron/notas-de-prensa", endpoint="cron_press_releases")
+def cron_press_releases():
+    """Cron de las notas PROGRAMADAS (el reloj de dentro las manda igual: esto es la red de seguridad)."""
+    clave = (request.args.get("key") or "").strip()
+    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
+    if not esperada or clave != esperada:
+        abort(404)
+    return jsonify({"ok": True, **_press_sweep()})
+
+
+# ── PÚBLICO: la nota, el píxel, el audio, las descargas, las fotos ───────────────────────────
+
+def _press_public_load(session_db, token: str):
+    """(nota, destinatario o None) a partir del token del enlace: el de la nota o el de una persona."""
+    tok = (token or "").strip()
+    if not tok:
+        return None, None
+    r = session_db.query(PressReleaseRecipient).filter(PressReleaseRecipient.token == tok).first()
+    if r is not None:
+        return session_db.get(PressRelease, r.release_id), r
+    pr = session_db.query(PressRelease).filter(PressRelease.public_token == tok).first()
+    return pr, None
+
+
+@app.get("/nota-de-prensa/<token>", endpoint="public_press_release")
+def public_press_release(token):
+    s = db()
+    try:
+        pr, r = _press_public_load(s, token)
+        if not pr:
+            abort(404)
+        if r is not None:
+            _press_track_open(s, token, "LINK")
+        filas = _press_subject_rows(s, pr)
+        tipo, nombre, _img = _press_kind_and_name(s, pr, rows=filas)
+        titular = press_render.headline_of(pr.design or {})
+        fecha = (pr.sent_at or pr.scheduled_at or pr.created_at)
+        og_title = "Nota de prensa · %s · %s" % (_press_subject_label(s, pr, filas),
+                                                 fecha.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if fecha else "")
+        return render_template(
+            "public_press_release.html", pr=pr, embed=False,
+            web_html=_press_web_html(s, pr, token),
+            og_title=og_title, og_description=(titular or " ".join([x for x in [tipo, nombre] if x]))[:180],
+            og_image_url=_external_url_for("public_press_og_image", token=pr.public_token or token,
+                                           v=(pr.updated_at.isoformat() if pr.updated_at else "")),
+            public_url=_press_public_url(pr, token),
+            pdf_url=_external_url_for("public_press_pdf", token=pr.public_token or token),
+        )
+    finally:
+        s.close()
+
+
+@app.get("/np/<token>/a.gif", endpoint="public_press_open")
+def public_press_open(token):
+    """El píxel del correo: al cargarse, esa persona ha abierto la nota."""
+    s = db()
+    try:
+        _press_track_open(s, token, "EMAIL")
+    except Exception:
+        pass
+    finally:
+        s.close()
+    gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+    resp = make_response(gif)
+    resp.headers["Content-Type"] = "image/gif"
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+@app.get("/np/<token>/og.jpg", endpoint="public_press_og_image")
+def public_press_og_image(token):
+    s = db()
+    try:
+        pr, _r = _press_public_load(s, token)
+        if not pr:
+            abort(404)
+        datos = _press_og_image_bytes(s, pr)
+    finally:
+        s.close()
+    if not datos:
+        return redirect(url_for("og_default_image"))
+    resp = make_response(datos)
+    resp.headers["Content-Type"] = "image/jpeg"
+    resp.headers["Cache-Control"] = "public, max-age=600"
+    return resp
+
+
+@app.get("/np/<token>/pdf", endpoint="public_press_pdf")
+def public_press_pdf(token):
+    s = db()
+    try:
+        pr, _r = _press_public_load(s, token)
+        if not pr:
+            abort(404)
+        datos = _press_pdf_bytes(s, pr)
+        nombre = _safe_download_filename("Nota de prensa %s" % (_press_subject_label(s, pr)), "nota_de_prensa") + ".pdf"
+    finally:
+        s.close()
+    resp = send_file(BytesIO(datos), mimetype="application/pdf", as_attachment=True, download_name=nombre)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def _press_block_allows(pr, tipo: str, ref_key: str, ref_val: str, opt: str) -> bool:
+    """¿El diseño lleva un módulo `tipo` con esa referencia y esa opción encendida? Así una descarga
+    solo existe si la nota la ofrece (esconder el botón no basta)."""
+    for b in (pr.design or {}).get("blocks") or []:
+        if not isinstance(b, dict) or str(b.get("type") or "").lower() != tipo:
+            continue
+        ref = b.get("ref") if isinstance(b.get("ref"), dict) else {}
+        if str(ref.get(ref_key) or "") != str(ref_val):
+            continue
+        if not opt:
+            return True
+        opts = b.get("opts") if isinstance(b.get("opts"), dict) else {}
+        if _truthy(opts.get(opt)):
+            return True
+    return False
+
+
+def _press_song_allowed(pr, song_id: str, opt: str) -> bool:
+    """Una canción vale si está como AUDIO o dentro de un módulo de DISCO."""
+    if _press_block_allows(pr, "audio", "song_id", song_id, opt):
+        return True
+    for b in (pr.design or {}).get("blocks") or []:
+        if isinstance(b, dict) and str(b.get("type") or "").lower() == "album":
+            opts = b.get("opts") if isinstance(b.get("opts"), dict) else {}
+            if opt and not _truthy(opts.get(opt)):
+                continue
+            return True
+    return False
+
+
+@app.get("/np/<token>/audio/<song_id>", endpoint="public_press_audio")
+def public_press_audio(token, song_id):
+    """El audio de un tema de la nota, por NUESTRO puente (con `Range`): la dirección de Storage no
+    sale nunca a la página."""
+    s = db()
+    try:
+        pr, _r = _press_public_load(s, token)
+        if not pr or not _press_song_allowed(pr, song_id, ""):
+            abort(404)
+        m = _song_master_material(s, to_uuid(song_id))
+        if not m or not (m.file_url or "").strip():
+            abort(404)
+        song = s.get(Song, to_uuid(song_id))
+        return _playlist_audio_response(m.file_url, _safe_download_filename((song.title if song else "") or "audio", "audio"))
+    finally:
+        s.close()
+
+
+@app.get("/np/<token>/video/<material_id>", endpoint="public_press_video")
+def public_press_video(token, material_id):
+    """Reproducir el videoclip: un 302 al archivo (un vídeo NO se sirve por el puente: se
+    reproduciría a trompicones). La puerta es que la nota lo lleve."""
+    s = db()
+    try:
+        pr, _r = _press_public_load(s, token)
+        m = s.get(SongMaterial, to_uuid(material_id)) if pr else None
+        if not pr or not m or not _press_block_allows(pr, "video", "song_id", str(m.song_id), ""):
+            abort(404)
+        return redirect(m.file_url)
+    finally:
+        s.close()
+
+
+@app.get("/np/<token>/descargar/<kind>/<item_id>", endpoint="public_press_download")
+def public_press_download(token, kind, item_id):
+    """La DESCARGA de un audio o un videoclip, solo si la nota la ofrece (`opts.download`)."""
+    s = db()
+    try:
+        pr, _r = _press_public_load(s, token)
+        if not pr:
+            abort(404)
+        kind = (kind or "").lower()
+        if kind == "song":
+            if not _press_song_allowed(pr, item_id, "download"):
+                abort(404)
+            m = _song_master_material(s, to_uuid(item_id))
+            if not m:
+                abort(404)
+            datos, mimetype, nombre = _song_material_download_payload(s, m, "original")
+            return send_file(BytesIO(datos), mimetype=mimetype or "application/octet-stream", as_attachment=True, download_name=nombre)
+        if kind == "video":
+            m = s.get(SongMaterial, to_uuid(item_id))
+            if not m or not _press_block_allows(pr, "video", "song_id", str(m.song_id), "download"):
+                abort(404)
+            return redirect(m.file_url)
+        abort(404)
+    finally:
+        s.close()
+
+
+@app.get("/np/<token>/fotos/<album_id>", endpoint="public_press_photos")
+def public_press_photos(token, album_id):
+    """La galería de un módulo de fotos, con la descarga solo si la nota la permite."""
+    s = db()
+    try:
+        pr, _r = _press_public_load(s, token)
+        if not pr or not _press_block_allows(pr, "photos", "album_id", album_id, ""):
+            abort(404)
+        album = s.get(PhotoAlbum, to_uuid(album_id))
+        if not album:
+            abort(404)
+        fotos = _press_album_photos(s, album)
+        permitida = _press_block_allows(pr, "photos", "album_id", album_id, "download")
+        return render_template(
+            "public_press_photos.html", album=album, pr=pr,
+            photos=[{"url": _absolute_media_url(p.file_url or ""), "thumb": _absolute_media_url(p.poster_url or p.file_url or ""),
+                     "title": p.title or p.file_name or ""} for p in fotos],
+            allow_download=permitida,
+            zip_url=(_external_url_for("public_press_photos_zip", token=token, album_id=album_id) if permitida else ""),
+            back_url=_press_public_url(pr, token), subject_label=_press_subject_label(s, pr),
+        )
+    finally:
+        s.close()
+
+
+@app.get("/np/<token>/fotos/<album_id>/zip", endpoint="public_press_photos_zip")
+def public_press_photos_zip(token, album_id):
+    s = db()
+    try:
+        pr, _r = _press_public_load(s, token)
+        if not pr or not _press_block_allows(pr, "photos", "album_id", album_id, "download"):
+            abort(404)
+        album = s.get(PhotoAlbum, to_uuid(album_id))
+        fotos = _press_album_photos(s, album) if album else []
+        if not fotos:
+            abort(404)
+        datos, nombre = _photos_zip_bytes(fotos, "original", album.name or "fotos")
+        return send_file(BytesIO(datos), mimetype="application/zip", as_attachment=True, download_name=nombre)
+    finally:
+        s.close()
+
+
 @app.get("/promocion-peticiones", endpoint="promo_view")
 @admin_required
 def promo_view():
@@ -69688,6 +71750,9 @@ from models import (
     MediaContact,
     MediaContactImport,
     MediaContactImportRow,
+    PressRelease,
+    PressReleaseRecipient,
+    PressReleaseTemplate,
     MediaLocation,
     MediaPromotionRecord,
     PromotionRequest,
@@ -76084,7 +78149,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -113698,7 +115763,10 @@ def cron_expired_documents():
                     "ventas_propias": _sales_own_sweep(),
                     # Y el RECORDATORIO del plazo de una playlist de selección/valoración (el día
                     # antes, una sola vez, a quien todavía no ha contestado).
-                    "playlists_valoracion": _playlist_vote_reminder_sweep()})
+                    "playlists_valoracion": _playlist_vote_reminder_sweep(),
+                    # Y las NOTAS DE PRENSA programadas cuya hora ya ha llegado (el reloj de dentro
+                    # las manda cada minuto; esto es la red de seguridad si el proceso se reinició).
+                    "notas_de_prensa": _press_sweep()})
 
 
 @app.post("/documentos/pedir", endpoint="person_doc_request_send")

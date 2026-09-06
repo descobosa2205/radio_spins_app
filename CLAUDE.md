@@ -9907,3 +9907,78 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **diciendo cuánto era**.
   ⚠️ Los endpoints se llaman `media_contacts_import_*` y `media_contact_press_toggle`: empiezan por
   `media_`, así que ya caen en `databases.media` en los DOS mapeos sin tocar nada.
+
+- ⚠️⚠️ **NOTAS DE PRENSA (Promoción → pestaña «Notas de prensa»)** (sep 2026). Una nota de prensa es
+  un **DISEÑO** (`PressRelease.design`, JSONB): la imagen de **FONDO** (con la cabecera y los logos) y,
+  encima, **BLOQUES** —el titular, los textos y los MÓDULOS: audio (escuchar / descargar), repertorio
+  de un disco, videoclip, enlaces de plataformas, fotos y el contacto de prensa (Nuria Chillón ·
+  promocion@33producciones.es · +34 915001883, `PRESS_CONTACT_*`)—, cada uno con su sitio y su tamaño
+  en un lienzo de **600** de ancho. De ese diseño, y SOLO de él, salen el **correo**, la **página
+  pública**, el **PDF** y la **miniatura**: motor puro **`press_render.py`**, con su prueba
+  **`tools/check_press_render.py`** (si se toca, en verde).
+  · **Se crea con un asistente** (`_press_release_wizard_modal.html`): ¿de quién es? (artistas —pueden
+  ser **VARIOS**, `artist_ids`—, eventos, giras compradas y los ciclos/festivales **NUESTROS**,
+  `CycleFestival`: un festival de otro al que va un artista es una actividad, no un sujeto) → ¿sobre
+  qué va? (una actividad, un single, un disco o sobre el propio sujeto). Nace en **borrador**.
+  · **El EDITOR** (`press_release_editor.html` + `static/js/press_editor.js`): se sube el fondo (se
+  puede **reemplazar** cuando se quiera sin tocar el contenido, y **guardarlo como PLANTILLA** con su
+  nombre, `PressReleaseTemplate`), se arrastran el titular y los textos sobre él (se mueven por su asa
+  y se redimensionan desde la esquina; un texto crece solo si no cabe), y los módulos se arrastran
+  desde la paleta —o se pinchan, y entonces se colocan **debajo del último**—; todos se mueven y se
+  ajustan libremente (pueden ir uno al lado del otro). Texto seleccionado: negrita · cursiva ·
+  subrayado · **enlace** (subrayado por defecto; el botón de subrayado lo quita o lo pone) · alineación
+  · tipografía · color. El tamaño es del bloque. **Guardar** está siempre arriba.
+  ⚠️ **El HTML de los módulos lo pinta el SERVIDOR** (`promo_press_assets` y `promo_press_block_html`
+  → `press_render.module_html`, el MISMO que el correo): lo que se ve en el editor es lo que llega.
+  ⚠️ **Las tipografías son de sistema** (`press_render.FONTS`): un correo no carga fuentes web.
+  ⚠️⚠️ **EN UN CORREO NO HAY `position:absolute`** (Gmail lo quita): el correo se compone en **BANDAS**
+  (`press_render.render_email` / `compute_bands`): una fila de tabla por franja del lienzo, con el
+  trozo de fondo que le toca (`background-position` negativo sobre la misma imagen) y dentro los
+  bloques de esa franja en columnas con su hueco a la izquierda. Así el texto se ve ENCIMA del fondo y
+  sigue siendo **texto seleccionable** en Gmail, Apple Mail y Outlook.com. La página pública y la vista
+  de dentro sí van en posición absoluta exacta (`render_web`) **escaladas con `transform`** al ancho
+  que haya (`press_view.js`): en el móvil se conservan las proporciones del fondo.
+  · **El correo**: asunto **«Nota de prensa: \<artista o evento\>, \<tipo\>, \<nombre o municipio,
+  provincia\>»** (`_press_email_subject`), **preheader = el titular** (es lo que enseña el resumen del
+  correo y el Apple Watch), un enlace «ver en el navegador», el diseño en bandas y el **píxel de
+  apertura**. **UN correo por persona** con **SU token** (`PressReleaseRecipient.token`), que va en el
+  píxel y en todos los enlaces: se compone UNA vez con el marcador `__PR_TOKEN__` y se sustituye por
+  persona (`_send_optional_email(..., personalize=, on_result=)`, dos parámetros nuevos; también
+  **`from_name`/`from_email`** y **`auto_submitted=False`**: una nota la escribe una persona y no
+  lleva las cabeceras de «esto lo manda una máquina»).
+  · **Quién la manda** (`sender_kind`): **Back office** (el remitente de la app) o **«Promoción | 33
+  Producciones» \<promocion@33producciones.es\>** (`PRESS_SENDER_PROMO_*`). ⚠️ Para que salga con esa
+  dirección el SMTP tiene que admitirla (alias de la misma cuenta o dominio) y lo que decide que no vaya
+  a spam siguen siendo **SPF/DKIM/DMARC del dominio**: cada correo sale suelto, con su texto y su
+  Message-ID del dominio del From, pero eso no sustituye al DNS.
+  · **Cuándo**: ahora o **PROGRAMADA** (`scheduled_at`, `status='SCHEDULED'`). La manda
+  **`_press_sweep`** (advisory lock de Postgres para que dos workers no manden la misma), que llaman
+  **el reloj de dentro** (`_press_scheduler_loop`, un hilo que mira cada minuto), el cron
+  `/cron/notas-de-prensa` y el cron diario de documentos. Cada destinatario queda marcado al salir: si
+  el hilo muere nadie recibe dos veces (`_press_send_pending`, presupuesto de 45 s + `_press_send_bg`).
+  · **A quién**: los contactos de los medios marcados para **notas de prensa** (`MediaContact.
+  press_releases`, agrupados por medio, todos marcados y se desmarca a quien no toque), más quien se
+  añada de la base (terceros, personal, contactos de cualquier medio: `promo_press_contact_search`) o a
+  mano. Antes de mandar se pregunta si se quiere un **correo de PRUEBA** (a quien está configurando).
+  ⚠️⚠️ **LOS DESTINATARIOS SE CUELGAN DE LA RELACIÓN (`pr.recipients.append`) Y SE LEEN CON CONSULTA**:
+  la sesión es `autoflush=False` y con `session.add` suelto el envío no encontraba a nadie pendiente y
+  daba la nota por ENVIADA sin mandar nada (lo sacó la prueba).
+  · **Aperturas**: el píxel (`/np/<token>/a.gif`) y el enlace con token (`/nota-de-prensa/<token>`)
+  apuntan cada apertura (`opens`, `open_count`, `opened_at`). **«Posiblemente reenviada»** = aperturas
+  desde otro dispositivo Y otra red que la primera (se dice como sospecha, nunca como certeza; el proxy
+  de imágenes de Gmail no cuenta). En el listado, «N enviados · N abiertos» se pinchan y salen las
+  listas (`promo_press_recipients_json`).
+  · **Una nota ENVIADA no se edita** (`_press_can_edit`; el guardado devuelve 409). Se puede
+  **reenviar** (otra tanda), **compartir por email** (la misma pantalla de envío, `modo=share`),
+  por WhatsApp / SMS / copiar el enlace (la página pública, con `og:` = la parte de arriba de la nota
+  a 1200×630, `_press_og_image_bytes`), y **descargar en PDF** (`_press_pdf_bytes`: una sola página a
+  lo alto que haga falta, con el fondo, los textos con formato y los módulos como tarjetas).
+  · **Dónde se ve**: la pestaña (galletas por sujeto → listado con la miniatura, el titular, la fecha,
+  el artista con su foto, qué es, los contadores y sus tres puntitos) y el panel de Promoción de las
+  fichas de artista, canción, disco y actividad (global de plantilla **`press_entity_rows(kind, id)`**).
+  · **Lo que se DESCARGA solo existe si la nota lo ofrece** (`opts.download` del módulo, comprobado en
+  el servidor: `_press_block_allows`); el audio va por **nuestro puente** (`public_press_audio`) y el
+  vídeo por un 302 al archivo (un vídeo no se sirve por el puente). Las fotos tienen su galería
+  (`public_press_photos`) y su ZIP solo con la descarga permitida.
+  ⚠️ Los endpoints se llaman `promo_press_*` (caen en la sección **`promo`** por el prefijo) y los
+  públicos `public_press_*` + `cron_press_releases` están en las TRES listas.

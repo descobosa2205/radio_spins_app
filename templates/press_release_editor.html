@@ -1,0 +1,131 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ═══════════════ EL EDITOR DE UNA NOTA DE PRENSA ═══════════════
+   A la IZQUIERDA el lienzo: el FONDO (la imagen con la cabecera y los logos) y encima el titular,
+   los textos y los módulos, cada uno donde se coloque y del tamaño que se le dé (se arrastran, se
+   redimensionan desde la esquina). A la DERECHA lo que se puede añadir. Arriba, SIEMPRE, Guardar.
+   El motor es static/js/press_editor.js; lo que se guarda es el DISEÑO (JSON), del que salen el
+   correo, la página, el PDF y la miniatura. #}
+<div class="pr-editor" data-pr-editor
+     data-save-url="{{ save_url }}" data-assets-url="{{ assets_url }}" data-bg-url="{{ bg_url }}"
+     data-templates-url="{{ templates_url }}" data-preview-url="{{ preview_url }}"
+     data-block-url="{{ url_for('promo_press_block_html', release_id=pr.id) }}"
+     data-detail-url="{{ url_for('promo_press_detail', release_id=pr.id) }}"
+     data-can-edit="{{ '1' if can_edit else '' }}">
+
+  <div class="pr-editor__top">
+    <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" title="Volver a la nota" aria-label="Volver a la nota"><i class="fa fa-arrow-left"></i></a>
+    <div class="pr-editor__who">
+      {% for s in subjects %}{{ artist_chip(s.label, s.photo) }}{% endfor %}
+      <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
+      <span class="badge text-bg-light border">{{ row.status_label }}</span>
+    </div>
+    <div class="pr-editor__actions">
+      <span class="pr-editor__saved text-muted small" data-pr-saved></span>
+      <label class="btn btn-outline-secondary btn-sm mb-0" title="Subir o cambiar la imagen de fondo (el contenido no se toca)">
+        <i class="fa fa-image me-1"></i>Fondo
+        <input type="file" accept="image/*" class="d-none" data-pr-bg-file>
+      </label>
+      <div class="dropdown">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Plantillas de fondo"><i class="fa fa-swatchbook me-1"></i>Plantillas</button>
+        <ul class="dropdown-menu dropdown-menu-end" data-pr-templates-menu>
+          <li><span class="dropdown-item-text small text-muted">Cargando…</span></li>
+        </ul>
+      </div>
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-pr-preview><i class="fa fa-envelope-open-text me-1"></i>Vista previa</button>
+      <button class="btn btn-primary" type="button" data-pr-save><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+    </div>
+  </div>
+
+  <div class="pr-editor__body">
+    <div class="pr-editor__stage" data-pr-stage>
+      <div class="pr-canvas-wrap" data-pr-wrap>
+        <div class="pr-canvas pr-canvas--edit" data-pr-canvas id="prCanvas">
+          <div class="pr-canvas__empty" data-pr-empty>
+            <i class="fa fa-image"></i>
+            <div class="fw-semibold mt-2">Sube la imagen de fondo</div>
+            <div class="small text-muted">La cabecera con los logos y el hueco para los textos. Después arrastra el titular, el texto y los módulos encima.</div>
+            <label class="btn btn-primary btn-sm mt-3 mb-0"><i class="fa fa-upload me-1"></i>Subir el fondo<input type="file" accept="image/*" class="d-none" data-pr-bg-file></label>
+          </div>
+        </div>
+      </div>
+      {# La barra flotante del TEXTO seleccionado: negrita · cursiva · subrayado · enlace · alineación ·
+         tipografía · color · tamaño del bloque. #}
+      <div class="pr-toolbar d-none" data-pr-toolbar>
+        <button type="button" class="pr-tb" data-pr-cmd="bold" title="Negrita"><i class="fa fa-bold"></i></button>
+        <button type="button" class="pr-tb" data-pr-cmd="italic" title="Cursiva"><i class="fa fa-italic"></i></button>
+        <button type="button" class="pr-tb" data-pr-cmd="underline" title="Subrayado (en un enlace, quita o pone su subrayado)"><i class="fa fa-underline"></i></button>
+        <span class="pr-tb__sep"></span>
+        <button type="button" class="pr-tb" data-pr-cmd="link" title="Enlazar el texto seleccionado"><i class="fa fa-link"></i></button>
+        <button type="button" class="pr-tb" data-pr-cmd="unlink" title="Quitar el enlace"><i class="fa fa-link-slash"></i></button>
+        <span class="pr-tb__sep"></span>
+        <button type="button" class="pr-tb" data-pr-cmd="justifyLeft" title="Alinear a la izquierda"><i class="fa fa-align-left"></i></button>
+        <button type="button" class="pr-tb" data-pr-cmd="justifyCenter" title="Centrar"><i class="fa fa-align-center"></i></button>
+        <button type="button" class="pr-tb" data-pr-cmd="justifyRight" title="Alinear a la derecha"><i class="fa fa-align-right"></i></button>
+        <button type="button" class="pr-tb" data-pr-cmd="justifyFull" title="Justificar"><i class="fa fa-align-justify"></i></button>
+        <span class="pr-tb__sep"></span>
+        <select class="pr-tb__select" data-pr-font title="Tipografía (del texto seleccionado)">
+          {% for f in fonts %}<option value="{{ f.css }}">{{ f.label }}</option>{% endfor %}
+        </select>
+        <label class="pr-tb pr-tb--color" title="Color del texto seleccionado"><i class="fa fa-palette"></i><input type="color" data-pr-color value="#111827"></label>
+        <span class="pr-tb__sep"></span>
+        <button type="button" class="pr-tb" data-pr-size="-1" title="Texto más pequeño (todo el bloque)"><i class="fa fa-minus"></i></button>
+        <input type="number" class="pr-tb__num" data-pr-size-input min="8" max="96" title="Tamaño del bloque (px)">
+        <button type="button" class="pr-tb" data-pr-size="1" title="Texto más grande (todo el bloque)"><i class="fa fa-plus"></i></button>
+        <span class="pr-tb__sep"></span>
+        <button type="button" class="pr-tb text-danger" data-pr-cmd="delete" title="Eliminar el bloque"><i class="fa fa-trash"></i></button>
+      </div>
+    </div>
+
+    <aside class="pr-editor__side">
+      <div class="pr-side__group">
+        <div class="pr-side__title"><i class="fa fa-font"></i>Texto <span class="text-muted small fw-normal">— arrástralo sobre el fondo</span></div>
+        <div class="pr-palette">
+          <div class="pr-pal" draggable="true" data-pr-pal="title"><span class="pr-pal__ico"><i class="fa fa-heading"></i></span><span><b>Titular</b><small>Grande, en negrita</small></span></div>
+          <div class="pr-pal" draggable="true" data-pr-pal="text"><span class="pr-pal__ico"><i class="fa fa-align-left"></i></span><span><b>Texto</b><small>Pega o escribe; con formato y enlaces</small></span></div>
+        </div>
+      </div>
+      <div class="pr-side__group">
+        <div class="pr-side__title"><i class="fa fa-cubes"></i>Módulos <span class="text-muted small fw-normal">— arrástralos a la nota</span></div>
+        <div class="text-muted small mb-2">Si solo se arrastran, se colocan debajo del último; después se mueven y se ajustan libremente.</div>
+        <div class="pr-palette" data-pr-modules><div class="text-muted small">Cargando…</div></div>
+      </div>
+      <div class="pr-side__group d-none" data-pr-props>
+        <div class="pr-side__title"><i class="fa fa-sliders"></i>Bloque seleccionado</div>
+        <div data-pr-props-body></div>
+      </div>
+      <div class="pr-side__group">
+        <div class="pr-side__title"><i class="fa fa-circle-info"></i>Cómo llegará</div>
+        <div class="small text-muted">Asunto: <b>{{ email_subject }}</b>. El correo lleva exactamente este diseño; los textos se pueden seleccionar y copiar.</div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+{# ---------- Vista previa del correo ---------- #}
+<div class="modal fade" id="prPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fa fa-envelope-open-text me-2 text-danger"></i>Así llega el correo</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body p-0" style="background:#f3f4f6;"><iframe data-pr-preview-frame title="Vista previa" style="width:100%;height:78vh;border:0;background:#f3f4f6;"></iframe></div>
+  </div></div>
+</div>
+
+{# ---------- Guardar el fondo como plantilla ---------- #}
+<div class="modal fade" id="prTemplateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fa fa-swatchbook me-2 text-danger"></i>Guardar el fondo como plantilla</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <label class="form-label">Nombre de la plantilla</label>
+      <input class="form-control" data-pr-template-name placeholder="Ej: Fondo PIES 2026">
+      <div class="form-text">Se guarda solo la imagen de fondo: después se carga en cualquier nota nueva desde «Plantillas».</div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-primary" data-pr-template-save>Guardar</button></div>
+  </div></div>
+</div>
+
+<script type="application/json" id="prDesign">{{ design_json|safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/press_editor.js', v=ASSET_V) }}"></script>
+{% endblock %}

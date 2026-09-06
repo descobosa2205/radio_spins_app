@@ -4433,6 +4433,100 @@ class MediaContactImportRow(Base):
 
 
 
+class PressRelease(Base):
+    """UNA nota de prensa (Promoción → Notas de prensa).
+
+    · De quién es (`subject_kind` ARTIST | EVENT | TOUR | CYCLE — con `artist_ids` porque una nota
+      puede ser de VARIOS artistas) y sobre qué va (`about_kind` ACTIVITY | SINGLE | ALBUM | SUBJECT,
+      con `about_id`).
+    · El DISEÑO vive en `design` (JSONB): el fondo (la imagen con la cabecera y los logos) y los
+      BLOQUES colocados encima —titular, textos, audio, repertorio, videoclip, enlaces, fotos,
+      contacto—, cada uno con su sitio y su tamaño en unidades del lienzo (600 de ancho).
+      Es la ÚNICA verdad: de él salen el correo, la página pública, el PDF y la miniatura.
+    · `status`: DRAFT (borrador) → SCHEDULED (programada) → SENT (enviada). Una nota ENVIADA no se
+      edita.
+    · `sender_kind`: BACKOFFICE (el remitente de la app) | PROMO33 («Promoción | 33 Producciones»)."""
+
+    __tablename__ = "press_releases"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    subject_kind = Column(Text, nullable=False, server_default=text("'ARTIST'"))
+    subject_id = Column(PGUUID(as_uuid=True))
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    about_kind = Column(Text, nullable=False, server_default=text("'SUBJECT'"))
+    about_id = Column(PGUUID(as_uuid=True))
+    title = Column(Text)                       # el TITULAR (se saca del bloque de titular al guardar)
+    background_url = Column(Text)
+    background_w = Column(Integer)
+    background_h = Column(Integer)
+    design = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status = Column(Text, nullable=False, server_default=text("'DRAFT'"))
+    sender_kind = Column(Text, nullable=False, server_default=text("'BACKOFFICE'"))
+    scheduled_at = Column(DateTime(timezone=True))
+    sent_at = Column(DateTime(timezone=True))
+    public_token = Column(Text, unique=True)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    recipients = relationship(
+        "PressReleaseRecipient",
+        back_populates="release",
+        cascade="all, delete-orphan",
+        order_by="PressReleaseRecipient.created_at",
+    )
+
+    __table_args__ = (
+        Index("idx_press_releases_status_sched", "status", "scheduled_at"),
+        Index("idx_press_releases_about", "about_kind", "about_id"),
+    )
+
+
+class PressReleaseRecipient(Base):
+    """A quién se le mandó (o se le va a mandar) una nota, con su TOKEN propio: es lo que permite
+    saber quién la ha ABIERTO (el píxel del correo y el enlace de la nota llevan ese token)."""
+
+    __tablename__ = "press_release_recipients"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    release_id = Column(PGUUID(as_uuid=True), ForeignKey("press_releases.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, nullable=False, unique=True)
+    email = Column(Text, nullable=False)
+    name = Column(Text)
+    kind = Column(Text, nullable=False, server_default=text("'MANUAL'"))   # MEDIA | PROMOTER | USER | MANUAL
+    ref_id = Column(PGUUID(as_uuid=True))          # el contacto del medio, el tercero, la persona…
+    media_name = Column(Text)
+    batch = Column(Text, nullable=False, server_default=text("'SEND'"))    # SEND | RESEND | SHARE | TEST
+    sent_at = Column(DateTime(timezone=True))
+    error = Column(Text)
+    opened_at = Column(DateTime(timezone=True))
+    open_count = Column(Integer, nullable=False, server_default=text("0"))
+    opens = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    forwarded = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    release = relationship("PressRelease", back_populates="recipients")
+
+    __table_args__ = (
+        Index("idx_press_recipients_release", "release_id", "sent_at"),
+    )
+
+
+class PressReleaseTemplate(Base):
+    """Un FONDO guardado como plantilla (con su nombre), para cargarlo en una nota nueva."""
+
+    __tablename__ = "press_release_templates"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    background_url = Column(Text, nullable=False)
+    background_w = Column(Integer)
+    background_h = Column(Integer)
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class PromotionRequest(Base):
     __tablename__ = "promotion_requests"
 
@@ -10166,6 +10260,66 @@ def ensure_promocion_prensa_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_media_contact_import_rows_batch ON media_contact_import_rows(import_id, status, position);',
         'CREATE INDEX IF NOT EXISTS idx_media_contact_imports_user ON media_contact_imports(created_by_user_id, status);',
+        # NOTAS DE PRENSA (Promoción): la nota, a quién se le mandó (con su token para saber quién la
+        # abre) y los fondos guardados como plantilla.
+        """
+        CREATE TABLE IF NOT EXISTS press_releases (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            subject_kind text NOT NULL DEFAULT 'ARTIST',
+            subject_id uuid,
+            artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            about_kind text NOT NULL DEFAULT 'SUBJECT',
+            about_id uuid,
+            title text,
+            background_url text,
+            background_w integer,
+            background_h integer,
+            design jsonb NOT NULL DEFAULT '{}'::jsonb,
+            status text NOT NULL DEFAULT 'DRAFT',
+            sender_kind text NOT NULL DEFAULT 'BACKOFFICE',
+            scheduled_at timestamptz,
+            sent_at timestamptz,
+            public_token text UNIQUE,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_press_releases_status_sched ON press_releases(status, scheduled_at);',
+        'CREATE INDEX IF NOT EXISTS idx_press_releases_about ON press_releases(about_kind, about_id);',
+        """
+        CREATE TABLE IF NOT EXISTS press_release_recipients (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            release_id uuid NOT NULL REFERENCES press_releases(id) ON DELETE CASCADE,
+            token text NOT NULL UNIQUE,
+            email text NOT NULL,
+            name text,
+            kind text NOT NULL DEFAULT 'MANUAL',
+            ref_id uuid,
+            media_name text,
+            batch text NOT NULL DEFAULT 'SEND',
+            sent_at timestamptz,
+            error text,
+            opened_at timestamptz,
+            open_count integer NOT NULL DEFAULT 0,
+            opens jsonb NOT NULL DEFAULT '[]'::jsonb,
+            forwarded boolean NOT NULL DEFAULT false,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_press_recipients_release ON press_release_recipients(release_id, sent_at);',
+        """
+        CREATE TABLE IF NOT EXISTS press_release_templates (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            background_url text NOT NULL,
+            background_w integer,
+            background_h integer,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
         """
         ALTER TABLE IF EXISTS promotions
             ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'MARKETING',

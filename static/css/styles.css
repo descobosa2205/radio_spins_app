@@ -2039,6 +2039,11 @@ div.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spaci
 @media (max-width: 575.98px) {
   .mytask__row .btn { margin-left: 0 !important; width: 100%; }
 }
+/* MIS AVISOS se leen igual que las tareas (misma tarjeta, mismas etiquetas y mismos colores). Lo
+   único que cambia: la imagen es la CARA de quien lo provoca, así que va REDONDA — el cuadrado es
+   para una portada o un cartel. */
+.mytask__art--round,
+.mytask__art--round img { border-radius: 50%; }
 
 .ctask__head { display: flex; align-items: center; gap: .55rem; min-width: 0; }
 .ctask__subject { font-weight: 700; color: var(--ink); flex-shrink: 0; max-width: 34%; }
@@ -4891,8 +4896,17 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .pl-row__menu{ flex:0 0 auto; }
 .pl-title-center{ text-align:center; font-size:1.45rem; font-weight:800; margin:.2rem 0 0; }
 
-/* ---- Listado de playlists (una debajo de otra) ---- */
-.pl-index__cover{ width:52px; height:52px; object-fit:cover; border-radius:10px; border:1px solid #e5e8ee; }
+/* ---- Listado de playlists (una debajo de otra) ----
+   ⚠️⚠️ La PORTADA es `flex:0 0 auto`: cualquier hijo de un flex SE PUEDE ENCOGER, así que con un
+   nombre largo se comprimía a lo ancho manteniendo el alto y salía OVALADA (el mismo bug que ya
+   tuvo la foto del artista en la cabecera de una bolsa).
+   ⚠️ Y el enlace y el bloque de texto llevan `min-width:0`: sin eso un hijo de un flex no baja de
+   su contenido, así que la fila se estiraba y el nombre y las etiquetas SE SALÍAN del recuadro. */
+.pl-index__cover{ flex:0 0 auto; width:52px; height:52px; object-fit:cover; border-radius:10px;
+                  border:1px solid #e5e8ee; }
+.pl-index__link{ display:flex; align-items:center; gap:1rem; flex:1 1 auto; min-width:0; }
+.pl-index__main{ flex:1 1 auto; min-width:0; overflow-wrap:break-word; }
+.pl-index__tags{ flex:0 0 auto; display:flex; align-items:center; gap:.35rem; }
 
 /* ---- Edición ---- */
 .pl-addbar{
@@ -5747,6 +5761,24 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
   .pl-row{ flex-wrap:wrap; }
   .pl-row.is-playing .pl-row__player{ flex:0 0 100%; order:10; margin-top:.4rem; }
   .pl-row__dur{ order:9; }
+}
+
+/* ── El LISTADO de playlists en MÓVIL ────────────────────────────────────────────────────────
+   La portada y el nombre arriba y las ETIQUETAS (valoración, candado) en su propia línea debajo:
+   al lado no caben, así que estrujaban el nombre —hasta dejarlo en una letra por línea— y se
+   salían por la derecha, montándose encima de los tres puntitos. Es el mismo criterio que en la
+   fila de un tema (`.pl-row`): lo que no cabe baja, nunca se estruja. */
+@media (max-width: 575.98px){
+  .pl-index .list-group-item{ align-items:flex-start; gap:.6rem; padding:.6rem .55rem; }
+  /* Rejilla de dos columnas: la PORTADA a la izquierda ocupando las dos filas, y a su derecha el
+     nombre arriba y las etiquetas justo debajo, alineadas con él. */
+  .pl-index__link{ display:grid; grid-template-columns:auto minmax(0,1fr);
+                   align-items:center; column-gap:.6rem; row-gap:.35rem; }
+  .pl-index__cover{ grid-row:1 / span 2; width:44px; height:44px; }
+  .pl-index__main,
+  .pl-index__tags{ grid-column:2; }
+  .pl-index__tags{ flex-wrap:wrap; row-gap:.3rem; }
+  .pl-index .dropdown{ align-self:flex-start; }
 }
 
 /* ── Sugerencias de un buscador CON MINIATURA (`typeahead.js`) ───────────────────────────────

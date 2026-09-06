@@ -189,6 +189,25 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-09-06 — Pasar de canción en el coche · las playlists en el móvil · Mis avisos
+
+- **EN CARPLAY Y EN EL IPHONE YA SE PUEDE PASAR DE CANCIÓN.** Se veía el tema, se podía pausar y
+  adelantar dentro de la canción, pero el coche **no lo trataba como una lista**: no dejaba ir a la
+  siguiente ni volver a la anterior. La causa: en la pantalla del coche (y en la de bloqueo) **solo
+  caben dos botones** a los lados del play, y al ofrecerle los de **±15 segundos** el sistema los
+  pintaba **en lugar de** los de pasar de tema. Ahora, **en una lista mandan «anterior» y
+  «siguiente»** y los de ±15 s se retiran; en una maqueta suelta —donde no hay a dónde pasar— se
+  quedan los de ±15 s, que ahí son los que sirven. **La barra para moverse por la canción sigue
+  estando** en los dos casos.
+- **EL LISTADO DE PLAYLISTS SE VE BIEN EN EL MÓVIL.** Se salían textos del recuadro, la etiqueta de
+  «Valoración y selección» se montaba encima de los tres puntitos y la portada salía **aplastada**
+  (ovalada). Ahora la portada es cuadrada, el nombre se lee entero y **las etiquetas bajan a su
+  propia línea**, debajo del nombre: lo que no cabe baja, no se estruja.
+- **«MIS AVISOS» SE LEE COMO «MIS TAREAS PENDIENTES».** El módulo de Inicio tiene ya la misma
+  estética: la misma tarjeta, la etiqueta de qué es con su icono, la cara de quien lo provoca, la
+  fecha y el botón **«Ver el aviso»** a la derecha. Al pincharlo se abre el mismo pop-up de siempre
+  (con «Cerrar el aviso» e «Ir a resolverlo»).
+
 ### 2026-09-05 (4) — Elegir temas a dos columnas · dos pestañas en las valoraciones · el coche
 
 - **AL ELEGIR TEMAS, LA PLAYLIST A LA IZQUIERDA Y LAS DEMOS A LA DERECHA.** Antes el buscador iba

@@ -1796,27 +1796,30 @@
     <div class="list-group pl-index">
       {% for row in playlist_rows %}
         <div class="list-group-item d-flex align-items-center gap-3">
-          <a class="pl-index__link d-flex align-items-center gap-3 flex-grow-1 text-reset text-decoration-none"
-             href="{{ row.url }}">
+          <a class="pl-index__link text-reset text-decoration-none" href="{{ row.url }}">
             <img class="pl-index__cover" src="{{ row.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
-            <span class="flex-grow-1" style="min-width:8rem">
+            <span class="pl-index__main">
               <span class="d-block fw-bold">{{ row.name }}</span>
               <span class="d-block small text-muted">
                 {{ row.songs_count }} tema{{ '' if row.songs_count == 1 else 's' }}
                 {%- if row.created_at_label %} · creada el {{ row.created_at_label }}{% if row.created_by_nick %} por {{ row.created_by_nick }}{% endif %}{% endif %}
               </span>
             </span>
-            {# Si es de SELECCIÓN/VALORACIÓN se dice, con cuántos han contestado ya. #}
-            {% if row.vote_label %}
-              <span class="badge text-bg-warning text-dark" title="{{ row.vote_hint }}">
-                <i class="fa {{ row.vote_icon }} me-1"></i>{{ row.vote_label }}</span>
-            {% endif %}
-            {# El icono dice si esa playlist se puede descargar o no. #}
-            {% if row.allow_download %}
-              <span class="badge text-bg-success" title="Se puede descargar"><i class="fa fa-download"></i></span>
-            {% else %}
-              <span class="badge text-bg-light border text-muted" title="No se puede descargar"><i class="fa fa-lock"></i></span>
-            {% endif %}
+            {# Las etiquetas van juntas: en el móvil caen a su propia línea, debajo del nombre, en vez
+               de estrujarlo (o de salirse del recuadro por la derecha). #}
+            <span class="pl-index__tags">
+              {# Si es de SELECCIÓN/VALORACIÓN se dice, con cuántos han contestado ya. #}
+              {% if row.vote_label %}
+                <span class="badge text-bg-warning text-dark" title="{{ row.vote_hint }}">
+                  <i class="fa {{ row.vote_icon }} me-1"></i>{{ row.vote_label }}</span>
+              {% endif %}
+              {# El icono dice si esa playlist se puede descargar o no. #}
+              {% if row.allow_download %}
+                <span class="badge text-bg-success" title="Se puede descargar"><i class="fa fa-download"></i></span>
+              {% else %}
+                <span class="badge text-bg-light border text-muted" title="No se puede descargar"><i class="fa fa-lock"></i></span>
+              {% endif %}
+            </span>
           </a>
           <div class="dropdown">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>

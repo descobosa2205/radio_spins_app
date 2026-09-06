@@ -2255,6 +2255,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   portada (la fila lo emite en `data-pl-cover`).
   ⚠️ Lo que NO se puede arreglar desde aquí: si el enlace se abre desde **dentro de WhatsApp** (su
   navegador propio), iOS no da Now Playing a esa página. Abriéndolo en Safari, sí.
+  · ⚠️⚠️⚠️ **Y AUN ASÍ NO DEJABA PASAR DE CANCIÓN: LOS BOTONES DE ±15 s ECHAN A LOS DE PISTA**
+  (corregido sep 2026, bug real: «en CarPlay y en el iPhone se ve bien y deja pausar o adelantar
+  dentro de la canción, pero no lo detecta como una lista y no deja pasar a la siguiente ni volver a
+  la anterior»). En el **Now Playing** de iOS y de CarPlay solo hay sitio para **UN par de botones** a
+  los lados del play, y cuando se registran **`seekbackward`/`seekforward`** el sistema pinta el
+  «±15 segundos» **EN LUGAR DE** anterior/siguiente. O sea: el síntoma («deja adelantar dentro del
+  tema pero no cambiar de canción») **es** la huella de tener esos dos mandos puestos.
+  ⚠️ Ahora, en una LISTA (`filas.length > 1`) mandan `nexttrack`/`previoustrack` y los de saltar se
+  **QUITAN A MANO** (`setActionHandler('seekbackward', null)`): registrar y no desregistrar deja el
+  botón puesto para siempre, porque los mandos del sistema son unos solos y se heredan del último
+  reproductor que ha sonado. Con **UN solo tema** —una maqueta compartida, la ficha de un tema de
+  Syncros— no hay a dónde pasar, así que ahí sí se dejan los de ±15 s.
+  ⚠️ **`seekto` se deja SIEMPRE**: no ocupa botón (es la barra que se arrastra en el coche).
+  ⚠️ Como `enganchaMandos()` se llama en CADA tema y `plReindex()` recalcula `filas`, el reparto se
+  decide en cada arranque: una playlist de valoración que se reordena no se queda sin botones.
+  Comprobado en el navegador interceptando `setActionHandler`: con 4 temas quedan `nexttrack`/
+  `previoustrack` y los seek a `null`; con 1 tema, al revés.
 
 - ⚠️⚠️ **LAS FRANJAS DE AVISO SE PINTAN EN EL HTML, NO LAS METE EL JS** (sep 2026, bug real: «al
   entrar, Inicio carga sin las notificaciones y es como que vuelve a cargar todo con ellas»). El
@@ -6918,6 +6935,39 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   gratuitas/canceladas/pasadas no, el Sold Out no se cuela en lo que se comparte ni como cartel
   principal, sobrevive a reenviar la cartelería, y el aviso + el correo salen desde un hilo.
 
+
+- ⚠️⚠️ **EL LISTADO DE PLAYLISTS EN MÓVIL: la portada NO se estruja y las etiquetas BAJAN** (sep
+  2026, bug real: «se cortan textos que salen fuera del recuadro y los títulos aparecen una letra
+  debajo de otra»). La fila era un flex con la portada, el bloque de texto y las etiquetas
+  (valoración, candado) todo en la misma línea, y en 375 px: la **portada salía OVALADA** (15×52) y
+  la etiqueta amarilla **se salía por la derecha**, montándose sobre los tres puntitos; medido,
+  `body.scrollWidth` 410 sobre 375. Las dos causas son las de siempre:
+  · **un hijo de un flex SE ENCOGE** por debajo de su contenido si no lleva `flex:0 0 auto` (la
+    portada) — el mismo bug que la foto del artista en la cabecera de una bolsa;
+  · **y NO baja de su contenido** si no lleva `min-width:0` (el enlace y el bloque de texto), así que
+    la fila se estira y lo que sobra se sale.
+  · En móvil el enlace pasa a ser una **rejilla de dos columnas** (`.pl-index__link`): la portada a la
+    izquierda ocupando las dos filas (`grid-row:1 / span 2`) y a su derecha el nombre arriba y las
+    **etiquetas justo debajo**, alineadas con él. Es el mismo criterio que `.pl-row`: lo que no cabe
+    BAJA, nunca se estruja.
+  ⚠️ El `<a>` dejó de llevar `d-flex` de Bootstrap (que es `!important` y no deja pasar a `grid`):
+  su maqueta vive entera en `.pl-index__link`.
+  Medido a 375 px: `scrollWidth` 375, portada 44×44 y nada fuera del recuadro; y a 1280 px, igual que
+  antes.
+
+- **MIS AVISOS se lee IGUAL que MIS TAREAS PENDIENTES** (sep 2026, lo pidió Dani): el módulo de
+  Inicio usa las MISMAS clases `.mytask*` —la misma tarjeta, la etiqueta de qué es en el azul de la
+  marca con su icono, los datos con icono debajo, la pastilla de estado y el botón sin rellenar a la
+  derecha—. Un aviso es «esto te está esperando», igual que una tarea, así que se lee igual.
+  · La pastilla dice **«Sin leer»** (el amarillo de «pendiente») y el botón, **«Ver el aviso»**.
+  ⚠️ **La CARA de quien lo provoca va REDONDA** (`.mytask__art--round`): el cuadrado es de una
+  portada o un cartel — la regla de la casa. Sin foto, el icono de su tipo.
+  ⚠️ **El TÍTULO de un aviso NO se trunca**: es una frase, no el nombre de una ficha (en una tarea sí
+  se recorta con «…»).
+  ⚠️ **No navega**: el clic —en cualquier sitio, botón incluido— abre el POP-UP del aviso. Lo hace
+  `notificaciones.js` por DELEGACIÓN sobre `[data-notif-item]` **sin excluir botones**, así que el
+  `<button>` de dentro vale y se conserva la accesibilidad de teclado.
+  ⚠️ La tarjeta perdió el `border-danger`: los dos módulos se ven ya idénticos.
 
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).

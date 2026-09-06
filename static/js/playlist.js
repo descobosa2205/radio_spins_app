@@ -209,16 +209,27 @@
          registra el último que suena. Con un cerrojo de «ya está hecho», al volver al primero los
          botones del coche seguían mandando sobre el otro. Registrarlos no cuesta nada. */
       if (!ms) return;
+      /* ⚠️⚠️ LOS BOTONES DE ±15 s ECHAN A LOS DE PASAR DE CANCIÓN. En el Now Playing del
+         iPhone y de CarPlay solo hay sitio para UN par de botones a los lados del play, y cuando se
+         registran `seekbackward`/`seekforward` el sistema pinta el «±15 segundos» **EN LUGAR DE**
+         anterior/siguiente: por eso se podía pausar y adelantar dentro del tema, pero el coche no lo
+         trataba como una LISTA y no dejaba cambiar de canción.
+         En una lista mandan `nexttrack`/`previoustrack`, y los de saltar se QUITAN a mano (`null`):
+         registrar y no desregistrar deja el botón puesto para siempre (los mandos del sistema son
+         unos solos y se heredan del último que ha sonado). Con UN solo tema —una maqueta compartida,
+         la ficha de un tema de Syncros— no hay a dónde pasar, así que ahí sí se dejan los de ±15 s.
+         `seekto` **no ocupa botón** (es la barra que se arrastra), así que se deja siempre. */
+      var esLista = filas.length > 1;
       mando('play', function () { audio.play().catch(function () {}); });
       mando('pause', function () { audio.pause(); });
       mando('stop', function () { audio.pause(); try { audio.currentTime = 0; } catch (e) {} });
-      mando('nexttrack', siguienteTema);
-      mando('previoustrack', temaAnterior);
-      mando('seekbackward', function (d) {
+      mando('nexttrack', esLista ? siguienteTema : null);
+      mando('previoustrack', esLista ? temaAnterior : null);
+      mando('seekbackward', esLista ? null : function (d) {
         var s = (d && d.seekOffset) || 10;
         try { audio.currentTime = Math.max(0, (audio.currentTime || 0) - s); } catch (e) {}
       });
-      mando('seekforward', function (d) {
+      mando('seekforward', esLista ? null : function (d) {
         var s = (d && d.seekOffset) || 10;
         try { audio.currentTime = Math.min(audio.duration || 0, (audio.currentTime || 0) + s); } catch (e) {}
       });

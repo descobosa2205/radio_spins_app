@@ -13,7 +13,7 @@
   {'key': 'chartmetric', 'name': 'Chartmetric', 'subtitle': 'Métricas', 'icon': 'fa-chart-line', 'configured': chartmetric_configured},
   {'key': 'enterticket', 'name': 'Enterticket', 'subtitle': 'Ticketing', 'icon': 'fa-ticket', 'configured': enterticket_configured},
   {'key': 'sms', 'name': 'SMS', 'subtitle': 'Avisos al móvil', 'icon': 'fa-comment-sms', 'configured': sms_configured},
-  {'key': 'correo', 'name': 'Correo', 'subtitle': 'Envío de avisos', 'icon': 'fa-envelope', 'configured': smtp.configured},
+  {'key': 'correo', 'name': 'Correo', 'subtitle': 'Avisos y cuentas de envío', 'icon': 'fa-envelope', 'configured': (smtp.configured or mail.active_count > 0)},
 ] %}
 
 <ul class="nav nav-tabs mb-3" id="integrationsTabs" role="tablist">
@@ -1106,19 +1106,10 @@
     </div>
   </div>
 
-</div>
-
-<script>
-// Abre la pestaña indicada en la URL (#tab-xxx) al volver de una acción (p. ej. #tab-enterticket).
-document.addEventListener('DOMContentLoaded', function () {
-  var h = location.hash;
-  if (!h) return;
-  var btn = document.querySelector('button[data-bs-target="' + h + '"]');
-  if (btn && window.bootstrap) { new bootstrap.Tab(btn).show(); }
-});
-</script>
-
-<div class="mt-4">
+  {# ⚠️ SMS y CORREO van DENTRO de `.tab-content`, como las demás pestañas. Estaban fuera (en un
+     div «mt-4» aparte) y Bootstrap solo esconde con display:none a `.tab-content > .tab-pane`:
+     a las de fuera les quedaba `.fade` (opacity 0), así que OCUPABAN SITIO INVISIBLES y al abrir Correo
+     salía un hueco en blanco enorme (la pestaña SMS entera) antes de ver nada (bug real, sep 2026). #}
   {# ============================ SMS ============================
      Avisos por mensaje de texto. Una sola cuenta para toda la casa: lo que identifica quién escribe
      es el REMITENTE, no la cuenta. Todo el panel vive en `#smsZone` para que cada acción refresque
@@ -1407,10 +1398,88 @@ document.addEventListener('DOMContentLoaded', function () {
   </div>
 
   {# ============================ CORREO ============================
-     No hay nada que «configurar» aquí (el servidor de salida va en las variables de Render): esta
-     pestaña está para VER con qué se está mandando, probar si llega, y tener escrito lo único que de
-     verdad decide que un aviso no acabe en spam: los tres registros DNS del dominio. #}
+     Dos cosas. (1) Con qué manda la app los AVISOS: el servidor de salida de las variables de Render,
+     que aquí se VE y se PRUEBA (no se configura). (2) Las CUENTAS PROPIAS DE ENVÍO: buzones desde los
+     que tiene que salir algo concreto —hoy, las notas de prensa desde promocion@—, con las credenciales
+     de ESE buzón, su prueba y la comprobación de los DNS de su dominio. Todo vive en `#correoZone` para
+     que cada acción refresque solo este trozo (data-inline) sin perder la pestaña.
+     ⚠️ La zona NO puede ser el propio `.tab-pane`: llegaría sin la clase `active` y desaparecería. #}
+  {% macro mail_form(a, prefill) %}
+    {# El formulario de una cuenta (alta y edición: el MISMO). `a` es la fila (o none) y `prefill` los
+       valores por defecto del alta. La contraseña nunca viaja de vuelta: vacío = no cambiarla. #}
+    <form method="post" action="{{ url_for('mail_account_save') }}" class="row g-2 mt-1" data-inline data-inline-target="#correoZone" autocomplete="off">
+      {% if a %}<input type="hidden" name="account_id" value="{{ a.id }}">{% endif %}
+      <input type="hidden" name="is_active_present" value="1">
+      <div class="col-12 col-md-4">
+        <label class="form-label small mb-0">Cómo se llama aquí</label>
+        <input class="form-control form-control-sm" name="label" value="{{ a.label if a else prefill.label }}" placeholder="Promoción">
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label small mb-0">Nombre que ve quien lo recibe</label>
+        <input class="form-control form-control-sm" name="from_name" value="{{ a.from_name if a else prefill.from_name }}" placeholder="Promoción | 33 Producciones">
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label small mb-0">Dirección desde la que sale</label>
+        <input class="form-control form-control-sm" name="from_email" type="email" required value="{{ a.from_email if a else prefill.from_email }}" placeholder="promocion@33producciones.es">
+      </div>
+      <div class="col-12 col-md-5">
+        <label class="form-label small mb-0">Servidor de salida (SMTP)</label>
+        <input class="form-control form-control-sm" name="smtp_host" required value="{{ a.smtp_host if a else '' }}" placeholder="smtp.tudominio.es (lo dice el panel del proveedor)">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-0">Puerto</label>
+        <input class="form-control form-control-sm" name="smtp_port" type="number" min="1" max="65535" value="{{ a.smtp_port if a else 465 }}" data-mail-port>
+      </div>
+      <div class="col-6 col-md-5">
+        <label class="form-label small mb-0">Cifrado</label>
+        <select class="form-select form-select-sm" name="smtp_security" data-mail-security>
+          {% for key, lab, ayuda in mail.security_kinds %}
+            <option value="{{ key }}" data-port="{{ mail.ports[key] }}" {% if (a.smtp_security if a else 'SSL') == key %}selected{% endif %}>{{ lab }} · {{ ayuda }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-0">Usuario del buzón</label>
+        <input class="form-control form-control-sm" name="smtp_username" value="{{ a.smtp_username if a else prefill.from_email }}" placeholder="normalmente la propia dirección">
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-0">Contraseña del buzón</label>
+        <input class="form-control form-control-sm" name="smtp_password" type="password" autocomplete="new-password"
+               placeholder="{% if a and a.has_password %}•••••••• (guardada: déjalo vacío para no cambiarla){% else %}La misma con la que se entra en el webmail{% endif %}">
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-0">A dónde van las respuestas (opcional)</label>
+        <input class="form-control form-control-sm" name="reply_to" type="email" value="{{ a.reply_to if a else '' }}" placeholder="vacío = al propio buzón">
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-0">Selector DKIM (opcional, para comprobarlo)</label>
+        <input class="form-control form-control-sm" name="dkim_selector" value="{{ a.dkim_selector if a else '' }}" placeholder="default · mail · selector1…">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label small mb-0" title="Un respiro entre un correo y el siguiente">Respiro (ms)</label>
+        <input class="form-control form-control-sm" name="pause_ms" type="number" min="0" max="60000" value="{{ a.pause_ms if a else 800 }}">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label small mb-0" title="Conexión nueva cada N correos">Reconectar cada</label>
+        <input class="form-control form-control-sm" name="reconnect_every" type="number" min="0" max="1000" value="{{ a.reconnect_every if a else 40 }}">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label small mb-0" title="0 = sin tope">Tope por hora</label>
+        <input class="form-control form-control-sm" name="hourly_cap" type="number" min="0" max="100000" value="{{ a.hourly_cap if a else 0 }}">
+      </div>
+      <div class="col-12 col-md-6 d-flex align-items-end gap-3">
+        <label class="form-check small mb-1"><input class="form-check-input" type="checkbox" name="is_active" value="1" {% if (a.is_active if a else true) %}checked{% endif %}> Activa</label>
+        {% if a and a.has_password %}<label class="form-check small mb-1 text-danger"><input class="form-check-input" type="checkbox" name="clear_password" value="1"> Borrar la contraseña</label>{% endif %}
+        <button class="btn btn-sm btn-primary ms-auto"><i class="fa fa-floppy-disk me-1"></i>{{ 'Guardar cambios' if a else 'Guardar la cuenta' }}</button>
+      </div>
+      <div class="col-12 form-text mt-0">
+        El respiro, la reconexión y el tope son el <b>ritmo</b> de un envío grande (una nota de prensa a cientos de medios): un hosting
+        compartido corta —o marca como spam— al que manda cientos de correos de golpe. Si el proveedor dice cuántos admite por hora, ponlo en el tope.
+      </div>
+    </form>
+  {% endmacro %}
   <div class="tab-pane fade" id="tab-correo" role="tabpanel" aria-labelledby="tab-correo-tab">
+    <div id="correoZone" data-inline-zone>
     <div class="card mb-3">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
@@ -1450,32 +1519,133 @@ document.addEventListener('DOMContentLoaded', function () {
         {% else %}
           <div class="alert alert-danger small mb-0">
             <i class="fa fa-circle-exclamation me-1"></i>No hay servidor de salida configurado
-            (<code>SMTP_HOST</code> en Render): la app no manda ningún correo.
+            (<code>SMTP_HOST</code> en Render): la app no manda ningún aviso.
           </div>
         {% endif %}
+        {# ---------- La prueba del servidor de la app ---------- #}
+        <form method="post" action="{{ url_for('smtp_send_test') }}" class="row g-2 align-items-end mt-3"
+              data-inline data-inline-target="#correoZone">
+          <div class="col-12 col-md-6">
+            <label class="form-label small mb-0">Mandar un aviso de prueba a</label>
+            <input class="form-control form-control-sm" name="email" type="email" placeholder="tu@gmail.com" required>
+          </div>
+          <div class="col-12 col-md-4">
+            <button class="btn btn-sm btn-outline-primary"><i class="fa fa-paper-plane me-1"></i>Enviar prueba</button>
+          </div>
+          <div class="col-12 form-text mt-1">
+            Míralo en <strong>Gmail</strong> y en <strong>Outlook/Hotmail</strong>, que son los que más filtran. Si llega a spam,
+            abre el mensaje → «Mostrar original» y busca <code>spf=</code>, <code>dkim=</code> y <code>dmarc=</code>: los tres tienen que decir <code>pass</code>.
+          </div>
+        </form>
       </div>
     </div>
 
-    {# ---------- La prueba ---------- #}
+    {# ---------- CUENTAS PROPIAS DE ENVÍO ---------- #}
     <div class="card mb-3">
       <div class="card-body">
-        <h3 class="h6">Mandar un correo de prueba</h3>
-        <p class="text-muted small mb-3">
-          Míralo en <strong>Gmail</strong> y en <strong>Outlook/Hotmail</strong>, que son los que más
-          filtran. Si llega a spam, abre el mensaje → «Mostrar original» y busca
-          <code>spf=</code>, <code>dkim=</code> y <code>dmarc=</code>: los tres tienen que decir
-          <code>pass</code>.
+        <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+          <h3 class="h6 mb-0"><i class="fa fa-at me-1 text-danger"></i>Cuentas de envío <span class="text-muted small fw-normal">· otros buzones desde los que sale algo concreto</span></h3>
+          <span class="badge text-bg-{{ 'success' if mail.active_count else 'secondary' }}">{{ mail.active_count }} activa{{ 's' if mail.active_count != 1 }}</span>
+        </div>
+        <p class="text-muted small mb-2">
+          Lo de arriba manda los <strong>avisos</strong>. Esto es para lo que tiene que salir <strong>desde otro buzón</strong> —hoy,
+          las <strong>notas de prensa</strong> desde <code>{{ mail.promo_email }}</code>— con la <strong>contraseña de ese buzón</strong>:
+          el correo sale por su propio servidor y con su propio dominio, y no hay que pedirle al servidor de la app que «mande
+          como» otra dirección (que es justo lo que rechazaba). Se elige al enviar cada nota.
         </p>
-        <form method="post" action="{{ url_for('smtp_send_test') }}" class="row g-2 align-items-end"
-              data-inline data-inline-target="#tab-correo">
-          <div class="col-12 col-md-6">
-            <label class="form-label">Correo</label>
-            <input class="form-control" name="email" type="email" placeholder="tu@gmail.com" required>
+        {% if mail.promo_missing %}
+          <div class="alert alert-warning small">
+            <i class="fa fa-triangle-exclamation me-1"></i><strong>{{ mail.promo_email }} todavía no está dada de alta.</strong>
+            Hasta entonces, una nota de prensa que se mande como «{{ mail.promo_name }}» sale con el remitente de la app y con
+            Reply-To a esa dirección. Abajo tienes el alta ya rellena: solo faltan el servidor de salida y la contraseña del buzón.
           </div>
-          <div class="col-12 col-md-3 d-grid">
-            <button class="btn btn-outline-primary"><i class="fa fa-paper-plane me-1"></i>Enviar prueba</button>
+        {% endif %}
+
+        {% for a in mail.rows %}
+          <div class="mail-acc border rounded-3 p-3 mb-3{% if not a.is_active %} mail-acc--off{% endif %}" data-mail-acc="{{ a.id }}">
+            <div class="d-flex align-items-start gap-3 flex-wrap">
+              <span class="mail-acc__ico"><i class="fa {{ 'fa-microphone-lines' if a.is_promo else 'fa-at' }}"></i></span>
+              <div class="flex-grow-1" style="min-width:16rem;">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <b>{{ a.from_name or a.label or a.from_email }}</b>
+                  <span class="text-muted small">&lt;{{ a.from_email }}&gt;</span>
+                  {% if a.is_active %}<span class="badge text-bg-success">Activa</span>{% else %}<span class="badge text-bg-secondary">Desactivada</span>{% endif %}
+                  {% if a.last_test_ok %}
+                    <span class="badge text-bg-success" title="{{ a.last_test_info }}"><i class="fa fa-check me-1"></i>Probada · {{ a.last_test_at }}</span>
+                  {% elif a.last_test_ok is sameas false %}
+                    <span class="badge text-bg-danger" title="{{ a.last_test_info }}"><i class="fa fa-xmark me-1"></i>Falló la prueba · {{ a.last_test_at }}</span>
+                  {% else %}
+                    <span class="badge text-bg-warning text-dark">Sin probar</span>
+                  {% endif %}
+                </div>
+                <div class="small text-muted mt-1">
+                  <i class="fa fa-server fa-fw me-1"></i>{{ a.smtp_host }}:{{ a.smtp_port }} ({{ a.security_label }})
+                  · <i class="fa fa-user fa-fw me-1"></i>{{ a.smtp_username or a.from_email }}
+                  · <i class="fa fa-key fa-fw me-1"></i>{% if a.has_password %}contraseña guardada{% else %}<span class="text-danger">sin contraseña</span>{% endif %}
+                  {% if a.reply_to %} · <i class="fa fa-reply fa-fw me-1"></i>responde a {{ a.reply_to }}{% endif %}
+                  · <i class="fa fa-gauge fa-fw me-1"></i>{{ a.pause_ms }} ms entre correos, conexión nueva cada {{ a.reconnect_every or '∞' }}{% if a.hourly_cap %}, máximo {{ a.hourly_cap }}/hora{% endif %}
+                </div>
+                <div class="small mt-1">{% for u in a.uses %}<span class="badge text-bg-light border me-1"><i class="fa fa-newspaper me-1"></i>{{ u }}</span>{% endfor %}</div>
+                {% if a.last_test_ok is sameas false and a.last_test_info %}<div class="small text-danger mt-1"><i class="fa fa-circle-exclamation me-1"></i>{{ a.last_test_info }}</div>{% endif %}
+                {% if not a.aligned %}
+                  <div class="small text-warning-emphasis mt-1"><i class="fa fa-triangle-exclamation me-1"></i>El usuario ({{ a.smtp_username }}) no es del dominio del remitente ({{ a.domain }}): el correo puede salir como falsificado. Lo normal es que el usuario sea la propia dirección.</div>
+                {% endif %}
+              </div>
+            </div>
+            <div class="d-flex flex-wrap align-items-end gap-2 mt-3">
+              <form method="post" action="{{ url_for('mail_account_test', account_id=a.id) }}" class="d-flex flex-wrap align-items-end gap-2" data-inline data-inline-target="#correoZone">
+                <button class="btn btn-sm btn-outline-primary" name="do" value="check" title="Entra en el servidor con el usuario y la contraseña, sin mandar nada"><i class="fa fa-plug me-1"></i>Probar conexión</button>
+                <div>
+                  <input class="form-control form-control-sm" name="email" type="email" placeholder="tu@gmail.com" style="min-width:14rem;">
+                </div>
+                <button class="btn btn-sm btn-outline-primary" name="do" value="send" title="Manda un correo de prueba DESDE esta cuenta"><i class="fa fa-paper-plane me-1"></i>Enviar prueba desde aquí</button>
+              </form>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-mail-dns="{{ url_for('mail_account_dns', account_id=a.id) }}" data-mail-dns-for="{{ a.id }}"><i class="fa fa-globe me-1"></i>Comprobar los DNS</button>
+              <form method="post" action="{{ url_for('mail_account_delete', account_id=a.id) }}" class="ms-auto" data-inline data-inline-target="#correoZone"
+                    data-confirm="¿Eliminar la cuenta {{ a.from_email }}? Lo que salía por ella volverá a salir con el remitente de la app.">
+                <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar</button>
+              </form>
+            </div>
+            <div class="mail-dns small mt-2 d-none" data-mail-dns-result="{{ a.id }}"></div>
+            <details class="mt-2">
+              <summary class="small text-primary" style="cursor:pointer;"><i class="fa fa-pen me-1"></i>Editar esta cuenta</summary>
+              {{ mail_form(a, {}) }}
+            </details>
           </div>
-        </form>
+        {% endfor %}
+
+        <details class="mail-acc-add"{% if not mail.rows %} open{% endif %}>
+          <summary class="btn btn-sm btn-outline-primary"><i class="fa fa-plus me-1"></i>Añadir una cuenta de envío</summary>
+          {% set prefill = ({'label': 'Promoción', 'from_name': mail.promo_name, 'from_email': mail.promo_email} if mail.promo_missing else {'label': '', 'from_name': '', 'from_email': ''}) %}
+          {{ mail_form(none, prefill) }}
+        </details>
+      </div>
+    </div>
+
+    {# ---------- La guía para promocion@ en el hosting ---------- #}
+    <div class="card mb-3">
+      <div class="card-body">
+        <h3 class="h6"><i class="fa fa-list-ol me-1 text-danger"></i>Cómo dejar {{ mail.promo_email }} mandando desde su buzón (webmail.es u otro hosting)</h3>
+        <ol class="small mb-2">
+          <li><strong>Entra en el panel del hosting</strong> (donde está el webmail) y abre la configuración de <em>clientes de correo</em> de ese
+            buzón: ahí salen el <strong>servidor de salida (SMTP)</strong>, el <strong>puerto</strong> y el <strong>cifrado</strong>. Lo habitual es
+            <code>smtp.</code> seguido del dominio (o el servidor del propio hosting) con <strong>465 y SSL/TLS</strong>; si solo da el <strong>587</strong>, elige STARTTLS.</li>
+          <li><strong>Rellena la cuenta de arriba</strong> con eso, el usuario (la propia dirección, salvo que el panel diga otra cosa) y la
+            <strong>misma contraseña con la que se entra en el webmail</strong>. Guarda.</li>
+          <li><strong>Pulsa «Probar conexión»</strong>: dice si el servidor acepta el usuario y la contraseña, sin mandar nada. Si falla por
+            el cifrado, prueba el otro par (465 SSL/TLS ↔ 587 STARTTLS).</li>
+          <li><strong>«Enviar prueba desde aquí»</strong> a un Gmail y a un Outlook: tiene que entrar en la <strong>bandeja</strong>, no en spam,
+            y verse como «{{ mail.promo_name }}».</li>
+          <li><strong>Pulsa «Comprobar los DNS»</strong>: dice si el dominio autoriza a ese servidor (SPF), si hay DMARC y —si pones el
+            selector— si DKIM está publicado. Lo que falte se pone <strong>una vez</strong> en el panel del hosting (Correo → Autenticación /
+            DKIM, y la zona DNS del dominio) o se le pide al proveedor con estas mismas palabras.</li>
+          <li>Después, en cada nota de prensa, elige <strong>«{{ mail.promo_name }}»</strong> como remitente: saldrá desde su buzón, un correo
+            por persona y al ritmo que marque la cuenta.</li>
+        </ol>
+        <div class="small text-muted">
+          <i class="fa fa-circle-info me-1"></i>Si el hosting pone un tope de correos por hora (los compartidos suelen: 100–500), escríbelo en
+          <strong>«Tope por hora»</strong>: la app manda hasta ahí y el resto sale solo cuando pase la hora, sin que nadie tenga que volver a pulsar nada.
+        </div>
       </div>
     </div>
 
@@ -1489,6 +1659,7 @@ document.addEventListener('DOMContentLoaded', function () {
           <code>{{ smtp.from_domain or '33producciones.es' }}</code> es indistinguible de uno
           falsificado, y por eso va a spam «a mucha gente» y a otros no (cada proveedor es más o menos
           estricto). Se ponen <strong>una vez</strong> donde estén contratados los DNS del dominio.
+          El botón «Comprobar los DNS» de cada cuenta de arriba dice cómo están.
         </p>
         <div class="table-responsive">
           <table class="table table-sm align-middle">
@@ -1527,12 +1698,12 @@ document.addEventListener('DOMContentLoaded', function () {
         <div class="alert alert-light border small mb-0">
           <div class="fw-semibold mb-1">Además, y por este orden</div>
           <ol class="mb-0">
-            <li><strong>Manda por un servicio de correo, no por el servidor de la app.</strong> Desde
+            <li><strong>El remitente tiene que ser del dominio con el que se firma</strong>, y salir por un servidor
+              que ese dominio autorice: es lo que hace una cuenta propia de envío (el buzón de promocion@ por su propio hosting).</li>
+            <li><strong>Los avisos, por un servicio de correo, no por el servidor de la app.</strong> Desde
               una IP de Render sin reputación, la mitad acaba en spam por muy bien que esté todo lo
               demás. Con Brevo, Postmark, SendGrid o Amazon SES (todos con plan gratuito para este
               volumen) se cambian tres variables y ellos ponen SPF y DKIM.</li>
-            <li><strong>El remitente tiene que ser del dominio con el que se firma.</strong> Nada de
-              mandar como <code>@gmail.com</code> ni con un dominio que no autorice al servidor.</li>
             <li><strong>Una dirección que exista y reciba</strong> (por ejemplo
               <code>avisos@{{ smtp.from_domain or 'tudominio.es' }}</code>): un remitente que rebota
               puntúa muy mal.</li>
@@ -1548,24 +1719,40 @@ document.addEventListener('DOMContentLoaded', function () {
         <h3 class="h6">Lo que ya hace la app</h3>
         <ul class="small mb-0">
           <li><strong>Un correo por persona</strong>, no uno con veinte direcciones en el «Para» (eso
-            parecía un envío masivo, y además le enseñaba a cada uno el correo de los demás).</li>
+            parecía un envío masivo, y además le enseñaba a cada uno el correo de los demás). Una nota de
+            prensa a 300 medios son <strong>300 correos sueltos</strong>, cada uno con su «Para».</li>
+          <li><strong>Al ritmo de una persona</strong>: un respiro entre correo y correo, una conexión nueva cada
+            tantos mensajes y —si la cuenta lo dice— un tope por hora; lo que no cabe sale solo después.</li>
           <li><strong>Versión en texto de verdad</strong>, sacada del propio mensaje: un correo solo en
             HTML —o con un texto que no dice lo mismo— puntúa como spam.</li>
-          <li><strong>Fecha y Message-ID</strong> en cada mensaje, y marcado como aviso automático
-            para que nadie le conteste con una autorespuesta.</li>
-          <li><strong>Remitente con nombre</strong> («33 Producciones»), no una marca que el que lo
+          <li><strong>Fecha y Message-ID</strong> del dominio del remitente en cada mensaje. Los avisos van marcados como
+            automáticos (para que nadie les conteste con una autorespuesta); una nota de prensa <strong>no</strong>, que la escribe una persona.</li>
+          <li><strong>Remitente con nombre</strong> («33 Producciones», «Promoción | 33 Producciones»), no una marca que el que lo
             recibe no conoce.</li>
-          <li><strong>Responder va al que lo manda</strong> (Reply-To), no a un buzón que nadie lee.</li>
+          <li><strong>Responder va a quien toca</strong> (Reply-To): al que manda el aviso, o al buzón de la cuenta propia.</li>
         </ul>
       </div>
     </div>
+    </div>{# /correoZone #}
   </div>
+</div>{# /tab-content #}
 
+<script>
+// Abre la pestaña indicada en la URL (#tab-xxx) al volver de una acción (p. ej. #tab-enterticket).
+document.addEventListener('DOMContentLoaded', function () {
+  var h = location.hash;
+  if (!h) return;
+  var btn = document.querySelector('button[data-bs-target="' + h + '"]');
+  if (btn && window.bootstrap) { new bootstrap.Tab(btn).show(); }
+});
+</script>
+
+<div class="mt-4">
 <div class="alert alert-light border small mb-0">
   <i class="fa fa-shield-halved me-1"></i>
   Las credenciales de Chartmetric y Enterticket se configuran como variables de entorno en Render (nunca en el
-  código). Las de <strong>Pleo van aquí</strong>, porque hay una por empresa del grupo: se guardan en la base de
-  datos, solo las ve dirección y nunca se vuelven a mostrar completas. Mientras una integración no tenga
+  código). Las de <strong>Pleo van aquí</strong>, porque hay una por empresa del grupo, y las <strong>cuentas de envío de
+  correo</strong> también: se guardan en la base de datos, solo las ve dirección y nunca se vuelven a mostrar completas. Mientras una integración no tenga
   credencial queda <strong>desactivada</strong> y no afecta al resto de la web.
 </div>
 </div>
@@ -1803,4 +1990,39 @@ document.addEventListener('inline:updated', function (ev) {
 })();
 </script>
 
+<script>
+/* Cuentas de envío (Correo): «Comprobar los DNS» pinta lo que dice el servidor, y al cambiar el cifrado
+   se pone su puerto habitual si no se ha tocado. Todo por DELEGACIÓN en `document`: viven dentro de
+   `#correoZone`, que se REEMPLAZA por AJAX en cada acción. */
+document.addEventListener('click', function (ev) {
+  var btn = ev.target.closest && ev.target.closest('[data-mail-dns]');
+  if (!btn) return;
+  var caja = document.querySelector('[data-mail-dns-result="' + btn.getAttribute('data-mail-dns-for') + '"]');
+  if (!caja) return;
+  caja.classList.remove('d-none');
+  caja.innerHTML = '<span class="text-muted"><i class="fa fa-spinner fa-spin me-1"></i>Consultando los DNS…</span>';
+  fetch(btn.getAttribute('data-mail-dns'), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (js) {
+      if (!js || !js.ok) { caja.innerHTML = '<span class="text-danger">No se pudo comprobar.</span>'; return; }
+      function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+      function fila(nombre, r) {
+        var ico = r.ok === true ? '<i class="fa fa-circle-check text-success"></i>' : (r.ok === false ? '<i class="fa fa-circle-xmark text-danger"></i>' : '<i class="fa fa-circle-question text-warning"></i>');
+        var txt = r.text ? '<div class="text-muted text-break"><code>' + esc(r.text) + '</code></div>' : '';
+        return '<div class="mail-dns__row">' + ico + '<div><b>' + nombre + '</b> · ' + esc(r.note || '') + txt + '</div></div>';
+      }
+      var html = '<div class="fw-semibold mb-1">DNS de <code>' + esc(js.domain) + '</code>' + (js.unknown ? ' <span class="text-warning">(no se pudo consultar del todo)</span>' : '') + '</div>';
+      html += fila('SPF', js.spf || {}) + fila('DKIM', js.dkim || {}) + fila('DMARC', js.dmarc || {});
+      caja.innerHTML = html;
+    })
+    .catch(function () { caja.innerHTML = '<span class="text-danger">No se pudo comprobar.</span>'; });
+});
+document.addEventListener('change', function (ev) {
+  var sel = ev.target.closest && ev.target.closest('[data-mail-security]');
+  if (!sel) return;
+  var form = sel.closest('form'); var puerto = form && form.querySelector('[data-mail-port]');
+  var op = sel.options[sel.selectedIndex];
+  if (puerto && op && op.getAttribute('data-port') && (!puerto.value || ['465', '587', '25'].indexOf(puerto.value) >= 0)) puerto.value = op.getAttribute('data-port');
+});
+</script>
 {% endblock %}

@@ -6949,6 +6949,42 @@ class SmsMessage(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class MailAccount(Base):
+    """Una CUENTA DE CORREO propia para MANDAR desde una dirección concreta (Integraciones → Correo →
+    «Cuentas de envío»). El servidor de la app (las variables `SMTP_*` de Render) manda los AVISOS;
+    esto es para lo que tiene que salir DESDE OTRO BUZÓN —hoy, las notas de prensa desde
+    promocion@33producciones.es— con las credenciales de ESE buzón: así el servidor no tiene que
+    admitir «mandar como» otra dirección (que es lo que rechazaba) y el correo sale alineado con su
+    propio dominio (SPF/DKIM del buzón que lo manda).
+    ⚠️ La contraseña se guarda para poder conectar y NO se enseña nunca (ni entera ni a medias).
+    ⚠️ `pause_ms` / `reconnect_every` / `hourly_cap` son el RITMO de un envío grande (una nota de
+    prensa a cientos de medios): un hosting compartido corta la conexión —o marca como spam— al que
+    manda cientos de correos de golpe. 0 en `hourly_cap` = sin tope."""
+
+    __tablename__ = "mail_accounts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    label = Column(Text)                                   # cómo se llama aquí («Promoción»)
+    from_name = Column(Text)                               # el nombre que ve quien lo recibe
+    from_email = Column(Text, nullable=False)              # la dirección desde la que sale
+    reply_to = Column(Text)                                # a dónde van las respuestas (vacío = al From)
+    smtp_host = Column(Text, nullable=False)
+    smtp_port = Column(Integer, nullable=False, server_default=text("465"))
+    smtp_security = Column(Text, nullable=False, server_default=text("'SSL'"))   # SSL | STARTTLS | NONE
+    smtp_username = Column(Text)
+    smtp_password = Column(Text)
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    pause_ms = Column(Integer, nullable=False, server_default=text("800"))
+    reconnect_every = Column(Integer, nullable=False, server_default=text("40"))
+    hourly_cap = Column(Integer, nullable=False, server_default=text("0"))
+    dkim_selector = Column(Text)                           # para poder comprobar el registro DKIM
+    last_test_at = Column(DateTime(timezone=True))
+    last_test_ok = Column(Boolean)
+    last_test_info = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 def ensure_sms_schema():
     """Cuenta de SMS y registro de envíos (idempotente, sin Alembic)."""
     stmts = [
@@ -6995,6 +7031,39 @@ def ensure_sms_schema():
         "CREATE INDEX IF NOT EXISTS idx_sms_messages_phone ON sms_messages(phone);",
     ]
     _exec_ddl_statements(stmts, "sms")
+
+
+def ensure_mail_accounts_schema():
+    """Las cuentas de correo propias para mandar (Integraciones → Correo). Idempotente, sin Alembic."""
+    stmts = [
+        """
+        CREATE TABLE IF NOT EXISTS mail_accounts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            label text,
+            from_name text,
+            from_email text NOT NULL,
+            reply_to text,
+            smtp_host text NOT NULL,
+            smtp_port integer NOT NULL DEFAULT 465,
+            smtp_security text NOT NULL DEFAULT 'SSL',
+            smtp_username text,
+            smtp_password text,
+            is_active boolean NOT NULL DEFAULT true,
+            pause_ms integer NOT NULL DEFAULT 800,
+            reconnect_every integer NOT NULL DEFAULT 40,
+            hourly_cap integer NOT NULL DEFAULT 0,
+            dkim_selector text,
+            last_test_at timestamptz,
+            last_test_ok boolean,
+            last_test_info text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        # Una dirección = una cuenta (da igual cómo se escriba).
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_mail_accounts_from_email ON mail_accounts (lower(from_email));",
+    ]
+    _exec_ddl_statements(stmts, "mail_accounts")
 
 
 # ---------------------------------------------------------------------------

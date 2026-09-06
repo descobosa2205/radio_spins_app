@@ -299,6 +299,8 @@ from models import (
     SmsAccount,
     SmsMessage,
     ensure_sms_schema,
+    MailAccount,
+    ensure_mail_accounts_schema,
     ShortLink,
     ensure_short_links_schema,
     ExternalProductionAccess,
@@ -3674,6 +3676,124 @@ def _smtp_sender_rejected(exc) -> bool:
     return isinstance(exc, (smtplib.SMTPDataError, smtplib.SMTPResponseException)) and any(k in texto for k in claves)
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# CUENTAS DE CORREO PROPIAS (Integraciones → Correo → «Cuentas de envío»)
+# El servidor de la app (las variables SMTP_* de Render) manda los AVISOS. Lo que tiene que salir
+# DESDE OTRO BUZÓN —las notas de prensa desde promocion@33producciones.es— sale con las credenciales
+# de ESE buzón (`MailAccount`): así no hay que pedirle al servidor que admita «mandar como» otra
+# dirección (que es justo lo que rechazaba) y el correo va alineado con el dominio que lo firma.
+# `_send_optional_email` lo resuelve SOLO: si el From pedido es el de una cuenta activa, sale por ella.
+# ═════════════════════════════════════════════════════════════════════════════
+
+MAIL_SECURITY_KINDS = [
+    ("SSL", "SSL/TLS", "puerto 465 (lo habitual)"),
+    ("STARTTLS", "STARTTLS", "puerto 587"),
+    ("NONE", "Sin cifrar", "puerto 25 · solo si el proveedor no da otra cosa"),
+]
+MAIL_SECURITY_PORTS = {"SSL": 465, "STARTTLS": 587, "NONE": 25}
+
+
+def _mail_account_for_email(from_email: str):
+    """La cuenta propia ACTIVA cuya dirección es esa (o None). Abre su propia sesión —se llama desde
+    dentro del envío, que no tiene ninguna— y se recuerda por petición."""
+    email = (from_email or "").strip().lower()
+    if not email or "@" not in email:
+        return None
+    cache = None
+    try:
+        cache = g.setdefault("_mail_accounts_cache", {})
+        if email in cache:
+            return cache[email]
+    except Exception:
+        cache = None
+    acc = None
+    session_db = db()
+    try:
+        acc = (session_db.query(MailAccount)
+               .filter(func.lower(MailAccount.from_email) == email, MailAccount.is_active.is_(True)).first())
+        if acc is not None:
+            session_db.expunge(acc)          # se usa fuera de la sesión, solo para leerla
+    except Exception:
+        acc = None
+    finally:
+        session_db.close()
+    if cache is not None:
+        cache[email] = acc
+    return acc
+
+
+def _mail_account_by_id(acc_id):
+    """La cuenta propia con ese id, solo si está ACTIVA (o None)."""
+    session_db = db()
+    try:
+        acc = session_db.get(MailAccount, to_uuid(acc_id))
+        if acc is None or not acc.is_active:
+            return None
+        session_db.expunge(acc)
+        return acc
+    except Exception:
+        return None
+    finally:
+        session_db.close()
+
+
+def _mail_account_smtp_settings(acc) -> dict:
+    """Lo que hace falta para CONECTAR con una cuenta propia (la contraseña incluida: no sale de aquí)."""
+    seguridad = (getattr(acc, "smtp_security", None) or "SSL").upper()
+    puerto = int(getattr(acc, "smtp_port", None) or MAIL_SECURITY_PORTS.get(seguridad, 465))
+    return {
+        "host": (acc.smtp_host or "").strip(), "port": puerto,
+        "ssl": seguridad == "SSL", "tls": seguridad == "STARTTLS",
+        "username": (acc.smtp_username or acc.from_email or "").strip(),
+        "password": acc.smtp_password or "",
+        "from_email": (acc.from_email or "").strip(),
+        "from_name": (acc.from_name or acc.label or "").strip(),
+        "reply_to": (acc.reply_to or "").strip(),
+        "pause_ms": max(0, int(getattr(acc, "pause_ms", 0) or 0)),
+        "reconnect_every": max(0, int(getattr(acc, "reconnect_every", 0) or 0)),
+    }
+
+
+def _smtp_open(cfg: dict):
+    """Abre la conexión SMTP (SSL directo o STARTTLS) y se identifica. Devuelve la conexión ABIERTA;
+    si algo falla después de conectar, la cierra antes de dejar subir el error."""
+    if cfg.get("ssl"):
+        smtp = smtplib.SMTP_SSL(cfg["host"], int(cfg["port"]), timeout=30)
+    else:
+        smtp = smtplib.SMTP(cfg["host"], int(cfg["port"]), timeout=30)
+    try:
+        if not cfg.get("ssl") and cfg.get("tls"):
+            smtp.starttls()
+        if cfg.get("username"):
+            smtp.login(cfg["username"], cfg.get("password") or "")
+    except Exception:
+        try:
+            smtp.close()
+        except Exception:
+            pass
+        raise
+    return smtp
+
+
+def _smtp_error_text(exc) -> str:
+    """El motivo de un fallo de SMTP dicho para una persona (no el volcado de Python)."""
+    import socket
+    import ssl as _ssl
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return "El servidor no acepta el usuario o la contraseña (%s)." % (str(exc)[:120])
+    if isinstance(exc, (smtplib.SMTPConnectError, ConnectionRefusedError)):
+        return "No se pudo conectar con el servidor: comprueba el nombre del servidor y el puerto."
+    if isinstance(exc, socket.gaierror):
+        return "Ese servidor no existe (no se resuelve su nombre): revisa cómo está escrito."
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return "El servidor no responde en ese puerto: prueba con el otro cifrado (465 SSL/TLS ↔ 587 STARTTLS)."
+    if isinstance(exc, _ssl.SSLError):
+        return "Fallo de cifrado: con el puerto 587 elige STARTTLS y con el 465, SSL/TLS (%s)." % (str(exc)[:80])
+    if isinstance(exc, smtplib.SMTPServerDisconnected):
+        return "El servidor cortó la conexión: suele ser el cifrado equivocado para ese puerto (%s)." % (str(exc)[:80])
+    return (str(exc)[:200] or exc.__class__.__name__)
+
+
 def _send_optional_email(
     to_email: str | list[str] | tuple[str, ...] | set[str],
     subject: str,
@@ -3687,13 +3807,20 @@ def _send_optional_email(
     auto_submitted: bool = True,
     personalize=None,
     on_result=None,
+    account=None,
+    pace_ms: int | None = None,
+    reconnect_every: int | None = None,
 ) -> tuple[bool, str | None]:
-    """Manda un correo (UNO por persona) por el SMTP de la casa.
+    """Manda un correo (UNO por persona) por el SMTP de la casa o por una CUENTA PROPIA.
 
     · `from_name` / `from_email`: un REMITENTE distinto del de la app (p. ej. «Promoción | 33
-      Producciones» <promocion@…>). ⚠️ El SMTP tiene que admitir mandar con esa dirección (un alias
-      de la misma cuenta o del mismo dominio), y para que no acabe en spam el dominio del From tiene
-      que ser el que firma DKIM/SPF.
+      Producciones» <promocion@…>). Si esa dirección tiene su CUENTA PROPIA dada de alta
+      (Integraciones → Correo), el correo sale POR ELLA, con sus credenciales; si no, se le pide al
+      SMTP de la app mandar «como» ella y, si no lo admite, sale con el remitente de la app y
+      Reply-To a la pedida (y se DICE).
+    · `account`: la cuenta propia por la que salir, ya resuelta (si no se pasa, se busca por el From).
+    · `pace_ms` / `reconnect_every`: el RITMO de un envío grande —un respiro entre correos y una
+      conexión nueva cada N—. Con cuenta propia mandan los de la cuenta.
     · `auto_submitted=False`: un correo ESCRITO por una persona (una nota de prensa) no lleva las
       cabeceras de «esto lo manda una máquina»: se puede contestar y no es un aviso automático.
     · `personalize(destinatario) -> (html, texto)`: un cuerpo DISTINTO para cada persona (su token de
@@ -3722,26 +3849,49 @@ def _send_optional_email(
 
     if not recipients:
         return False, 'No se indicó email destino.'
-    host = (os.getenv('SMTP_HOST') or '').strip()
-    if not host:
-        return False, 'SMTP_HOST no configurado.'
 
-    port = int((os.getenv('SMTP_PORT') or '587').strip() or '587')
-    username = (os.getenv('SMTP_USERNAME') or '').strip()
-    password = (os.getenv('SMTP_PASSWORD') or '').strip()
-    sender = ((from_email or '').strip() or os.getenv('SMTP_FROM_EMAIL') or username or '').strip()
-    # ⚠️ El nombre que se ve. Sin variable puesta era «Radio Spins App», una marca que el que lo
-    # recibe no conoce: eso solo puede ayudar a que parezca phishing.
-    sender_name = ((from_name or '').strip() or os.getenv('SMTP_FROM_NAME') or '33 Producciones').strip()
-    # El remitente DE LA APP (el de la cuenta SMTP). Si se pide mandar «como» otra dirección
-    # (promocion@…) y el servidor no la admite, se reintenta con este y se DICE (ver abajo).
-    sender_app = ((os.getenv('SMTP_FROM_EMAIL') or username or '')).strip()
-    remitente_propio = bool((from_email or '').strip()) and bool(sender_app) and sender.lower() != sender_app.lower()
+    cuenta = account
+    if cuenta is None and (from_email or '').strip():
+        cuenta = _mail_account_for_email(from_email)
+    if cuenta is not None:
+        # ── POR SU PROPIO BUZÓN: no hay «mandar como» que pueda fallar ni remitente que corregir. ──
+        cfg = _mail_account_smtp_settings(cuenta)
+        host, port = cfg['host'], cfg['port']
+        if not host:
+            return False, ('La cuenta de correo %s no tiene servidor de salida configurado (Integraciones → Correo).'
+                           % (cfg['from_email'] or '?'))
+        username, password = cfg['username'], cfg['password']
+        use_ssl, use_tls = cfg['ssl'], cfg['tls']
+        sender = cfg['from_email']
+        sender_name = ((from_name or '').strip() or cfg['from_name'] or '33 Producciones').strip()
+        sender_app = sender
+        remitente_propio = False
+        pausa = cfg['pause_ms'] / 1000.0
+        reconectar = cfg['reconnect_every']
+        # Las respuestas van al propio buzón (o a lo que diga la cuenta), no a quien pulsa el botón.
+        effective_reply_to = (reply_to or cfg['reply_to'] or '').strip()
+    else:
+        host = (os.getenv('SMTP_HOST') or '').strip()
+        if not host:
+            return False, 'SMTP_HOST no configurado.'
+        port = int((os.getenv('SMTP_PORT') or '587').strip() or '587')
+        username = (os.getenv('SMTP_USERNAME') or '').strip()
+        password = (os.getenv('SMTP_PASSWORD') or '').strip()
+        sender = ((from_email or '').strip() or os.getenv('SMTP_FROM_EMAIL') or username or '').strip()
+        # ⚠️ El nombre que se ve. Sin variable puesta era «Radio Spins App», una marca que el que lo
+        # recibe no conoce: eso solo puede ayudar a que parezca phishing.
+        sender_name = ((from_name or '').strip() or os.getenv('SMTP_FROM_NAME') or '33 Producciones').strip()
+        # El remitente DE LA APP (el de la cuenta SMTP). Si se pide mandar «como» otra dirección
+        # (promocion@…) y el servidor no la admite, se reintenta con este y se DICE (ver abajo).
+        sender_app = ((os.getenv('SMTP_FROM_EMAIL') or username or '')).strip()
+        remitente_propio = bool((from_email or '').strip()) and bool(sender_app) and sender.lower() != sender_app.lower()
+        use_ssl = _truthy(os.getenv('SMTP_SSL'))
+        use_tls = not use_ssl if os.getenv('SMTP_TLS') is None else _truthy(os.getenv('SMTP_TLS'))
+        pausa = max(0, int(pace_ms or 0)) / 1000.0
+        reconectar = max(0, int(reconnect_every or 0))
+        effective_reply_to = (reply_to or _current_user_email() or '').strip()
     aviso_remitente = ['']
-    use_ssl = _truthy(os.getenv('SMTP_SSL'))
-    use_tls = not use_ssl if os.getenv('SMTP_TLS') is None else _truthy(os.getenv('SMTP_TLS'))
 
-    effective_reply_to = (reply_to or _current_user_email() or '').strip()
     reply_to_header = ''
     if effective_reply_to:
         reply_name = effective_reply_to.split('@', 1)[0].strip() if '@' in effective_reply_to else effective_reply_to
@@ -3798,47 +3948,61 @@ def _send_optional_email(
             msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
         return msg
 
+    def _abre():
+        return _smtp_open({'host': host, 'port': port, 'ssl': use_ssl, 'tls': use_tls,
+                           'username': username, 'password': password})
+
+    fallos = []
+    apuntados: set[str] = set()      # a quién se le ha dicho ya su resultado (no se pisa si algo revienta después)
+
+    def _resultado(destinatario, ok, error):
+        apuntados.add(destinatario)
+        if on_result is not None:
+            on_result(destinatario, ok, error)
+
     # ⚠️ UN CORREO POR PERSONA, no uno con veinte direcciones en el «Para». Meterlas todas juntas
     # (a) parece un envío masivo y va derecho a spam, (b) le enseña a cada uno la dirección de los
-    # demás y (c) si una rebota, castiga a todo el envío. Se manda por UNA sola conexión SMTP, así
-    # que no es más lento en la práctica.
+    # demás y (c) si una rebota, castiga a todo el envío. Salen por UNA conexión SMTP —o por una
+    # nueva cada `reconectar` mensajes, con un respiro de `pausa` entre uno y otro, que es lo que
+    # un hosting compartido espera de una persona escribiendo y no de un robot—.
+    smtp = None
     try:
-        if use_ssl:
-            smtp = smtplib.SMTP_SSL(host, port, timeout=30)
-        else:
-            smtp = smtplib.SMTP(host, port, timeout=30)
-        with smtp:
-            if not use_ssl and use_tls:
-                smtp.starttls()
-            if username:
-                smtp.login(username, password)
-            fallos = []
-            for destinatario in recipients:
+        smtp = _abre()
+        en_conexion = 0
+        for idx, destinatario in enumerate(recipients):
+            if reconectar and en_conexion >= reconectar:
                 try:
-                    smtp.send_message(_compone(destinatario), to_addrs=[destinatario])
-                    if on_result is not None:
-                        on_result(destinatario, True, None)
-                except Exception as exc:
-                    # ⚠️ El servidor NO ADMITE el remitente pedido (mandar «como» promocion@ desde otra
-                    # cuenta): se reintenta con el remitente de la APP y el pedido pasa al Reply-To, y
-                    # se DICE. Mejor que el correo salga así que que no salga.
-                    if remitente_propio and _smtp_sender_rejected(exc):
-                        try:
-                            smtp.send_message(_compone(destinatario, fallback=True), to_addrs=[destinatario])
-                            aviso_remitente[0] = ('El servidor de correo no admite mandar como %s (%s): ha salido con el '
-                                                  'remitente de la app (%s) y con Reply-To a %s. Para que salga como %s hay que '
-                                                  'autorizar esa dirección en la cuenta SMTP (ver Integraciones → Correo).'
-                                                  % (sender, str(exc)[:120], sender_app, sender, sender))
-                            app.logger.warning('[correo] remitente %s rechazado por el SMTP (%s): sale como %s',
-                                               sender, str(exc)[:200], sender_app)
-                            if on_result is not None:
-                                on_result(destinatario, True, None)
-                            continue
-                        except Exception as exc2:
-                            exc = exc2
-                    fallos.append('%s: %s' % (destinatario, exc))
-                    if on_result is not None:
-                        on_result(destinatario, False, str(exc))
+                    smtp.quit()
+                except Exception:
+                    pass
+                smtp = _abre()
+                en_conexion = 0
+            if pausa and idx:
+                time.sleep(pausa)
+            try:
+                smtp.send_message(_compone(destinatario), to_addrs=[destinatario])
+                en_conexion += 1
+                _resultado(destinatario, True, None)
+            except Exception as exc:
+                # ⚠️ El servidor NO ADMITE el remitente pedido (mandar «como» promocion@ desde otra
+                # cuenta): se reintenta con el remitente de la APP y el pedido pasa al Reply-To, y
+                # se DICE. Mejor que el correo salga así que que no salga.
+                if remitente_propio and _smtp_sender_rejected(exc):
+                    try:
+                        smtp.send_message(_compone(destinatario, fallback=True), to_addrs=[destinatario])
+                        en_conexion += 1
+                        aviso_remitente[0] = ('El servidor de correo no admite mandar como %s (%s): ha salido con el '
+                                              'remitente de la app (%s) y con Reply-To a %s. Para que salga como %s, da de '
+                                              'alta su buzón en Integraciones → Correo → Cuentas de envío.'
+                                              % (sender, str(exc)[:120], sender_app, sender, sender))
+                        app.logger.warning('[correo] remitente %s rechazado por el SMTP (%s): sale como %s',
+                                           sender, str(exc)[:200], sender_app)
+                        _resultado(destinatario, True, None)
+                        continue
+                    except Exception as exc2:
+                        exc = exc2
+                fallos.append('%s: %s' % (destinatario, exc))
+                _resultado(destinatario, False, str(exc))
         aviso = aviso_remitente[0]
         if fallos and len(fallos) == len(recipients):
             return False, '; '.join(fallos)[:500]
@@ -3848,13 +4012,23 @@ def _send_optional_email(
             return True, ((aviso + ' · ') if aviso else '') + 'No salió para: ' + '; '.join(fallos)[:300]
         return True, (aviso or None)
     except Exception as exc:
+        motivo = _smtp_error_text(exc)
         if on_result is not None:
+            # Solo a los que NO se les había dicho nada: los ya mandados están bien mandados.
             for destinatario in recipients:
+                if destinatario in apuntados:
+                    continue
                 try:
-                    on_result(destinatario, False, str(exc))
+                    on_result(destinatario, False, motivo)
                 except Exception:
                     pass
-        return False, str(exc)
+        return False, motivo
+    finally:
+        if smtp is not None:
+            try:
+                smtp.quit()
+            except Exception:
+                pass
 
 
 def _public_base_url() -> str:
@@ -51151,16 +51325,16 @@ PRESS_CONTACT_EMAIL = "promocion@33producciones.es"
 PRESS_CONTACT_PHONE = "+34 915001883"
 PRESS_SENDER_PROMO_NAME = "Promoción | 33 Producciones"
 PRESS_SENDER_PROMO_EMAIL = "promocion@33producciones.es"
-# (clave, cómo se llama, con qué correo sale, icono)
-PRESS_SENDER_KINDS = [
-    ("BACKOFFICE", "Back office", "El remitente de siempre de la app", "favicon"),
-    ("PROMO33", PRESS_SENDER_PROMO_NAME, PRESS_SENDER_PROMO_EMAIL, "promo"),
-]
+# Los REMITENTES con los que puede salir una nota los da `_press_sender_options`: el de la app, cada
+# CUENTA PROPIA activa (Integraciones → Correo) y «Promoción», que sale por su cuenta si la tiene.
 PRESS_SUBJECT_KINDS = {"ARTIST": "Artista", "EVENT": "Evento", "TOUR": "Gira", "CYCLE": "Ciclo", "COMPANY": "Empresa"}
 PRESS_ABOUT_KINDS = {"ACTIVITY": "Actividad", "SINGLE": "Single", "ALBUM": "Disco", "SUBJECT": "Sobre el artista"}
 PRESS_CYCLE_KIND_LABELS = {"FESTIVAL": "Festival", "CICLO": "Ciclo", "GIRA": "Gira", "EVENTO": "Evento"}
 PRESS_STATUS_LABELS = {"DRAFT": "Borrador", "SCHEDULED": "Programada", "SENT": "Enviada"}
 PRESS_SEND_BUDGET_SECONDS = 45          # lo que se manda dentro de la petición; el resto, en un hilo
+# El RESPIRO entre correos cuando salen por el SMTP de la app (con cuenta propia manda el suyo):
+# cientos de correos seguidos en un segundo es la firma de un robot, no de una persona.
+PRESS_SEND_PACE_MS = int((os.getenv("PRESS_SEND_PACE_MS") or "600").strip() or 0)
 PRESS_TOKEN_PLACEHOLDER = "__PR_TOKEN__"  # en el correo se sustituye por el token de cada persona
 PRESS_MAX_RECIPIENTS = 3000
 # Los colores de la CASA que ofrece el editor (junto a los del fondo de la nota).
@@ -52455,6 +52629,7 @@ def _press_row(session_db, pr, stats: dict | None = None) -> dict:
         "detail_url": url_for("promo_press_detail", release_id=pr.id),
         "edit_url": url_for("promo_press_edit", release_id=pr.id),
         "send_url": url_for("promo_press_send_view", release_id=pr.id),
+        "duplicate_url": url_for("promo_press_duplicate", release_id=pr.id),
         "pdf_url": url_for("promo_press_pdf", release_id=pr.id),
         "public_url": _press_public_url(pr) if pr.public_token else "",
         "can_edit": _press_can_edit(pr),
@@ -52619,21 +52794,113 @@ def _press_add_recipients(session_db, pr, filas: list, batch: str) -> int:
     return n
 
 
+def _press_sender_key_norm(key: str) -> str:
+    """La clave del remitente tal como se GUARDA: el tipo en mayúsculas y el id de la cuenta tal cual
+    (`ACCOUNT:<uuid>`), para que la comparación con la cuenta no dependa de la caja."""
+    k = (key or "").strip()
+    if not k:
+        return "BACKOFFICE"
+    if ":" in k:
+        pre, resto = k.split(":", 1)
+        return pre.upper() + ":" + resto.strip().lower()
+    return k.upper()
+
+
+def _press_sender_options(session_db) -> list[dict]:
+    """Con qué REMITENTE puede salir una nota: el de la app, «Promoción | 33 Producciones» y cada otra
+    CUENTA PROPIA activa (Integraciones → Correo). Promoción sale SIEMPRE: con su cuenta si está dada
+    de alta y, si no, avisando de que saldrá con el remitente de la app y Reply-To a promocion@."""
+    out = [{"key": "BACKOFFICE", "name": "Back office", "sub": "El remitente de siempre de la app",
+            "icon": "favicon", "ok": True, "hint": ""}]
+    try:
+        cuentas = (session_db.query(MailAccount).filter(MailAccount.is_active.is_(True))
+                   .order_by(MailAccount.created_at.asc()).all())
+    except Exception:
+        cuentas = []
+    promo = None
+    for acc in cuentas:
+        es_promo = (acc.from_email or "").strip().lower() == PRESS_SENDER_PROMO_EMAIL.lower()
+        fila = {"key": ("PROMO33" if es_promo else "ACCOUNT:%s" % acc.id),
+                "name": (acc.from_name or acc.label or acc.from_email), "sub": acc.from_email,
+                "icon": ("promo" if es_promo else "mail"), "ok": True,
+                "hint": ("" if acc.last_test_ok else "Esta cuenta todavía no ha pasado la prueba de conexión (Integraciones → Correo).")}
+        if es_promo:
+            promo = fila
+        else:
+            out.append(fila)
+    if promo is None:
+        promo = {"key": "PROMO33", "name": PRESS_SENDER_PROMO_NAME, "sub": PRESS_SENDER_PROMO_EMAIL, "icon": "promo",
+                 "ok": False,
+                 "hint": ("Sin cuenta propia: saldrá con el remitente de la app y Reply-To a %s. Para que salga desde su buzón, "
+                          "da de alta esa cuenta en Integraciones → Correo → Cuentas de envío." % PRESS_SENDER_PROMO_EMAIL)}
+    out.insert(1, promo)
+    return out
+
+
+def _press_sender_valid(session_db, key: str) -> bool:
+    key = _press_sender_key_norm(key)
+    if key in ("BACKOFFICE", "PROMO33"):
+        return True
+    if key.startswith("ACCOUNT:"):
+        try:
+            acc = session_db.get(MailAccount, to_uuid(key.split(":", 1)[1]))
+        except Exception:
+            acc = None
+        return acc is not None and bool(acc.is_active)
+    return False
+
+
 def _press_sender_for(pr) -> dict:
-    """Con qué remitente sale el correo: el de la app o «Promoción | 33 Producciones»."""
-    if (pr.sender_kind or "").upper() == "PROMO33":
-        return {"from_name": PRESS_SENDER_PROMO_NAME, "from_email": PRESS_SENDER_PROMO_EMAIL, "reply_to": PRESS_SENDER_PROMO_EMAIL}
-    return {"from_name": None, "from_email": None, "reply_to": None}
+    """Con qué remitente sale el correo. `PROMO33` y `ACCOUNT:<id>` salen por su CUENTA PROPIA (con sus
+    credenciales; `_send_optional_email` la resuelve por el From); si promocion@ no tiene cuenta dada
+    de alta se pide igual «mandar como» ella y, si el servidor no lo admite, sale con el remitente de
+    la app y Reply-To a promocion@, diciéndolo. Devuelve también la `account` (o None)."""
+    clave = _press_sender_key_norm(pr.sender_kind)
+    if clave.startswith("ACCOUNT:"):
+        acc = _mail_account_by_id(clave.split(":", 1)[1])
+        if acc is not None:
+            return {"from_name": (acc.from_name or acc.label or None), "from_email": acc.from_email,
+                    "reply_to": (acc.reply_to or None), "account": acc}
+        return {"from_name": None, "from_email": None, "reply_to": None, "account": None}
+    if clave == "PROMO33":
+        acc = _mail_account_for_email(PRESS_SENDER_PROMO_EMAIL)
+        if acc is not None:
+            return {"from_name": (acc.from_name or PRESS_SENDER_PROMO_NAME), "from_email": acc.from_email,
+                    "reply_to": (acc.reply_to or None), "account": acc}
+        return {"from_name": PRESS_SENDER_PROMO_NAME, "from_email": PRESS_SENDER_PROMO_EMAIL,
+                "reply_to": PRESS_SENDER_PROMO_EMAIL, "account": None}
+    return {"from_name": None, "from_email": None, "reply_to": None, "account": None}
+
+
+def _press_sender_label(pr) -> str:
+    """El remitente tal como se enseña en la ficha de la nota."""
+    r = _press_sender_for(pr)
+    if not r.get("from_email"):
+        return "Back office"
+    return ("%s <%s>" % (r["from_name"], r["from_email"])) if r.get("from_name") else r["from_email"]
+
+
+def _press_sender_keys_for_account(acc) -> list[str]:
+    """Las claves de remitente que salen por ESA cuenta (para contar lo que ya ha mandado)."""
+    claves = ["ACCOUNT:%s" % str(acc.id).lower()]
+    if (acc.from_email or "").strip().lower() == PRESS_SENDER_PROMO_EMAIL.lower():
+        claves.append("PROMO33")
+    return claves
 
 
 def _press_send_pending(session_db, pr, *, budget: float = PRESS_SEND_BUDGET_SECONDS) -> dict:
     """Manda lo que queda por mandar, UN correo por persona (con su token), dentro de un presupuesto
     de tiempo. Cada destinatario queda marcado en cuanto se le manda: si el hilo muere, la próxima
-    pasada sigue con los que faltan y NADIE recibe dos veces."""
+    pasada sigue con los que faltan y NADIE recibe dos veces.
+    ⚠️ Va con un CERROJO por nota (advisory lock de Postgres): el hilo de la petición, el que arranca
+    el reloj tras un despliegue y el de otro worker no pueden estar mandando la misma nota a la vez.
+    ⚠️ Si la cuenta por la que sale tiene TOPE POR HORA, se manda solo lo que cabe y el resto queda
+    pendiente (`throttled`): el hilo espera y sigue cuando pase la hora."""
     inicio = time.time()
     enviados, fallos = 0, 0
     aviso = ""                  # p. ej. «el SMTP no admite mandar como promocion@: ha salido como…»
     session_db.flush()          # la sesión es autoflush=False: lo recién añadido tiene que verse
+
     def _pendientes():
         return (session_db.query(PressReleaseRecipient)
                 .filter(PressReleaseRecipient.release_id == pr.id, PressReleaseRecipient.sent_at.is_(None),
@@ -52642,52 +52909,82 @@ def _press_send_pending(session_db, pr, *, budget: float = PRESS_SEND_BUDGET_SEC
     pendientes = _pendientes()
     if not pendientes:
         return {"sent": 0, "failed": 0, "left": 0, "warning": ""}
-    asunto = _press_email_subject(session_db, pr)
-    html_base, texto_base = _press_email_html(session_db, pr)
-    remitente = _press_sender_for(pr)
-    por_email = {}
-    for r in pendientes:
-        por_email.setdefault((r.email or "").lower(), r)
+    with _pleo_pg_lock("press_release_send:%s" % pr.id) as tengo:
+        if not tengo:
+            return {"sent": 0, "failed": 0, "left": len(pendientes), "warning": "", "busy": True, "retry_in": 60}
+        remitente = _press_sender_for(pr)
+        cuenta = remitente.get("account")
+        throttled, retry_in = False, 0
+        tope = int(getattr(cuenta, "hourly_cap", 0) or 0) if cuenta is not None else 0
+        if tope:
+            hace_una_hora = _now_madrid() - timedelta(hours=1)
+            claves = _press_sender_keys_for_account(cuenta)
+            base = (session_db.query(PressReleaseRecipient)
+                    .join(PressRelease, PressRelease.id == PressReleaseRecipient.release_id)
+                    .filter(PressReleaseRecipient.sent_at >= hace_una_hora, PressRelease.sender_kind.in_(claves)))
+            hechos = int(base.with_entities(func.count(PressReleaseRecipient.id)).scalar() or 0)
+            margen = tope - hechos
+            if margen <= 0:
+                primero = base.with_entities(func.min(PressReleaseRecipient.sent_at)).scalar()
+                retry_in = 300
+                if primero is not None:
+                    retry_in = max(60, int((primero + timedelta(hours=1) - _now_madrid()).total_seconds()) + 5)
+                return {"sent": 0, "failed": 0, "left": len(pendientes), "throttled": True, "retry_in": retry_in,
+                        "warning": ("La cuenta %s tiene un tope de %d correos por hora: el resto sale solo cuando pase la hora."
+                                    % (cuenta.from_email, tope))}
+            if len(pendientes) > margen:
+                pendientes = pendientes[:margen]
+                throttled, retry_in = True, 3600
+        asunto = _press_email_subject(session_db, pr)
+        html_base, texto_base = _press_email_html(session_db, pr)
+        por_email = {}
+        for r in pendientes:
+            por_email.setdefault((r.email or "").lower(), r)
 
-    def personaliza(destinatario):
-        r = por_email.get((destinatario or "").lower())
-        tok = r.token if r else (pr.public_token or "")
-        return _press_placeholder(html_base, tok), _press_placeholder(texto_base, tok)
+        def personaliza(destinatario):
+            r = por_email.get((destinatario or "").lower())
+            tok = r.token if r else (pr.public_token or "")
+            return _press_placeholder(html_base, tok), _press_placeholder(texto_base, tok)
 
-    resultados = {}
+        resultados = {}
 
-    def apunta(destinatario, ok, error):
-        resultados[(destinatario or "").lower()] = (ok, error)
+        def apunta(destinatario, ok, error):
+            resultados[(destinatario or "").lower()] = (ok, error)
 
-    lote = 40
-    for i in range(0, len(pendientes), lote):
-        if time.time() - inicio > budget:
-            break
-        trozo = pendientes[i:i + lote]
-        _ok_lote, aviso_lote = _send_optional_email([r.email for r in trozo], asunto, "", personalize=personaliza, on_result=apunta,
-                                                    from_name=remitente["from_name"], from_email=remitente["from_email"],
-                                                    reply_to=remitente["reply_to"], auto_submitted=False)
-        if aviso_lote and "remitente" in str(aviso_lote).lower() and not aviso:
-            aviso = str(aviso_lote).split(" · No salió")[0]
-        ahora = _now_madrid()
-        for r in trozo:
-            ok, error = resultados.get((r.email or "").lower(), (False, "No se llegó a mandar."))
-            if ok:
-                r.sent_at = ahora
-                r.error = None
-                enviados += 1
-            else:
-                r.error = (str(error or "No se pudo mandar.")[:300])
-                fallos += 1
-        session_db.commit()
-    quedan = len(_pendientes())
-    alguno = (session_db.query(func.count(PressReleaseRecipient.id))
-              .filter(PressReleaseRecipient.release_id == pr.id, PressReleaseRecipient.sent_at.isnot(None)).scalar() or 0)
-    if quedan == 0 and (pr.status or "DRAFT").upper() != "SENT" and alguno:
-        pr.status = "SENT"
-        pr.sent_at = pr.sent_at or _now_madrid()
-        session_db.commit()
-    return {"sent": enviados, "failed": fallos, "left": quedan, "warning": aviso}
+        lote = 40
+        for i in range(0, len(pendientes), lote):
+            if time.time() - inicio > budget:
+                break
+            trozo = pendientes[i:i + lote]
+            _ok_lote, aviso_lote = _send_optional_email([r.email for r in trozo], asunto, "", personalize=personaliza,
+                                                        on_result=apunta, from_name=remitente["from_name"],
+                                                        from_email=remitente["from_email"], reply_to=remitente["reply_to"],
+                                                        auto_submitted=False, account=cuenta, pace_ms=PRESS_SEND_PACE_MS)
+            if aviso_lote and "remitente" in str(aviso_lote).lower() and not aviso:
+                aviso = str(aviso_lote).split(" · No salió")[0]
+            ahora = _now_madrid()
+            for r in trozo:
+                ok, error = resultados.get((r.email or "").lower(), (False, "No se llegó a mandar."))
+                if ok:
+                    r.sent_at = ahora
+                    r.error = None
+                    enviados += 1
+                else:
+                    r.error = (str(error or "No se pudo mandar.")[:300])
+                    fallos += 1
+            session_db.commit()
+        quedan = len(_pendientes())
+        alguno = (session_db.query(func.count(PressReleaseRecipient.id))
+                  .filter(PressReleaseRecipient.release_id == pr.id, PressReleaseRecipient.sent_at.isnot(None)).scalar() or 0)
+        if quedan == 0 and (pr.status or "DRAFT").upper() != "SENT" and alguno:
+            pr.status = "SENT"
+            pr.sent_at = pr.sent_at or _now_madrid()
+            session_db.commit()
+        if throttled and quedan and not aviso:
+            aviso = ("La cuenta %s tiene un tope de %d correos por hora: han salido %d y el resto sale solo cuando pase la hora."
+                     % (cuenta.from_email, tope, enviados))
+        return {"sent": enviados, "failed": fallos, "left": quedan, "warning": aviso,
+                "throttled": bool(throttled and quedan), "retry_in": (retry_in if (throttled and quedan) else 0)}
 
 
 def _press_send_bg(release_pk: str) -> None:
@@ -52712,6 +53009,11 @@ def _press_send_bg(release_pk: str) -> None:
                 finally:
                     s.close()
                 if not datos.get("left"):
+                    return
+                if datos.get("throttled") or datos.get("busy"):
+                    # El tope por hora de la cuenta (o otro proceso mandando la misma nota): este hilo
+                    # TERMINA y la nota se queda en SENDING; el barrido de cada minuto (`_press_sweep`)
+                    # la retoma cuando toque. Un hilo dormido una hora moriría igual en el primer despliegue.
                     return
     finally:
         with _PRESS_BG_GUARD:
@@ -52756,6 +53058,31 @@ def _press_sweep() -> dict:
                     pr.sent_at = pr.sent_at or _now_madrid()
                     s.commit()
                 salida["started"] += 1
+            # Las notas que se quedaron A MEDIAS: en SENDING con destinatarios pendientes y sin ningún
+            # hilo de ESTE proceso mandándolas (un despliegue mató el hilo, o el tope por hora las dejó
+            # esperando). Con el cerrojo por nota de `_press_send_pending`, arrancar otro hilo es seguro.
+            for pr in s.query(PressRelease).filter(PressRelease.status == "SENDING").all():
+                with _PRESS_BG_GUARD:
+                    if str(pr.id) in _PRESS_BG_ACTIVE:
+                        continue
+                pendientes = (s.query(func.count(PressReleaseRecipient.id))
+                              .filter(PressReleaseRecipient.release_id == pr.id, PressReleaseRecipient.sent_at.is_(None),
+                                      PressReleaseRecipient.error.is_(None), PressReleaseRecipient.batch != "TEST").scalar() or 0)
+                if not pendientes:
+                    # Sin nada que mandar no puede quedarse «mandando»: enviada si salió alguno, borrador si no.
+                    pr.status = "SENT" if any(r.sent_at for r in pr.recipients) else "DRAFT"
+                    if pr.status == "SENT":
+                        pr.sent_at = pr.sent_at or _now_madrid()
+                    s.commit()
+                    continue
+                # ⚠️ Solo lo que lleva un rato parado: lo recién arrancado en otro worker sigue vivo allí.
+                ultimo = (s.query(func.max(PressReleaseRecipient.sent_at))
+                          .filter(PressReleaseRecipient.release_id == pr.id).scalar())
+                referencia = ultimo or pr.updated_at or pr.created_at
+                if referencia is not None and (_now_madrid() - referencia).total_seconds() < 180:
+                    continue
+                _press_send_bg_start(str(pr.id))
+                salida["resumed"] = salida.get("resumed", 0) + 1
         except Exception:
             app.logger.exception("[notas de prensa] fallo en el barrido de programadas")
         finally:
@@ -52987,6 +53314,7 @@ def _press_editor_context(s, pr) -> dict:
         "email_subject": _press_email_subject(s, pr),
         "can_edit": _press_can_edit(pr) and can_edit_promo(),
         "can_edit_promo": can_edit_promo(),
+        "sender_label": _press_sender_label(pr),
         "press_contact": {"name": PRESS_CONTACT_NAME, "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE},
     }
 
@@ -53639,6 +53967,52 @@ def promo_press_delete(release_id):
     return redirect(url_for("promo_press_view"))
 
 
+@app.post("/notas-de-prensa/<release_id>/replicar", endpoint="promo_press_duplicate")
+@admin_required
+def promo_press_duplicate(release_id):
+    """REPLICAR una nota: una copia EN BORRADOR con el mismo diseño (fondo, bloques y adjuntos), sobre
+    lo mismo y con el mismo remitente, para editarla y mandarla otra vez. Es lo que se hace con una
+    nota ya ENVIADA, que no se edita (la que salió tiene que seguir diciendo lo que salió)."""
+    if not can_edit_promo():
+        flash("No tienes permiso para crear notas de prensa.", "danger")
+        return redirect(url_for("promo_press_view"))
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            flash("Esa nota de prensa no existe.", "warning")
+            return redirect(url_for("promo_press_view"))
+        estado = _current_user_state() or {}
+        copia = PressRelease(
+            subject_kind=pr.subject_kind, subject_id=pr.subject_id, artist_ids=list(pr.artist_ids or []),
+            about_kind=pr.about_kind, about_id=pr.about_id, title=pr.title,
+            background_url=pr.background_url, background_w=pr.background_w, background_h=pr.background_h,
+            design=json.loads(json.dumps(pr.design or {})),      # copia PROFUNDA: el diseño es un JSON
+            status="DRAFT", sender_kind=(pr.sender_kind or "BACKOFFICE"), public_token=_uuid_token(),
+            created_by_user_id=(to_uuid(estado.get("user_id")) if estado.get("user_id") else None),
+            created_by_nick=(estado.get("nick") or "").strip() or None,
+        )
+        s.add(copia)
+        s.flush()
+        # Los ADJUNTOS de sus módulos de archivos: mismas filas, mismos ficheros (no se vuelven a subir;
+        # borrar una nota no borra nada de Storage).
+        for f in (s.query(PressReleaseFile).filter(PressReleaseFile.release_id == pr.id)
+                  .order_by(PressReleaseFile.sort_order.asc(), PressReleaseFile.created_at.asc()).all()):
+            s.add(PressReleaseFile(release_id=copia.id, block_id=f.block_id, name=f.name, file_url=f.file_url, kind=f.kind,
+                                   mime=f.mime, size_bytes=f.size_bytes, width=f.width, height=f.height,
+                                   poster_url=f.poster_url, sort_order=f.sort_order, created_by_nick=f.created_by_nick))
+        s.commit()
+        flash("Nota replicada: esta es la copia, en borrador. Edítala y mándala cuando quieras.", "success")
+        return redirect(url_for("promo_press_edit", release_id=copia.id))
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo replicar")
+        flash("No se pudo replicar la nota.", "danger")
+        return redirect(url_for("promo_press_detail", release_id=release_id))
+    finally:
+        s.close()
+
+
 @app.get("/notas-de-prensa/<release_id>/enviar", endpoint="promo_press_send_view")
 @admin_required
 def promo_press_send_view(release_id):
@@ -53662,7 +54036,8 @@ def promo_press_send_view(release_id):
             "groups": _press_recipient_groups(s, candidatos),
             "previous": [{"email": r.email, "name": r.name or "", "kind": r.kind, "ref_id": str(r.ref_id) if r.ref_id else "",
                           "media_name": r.media_name or ""} for r in pr.recipients if r.batch != "TEST" and r.sent_at],
-            "sender_kinds": PRESS_SENDER_KINDS,
+            "sender_options": _press_sender_options(s),
+            "mail_settings_url": ((url_for("integrations_view") + "#tab-correo") if is_master() else ""),
             "send_url": url_for("promo_press_send", release_id=pr.id),
             "test_url": url_for("promo_press_test_send", release_id=pr.id),
             "search_url": url_for("promo_press_contact_search"),
@@ -53700,8 +54075,8 @@ def promo_press_test_send(release_id):
         destino = (datos.get("email") or _current_user_email() or "").strip()
         if not destino:
             return jsonify({"ok": False, "error": "No sabemos tu correo: escríbelo."}), 400
-        sender = (datos.get("sender_kind") or pr.sender_kind or "BACKOFFICE").strip().upper()
-        if sender in ("BACKOFFICE", "PROMO33"):
+        sender = _press_sender_key_norm(datos.get("sender_kind") or pr.sender_kind or "BACKOFFICE")
+        if _press_sender_valid(s, sender):
             pr.sender_kind = sender
             s.commit()
         html_out, texto = _press_email_html(s, pr, token=pr.public_token, with_pixel=False)
@@ -53739,8 +54114,8 @@ def promo_press_send(release_id):
             return jsonify({"ok": False, "error": "No existe."}), 404
         _press_ensure_token(s, pr)
         datos = request.get_json(silent=True) or {}
-        sender = (datos.get("sender_kind") or pr.sender_kind or "BACKOFFICE").strip().upper()
-        if sender in ("BACKOFFICE", "PROMO33"):
+        sender = _press_sender_key_norm(datos.get("sender_kind") or pr.sender_kind or "BACKOFFICE")
+        if _press_sender_valid(s, sender):
             pr.sender_kind = sender
         filas = datos.get("recipients") if isinstance(datos.get("recipients"), list) else []
         if not filas:
@@ -73056,6 +73431,7 @@ def _bootstrap_schema_bg():
         (ensure_push_schema, "ensure_push_schema"),
         (ensure_notifications_schema, "ensure_notifications_schema"),
         (ensure_sms_schema, "ensure_sms_schema"),
+        (ensure_mail_accounts_schema, "ensure_mail_accounts_schema"),
         (ensure_short_links_schema, "ensure_short_links_schema"),
         (ensure_artist_notifications_schema, "ensure_artist_notifications_schema"),
         (ensure_external_production_schema, "ensure_external_production_schema"),
@@ -79727,6 +80103,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         "sms_account_save": "integraciones", "sms_account_test": "integraciones",
         "sms_kinds_save": "integraciones", "sms_send_test": "integraciones",
         "smtp_send_test": "integraciones",
+        # Cuentas de correo propias (Integraciones → Correo): dirección.
+        "mail_account_save": "integraciones", "mail_account_delete": "integraciones",
+        "mail_account_test": "integraciones", "mail_account_dns": "integraciones",
     }
     if endpoint in fixed:
         return fixed[endpoint]
@@ -80730,7 +81109,8 @@ def _resolve_request_resource_key() -> str | None:
     if (endpoint == "integrations_view" or endpoint.startswith("pleo_")
             or endpoint.startswith("cabify_") or endpoint.startswith("cm_")
             or endpoint.startswith("holded_account_") or endpoint == "api_cm_search"
-            or endpoint.startswith("sms_") or endpoint.startswith("smtp_")):
+            or endpoint.startswith("sms_") or endpoint.startswith("smtp_")
+            or endpoint.startswith("mail_account_")):
         return "integraciones"
     # TODO lo que se HACE en contabilidad (subir a Holded, marcar contabilizado, omitir, corregir
     # los datos de una factura) cuelga de «Pendiente de contabilizar», que es donde se trabaja. Quien
@@ -112044,6 +112424,351 @@ def smtp_send_test():
     return redirect(url_for("integrations_view") + "#tab-correo")
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# CUENTAS DE ENVÍO (Integraciones → Correo): alta, prueba y comprobación del DNS
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _mail_admin_guard():
+    """Configurar integraciones es de DIRECCIÓN. Devuelve la respuesta si no toca, o None."""
+    if not is_master():
+        flash("Solo dirección puede configurar las integraciones.", "warning")
+        return redirect(url_for("integrations_view") + "#tab-correo")
+    return None
+
+
+def _registrable_domain(host: str) -> str:
+    """El dominio «de verdad» de un nombre de servidor (smtp.webmail.es → webmail.es; mail.x.co.uk →
+    x.co.uk): es lo que se busca dentro del SPF."""
+    partes = [p for p in (host or "").strip().lower().rstrip(".").split(".") if p]
+    if len(partes) <= 2:
+        return ".".join(partes)
+    if partes[-2] in {"co", "com", "org", "net", "edu", "gov", "ac"} and len(partes[-1]) == 2:
+        return ".".join(partes[-3:])
+    return ".".join(partes[-2:])
+
+
+def _dns_txt_records(name: str):
+    """Los TXT de un nombre, por DNS-sobre-HTTPS (Google y, si falla, Cloudflare): la stdlib no
+    resuelve TXT y así no hace falta ninguna dependencia. None = NO SE PUDO PREGUNTAR (que no es lo
+    mismo que «no hay»)."""
+    import urllib.request
+    import urllib.parse
+    for base in ("https://dns.google/resolve", "https://cloudflare-dns.com/dns-query"):
+        try:
+            url = base + "?" + urllib.parse.urlencode({"name": name, "type": "TXT"})
+            req = urllib.request.Request(url, headers={"Accept": "application/dns-json"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                datos = json.loads(resp.read().decode("utf-8", "replace"))
+            if datos.get("Status") not in (0, 3):     # 3 = ese nombre no existe → no hay registros
+                continue
+            out = []
+            for ans in datos.get("Answer") or []:
+                if int(ans.get("type") or 0) != 16:
+                    continue
+                crudo = str(ans.get("data") or "")
+                trozos = re.findall(r'"((?:[^"\\]|\\.)*)"', crudo)
+                out.append(("".join(trozos) if trozos else crudo.strip('"')).replace('\\"', '"'))
+            return out
+        except Exception:
+            continue
+    return None
+
+
+def _spf_authorizes_host(spf_text: str, smtp_host: str, from_domain: str) -> tuple:
+    """(¿autoriza?, nota). True si el SPF nombra al servidor de salida (o a su dominio) o, siendo el
+    servidor del propio dominio, autoriza sus servidores (a / mx). None = no se puede saber desde aquí."""
+    texto = (spf_text or "").lower()
+    tokens = texto.split()
+    raiz_host = _registrable_domain(smtp_host or "")
+    raiz_dom = _registrable_domain(from_domain or "")
+    if raiz_host and raiz_host in texto:
+        return True, "El SPF nombra a %s, el servidor por el que sale." % raiz_host
+    mecanismos = {t.lstrip("+") for t in tokens}
+    con_a_mx = any(m == "a" or m == "mx" or m.startswith("a:") or m.startswith("mx:") for m in mecanismos)
+    if raiz_host and raiz_host == raiz_dom and con_a_mx:
+        return True, "El servidor de salida es del propio dominio y el SPF autoriza sus servidores (a/mx)."
+    # Lo que el SPF SÍ autoriza dice de un vistazo quién es el proveedor del buzón (el «include» de
+    # 33producciones.es es _spf.serviciodecorreo.es: el hosting de detrás del webmail).
+    incluye = [m.split(":", 1)[1] for m in mecanismos if m.startswith("include:") and ":" in m]
+    quien = (" El SPF autoriza hoy a: %s — si el buzón está en ese proveedor, el servidor de salida es el suyo (lo dice su panel)."
+             % ", ".join(incluye)) if incluye else ""
+    return None, ("No se ve %s en el SPF: pregunta al proveedor qué «include:» hay que añadir para su servidor de salida.%s"
+                  % ((raiz_host or "el servidor de salida"), quien))
+
+
+def _mail_dns_check(acc) -> dict:
+    """Qué dicen los DNS del dominio del remitente: SPF (¿autoriza al servidor de salida?), DKIM (si
+    se sabe el selector) y DMARC. Es una AYUDA para saber por dónde va a fallar la entrega, no una
+    garantía: lo que decide es lo que vea Gmail al recibirlo."""
+    email = (acc.from_email or "").strip().lower()
+    dominio = email.split("@", 1)[1] if "@" in email else ""
+    salida = {"domain": dominio, "spf": {}, "dkim": {}, "dmarc": {}, "unknown": False}
+    if not dominio:
+        return salida
+    txts = _dns_txt_records(dominio)
+    if txts is None:
+        salida["unknown"] = True
+        txts = []
+    spf = [t for t in txts if t.lower().startswith("v=spf1")]
+    fila = {"found": bool(spf), "text": (spf[0] if spf else ""), "ok": None, "note": ""}
+    if len(spf) > 1:
+        fila["ok"], fila["note"] = False, ("Hay %d registros SPF y solo puede haber UNO: los proveedores lo dan por inválido."
+                                           % len(spf))
+    elif spf:
+        fila["ok"], fila["note"] = _spf_authorizes_host(spf[0], acc.smtp_host or "", dominio)
+    elif salida["unknown"]:
+        fila["note"] = "No se pudo consultar el DNS desde aquí."
+    else:
+        fila["ok"], fila["note"] = False, "El dominio no tiene SPF: para Gmail y Outlook cualquier correo suyo es sospechoso."
+    salida["spf"] = fila
+    dm = _dns_txt_records("_dmarc." + dominio)
+    dmarc = [t for t in (dm or []) if t.lower().startswith("v=dmarc1")]
+    politica = ""
+    if dmarc:
+        m = re.search(r"\bp\s*=\s*([a-z]+)", dmarc[0], re.I)
+        politica = (m.group(1).lower() if m else "")
+    salida["dmarc"] = {"found": bool(dmarc), "text": (dmarc[0] if dmarc else ""), "policy": politica,
+                       "ok": (True if dmarc else (None if dm is None else False)),
+                       "note": (("Con la política «%s»." % (politica or "sin política")) if dmarc else
+                                ("Sin DMARC: conviene empezar con p=none para recibir los informes." if dm is not None
+                                 else "No se pudo consultar."))}
+    selector = (acc.dkim_selector or "").strip()
+    if selector:
+        dk = _dns_txt_records("%s._domainkey.%s" % (selector, dominio))
+        hay = bool(dk) and any("p=" in t for t in dk)
+        salida["dkim"] = {"checked": True, "selector": selector, "found": hay,
+                          "ok": (True if hay else (None if dk is None else False)),
+                          "note": (("La clave DKIM del selector «%s» está publicada." % selector) if hay else
+                                   (("No hay clave DKIM en %s._domainkey.%s: activa DKIM en el panel del hosting."
+                                     % (selector, dominio)) if dk is not None else "No se pudo consultar."))}
+    else:
+        salida["dkim"] = {"checked": False, "selector": "", "found": None, "ok": None,
+                          "note": "Pon el selector DKIM (lo da el panel del hosting al activarlo) para poder comprobarlo."}
+    return salida
+
+
+def _mail_account_row(acc) -> dict:
+    """Una cuenta tal como se enseña (SIN la contraseña: solo si la tiene)."""
+    email = (acc.from_email or "").strip()
+    dominio = email.split("@", 1)[1].lower() if "@" in email else ""
+    usuario = (acc.smtp_username or "").strip()
+    seguridad = (acc.smtp_security or "SSL").upper()
+    es_promo = email.lower() == PRESS_SENDER_PROMO_EMAIL.lower()
+    return {
+        "id": str(acc.id), "label": acc.label or "", "from_name": acc.from_name or "", "from_email": email,
+        "reply_to": acc.reply_to or "", "smtp_host": acc.smtp_host or "",
+        "smtp_port": acc.smtp_port or MAIL_SECURITY_PORTS.get(seguridad, 465), "smtp_security": seguridad,
+        "security_label": dict((k, lab) for k, lab, _h in MAIL_SECURITY_KINDS).get(seguridad, seguridad),
+        "smtp_username": usuario, "has_password": bool(acc.smtp_password), "is_active": bool(acc.is_active),
+        "pause_ms": acc.pause_ms or 0, "reconnect_every": acc.reconnect_every or 0, "hourly_cap": acc.hourly_cap or 0,
+        "dkim_selector": acc.dkim_selector or "", "domain": dominio,
+        # ¿El usuario con el que se autentica es del MISMO dominio que el remitente? Si no, SPF/DKIM
+        # no pueden cuadrar y el correo va a spam (la pista que ya da la tabla de arriba).
+        "aligned": bool(dominio and (not usuario or "@" not in usuario or usuario.split("@", 1)[1].lower() == dominio)),
+        "last_test_at": (acc.last_test_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if acc.last_test_at else ""),
+        "last_test_ok": acc.last_test_ok, "last_test_info": acc.last_test_info or "",
+        "is_promo": es_promo,
+        "uses": (["Notas de prensa · remitente «%s»" % PRESS_SENDER_PROMO_NAME] if es_promo
+                 else ["Notas de prensa · se ofrece como remitente al enviar"]),
+    }
+
+
+def _mail_accounts_context(session_db) -> dict:
+    filas = [_mail_account_row(a) for a in session_db.query(MailAccount).order_by(MailAccount.created_at.asc()).all()]
+    return {"rows": filas, "security_kinds": MAIL_SECURITY_KINDS, "ports": MAIL_SECURITY_PORTS,
+            "promo_email": PRESS_SENDER_PROMO_EMAIL, "promo_name": PRESS_SENDER_PROMO_NAME,
+            "promo_missing": not any(f["is_promo"] for f in filas),
+            "active_count": sum(1 for f in filas if f["is_active"])}
+
+
+@app.post("/integraciones/correo/cuentas/guardar", endpoint="mail_account_save")
+@admin_required
+def mail_account_save():
+    """Da de alta (o cambia) una cuenta propia de envío. Una dirección = una cuenta."""
+    fuera = _mail_admin_guard()
+    if fuera is not None:
+        return fuera
+    volver = redirect(url_for("integrations_view") + "#tab-correo")
+    f = request.form
+    email = (f.get("from_email") or "").strip().lower()
+    if "@" not in email:
+        flash("Escribe la dirección desde la que va a salir el correo (por ejemplo %s)." % PRESS_SENDER_PROMO_EMAIL, "warning")
+        return volver
+    host = (f.get("smtp_host") or "").strip()
+    if not host:
+        flash("Falta el servidor de salida (SMTP): es el que indica el panel del proveedor de correo.", "warning")
+        return volver
+    session_db = db()
+    try:
+        acc = None
+        acc_id = (f.get("account_id") or "").strip()
+        if acc_id:
+            acc = session_db.get(MailAccount, to_uuid(acc_id))
+        previa = session_db.query(MailAccount).filter(func.lower(MailAccount.from_email) == email).first()
+        if acc is None:
+            acc = previa                              # esa dirección ya estaba: se actualiza esa
+        elif previa is not None and previa.id != acc.id:
+            flash("La dirección %s ya tiene su propia cuenta: edita esa en vez de repetirla." % email, "warning")
+            return volver
+        nueva = acc is None
+        if nueva:
+            acc = MailAccount(from_email=email, smtp_host=host)
+            session_db.add(acc)
+        acc.from_email = email
+        acc.smtp_host = host
+        seguridad = (f.get("smtp_security") or "SSL").strip().upper()
+        if seguridad not in MAIL_SECURITY_PORTS:
+            seguridad = "SSL"
+        acc.smtp_security = seguridad
+        try:
+            acc.smtp_port = int((f.get("smtp_port") or "").strip() or MAIL_SECURITY_PORTS[seguridad])
+        except ValueError:
+            acc.smtp_port = MAIL_SECURITY_PORTS[seguridad]
+        acc.label = (f.get("label") or "").strip() or None
+        acc.from_name = (f.get("from_name") or "").strip() or None
+        acc.reply_to = (f.get("reply_to") or "").strip().lower() or None
+        acc.smtp_username = (f.get("smtp_username") or "").strip() or email
+        clave = (f.get("smtp_password") or "").strip()
+        if _truthy(f.get("clear_password")):
+            acc.smtp_password = None
+        elif clave and not clave.startswith("•"):
+            acc.smtp_password = clave                 # se guarda para conectar; no se enseña nunca
+        if "is_active_present" in f:
+            acc.is_active = bool(f.get("is_active"))
+        elif nueva:
+            acc.is_active = True
+
+        def _entero(nombre, defecto, minimo, maximo):
+            try:
+                v = int((f.get(nombre) or "").strip() or defecto)
+            except ValueError:
+                v = defecto
+            return max(minimo, min(maximo, v))
+        acc.pause_ms = _entero("pause_ms", 800, 0, 60000)
+        acc.reconnect_every = _entero("reconnect_every", 40, 0, 1000)
+        acc.hourly_cap = _entero("hourly_cap", 0, 0, 100000)
+        acc.dkim_selector = (f.get("dkim_selector") or "").strip() or None
+        acc.updated_at = _now_madrid()
+        session_db.commit()
+        if nueva:
+            flash("Cuenta %s guardada. Pulsa «Probar conexión» para comprobar el servidor y la contraseña." % email, "success")
+        else:
+            flash("Cuenta %s actualizada." % email, "success")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[correo] no se pudo guardar la cuenta de envío")
+        flash("No se pudo guardar la cuenta.", "danger")
+    finally:
+        session_db.close()
+    return volver
+
+
+@app.post("/integraciones/correo/cuentas/<account_id>/eliminar", endpoint="mail_account_delete")
+@admin_required
+def mail_account_delete(account_id):
+    fuera = _mail_admin_guard()
+    if fuera is not None:
+        return fuera
+    session_db = db()
+    try:
+        acc = session_db.get(MailAccount, to_uuid(account_id))
+        if acc is not None:
+            session_db.delete(acc)
+            session_db.commit()
+            flash("Cuenta de envío eliminada. Lo que salía por ella vuelve a salir por el remitente de la app.", "success")
+    except Exception:
+        session_db.rollback()
+        flash("No se pudo eliminar la cuenta.", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view") + "#tab-correo")
+
+
+@app.post("/integraciones/correo/cuentas/<account_id>/probar", endpoint="mail_account_test")
+@admin_required
+def mail_account_test(account_id):
+    """«Probar conexión» (entra en el servidor con el usuario y la contraseña, sin mandar nada) o
+    «Enviar prueba» (`do=send` + `email`: manda un correo DESDE esa cuenta). El resultado se apunta en
+    la cuenta, que es lo que se enseña como estado."""
+    fuera = _mail_admin_guard()
+    if fuera is not None:
+        return fuera
+    session_db = db()
+    try:
+        acc = session_db.get(MailAccount, to_uuid(account_id))
+        if acc is None:
+            flash("Esa cuenta no existe.", "warning")
+            return redirect(url_for("integrations_view") + "#tab-correo")
+        hacer = (request.form.get("do") or "check").strip().lower()
+        destino = (request.form.get("email") or "").strip()
+        if hacer == "send" and "@" not in destino:
+            flash("Escribe el correo al que mandar la prueba.", "warning")
+            return redirect(url_for("integrations_view") + "#tab-correo")
+        if not (acc.smtp_password or "").strip():
+            flash("A la cuenta %s le falta la contraseña del buzón: ponla y guarda antes de probar." % acc.from_email, "warning")
+            return redirect(url_for("integrations_view") + "#tab-correo")
+        if hacer == "send":
+            nombre = acc.from_name or acc.label or acc.from_email
+            html = (
+                '<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:560px;">'
+                '<h2 style="text-align:center;">Correo de prueba</h2>'
+                '<p>Si estás leyendo esto, los correos salen bien desde <strong>%s</strong> por su propio buzón.</p>'
+                '<p>Comprueba dos cosas: que ha llegado a la <strong>bandeja de entrada</strong> (no a spam) y que el '
+                'remitente se ve como «%s».</p>'
+                '<p style="color:#6b7280;font-size:13px;">Enviado desde %s.</p></div>'
+            ) % (escape(acc.from_email), escape(nombre), escape(acc.smtp_host or "—"))
+            ok, error = _send_optional_email([destino], "Correo de prueba · %s" % nombre, html, account=acc,
+                                             from_name=acc.from_name, from_email=acc.from_email, auto_submitted=False)
+            if ok:
+                acc.last_test_ok = True
+                acc.last_test_info = "Correo de prueba enviado a %s." % destino
+                flash("Correo de prueba enviado a %s desde %s. Mira si ha llegado a la bandeja o a spam."
+                      % (destino, acc.from_email), "success")
+            else:
+                acc.last_test_ok, acc.last_test_info = False, (error or "No se pudo enviar.")
+                flash("No se pudo enviar: %s" % (error or "sin detalle"), "danger")
+        else:
+            try:
+                smtp = _smtp_open(_mail_account_smtp_settings(acc))
+                try:
+                    smtp.quit()
+                except Exception:
+                    pass
+                acc.last_test_ok = True
+                acc.last_test_info = "Conexión correcta: el servidor acepta el usuario y la contraseña."
+                flash("Conexión correcta con %s: el servidor acepta el usuario y la contraseña de %s."
+                      % (acc.smtp_host, acc.from_email), "success")
+            except Exception as exc:
+                acc.last_test_ok, acc.last_test_info = False, _smtp_error_text(exc)
+                flash("No se pudo conectar: %s" % acc.last_test_info, "danger")
+        acc.last_test_at = _now_madrid()
+        acc.updated_at = _now_madrid()
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[correo] no se pudo probar la cuenta de envío")
+        flash("No se pudo probar la cuenta.", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view") + "#tab-correo")
+
+
+@app.get("/integraciones/correo/cuentas/<account_id>/dns", endpoint="mail_account_dns")
+@admin_required
+def mail_account_dns(account_id):
+    """Qué dicen los DNS del dominio de esa cuenta (SPF · DKIM · DMARC). JSON, se pide al pulsar."""
+    if not is_master():
+        return jsonify({"ok": False, "error": "Solo dirección."}), 403
+    session_db = db()
+    try:
+        acc = session_db.get(MailAccount, to_uuid(account_id))
+        if acc is None:
+            return jsonify({"ok": False, "error": "No existe."}), 404
+        return jsonify({"ok": True, **_mail_dns_check(acc)})
+    finally:
+        session_db.close()
+
+
 def _sms_admin_guard():
     """Configurar integraciones es de DIRECCIÓN. Devuelve la respuesta si no toca, o None."""
     if not is_master():
@@ -137424,10 +138149,22 @@ def integrations_view():
         sms_ctx = {}
     finally:
         s4.close()
+    # Correo: las cuentas PROPIAS de envío (promocion@…), además del SMTP de la app.
+    mail_ctx = {"rows": [], "security_kinds": MAIL_SECURITY_KINDS, "ports": MAIL_SECURITY_PORTS,
+                "promo_email": PRESS_SENDER_PROMO_EMAIL, "promo_name": PRESS_SENDER_PROMO_NAME,
+                "promo_missing": True, "active_count": 0}
+    s5 = db()
+    try:
+        mail_ctx = _mail_accounts_context(s5)
+    except Exception:
+        app.logger.exception("[correo] no se pudieron leer las cuentas de envío")
+    finally:
+        s5.close()
     return render_template(
         "integraciones.html",
         title="Integraciones",
         smtp=_smtp_settings(),
+        mail=mail_ctx,
         pleo_configured=pleo_any,
         pleo_rows=pleo_rows,
         pleo_people=pleo_people,

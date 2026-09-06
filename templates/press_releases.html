@@ -92,6 +92,13 @@
             <li><a class="dropdown-item" href="{{ r.detail_url }}"><i class="fa fa-eye fa-fw me-1"></i>Ver</a></li>
             {% if r.can_edit and can_edit_promo %}
               <li><a class="dropdown-item" href="{{ r.edit_url }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</a></li>
+            {% elif can_edit_promo and r.status == 'SENT' %}
+              {# Una nota ENVIADA no se edita: se REPLICA (una copia en borrador con el mismo diseño). #}
+              <li>
+                <form method="post" action="{{ r.duplicate_url }}" class="mb-0">
+                  <button class="dropdown-item"><i class="fa fa-clone fa-fw me-1"></i>Replicar nota</button>
+                </form>
+              </li>
             {% endif %}
             {% if can_edit_promo %}
               <li><a class="dropdown-item" href="{{ r.send_url }}{{ '?modo=resend' if r.status == 'SENT' else '' }}"><i class="fa fa-paper-plane fa-fw me-1"></i>{{ 'Reenviar' if r.status == 'SENT' else 'Enviar' }}</a></li>

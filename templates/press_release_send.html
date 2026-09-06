@@ -23,16 +23,22 @@
     <div class="demo-card mb-3">
       <div class="demo-card__head"><i class="fa fa-at"></i>1 · ¿Quién la manda?</div>
       <div class="demo-card__body">
+        {# Los remitentes salen de las CUENTAS DE ENVÍO (Integraciones → Correo): el de la app, «Promoción»
+           —por su buzón si está dada de alta— y cualquier otra cuenta activa. Una sin cuenta propia se
+           marca con su aviso (saldrá con el remitente de la app y Reply-To a ella). #}
         <div class="pr-senders">
-          {% for key, nombre, sub, icono in sender_kinds %}
-            <label class="pr-sender{{ ' is-on' if (pr.sender_kind or 'BACKOFFICE') == key }}">
-              <input type="radio" name="sender_kind" value="{{ key }}" {% if (pr.sender_kind or 'BACKOFFICE') == key %}checked{% endif %}>
-              <span class="pr-sender__ico">{% if icono == 'favicon' %}<img src="{{ url_for('static', filename='android-chrome-192x192.png') }}" alt="">{% else %}<i class="fa fa-microphone-lines"></i>{% endif %}</span>
-              <span class="pr-sender__t"><b>{{ nombre }}</b><small>{{ sub }}</small></span>
+          {% set actual = (pr.sender_kind or 'BACKOFFICE')|lower %}
+          {% for o in sender_options %}
+            {% set on = actual == o.key|lower %}
+            <label class="pr-sender{{ ' is-on' if on }}{{ ' pr-sender--warn' if not o.ok }}"{% if o.hint %} title="{{ o.hint }}"{% endif %}>
+              <input type="radio" name="sender_kind" value="{{ o.key }}" {% if on %}checked{% endif %}>
+              <span class="pr-sender__ico">{% if o.icon == 'favicon' %}<img src="{{ url_for('static', filename='android-chrome-192x192.png') }}" alt="">{% elif o.icon == 'promo' %}<i class="fa fa-microphone-lines"></i>{% else %}<i class="fa fa-at"></i>{% endif %}</span>
+              <span class="pr-sender__t"><b>{{ o.name }}</b><small>{{ o.sub }}</small>{% if not o.ok %}<small class="pr-sender__hint"><i class="fa fa-triangle-exclamation me-1"></i>Sin cuenta propia: saldrá con el remitente de la app</small>{% endif %}</span>
             </label>
           {% endfor %}
         </div>
-        <div class="form-text mt-2">Cada correo sale <b>suelto</b>, uno por persona, con su versión en texto y su remitente bien formado: es lo que hace que no acabe en la bandeja de spam.</div>
+        <div class="form-text mt-2">Cada correo sale <b>suelto</b>, uno por persona y al ritmo de una persona, con su versión en texto y su remitente bien formado: es lo que hace que no acabe en la bandeja de spam.
+          {% if mail_settings_url %}Las cuentas de envío se configuran en <a href="{{ mail_settings_url }}">Integraciones → Correo</a>.{% endif %}</div>
       </div>
     </div>
 

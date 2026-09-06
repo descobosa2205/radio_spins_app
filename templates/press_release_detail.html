@@ -8,14 +8,48 @@
    anterior (editar o enviar) ya está hecho, no es a donde se vuelve. #}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <a href="{{ url_for('promo_press_view', sujeto=row.group_id) }}" class="btn btn-outline-secondary btn-volver" data-no-smart-back title="Volver a las notas de prensa de {{ row.subject_label }}" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
-  <div class="d-flex gap-2 flex-wrap">
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    {# «Editar diseño» abre el editor (fondo, bloques y módulos). Solo mientras NO se ha enviado: lo que
+       salió tiene que seguir diciendo lo que salió; de una enviada se hace una RÉPLICA (en los ⋯). #}
     {% if can_edit %}
-      <a class="btn btn-outline-primary" href="{{ url_for('promo_press_edit', release_id=pr.id) }}"><i class="fa fa-pen me-1"></i>Editar</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('promo_press_edit', release_id=pr.id) }}" title="Abrir el editor: el fondo, los bloques y los módulos"><i class="fa fa-pen-ruler me-1"></i>Editar diseño</a>
     {% endif %}
     {% if can_edit_promo %}
       <a class="btn btn-primary" href="{{ url_for('promo_press_send_view', release_id=pr.id) }}{{ '?modo=resend' if row.status == 'SENT' else '' }}">
         <i class="fa fa-paper-plane me-1"></i>{{ 'Reenviar la nota de prensa' if row.status == 'SENT' else 'Enviar nota de prensa' }}</a>
     {% endif %}
+    <div class="dropdown">
+      <button class="btn btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Más opciones" title="Más opciones"><i class="fa fa-ellipsis"></i></button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        {% if can_edit %}
+          <li><a class="dropdown-item" href="{{ url_for('promo_press_edit', release_id=pr.id) }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</a></li>
+        {% elif can_edit_promo %}
+          <li>
+            <form method="post" action="{{ url_for('promo_press_duplicate', release_id=pr.id) }}" class="mb-0">
+              <button class="dropdown-item" title="Una copia en borrador con el mismo diseño, para editarla y mandarla otra vez"><i class="fa fa-clone fa-fw me-1"></i>Replicar nota</button>
+            </form>
+          </li>
+        {% endif %}
+        <li><a class="dropdown-item" href="{{ url_for('promo_press_pdf', release_id=pr.id) }}" data-dl-bar><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
+        <li><hr class="dropdown-divider"></li>
+        {% if can_edit_promo %}
+          <li><a class="dropdown-item" href="{{ url_for('promo_press_send_view', release_id=pr.id, modo='share') }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</a></li>
+        {% endif %}
+        <li><button type="button" class="dropdown-item" data-pr-share="wa" data-pr-url="{{ row.public_url }}" data-pr-title="Nota de prensa · {{ row.subject_label|e }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+        <li><button type="button" class="dropdown-item" data-pr-share="sms" data-pr-url="{{ row.public_url }}" data-pr-title="Nota de prensa · {{ row.subject_label|e }}"><i class="fa fa-comment-sms fa-fw me-1"></i>SMS</button></li>
+        <li><button type="button" class="dropdown-item" data-pr-share="copy" data-pr-url="{{ row.public_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+        <li><a class="dropdown-item" href="{{ row.public_url }}" target="_blank" rel="noopener"><i class="fa fa-up-right-from-square fa-fw me-1"></i>Abrir la página que reciben</a></li>
+        {% if can_edit_promo %}
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <form method="post" action="{{ url_for('promo_press_delete', release_id=pr.id) }}" class="mb-0"
+                  data-confirm="¿Eliminar esta nota de prensa? Se borra también el registro de a quién se mandó.">
+              <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
+            </form>
+          </li>
+        {% endif %}
+      </ul>
+    </div>
   </div>
 </div>
 
@@ -34,7 +68,7 @@
           {% elif pr.scheduled_at %}<div><i class="fa fa-clock fa-fw me-1"></i>Programada para el {{ row.date_label }}</div>
           {% else %}<div><i class="fa fa-pen-ruler fa-fw me-1"></i>Borrador · todavía sin enviar</div>{% endif %}
           <div><i class="fa fa-user fa-fw me-1"></i>{{ pr.created_by_nick or '—' }} · {{ pr.created_at.strftime('%d/%m/%Y') if pr.created_at else '' }}</div>
-          <div><i class="fa fa-envelope fa-fw me-1"></i>Remitente: {{ 'Promoción | 33 Producciones' if pr.sender_kind == 'PROMO33' else 'Back office' }}</div>
+          <div><i class="fa fa-envelope fa-fw me-1"></i>Remitente: {{ sender_label }}</div>
         </div>
         {% if pr.status == 'SCHEDULED' %}
           <form method="post" action="{{ url_for('promo_press_unschedule', release_id=pr.id) }}" class="mt-2"
@@ -66,12 +100,6 @@
               <li><a class="dropdown-item" href="{{ row.public_url }}" target="_blank" rel="noopener"><i class="fa fa-up-right-from-square fa-fw me-1"></i>Abrir la página que reciben</a></li>
             </ul>
           </div>
-          {% if can_edit_promo %}
-            <form method="post" action="{{ url_for('promo_press_delete', release_id=pr.id) }}" class="ms-auto"
-                  data-confirm="¿Eliminar esta nota de prensa? Se borra también el registro de a quién se mandó.">
-              <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar</button>
-            </form>
-          {% endif %}
         </div>
       </div>
     </div>

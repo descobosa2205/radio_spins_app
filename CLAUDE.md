@@ -10069,3 +10069,61 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Probado con la app real (`/tmp/mcx/test_press.py`, 127 comprobaciones): sujetos activos y
   empresas, paleta, duplicado sin enviar, contadores en vivo, iconos, pitch, módulos nuevos y sus
   páginas públicas, remitente rechazado, grupos, APM/Arte, importación y vinculación.
+
+- ⚠️⚠️ **CORREO · CUENTAS DE ENVÍO PROPIAS (promocion@ desde SU buzón) y el hueco en blanco de Integraciones**
+  (sep 2026). Dani tiene el correo en un hosting (webmail.es), no en Google ni Microsoft, así que el
+  SMTP de la app no puede «mandar como» promocion@: las notas de prensa salían con el remitente de
+  la app y Reply-To a promocion@ (el respaldo). Ahora hay **CUENTAS DE ENVÍO** en **Integraciones →
+  Correo** (`MailAccount`, tabla `mail_accounts`, `ensure_mail_accounts_schema`): la dirección, el
+  servidor de salida, puerto y cifrado (SSL 465 / STARTTLS 587 / sin cifrar), el usuario y la
+  **contraseña del propio buzón** (se guarda para conectar y **no se enseña nunca**), a dónde van las
+  respuestas, el **ritmo** (respiro entre correos · conexión nueva cada N · **tope por hora**, 0 = sin
+  tope) y el selector DKIM para poder comprobarlo. Endpoints `mail_account_save/_delete/_test/_dns`
+  (dirección, sección `integraciones`), todo dentro de la zona `#correoZone` (data-inline).
+  · **`_send_optional_email` lo resuelve SOLO**: si el `from_email` pedido es el de una cuenta ACTIVA
+  (`_mail_account_for_email`), el correo sale POR ELLA con sus credenciales (`_smtp_open`), alineado
+  con su dominio, y sin ningún «mandar como» que pueda fallar; también acepta `account=`, `pace_ms=`
+  y `reconnect_every=`. Con cuenta propia, sin Reply-To a quien pulsa el botón: las respuestas van al
+  buzón (o a lo que diga la cuenta). Los errores de SMTP se traducen para una persona
+  (`_smtp_error_text`: usuario/contraseña · servidor que no existe · cifrado equivocado para ese puerto).
+  · **«Probar conexión»** entra en el servidor sin mandar nada; **«Enviar prueba desde aquí»** manda un
+  correo DESDE la cuenta; **«Comprobar los DNS»** (`_mail_dns_check`, por DNS-sobre-HTTPS con Google
+  y Cloudflare —`_dns_txt_records`—, sin dependencias) dice si el SPF nombra al servidor de salida
+  (`_spf_authorizes_host`), si hay DMARC y con qué política, y si la clave DKIM del selector está
+  publicada. «No se pudo consultar» NO es «no hay». La pestaña trae la **guía paso a paso** para
+  dejar promocion@ mandando desde el hosting, y el alta sale **ya rellena** con promocion@ mientras
+  no exista.
+  · **NOTAS DE PRENSA**: los remitentes salen de `_press_sender_options` (Back office · «Promoción»
+  · cada otra cuenta activa como `ACCOUNT:<id>`); «Promoción» sale **por su cuenta** si está dada de
+  alta y, si no, con su aviso (saldrá con el remitente de la app). `_press_sender_for` devuelve la
+  `account`; `_press_sender_key_norm` normaliza la clave (el uuid en minúsculas, o el tope por hora
+  no casaría). `PRESS_SENDER_KINDS` se retiró.
+  ⚠️⚠️ **EL ENVÍO GRANDE VA AL RITMO DE UNA PERSONA**: un correo por persona (como siempre), con el
+  respiro de la cuenta (o `PRESS_SEND_PACE_MS`, 600 ms, por el SMTP de la app), conexión nueva cada N,
+  y **el tope por hora se respeta**: `_press_send_pending` manda lo que cabe, deja el resto pendiente
+  (`throttled`) y la nota en SENDING. **El hilo TERMINA** al topar (o si otro proceso la está
+  mandando, `busy`): un hilo dormido una hora moriría igual en el primer despliegue. Quien la retoma
+  es **`_press_sweep`** (cada minuto), que ahora **reanuda las notas en SENDING con pendientes** que
+  llevan más de 3 min paradas y sin hilo en este proceso — es también lo que arregla una nota que
+  un despliegue dejó a medias (antes se quedaba en «mandando» para siempre).
+  ⚠️⚠️ **CERROJO POR NOTA** (`_pleo_pg_lock("press_release_send:<id>")` dentro de
+  `_press_send_pending`): el hilo de la petición, el del barrido y el de otro worker no pueden mandar
+  la misma nota a la vez (antes, dos pasadas simultáneas habrían mandado dos veces a los mismos).
+  · **EL HUECO EN BLANCO de Integraciones** (bug real): las pestañas SMS y Correo estaban FUERA de
+  `.tab-content` (en un div `mt-4` aparte). Bootstrap solo esconde con `display:none` a
+  `.tab-content > .tab-pane`; a las de fuera les quedaba `.fade` (opacity 0), así que ocupaban sitio
+  invisibles y al abrir Correo salía la pestaña SMS entera en blanco delante. Ya cuelgan de
+  `.tab-content`. ⚠️ El contador de `<div` de la casa cuenta también los de los comentarios Jinja: no
+  escribir una etiqueta literal en un comentario.
+  · **LA FICHA DE UNA NOTA**: «**Editar diseño**» arriba a la derecha (solo sin enviar) y los **⋯** con
+  **Editar** (sin enviar) o **Replicar nota** (enviada): `promo_press_duplicate` hace una COPIA en
+  borrador con el mismo diseño, sujeto, remitente y **adjuntos** (mismas filas de `PressReleaseFile`,
+  mismos ficheros) y abre su editor. En el listado, los ⋯ de una enviada ofrecen Replicar. La ficha
+  dice el remitente con su dirección (`sender_label`).
+  ⚠️ `is_master()` **NO es un global de plantilla**: un `{% if is_master() %}` revienta la página
+  (bug de esta ronda, lo sacó la prueba). Se pasa un valor desde la vista (`mail_settings_url`).
+  Probado con la app real (`/tmp/mcx/test_press.py`, 165 comprobaciones): anidado de las pestañas,
+  alta/edición sin perder la contraseña, prueba de conexión por el servidor de la cuenta, envío de
+  prueba, DNS (con resolvedor simulado), remitentes, envío de una nota por la cuenta (From, sin
+  Reply-To ajeno, sin Auto-Submitted, Message-ID del dominio), tope por hora, hilo que termina,
+  reanudación por el barrido, cerrojo por nota y replicar con adjuntos.

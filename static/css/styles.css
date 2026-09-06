@@ -6495,6 +6495,17 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .pr-sender__ico img{ width:100%; height:100%; object-fit:cover; }
 .pr-sender__t{ display:flex; flex-direction:column; line-height:1.2; }
 .pr-sender__t small{ color:#6b7280; }
+.pr-sender__hint{ color:#b45309 !important; font-size:.72rem; }
+.pr-sender--warn{ border-style:dashed; }
+/* Integraciones → Correo · cuentas de envío */
+.mail-acc{ background:#fff; }
+.mail-acc--off{ opacity:.7; }
+.mail-acc__ico{ width:40px; height:40px; border-radius:10px; background:#fdecee; color:var(--brand-primary,#E33D48); display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; font-size:1.05rem; }
+.mail-acc-add > summary{ list-style:none; display:inline-flex; }
+.mail-acc-add > summary::-webkit-details-marker{ display:none; }
+.mail-dns__row{ display:flex; gap:.5rem; align-items:flex-start; padding:.25rem 0; border-top:1px dashed #e9ecef; }
+.mail-dns__row:first-of-type{ border-top:0; }
+.mail-dns__row > i{ margin-top:.2rem; flex:0 0 auto; }
 /* A QUIÉN se manda, por GRUPOS: los chips grandes (medios · promotores · asociaciones) y, en medios,
    los chips de TIPO. Y la etiqueta «Es miembro de…» de la ficha del tercero. */
 .pr-gchips{ display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:.75rem; }

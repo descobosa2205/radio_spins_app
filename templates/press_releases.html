@@ -42,7 +42,8 @@
           <a class="card h-100 text-decoration-none text-reset promo-subject-card"
              href="{{ url_for('promo_press_view', sujeto=g.id) }}">
             <div class="card-body d-flex align-items-center gap-3">
-              {% if g.photo %}<img src="{{ g.photo }}" class="promo-row__cover" alt="" data-avatar="1">
+              {% if g.kind == 'COMPANY' %}{{ company_logo(name=g.label, logo_url=g.photo, size=52, cls='promo-row__cover promo-row__cover--logo') }}
+              {% elif g.photo %}<img src="{{ g.photo }}" class="promo-row__cover" alt="" data-avatar="1">
               {% else %}<span class="promo-row__cover promo-row__cover--ph"><i class="fa {{ 'fa-users' if g.multi else ('fa-calendar-star' if g.kind == 'EVENT' else ('fa-route' if g.kind == 'TOUR' else ('fa-calendar-week' if g.kind == 'CYCLE' else 'fa-user-music'))) }}"></i></span>{% endif %}
               <div style="min-width:0">
                 <div class="fw-semibold text-truncate">{{ g.label }}</div>
@@ -57,11 +58,13 @@
   {% endif %}
 {% endif %}
 
-{# ---------- LAS NOTAS ---------- #}
+{# ---------- LAS NOTAS ----------
+   Los contadores (enviados · abiertos) y el estado se actualizan EN VIVO: press_list.js pregunta cada
+   pocos segundos por las notas marcadas con `data-pr-live` y, si un número cambia, hace «pop». #}
 {% if press_rows %}
-  <div class="prl-list">
+  <div class="prl-list" data-pr-stats-url="{{ url_for('promo_press_stats_json') }}">
     {% for r in press_rows %}
-      <div class="prl-row">
+      <div class="prl-row" data-pr-live="{{ r.id }}">
         <a class="prl-row__thumb" href="{{ r.detail_url }}" title="Ver la nota">
           {% if r.has_bg %}<img src="{{ r.thumb_url }}" alt="" loading="lazy">
           {% else %}<span class="prl-row__thumb-ph"><i class="fa fa-newspaper"></i></span>{% endif %}
@@ -70,18 +73,18 @@
           <div class="prl-row__top">
             <a class="prl-row__title" href="{{ r.detail_url }}">{{ r.title }}</a>
             <span class="prl-row__date"><i class="fa fa-paper-plane"></i>{{ r.date_label or 'Sin enviar' }}</span>
-            <span class="badge {{ 'text-bg-success' if r.status == 'SENT' else ('text-bg-warning text-dark' if r.status == 'SCHEDULED' else 'text-bg-light border') }}">{{ r.status_label }}</span>
+            <span class="badge {{ 'text-bg-success' if r.status == 'SENT' else ('text-bg-warning text-dark' if r.status == 'SCHEDULED' else 'text-bg-light border') }}" data-pr-live-status>{{ r.status_label }}</span>
           </div>
           <div class="prl-row__who">
-            {% for s in r.subjects %}{{ artist_chip(s.label, s.photo) }}{% endfor %}
+            {% for s in r.subjects %}{{ press_subject_chip(s) }}{% endfor %}
             <span class="prl-row__kind"><i class="fa fa-tag"></i>{{ r.kind_label }}{% if r.about_name %} · {{ r.about_name }}{% endif %}</span>
           </div>
         </div>
         <div class="prl-row__stats">
           <button type="button" class="prl-stat" data-pr-stats="{{ url_for('promo_press_recipients_json', release_id=r.id) }}" data-pr-stats-kind="sent" title="A cuántas personas se ha enviado">
-            <b>{{ r.sent }}</b><span>enviados</span></button>
+            <b data-pr-live-n="sent">{{ r.sent }}</b><span>enviados</span></button>
           <button type="button" class="prl-stat prl-stat--open" data-pr-stats="{{ url_for('promo_press_recipients_json', release_id=r.id) }}" data-pr-stats-kind="opened" title="Cuántos la han abierto">
-            <b>{{ r.opened }}</b><span>abiertos</span></button>
+            <b data-pr-live-n="opened">{{ r.opened }}</b><span>abiertos</span></button>
         </div>
         <div class="dropdown prl-row__menu">
           <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Opciones"><i class="fa fa-ellipsis"></i></button>

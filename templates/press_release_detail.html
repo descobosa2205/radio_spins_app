@@ -3,9 +3,11 @@
 {# ═══════════════ UNA NOTA DE PRENSA (verla) ═══════════════
    A la izquierda lo que es y lo que se hace con ella (enviar, editar si no se ha enviado, PDF,
    compartir, eliminar) y a la derecha el CONTENIDO tal como se ve (el mismo motor que la página
-   pública). Una nota ENVIADA no se edita. #}
+   pública). Una nota ENVIADA no se edita. Los contadores y la lista de destinatarios se actualizan
+   EN VIVO (press_list.js). La flecha de volver lleva al LISTADO de notas de ese artista: el paso
+   anterior (editar o enviar) ya está hecho, no es a donde se vuelve. #}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <a href="{{ url_for('promo_press_view') }}" class="btn btn-outline-secondary btn-volver" title="Volver a las notas de prensa" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+  <a href="{{ url_for('promo_press_view', sujeto=row.group_id) }}" class="btn btn-outline-secondary btn-volver" data-no-smart-back title="Volver a las notas de prensa de {{ row.subject_label }}" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
   <div class="d-flex gap-2 flex-wrap">
     {% if can_edit %}
       <a class="btn btn-outline-primary" href="{{ url_for('promo_press_edit', release_id=pr.id) }}"><i class="fa fa-pen me-1"></i>Editar</a>
@@ -18,15 +20,15 @@
 </div>
 
 <div class="row g-3">
-  <div class="col-12 col-lg-4">
+  <div class="col-12 col-lg-4" data-pr-live="{{ pr.id }}" data-pr-stats-url="{{ url_for('promo_press_stats_json') }}">
     <div class="card mb-3">
       <div class="card-body">
         <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
-          <span class="badge {{ 'text-bg-success' if row.status == 'SENT' else ('text-bg-warning text-dark' if row.status == 'SCHEDULED' else 'text-bg-light border') }}">{{ row.status_label }}</span>
+          <span class="badge {{ 'text-bg-success' if row.status == 'SENT' else ('text-bg-warning text-dark' if row.status == 'SCHEDULED' else 'text-bg-light border') }}" data-pr-live-status>{{ row.status_label }}</span>
           <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
         </div>
         <h4 class="mb-2">{{ row.title }}</h4>
-        <div class="d-flex flex-wrap gap-1 mb-2">{% for s in subjects %}{{ artist_chip(s.label, s.photo) }}{% endfor %}</div>
+        <div class="d-flex flex-wrap gap-1 mb-2">{% for s in subjects %}{{ press_subject_chip(s) }}{% endfor %}</div>
         <div class="small text-muted">
           {% if pr.sent_at %}<div><i class="fa fa-paper-plane fa-fw me-1"></i>Enviada el {{ row.date_label }}</div>
           {% elif pr.scheduled_at %}<div><i class="fa fa-clock fa-fw me-1"></i>Programada para el {{ row.date_label }}</div>
@@ -46,10 +48,11 @@
     <div class="card mb-3">
       <div class="card-body">
         <div class="prl-row__stats prl-row__stats--big">
-          <button type="button" class="prl-stat" data-pr-stats="{{ url_for('promo_press_recipients_json', release_id=pr.id) }}" data-pr-stats-kind="sent"><b>{{ row.sent }}</b><span>enviados</span></button>
-          <button type="button" class="prl-stat prl-stat--open" data-pr-stats="{{ url_for('promo_press_recipients_json', release_id=pr.id) }}" data-pr-stats-kind="opened"><b>{{ row.opened }}</b><span>abiertos</span></button>
-          {% if row.pending %}<span class="prl-stat prl-stat--wait"><b>{{ row.pending }}</b><span>por salir</span></span>{% endif %}
-          {% if row.forwarded %}<span class="prl-stat prl-stat--fwd" title="Aperturas desde otro dispositivo y otra red: posiblemente reenviada"><b>{{ row.forwarded }}</b><span>reenviadas</span></span>{% endif %}
+          <button type="button" class="prl-stat" data-pr-stats="{{ url_for('promo_press_recipients_json', release_id=pr.id) }}" data-pr-stats-kind="sent"><b data-pr-live-n="sent">{{ row.sent }}</b><span>enviados</span></button>
+          <button type="button" class="prl-stat prl-stat--open" data-pr-stats="{{ url_for('promo_press_recipients_json', release_id=pr.id) }}" data-pr-stats-kind="opened"><b data-pr-live-n="opened">{{ row.opened }}</b><span>abiertos</span></button>
+          {# «por salir» y «reenviadas» se pintan siempre y se esconden a cero: así pueden APARECER en vivo. #}
+          <span class="prl-stat prl-stat--wait{% if not row.pending %} d-none{% endif %}" data-pr-live-hide0><b data-pr-live-n="pending">{{ row.pending }}</b><span>por salir</span></span>
+          <span class="prl-stat prl-stat--fwd{% if not row.forwarded %} d-none{% endif %}" data-pr-live-hide0 title="Aperturas desde otro dispositivo y otra red: posiblemente reenviada"><b data-pr-live-n="forwarded">{{ row.forwarded }}</b><span>reenviadas</span></span>
         </div>
         <div class="d-flex flex-wrap gap-2 mt-3">
           <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('promo_press_pdf', release_id=pr.id) }}" data-dl-bar><i class="fa fa-file-pdf me-1"></i>Descargar en PDF</a>
@@ -77,15 +80,31 @@
       <div class="card">
         <div class="card-body">
           <h6 class="mb-2"><i class="fa fa-users me-1 text-muted"></i>A quién se ha mandado</h6>
-          <div class="pr-recips">
-            {% for r in recipients[:40] %}
-              <div class="pr-recip">
-                <span class="pr-recip__st {{ 'is-open' if r.opened_at else ('is-err' if r.error else ('is-sent' if r.sent_at else 'is-wait')) }}"
-                      title="{{ r.error or ('Abierta ' ~ (r.open_count) ~ ' vez/veces' if r.opened_at else ('Enviada' if r.sent_at else 'Pendiente de salir')) }}"><i class="fa {{ 'fa-envelope-open' if r.opened_at else ('fa-triangle-exclamation' if r.error else ('fa-check' if r.sent_at else 'fa-clock')) }}"></i></span>
-                <span class="pr-recip__who"><b>{{ r.name or r.email }}</b>{% if r.media_name %} <span class="text-muted">· {{ r.media_name }}</span>{% endif %}<br><small class="text-muted">{{ r.email }}{% if r.forwarded %} · <span class="text-warning">posiblemente reenviada</span>{% endif %}</small></span>
-              </div>
-            {% endfor %}
-            {% if recipients|length > 40 %}<div class="small text-muted mt-1">… y {{ recipients|length - 40 }} más (pincha en «enviados»).</div>{% endif %}
+          {# El estado del envío a la izquierda y, a la derecha, los iconos de ABIERTA (cuántas veces y
+             cuándo, al pasar el ratón) y de REENVIADA (desde cuándo se sospecha). Si se eligieron por
+             GRUPOS, van agrupados por esa etiqueta (Radio · Promotores · APM…). #}
+          {% macro recip_row(r) %}
+            <div class="pr-recip">
+              <span class="pr-recip__st {{ 'is-err' if r.error else ('is-sent' if r.sent else 'is-wait') }}"
+                    title="{{ r.error or ('Enviada el ' ~ r.sent_at if r.sent else 'Pendiente de salir') }}"><i class="fa {{ 'fa-triangle-exclamation' if r.error else ('fa-check' if r.sent else 'fa-clock') }}"></i></span>
+              <span class="pr-recip__who"><b>{{ r.name or r.email }}</b>{% if r.media_name %} <span class="text-muted">· {{ r.media_name }}</span>{% endif %}<br><small class="text-muted">{{ r.email }}</small></span>
+              <span class="pr-recip__icons">
+                {% if r.opened %}<span class="pr-recip__ico is-open" title="{{ r.opened_label }}"><i class="fa fa-envelope-open"></i></span>{% endif %}
+                {% if r.forwarded %}<span class="pr-recip__ico is-fwd" title="{{ r.forwarded_label }}"><i class="fa fa-share"></i></span>{% endif %}
+              </span>
+            </div>
+          {% endmacro %}
+          <div class="pr-recips" data-pr-recips="{{ url_for('promo_press_recipients_json', release_id=pr.id) }}">
+            {% if recipient_groups %}
+              {% for g in recipient_groups %}
+                <div class="pr-recips__group"><i class="fa fa-tag me-1"></i>{{ g.label }} <span class="badge text-bg-light border ms-1">{{ g.rows|length }}</span></div>
+                {% for r in g.rows[:60] %}{{ recip_row(r) }}{% endfor %}
+                {% if g.rows|length > 60 %}<div class="small text-muted">… y {{ g.rows|length - 60 }} más (pincha en «enviados»).</div>{% endif %}
+              {% endfor %}
+            {% else %}
+              {% for r in recipients[:40] %}{{ recip_row(r) }}{% endfor %}
+              {% if recipients|length > 40 %}<div class="small text-muted mt-1">… y {{ recipients|length - 40 }} más (pincha en «enviados»).</div>{% endif %}
+            {% endif %}
           </div>
         </div>
       </div>

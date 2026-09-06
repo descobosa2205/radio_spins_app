@@ -128,7 +128,7 @@
           <div class="d-flex align-items-center gap-3">
             <img src="{{ p.logo_url or DEFAULT_AVATAR_URL }}" data-avatar="1" alt="" style="width:56px;height:56px;border-radius:14px;object-fit:contain;border:1px solid #eee;background:#fff;">
             <div>
-              <div class="fw-semibold">{{ p.nick }}</div>
+              <div class="fw-semibold">{{ p.nick }} {{ promoter_assoc_badges(p, 'badge badge-assoc') }}</div>
               {% set _legal = ((p.first_name or '') ~ ' ' ~ (p.last_name or ''))|trim %}
               {% if _legal and _legal|lower != (p.nick or '')|lower %}<div class="small text-muted">{{ _legal }}</div>{% endif %}
               <div class="small text-muted d-flex flex-wrap gap-3">

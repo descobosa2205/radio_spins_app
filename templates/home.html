@@ -1205,6 +1205,9 @@ document.addEventListener('click', function (ev) {
             {% if r.requested_by %}<span class="ctask__fact"><i class="fa fa-user"></i>lo pidió {{ r.requested_by }}</span>{% endif %}
           </span>
           <span class="ms-auto ctask__actions">
+            {# La nota de prensa se HACE aquí: la tarea lleva al asistente con el lanzamiento ya puesto
+               (o a la nota que ya haya). #}
+            {% if r.press_url %}<a class="btn btn-sm btn-outline-danger" href="{{ r.press_url }}"><i class="fa fa-newspaper me-1"></i>{{ r.press_label }}</a>{% endif %}
             <a class="btn btn-sm btn-danger" href="{{ r.url }}"><i class="fa fa-arrow-right me-1"></i>Abrir</a>
           </span>
         </div>

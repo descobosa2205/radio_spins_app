@@ -1,18 +1,20 @@
 {# ═══════════ CREAR UNA NOTA DE PRENSA (asistente) ═══════════
-   1) ¿De quién es? — artistas (pueden ser VARIOS), eventos, giras compradas y los ciclos / festivales
-      NUESTROS (los que promovemos: un festival de otro al que va un artista es una actividad).
-   2) ¿Sobre qué va? — una actividad, un single, un disco o sobre el propio artista / evento.
+   1) ¿De quién es? — lo ACTIVO primero (artistas —pueden ser VARIOS—, eventos, giras compradas y los
+      ciclos / festivales NUESTROS con algo próximo) y las EMPRESAS DEL GRUPO con su LOGO (33
+      Producciones y PIES de primeras); el resto, tras «Ver más».
+   2) ¿Sobre qué va? — una actividad, un single, un disco o sobre el propio sujeto. Si ya hay una nota
+      SIN ENVIAR sobre lo mismo se avisa: seguir con esa o crear otra (una ya enviada no cuenta).
    Al terminar se crea en borrador y se abre el editor. El JS vive en static/js/press_list.js. #}
 <div class="modal fade" id="pressCreateModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content" data-pr-wizard
+    <div class="modal-content" data-pr-wizard{% if press_prefill %} data-prw-prefill="{{ press_prefill|tojson|forceescape }}"{% endif %}
          data-url-about="{{ url_for('promo_press_about_options') }}"
          data-url-create="{{ url_for('promo_press_create') }}"
          data-url-templates="{{ url_for('promo_press_templates') }}">
       <div class="modal-header">
         <div>
           <h5 class="modal-title"><i class="fa fa-newspaper me-2 text-danger"></i>Nueva nota de prensa</h5>
-          <div class="text-muted small" data-prw-sub>¿De quién es la nota? Puedes elegir varios artistas.</div>
+          <div class="text-muted small" data-prw-sub>¿De quién es la nota? Salen los que tienen algo activo y las empresas del grupo; puedes elegir varios artistas.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -22,17 +24,19 @@
         {# ── Paso 1 · de quién ── #}
         <div data-prw-step="subject">
           <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-            <input type="search" class="form-control form-control-sm" style="max-width:20rem" placeholder="Buscar artista, evento, gira o ciclo…" data-prw-search>
+            <input type="search" class="form-control form-control-sm" style="max-width:20rem" placeholder="Buscar artista, evento, gira, ciclo o empresa…" data-prw-search>
             <span class="text-muted small ms-auto" data-prw-picked-label>Nadie elegido todavía</span>
           </div>
           <div class="promo-pick-grid" data-prw-grid>
             {% for sj in press_subjects %}
-              <label class="promo-pick js-prw-subject{% if not sj.active %} d-none{% endif %}"
+              <label class="promo-pick js-prw-subject{% if sj.logo %} promo-pick--logo{% endif %}{% if not sj.active %} d-none{% endif %}"
                      data-search="{{ (sj.label ~ ' ' ~ sj.sub)|lower }}" data-kind="{{ sj.kind }}" data-id="{{ sj.id }}"
                      data-label="{{ sj.label }}"{% if not sj.active %} data-prw-extra="1"{% endif %}>
                 <input type="checkbox" name="prw_subject" value="{{ sj.kind }}:{{ sj.id }}">
                 <span class="promo-pick__box">
-                  {% if sj.photo %}<img src="{{ sj.photo }}" alt="" data-avatar="1">
+                  {# Una EMPRESA del grupo se ve por su LOGO (cuadrado y entero), no por una foto. #}
+                  {% if sj.logo %}{{ company_logo(name=sj.label, logo_url=sj.photo, size=52, cls='promo-pick__logo') }}
+                  {% elif sj.photo %}<img src="{{ sj.photo }}" alt="" data-avatar="1">
                   {% else %}<span class="promo-pick__avatar"><i class="fa {{ sj.icon }}"></i></span>{% endif %}
                   <span class="promo-pick__name">{{ sj.label }}</span>
                   <span class="promo-pick__sub">{{ sj.sub }}</span>
@@ -40,9 +44,10 @@
               </label>
             {% endfor %}
           </div>
-          <div class="text-center mt-2">
+          {% set prw_ocultos = press_subjects|rejectattr('active')|list|length %}
+          <div class="text-center mt-2{% if not prw_ocultos %} d-none{% endif %}">
             <button type="button" class="btn btn-sm btn-link text-decoration-none" data-prw-more>
-              <i class="fa fa-ellipsis me-1"></i>Ver más artistas, giras y ciclos</button>
+              <i class="fa fa-ellipsis me-1"></i>Ver más artistas, eventos, giras, ciclos y empresas ({{ prw_ocultos }})</button>
           </div>
           <div class="d-flex justify-content-end mt-3">
             <button class="btn btn-primary" type="button" data-prw-next disabled>Siguiente <i class="fa fa-arrow-right ms-1"></i></button>
@@ -66,6 +71,15 @@
           <div class="mt-3 d-none" data-prw-template-wrap>
             <label class="form-label small text-muted mb-1">Empezar con un fondo guardado <span class="fw-normal">(opcional)</span></label>
             <select class="form-select form-select-sm" data-prw-template><option value="">Sin fondo (se sube en el editor)</option></select>
+          </div>
+          {# Ya hay una nota SIN ENVIAR sobre lo mismo: se sigue con esa o se crea otra. #}
+          <div class="alert alert-warning d-none mt-3 mb-0" data-prw-existing>
+            <div class="fw-semibold mb-1"><i class="fa fa-triangle-exclamation me-1"></i>Ya hay una nota de prensa sin enviar sobre esto</div>
+            <div class="small mb-2" data-prw-existing-list></div>
+            <div class="d-flex flex-wrap gap-2">
+              <a class="btn btn-sm btn-primary" href="#" data-prw-existing-go><i class="fa fa-pen-ruler me-1"></i>Continuar con la que ya había</a>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-prw-existing-new><i class="fa fa-plus me-1"></i>Crear otra de todas formas</button>
+            </div>
           </div>
           <div class="d-flex justify-content-between mt-3">
             <button class="btn btn-outline-secondary" type="button" data-prw-back>Atrás</button>

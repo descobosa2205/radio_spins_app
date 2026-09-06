@@ -1,0 +1,64 @@
+{# Los ARCHIVOS ADJUNTOS de un módulo de una nota de prensa (página pública): cada uno con su
+   previsualización (foto, vídeo, audio, PDF o el icono de lo que sea) y su descarga, y todos en un
+   ZIP. Solo existe si la nota lleva ese módulo: lo comprueba el servidor. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ og_title }}</title>
+  <meta property="og:title" content="{{ og_title }}">
+  <meta property="og:description" content="{{ files|length }} archivo{{ '' if files|length == 1 else 's' }} · {{ subject_label }}">
+  <style>
+    body{ margin:0; background:#111; color:#eee; font-family:Arial,Helvetica,sans-serif; }
+    .top{ display:flex; align-items:center; gap:12px; padding:14px 16px; flex-wrap:wrap; }
+    .top a{ color:#eee; text-decoration:none; font-size:14px; border:1px solid #444; border-radius:999px; padding:6px 12px; }
+    .top h1{ font-size:18px; margin:0; flex:1; display:flex; align-items:center; gap:10px; min-width:0; }
+    .top h1 img{ width:34px; height:34px; }
+    .top h1 span{ color:#999; font-size:14px; font-weight:normal; }
+    .chips{ display:flex; gap:6px; flex-wrap:wrap; padding:0 16px 10px; }
+    .chip{ display:inline-flex; align-items:center; gap:6px; background:#222; border:1px solid #333; border-radius:999px; padding:4px 10px; font-size:13px; color:#ccc; }
+    .chip img{ width:14px; height:14px; }
+    .dl{ background:#E33D48; border-color:#E33D48 !important; }
+    .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; padding:0 16px 30px; }
+    .card{ background:#1b1b1b; border:1px solid #2a2a2a; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; }
+    .card .prev{ aspect-ratio:4/3; background:#222; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+    .card .prev img, .card .prev video{ width:100%; height:100%; object-fit:contain; display:block; background:#000; }
+    .card .prev audio{ width:92%; }
+    .card .prev .ico{ font-size:44px; color:#8b95a1; font-weight:700; }
+    .card .meta{ padding:10px 12px; display:flex; align-items:center; gap:8px; }
+    .card .meta .n{ flex:1; min-width:0; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .card .meta small{ color:#888; display:block; font-size:11px; }
+    .card .meta a{ color:#fff; text-decoration:none; background:#E33D48; border-radius:999px; padding:5px 10px; font-size:12px; white-space:nowrap; }
+    .card .meta a.sec{ background:transparent; border:1px solid #444; }
+    @media (max-width:520px){ .grid{ grid-template-columns:1fr 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <a href="{{ back_url }}">← Volver a la nota</a>
+    <h1>{% if data.icon_url %}<img src="{{ data.icon_url }}" alt="">{% endif %}{{ data.title }} <span>· {{ subject_label }}</span></h1>
+    {% if zip_url %}<a class="dl" href="{{ zip_url }}">⤓ Descargar todo</a>{% endif %}
+  </div>
+  <div class="chips">
+    {% for c in data.chips %}<span class="chip">{% if c.icon_url %}<img src="{{ c.icon_url }}" alt="">{% endif %}{{ c.label }}</span>{% endfor %}
+  </div>
+  <div class="grid">
+    {% for f in files %}
+      <div class="card">
+        <div class="prev">
+          {% if f.kind == 'IMAGE' %}<a href="{{ f.view_url }}" target="_blank" rel="noopener" style="display:contents"><img src="{{ f.view_url }}" alt="{{ f.name }}" loading="lazy"></a>
+          {% elif f.kind == 'VIDEO' %}<video src="{{ f.view_url }}" controls preload="metadata" playsinline{% if f.thumb %} poster="{{ f.thumb }}"{% endif %}></video>
+          {% elif f.kind == 'AUDIO' %}<audio src="{{ f.view_url }}" controls preload="none"></audio>
+          {% elif f.kind == 'PDF' %}<a href="{{ f.view_url }}" target="_blank" rel="noopener" class="ico" title="Abrir el PDF">PDF</a>
+          {% else %}<span class="ico">⬇</span>{% endif %}
+        </div>
+        <div class="meta">
+          <span class="n" title="{{ f.name }}">{{ f.name }}{% if f.size_label %}<small>{{ f.size_label }}</small>{% endif %}</span>
+          <a href="{{ f.download_url }}">⤓</a>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

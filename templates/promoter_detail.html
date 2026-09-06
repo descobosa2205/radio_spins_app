@@ -11,6 +11,7 @@
       <div class="d-flex flex-wrap gap-3 align-items-center">
         <h3 class="mb-0">{{ promoter.nick }}</h3>
         {% if promoter.tax_id %}<span class="badge text-bg-light border">{{ promoter.tax_id }}</span>{% endif %}
+        {{ promoter_assoc_badges(promoter, 'badge badge-assoc') }}
       </div>
       {% set _legal = ((promoter.first_name or '') ~ ' ' ~ (promoter.last_name or ''))|trim %}
       {% if _legal and _legal|lower != (promoter.nick or '')|lower %}<div class="text-muted small mt-1">{{ _legal }}</div>{% endif %}
@@ -555,6 +556,24 @@
                   <div class="col-12 col-md-6" data-promoter-person>
                     <label class="form-label">Apellidos</label>
                     <input class="form-control" name="last_name" value="{{ promoter.last_name or '' }}">
+                  </div>
+                  {# ASOCIACIONES (APM, Arte) y CATEGORÍAS a mano: con centinela, para que un guardado
+                     parcial de otra pantalla no las borre. Un tercero puede ser de las dos. #}
+                  {% set _asoc = promoter_assoc_tags(promoter) %}{% set _roles = promoter_manual_roles(promoter) %}
+                  <div class="col-12">
+                    <input type="hidden" name="assoc_present" value="1">
+                    <label class="form-label">Es miembro de <span class="text-muted small fw-normal">(para mandarle las notas de prensa de la asociación)</span></label>
+                    <div class="d-flex flex-wrap gap-2">
+                      {% for key, label, desc, icon in PROMOTER_ASSOCIATIONS %}
+                        <label class="pr-tag-check" title="{{ desc }}"><input type="checkbox" name="assoc_tags[]" value="{{ key }}" {% if key in _asoc %}checked{% endif %}><i class="fa {{ icon }}"></i><span><b>{{ label }}</b><small>{{ desc }}</small></span></label>
+                      {% endfor %}
+                    </div>
+                    <label class="form-label mt-3">Categorías <span class="text-muted small fw-normal">(además de las que se deducen de sus actividades y obras)</span></label>
+                    <div class="d-flex flex-wrap gap-2">
+                      {% for key, label, icon in PROMOTER_MANUAL_ROLES %}
+                        <label class="pr-tag-check"><input type="checkbox" name="roles_manual[]" value="{{ key }}" {% if key in _roles %}checked{% endif %}><i class="fa {{ icon }}"></i><span><b>{{ label }}</b></span></label>
+                      {% endfor %}
+                    </div>
                   </div>
                   <div class="col-12 col-md-6">
                     <label class="form-label">DNI / NIF / CIF</label>

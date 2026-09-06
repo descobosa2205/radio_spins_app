@@ -28,7 +28,57 @@
       cuenta();
     }
   });
+  /* ---------- los GRUPOS: medios (por tipo) · promotores · asociaciones ---------- */
+  var tipoActual = '';
+  function muestraSeccion(clave) {
+    qa('[data-pr-gchip]').forEach(function (c) { c.classList.toggle('is-on', c.getAttribute('data-pr-gchip') === clave); });
+    qa('[data-pr-sec]').forEach(function (s) { s.classList.toggle('d-none', s.getAttribute('data-pr-sec') !== clave); });
+  }
+  function filtraTipo(clave) {
+    tipoActual = clave || '';
+    qa('[data-pr-tchip]').forEach(function (c) { c.classList.toggle('is-on', c.getAttribute('data-pr-tchip') === tipoActual); });
+    qa('[data-pr-groups] .pr-recip-group').forEach(function (g) { g.classList.toggle('d-none', !!tipoActual && (g.getAttribute('data-media-type') || '') !== tipoActual); });
+    var tt = q('[data-pr-type-toggle]');
+    if (tt) { tt.classList.toggle('d-none', !tipoActual); pintaToggleTipo(); }
+  }
+  function gruposDelTipo() { return qa('[data-pr-groups] .pr-recip-group').filter(function (g) { return !tipoActual || (g.getAttribute('data-media-type') || '') === tipoActual; }); }
+  function pintaToggleTipo() {
+    var tt = q('[data-pr-type-toggle]'); if (!tt || !tipoActual) return;
+    var alguno = gruposDelTipo().some(function (g) { return Array.prototype.some.call(g.querySelectorAll('[data-pr-recip]'), function (c) { return c.checked; }); });
+    tt.textContent = alguno ? 'quitar todos los de este tipo' : 'marcar todos los de este tipo';
+  }
+  function cuentaGrupos() {
+    qa('[data-pr-gcount]').forEach(function (s) {
+      var clave = s.getAttribute('data-pr-gcount');
+      var sec = q('[data-pr-sec="' + clave + '"]'); if (!sec) return;
+      var todos = sec.querySelectorAll('[data-pr-recip]').length, marcados = sec.querySelectorAll('[data-pr-recip]:checked').length;
+      if (clave === 'MEDIA') s.textContent = marcados + ' de ' + todos + ' contactos';
+      else s.textContent = marcados + ' de ' + todos;
+    });
+  }
   root.addEventListener('click', function (ev) {
+    var ch = ev.target.closest('[data-pr-gchip]');
+    if (ch) { ev.preventDefault(); muestraSeccion(ch.getAttribute('data-pr-gchip')); return; }
+    var tc = ev.target.closest('[data-pr-tchip]');
+    if (tc) { ev.preventDefault(); filtraTipo(tc.getAttribute('data-pr-tchip')); return; }
+    var tt = ev.target.closest('[data-pr-type-toggle]');
+    if (tt) {
+      ev.preventDefault();
+      var gs = gruposDelTipo();
+      var alguno = gs.some(function (g) { return Array.prototype.some.call(g.querySelectorAll('[data-pr-recip]'), function (c) { return c.checked; }); });
+      gs.forEach(function (g) { g.querySelectorAll('[data-pr-recip]').forEach(function (c) { c.checked = !alguno; }); });
+      cuenta(); return;
+    }
+    var st = ev.target.closest('[data-pr-sec-toggle]');
+    if (st) {
+      ev.preventDefault();
+      var sec = q('[data-pr-sec="' + st.getAttribute('data-pr-sec-toggle') + '"]'); if (!sec) return;
+      var cbs = sec.querySelectorAll('[data-pr-recip]');
+      var hay = Array.prototype.some.call(cbs, function (c) { return c.checked; });
+      cbs.forEach(function (c) { c.checked = !hay; });
+      st.innerHTML = '<i class="fa fa-check-double me-1"></i>' + (hay ? 'Marcar todos' : 'Quitar todos');
+      cuenta(); return;
+    }
     var t = ev.target.closest('[data-pr-group-toggle]');
     if (t) {
       ev.preventDefault();
@@ -52,7 +102,8 @@
       if (!email || vistos[email]) return;
       vistos[email] = 1;
       out.push({ kind: c.getAttribute('data-kind') || 'MANUAL', ref_id: c.getAttribute('data-ref') || '', email: email,
-                 name: c.getAttribute('data-name') || '', media_name: c.getAttribute('data-media') || '' });
+                 name: c.getAttribute('data-name') || '', media_name: c.getAttribute('data-media') || '',
+                 group_label: c.getAttribute('data-group') || '' });
     });
     return out;
   }
@@ -61,6 +112,7 @@
     var t = q('[data-pr-total]'); if (t) t.textContent = n + (n === 1 ? ' destinatario' : ' destinatarios');
     var ac = q('[data-pr-active-count]'); if (ac) ac.textContent = qa('[data-pr-groups] [data-pr-recip]:checked').length;
     var go = q('[data-pr-go]'); if (go) go.disabled = !n;
+    cuentaGrupos(); pintaToggleTipo();
     etiqueta();
   }
   function etiqueta() {
@@ -166,6 +218,8 @@
       if (!js || !js.ok) { errorConfirm((js && js.error) || 'No se pudo mandar la prueba.'); return; }
       modal.querySelector('[data-pr-test-to]').textContent = js.email || '';
       pasoConfirm('sent');
+      // El SMTP no admitió el remitente pedido: la prueba HA salido, pero con el remitente de la app. Se dice.
+      if (js.warning) alert(js.warning);
     });
   });
   modal.querySelectorAll('[data-pr-confirm-go]').forEach(function (b) {
@@ -175,6 +229,7 @@
       post(root.getAttribute('data-send-url'), payload()).then(function (js) {
         btns.forEach(function (x) { x.disabled = false; });
         if (!js || !js.ok) { errorConfirm((js && js.error) || 'No se pudo enviar.'); return; }
+        if (js.warning) alert(js.warning);
         window.location.href = js.url;
       });
     });

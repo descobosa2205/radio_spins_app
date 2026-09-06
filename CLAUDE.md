@@ -9982,3 +9982,90 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`public_press_photos`) y su ZIP solo con la descarga permitida.
   ⚠️ Los endpoints se llaman `promo_press_*` (caen en la sección **`promo`** por el prefijo) y los
   públicos `public_press_*` + `cron_press_releases` están en las TRES listas.
+
+- ⚠️⚠️ **NOTAS DE PRENSA · segunda ronda** (sep 2026): lo que se añadió sobre la épica de arriba.
+  · **¿DE QUIÉN ES LA NOTA?** El asistente enseña primero **lo ACTIVO** (artistas y eventos con algo
+  por venir, giras compradas y **ciclos/festivales NUESTROS con actividades próximas**) y el resto
+  tras «Ver más»; y las **EMPRESAS DEL GRUPO** son un sujeto más (`PRESS_SUBJECT_KINDS['COMPANY']`,
+  con su **LOGO** en vez de foto: `company_logo`; 33 Producciones y PIES delante,
+  `_press_company_is_house`). Puntos únicos `_press_upcoming_ids` · `_press_container_active` ·
+  `_press_subject_options`, y el global **`press_subject_chip(s)`** (empresa → chip con logo,
+  artista → `artist_chip`).
+  · **EL EDITOR**: **guías de alineación** al mover o redimensionar (mismo borde izquierdo/derecho/
+  centro y mismo ancho que otro bloque, `.pr-guide`), **Supr** borra el bloque seleccionado, **⌘/Ctrl
+  C · V** copian y pegan, y el selector de color de texto y titular ofrece **la PALETA del fondo**
+  (`bg.palette`, calculada con Pillow en `_press_bg_palette` —cuantiza a 12 colores y dedupe por
+  distancia RGB; ⚠️ el thumbnail va con **`Image.NEAREST`**: el antialias fundía las franjas finas
+  y la paleta salía sin el rojo—; se recalcula al cambiar el fondo, `_press_bg_palette_ensure`) más
+  los **CORPORATIVOS** (`PRESS_CORPORATE_COLORS`).
+  · **AL TERMINAR DE DISEÑAR se pasa A ENVIAR** («Siguiente: enviar», `data-pr-next` → guarda y
+  navega a `next_url`); si se sale, queda **guardada como borrador**. **Volver** tras terminar lleva
+  al **LISTADO del artista** (`promo_press_view?sujeto=`, con `data-no-smart-back`), no al paso
+  anterior.
+  · **YA HAY UNA NOTA SIN ENVIAR sobre eso** (`_press_existing_unsent`): al crear otra sobre el mismo
+  single/disco/actividad, `promo_press_create` responde **409 con las existentes** (borrador o
+  programada; **una ENVIADA no cuenta**: lo que se quiere es mandar otra) y el asistente ofrece
+  «Continuar con la que hay» o «Crear otra» (`force`).
+  · **CONTADORES EN VIVO** (`promo_press_stats_json`, `GET /notas-de-prensa/estadisticas?ids=`):
+  `press_list.js` pregunta cada pocos segundos por las notas `[data-pr-live]` y, si un número cambia,
+  hace **«pop»** (`.pr-pop`); también el estado y la lista de la ficha (`[data-pr-recips]`).
+  · **JUNTO A CADA DESTINATARIO**: el icono de **ABIERTA** (al pasar el ratón: cuántas veces, la
+  primera y la última, `opened_label`) y el de **REENVIADA** (desde cuándo se sospecha,
+  `forwarded_at` + `forwarded_label`). Payload único **`_press_recipient_payload`**.
+  · **DESDE LA TAREA de «nota de prensa» de un lanzamiento** (`_home_press_tasks` → `press_url`):
+  si ya hay nota se abre; si no, `promo_press_view?nueva=SINGLE:<id>` **precarga el asistente**
+  (`_press_prefill_from_arg`) y en el editor está **«Ver pitch»** (pop-up con el titular y el texto
+  **copiables**, `_press_pitch_for`).
+  · **EL FONDO puede ser el DISEÑO que subió DISEÑO** (`_press_design_asset`: el `design_url` de la
+  nota del proyecto —`_disco_press`—; si aún no está, se dice **«pendiente de Diseño»**), además de
+  subirlo o arrastrarlo; `promo_press_background` acepta `source=design`.
+  · **TRES MÓDULOS NUEVOS** (`press_render.MODULE_TYPES`): **IMAGEN integrada** en el cuerpo (se
+  mueve, se redimensiona con su proporción y se **enlaza**; se elige de **nuestras fotos**
+  —`promo_press_album_photos`—, de los **materiales** del lanzamiento —portadas, miniaturas de
+  vídeo, carteles, el diseño— o se sube/arrastra, `promo_press_image_upload`), **ARCHIVOS ADJUNTOS**
+  (`PressReleaseFile`: se coloca el módulo y sale «pendiente»; al pincharlo se arrastran archivos o
+  **carpetas** —`recogeEntradas`—, con **nombre e icono** de lo que es en color corporativo —o de la
+  paleta del fondo—, chips «N fotos · N vídeos · N archivos», y en la nota lleva a la **página pública
+  con previsualización** y descarga de cada uno o de **todo en ZIP**: `public_press_files*`,
+  `public_press_files.html`) y **PLAYLIST** (se arrastra y se elige la playlist; enlaza a su página
+  pública, `_press_playlist_data` crea el token con commit si falta).
+  ⚠️ **Un módulo PENDIENTE no sale en el correo, la página ni el PDF** (`press_render.is_pending`).
+  ⚠️ Al guardar se **podan** los `PressReleaseFile` de bloques `files` que ya no están.
+  ⚠️ Los iconos de los adjuntos van como **PNG** (`_press_icon_png`, el motor de `brand_icon_png`):
+  esto va por correo.
+  · ⚠️⚠️ **EL REMITENTE «Promoción» QUE EL SMTP NO ADMITE**: si el servidor **rechaza el From**
+  (`_smtp_sender_rejected`: 550/553 «sender», «not owned by user», «not allowed to send as»…),
+  `_send_optional_email` **reintenta con el remitente de la app** y **Reply-To** a promocion@, y
+  devuelve el aviso (texto con «remitente») que la pantalla enseña: el correo SALE y se sabe por qué
+  no ha salido como Promoción. Para que salga como promocion@ hay que **autorizar esa dirección en la
+  cuenta SMTP** (alias «Enviar como» en Google Workspace / permiso «Send As» en Microsoft 365 / o
+  usar el buzón de promocion@ como `SMTP_USERNAME`) y tener SPF/DKIM/DMARC del dominio.
+  · **A QUIÉN, POR GRUPOS** (`_press_recipient_groups` → `groups` en la pantalla de envío):
+  **MEDIOS** (chips de **TIPO de medio** con su icono —`_media_type_label` da la forma legible:
+  «Radio», aunque el alta rápida lo guarde en MAYÚSCULAS— y dentro cada medio con sus contactos de
+  prensa; un chip de tipo filtra y marca o quita todos los suyos), **PROMOTORES** (todos los terceros
+  que promueven una actividad —`Concert.promoter_id` o `ConcertPromoterShare`— o están marcados a
+  mano como promotores; **aquí no hace falta ninguna marca de prensa**) y las **ASOCIACIONES**
+  (`PROMOTER_ASSOCIATIONS`: **APM** y **Arte**, con sus miembros).
+  ⚠️⚠️ **Nadie recibe la nota dos veces**: la misma dirección por dos criterios entra **UNA** vez
+  (`_press_add_recipients` dedupe por correo; la pantalla también).
+  ⚠️ Cada casilla lleva **`data-group`** (el tipo de medio · «Promotores» · la asociación) →
+  **`PressReleaseRecipient.group_label`**, y con eso la ficha (`recipient_groups`) y el repintado
+  en vivo (`pintaRecips`) enseñan el envío **AGRUPADO por esas etiquetas**.
+  · **UN TERCERO PUEDE SER MIEMBRO DE APM Y DE ARTE** (`Promoter.assoc_tags`, JSONB) y llevar
+  **CATEGORÍAS a mano** (`Promoter.roles_manual`: promotor · autor · beneficiario,
+  `PROMOTER_MANUAL_ROLES`) además de las que se deducen de sus actividades. Se marcan en la ficha
+  («¿Quién es?» → «Es miembro de…», `.pr-tag-check`) con **centinela `assoc_present`** y se ven
+  como etiquetas en la cabecera y en el listado (`promoter_assoc_badges`).
+  · **IMPORTAR TERCEROS**: en el resumen se marca **a todos los del fichero** (nuevos **y** los que ya
+  estaban) como miembros de APM/Arte y en una categoría (`promoters_import_create` acepta
+  `assoc`/`roles`; para los existentes `promoters_import_tag`, que **añade y nunca quita**). Y las
+  coincidencias reconocen también **por el CORREO** («por su correo») y **por un NOMBRE PARECIDO**
+  («por un nombre parecido», uno contiene al otro, ≥ 6 letras) para decidir si se fusiona, se añade
+  como contacto o se crea otro.
+  · **IMPORTAR CONTACTOS DE MEDIOS**: un contacto cuyo correo es el de un **tercero que ya tenemos**
+  queda **VINCULADO al medio** (`_media_import_link_promoter` → `ThirdPartyLink` con su cargo como
+  relación), sin crear otro tercero.
+  ⚠️ Probado con la app real (`/tmp/mcx/test_press.py`, 127 comprobaciones): sujetos activos y
+  empresas, paleta, duplicado sin enviar, contadores en vivo, iconos, pitch, módulos nuevos y sus
+  páginas públicas, remitente rechazado, grupos, APM/Arte, importación y vinculación.

@@ -5,9 +5,10 @@
    la derecha. Antes de mandar se pregunta si se quiere recibir una PRUEBA. El motor es
    static/js/press_send.js. `mode`: send (la primera vez) · resend (otra tanda) · share (por email). #}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" title="Volver a la nota" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+  {# Atrás = el LISTADO de notas de ese artista (el diseño ya está terminado; no se vuelve a editar). #}
+  <a href="{{ url_for('promo_press_view', sujeto=row.group_id) }}" class="btn btn-outline-secondary btn-volver" data-no-smart-back title="Volver a las notas de prensa de {{ row.subject_label }}" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
   <div class="d-flex align-items-center gap-2 flex-wrap">
-    {% for s in subjects %}{{ artist_chip(s.label, s.photo) }}{% endfor %}
+    {% for s in subjects %}{{ press_subject_chip(s) }}{% endfor %}
     <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
   </div>
 </div>
@@ -56,31 +57,92 @@
       <div class="demo-card__head"><i class="fa fa-users"></i>3 · ¿A quién se envía?</div>
       <div class="demo-card__body">
         {% if mode != 'share' %}
-          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-            <label class="form-check m-0"><input type="checkbox" class="form-check-input me-2" data-pr-all-active checked>Todos los contactos activos para notas de prensa <span class="badge text-bg-light border" data-pr-active-count></span></label>
-            <input type="search" class="form-control form-control-sm" style="max-width:14rem" placeholder="Filtrar…" data-pr-filter>
-          </div>
-          <div class="pr-recip-groups" data-pr-groups>
-            {% for g in candidates %}
-              <div class="pr-recip-group" data-search="{{ (g.media_name ~ ' ' ~ (g.contacts|map(attribute='name')|join(' ')) ~ ' ' ~ (g.contacts|map(attribute='email')|join(' ')))|lower }}">
-                <div class="pr-recip-group__head">
-                  <img src="{{ g.media_logo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
-                  <b>{{ g.media_name }}</b><span class="text-muted small">· {{ g.media_type }}</span>
-                  <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none" data-pr-group-toggle>quitar todos</button>
-                </div>
-                {% for c in g.contacts %}
-                  <label class="pr-recip-item" data-search="{{ (c.name ~ ' ' ~ c.email ~ ' ' ~ c.program)|lower }}">
-                    <input type="checkbox" class="form-check-input" checked data-pr-recip
-                           data-kind="MEDIA" data-ref="{{ c.ref_id }}" data-email="{{ c.email }}" data-name="{{ c.name }}" data-media="{{ c.media_name }}">
-                    <span class="pr-recip-item__t"><b>{{ c.name }}</b>{% if c.full_name and c.full_name != c.name %} <span class="text-muted">· {{ c.full_name }}</span>{% endif %}
-                      <small>{{ c.email }}{% if c.program %} · {{ c.program }}{% endif %}{% if c.role %} · {{ c.role }}{% endif %}</small></span>
-                  </label>
-                {% endfor %}
-              </div>
-            {% else %}
-              <div class="alert alert-light border mb-0 small">Ningún contacto de medios está marcado para recibir notas de prensa. Se marcan en Bases de datos → Medios → Contactos.</div>
+          {# Por GRUPOS: los MEDIOS (por tipo, y dentro cada medio con sus contactos de prensa), los
+             PROMOTORES (todos los terceros que promueven, sin marca de prensa) y las ASOCIACIONES (APM,
+             Arte). Una misma persona entra UNA vez aunque esté en varios: se comprueba por su correo.
+             Cada casilla lleva su `data-group`: es la etiqueta por la que después se agrupa el envío. #}
+          <div class="pr-gchips" data-pr-gchips>
+            <button type="button" class="pr-gchip is-on" data-pr-gchip="MEDIA"><i class="fa fa-newspaper"></i><span><b>Medios</b><small data-pr-gcount="MEDIA">{{ candidates|length }} medios</small></span></button>
+            <button type="button" class="pr-gchip" data-pr-gchip="PROMOTER"><i class="fa fa-handshake"></i><span><b>Promotores</b><small data-pr-gcount="PROMOTER">{{ groups.promoters|length }}</small></span></button>
+            {% for a in groups.assoc %}
+              <button type="button" class="pr-gchip" data-pr-gchip="ASSOC:{{ a.key }}" title="{{ a.desc }}"><i class="fa {{ a.icon }}"></i><span><b>{{ a.label }}</b><small data-pr-gcount="ASSOC:{{ a.key }}">{{ a.rows|length }}</small></span></button>
             {% endfor %}
           </div>
+
+          <div data-pr-sec="MEDIA">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+              <label class="form-check m-0"><input type="checkbox" class="form-check-input me-2" data-pr-all-active checked>Todos los contactos activos para notas de prensa <span class="badge text-bg-light border" data-pr-active-count></span></label>
+              <input type="search" class="form-control form-control-sm" style="max-width:14rem" placeholder="Filtrar…" data-pr-filter>
+            </div>
+            {# Los TIPOS de medio: al pinchar uno se ven solo sus medios y se marcan o quitan todos de golpe. #}
+            <div class="pr-tchips mb-2" data-pr-tchips>
+              <button type="button" class="pr-tchip is-on" data-pr-tchip=""><i class="fa fa-layer-group"></i>Todos</button>
+              {% for t in groups.media_types %}
+                <button type="button" class="pr-tchip" data-pr-tchip="{{ t.key }}"><i class="fa {{ t.icon }}"></i>{{ t.label }} <small>{{ t.media }}</small></button>
+              {% endfor %}
+              <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none d-none" data-pr-type-toggle>quitar todos los de este tipo</button>
+            </div>
+            <div class="pr-recip-groups" data-pr-groups>
+              {% for g in candidates %}
+                {% set _tipo = media_type_label(g.media_type) %}
+                <div class="pr-recip-group" data-media-type="{{ _tipo|lower }}" data-search="{{ (g.media_name ~ ' ' ~ (g.contacts|map(attribute='name')|join(' ')) ~ ' ' ~ (g.contacts|map(attribute='email')|join(' ')))|lower }}">
+                  <div class="pr-recip-group__head">
+                    <img src="{{ g.media_logo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+                    <b>{{ g.media_name }}</b><span class="text-muted small">· <i class="fa {{ media_type_icon(g.media_type) }} me-1"></i>{{ _tipo }}</span>
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-decoration-none" data-pr-group-toggle>quitar todos</button>
+                  </div>
+                  {% for c in g.contacts %}
+                    <label class="pr-recip-item" data-search="{{ (c.name ~ ' ' ~ c.email ~ ' ' ~ c.program)|lower }}">
+                      <input type="checkbox" class="form-check-input" checked data-pr-recip
+                             data-kind="MEDIA" data-ref="{{ c.ref_id }}" data-email="{{ c.email }}" data-name="{{ c.name }}" data-media="{{ c.media_name }}" data-group="{{ _tipo }}">
+                      <span class="pr-recip-item__t"><b>{{ c.name }}</b>{% if c.full_name and c.full_name != c.name %} <span class="text-muted">· {{ c.full_name }}</span>{% endif %}
+                        <small>{{ c.email }}{% if c.program %} · {{ c.program }}{% endif %}{% if c.role %} · {{ c.role }}{% endif %}</small></span>
+                    </label>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="alert alert-light border mb-0 small">Ningún contacto de medios está marcado para recibir notas de prensa. Se marcan en Bases de datos → Medios → Contactos.</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="d-none" data-pr-sec="PROMOTER">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+              <div class="small text-muted"><i class="fa fa-handshake me-1"></i>Todos los terceros que promueven actividades (o están marcados como promotores). Aquí no hace falta ninguna marca de prensa.</div>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-pr-sec-toggle="PROMOTER"><i class="fa fa-check-double me-1"></i>Marcar todos</button>
+            </div>
+            <div class="pr-recip-groups">
+              {% for p in groups.promoters %}
+                <label class="pr-recip-item">
+                  <input type="checkbox" class="form-check-input" data-pr-recip data-kind="PROMOTER" data-ref="{{ p.ref_id }}" data-email="{{ p.email }}" data-name="{{ p.name }}" data-media="" data-group="Promotores">
+                  <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" alt="" class="pr-recip-item__ava" data-avatar="1">
+                  <span class="pr-recip-item__t"><b>{{ p.name }}</b><small>{{ p.email }}{% for t in p.tag_labels %} · {{ t }}{% endfor %}</small></span>
+                </label>
+              {% else %}
+                <div class="alert alert-light border mb-0 small">No hay promotores con correo.</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          {% for a in groups.assoc %}
+            <div class="d-none" data-pr-sec="ASSOC:{{ a.key }}">
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+                <div class="small text-muted"><i class="fa {{ a.icon }} me-1"></i>Los miembros de <b>{{ a.desc }}</b>. Se marcan en la ficha de cada tercero («Es miembro de…»).</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-pr-sec-toggle="ASSOC:{{ a.key }}"><i class="fa fa-check-double me-1"></i>Marcar todos</button>
+              </div>
+              <div class="pr-recip-groups">
+                {% for p in a.rows %}
+                  <label class="pr-recip-item">
+                    <input type="checkbox" class="form-check-input" data-pr-recip data-kind="PROMOTER" data-ref="{{ p.ref_id }}" data-email="{{ p.email }}" data-name="{{ p.name }}" data-media="" data-group="{{ a.label }}">
+                    <img src="{{ p.photo or DEFAULT_AVATAR_URL }}" alt="" class="pr-recip-item__ava" data-avatar="1">
+                    <span class="pr-recip-item__t"><b>{{ p.name }}</b><small>{{ p.email }}</small></span>
+                  </label>
+                {% else %}
+                  <div class="alert alert-light border mb-0 small">Todavía no hay ningún tercero marcado como miembro de {{ a.label }} (con correo).</div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
           <hr>
         {% endif %}
 

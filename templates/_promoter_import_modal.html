@@ -9,6 +9,7 @@
          data-url-analyze="{{ url_for('promoters_import_analyze') }}"
          data-url-prepare="{{ url_for('promoters_import_prepare') }}"
          data-url-create="{{ url_for('promoters_import_create') }}"
+         data-url-tag="{{ url_for('promoters_import_tag') }}"
          data-url-merge="{{ url_for('promoters_import_merge', pid='__PID__') }}"
          data-target-ignore="{{ import_target_ignore }}"
          data-target-alt="{{ import_target_alt }}">
@@ -69,6 +70,21 @@
           {# Cuántos terceros trae el fichero y cuántas COINCIDENCIAS se han encontrado: es lo
              primero que hay que ver antes de decidir nada. #}
           <div class="pi-total mb-3" data-pi-total></div>
+          {# Lo que se les MARCA a todos los del fichero, a los nuevos y a los que ya estaban: se AÑADE,
+             nunca se quita. #}
+          <div class="pi-tags mb-3">
+            <div class="small fw-semibold mb-1"><i class="fa fa-tags me-1 text-danger"></i>A todos los del fichero (los nuevos y los que ya estaban)…</div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              <span class="small text-muted">Miembros de:</span>
+              {% for key, label, desc, icon in PROMOTER_ASSOCIATIONS %}
+                <label class="pr-tag-check pr-tag-check--sm" title="{{ desc }}"><input type="checkbox" data-pi-assoc value="{{ key }}"><i class="fa {{ icon }}"></i><span><b>{{ label }}</b></span></label>
+              {% endfor %}
+              <span class="small text-muted ms-md-3">Categoría:</span>
+              {% for key, label, icon in PROMOTER_MANUAL_ROLES %}
+                <label class="pr-tag-check pr-tag-check--sm"><input type="checkbox" data-pi-role value="{{ key }}"><i class="fa {{ icon }}"></i><span><b>{{ label }}</b></span></label>
+              {% endfor %}
+            </div>
+          </div>
           <div class="row g-3">
             <div class="col-12 col-md-6">
               <div class="card h-100 border-success">

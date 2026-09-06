@@ -57,6 +57,7 @@
   };
 
   /* Cuántas coincidencias quedan sin resolver (y qué fila es la siguiente). */
+  function marcadas(sel) { return Array.prototype.slice.call(root.querySelectorAll(sel + ':checked')).map(function (c) { return c.value; }); }
   function pendientes() {
     return state.existing.filter(function (r) { return !state.reviewed[r.row]; });
   }
@@ -167,10 +168,16 @@
     if (create) {
       if (!state.newRows.length) return;
       busy(create, true, 'Creando…');
-      post(root.getAttribute('data-url-create'), { rows: state.newRows }, true).then(function (res) {
+      // Lo marcado arriba (miembros de APM / Arte, categoría) va a los NUEVOS al crearlos y a los que
+      // YA ESTABAN con una llamada aparte: se añade, nunca se quita.
+      var asoc = marcadas('[data-pi-assoc]'), roles = marcadas('[data-pi-role]');
+      post(root.getAttribute('data-url-create'), { rows: state.newRows, assoc: asoc, roles: roles }, true).then(function (res) {
         busy(create, false);
         if (!res.ok) return showError(res.error || 'No se pudieron crear los terceros.');
         var n = (res.created || []).length;
+        if ((asoc.length || roles.length) && state.existing.length && root.getAttribute('data-url-tag')) {
+          post(root.getAttribute('data-url-tag'), { ids: state.existing.map(function (r) { return r.promoter && r.promoter.id; }).filter(Boolean), assoc: asoc, roles: roles }, true).catch(function () {});
+        }
         state.newRows = [];
         if (el.created) {
           el.created.innerHTML = '<span class="text-success fw-semibold">' + n + ' tercero(s) creado(s).</span>' +

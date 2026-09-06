@@ -1916,6 +1916,11 @@ class Promoter(Base):
     # Clasificación del tercero para vinculaciones/filtros: ''/NULL = persona/tercero genérico,
     # 'empresa' = empresa, 'institucion' = institución (ayuntamiento, organismo, etc.).
     kind = Column(Text)
+    # ASOCIACIONES de las que es miembro (APM, ARTE…): una nota de prensa se manda a todos los de una
+    # asociación de un golpe. Y las CATEGORÍAS marcadas A MANO (promotor, autor, beneficiario), además
+    # de las que se deducen de sus actividades y obras.
+    assoc_tags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    roles_manual = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
     # COMPAÑÍA MATRIZ: el grupo empresarial al que pertenece este tercero (otro `Promoter`), para
     # poder ver junto todo lo de «Sony Music» aunque cada sello sea una ficha distinta. Es UN solo
@@ -4504,6 +4509,8 @@ class PressReleaseRecipient(Base):
     open_count = Column(Integer, nullable=False, server_default=text("0"))
     opens = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     forwarded = Column(Boolean, nullable=False, server_default=text("false"))
+    forwarded_at = Column(DateTime(timezone=True))        # desde cuándo se sospecha el reenvío
+    group_label = Column(Text)                            # por qué GRUPO entró (Radio · Promotores · APM…)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     release = relationship("PressRelease", back_populates="recipients")
@@ -4511,6 +4518,32 @@ class PressReleaseRecipient(Base):
     __table_args__ = (
         Index("idx_press_recipients_release", "release_id", "sent_at"),
     )
+
+
+class PressReleaseFile(Base):
+    """Un ARCHIVO ADJUNTO de una nota de prensa: lo que cuelga de un módulo «Archivos adjuntos»
+    (`block_id` = el id del bloque en el diseño). Fotos, vídeos, audios, PDF o cualquier archivo; se
+    ven y se descargan en su página pública (uno a uno o todos en un ZIP). Cuando el bloque se quita
+    del diseño, sus archivos se retiran al guardar."""
+
+    __tablename__ = "press_release_files"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    release_id = Column(PGUUID(as_uuid=True), ForeignKey("press_releases.id", ondelete="CASCADE"), nullable=False)
+    block_id = Column(Text, nullable=False)
+    name = Column(Text)
+    file_url = Column(Text, nullable=False)
+    kind = Column(Text, nullable=False, server_default=text("'FILE'"))     # IMAGE | VIDEO | AUDIO | PDF | FILE
+    mime = Column(Text)
+    size_bytes = Column(BigInteger)
+    width = Column(Integer)
+    height = Column(Integer)
+    poster_url = Column(Text)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("idx_press_release_files_block", "release_id", "block_id"),)
 
 
 class PressReleaseTemplate(Base):
@@ -10320,6 +10353,33 @@ def ensure_promocion_prensa_schema():
             created_at timestamptz DEFAULT now()
         );
         """,
+        # Desde cuándo se sospecha que un destinatario REENVIÓ la nota (se ve al pasar el ratón).
+        # ⚠️ En su propia sentencia: una columna nueva nunca va dentro de un bloque con guarda.
+        'ALTER TABLE IF EXISTS press_release_recipients ADD COLUMN IF NOT EXISTS forwarded_at timestamptz;',
+        'ALTER TABLE IF EXISTS press_release_recipients ADD COLUMN IF NOT EXISTS group_label text;',
+        # Las ASOCIACIONES (APM, Arte) y las CATEGORÍAS marcadas a mano de un tercero.
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS assoc_tags jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS roles_manual jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        # Los ARCHIVOS ADJUNTOS de una nota (módulo «Archivos adjuntos»).
+        """
+        CREATE TABLE IF NOT EXISTS press_release_files (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            release_id uuid NOT NULL REFERENCES press_releases(id) ON DELETE CASCADE,
+            block_id text NOT NULL,
+            name text,
+            file_url text NOT NULL,
+            kind text NOT NULL DEFAULT 'FILE',
+            mime text,
+            size_bytes bigint,
+            width integer,
+            height integer,
+            poster_url text,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_press_release_files_block ON press_release_files(release_id, block_id);',
         """
         ALTER TABLE IF EXISTS promotions
             ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'MARKETING',

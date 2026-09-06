@@ -50,7 +50,7 @@ FONTS = [
 ]
 
 TEXT_TYPES = ("title", "text")
-MODULE_TYPES = ("audio", "album", "video", "links", "contact", "photos")
+MODULE_TYPES = ("audio", "album", "video", "links", "contact", "photos", "image", "files", "playlist")
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # 1) SANEAR el HTML que llega del editor
@@ -386,13 +386,80 @@ def _card_open(extra: str = "") -> str:
 _CARD_CLOSE = "</td></tr></table>"
 
 
-def module_html(b: dict, *, for_email: bool = False) -> str:
+def is_pending(b: dict) -> bool:
+    """Un módulo al que todavía le falta lo suyo (una imagen sin elegir, un módulo de adjuntos sin
+    archivos, una playlist sin elegir): en el EDITOR se ve como un hueco que invita a completarlo y
+    en el correo, en la página y en el PDF NO se pinta."""
+    return bool((b.get("data") or {}).get("pending"))
+
+
+def _pending_card(titulo: str, pista: str) -> str:
+    return ('<div class="pr-pending" style="border:2px dashed #cbd5e1;border-radius:12px;padding:14px;text-align:center;'
+            'font-family:%s;color:%s;background:rgba(255,255,255,.7);">'
+            '<div style="font-size:14px;font-weight:800;color:%s;">%s</div><div style="font-size:12px;margin-top:3px;">%s</div></div>'
+            % (DEFAULT_FONT, MUTED, TEXT_COLOR, _e(titulo), _e(pista)))
+
+
+def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> str:
     """El HTML de un MÓDULO, con tablas y estilos en línea: es lo que va por correo y también lo que
-    se ve en la web y en el editor (un solo renderizador para los tres)."""
+    se ve en la web y en el editor (un solo renderizador para los tres). Con `editing`, un módulo al
+    que le falta lo suyo se ve como un hueco para completarlo; fuera del editor no se pinta."""
     tipo = b.get("type")
     d = b.get("data") or {}
     opts = b.get("opts") or {}
     icons = d.get("icons") or {}
+    if is_pending(b):
+        if not editing:
+            return ""
+        return _pending_card(*{
+            "image": ("Imagen", "Pincha para elegir la foto: de nuestras fotos, de los materiales del lanzamiento, o súbela"),
+            "files": ("Archivos adjuntos", "Pincha para subir los archivos (o carpetas) que se van a poder descargar"),
+            "playlist": ("Playlist", "Elige la playlist en el panel de la derecha"),
+        }.get(tipo, ("Módulo", "Falta configurarlo")))
+    if tipo == "image":
+        # Una IMAGEN integrada en el cuerpo (no un adjunto): ocupa el ancho del bloque y, si lleva
+        # enlace, al pincharla se va a él.
+        url = d.get("url") or ""
+        if not url:
+            return ""
+        radio = int(_num(opts.get("radius"), 0))
+        img = ('<img src="%s" width="%d" alt="%s" style="width:100%%;max-width:100%%;height:auto;display:block;border:0;%s">'
+               % (_e(url), round(_num(b.get("w"), 300)), _e(d.get("alt") or ""), ("border-radius:%dpx;" % radio) if radio > 0 else ""))
+        if d.get("href"):
+            return '<a href="%s" target="_blank" style="display:block;text-decoration:none;border:0;">%s</a>' % (_e(d["href"]), img)
+        return img
+    if tipo == "files":
+        # ARCHIVOS ADJUNTOS: el icono de lo que hay (en el color elegido), el título y, debajo, las
+        # etiquetas de lo que incluye («3 fotos», «1 vídeo»…). Al pinchar se ven y se descargan.
+        color = d.get("color") or BRAND_RED
+        etiquetas = "".join(_chip(c.get("label") or "", c.get("icon_url") or "", MUTED) for c in d.get("chips") or [])
+        destino = d.get("gallery_url") or ""
+        titulo = _e(d.get("title") or "Archivos adjuntos")
+        icono = ('<td width="52" valign="top" style="padding-right:12px;"><a href="%s" target="_blank" style="text-decoration:none;">'
+                 '<img src="%s" width="44" height="44" alt="" style="width:44px;height:44px;display:block;border:0;"></a></td>'
+                 % (_e(destino), _e(d.get("icon_url") or ""))) if d.get("icon_url") else ""
+        return (_card_open() +
+                '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>' + icono
+                + '<td valign="top" style="font-family:%s;">' % DEFAULT_FONT
+                + '<div style="font-size:16px;font-weight:800;line-height:1.2;"><a href="%s" target="_blank" style="color:%s;text-decoration:none;">%s</a></div>'
+                % (_e(destino), color, titulo)
+                + ('<div style="margin-top:6px;">%s</div>' % etiquetas if etiquetas else "")
+                + '<div style="margin-top:8px;">%s</div>' % _button("Ver y descargar", destino, icon_url=icons.get("download_white"))
+                + '</td></tr></table>' + _CARD_CLOSE)
+    if tipo == "playlist":
+        cover = d.get("cover_url") or ""
+        n = int(_num(d.get("count"), 0))
+        return (_card_open() +
+                '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>'
+                + ('<td width="86" valign="top" style="padding-right:12px;"><img src="%s" width="86" height="86" alt="" '
+                   'style="width:86px;height:86px;border-radius:10px;object-fit:cover;display:block;border:0;"></td>' % _e(cover) if cover else "")
+                + '<td valign="top" style="font-family:%s;">' % DEFAULT_FONT
+                + '<div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:%s;">Playlist</div>' % MUTED
+                + '<div style="font-size:16px;font-weight:800;color:%s;line-height:1.2;">%s</div>' % (TEXT_COLOR, _e(d.get("title") or "Playlist"))
+                + ('<div style="margin-top:6px;">%s</div>' % _chip("%d tema%s" % (n, "" if n == 1 else "s"), icons.get("list")) if n else "")
+                + ('<div style="margin-top:6px;font-size:13px;color:%s;">%s</div>' % (MUTED, _e(d["note"])) if d.get("note") else "")
+                + '<div style="margin-top:8px;">%s</div>' % _button("Escuchar la playlist", d.get("listen_url") or "", icon_url=icons.get("play"))
+                + '</td></tr></table>' + _CARD_CLOSE)
     if tipo == "audio":
         cover = d.get("cover_url") or ""
         botones = _button("Escuchar", d.get("listen_url") or "", icon_url=icons.get("play"), cls="pr-listen")
@@ -518,6 +585,8 @@ def render_web(design: dict) -> str:
     partes = ['<div class="pr-canvas" data-pr-canvas style="position:relative;width:%dpx;height:%dpx;%soverflow:hidden;">'
               % (WIDTH, round(alto), fondo)]
     for b in bl:
+        if is_pending(b):
+            continue
         alto_css = ("height:%dpx;" % round(b["h"])) if b["type"] in TEXT_TYPES else ""
         partes.append('<div class="pr-block pr-block--%s" style="position:absolute;left:%dpx;top:%dpx;width:%dpx;%s">%s</div>'
                       % (b["type"], round(b["x"]), round(b["y"]), round(b["w"]), alto_css, block_html(b, for_email=False)))
@@ -539,7 +608,7 @@ def _bg_css(design: dict, y0: float) -> str:
 
 def render_email(design: dict) -> str:
     """El cuerpo del correo (la composición en bandas). Sin `<html>`: quien lo manda lo envuelve."""
-    bl = blocks_of(design)
+    bl = [b for b in blocks_of(design) if not is_pending(b)]
     fondo_h = bg_height(design)
     bandas = compute_bands(bl)
     filas = []
@@ -610,6 +679,17 @@ def plain_text(design: dict) -> str:
                                                  d.get("email") or "", d.get("phone") or ""))
         elif b["type"] == "photos":
             trozos.append("%s%s" % (d.get("album_name") or "Fotos", (" · " + d["gallery_url"]) if d.get("gallery_url") else ""))
+        elif b["type"] == "image":
+            if d.get("href"):
+                trozos.append("Imagen · %s" % d["href"])
+        elif b["type"] == "files":
+            if not d.get("pending"):
+                trozos.append("%s · %s%s" % (d.get("title") or "Archivos adjuntos",
+                                             ", ".join(c.get("label") or "" for c in d.get("chips") or []),
+                                             (" · " + d["gallery_url"]) if d.get("gallery_url") else ""))
+        elif b["type"] == "playlist":
+            if not d.get("pending"):
+                trozos.append("Playlist · %s%s" % (d.get("title") or "", (" · " + d["listen_url"]) if d.get("listen_url") else ""))
     return "\n\n".join([t for t in trozos if t])
 
 

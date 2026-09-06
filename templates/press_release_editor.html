@@ -5,23 +5,31 @@
    los textos y los módulos, cada uno donde se coloque y del tamaño que se le dé (se arrastran, se
    redimensionan desde la esquina). A la DERECHA lo que se puede añadir. Arriba, SIEMPRE, Guardar.
    El motor es static/js/press_editor.js; lo que se guarda es el DISEÑO (JSON), del que salen el
-   correo, la página, el PDF y la miniatura. #}
+   correo, la página, el PDF y la miniatura. «Siguiente: enviar» guarda y pasa a la pantalla de
+   envío; la flecha de volver guarda antes de salir (una nota a medias se queda en borrador). #}
 <div class="pr-editor" data-pr-editor
      data-save-url="{{ save_url }}" data-assets-url="{{ assets_url }}" data-bg-url="{{ bg_url }}"
      data-templates-url="{{ templates_url }}" data-preview-url="{{ preview_url }}"
      data-block-url="{{ url_for('promo_press_block_html', release_id=pr.id) }}"
      data-detail-url="{{ url_for('promo_press_detail', release_id=pr.id) }}"
+     data-next-url="{{ next_url }}"
+     data-files-url="{{ files_url }}" data-image-url="{{ image_url }}" data-photos-url="{{ photos_url_tpl }}"
+     data-design-asset="{{ design_asset|tojson|forceescape }}" data-corporate="{{ palette_corporate|tojson|forceescape }}"
      data-can-edit="{{ '1' if can_edit else '' }}">
 
   <div class="pr-editor__top">
-    <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" title="Volver a la nota" aria-label="Volver a la nota"><i class="fa fa-arrow-left"></i></a>
+    <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a la nota (se guarda como borrador)" aria-label="Volver a la nota"><i class="fa fa-arrow-left"></i></a>
     <div class="pr-editor__who">
-      {% for s in subjects %}{{ artist_chip(s.label, s.photo) }}{% endfor %}
+      {% for s in subjects %}{{ press_subject_chip(s) }}{% endfor %}
       <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
       <span class="badge text-bg-light border">{{ row.status_label }}</span>
     </div>
     <div class="pr-editor__actions">
       <span class="pr-editor__saved text-muted small" data-pr-saved></span>
+      {% if pitch %}
+        {# El PITCH del lanzamiento, para leerlo y copiarlo mientras se redacta la nota. #}
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#prPitchModal" title="El pitch del {{ pitch.kind_label|lower }}: se puede copiar"><i class="fa fa-comment-dots me-1"></i>Ver pitch</button>
+      {% endif %}
       <label class="btn btn-outline-secondary btn-sm mb-0" title="Subir o cambiar la imagen de fondo (el contenido no se toca)">
         <i class="fa fa-image me-1"></i>Fondo
         <input type="file" accept="image/*" class="d-none" data-pr-bg-file>
@@ -33,7 +41,8 @@
         </ul>
       </div>
       <button class="btn btn-outline-secondary btn-sm" type="button" data-pr-preview><i class="fa fa-envelope-open-text me-1"></i>Vista previa</button>
-      <button class="btn btn-primary" type="button" data-pr-save><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      <button class="btn btn-outline-primary btn-sm" type="button" data-pr-save title="Guardar y seguir diseñando"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      <button class="btn btn-primary" type="button" data-pr-next title="Guardar y pasar a enviar la nota"><i class="fa fa-paper-plane me-1"></i>Siguiente: enviar<i class="fa fa-arrow-right ms-2"></i></button>
     </div>
   </div>
 
@@ -45,7 +54,18 @@
             <i class="fa fa-image"></i>
             <div class="fw-semibold mt-2">Sube la imagen de fondo</div>
             <div class="small text-muted">La cabecera con los logos y el hueco para los textos. Después arrastra el titular, el texto y los módulos encima.</div>
-            <label class="btn btn-primary btn-sm mt-3 mb-0"><i class="fa fa-upload me-1"></i>Subir el fondo<input type="file" accept="image/*" class="d-none" data-pr-bg-file></label>
+            <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
+              <label class="btn btn-primary btn-sm mb-0"><i class="fa fa-upload me-1"></i>Subir el fondo<input type="file" accept="image/*" class="d-none" data-pr-bg-file></label>
+              {% if design_asset.available and design_asset.is_image %}
+                {# El DISEÑO que subió Diseño al proyecto del lanzamiento: se usa de fondo con un clic. #}
+                <button type="button" class="btn btn-outline-primary btn-sm" data-pr-bg-design title="Subido por {{ design_asset.by or 'Diseño' }}{% if design_asset.at_label %} el {{ design_asset.at_label }}{% endif %}"><i class="fa fa-palette me-1"></i>Usar el diseño de Diseño</button>
+              {% endif %}
+            </div>
+            {% if design_asset.pending %}
+              <div class="small text-warning mt-2"><i class="fa fa-clock me-1"></i>Diseño todavía no ha subido el diseño de esta nota (pendiente).</div>
+            {% elif design_asset.available and not design_asset.is_image %}
+              <div class="small text-muted mt-2"><i class="fa fa-circle-info me-1"></i>{{ design_asset.reason }}</div>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -68,6 +88,8 @@
           {% for f in fonts %}<option value="{{ f.css }}">{{ f.label }}</option>{% endfor %}
         </select>
         <label class="pr-tb pr-tb--color" title="Color del texto seleccionado"><i class="fa fa-palette"></i><input type="color" data-pr-color value="#111827"></label>
+        {# Los COLORES DEL FONDO que hay puesto, para elegirlos directamente. #}
+        <span class="pr-tb__swatches d-none" data-pr-swatches></span>
         <span class="pr-tb__sep"></span>
         <button type="button" class="pr-tb" data-pr-size="-1" title="Texto más pequeño (todo el bloque)"><i class="fa fa-minus"></i></button>
         <input type="number" class="pr-tb__num" data-pr-size-input min="8" max="96" title="Tamaño del bloque (px)">
@@ -86,6 +108,13 @@
         </div>
       </div>
       <div class="pr-side__group">
+        <div class="pr-side__title"><i class="fa fa-image"></i>Imagen y archivos</div>
+        <div class="pr-palette">
+          <div class="pr-pal" draggable="true" data-pr-pal="image"><span class="pr-pal__ico"><i class="fa fa-image"></i></span><span><b>Imagen</b><small>Integrada en el cuerpo; se elige de las fotos, de los materiales o se sube; con enlace</small></span></div>
+          <div class="pr-pal" draggable="true" data-pr-pal="files"><span class="pr-pal__ico"><i class="fa fa-paperclip"></i></span><span><b>Archivos adjuntos</b><small>Fotos, vídeos, documentos o carpetas para descargar</small></span></div>
+        </div>
+      </div>
+      <div class="pr-side__group">
         <div class="pr-side__title"><i class="fa fa-cubes"></i>Módulos <span class="text-muted small fw-normal">— arrástralos a la nota</span></div>
         <div class="text-muted small mb-2">Si solo se arrastran, se colocan debajo del último; después se mueven y se ajustan libremente.</div>
         <div class="pr-palette" data-pr-modules><div class="text-muted small">Cargando…</div></div>
@@ -93,6 +122,10 @@
       <div class="pr-side__group d-none" data-pr-props>
         <div class="pr-side__title"><i class="fa fa-sliders"></i>Bloque seleccionado</div>
         <div data-pr-props-body></div>
+      </div>
+      <div class="pr-side__group">
+        <div class="pr-side__title"><i class="fa fa-keyboard"></i>Atajos</div>
+        <div class="small text-muted">Con un bloque seleccionado: <b>Supr</b> lo elimina · <b>⌘C</b> / <b>⌘V</b> lo copian y pegan · las <b>flechas</b> lo mueven (con ⇧, de 10 en 10). Al arrastrar o cambiar el tamaño salen las guías para alinearlo con los demás; con <b>Alt</b> pulsado no se imanta. Una imagen o un módulo de archivos se configuran <b>pinchándolos</b>.</div>
       </div>
       <div class="pr-side__group">
         <div class="pr-side__title"><i class="fa fa-circle-info"></i>Cómo llegará</div>
@@ -107,6 +140,111 @@
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title"><i class="fa fa-envelope-open-text me-2 text-danger"></i>Así llega el correo</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body p-0" style="background:#f3f4f6;"><iframe data-pr-preview-frame title="Vista previa" style="width:100%;height:78vh;border:0;background:#f3f4f6;"></iframe></div>
+  </div></div>
+</div>
+
+{# ---------- El pitch del lanzamiento (se lee y se copia) ---------- #}
+{% if pitch %}
+<div class="modal fade" id="prPitchModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fa fa-comment-dots me-2 text-danger"></i>Pitch del {{ pitch.kind_label|lower }} «{{ pitch.name }}»</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      {% if pitch.title %}
+        <div class="d-flex align-items-start gap-2 mb-3">
+          <div class="pr-pitch__title flex-grow-1" data-pr-pitch-title>{{ pitch.title }}</div>
+          <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" data-pr-copy="[data-pr-pitch-title]"><i class="fa fa-copy me-1"></i>Copiar el titular</button>
+        </div>
+      {% endif %}
+      <div class="pr-pitch__text" data-pr-pitch-text>
+        {% for p in pitch.paragraphs %}<p>{{ p|safe }}</p>{% endfor %}
+      </div>
+      <textarea class="d-none" data-pr-pitch-plain readonly>{{ pitch.plain }}</textarea>
+    </div>
+    <div class="modal-footer justify-content-between">
+      {% if pitch.url %}<a class="btn btn-sm btn-link text-decoration-none" href="{{ pitch.url }}" target="_blank" rel="noopener"><i class="fa fa-up-right-from-square me-1"></i>Abrir la ficha</a>{% else %}<span></span>{% endif %}
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-primary" data-pr-copy="[data-pr-pitch-plain]"><i class="fa fa-copy me-1"></i>Copiar el texto</button>
+      </div>
+    </div>
+  </div></div>
+</div>
+{% endif %}
+
+{# ---------- Elegir la IMAGEN integrada: de las fotos, de los materiales o subiéndola ---------- #}
+<div class="modal fade" id="prImageModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content" data-pr-image-modal>
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fa fa-image me-2 text-danger"></i>Elegir la imagen</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <ul class="nav nav-pills gap-1 mb-3" data-pr-img-tabs>
+        <li class="nav-item"><button type="button" class="nav-link active" data-pr-img-tab="photos"><i class="fa fa-images me-1"></i>Nuestras fotos</button></li>
+        <li class="nav-item"><button type="button" class="nav-link" data-pr-img-tab="materials"><i class="fa fa-compact-disc me-1"></i>Materiales</button></li>
+        <li class="nav-item"><button type="button" class="nav-link" data-pr-img-tab="upload"><i class="fa fa-upload me-1"></i>Subir</button></li>
+      </ul>
+      <div data-pr-img-pane="photos">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary d-none" data-pr-img-back><i class="fa fa-arrow-left"></i></button>
+          <div class="small text-muted" data-pr-img-hint>Los álbumes de fotos del artista, del evento y de la actividad de la nota.</div>
+        </div>
+        <div class="pr-pick-grid" data-pr-img-albums></div>
+        <div class="pr-pick-grid d-none" data-pr-img-photos></div>
+      </div>
+      <div class="d-none" data-pr-img-pane="materials">
+        <div class="small text-muted mb-2">Las portadas, las miniaturas de los videoclips, la cartelería y el diseño de la nota.</div>
+        <div class="pr-pick-grid" data-pr-img-materials></div>
+      </div>
+      <div class="d-none" data-pr-img-pane="upload">
+        <label class="pr-drop" data-pr-img-drop>
+          <i class="fa fa-cloud-arrow-up"></i>
+          <div><b>Arrastra aquí la imagen</b> o pincha para elegirla</div>
+          <small class="text-muted">PNG, JPG, WEBP o HEIC</small>
+          <input type="file" accept="image/*" class="d-none" data-pr-img-file>
+        </label>
+        <div class="small text-muted mt-2 d-none" data-pr-img-progress></div>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+{# ---------- Los ARCHIVOS ADJUNTOS de un módulo: subirlos (también carpetas), nombre y color ---------- #}
+<div class="modal fade" id="prFilesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content" data-pr-files-modal>
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fa fa-paperclip me-2 text-danger"></i>Archivos adjuntos</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-md-7">
+          <label class="form-label small text-muted mb-1">Cómo se llama este bloque</label>
+          <input class="form-control" data-pr-files-title placeholder="Ej: Fotos de prensa, Dossier, Material gráfico…">
+        </div>
+        <div class="col-12 col-md-5">
+          <label class="form-label small text-muted mb-1">Color del icono</label>
+          <div class="pr-colors" data-pr-files-colors></div>
+        </div>
+      </div>
+      <label class="pr-drop" data-pr-files-drop>
+        <i class="fa fa-cloud-arrow-up"></i>
+        <div><b>Arrastra aquí los archivos o carpetas</b> o pincha para elegirlos</div>
+        <small class="text-muted">Fotos, vídeos, audios, PDF… lo que haga falta descargar</small>
+        <input type="file" multiple class="d-none" data-pr-files-input>
+      </label>
+      <div class="d-flex gap-2 mt-2">
+        <label class="btn btn-sm btn-outline-secondary mb-0"><i class="fa fa-folder-open me-1"></i>Elegir una carpeta<input type="file" multiple webkitdirectory directory class="d-none" data-pr-files-dir></label>
+      </div>
+      <div class="small text-muted mt-2 d-none" data-pr-files-progress></div>
+      <div class="pr-files mt-3" data-pr-files-list><div class="text-muted small">Todavía no hay archivos.</div></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-primary" data-bs-dismiss="modal"><i class="fa fa-check me-1"></i>Listo</button>
+    </div>
   </div></div>
 </div>
 

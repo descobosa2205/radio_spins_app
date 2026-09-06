@@ -174,6 +174,8 @@
       post(root.getAttribute('data-url-create'), { rows: state.newRows, assoc: asoc, roles: roles }, true).then(function (res) {
         busy(create, false);
         if (!res.ok) return showError(res.error || 'No se pudieron crear los terceros.');
+        // Ya hay terceros nuevos: aunque se cierre con la X en vez de con «Terminar», el listado se recarga.
+        if (window.app33RefreshOnClose) window.app33RefreshOnClose(root.closest('.modal') || document.getElementById('promoterImportModal'));
         var n = (res.created || []).length;
         if ((asoc.length || roles.length) && state.existing.length && root.getAttribute('data-url-tag')) {
           post(root.getAttribute('data-url-tag'), { ids: state.existing.map(function (r) { return r.promoter && r.promoter.id; }).filter(Boolean), assoc: asoc, roles: roles }, true).catch(function () {});
@@ -233,6 +235,7 @@
         .then(function (res) {
           busy(save, false);
           if (!res.ok) return showError(res.error || 'No se pudo actualizar.');
+          if (window.app33RefreshOnClose) window.app33RefreshOnClose(root.closest('.modal') || document.getElementById('promoterImportModal'));
           marcarRevisada(item);
           nextMerge();
         });

@@ -10,7 +10,7 @@
      (los datos vienen en `data-peticion-payload`). #}
 <div class="modal fade" id="peticionWizardModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-    <form class="modal-content" method="post" id="peticionWizardForm" action="{{ url_for('peticion_wizard_create') }}">
+    <form autocomplete="off" class="modal-content" method="post" id="peticionWizardForm" action="{{ url_for('peticion_wizard_create') }}">
       <input type="hidden" name="next" value="{{ request.full_path }}">
       <input type="hidden" name="department" id="pwDepartment" value="">
       <input type="hidden" name="request_id" id="pwRequestId" value="">

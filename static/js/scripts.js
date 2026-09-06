@@ -46,9 +46,19 @@ function initSelect2(){
       ...( $modal.length ? { dropdownParent: $modal } : {} ),
       templateResult: optionMarkup,
       templateSelection: optionMarkup,
-      matcher: function(params, data) {
+      matcher: function matcher(params, data) {
         const term = window.normalizeSearchText(params.term || '');
         if (!term) return data;
+        /* ⚠️⚠️ UN <optgroup> LLEGA COMO UN GRUPO CON `children`: hay que buscar DENTRO y devolver el
+           grupo con solo los hijos que casan (es lo que hace el matcher de serie de Select2, y un
+           matcher propio lo sustituye ENTERO). Sin esto el grupo se aceptaba o se tiraba de golpe
+           según casara su RÓTULO («Artistas», «Eventos»): en el asistente de actividad, escribir el
+           nombre de un evento no lo encontraba y solo salía moviéndose por el desplegable (bug real). */
+        if (data.children && data.children.length) {
+          const hijos = data.children.map(function (c) { return matcher(params, c); })
+                                     .filter(function (c) { return c !== null; });
+          return hijos.length ? $.extend({}, data, { children: hijos }) : null;
+        }
         const el = data.element ? $(data.element) : $();
         const searchable = window.normalizeSearchText([
           data.text || '',

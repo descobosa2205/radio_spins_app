@@ -6,7 +6,7 @@
 {% set creator = promo_creator_datasets or {} %}
 <div class="modal fade" id="marketingPeticionModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <form class="modal-content" method="post" action="{{ url_for('marketing_peticion_create') }}" data-step-wizard id="marketingPeticionForm">
+    <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('marketing_peticion_create') }}" data-step-wizard id="marketingPeticionForm">
       <input type="hidden" name="next" value="{{ request.full_path }}">
       <input type="hidden" name="subject_type" id="mpSubjectType" value="SONG">
       <input type="hidden" name="subject_id" id="mpSubjectId">

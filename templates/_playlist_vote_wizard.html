@@ -13,7 +13,7 @@
 {% from '_playlist_picker.html' import playlist_picker with context %}
 <div class="modal fade" id="playlistVoteModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-    <form class="modal-content" method="post" action="{{ url_for('playlist_vote_create') }}"
+    <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('playlist_vote_create') }}"
           data-step-wizard data-autosave="playlist-seleccion"
           data-autosave-title="la playlist de selección"
           data-picker-url="{{ url_for('playlist_picker_open') }}">

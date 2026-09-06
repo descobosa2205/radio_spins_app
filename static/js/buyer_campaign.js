@@ -475,6 +475,9 @@
     }
 
     function resultado(data) {
+      // Ha salido un envío de verdad: el histórico de la pantalla de detrás está desfasado y se
+      // recarga al cerrar (sin `?open=`/`?campaign=`, para no volver a abrir este pop-up).
+      if (window.app33RefreshOnClose) window.app33RefreshOnClose(root.closest('.modal') || document.getElementById('buyerCampaignModal'));
       var caja = q('[data-bc-result]');
       var quedan = data.quedan || 0;
       var enviando = !!data.enviando;

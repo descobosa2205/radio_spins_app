@@ -15,24 +15,39 @@
   }
 
   var currentTargetHiddenId = '';
+  /* Un selector cuyos VALORES llevan prefijo (el «¿De quién es la actividad?» del asistente mezcla
+     artistas y eventos como `artist:<id>` / `event:<id>`) lo dice con `data-target-prefix` en el
+     botón «+», y con `data-target-group` el <optgroup> (por su rótulo) en el que se coloca lo nuevo.
+     ⚠️ Antes el «+» y la «★» del asistente apuntaban a los <select> OCULTOS que espera el servidor:
+     lo creado entraba ahí pero NO en el selector visible, y al validar el paso el espejo (que manda
+     lo visible) lo borraba — «se crea y no se queda seleccionado» (bug real). */
+  var currentTargetPrefix = '';
+  var currentTargetGroup = '';
 
   function selectInTarget(targetId, id, label, logo) {
     var sel = document.getElementById(targetId);
     if (!sel || !id) return;
     if (sel.tagName === 'SELECT') {
-      var opt = sel.querySelector('option[value="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+      var valor = (currentTargetPrefix || '') + id;
+      var opt = sel.querySelector('option[value="' + (window.CSS && CSS.escape ? CSS.escape(valor) : valor) + '"]');
       if (!opt) {
         opt = document.createElement('option');
-        opt.value = id;
+        opt.value = valor;
         opt.textContent = label;
-        sel.appendChild(opt);
+        var grupo = null;
+        if (currentTargetGroup) {
+          Array.prototype.forEach.call(sel.querySelectorAll('optgroup'), function (g) {
+            if (!grupo && (g.getAttribute('label') || '') === currentTargetGroup) grupo = g;
+          });
+        }
+        (grupo || sel).appendChild(opt);
       } else {
         opt.textContent = label;
       }
       if (logo) { opt.setAttribute('data-photo', logo); }
       // En un <select multiple> asignar .value reemplaza toda la selección; marcar la opción AÑADE
       // la recién creada conservando las ya elegidas.
-      if (sel.multiple) { opt.selected = true; } else { sel.value = id; }
+      if (sel.multiple) { opt.selected = true; } else { sel.value = valor; }
       if (window.jQuery && jQuery.fn.select2 && jQuery(sel).hasClass('select2-hidden-accessible')) {
         jQuery(sel).trigger('change');
       } else {
@@ -136,6 +151,8 @@
     var type = btn.getAttribute('data-quick-create');
     currentTargetId = btn.getAttribute('data-target');
     currentTargetHiddenId = btn.getAttribute('data-target-hidden') || '';
+    currentTargetPrefix = btn.getAttribute('data-target-prefix') || '';
+    currentTargetGroup = btn.getAttribute('data-target-group') || '';
     var modalEl = document.getElementById('qcModal-' + type);
     if (!modalEl || !window.bootstrap) return;
     var form = modalEl.querySelector('.qc-form');

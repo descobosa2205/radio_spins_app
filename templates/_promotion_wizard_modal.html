@@ -10,7 +10,7 @@
 {% set creator = promotion_creator_datasets or {} %}
 <div class="modal fade" id="marketingCreateModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <form class="modal-content" method="post" action="{{ url_for('promotion_create') }}" id="marketingCreateForm" data-step-wizard>
+    <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('promotion_create') }}" id="marketingCreateForm" data-step-wizard>
       <input type="hidden" name="next" value="{{ url_for('marketing_view', tab='active') }}">
       <input type="hidden" name="subject_id" id="marketingSubjectId">
       <div class="modal-header">

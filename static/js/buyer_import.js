@@ -326,6 +326,9 @@
           }
           var link = q('[data-bi-done-link]');
           if (link && data.url) link.setAttribute('href', data.url);
+          // Ya hay un listado nuevo (o compradores nuevos en el que había): al cerrar el pop-up la
+          // pantalla de detrás se recarga para que aparezca, sin tener que darle a recargar.
+          if (window.app33RefreshOnClose) window.app33RefreshOnClose(root.closest('.modal') || document.getElementById('buyerImportModal'));
           step('done');
         }).catch(function () {
           btnCrear.disabled = false;

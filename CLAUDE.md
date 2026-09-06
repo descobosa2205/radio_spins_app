@@ -8882,6 +8882,66 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Comprobado que no queda ningún otro sitio así (barrido de los 33 selects con clase de Select2:
   ninguno lleva un `addEventListener('change')` nativo).
 
+- ⚠️⚠️ **EL BUSCADOR DE UN SELECT2 CON GRUPOS ENTRA EN LOS GRUPOS, y el «+» deja lo creado en el
+  SELECTOR VISIBLE** (sep 2026, dos bugs reales del asistente «+ Actividad»: «al crear un evento nuevo
+  se crea y no se queda seleccionado, y si escribes no busca en eventos»).
+  · **El `matcher` de `initSelect2` (scripts.js) es PROPIO y sustituye ENTERO al de serie**, que es
+  el que recorre los `children` de un `<optgroup>`. Sin esa recursión, un grupo se aceptaba o se
+  tiraba DE GOLPE según casara su RÓTULO («Artistas», «Eventos»): escribir el nombre de un evento no
+  lo encontraba y solo salía moviéndose por el desplegable. Ahora entra en los hijos y devuelve el
+  grupo con los que casan. Vale para cualquier select con clase de Select2 que lleve grupos.
+  · **El «+» y la «★» apuntaban a los `<select>` OCULTOS** que espera el servidor (`wizard_artist_id`
+  / `wizard_event_id`), no al selector visible (`wizard_subject_ids`, cuyos valores llevan el prefijo
+  `artist:` / `event:`): lo creado entraba en el oculto, no se veía, y al validar el paso
+  `syncSubjectPick` —que manda lo VISIBLE— lo borraba. Ahora `quick_create.js` admite
+  **`data-target-prefix`** (el prefijo del valor) y **`data-target-group`** (el `<optgroup>` por su
+  rótulo), los botones apuntan al visible, y `syncSubjectPick` **completa los ocultos con la opción
+  que falte** (si no, `.value = id` se quedaría en vacío y el servidor no recibiría nada). El
+  precumplimentado desde una **petición aprobada** tenía el mismo fallo y marca ya el visible.
+  ⚠️ Probado en el navegador con la app real: «ruta» encuentra el evento y «ñus» el artista; un
+  evento nuevo con la ★ queda seleccionado en su grupo, espejado al oculto con su nombre,
+  `subject_kind=EVENT` y el paso avanza; un artista nuevo con el «+» encima de un evento ya elegido
+  conserva los dos, y el pop-up de alta se cierra solo.
+
+- ⚠️⚠️ **UN POP-UP QUE HA CREADO O CAMBIADO ALGO RECARGA LA PANTALLA DE DETRÁS AL CERRARSE**
+  (sep 2026, `static/js/refresh_on_close.js`, GLOBAL · `window.app33RefreshOnClose(modalEl, url?)`).
+  Los pop-ups que trabajan por AJAX —importar compradores (listado nuevo o compradores en uno que
+  había), actualizar Label Copy en bloque, mandar un envío a compradores, importar terceros— enseñaban
+  su resumen y **la pantalla de detrás seguía como estaba** hasta recargar a mano: «da la sensación de
+  que no se ha creado». Se llama **en cuanto el servidor confirma que ha guardado**, y al cerrarse el
+  pop-up (`hidden.bs.modal` delegado en `document` + el clic en su `[data-bs-dismiss]` como red de
+  seguridad, con cerrojo para no recargar dos veces) recarga la página, o va a `url` si se le pasa.
+  ⚠️ Al recargar se QUITAN los parámetros que abren un pop-up al llegar (`open`, `campaign`,
+  `open_wizard`, `configurar`): si no, la página volvería a abrir el que se acaba de cerrar
+  (comprobado con la app real: `?open=import&foo=1` → `?foo=1`, con el pop-up cerrado).
+  ⚠️ Lo que ya recargaba, navegaba o repintaba en sitio (syncros, medios, fotos, vinculaciones,
+  contactos de una actividad, los formularios POST normales) no se toca: revisada toda la app, solo
+  esos cuatro se quedaban desfasados.
+  · Regla para un pop-up de alta por AJAX nuevo: o deja lo creado en sitio (el patrón de
+  `quick_create.js`) o llama a `app33RefreshOnClose` al confirmar el guardado — nunca las dos cosas a
+  medias.
+
+- ⚠️⚠️ **VOLVER ATRÁS NO DEVUELVE UN FORMULARIO YA ENVIADO** (sep 2026, bug real: «al terminar de
+  crear una actividad y darle a crear otra, el asistente se queda en la última página del anterior y
+  con Atrás vas retrocediendo paso a paso por lo que ya está creado»). Son DOS mecanismos del
+  navegador, y hacía falta cortar los dos:
+  · **bfcache**: al volver con «Volver» (`history.back()`) el navegador puede restaurar la página
+  anterior TAL CUAL —el asistente abierto en su último paso—. Global **`static/js/back_fresh.js`**:
+  en `pageshow` con `persisted`, si en esa página **se envió un formulario** o hay **un pop-up
+  abierto**, se **recarga** (y de paso los listados salen con lo recién creado). Una página
+  restaurada sin nada de eso (una ficha, el editor de una nota con cambios) se deja como estaba.
+  ⚠️ El envío se apunta un tic después mirando `defaultPrevented`: lo que para `form_check.js` o va
+  por AJAX no cuenta.
+  · **La restauración de formularios del historial**: SIN bfcache, al volver atrás el navegador
+  repone por su cuenta lo tecleado en los campos (comprobado en Chromium: con el borrador de
+  `form_autosave` ya borrado, el tipo y la fecha volvían a aparecer). Se corta con
+  **`autocomplete="off"` en el `<form>`** de cada asistente de alta (el de actividad, proyecto,
+  petición, promoción, marketing, playlist de valoración, giras, ciclos, agenda y los de alta rápida):
+  es lo que dice la especificación para que no se restaure el estado de un formulario.
+  ⚠️ Nuestro guardado en vivo (`form_autosave.js`) es otra cosa y sigue igual: lo NO enviado se
+  ofrece con «Seguir con eso»; lo enviado se borra al cargar la página siguiente.
+  ⚠️ Un asistente de alta NUEVO tiene que llevar `autocomplete="off"` en su `<form>`.
+
 - ⚠️⚠️ **COMPARTIR CARTELERÍA · LO QUE SE MANDA ES LA PÁGINA, Y SU TÍTULO LO DICE TODO** (sep 2026).
   Al compartir **un cartel** se mandaba la **URL cruda de Storage**: en WhatsApp salía un enlace
   pelado (una URL de Storage no tiene `og:` ninguna) y lo que se abría era el archivo suelto — «la

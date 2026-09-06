@@ -317,6 +317,8 @@
         b.disabled = false;
         if (!js || !js.ok) { alert((js && js.error) || 'No se ha podido guardar.'); return; }
         resultados.push({ title: js.title, created: js.created, changed: js.changed || [], url: js.url });
+        // El repertorio de detrás ya no dice la verdad: al cerrar el pop-up se recarga.
+        if (window.app33RefreshOnClose) window.app33RefreshOnClose(modalEl);
         siguiente();
       }).catch(function () { b.disabled = false; alert('No se ha podido guardar. Inténtalo otra vez.'); });
   }

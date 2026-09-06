@@ -8,7 +8,7 @@
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="post" action="{{ url_for('concert_wizard_create') }}" enctype="multipart/form-data" id="concertWizardForm">
+      <form autocomplete="off" method="post" action="{{ url_for('concert_wizard_create') }}" enctype="multipart/form-data" id="concertWizardForm">
         <div class="modal-body">
           <input type="hidden" name="wizard_mode" id="wizard_mode" value="direct">
           <input type="hidden" name="wizard_simulation_id" id="wizard_simulation_id" value="">
@@ -41,10 +41,16 @@
                   </optgroup>
                   {% endif %}
                 </select>
+                {# ⚠️ El «+» y la «★» dejan lo creado en ESTE selector (con su prefijo `artist:` /
+                   `event:`, en su grupo), no en los <select> ocultos: `syncSubjectPick` es quien
+                   reparte lo visible a los ocultos, y si lo nuevo solo estuviera en el oculto lo
+                   borraría al validar el paso (bug real: «se crea y no se queda seleccionado»). #}
                 <button type="button" class="btn btn-outline-secondary" data-quick-create="artist"
-                        data-target="wizard_artist_id" title="Crear un artista nuevo"><i class="fa fa-plus"></i></button>
+                        data-target="wizard_subject_ids" data-target-prefix="artist:" data-target-group="Artistas"
+                        title="Crear un artista nuevo"><i class="fa fa-plus"></i></button>
                 <button type="button" class="btn btn-outline-secondary" data-quick-create="event"
-                        data-target="wizard_event_id" title="Crear un evento nuevo"><i class="fa fa-star"></i></button>
+                        data-target="wizard_subject_ids" data-target-prefix="event:" data-target-group="Eventos"
+                        title="Crear un evento nuevo"><i class="fa fa-star"></i></button>
               </div>
               <div class="form-text">Puedes elegir varios. Busca sin distinguir tildes, símbolos ni mayúsculas.
                 Con el <i class="fa fa-plus"></i> creas un artista y con la <i class="fa fa-star"></i> un evento.</div>
@@ -2019,9 +2025,24 @@
     // `avisar` = viene de un cambio del selector (entonces sí toca comprobar el solape del día).
     function syncSubjectPick(avisar){
       const p = subjectPicked();
+      const sub = document.getElementById('wizard_subject_ids');
       const selA = document.getElementById('wizard_artist_id');
       const selE = document.getElementById('wizard_event_id');
       const kind = document.getElementById('wizard_subject_kind');
+      // ⚠️ Un artista o un evento creado con el «+»/«★» existe en el selector visible pero TODAVÍA
+      // no en los ocultos (se pintaron con la lista del servidor): se les añade la opción que falte.
+      // Si no, `.value = id` se quedaría en vacío y el servidor no recibiría nada.
+      function asegura(sel, id){
+        if(!sel || !id) return;
+        if(Array.prototype.some.call(sel.options, o => o.value === id)) return;
+        const o = document.createElement('option');
+        o.value = id;
+        const vis = sub ? Array.prototype.find.call(sub.options, x => (x.value || '').endsWith(':' + id)) : null;
+        o.textContent = vis ? vis.textContent : id;
+        sel.appendChild(o);
+      }
+      p.artists.forEach(id => asegura(selA, id));
+      p.events.forEach(id => asegura(selE, id));
       if(selA){
         Array.prototype.forEach.call(selA.options, o => { o.selected = p.artists.indexOf(o.value) >= 0; });
       }
@@ -3052,10 +3073,22 @@
       }
       // 1 · Artista y tipo de actividad.
       if (pre.artist_id) {
-        var selA = document.getElementById('wizard_artist_id');
-        if (selA) {
-          if (window.jQuery && jQuery(selA).data('select2')) jQuery(selA).val([pre.artist_id]).trigger('change');
-          else Array.prototype.forEach.call(selA.options, function (o) { if (o.value === pre.artist_id) o.selected = true; });
+        /* ⚠️ Se marca en el selector VISIBLE («artist:<id>», el mismo camino que la auto-apertura
+           desde la agenda): el oculto `wizard_artist_id` lo rellena `syncSubjectPick` A PARTIR de lo
+           visible, así que marcarlo solo en el oculto lo dejaba sin seleccionar a la vista y al
+           validar el paso se BORRABA (la misma familia que el «+» de alta rápida). */
+        var selSub = document.getElementById('wizard_subject_ids');
+        var valArt = 'artist:' + pre.artist_id;
+        if (selSub && selSub.querySelector('option[value="' + valArt + '"]')) {
+          if (window.jQuery && jQuery(selSub).data('select2')) jQuery(selSub).val([valArt]).trigger('change');
+          else { Array.prototype.forEach.call(selSub.options, function (o) { o.selected = (o.value === valArt); });
+                 selSub.dispatchEvent(new Event('change', { bubbles: true })); }
+        } else {
+          var selA = document.getElementById('wizard_artist_id');
+          if (selA) {
+            if (window.jQuery && jQuery(selA).data('select2')) jQuery(selA).val([pre.artist_id]).trigger('change');
+            else Array.prototype.forEach.call(selA.options, function (o) { if (o.value === pre.artist_id) o.selected = true; });
+          }
         }
       }
       setRadio('activity_type', pre.activity_type);

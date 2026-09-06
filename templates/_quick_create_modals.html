@@ -8,7 +8,7 @@
 
   <div class="modal fade" id="qcModal-venue" tabindex="-1" aria-hidden="true" data-qc-type="venue">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
-      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_venue') }}" data-qc-json="1">
+      <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_venue') }}" data-qc-json="1">
         <div class="modal-header"><h5 class="modal-title">Nuevo recinto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-3"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Sala, plaza, pabellón…"></div>
@@ -63,7 +63,7 @@
      ══════════════════════════════════════════════════════════════════════════════════════════ #}
   <div class="modal fade" id="qcModal-promoter" tabindex="-1" aria-hidden="true" data-qc-type="promoter">
     <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"><div class="modal-content">
-      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_promoter') }}">
+      <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_promoter') }}">
         <div class="modal-header"><h5 class="modal-title">Nuevo tercero</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="demo-cards" data-qc-promoter>
@@ -190,7 +190,7 @@
 
   <div class="modal fade" id="qcModal-ticketer" tabindex="-1" aria-hidden="true" data-qc-type="ticketer">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
-      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_ticketer') }}">
+      <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_ticketer') }}">
         <div class="modal-header"><h5 class="modal-title">Nueva ticketera</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
@@ -205,7 +205,7 @@
 
   <div class="modal fade" id="qcModal-publishing_company" tabindex="-1" aria-hidden="true" data-qc-type="publishing_company">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
-      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_publishing_company') }}">
+      <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_publishing_company') }}">
         <div class="modal-header"><h5 class="modal-title">Nueva editorial</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
@@ -219,7 +219,7 @@
 
   <div class="modal fade" id="qcModal-artist" tabindex="-1" aria-hidden="true" data-qc-type="artist">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
-      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_artist') }}">
+      <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_artist') }}">
         <div class="modal-header"><h5 class="modal-title">Nuevo artista</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
@@ -240,7 +240,7 @@
 
   <div class="modal fade" id="qcModal-distributor" tabindex="-1" aria-hidden="true" data-qc-type="distributor">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
-      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_distributor') }}" enctype="multipart/form-data">
+      <form autocomplete="off" class="qc-form" data-qc-endpoint="{{ url_for('api_create_distributor') }}" enctype="multipart/form-data">
         <div class="modal-header"><h5 class="modal-title">Nueva distribuidora</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Ej: Altafonte, The Orchard…"></div>

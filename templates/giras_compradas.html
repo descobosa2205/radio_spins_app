@@ -54,7 +54,7 @@
 {# ===== Modal nueva gira ===== #}
 <div class="modal fade" id="tourModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
-    <form class="modal-content" method="post" action="{{ url_for('purchased_tour_create') }}" data-step-wizard>
+    <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('purchased_tour_create') }}" data-step-wizard>
       <div class="modal-header">
         <h5 class="modal-title"><i class="fa fa-route me-2"></i>Nueva gira comprada</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

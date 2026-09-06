@@ -8,7 +8,7 @@
 {% set pw = project_wizard or {} %}
 <div class="modal fade" id="discoProjectModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <form class="modal-content" method="post" action="{{ url_for('disco_project_create') }}"
+    <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('disco_project_create') }}"
           id="discoProjectForm" data-step-wizard data-sw-mode="ALBUM" data-disco-project>
       <input type="hidden" name="artist_id" id="dpArtistId">
       <input type="hidden" name="kind" id="dpKind" value="">

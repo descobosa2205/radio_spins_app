@@ -72,7 +72,7 @@
         </div>
 
         {# Paso 3a · bloqueo #}
-        <form data-agenda-step="bloqueo" class="d-none" method="post" action="{{ url_for('agenda_block_create') }}">
+        <form autocomplete="off" data-agenda-step="bloqueo" class="d-none" method="post" action="{{ url_for('agenda_block_create') }}">
           <input type="hidden" name="artist_id" data-agenda-artist-input>
           <input type="hidden" name="next" value="{{ request.full_path }}">
           <div class="mb-3"><label class="form-label"><i class="fa fa-ban text-secondary me-1"></i>Motivo del bloqueo</label><input class="form-control" name="motivo" placeholder="Vacaciones, descanso, ensayos…" required></div>
@@ -86,7 +86,7 @@
         </form>
 
         {# Paso 3b · otro #}
-        <form data-agenda-step="otro" class="d-none" method="post" action="{{ url_for('agenda_note_create') }}">
+        <form autocomplete="off" data-agenda-step="otro" class="d-none" method="post" action="{{ url_for('agenda_note_create') }}">
           <input type="hidden" name="artist_id" data-agenda-artist-input>
           <input type="hidden" name="next" value="{{ request.full_path }}">
           <div class="mb-3"><label class="form-label"><i class="fa fa-thumbtack text-primary me-1"></i>Nombre</label><input class="form-control" name="title" placeholder="Nombre de la actividad" required></div>

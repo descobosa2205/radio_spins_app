@@ -85096,6 +85096,121 @@ def _marketing_action_title(act) -> str:
     return " · ".join([x for x in [tipo, medio, fecha] if x])
 
 
+def _marketing_action_dates_label(act) -> str:
+    """CUÁNDO es la acción: «01/12/2026 – 10/12/2026» (de sus oleadas o de su fecha y su fin), o la
+    fecha suelta. Punto único: lo usan el concepto del gasto y la fila de la bolsa."""
+    fechas = []
+    for w in list(getattr(act, "waves_json", None) or []):
+        for k in ("start", "end"):
+            v = (w or {}).get(k)
+            if isinstance(v, str) and v.strip():
+                try:
+                    fechas.append(date.fromisoformat(v.strip()[:10]))
+                except Exception:
+                    pass
+    if getattr(act, "activity_date", None):
+        fechas.append(act.activity_date)
+    det = getattr(act, "details_json", None) or {}
+    fin = det.get("end_date") if isinstance(det, dict) else None
+    if isinstance(fin, str) and fin.strip():
+        try:
+            fechas.append(date.fromisoformat(fin.strip()[:10]))
+        except Exception:
+            pass
+    if not fechas:
+        return ""
+    a, b = min(fechas), max(fechas)
+    if a == b:
+        return a.strftime("%d/%m/%Y")
+    return "%s – %s" % (a.strftime("%d/%m/%Y"), b.strftime("%d/%m/%Y"))
+
+
+def _marketing_action_where(act) -> str:
+    """EN QUÉ medio, plataforma o sitio es la acción (Cadena Dial, Instagram, Madrid…)."""
+    medio = ""
+    try:
+        medio = (getattr(getattr(act, "media", None), "name", None) or "").strip()
+    except Exception:
+        medio = ""
+    if medio:
+        return medio
+    target = getattr(act, "media_target_json", None) or {}
+    if isinstance(target, dict):
+        for k in ("media_name_fallback", "platform", "digital_platform", "other_name", "city"):
+            v = (target.get(k) or "").strip() if isinstance(target.get(k), str) else ""
+            if v:
+                return v
+    return ""
+
+
+def _marketing_action_image(act) -> str:
+    """El LOGO del medio (o la foto del proveedor) de la acción, si lo hay."""
+    try:
+        logo = (getattr(getattr(act, "media", None), "logo_url", None) or "").strip()
+        if logo:
+            return logo
+    except Exception:
+        pass
+    try:
+        return (getattr(getattr(act, "provider", None), "logo_url", None) or "").strip()
+    except Exception:
+        return ""
+
+
+def _marketing_expense_concept(act, promotion=None) -> str:
+    """El CONCEPTO con el que la acción se apunta en la bolsa: qué tipo de acción es, en qué medio y
+    cuándo («Campaña de Radio · Cadena Dial · 01/12/2026 – 10/12/2026»). Es lo que se lee en la
+    bolsa, en pendiente de pago y en contabilidad, así que tiene que decir de qué es el gasto."""
+    partes = [_marketing_action_label(getattr(act, "action_type", None) or getattr(act, "media_type", None))]
+    donde = _marketing_action_where(act)
+    if donde:
+        partes.append(donde)
+    elif (getattr(act, "task_description", None) or "").strip():
+        partes.append(act.task_description.strip())
+    elif promotion is not None:
+        titulo = (dict(getattr(promotion, "snapshot", None) or {}).get("title") or "").strip()
+        if titulo:
+            partes.append(titulo)
+    cuando = _marketing_action_dates_label(act)
+    if cuando:
+        partes.append(cuando)
+    return (" · ".join(partes))[:500]
+
+
+def _bag_marketing_actions_map(session_db, expenses) -> dict:
+    """Para los gastos de una bolsa que SON una acción de marketing: qué acción es, con su tipo (e
+    icono), su medio con su logo, sus fechas y el enlace a la campaña. UNA consulta para toda la bolsa.
+    Es lo que hace que en la bolsa de una actividad se lea «Campaña de Radio · Cadena Dial ·
+    01/12 – 10/12» con el logo de la emisora, y no un concepto suelto."""
+    ids = [e.id for e in (expenses or []) if getattr(e, "id", None)]
+    out = {}
+    if not ids:
+        return out
+    try:
+        filas = (session_db.query(PromotionActivity)
+                 .options(joinedload(PromotionActivity.media), joinedload(PromotionActivity.provider))
+                 .filter(PromotionActivity.bag_expense_id.in_(ids)).all())
+    except Exception:
+        app.logger.exception("[bolsas] no se pudieron leer las acciones de marketing de la bolsa")
+        return out
+    for act in filas:
+        tipo = (getattr(act, "action_type", None) or getattr(act, "media_type", None) or "OTRA")
+        try:
+            url = url_for("promotion_detail_view", promotion_id=act.promotion_id)
+        except Exception:
+            url = ""
+        out[str(act.bag_expense_id)] = {
+            "type_label": _marketing_action_label(tipo),
+            "icon": _marketing_action_icon(tipo),
+            "where": _marketing_action_where(act),
+            "image": _marketing_action_image(act),
+            "dates": _marketing_action_dates_label(act),
+            "cancelled": bool(getattr(act, "cancelled_at", None)),
+            "url": url,
+        }
+    return out
+
+
 def _marketing_files_context(session_db, promotion, kind: str) -> dict:
     """Los materiales (o los testigos) de una campaña, con sus acciones para elegir."""
     kind = _marketing_file_kind_ok(kind)
@@ -86975,7 +87090,7 @@ def promotion_activity_create(promotion_id):
             expense = BagExpense(
                 bag_id=promotion.bag_id,
                 category='MARKETING',
-                concept=f"{_marketing_action_label(action_type)} · {(row.task_description or dict(getattr(promotion, 'snapshot', {}) or {}).get('title') or 'Marketing')}"[:500],
+                concept=_marketing_expense_concept(row, promotion),
                 provider_id=provider_id,
                 provider_company_id=provider_company_id,
                 provider_snapshot=provider_snapshot,
@@ -87483,7 +87598,7 @@ def marketing_action_update(promotion_id, activity_id):
             row.bag_expense_id = expense.id
         if expense:
             expense.category = 'MARKETING'
-            expense.concept = f"{_marketing_action_label(action_type)} · {(row.task_description or dict(getattr(promotion, 'snapshot', {}) or {}).get('title') or 'Marketing')}"[:500]
+            expense.concept = _marketing_expense_concept(row, promotion)
             expense.provider_id = provider_id
             expense.provider_company_id = provider_company_id
             expense.provider_snapshot = provider_snapshot
@@ -100314,6 +100429,8 @@ def _bag_panel_context(session_db, bag) -> dict:
         expense_form_prefill={str(e.id): _bag_expense_form_context(session_db, e) for e in expenses},
         # Cómo está DIVIDIDO cada gasto (la etiqueta del panel y el pop-up).
         expense_splits={str(e.id): _split_summary(session_db, e) for e in expenses},
+        # Los gastos que SON una acción de MARKETING: tipo, medio con su logo y fechas (una consulta).
+        expense_marketing=_bag_marketing_actions_map(session_db, expenses),
         companies=companies,
         active_bags=active_bags,
         proration_bags=proration_bags,

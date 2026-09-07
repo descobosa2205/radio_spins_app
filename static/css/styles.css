@@ -599,6 +599,16 @@ button.song-status-item:focus {
 }
 .marketing-option-card input{ margin-bottom: .5rem; }
 .marketing-option-card i{ font-size: 1.65rem; display: block; margin-bottom: .5rem; }
+/* UN GASTO QUE ES UNA ACCIÓN DE MARKETING, en la bolsa: tipo con icono · medio con logo · fechas. */
+.exp-mkt{ display:inline-flex; align-items:center; gap:.55rem; flex-wrap:wrap; color:inherit; text-decoration:none; min-width:0; }
+.exp-mkt:hover{ color:inherit; text-decoration:none; }
+.exp-mkt:hover .exp-mkt__where{ text-decoration:underline; }
+.exp-mkt__type{ display:inline-flex; align-items:center; gap:.35rem; font-weight:600; }
+.exp-mkt__type i.fa{ color:var(--brand-accent); }
+.exp-mkt__where{ display:inline-flex; align-items:center; gap:.35rem; font-weight:600; }
+.exp-mkt__where img{ width:26px; height:26px; object-fit:contain; border-radius:7px; border:1px solid #eee; background:#fff; }
+.exp-mkt__dates{ display:inline-flex; align-items:center; gap:.3rem; font-size:.85rem; color:#666; }
+.exp-mkt__dates i.fa{ color:#999; }
 /* ADJUNTOS de una acción de marketing: icono + nombre, en cápsulas; se pinchan y se abren en el visor. */
 .mkt-atts{ display:flex; flex-wrap:wrap; gap:.35rem .5rem; align-items:center; }
 .mkt-att{ display:inline-flex; align-items:center; gap:.3rem; max-width:100%; padding:.18rem .6rem;

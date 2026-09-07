@@ -362,7 +362,22 @@
             <div class="flex-grow-1">
               <div class="d-flex align-items-center gap-2 flex-wrap">
                 <span class="drag-handle text-muted" title="Arrastrar para ordenar o mover"><i class="fa fa-grip-vertical"></i></span>
-                <span class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</span>
+                {% set _mk = (expense_marketing or {}).get(exp_id) %}
+                {% if _mk %}
+                  {# UNA ACCIÓN DE MARKETING se lee como lo que es: el TIPO de acción con su icono, en
+                     qué MEDIO (con su logo o foto) y CUÁNDO; el enlace lleva a la campaña. #}
+                  <a class="exp-mkt" href="{{ _mk.url or '#' }}" title="{{ expense.concept or '' }}">
+                    <span class="exp-mkt__type"><i class="fa {{ _mk.icon }}"></i>{{ _mk.type_label }}</span>
+                    {% if _mk.where %}
+                      <span class="exp-mkt__where">
+                        {% if _mk.image %}<img src="{{ _mk.image }}" alt="" data-avatar="1">{% endif %}{{ _mk.where }}</span>
+                    {% endif %}
+                    {% if _mk.dates %}<span class="exp-mkt__dates"><i class="fa fa-calendar-days"></i>{{ _mk.dates }}</span>{% endif %}
+                    {% if _mk.cancelled %}<span class="badge text-bg-dark">Cancelada</span>{% endif %}
+                  </a>
+                {% else %}
+                  <span class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</span>
+                {% endif %}
                 {% set esp = (expense_splits or {}).get(expense.id|string) %}
                 {% if esp and esp.active %}
                   {# La etiqueta dice SU parte y, al pasar el ratón, entre qué bolsas va. #}

@@ -7201,6 +7201,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la campaña · la bolsa no cierra sin la factura y sí la consolida la subida desde Marketing · una
   campaña vieja con bolsa propia queda enlazada y su bolsa archivada.
 
+- **BOLSA · UN GASTO QUE ES UNA ACCIÓN DE MARKETING SE LEE COMO LO QUE ES** (sep 2026): en la fila del
+  gasto (la bolsa y la pestaña Producción de la actividad, que es el mismo `_bag_panel.html`) sale el
+  **TIPO de acción con su icono** («Campaña de Radio»), **EN QUÉ MEDIO con su logo** (o la foto del
+  proveedor; sin medio, la plataforma, el nombre a mano o la ciudad) y **CUÁNDO** (de sus oleadas o de
+  su fecha y su fin), y la fila enlaza a la campaña. Punto único **`_bag_marketing_actions_map`**
+  (UNA consulta por bolsa, en `_bag_panel_context` → `expense_marketing`), con
+  `_marketing_action_where` / `_marketing_action_image` / `_marketing_action_dates_label`. El
+  **concepto** del gasto se compone con lo mismo (`_marketing_expense_concept`: «Campaña de Radio ·
+  Cadena Dial · 30/11/2026 – 10/12/2026»), así que en pendiente de pago y en contabilidad también se
+  sabe de qué es. Estilos `.exp-mkt*`.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

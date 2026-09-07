@@ -200,7 +200,7 @@
                             {% set _iext = ((row.attachment_name or row.attachment_url or '').split('?')[0].lower().rsplit('.', 1) | last) %}
                             {% set _ik = 'PDF' if _iext == 'pdf' else ('IMAGE' if _iext in ('jpg', 'jpeg', 'png', 'webp', 'gif') else 'FILE') %}
                             <span class="mkt-att" title="Factura o ticket">
-                              <a href="{{ row.attachment_url }}" target="_blank" rel="noopener"
+                              <a href="{{ row.attachment_url }}" target="_blank" rel="noopener" data-no-doc-loader
                                  data-viewer-src="{{ row.attachment_url }}" data-viewer-kind="{{ _ik }}"
                                  data-viewer-name="Factura/ticket · {{ row.attachment_name or '' }}"
                                  data-viewer-download="{{ row.attachment_url }}" data-viewer-set="att-{{ row.id }}">
@@ -209,7 +209,7 @@
                           {% endif %}
                           {% for f in _atts %}
                             <span class="mkt-att" title="{{ f.note or f.name }}{% if f.at %} · {{ f.at }}{% endif %}{% if f.by %} · {{ f.by }}{% endif %}">
-                              <a href="{{ f.url }}" target="_blank" rel="noopener"
+                              <a href="{{ f.url }}" target="_blank" rel="noopener" data-no-doc-loader
                                  data-viewer-src="{{ f.play_url or f.url }}" data-viewer-kind="{{ f.media_kind }}"
                                  data-viewer-name="{{ f.name }}" data-viewer-download="{{ f.url }}"
                                  data-viewer-set="att-{{ row.id }}"{% if f.poster %} data-viewer-poster="{{ f.poster }}"{% endif %}>

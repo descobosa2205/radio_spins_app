@@ -1162,7 +1162,7 @@
                             vídeo por su versión web); lo que no se puede ver se descarga desde ahí. -#}
                         {% set _ext = ((item.file_url or '').split('?')[0].lower().rsplit('.', 1) | last) %}
                         {% set _vk = 'IMAGE' if _ext in ('jpg', 'jpeg', 'png', 'webp', 'gif') else ('PDF' if _ext == 'pdf' else ('VIDEO' if _ext in ('mp4', 'mov', 'm4v', 'webm') else ('AUDIO' if _ext in ('mp3', 'wav', 'm4a', 'aac') else 'FILE'))) %}
-                        <a href="{{ item.file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm"
+                        <a href="{{ item.file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm" data-no-doc-loader
                            data-viewer-src="{{ video_play_url(item.file_url) if _vk == 'VIDEO' else item.file_url }}"
                            data-viewer-kind="{{ _vk }}" data-viewer-name="{{ item.file_name }}"
                            data-viewer-download="{{ item.file_url }}" data-viewer-set="album-materiales">

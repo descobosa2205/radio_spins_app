@@ -12,96 +12,108 @@
   {% endif %}
 </div>
 
+{# PESTAÑAS (sep 2026): «Acciones» (sin contador) y «Archivadas». Las PETICIONES ya no son una
+   pestaña: son un módulo encima de las acciones, que solo se ve si hay alguna pendiente. #}
 <ul class="nav nav-tabs mb-4">
-  <li class="nav-item"><a class="nav-link {% if tab == 'requested' %}active{% endif %}" href="{{ url_for('marketing_view', tab='requested') }}">Peticiones <span class="badge text-bg-warning ms-1">{{ request_count }}</span></a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'active' %}active{% endif %}" href="{{ url_for('marketing_view', tab='active') }}">Activas <span class="badge text-bg-light border ms-1">{{ active_count }}</span></a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'active' %}active{% endif %}" href="{{ url_for('marketing_view', tab='active') }}">Acciones</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'archived' %}active{% endif %}" href="{{ url_for('marketing_view', tab='archived') }}">Archivadas</a></li>
 </ul>
 
-{% if tab == 'requested' %}
-  <div class="row g-4">
-    <div class="col-12 col-xl-7">
-      <div class="card h-100">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">Peticiones de marketing</h5>
-            <span class="small text-muted">Ordenadas por urgencia / fecha objetivo</span>
-          </div>
-          {% if requested_items %}
-            <div class="list-group list-group-flush">
-              {% for item in requested_items %}
-                <div class="list-group-item px-0">
-                  <div class="d-flex gap-3 align-items-start">
-                    <img src="{{ item.cover_url }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:16px;border:1px solid #eee;background:#fff;">
-                    <div class="flex-grow-1">
-                      <div class="d-flex justify-content-between gap-2 flex-wrap">
-                        <div>
-                          <div class="fw-semibold">{{ item.title }}</div>
-                          <div class="small text-muted">{{ item.kind_label }} · {{ item.subtitle or 'Sin detalle adicional' }}</div>
-                        </div>
-                        <div class="text-end">
-                          <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
-                          <div class="small text-muted mt-1">{{ item.date_label }}</div>
-                        </div>
-                      </div>
-                      <div class="d-flex flex-wrap gap-1 my-2">
-                        <span class="badge text-bg-light border">{{ item.request_kind_label }}</span>
-                        {% for label in item.action_labels %}<span class="badge text-bg-light border">{{ label }}</span>{% endfor %}
-                        <span class="badge text-bg-light border">{{ item.budget_label }}</span>
-                        <span class="badge text-bg-light border">{{ item.period_label }}</span>
-                      </div>
-                      {% if item.objectives_notes %}<div class="small"><strong>Objetivos:</strong> {{ item.objectives_notes }}</div>{% endif %}
-                      {% if item.requested_by %}<div class="small text-muted mt-1">Solicitada por {{ item.requested_by }}</div>{% endif %}
-                      {% if can_edit_promocion %}
-                        <div class="d-flex gap-2 mt-3 flex-wrap">
-                          <button class="btn btn-sm btn-primary js-create-from-request" type="button" data-bs-toggle="modal" data-bs-target="#marketingCreateFromRequestModal" data-request-id="{{ item.id }}">Crear campaña</button>
-                          <button class="btn btn-sm btn-outline-danger js-reject-request" type="button" data-bs-toggle="modal" data-bs-target="#marketingRejectModal" data-request-id="{{ item.id }}">Rechazar</button>
-                        </div>
-                      {% endif %}
+{% if tab == 'active' %}
+  {# ---------- PETICIONES PENDIENTES: un MÓDULO encima de las acciones, solo si hay alguna ---------- #}
+  {% if requested_items %}
+    <div class="card mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <h5 class="mb-0"><i class="fa fa-inbox me-2 text-danger"></i>Peticiones de marketing
+            <span class="badge text-bg-warning text-dark ms-1">{{ requested_items|length }}</span></h5>
+          <span class="small text-muted">Ordenadas por urgencia / fecha objetivo</span>
+        </div>
+        <div class="list-group list-group-flush">
+          {% for item in requested_items %}
+            <div class="list-group-item px-0">
+              <div class="d-flex gap-3 align-items-start">
+                <img src="{{ item.cover_url }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:16px;border:1px solid #eee;background:#fff;">
+                <div class="flex-grow-1">
+                  <div class="d-flex justify-content-between gap-2 flex-wrap">
+                    <div>
+                      <div class="fw-semibold">{{ item.title }}</div>
+                      <div class="small text-muted">{{ item.kind_label }} · {{ item.subtitle or 'Sin detalle adicional' }}</div>
+                    </div>
+                    <div class="text-end">
+                      <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
+                      <div class="small text-muted mt-1">{{ item.date_label }}</div>
                     </div>
                   </div>
+                  <div class="d-flex flex-wrap gap-1 my-2">
+                    <span class="badge text-bg-light border">{{ item.request_kind_label }}</span>
+                    {% for label in item.action_labels %}<span class="badge text-bg-light border">{{ label }}</span>{% endfor %}
+                    <span class="badge text-bg-light border">{{ item.budget_label }}</span>
+                    <span class="badge text-bg-light border">{{ item.period_label }}</span>
+                  </div>
+                  {% if item.objectives_notes %}<div class="small"><strong>Objetivos:</strong> {{ item.objectives_notes }}</div>{% endif %}
+                  {% if item.requested_by %}<div class="small text-muted mt-1">Solicitada por {{ item.requested_by }}</div>{% endif %}
+                  {% if can_edit_promocion %}
+                    <div class="d-flex gap-2 mt-3 flex-wrap">
+                      <button class="btn btn-sm btn-primary js-create-from-request" type="button" data-bs-toggle="modal" data-bs-target="#marketingCreateFromRequestModal" data-request-id="{{ item.id }}">Crear campaña</button>
+                      <button class="btn btn-sm btn-outline-danger js-reject-request" type="button" data-bs-toggle="modal" data-bs-target="#marketingRejectModal" data-request-id="{{ item.id }}">Rechazar</button>
+                    </div>
+                  {% endif %}
                 </div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="alert alert-light border mb-0">No hay peticiones de marketing pendientes.</div>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-    <div class="col-12 col-xl-5">
-      <div class="card h-100">
-        <div class="card-body">
-          <h5 class="mb-3">Calendario</h5>
-          {% for month in promotion_calendar_months %}
-            <div class="mb-3">
-              <div class="fw-semibold mb-2 text-capitalize">{{ month.label }}</div>
-              <div class="table-responsive">
-                <table class="table table-sm align-middle text-center mb-0">
-                  <thead class="table-light"><tr><th>L</th><th>M</th><th>X</th><th>J</th><th>V</th><th>S</th><th>D</th></tr></thead>
-                  <tbody>
-                    {% for week in month.weeks %}
-                      <tr>
-                        {% for day in week %}
-                          <td class="{% if not day.in_month %}text-muted bg-light{% endif %}" style="height:42px;min-width:42px;">
-                            <div class="small">{{ day.date.day }}</div>
-                            {% set day_items = day['items'] or [] %}{% if day_items %}<span class="badge rounded-pill text-bg-warning">{{ day_items|length }}</span>{% endif %}
-                          </td>
-                        {% endfor %}
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
               </div>
             </div>
-          {% else %}
-            <div class="alert alert-light border mb-0">No hay fechas próximas con peticiones.</div>
           {% endfor %}
         </div>
       </div>
     </div>
-  </div>
-{% elif tab == 'active' %}
+  {% endif %}
+
+  {# ---------- LAS ACCIONES, agrupadas POR ARTISTA (la misma rejilla que Demos y Actividades) ---------- #}
+  {% if not marketing_subject %}
+    {% if marketing_groups %}
+      <div class="row g-3">
+        {% for g in marketing_groups %}
+          <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+            <a href="{{ url_for('marketing_view', tab='active', artista=g.id) }}"
+               class="card h-100 text-decoration-none text-reset text-center">
+              <div class="card-body">
+                {% if g.photo %}
+                  <img src="{{ g.photo }}" alt="" data-avatar="1"
+                       style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+                {% elif g.id == 'none' %}
+                  <span class="demo-group__ava demo-group__ava--icon"
+                        style="width:84px;height:84px;margin:0 auto .5rem;font-size:1.6rem;">
+                    <i class="fa {{ g.icon or 'fa-bullhorn' }}"></i></span>
+                {% else %}
+                  <img src="{{ DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                       style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+                {% endif %}
+                <div class="fw-semibold text-truncate">{{ g.name }}</div>
+                <div class="small text-muted">
+                  <span class="badge text-bg-light border"><i class="fa fa-bullhorn me-1"></i>{{ g.count }} acci{{ 'ón' if g.count == 1 else 'ones' }}</span>
+                </div>
+              </div>
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border">Todavía no hay campañas de marketing activas.</div>
+    {% endif %}
+  {% else %}
+    <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+      <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('marketing_view', tab='active') }}" title="Volver a los artistas" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+      {% if marketing_subject.photo %}
+        <img src="{{ marketing_subject.photo }}" alt="" data-avatar="1" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">
+      {% else %}
+        <span class="demo-group__ava demo-group__ava--icon" style="width:56px;height:56px;font-size:1.2rem;"><i class="fa fa-bullhorn"></i></span>
+      {% endif %}
+      <div>
+        <div class="h5 mb-0">{{ marketing_subject.name }}</div>
+        <div class="small text-muted">{{ marketing_subject.count }} acci{{ 'ón' if marketing_subject.count == 1 else 'ones' }} de marketing</div>
+      </div>
+    </div>
+
   {% if active_promotions %}
     <div class="row g-3">
       {% for item in active_promotions %}
@@ -124,8 +136,9 @@
         </div>
       {% endfor %}
     </div>
-  {% else %}
-    <div class="alert alert-light border">Todavía no hay campañas de marketing activas.</div>
+    {% else %}
+      <div class="alert alert-light border">Este artista no tiene campañas de marketing activas.</div>
+    {% endif %}
   {% endif %}
 {% else %}
   <div class="row g-4">

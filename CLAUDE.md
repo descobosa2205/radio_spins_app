@@ -7212,6 +7212,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Cadena Dial · 30/11/2026 – 10/12/2026»), así que en pendiente de pago y en contabilidad también se
   sabe de qué es. Estilos `.exp-mkt*`.
 
+- **MARKETING · EL LISTADO** (sep 2026): dos pestañas, **«Acciones»** (sin contador) y **«Archivadas»**.
+  Las **PETICIONES** ya no son una pestaña: son un **módulo encima de las acciones que solo se pinta si
+  hay alguna pendiente** (con «Crear campaña» y «Rechazar» como siempre; el calendario de tres meses se
+  retiró). Y **las acciones se agrupan POR ARTISTA** con la misma rejilla de galletas que Demos y
+  Actividades (foto de 84 px, nombre y cuántas acciones), y al pinchar uno (`?artista=<id>`, o `none`
+  para las que no tienen artista) se ven las suyas con su cabecera y el volver. Una campaña de varios
+  artistas sale en cada uno. `?tab=requested` (enlaces antiguos) cae en «Acciones».
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

@@ -86454,9 +86454,13 @@ def _promotion_activity_display(row, song_title_map):
     }
 
 
-def _marketing_index_response(default_tab="requested"):
+def _marketing_index_response(default_tab="active"):
     tab = (request.args.get("tab") or default_tab).strip().lower()
-    if tab not in {"requested", "active", "archived"}:
+    # LAS PETICIONES YA NO SON UNA PESTAÑA (sep 2026): son un MÓDULO encima de las acciones. Un
+    # enlace antiguo con `tab=requested` cae en «Acciones», que es donde están ahora.
+    if tab == "requested":
+        tab = "active"
+    if tab not in {"active", "archived"}:
         tab = default_tab
     session_db = db()
     try:
@@ -86486,14 +86490,44 @@ def _marketing_index_response(default_tab="requested"):
         archived_promotions.sort(key=lambda x: ((x.get('date') or date.max), (x.get('title') or '').casefold()), reverse=False)
         rejected_display.sort(key=lambda x: ((x.get('date') or date.max), (x.get('title') or '').casefold()))
 
+        # LAS ACCIONES SE AGRUPAN POR ARTISTA (sep 2026), como en Demos y Actividades: primero la
+        # rejilla de artistas con cuántas campañas tiene cada uno y, al pinchar uno (`?artista=<id>`),
+        # las suyas. Una campaña de varios artistas sale en cada uno; sin artista, en «Sin artista».
+        sujeto = (request.args.get("artista") or "").strip()
+        por_artista = {}
+        for it in active_promotions:
+            for aid in (list(it.get("artist_ids") or []) or ["none"]):
+                por_artista.setdefault(str(aid), []).append(it)
+        art_rows = {}
+        reales = [_safe_uuid(x) for x in por_artista.keys() if x != "none" and _safe_uuid(x)]
+        if reales:
+            for a in session_db.query(Artist).filter(Artist.id.in_(reales)).all():
+                art_rows[str(a.id)] = a
+        marketing_groups = []
+        for aid, items in por_artista.items():
+            a = art_rows.get(aid)
+            if a is None and aid != "none":
+                continue                          # un id que ya no es de ningún artista: no se pinta
+            marketing_groups.append({"id": aid, "name": (a.name if a is not None else "Sin artista"),
+                                     "photo": ((a.photo_url or "") if a is not None else ""),
+                                     "icon": ("" if a is not None else "fa-bullhorn"), "count": len(items)})
+        marketing_groups.sort(key=lambda g: (g["id"] == "none", -g["count"], g["name"].casefold()))
+        marketing_subject = None
+        if sujeto and sujeto in por_artista and (sujeto == "none" or sujeto in art_rows):
+            a = art_rows.get(sujeto)
+            marketing_subject = {"id": sujeto, "name": (a.name if a is not None else "Sin artista"),
+                                 "photo": ((a.photo_url or "") if a is not None else ""), "count": len(por_artista[sujeto])}
+            active_promotions = por_artista[sujeto]
+
         return render_template(
             "marketing.html",
             tab=tab,
             requested_items=requested_display,
             active_promotions=active_promotions,
+            marketing_groups=marketing_groups,
+            marketing_subject=marketing_subject,
             archived_promotions=archived_promotions,
             rejected_requests=rejected_display,
-            promotion_calendar_months=_promotion_calendar_months(requested_display, months_count=3),
             promotion_creator_datasets=_promotion_creator_datasets(session_db),
             request_count=len(requested_display),
             active_count=len(active_promotions),
@@ -86509,13 +86543,13 @@ def _marketing_index_response(default_tab="requested"):
 @app.route("/marketing", endpoint="marketing_view")
 @admin_required
 def marketing_view():
-    return _marketing_index_response(default_tab="requested")
+    return _marketing_index_response(default_tab="active")
 
 
 @app.route("/promocion", endpoint="promocion_view")
 @admin_required
 def promocion_view():
-    return _marketing_index_response(default_tab="requested")
+    return _marketing_index_response(default_tab="active")
 
 
 

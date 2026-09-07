@@ -293,6 +293,21 @@ def _upload_fileobj(file_obj, key: str, content_type: str) -> str:
                 pass
 
 
+def upload_local_file(path: str, key: str, content_type: str, upsert: bool = False) -> str:
+    """Sube un FICHERO DEL DISCO a Storage por su ruta (sin cargarlo en memoria) y devuelve su URL.
+
+    Es lo que usa la VERSIÓN WEB de un vídeo: la copia que saca ffmpeg puede pesar cientos de MB y
+    leerla a `bytes` para `_upload_bytes` la metería entera en la RAM del worker."""
+    client = supabase_client()
+    try:
+        size_bytes = os.path.getsize(path)
+    except Exception:
+        size_bytes = None
+    resp = _storage_upload_retry(client, key, path, content_type, upsert, size_bytes)
+    _check_dict_response(resp, size_bytes)
+    return _public_url(client, key)
+
+
 def _rewind_stream(file_obj) -> None:
     try:
         file_obj.seek(0)

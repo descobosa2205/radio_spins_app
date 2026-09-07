@@ -7,7 +7,11 @@
 </div>
 {# PROVISIONAL: lo ha creado un PROYECTO discográfico y todavía se está preparando. #}
 <div class="ficha-hero{% if album.is_provisional %} is-provisional{% endif %}">
-  <img class="ficha-hero__media" src="{{ album.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
+  {#- LA PORTADA SE PINCHA Y SE VE EN GRANDE (visor de la casa). Solo si hay portada de verdad. -#}
+  <img class="ficha-hero__media" src="{{ album.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover
+       {% if album.cover_url %}data-viewer-src="{{ album.cover_url }}" data-viewer-kind="IMAGE"
+       data-viewer-name="Portada · {{ album.title }}" data-viewer-download="{{ album.cover_url }}"
+       data-viewer-set="portada-hero" style="cursor:zoom-in"{% endif %}>
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">{{ album_kind_label }}</div>
     <h1 class="ficha-hero__title">{{ album.title }}{% if album.is_provisional %} <span class="badge text-bg-warning text-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="Lo está preparando un proyecto discográfico">PROVISIONAL</span>{% endif %}</h1>
@@ -1154,7 +1158,14 @@
                         <div class="small text-muted">{{ item.mime_type or 'Archivo' }}</div>
                       </div>
                       <div class="d-flex gap-2">
-                        <a href="{{ item.file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                        {#- «Ver» abre el material EN EL VISOR (una portada en grande, un PDF en su marco, un
+                            vídeo por su versión web); lo que no se puede ver se descarga desde ahí. -#}
+                        {% set _ext = ((item.file_url or '').split('?')[0].lower().rsplit('.', 1) | last) %}
+                        {% set _vk = 'IMAGE' if _ext in ('jpg', 'jpeg', 'png', 'webp', 'gif') else ('PDF' if _ext == 'pdf' else ('VIDEO' if _ext in ('mp4', 'mov', 'm4v', 'webm') else ('AUDIO' if _ext in ('mp3', 'wav', 'm4a', 'aac') else 'FILE'))) %}
+                        <a href="{{ item.file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm"
+                           data-viewer-src="{{ video_play_url(item.file_url) if _vk == 'VIDEO' else item.file_url }}"
+                           data-viewer-kind="{{ _vk }}" data-viewer-name="{{ item.file_name }}"
+                           data-viewer-download="{{ item.file_url }}" data-viewer-set="album-materiales">
                           <i class="fa fa-eye"></i> Ver
                         </a>
                         {# Compartir: SIEMPRE el enlace de previsualización de la casa (portada +

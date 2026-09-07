@@ -6929,6 +6929,61 @@ def ensure_short_links_schema():
 
 
 # ---------------------------------------------------------------------------
+# VERSIÓN WEB de un vídeo (la copia con la que se REPRODUCE)
+# ---------------------------------------------------------------------------
+class VideoWebVersion(Base):
+    """La copia PARA VER de un vídeo subido, POR URL DE ORIGEN.
+
+    El archivo que sube la gente (4K, 50 Mbps, HEVC del iPhone, el índice al final) se ve a tirones en
+    cualquier conexión normal; esta es la copia H.264 ≤1080p con `faststart` que hace ffmpeg en 2º
+    plano (`_video_web_schedule` en app.py) y con la que se reproduce en toda la app. Va por URL de
+    origen, no por modelo, así que vale igual para una foto de actividad, un cartel, un videoclip o un
+    material de marketing. `status`: PENDING (en ello) · READY (hay copia) · SKIP (el original ya
+    era apto y se sirve tal cual) · FAILED (con su `error`)."""
+
+    __tablename__ = "video_web_versions"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    source_url = Column(Text, nullable=False, unique=True)
+    web_url = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'PENDING'"))
+    error = Column(Text)
+    attempts = Column(Integer, nullable=False, server_default=text("0"))
+    width = Column(Integer)
+    height = Column(Integer)
+    duration_seconds = Column(Integer)
+    source_codec = Column(Text)
+    source_kbps = Column(Integer)
+    web_bytes = Column(BigInteger)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+def ensure_video_web_schema():
+    """Versiones web de los vídeos (idempotente, sin Alembic)."""
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS video_web_versions (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            source_url text NOT NULL UNIQUE,
+            web_url text,
+            status text NOT NULL DEFAULT 'PENDING',
+            error text,
+            attempts integer NOT NULL DEFAULT 0,
+            width integer,
+            height integer,
+            duration_seconds integer,
+            source_codec text,
+            source_kbps integer,
+            web_bytes bigint,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+    ], "video_web_versions")
+
+
+# ---------------------------------------------------------------------------
 # SMS (avisos por mensaje de texto)
 # ---------------------------------------------------------------------------
 # Una sola cuenta para toda la casa (a diferencia de Holded o Pleo, que van por empresa del grupo):

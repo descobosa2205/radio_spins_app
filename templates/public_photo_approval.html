@@ -120,7 +120,7 @@
     <div class="pa-grid">
       {% for p in vids %}
       <div class="pa-tile" id="c-{{ p.id }}" data-pa-item="{{ p.id }}">
-        <video src="{{ p.file_url }}" preload="metadata" muted playsinline></video>
+        <video src="{{ p.play_url or p.file_url }}" preload="metadata" muted playsinline></video>
         <span class="pa-tile__play"><i class="fa fa-circle-play"></i></span>
         <span class="pa-tile__state"><i class="fa fa-circle-question st-PENDING" data-state-icon></i></span>
       </div>
@@ -206,7 +206,7 @@
       current = id;
       document.getElementById('paPopTitle').textContent = (it.is_video ? 'Vídeo' : 'Foto') + (it.title ? ' · ' + it.title : '');
       stage.innerHTML = it.is_video
-        ? '<video src="' + it.file_url + '" controls autoplay playsinline style="max-width:100%;max-height:100%"></video>'
+        ? '<video src="' + (it.play_url || it.file_url) + '" controls autoplay playsinline style="max-width:100%;max-height:100%"></video>'
         : '<img src="' + it.file_url + '" alt="">';
       var canVote = it.decision === 'PENDING';
       document.getElementById('paVoteUp').disabled = !canVote;

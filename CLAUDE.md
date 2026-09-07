@@ -7096,6 +7096,78 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   resumen, miniatura y enlace embebido · la de otro artista fuera · og 1200×630 desde la miniatura ·
   la página `?embed=1` sin barra ni pie · los ⋯ con el código en la galleta.
 
+- ⚠️⚠️ **UN VÍDEO SUBIDO SE REPRODUCE POR SU VERSIÓN WEB, NO POR EL ORIGINAL** (sep 2026, bug real:
+  «los vídeos subidos se van viendo a tirones y se cortan»). Dentro de la app el `<video>` ya apuntaba
+  directo a Storage (sin puente ni `no-store`), y aun así iba a tirones: el archivo que sube la gente
+  es el de la cámara o la productora —4K, 50-100 Mbps, a veces HEVC del iPhone (que medio navegador no
+  pinta) y casi siempre con el índice `moov` **al final**, así que el navegador no puede empezar ni
+  saltar sin bajarse medio archivo—. Ninguna conexión normal lo aguanta en directo.
+  · **La solución es la de cualquier plataforma de vídeo**: una copia PARA VER (H.264 perfil high +
+  AAC, ≤1080p conservando la proporción, `-maxrate 6M`, `yuv420p`, `+faststart`) que hace ffmpeg
+  **en 2º plano** (`_video_web_build`, el binario de imageio-ffmpeg, que trae libx264) y se sube a
+  Storage (`video_web/<uuid>.mp4`, con `upload_local_file` por RUTA: la copia puede pesar cientos de MB
+  y a `bytes` iría a la RAM del worker). **El original se conserva** y es lo que se DESCARGA.
+  · **Se guarda POR URL DE ORIGEN** en **`VideoWebVersion`** (`video_web_versions`, `ensure_video_web_schema`;
+  `status` PENDING · READY · **SKIP** —el original ya era apto y se sirve tal cual— · FAILED con su
+  `error` y `attempts`), no como columna de cada modelo: así vale igual para una foto de actividad,
+  un cartel, un videoclip, un material de marketing o un adjunto de una nota de prensa.
+  · **Puntos únicos**: **`_video_web_url(url)`** (la copia si está lista; si no, el original y se
+  ENCARGA), `_video_web_map`/`_video_web_prefetch` (en BLOQUE, con caché en `g`: una galería no puede
+  hacer una consulta por vídeo) y el global de plantilla **`video_play_url(url)`**. Enganchado en:
+  `_artwork_media.html` (el `<video>` y el `data-viewer-src`), `public_artwork_file?play=1`, el
+  videoclip de la ficha de canción, `_photo_payload` (`play_url`, que leen `fotos.js` y las páginas
+  públicas de fotos), `_marketing_file_row` (`play_url`), `_press_file_payload` y `public_press_video`.
+  · **Se encarga al SUBIR** —desde los cuatro programadores de miniaturas (`_video_poster_schedule`,
+  `_artwork_poster_schedule`, `_song_video_poster_schedule`, `_marketing_poster_schedule`), que es por
+  donde pasa todo vídeo nuevo— **y al PINTAR** (red de seguridad: lo subido antes de que esto
+  existiera se convierte la primera vez que alguien lo mira; mientras, se ve el original).
+  ⚠️ **Solo lo NUESTRO** (`_is_own_media_url`): un vídeo de fuera no se toca.
+  ⚠️ **Es CARO (CPU)**: UNO a la vez (`_VIDEO_WEB_SEM`), `-preset veryfast`, dos hilos, `nice -n 15`
+  y tope de 50 min; un fallo se apunta y no se reintenta hasta pasadas 6 h (máximo 3 veces). Un
+  PENDING con más de 50 min (un hilo muerto en un despliegue) se vuelve a coger.
+  ⚠️ **Lo que ya es apto NO se recodifica** (`_video_web_needs_encoding`: h264 + aac, ≤1080, ≤6 Mbps,
+  `.mp4` y **`moov` delante**, que se comprueba leyendo los primeros 256 KB por rango y recorriendo los
+  átomos). Comprobar cuesta una cabecera; recodificar, minutos.
+  Probado con la app real: un mp4 de 6,6 Mbps con el `moov` al final → copia h264 de 2,4 Mbps con
+  `ftyp · moov · free · mdat`, fila READY y `_video_web_url` devolviendo la copia; un `.jpg` pasa
+  tal cual.
+
+- **UNA PORTADA SE PINCHA Y SE VE EN GRANDE** (sep 2026): la portada de la cabecera de la ficha de
+  CANCIÓN y de ÁLBUM, las del módulo de portadas de Materiales y el «Ver» de los materiales del álbum
+  se abren en el **visor de la casa** (`media_viewer.js`, `data-viewer-*`), con **Descargar** y, nuevo,
+  **Imprimir**. Solo si hay portada de verdad: la imagen de «sin portada» no se abre.
+  · **`Imprimir`** en el visor (imágenes y PDF): una imagen se abre en una ventana propia y se lanza
+  `print()`; un PDF vive en OTRO dominio (Storage) y a un marco ajeno no se le puede pedir `print()`,
+  así que se baja como blob (Storage manda CORS) a un marco oculto del mismo origen. Si no se puede,
+  se abre en una pestaña.
+  · El **videoclip** de la ficha de canción también se ve en el visor (antes abría otra pestaña), por
+  su versión web, y su descarga sigue siendo el original en MOV o MP4.
+
+- **MAQUETAS SUELTAS: al acabar una, sigue la siguiente** (sep 2026, `media_chip.js`). Varias
+  etiquetas de audio en la misma pantalla (las maquetas del proyecto en la ficha de una canción o de
+  un disco) son para quien escucha una LISTA: al terminar una se encadena con la siguiente del mismo
+  grupo (`[data-chip-group]` o, si no hay, la `.ficha-section` / `.card` / `.modal` en que están).
+  ⚠️ El listado de la sección Demos ya lo hacía (es `playlist.js`, comprobado con la app real: acaba
+  la primera y arranca la segunda); lo que no encadenaba eran las etiquetas sueltas.
+
+- **MARKETING · LAS ACCIONES SON UN MÓDULO DEBAJO DE INFORMACIÓN** (sep 2026): la pestaña «Acciones»
+  de la ficha de una campaña desaparece y su contenido (el aviso de cierre, la lista de acciones por
+  tipo y el botón de añadir) va en `#acciones`, debajo de la información. `?tab=acciones` (los avisos
+  y el volver de crear una acción) **sigue valiendo**: cae en `informacion`. `marketing_close` se
+  calcula ahora también en esa pestaña.
+  · **ADJUNTOS DE UNA ACCIÓN**: la orden de compra, el contrato u otros documentos. Son filas de
+  `MarketingActionFile` con **`kind='ADJUNTO'`** (tercer valor de `MARKETING_FILE_KINDS`; NO tiene
+  pestaña: `_marketing_files_context` filtra por kind, así que no se cuelan en Materiales ni
+  Testigos), subidas por el MISMO endpoint (`marketing_file_upload` con `kind=ADJUNTO` +
+  `activity_id`) desde el pop-up `#attachActionModal<id>` (con «¿qué es?», sugerencias en
+  `MARKETING_ATTACHMENT_LABELS`, varios archivos, arrastrar) y borradas con `marketing_file_delete`.
+  · **Se ven en la tarjeta de la acción como cápsulas ICONO + NOMBRE** (`.mkt-att`, icono por
+  extensión con `_marketing_file_icon`: PDF, Word, Excel, imagen…), junto a la **factura/ticket** de
+  la acción —que antes no se veía en ningún sitio—, y al pincharlas se abren en el visor
+  (imprimir, descargar). `MARKETING_FILE_EXTS` admite ya los documentos de oficina.
+  ⚠️ `action_files.get(...)` devuelve `None` en una acción sin adjuntos: el `for` de la plantilla
+  lleva `or []` (500 real de la primera prueba).
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

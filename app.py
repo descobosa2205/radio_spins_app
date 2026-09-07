@@ -303,6 +303,8 @@ from models import (
     ensure_mail_accounts_schema,
     ShortLink,
     ensure_short_links_schema,
+    VideoWebVersion,
+    ensure_video_web_schema,
     ExternalProductionAccess,
     ensure_external_production_schema,
     Photo,
@@ -389,7 +391,7 @@ from sepa_utils import (
     bic_is_valid as sepa_bic_is_valid,
     BANK_PROFILES as SEPA_BANK_PROFILES,
 )
-from supabase_utils import upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes, StorageObjectTooLargeError, create_signed_upload_url_for, public_url_for_key
+from supabase_utils import upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes, upload_local_file, StorageObjectTooLargeError, create_signed_upload_url_for, public_url_for_key
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 app = Flask(__name__)
@@ -1590,6 +1592,8 @@ def inject_globals():
         # CARTELERÍA: de qué es un cartel (IMAGE | VIDEO | PDF), para pintarlo como toca.
         artwork_kind=_artwork_kind_of,
         artwork_category=_artwork_asset_category,
+        # Con qué URL se REPRODUCE un vídeo: su versión web (H.264 + faststart) si está lista.
+        video_play_url=_video_web_url,
         # AFORO: «Aforo a la venta» o, en una actividad gratuita, «Aforo» a secas.
         capacity_label=_concert_capacity_label,
         # Un importe tal como se ESCRIBE en un formulario de la casa («1.234,56»; un 0 sale vacío).
@@ -8139,6 +8143,7 @@ def _song_video_poster_schedule(material_id, url) -> None:
 
     Mismo motor que el póster de las fotos (`_video_generate_poster_bytes`, que lee por RANGO y no
     se descarga el vídeo entero). Best-effort: si no sale, el hueco se queda con el icono."""
+    _video_web_schedule(url)          # y su VERSIÓN WEB, para que se pueda ver sin tirones
     if not material_id or not url or not _ffmpeg_exe():
         return
 
@@ -8175,6 +8180,7 @@ def _marketing_poster_schedule(file_id, url) -> None:
 
     Mismo motor, cerrojo, tope de concurrencia y caché negativa que el póster de un cartel
     (claves `mkt:<id>`). Best-effort: si no sale, el hueco se queda con el icono de vídeo."""
+    _video_web_schedule(url)          # y su VERSIÓN WEB, para que se pueda ver sin tirones
     if not file_id or not url or not _ffmpeg_exe():
         return
     clave = "mkt:%s" % str(file_id)
@@ -8247,6 +8253,7 @@ def _artwork_poster_schedule(asset_id, url) -> None:
     ⚠️ Va con el MISMO cerrojo, tope de concurrencia y caché negativa que el póster de una foto
     (claves `art:<id>`): esto se re-programa al pintar cada pantalla (auto-relleno), así que sin
     deduplicar se arrancaría un hilo por render."""
+    _video_web_schedule(url)          # y su VERSIÓN WEB, para que se pueda ver sin tirones
     if not asset_id or not url or not _ffmpeg_exe():
         return
     clave = "art:%s" % str(asset_id)
@@ -8323,6 +8330,12 @@ def _artwork_posters_backfill(assets, limit: int = 4) -> None:
     de que existiera la miniatura —o cuyo hilo se quedó a medias en un despliegue— no la conseguía
     NUNCA (y se quedaba con el rectángulo negro). Es el mismo patrón que `_video_posters_backfill`
     de la galería de fotos, y es idempotente (cerrojo + caché negativa)."""
+    # Las VERSIONES WEB de todos los vídeos de la pantalla, de una vez (si no, `video_play_url` haría
+    # una consulta por cartel).
+    try:
+        _video_web_prefetch([a.file_url for a in (assets or []) if _artwork_kind_of(a) == "VIDEO"])
+    except Exception:
+        pass
     n = 0
     for a in (assets or []):
         if n >= limit:
@@ -52222,7 +52235,8 @@ def _press_file_payload(f, *, token: str = "", block_id: str = "") -> dict:
            "thumb": ((f.file_url or "") if kind == "IMAGE" else (f.poster_url or "")) or ""}
     if token and block_id:
         out["download_url"] = _external_url_for("public_press_file_download", token=token, block_id=block_id, file_id=str(f.id))
-        out["view_url"] = _absolute_media_url(f.file_url or "")
+        # Un VÍDEO se reproduce por su VERSIÓN WEB (sin tirones); lo demás, tal cual.
+        out["view_url"] = _absolute_media_url(_video_web_url(f.file_url or "") if kind == "VIDEO" else (f.file_url or ""))
         out["thumb"] = _absolute_media_url(out["thumb"]) if out["thumb"] else ""
     return out
 
@@ -54870,7 +54884,7 @@ def public_press_video(token, material_id):
         m = s.get(SongMaterial, to_uuid(material_id)) if pr else None
         if not pr or not m or not _press_block_allows(pr, "video", "song_id", str(m.song_id), ""):
             abort(404)
-        return redirect(m.file_url)
+        return redirect(_video_web_url(m.file_url, session_db=s))
     finally:
         s.close()
 
@@ -73950,6 +73964,7 @@ def _bootstrap_schema_bg():
         (ensure_sms_schema, "ensure_sms_schema"),
         (ensure_mail_accounts_schema, "ensure_mail_accounts_schema"),
         (ensure_short_links_schema, "ensure_short_links_schema"),
+        (ensure_video_web_schema, "ensure_video_web_schema"),
         (ensure_artist_notifications_schema, "ensure_artist_notifications_schema"),
         (ensure_external_production_schema, "ensure_external_production_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
@@ -84962,10 +84977,20 @@ MARKETING_FILE_KINDS = (
      "Lo que hace falta para hacer la acción: la cuña, el banner, el arte de la valla…"),
     ("TESTIGO", "Testigos", "fa-clipboard-check",
      "La prueba de que se hizo: fotos, audios, certificados de emisión…"),
+    # ADJUNTOS de una ACCIÓN (sep 2026): la orden de compra, el contrato o cualquier otro documento
+    # de esa acción. Van en la misma tabla (una fila por archivo, colgada de la acción) y se ven en su
+    # tarjeta con su icono y su nombre; al pincharlos se abren en el visor (imprimir, descargar). NO
+    # tienen pestaña propia: son de la acción, no de la campaña.
+    ("ADJUNTO", "Adjuntos", "fa-paperclip",
+     "La orden de compra, el contrato u otros documentos de la acción."),
 )
 MARKETING_FILE_KIND_LABELS = {k: l for k, l, _i, _h in MARKETING_FILE_KINDS}
 MARKETING_FILE_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif",
-                       ".mp4", ".mov", ".m4v", ".mp3", ".wav", ".m4a", ".aac", ".zip"}
+                       ".mp4", ".mov", ".m4v", ".mp3", ".wav", ".m4a", ".aac", ".zip",
+                       # documentos de oficina: una orden de compra o un contrato pueden venir así
+                       ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv", ".rtf", ".odt"}
+# Qué dice lo que se adjunta a una acción (sugerencias del campo «qué es»; es texto libre).
+MARKETING_ATTACHMENT_LABELS = ("Orden de compra", "Contrato", "Presupuesto", "Certificado de emisión", "Otro")
 
 
 def _marketing_file_kind_ok(v: str) -> str:
@@ -84988,8 +85013,41 @@ def _marketing_file_is_image(row) -> bool:
     return "image/" in n or n.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
 
 
+def _marketing_file_ext(row) -> str:
+    """La extensión (sin punto, en minúsculas) de un archivo de marketing, por su nombre o su URL."""
+    for cand in ((getattr(row, "file_name", None) or ""), (getattr(row, "file_url", None) or "").split("?", 1)[0]):
+        cand = cand.strip().lower()
+        if "." in cand:
+            return cand.rsplit(".", 1)[-1]
+    return ""
+
+
+def _marketing_file_icon(row) -> str:
+    """El ICONO con el que se ve un adjunto (icono + nombre, que es como se lee de un vistazo)."""
+    ext = _marketing_file_ext(row)
+    if ext == "pdf":
+        return "fa-file-pdf"
+    if ext in ("doc", "docx", "odt", "rtf"):
+        return "fa-file-word"
+    if ext in ("xls", "xlsx", "csv"):
+        return "fa-file-excel"
+    if ext in ("ppt", "pptx"):
+        return "fa-file-powerpoint"
+    if ext in ("zip", "rar", "7z"):
+        return "fa-file-zipper"
+    if ext in ("txt",):
+        return "fa-file-lines"
+    if _marketing_file_is_video(row):
+        return "fa-file-video"
+    if _marketing_file_is_audio(row):
+        return "fa-file-audio"
+    if _marketing_file_is_image(row):
+        return "fa-file-image"
+    return "fa-file"
+
+
 def _marketing_file_row(row, *, activities_by_id=None) -> dict:
-    """Una fila de material o testigo, con lo que hace falta para pintarla."""
+    """Una fila de material, testigo o adjunto, con lo que hace falta para pintarla."""
     act = (activities_by_id or {}).get(str(getattr(row, "activity_id", "") or ""))
     if _marketing_file_is_video(row):
         clase = "VIDEO"
@@ -84997,12 +85055,16 @@ def _marketing_file_row(row, *, activities_by_id=None) -> dict:
         clase = "AUDIO"
     elif _marketing_file_is_image(row):
         clase = "IMAGE"
+    elif _marketing_file_ext(row) == "pdf":
+        clase = "PDF"                      # el visor lo abre en su marco (y se puede imprimir)
     else:
         clase = "FILE"
     return {
         "id": str(row.id), "kind": row.kind, "url": row.file_url,
+        "icon": _marketing_file_icon(row),
         "name": (row.file_name or "Archivo"), "mime": (row.file_mime or ""),
         "poster": (getattr(row, "poster_url", None) or ""),
+        "play_url": (_video_web_url(row.file_url) if clase == "VIDEO" else row.file_url),
         "note": (row.note or ""), "media_kind": clase,
         "from_design": bool(getattr(row, "design_request_id", None)),
         "activity_id": str(getattr(row, "activity_id", "") or ""),
@@ -86359,9 +86421,14 @@ def promotion_detail_view(promotion_id):
             flash('Campaña de marketing no encontrada.', 'warning')
             return redirect(url_for('promocion_view'))
         tab = (request.args.get('tab') or 'informacion').strip().lower()
+        # LAS ACCIONES YA NO SON UNA PESTAÑA (sep 2026): son un MÓDULO debajo de la información. Los
+        # enlaces antiguos con `tab=acciones` (los avisos, el volver de crear una acción) siguen
+        # valiendo: caen en «informacion», que es donde están ahora.
+        if tab == 'acciones':
+            tab = 'informacion'
         # ⚠️ Una pestaña que no esté en esta lista cae en «informacion» SIN dar ningún error: al
         # añadir una hay que meterla aquí y en el `{% for %}` de la plantilla.
-        if tab not in {'informacion', 'acciones', 'materiales', 'testigos', 'gastos', 'hoja_ruta'}:
+        if tab not in {'informacion', 'materiales', 'testigos', 'gastos', 'hoja_ruta'}:
             tab = 'informacion'
         artist_ids = _promotion_normalized_artist_ids(getattr(promotion, 'artist_ids', None) or [])
         artist_rows = []
@@ -86435,14 +86502,29 @@ def promotion_detail_view(promotion_id):
         marketing_files = (_marketing_files_context(session_db, promotion,
                                                     'TESTIGO' if tab == 'testigos' else 'MATERIAL')
                            if tab in ('materiales', 'testigos') else None)
+        # LOS ADJUNTOS DE CADA ACCIÓN (orden de compra, contrato…): una consulta para toda la campaña,
+        # agrupados por acción; se pintan en su tarjeta con su icono y su nombre.
+        action_files = {}
+        if tab == 'informacion':
+            try:
+                for f in (session_db.query(MarketingActionFile)
+                          .filter(MarketingActionFile.promotion_id == promotion.id,
+                                  MarketingActionFile.kind == 'ADJUNTO')
+                          .order_by(MarketingActionFile.uploaded_at.asc()).all()):
+                    action_files.setdefault(str(f.activity_id or ''), []).append(_marketing_file_row(f))
+            except Exception:
+                app.logger.exception("[marketing] no se pudieron leer los adjuntos de las acciones")
+                action_files = {}
         session_db.commit()
         return render_template(
             'marketing_detail.html',
             marketing_files=marketing_files,
             marketing_file_kinds=MARKETING_FILE_KINDS,
+            action_files=action_files,
+            marketing_attachment_labels=MARKETING_ATTACHMENT_LABELS,
             # EL CIERRE: qué falta para poder archivar la campaña (solo donde se ve).
             marketing_close=(_marketing_promotion_close_state(session_db, promotion)
-                             if tab in ('acciones', 'testigos') else None),
+                             if tab in ('informacion', 'testigos') else None),
             promotion=promotion,
             promotion_display=_promotion_display_promotion(promotion),
             tab=tab,
@@ -107719,7 +107801,8 @@ def public_artwork_file(token, asset_id):
         # `video_thumb.js` puede medir el brillo del fotograma en un lienzo y no dejar uno NEGRO
         # (con un vídeo de otro dominio el lienzo se «mancha» y no se puede medir).
         if quiere_reproducir and kind in ("VIDEO", "AUDIO") and _is_own_media_url(src):
-            resp = redirect(src, code=302)
+            # Un VÍDEO va a su VERSIÓN WEB (H.264 + faststart, la que no da tirones) si ya está.
+            resp = redirect(_video_web_url(src, session_db=session_db) if kind == "VIDEO" else src, code=302)
             # Para que el navegador reutilice el destino en las siguientes peticiones de rango (si no,
             # cada trozo repetiría el salto).
             resp.headers["Cache-Control"] = "private, max-age=300"
@@ -119652,6 +119735,8 @@ def _photo_payload(p, photographer=None, approval=None):
         "kind": kind,
         "is_video": kind == "VIDEO",
         "poster_url": (getattr(p, "poster_url", None) or ""),
+        # Con qué se REPRODUCE un vídeo: su versión web si está lista (sin tirones); si no, el original.
+        "play_url": (_video_web_url(p.file_url) if kind == "VIDEO" else (p.file_url or "")),
         "mime_type": p.mime_type or "",
         "taken_date": taken.isoformat() if taken else "",
         "sort_order": int(p.sort_order or 0),
@@ -119847,6 +119932,355 @@ def _video_generate_poster_bytes(url):
     return mejor
 
 
+# ============================ VERSIÓN WEB de un VÍDEO (ffmpeg en 2º plano) ============================
+# ⚠️⚠️ UN VÍDEO SUBIDO SE REPRODUCE POR SU VERSIÓN WEB, NO POR EL ORIGINAL (sep 2026, bug real: «los
+# vídeos subidos se van viendo a tirones y se cortan»). El archivo que sube la gente es el que sale de la
+# cámara o de la productora: 4K, 50-100 Mbps, a veces HEVC del iPhone (que medio navegador no pinta) y,
+# casi siempre, con el índice (`moov`) AL FINAL del fichero, así que el navegador no puede empezar a
+# reproducir —ni saltar— sin bajarse antes medio archivo. Ninguna conexión normal aguanta eso en directo:
+# de ahí los tirones. La solución es la de cualquier plataforma de vídeo: una copia PARA VER (H.264 +
+# AAC, como mucho 1080p, bitrate acotado y `+faststart`) que se genera UNA vez en 2º plano y se sirve
+# desde Storage con su CDN; el original se conserva tal cual para descargar.
+# · La copia se guarda en `video_web_versions`, POR URL DE ORIGEN: así vale para cualquier vídeo de la
+#   casa (fotos de una actividad, cartelería, videoclips, materiales y testigos de marketing, notas de
+#   prensa) sin añadir una columna a cada modelo. Punto único de lectura: `_video_web_url(url)`, que
+#   devuelve la copia si está y el original mientras no (y encarga la copia si no existe).
+# · `_video_web_schedule(url)` se llama al SUBIR (desde los cuatro programadores de miniaturas, que son
+#   por donde pasa todo vídeo nuevo) y, como red de seguridad, al PINTAR (`video_play_url` en las
+#   plantillas): así lo ya subido antes de que esto existiera se convierte solo la primera vez que
+#   alguien lo mira.
+# · Un vídeo que YA es apto (H.264 ≤1080p, bitrate moderado, `moov` delante) no se recodifica: se apunta
+#   como SKIP y se sirve el original. Comprobar cuesta una lectura de cabecera; recodificar, minutos.
+# ⚠️ Transcodificar es CARO (CPU): UNO a la vez, con `-preset veryfast`, dos hilos y `nice`, y con un tope
+#   de tiempo. Si falla se apunta el motivo y no se reintenta hasta pasado un rato (y como mucho 3 veces):
+#   mientras, se sigue sirviendo el original, que es lo que había.
+_VIDEO_WEB_SEM = threading.Semaphore(1)
+_VIDEO_WEB_INFLIGHT = set()
+_VIDEO_WEB_LOCK = threading.Lock()
+_VIDEO_WEB_CHECKED = {}          # url -> cuándo se miró (para no preguntar a la BD en cada render)
+VIDEO_WEB_MAX_SIDE = 1920        # lado mayor de la copia (1080p): más no se nota en una pantalla
+VIDEO_WEB_MAX_KBPS = 6000        # por encima de esto el original NO vale para verlo en directo
+VIDEO_WEB_TIMEOUT = 50 * 60      # tope de una transcodificación
+VIDEO_WEB_RETRY_SECONDS = 6 * 3600
+VIDEO_WEB_MAX_ATTEMPTS = 3
+VIDEO_WEB_STORAGE_FOLDER = "video_web"
+_VIDEO_WEB_EXTS = (".mp4", ".m4v", ".mov", ".webm", ".avi", ".mkv", ".mpeg", ".mpg", ".wmv", ".3gp")
+
+
+def _video_web_is_video_url(url: str) -> bool:
+    """¿Es una URL de vídeo? (por la extensión, quitando la cola «?…» de Storage)."""
+    u = (url or "").split("?", 1)[0].lower()
+    return u.endswith(_VIDEO_WEB_EXTS)
+
+
+def _video_web_probe(exe, url):
+    """Lo que dice la cabecera del vídeo: códec, medidas, bitrate (kbps) y duración.
+
+    Se lee del `stderr` de `ffmpeg -i` (no hay ffprobe en el binario de imageio-ffmpeg); lo que no
+    se pueda leer sale None y entonces se recodifica (mejor una copia de más que un vídeo que no va)."""
+    out = {"codec": "", "width": 0, "height": 0, "kbps": 0, "duration": None, "audio": ""}
+    try:
+        p = subprocess.run([exe, "-hide_banner", "-i", url], capture_output=True, timeout=60)
+        err = (p.stderr or b"").decode("utf-8", "ignore")
+    except Exception:
+        return out
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+)\.(\d+)", err)
+    if m:
+        h, mi, se, cs = (int(x) for x in m.groups())
+        out["duration"] = h * 3600 + mi * 60 + se + cs / 100.0
+    m = re.search(r"bitrate:\s*(\d+)\s*kb/s", err)
+    if m:
+        out["kbps"] = int(m.group(1))
+    m = re.search(r"Stream #\d+:\d+.*?Video:\s*([a-z0-9]+)", err, re.I)
+    if m:
+        out["codec"] = m.group(1).lower()
+    # Las medidas: el primer «NNNNxNNNN» de la línea del vídeo (en un iPhone girado la cabecera dice
+    # 1920x1080 con rotación de 90°: para decidir si se recodifica da igual).
+    m = re.search(r"Video:.*?\b(\d{2,5})x(\d{2,5})\b", err)
+    if m:
+        out["width"], out["height"] = int(m.group(1)), int(m.group(2))
+    m = re.search(r"Stream #\d+:\d+.*?Audio:\s*([a-z0-9]+)", err, re.I)
+    if m:
+        out["audio"] = m.group(1).lower()
+    return out
+
+
+def _video_web_moov_first(url: str) -> bool:
+    """¿Lleva el índice DELANTE (`faststart`)? Se leen los primeros 256 KB por RANGO y se recorren los
+    átomos MP4: si aparece `moov` antes que `mdat`, el navegador puede empezar sin bajarse el archivo.
+    Si no se puede saber, se da por NO (y se recodifica)."""
+    try:
+        req = Request(url, headers={"Range": "bytes=0-262143", "User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=20) as r:
+            head = r.read(262144)
+    except Exception:
+        return False
+    pos, n = 0, len(head)
+    while pos + 8 <= n:
+        size = int.from_bytes(head[pos:pos + 4], "big")
+        tipo = head[pos + 4:pos + 8]
+        if size == 1 and pos + 16 <= n:          # tamaño extendido (64 bits)
+            size = int.from_bytes(head[pos + 8:pos + 16], "big")
+        if tipo == b"moov":
+            return True
+        if tipo == b"mdat":
+            return False
+        if size < 8:
+            return False
+        pos += size
+    return False
+
+
+def _video_web_needs_encoding(url: str, info: dict) -> bool:
+    """¿Hace falta la copia? Solo se libra lo que ya es apto para verse en directo."""
+    if (info.get("codec") or "") not in ("h264",):
+        return True
+    if (info.get("audio") or "") not in ("", "aac"):
+        return True
+    w, h = int(info.get("width") or 0), int(info.get("height") or 0)
+    if not w or not h or max(w, h) > VIDEO_WEB_MAX_SIDE:
+        return True
+    if (info.get("kbps") or 0) > VIDEO_WEB_MAX_KBPS:
+        return True
+    ext = (url or "").split("?", 1)[0].lower().rsplit(".", 1)[-1]
+    if ext not in ("mp4", "m4v"):
+        return True
+    return not _video_web_moov_first(url)
+
+
+def _video_web_encode(exe, url: str, destino: str) -> str:
+    """La copia PARA VER: H.264 (perfil high, 4.1) + AAC, ≤1080p conservando la proporción (y la
+    rotación del iPhone, que ffmpeg aplica solo), `yuv420p` (lo que entiende cualquier navegador) y
+    `+faststart` (el índice delante). Devuelve el error de ffmpeg si falla, y '' si sale bien."""
+    escala = ("scale='if(gt(iw,ih),min(%d,iw),-2)':'if(gt(iw,ih),-2,min(%d,ih))'"
+              % (VIDEO_WEB_MAX_SIDE, VIDEO_WEB_MAX_SIDE))
+    cmd = [exe, "-hide_banner", "-loglevel", "error", "-y", "-nostdin",
+           "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5",
+           "-i", url, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-profile:v", "high", "-level", "4.1",
+           "-pix_fmt", "yuv420p", "-vf", escala, "-maxrate", "%dk" % VIDEO_WEB_MAX_KBPS,
+           "-bufsize", "%dk" % (VIDEO_WEB_MAX_KBPS * 2), "-threads", "2",
+           "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-movflags", "+faststart", "-f", "mp4", destino]
+    # `nice`: que el servidor siga atendiendo peticiones mientras convierte.
+    if os.path.exists("/usr/bin/nice"):
+        cmd = ["/usr/bin/nice", "-n", "15"] + cmd
+    try:
+        p = subprocess.run(cmd, capture_output=True, timeout=VIDEO_WEB_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "ffmpeg ha tardado demasiado (más de %d minutos)" % (VIDEO_WEB_TIMEOUT // 60)
+    except Exception as exc:
+        return "no se pudo lanzar ffmpeg: %s" % exc
+    if p.returncode != 0:
+        return ((p.stderr or b"").decode("utf-8", "ignore").strip() or "ffmpeg devolvió %s" % p.returncode)[-600:]
+    try:
+        if os.path.getsize(destino) < 1024:
+            return "la copia ha salido vacía"
+    except Exception:
+        return "la copia no se ha escrito"
+    return ""
+
+
+def _video_web_build(url: str) -> None:
+    """El trabajo de fondo: probar, recodificar si hace falta, subir y apuntarlo."""
+    exe = _ffmpeg_exe()
+    s2 = db()
+    try:
+        row = s2.query(VideoWebVersion).filter(VideoWebVersion.source_url == url).first()
+        if row is None:
+            row = VideoWebVersion(source_url=url, status="PENDING")
+            s2.add(row)
+        row.status = "PENDING"
+        row.attempts = int(row.attempts or 0) + 1
+        row.updated_at = _now_madrid()
+        s2.commit()
+        if not exe:
+            row.status, row.error = "FAILED", "ffmpeg no está disponible en el servidor"
+            s2.commit()
+            return
+        info = _video_web_probe(exe, url)
+        row.width = info.get("width") or None
+        row.height = info.get("height") or None
+        row.duration_seconds = int(info["duration"]) if info.get("duration") else None
+        row.source_codec = (info.get("codec") or None)
+        row.source_kbps = (info.get("kbps") or None)
+        if not _video_web_needs_encoding(url, info):
+            # Ya vale tal cual: se sirve el original.
+            row.status, row.web_url, row.error = "SKIP", url, None
+            s2.commit()
+            return
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4", prefix="videoweb_") as tmp:
+                tmp_path = tmp.name
+            fallo = _video_web_encode(exe, url, tmp_path)
+            if fallo:
+                row.status, row.error = "FAILED", fallo
+                s2.commit()
+                app.logger.warning("[video-web] no se pudo convertir %s: %s", url, fallo)
+                return
+            clave = "%s/%s.mp4" % (VIDEO_WEB_STORAGE_FOLDER, uuid.uuid4().hex)
+            web = upload_local_file(tmp_path, clave, "video/mp4", upsert=True)
+            row.web_bytes = os.path.getsize(tmp_path)
+            row.status, row.web_url, row.error = "READY", web, None
+            row.updated_at = _now_madrid()
+            s2.commit()
+            app.logger.info("[video-web] copia lista para %s → %s", url, web)
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+    except Exception as exc:
+        try:
+            s2.rollback()
+            row = s2.query(VideoWebVersion).filter(VideoWebVersion.source_url == url).first()
+            if row is not None:
+                row.status, row.error = "FAILED", (str(exc) or "error")[:600]
+                row.updated_at = _now_madrid()
+                s2.commit()
+        except Exception:
+            s2.rollback()
+        app.logger.exception("[video-web] falló la versión web de %s", url)
+    finally:
+        s2.close()
+
+
+def _video_web_schedule(url: str) -> None:
+    """Encarga la versión web de un vídeo en 2º plano (idempotente: cerrojo + una sola a la vez).
+
+    Se llama al subir un vídeo y, como red de seguridad, al pintarlo (`_video_web_url`). Si ya está
+    hecha, o fallada hace poco, no hace nada. Best-effort: nunca revienta a quien la llama."""
+    url = (url or "").strip()
+    if not url or not _video_web_is_video_url(url) or not _ffmpeg_exe():
+        return
+    if not _is_own_media_url(url):
+        return                               # solo se convierte lo NUESTRO (lo de fuera no se toca)
+    with _VIDEO_WEB_LOCK:
+        if url in _VIDEO_WEB_INFLIGHT:
+            return
+        _VIDEO_WEB_INFLIGHT.add(url)
+
+    def _trabajo():
+        try:
+            if not _VIDEO_WEB_SEM.acquire(timeout=VIDEO_WEB_TIMEOUT):
+                return
+            try:
+                # ¿Sigue haciendo falta? (otro worker puede haberla hecho mientras esperábamos)
+                s3 = db()
+                try:
+                    row = s3.query(VideoWebVersion).filter(VideoWebVersion.source_url == url).first()
+                    if row is not None:
+                        if row.status in ("READY", "SKIP") and (row.web_url or "").strip():
+                            return
+                        if row.status == "FAILED":
+                            if int(row.attempts or 0) >= VIDEO_WEB_MAX_ATTEMPTS:
+                                return
+                            ult = row.updated_at
+                            if ult is not None:
+                                try:
+                                    if (_now_madrid() - ult).total_seconds() < VIDEO_WEB_RETRY_SECONDS:
+                                        return
+                                except Exception:
+                                    pass
+                        if row.status == "PENDING" and row.updated_at is not None:
+                            # Otro proceso está en ello (o se quedó a medias en un despliegue): se le da
+                            # el tope de tiempo antes de repetirlo.
+                            try:
+                                if (_now_madrid() - row.updated_at).total_seconds() < VIDEO_WEB_TIMEOUT:
+                                    return
+                            except Exception:
+                                pass
+                finally:
+                    s3.close()
+                _video_web_build(url)
+            finally:
+                _VIDEO_WEB_SEM.release()
+        except Exception:
+            app.logger.exception("[video-web] hilo caído")
+        finally:
+            with _VIDEO_WEB_LOCK:
+                _VIDEO_WEB_INFLIGHT.discard(url)
+
+    try:
+        threading.Thread(target=_trabajo, daemon=True, name="video-web").start()
+    except Exception:
+        with _VIDEO_WEB_LOCK:
+            _VIDEO_WEB_INFLIGHT.discard(url)
+
+
+def _video_web_cache():
+    """El mapa origen → copia de ESTA petición (en `g`; fuera de una petición, un dict suelto)."""
+    try:
+        cache = getattr(g, "_video_web_cache", None)
+        if cache is None:
+            cache = {}
+            g._video_web_cache = cache
+        return cache
+    except Exception:
+        return {}
+
+
+def _video_web_map(urls, session_db=None) -> dict:
+    """{url_original: url_para_ver} de VARIOS vídeos de una vez (una consulta). Lo que no tiene copia
+    lista sale con su original y se ENCARGA la copia."""
+    limpias = []
+    for u in (urls or []):
+        u = (u or "").strip()
+        if u and _video_web_is_video_url(u) and u not in limpias:
+            limpias.append(u)
+    out = {}
+    if not limpias:
+        return out
+    cache = _video_web_cache()
+    pendientes = [u for u in limpias if u not in cache]
+    if pendientes:
+        filas = []
+        propia = session_db is None
+        s = session_db if session_db is not None else db()
+        try:
+            filas = s.query(VideoWebVersion).filter(VideoWebVersion.source_url.in_(pendientes)).all()
+        except Exception:
+            filas = []
+            try:
+                s.rollback()
+            except Exception:
+                pass
+        finally:
+            if propia:
+                s.close()
+        por_url = {f.source_url: f for f in filas}
+        for u in pendientes:
+            f = por_url.get(u)
+            if f is not None and f.status in ("READY", "SKIP") and (f.web_url or "").strip():
+                cache[u] = f.web_url.strip()
+            else:
+                cache[u] = u
+                _video_web_schedule(u)
+    for u in limpias:
+        out[u] = cache.get(u) or u
+    return out
+
+
+def _video_web_url(url: str, session_db=None) -> str:
+    """La URL con la que se REPRODUCE un vídeo: su versión web si está lista, y si no el original
+    (encargando la copia). Para lo que no es un vídeo devuelve lo mismo que recibe."""
+    url = (url or "").strip()
+    if not url or not _video_web_is_video_url(url):
+        return url
+    return _video_web_map([url], session_db=session_db).get(url) or url
+
+
+def _video_web_prefetch(urls, session_db=None) -> None:
+    """Calienta el mapa de ESTA petición con varios vídeos de golpe (para que el global de plantilla
+    `video_play_url` no haga una consulta por vídeo en una galería)."""
+    try:
+        _video_web_map(urls, session_db=session_db)
+    except Exception:
+        pass
+
+
+
 def _video_poster_worker(photo_id, url):
     ok = False
     try:
@@ -119883,6 +120317,7 @@ def _video_poster_worker(photo_id, url):
 def _video_poster_schedule(photo_id, url):
     """Programa la generación del póster en 2º plano (idempotente, deduplicado, tope de concurrencia,
     con caché negativa para no repetir intentos fallidos en cada render)."""
+    _video_web_schedule(url)          # y su VERSIÓN WEB, para que se pueda ver sin tirones
     if not photo_id or not url or not _ffmpeg_exe():
         return
     pid = str(photo_id)
@@ -123562,9 +123997,12 @@ def photo_approval_public(token):
         photo_rows = []
         for p in photos:
             ap = approvals.get(p.id)
+            _es_video = (p.kind or "IMAGE").upper() == "VIDEO"
             photo_rows.append({
                 "id": str(p.id), "title": p.title or p.file_name or "", "file_url": p.file_url,
-                "is_video": (p.kind or "IMAGE").upper() == "VIDEO",
+                "is_video": _es_video,
+                # Un vídeo se REPRODUCE por su versión web (sin tirones), si ya está.
+                "play_url": (_video_web_url(p.file_url, session_db=session_db) if _es_video else p.file_url),
                 "decision": (ap.decision if ap else "PENDING"),
             })
         counts = _photo_approval_counts_for(photo_rows)
@@ -123952,9 +124390,13 @@ def public_photo_share(token):
         owner, _aid, owner_title = _photo_resolve_owner(session_db, share.owner_type, share.owner_id)
         company = session_db.get(GroupCompany, share.brand_company_id) if share.brand_company_id else None
         logo = (company.logo_url if company and company.logo_url else url_for("static", filename="img/logo.png"))
+        _video_web_prefetch([p.file_url for p in photos if (p.kind or "IMAGE").upper() == "VIDEO"], session_db=session_db)
         rows = [{
             "id": str(p.id), "title": p.title or p.file_name or "", "file_url": p.file_url,
             "is_video": (p.kind or "IMAGE").upper() == "VIDEO",
+            # Un vídeo se REPRODUCE por su versión web (sin tirones), si ya está.
+            "play_url": (_video_web_url(p.file_url, session_db=session_db)
+                         if (p.kind or "IMAGE").upper() == "VIDEO" else p.file_url),
             "download_url": url_for("public_photo_share_item", token=token, photo_id=str(p.id)),
         } for p in photos]
         card = _public_share_card(session_db, share.owner_type, owner, _aid)

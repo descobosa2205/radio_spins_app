@@ -75,7 +75,7 @@
     <div class="ps-grid">
       {% for p in vids %}
       <div class="ps-tile" data-ps-item="{{ p.id }}">
-        <video src="{{ p.file_url }}" preload="metadata" muted playsinline></video>
+        <video src="{{ p.play_url or p.file_url }}" preload="metadata" muted playsinline></video>
         <span class="ps-tile__play"><i class="fa fa-circle-play"></i></span>
         <a class="btn btn-sm btn-light ps-tile__dl" href="{{ p.download_url }}" onclick="event.stopPropagation();" title="Descargar"><i class="fa fa-download"></i></a>
       </div>
@@ -130,7 +130,7 @@
       document.getElementById('psPopTitle').textContent = (it.is_video ? 'Vídeo' : 'Foto') + (it.title ? ' · ' + it.title : '');
       document.getElementById('psPopDl').href = it.download_url || '#';
       stage.innerHTML = it.is_video
-        ? '<video src="' + it.file_url + '" controls autoplay playsinline style="max-width:100%;max-height:100%"></video>'
+        ? '<video src="' + (it.play_url || it.file_url) + '" controls autoplay playsinline style="max-width:100%;max-height:100%"></video>'
         : '<img src="' + it.file_url + '" alt="">';
     }
     function openPop(id){ if(!id) return; pop.classList.add('open'); document.body.style.overflow='hidden'; renderStage(id); }

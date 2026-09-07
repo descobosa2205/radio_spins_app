@@ -9,6 +9,12 @@
  * mejor eso que inventarla o que costar una llamada a ffmpeg por archivo en cada carga de página.
  *
  * SOLO SUENA UNO A LA VEZ: al dar al play en otra etiqueta, la que estaba sonando se para.
+ *
+ * ⚠️ Y AL TERMINAR UNO, SIGUE EL SIGUIENTE (sep 2026): varias maquetas sueltas en la misma pantalla
+ * (las del proyecto en la ficha de una canción o de un disco) son, para quien las escucha, una LISTA,
+ * aunque cada una sea su propia etiqueta; antes al acabar una se quedaba todo en silencio. Se
+ * encadena con la siguiente etiqueta DEL MISMO GRUPO (`[data-chip-group]` o, si no hay, la sección
+ * o tarjeta en la que están), igual que hace `playlist.js` con las líneas de una playlist.
  */
 (function () {
   'use strict';
@@ -42,7 +48,13 @@
     media.addEventListener('loadedmetadata', function () {
       if (dur) dur.textContent = fmt(media.duration);
     });
-    media.addEventListener('ended', function () { pinta(chip, false); actual = null; });
+    media.addEventListener('ended', function () {
+      pinta(chip, false); actual = null;
+      // La SIGUIENTE etiqueta del grupo, si la hay: se arranca desde aquí mismo (dentro del
+      // evento `ended`, que es lo que el navegador admite sin otro clic).
+      var sig = siguiente(chip);
+      if (sig) sig.click();
+    });
     media.addEventListener('pause', function () { pinta(chip, false); });
     media.addEventListener('play', function () { pinta(chip, true); });
 
@@ -57,6 +69,15 @@
         pinta(chip, false);
       });
     });
+  }
+
+  /* La etiqueta que va DETRÁS de `chip` en su grupo (en orden de documento), o null. */
+  function siguiente(chip) {
+    var grupo = chip.closest('[data-chip-group], .ficha-section, .card, .modal, main') || document;
+    var todas = Array.prototype.slice.call(grupo.querySelectorAll('[data-chip-src]'))
+      .filter(function (c) { return !!(c.dataset.chipSrc || '').trim(); });
+    var i = todas.indexOf(chip);
+    return (i >= 0 && i + 1 < todas.length) ? todas[i + 1] : null;
   }
 
   function init(root) {

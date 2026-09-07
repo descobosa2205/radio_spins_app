@@ -9,7 +9,12 @@
 {# PROVISIONAL: la ha creado un PROYECTO discográfico y todavía se está preparando (fondo rayado y
    su etiqueta). Deja de serlo cuando se cierra el proyecto y pasa a distribución y registro. #}
 <div class="ficha-hero{% if song.is_provisional %} is-provisional{% endif %}">
-  <img class="ficha-hero__media" src="{{ song.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
+  {#- LA PORTADA SE PINCHA Y SE VE EN GRANDE (visor de la casa, con descargar e imprimir). Solo si
+      hay portada de verdad: la imagen de «sin portada» no se abre. -#}
+  <img class="ficha-hero__media" src="{{ song.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover
+       {% if song.cover_url %}data-viewer-src="{{ song.cover_url }}" data-viewer-kind="IMAGE"
+       data-viewer-name="Portada · {{ song.title }}" data-viewer-download="{{ song.cover_url }}"
+       data-viewer-set="portada-hero" style="cursor:zoom-in"{% endif %}>
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">{{ song_type_label }}{% if song.is_provisional %} · <span class="text-warning-emphasis">En preparación</span>{% endif %}</div>
     <h1 class="ficha-hero__title">{{ song.title }}{% if song.is_provisional %} <span class="badge text-bg-warning text-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="La está preparando un proyecto discográfico">PROVISIONAL</span>{% endif %}{% if song.is_explicit %} {{ explicit_badge('align-middle') }}{% endif %}{% if song.focus_single %} <span class="badge text-bg-danger align-middle" style="font-size:.5em;vertical-align:middle;" title="Focus single · lanzamiento prioritario"><i class="fa fa-star me-1"></i>FOCUS SINGLE</span>{% endif %}</h1>
@@ -1979,7 +1984,10 @@
       <div class="mat-cover">
         <span class="mat-cover__badge {{ 'mat-cover__badge--main' if role_slot == 'COVER' else '' }}">{{ role_label }}</span>
         {% if role_item %}
-          <img class="mat-cover__img" src="{{ role_item.file_url or DEFAULT_COVER_URL }}" alt="Portada {{ role_label|lower }}">
+          <img class="mat-cover__img" src="{{ role_item.file_url or DEFAULT_COVER_URL }}" alt="Portada {{ role_label|lower }}"
+               {% if role_item.file_url %}data-viewer-src="{{ role_item.file_url }}" data-viewer-kind="IMAGE"
+               data-viewer-name="Portada {{ role_label|lower }} · {{ song.title }}" data-viewer-download="{{ role_item.file_url }}"
+               data-viewer-set="portadas" style="cursor:zoom-in"{% endif %}>
           <div class="mat-cover__body"><div class="small text-muted text-truncate">{{ role_item.base_name }}</div></div>
           <div class="dropdown">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
@@ -2209,12 +2217,22 @@
       <div class="mat-video">
         <span class="mat-cover__badge {{ 'mat-cover__badge--main' if role_label == 'Videoclip' else '' }}">{{ role_label }}</span>
         {% if item %}
+          {#- EL VÍDEO SE VE EN EL VISOR de la casa (no en otra pestaña) y se REPRODUCE por su VERSIÓN
+              WEB (`video_play_url`: H.264 + faststart, la que no da tirones); la descarga sigue siendo
+              el original (en MOV o en MP4, en los tres puntitos). -#}
+          {% set _vsrc = video_play_url(item.file_url) %}
           {% if item.preview_url %}
-            <img class="mat-video__thumb" src="{{ item.preview_url }}" alt="Miniatura del videoclip">
+            <img class="mat-video__thumb" src="{{ item.preview_url }}" alt="Miniatura del videoclip"
+                 data-viewer-src="{{ _vsrc }}" data-viewer-kind="VIDEO" data-viewer-name="{{ role_label }} · {{ song.title }}"
+                 data-viewer-download="{{ item.download_mp4_url }}" data-viewer-poster="{{ item.preview_url }}"
+                 data-viewer-set="videoclip" style="cursor:pointer">
           {% else %}
             <div class="mat-video__placeholder"><i class="fa fa-film"></i></div>
           {% endif %}
-          <a class="mat-video__play" href="{{ item.file_url }}" target="_blank" rel="noopener" style="pointer-events:auto;" title="Ver el vídeo"><i class="fa fa-play"></i></a>
+          <a class="mat-video__play" href="{{ _vsrc }}" target="_blank" rel="noopener" style="pointer-events:auto;" title="Ver el vídeo"
+             data-viewer-src="{{ _vsrc }}" data-viewer-kind="VIDEO" data-viewer-name="{{ role_label }} · {{ song.title }}"
+             data-viewer-download="{{ item.download_mp4_url }}"{% if item.preview_url %} data-viewer-poster="{{ item.preview_url }}"{% endif %}
+             data-viewer-set="videoclip"><i class="fa fa-play"></i></a>
           <div class="mat-video__body">
             <div class="small text-muted text-truncate">{{ item.file_name }}</div>
             {% if item.is_pending %}<span class="badge text-bg-warning text-dark mt-1">Pendiente de validar</span>{% endif %}

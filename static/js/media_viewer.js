@@ -84,6 +84,8 @@
       + '<div class="mv__top">'
       + '  <span class="mv__name" data-mv-name></span>'
       + '  <span class="mv__pos" data-mv-pos></span>'
+      + '  <button type="button" class="mv__btn" data-mv-print hidden title="Imprimir">'
+      + '    <i class="fa fa-print"></i><span>Imprimir</span></button>'
       + '  <a class="mv__btn" data-mv-dl hidden data-dl-bar target="_blank" rel="noopener" download>'
       + '    <i class="fa fa-download"></i><span>Descargar</span></a>'
       + '  <button type="button" class="mv__btn mv__btn--icon" data-mv-close title="Cerrar (Esc)">'
@@ -99,6 +101,7 @@
     (document.body || document.documentElement).appendChild(capa);
 
     capa.querySelector('[data-mv-close]').addEventListener('click', cerrar);
+    capa.querySelector('[data-mv-print]').addEventListener('click', function () { imprimir(cosas[i] || {}); });
     capa.querySelector('[data-mv-prev]').addEventListener('click', function () { mover(-1); });
     capa.querySelector('[data-mv-next]').addEventListener('click', function () { mover(1); });
     // Pinchar el fondo cierra; pinchar el contenido, no (si no, se cierra al usar los controles).
@@ -147,6 +150,8 @@
     }
     capa.querySelector('[data-mv-prev]').hidden = cosas.length < 2;
     capa.querySelector('[data-mv-next]').hidden = cosas.length < 2;
+    // IMPRIMIR: lo que se puede poner en papel (una imagen, un PDF). Un vídeo o un audio, no.
+    capa.querySelector('[data-mv-print]').hidden = !(kind === 'IMAGE' || kind === 'PDF');
 
     if (kind === 'VIDEO') {
       var v = document.createElement('video');
@@ -182,6 +187,42 @@
       img.alt = it.name || '';
       caja.appendChild(img);
       activo = null;
+    }
+  }
+
+  /* IMPRIMIR la pieza que se está viendo (una orden de compra, un contrato, una portada).
+     · Una IMAGEN: se abre en una ventana propia con solo la imagen y se lanza la impresión.
+     · Un PDF: el archivo vive en OTRO dominio (Storage) y a un marco de otro dominio no se le
+       puede pedir `print()`; se baja como blob (Storage manda CORS) a un marco oculto del mismo
+       origen y se imprime desde él. Si no se puede, se abre en una pestaña, que siempre vale. */
+  function imprimir(it) {
+    var kind = (it.kind || 'IMAGE').toUpperCase();
+    if (!it.src) return;
+    if (kind === 'IMAGE') {
+      var w = window.open('', '_blank');
+      if (!w) { window.open(it.src, '_blank'); return; }
+      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + esc(it.name || 'Imagen') + '</title>'
+        + '<style>html,body{margin:0;height:100%;background:#fff}img{max-width:100%;max-height:100vh;display:block;margin:0 auto}</style>'
+        + '</head><body><img src="' + esc(it.src) + '" onload="setTimeout(function(){window.focus();window.print();},150)"></body></html>');
+      w.document.close();
+      return;
+    }
+    if (kind === 'PDF') {
+      fetch(it.src, { mode: 'cors' }).then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.blob();
+      }).then(function (b) {
+        var u = URL.createObjectURL(b);
+        var f = document.createElement('iframe');
+        f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0';
+        f.src = u;
+        f.onload = function () {
+          try { f.contentWindow.focus(); f.contentWindow.print(); }
+          catch (e) { window.open(it.src, '_blank'); }
+          setTimeout(function () { try { f.remove(); URL.revokeObjectURL(u); } catch (e) {} }, 120000);
+        };
+        document.body.appendChild(f);
+      }).catch(function () { window.open(it.src, '_blank'); });
     }
   }
 

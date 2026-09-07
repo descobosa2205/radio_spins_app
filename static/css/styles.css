@@ -599,6 +599,19 @@ button.song-status-item:focus {
 }
 .marketing-option-card input{ margin-bottom: .5rem; }
 .marketing-option-card i{ font-size: 1.65rem; display: block; margin-bottom: .5rem; }
+/* ADJUNTOS de una acción de marketing: icono + nombre, en cápsulas; se pinchan y se abren en el visor. */
+.mkt-atts{ display:flex; flex-wrap:wrap; gap:.35rem .5rem; align-items:center; }
+.mkt-att{ display:inline-flex; align-items:center; gap:.3rem; max-width:100%; padding:.18rem .6rem;
+  border:1px solid #e3e6ea; border-radius:999px; background:#fff; font-size:.82rem; color:#333; line-height:1.3; }
+.mkt-att > a{ display:inline-flex; align-items:center; gap:.35rem; min-width:0; color:inherit; text-decoration:none; cursor:zoom-in; }
+.mkt-att > a:hover{ color:#111; text-decoration:none; }
+.mkt-att i.fa{ color:var(--brand-accent); }
+.mkt-att a > span{ min-width:0; max-width:18rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mkt-att__x{ border:0; background:transparent; color:#9aa0a6; padding:0 0 0 .2rem; line-height:1; font-size:.8rem; cursor:pointer; }
+.mkt-att__x:hover{ color:var(--brand-primary); }
+.mkt-att--add{ border-style:dashed; color:#666; background:transparent; font:inherit; font-size:.82rem; cursor:pointer; }
+.mkt-att--add:hover{ background:#f6f7f9; color:#111; }
+.mkt-att--add i.fa{ color:#888; }
 .marketing-action-card{
   border: 1px solid rgba(0,0,0,.08);
   border-radius: 18px;

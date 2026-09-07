@@ -148,7 +148,7 @@
       // si aún no hay póster, un <video> que salta a un fotograma intermedio (video_thumb.js).
       var media = p.poster_url
         ? '<img src="' + esc(p.poster_url) + '" class="' + cls + '" loading="lazy" alt="">'
-        : '<video src="' + esc(p.file_url) + '" class="' + cls + ' video-thumb" preload="metadata" muted playsinline></video>';
+        : '<video src="' + esc(p.play_url || p.file_url) + '" class="' + cls + ' video-thumb" preload="metadata" muted playsinline></video>';
       return media + '<span class="fotos-tile__play"><i class="fa fa-play"></i></span>';
     }
     return '<img src="' + esc(p.file_url) + '" class="' + cls + '" loading="lazy" alt="">';
@@ -389,7 +389,7 @@
       if (!d.ok) { media.innerHTML = '<div class="alert alert-warning">No se pudo cargar.</div>'; return; }
       var p = d.photo;
       document.getElementById('fotosDetailTitle').textContent = p.title || 'Foto';
-      media.innerHTML = p.is_video ? '<video src="' + esc(p.file_url) + '" class="fotos-detail-media__el" controls' + (p.poster_url ? ' poster="' + esc(p.poster_url) + '"' : '') + '></video>' : '<img src="' + esc(p.file_url) + '" class="fotos-detail-media__el" alt="">';
+      media.innerHTML = p.is_video ? '<video src="' + esc(p.play_url || p.file_url) + '" class="fotos-detail-media__el" controls' + (p.poster_url ? ' poster="' + esc(p.poster_url) + '"' : '') + '></video>' : '<img src="' + esc(p.file_url) + '" class="fotos-detail-media__el" alt="">';
       info.innerHTML = detailInfoHtml(p);
       renderNotes(p.notes || []);
       wireNoteForm();

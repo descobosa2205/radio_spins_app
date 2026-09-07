@@ -37,7 +37,6 @@
 
 <ul class="nav nav-tabs mb-4">
   <li class="nav-item"><a class="nav-link {% if tab == 'informacion' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='informacion') }}">Información</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'acciones' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='acciones') }}">Acciones</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'materiales' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='materiales') }}"><i class="fa fa-photo-film me-1"></i>Materiales</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'testigos' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='testigos') }}"><i class="fa fa-clipboard-check me-1"></i>Testigos</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'hoja_ruta' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='hoja_ruta') }}">Hoja de ruta</a></li>
@@ -73,7 +72,9 @@
       </div></div>
     </div>
   </div>
-{% elif tab == 'acciones' %}
+  {# ═══════════ ACCIONES: un MÓDULO debajo de la información (sep 2026; antes era su propia
+     pestaña). Es lo que se trabaja en una campaña, así que se ve nada más entrar. ═══════════ #}
+  <div class="mt-4" id="acciones">
   {# ⚠️⚠️ LA CAMPAÑA NO SE ARCHIVA HASTA QUE ESTÁ CERRADA: los testigos subidos y la factura
      consolidada de cada acción (o gasto 0). Aquí se dice qué falta y desde dónde se hace. #}
   {% if marketing_close and marketing_close.rows %}
@@ -189,6 +190,46 @@
                       <div class="small text-muted mt-2">
                         {% if row.provider %}Proveedor: {{ row.provider.nick }}{% if row.provider_company %} · {{ row.provider_company.legal_name or row.provider_company.name }}{% endif %}{% else %}Proveedor pendiente{% endif %}
                       </div>
+                      {# ADJUNTOS DE LA ACCIÓN (sep 2026): la factura o el ticket y lo demás (la orden de
+                         compra, el contrato…), cada uno con su ICONO y su NOMBRE. Al pincharlos se abren
+                         en el visor de la casa, donde se imprimen y se descargan. #}
+                      {% set _atts = ((action_files.get(row.id|string) if action_files else None) or []) %}
+                      {% if row.attachment_url or _atts or can_edit_promocion %}
+                        <div class="mkt-atts mt-2">
+                          {% if row.attachment_url %}
+                            {% set _iext = ((row.attachment_name or row.attachment_url or '').split('?')[0].lower().rsplit('.', 1) | last) %}
+                            {% set _ik = 'PDF' if _iext == 'pdf' else ('IMAGE' if _iext in ('jpg', 'jpeg', 'png', 'webp', 'gif') else 'FILE') %}
+                            <span class="mkt-att" title="Factura o ticket">
+                              <a href="{{ row.attachment_url }}" target="_blank" rel="noopener"
+                                 data-viewer-src="{{ row.attachment_url }}" data-viewer-kind="{{ _ik }}"
+                                 data-viewer-name="Factura/ticket · {{ row.attachment_name or '' }}"
+                                 data-viewer-download="{{ row.attachment_url }}" data-viewer-set="att-{{ row.id }}">
+                                <i class="fa fa-file-invoice"></i><span>{{ row.attachment_name or 'Factura/ticket' }}</span></a>
+                            </span>
+                          {% endif %}
+                          {% for f in _atts %}
+                            <span class="mkt-att" title="{{ f.note or f.name }}{% if f.at %} · {{ f.at }}{% endif %}{% if f.by %} · {{ f.by }}{% endif %}">
+                              <a href="{{ f.url }}" target="_blank" rel="noopener"
+                                 data-viewer-src="{{ f.play_url or f.url }}" data-viewer-kind="{{ f.media_kind }}"
+                                 data-viewer-name="{{ f.name }}" data-viewer-download="{{ f.url }}"
+                                 data-viewer-set="att-{{ row.id }}"{% if f.poster %} data-viewer-poster="{{ f.poster }}"{% endif %}>
+                                <i class="fa {{ f.icon }}"></i><span>{% if f.note %}{{ f.note }} · {% endif %}{{ f.name }}</span></a>
+                              {% if can_edit_promocion %}
+                                <form method="post" class="m-0 d-inline" action="{{ url_for('marketing_file_delete', promotion_id=promotion.id, file_id=f.id) }}"
+                                      data-confirm="¿Quitar «{{ f.name }}» de esta acción?">
+                                  <input type="hidden" name="next" value="{{ request.url }}">
+                                  <button class="mkt-att__x" type="submit" title="Quitar" aria-label="Quitar"><i class="fa fa-xmark"></i></button>
+                                </form>
+                              {% endif %}
+                            </span>
+                          {% endfor %}
+                          {% if can_edit_promocion %}
+                            <button type="button" class="mkt-att mkt-att--add" data-bs-toggle="modal" data-bs-target="#attachActionModal{{ row.id }}"
+                                    title="Adjuntar la orden de compra, el contrato u otro documento">
+                              <i class="fa fa-paperclip"></i><span>Adjuntar</span></button>
+                          {% endif %}
+                        </div>
+                      {% endif %}
                     </div>
                   </div>
                   <div class="text-end">
@@ -203,6 +244,7 @@
                         <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#requestInvoiceModal{{ row.id }}" type="button">Solicitar factura</button></li>
                       {% endif %}
                       <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#uploadActionDocModal{{ row.id }}" type="button">Subir factura/ticket</button></li>
+                      {% if can_edit_promocion %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#attachActionModal{{ row.id }}" type="button">Adjuntar orden de compra, contrato…</button></li>{% endif %}
                       <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editActionModal{{ row.id }}" type="button">Editar</button></li>
                       <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#splitActionModal{{ row.id }}" type="button">Dividir gasto</button></li>
                       {% if row.bag_expense_id and promotion.bag_id %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#paymentActionModal{{ row.id }}" type="button">Solicitar pago inmediato</button></li>{% endif %}
@@ -221,6 +263,39 @@
               </div>
 
               <div class="modal fade" id="uploadActionDocModal{{ row.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" enctype="multipart/form-data" action="{{ url_for('marketing_action_document_upload', promotion_id=promotion.id, activity_id=row.id) }}"><input type="hidden" name="next" value="{{ request.url }}"><div class="modal-header"><h5 class="modal-title">Subir factura/ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><input type="file" name="document" class="form-control" required></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Subir</button></div></form></div></div>
+              {% if can_edit_promocion %}
+              {# ADJUNTAR a la acción: uno o varios archivos, diciendo qué son (orden de compra,
+                 contrato…). Van al MISMO endpoint que materiales y testigos (`marketing_file_upload`),
+                 con `kind=ADJUNTO` y la acción. #}
+              <div class="modal fade" id="attachActionModal{{ row.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog"><form class="modal-content" method="post" enctype="multipart/form-data"
+                      action="{{ url_for('marketing_file_upload', promotion_id=promotion.id) }}" autocomplete="off">
+                  <input type="hidden" name="next" value="{{ request.url }}">
+                  <input type="hidden" name="kind" value="ADJUNTO">
+                  <input type="hidden" name="activity_id" value="{{ row.id }}">
+                  <div class="modal-header"><h5 class="modal-title"><i class="fa fa-paperclip me-2 text-danger"></i>Adjuntar a la acción</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                  <div class="modal-body">
+                    <div class="mb-3">
+                      <label class="form-label">¿Qué es?</label>
+                      <input class="form-control" name="note" list="mktAttKinds{{ row.id }}" placeholder="Orden de compra, contrato…">
+                      <datalist id="mktAttKinds{{ row.id }}">
+                        {% for lbl in marketing_attachment_labels %}<option value="{{ lbl }}">{% endfor %}
+                      </datalist>
+                    </div>
+                    <div data-file-drop-for="#mktAttFiles{{ row.id }}">
+                      <label class="form-label">Archivos</label>
+                      <input type="file" class="form-control" id="mktAttFiles{{ row.id }}" name="files" multiple required>
+                      <div class="form-text">Se pueden arrastrar aquí. PDF, imágenes, Word, Excel o un ZIP.</div>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button class="btn btn-primary"><i class="fa fa-upload me-1"></i>Adjuntar</button>
+                  </div>
+                </form></div>
+              </div>
+              {% endif %}
               <div class="modal fade" id="noInvoiceActionModal{{ row.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" action="{{ url_for('marketing_action_no_invoice', promotion_id=promotion.id, activity_id=row.id) }}"><input type="hidden" name="next" value="{{ request.url }}"><div class="modal-header"><h5 class="modal-title">Sin factura/ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><label class="form-label">Motivo</label><textarea name="reason" class="form-control" rows="3"></textarea></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Enviar solicitud</button></div></form></div></div>
               {% if row.bag_expense_id and promotion.bag_id %}
                 <div class="modal fade" id="requestInvoiceModal{{ row.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" action="{{ url_for('bag_expense_request_invoice', bag_id=promotion.bag_id, expense_id=row.bag_expense_id) }}"><input type="hidden" name="next" value="{{ request.url }}"><div class="modal-header"><h5 class="modal-title">Solicitar factura</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><label class="form-label">Correos del proveedor</label><input name="extra_emails" class="form-control" placeholder="correo@empresa.com, otro@empresa.com"></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Enviar</button></div></form></div></div>
@@ -280,6 +355,7 @@
   {% if can_edit_promocion %}
   <div class="modal fade" id="marketingActionModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><form class="modal-content" method="post" enctype="multipart/form-data" action="{{ url_for('promotion_activity_create', promotion_id=promotion.id) }}"><input type="hidden" name="next" value="{{ request.url }}"><div class="modal-header"><h5 class="modal-title">Nueva acción de marketing</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">{% include 'marketing_action_form_fields.html' ignore missing %}</div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Añadir acción</button></div></form></div></div>
   {% endif %}
+  </div>{# /acciones #}
 {% elif tab in ('materiales', 'testigos') %}
   {% if marketing_files %}{% include '_marketing_files.html' %}{% endif %}
 

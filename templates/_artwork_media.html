@@ -10,6 +10,10 @@
    ⚠️ Un VÍDEO se ve con su MINIATURA (la saca ffmpeg al subirlo, `_artwork_poster_schedule`) y,
    mientras no la tenga, con un `<video class="video-thumb">` que salta a un fotograma intermedio
    (motor global `static/js/video_thumb.js`; una página standalone tiene que cargarlo ella).
+   ⚠️⚠️ Y se REPRODUCE por su VERSIÓN WEB (`video_play_url`: la copia H.264 ≤1080p con `faststart`
+   que hace `_video_web_schedule` en 2º plano), no por el archivo que se subió: el original de la
+   cámara o de la productora (4K, 50 Mbps, el índice al final) se ve a tirones en cualquier
+   conexión normal. La DESCARGA sigue siendo el original.
    ============================================================================ #}
 
 {% macro art_media(asset, style='', cls='', pdf_cls='fs-1', dim=False) %}
@@ -20,7 +24,7 @@
         oculta una imagen que no carga) — se ve el fotograma del vídeo, y en el peor caso el
         recuadro oscuro con el play. -#}
     <span class="art-media art-media--video"{% if dim %} style="opacity:.75;"{% endif %}>
-      <video src="{{ asset.file_url }}" class="{{ cls }} video-thumb" style="{{ style }}"
+      <video src="{{ video_play_url(asset.file_url) }}" class="{{ cls }} video-thumb" style="{{ style }}"
              preload="metadata" muted playsinline
              {%- if asset.poster_url %} poster="{{ asset.poster_url }}"{% endif %}></video>
       <i class="fa fa-play art-media__play"></i>
@@ -50,7 +54,9 @@
    ⚠️ Antes solo se abría el VÍDEO (`data-art-video` → `#artVideoModal`) y el resto navegaba a una
    pestaña o se descargaba: no se veía nada en el sitio, que es de lo que se quejaba la casa. #}
 {% macro art_open_attrs(asset, set='', dl='') %}
-  data-viewer-src="{{ asset.file_url }}"
+  {#- Un VÍDEO se REPRODUCE por su VERSIÓN WEB (H.264 + faststart: la que no da tirones), si ya está;
+      la descarga sigue siendo el ORIGINAL. -#}
+  data-viewer-src="{{ video_play_url(asset.file_url) if artwork_kind(asset) == 'VIDEO' else asset.file_url }}"
   data-viewer-kind="{{ artwork_kind(asset) }}"
   data-viewer-name="{{ asset.format_label or asset.original_name or 'Cartel' }}"
   data-viewer-download="{{ dl or asset.file_url }}"

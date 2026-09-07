@@ -62,7 +62,7 @@
           {# La miniatura: la imagen, el póster del vídeo o el icono de lo que sea. #}
           <div class="position-relative bg-light d-flex align-items-center justify-content-center"
                style="height:130px;cursor:pointer"
-               data-viewer-src="{{ f.url }}" data-viewer-kind="{{ f.media_kind }}"
+               data-viewer-src="{{ f.play_url or f.url }}" data-viewer-kind="{{ f.media_kind }}"
                data-viewer-name="{{ f.name }}" data-viewer-download="{{ f.url }}"
                data-viewer-set="mktfiles" {% if f.poster %}data-viewer-poster="{{ f.poster }}"{% endif %}>
             {% if f.media_kind == 'IMAGE' %}

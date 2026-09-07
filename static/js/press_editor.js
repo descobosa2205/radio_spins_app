@@ -836,7 +836,7 @@
       (c.photo ? '<img class="pr-contact__ava" src="' + esc(c.photo) + '" alt="" data-avatar="1">' : '<span class="pr-contact__ava pr-contact__ava--ico"><i class="fa fa-user"></i></span>') +
       '<span class="pr-contact__t"><small>' + esc(c.role_label || 'Contacto') + '</small><b>' + esc(c.name || '') + '</b>' +
       '<span class="text-muted">' + esc(c.email || '') + (c.phone ? ' · ' + esc(c.phone) : '') + '</span></span>' +
-      (quitable ? '<button type="button" class="btn btn-sm btn-outline-danger" data-pr-contact-del="' + esc(c.user_id) + '" title="Quitar"><i class="fa fa-trash"></i></button>'
+      (quitable ? '<button type="button" class="btn btn-sm btn-outline-danger" data-pr-contact-del="' + esc(c.kind === 'press' ? '__press__' : c.user_id) + '" title="Quitar"><i class="fa fa-trash"></i></button>'
                 : '<span class="badge text-bg-light border">Siempre</span>') + '</div>';
   }
   function pintaContactos(b) {
@@ -845,7 +845,10 @@
     box.innerHTML = '<div class="text-muted small">Cargando…</div>';
     post(root.getAttribute('data-block-url'), { id: b.id, type: b.type, ref: b.ref || {}, opts: b.opts || {}, w: b.w }).then(function (js) {
       var lista = (js && js.data && js.data.contacts) || [];
-      box.innerHTML = lista.length ? lista.map(function (c) { return tarjetaContacto(c, !c.fixed); }).join('') : '<div class="text-muted small">Sin contactos.</div>';
+      // NINGUNO es fijo: todos se pueden quitar (y volver a añadir).
+      box.innerHTML = lista.length ? lista.map(function (c) { return tarjetaContacto(c, true); }).join('') : '<div class="text-muted small">Sin contactos: añade a alguien abajo.</div>';
+      var sinPrensa = !lista.some(function (c) { return c.kind === 'press'; });
+      var btn = contactsModal.querySelector('[data-pr-contact-press-add]'); if (btn) btn.classList.toggle('d-none', !sinPrensa);
       var el = elDe(b.id); if (el && js && js.ok) { el.querySelector('.pr-blk__mod').innerHTML = js.html || ''; b.html_cache = js.html; ajustaAltoModulo(b); }
     });
   }
@@ -872,15 +875,42 @@
       var add = ev.target.closest('[data-pr-contact-add]');
       if (add) {
         b.ref = b.ref || {}; b.ref.user_ids = (b.ref.user_ids || []).map(String);
+        if (!b.ref.preset) {
+          // Módulo ANTIGUO: se fija la lista tal como se ve antes de añadir (quien creó la nota iba implícito).
+          var vistos = Array.prototype.slice.call(contactsModal.querySelectorAll('[data-pr-contact-del]'))
+            .map(function (x) { return x.getAttribute('data-pr-contact-del'); }).filter(function (x) { return x && x !== '__press__'; });
+          vistos.forEach(function (x) { if (b.ref.user_ids.indexOf(x) < 0) b.ref.user_ids.push(x); });
+          b.ref.preset = 'custom'; b.ref.press = (b.ref.press !== false);
+        }
         var uid = add.getAttribute('data-pr-contact-add');
         if (b.ref.user_ids.indexOf(uid) < 0) b.ref.user_ids.push(uid);
         delete b.html_cache; marca(); pintaContactos(b); buscaPersonal(contactsModal.querySelector('[data-pr-contacts-search]').value);
         return;
       }
+      var pressAdd = ev.target.closest('[data-pr-contact-press-add]');
+      if (pressAdd) {
+        b.ref = b.ref || {}; b.ref.press = true; if (!b.ref.preset) { b.ref.preset = 'custom'; b.ref.user_ids = b.ref.user_ids || []; }
+        delete b.html_cache; marca(); pintaContactos(b);
+        return;
+      }
       var del = ev.target.closest('[data-pr-contact-del]');
       if (del) {
         var quitar = del.getAttribute('data-pr-contact-del');
-        b.ref = b.ref || {}; b.ref.user_ids = (b.ref.user_ids || []).map(String).filter(function (x) { return x !== quitar; });
+        b.ref = b.ref || {};
+        if (quitar === '__press__') {
+          // Quitar el contacto de promoción: se apunta explícitamente (un módulo antiguo lo traía por defecto).
+          b.ref.press = false;
+          if (!b.ref.preset) { b.ref.preset = 'custom'; b.ref.user_ids = (b.ref.user_ids || []).map(String); }
+        } else {
+          // Un módulo ANTIGUO llevaba a quien creó la nota sin apuntarlo: al quitar a alguien se
+          // pasa a la forma nueva con la lista tal como se ve, menos el que se quita.
+          if (!b.ref.preset) {
+            var ahora = Array.prototype.slice.call(contactsModal.querySelectorAll('[data-pr-contact-del]'))
+              .map(function (x) { return x.getAttribute('data-pr-contact-del'); }).filter(function (x) { return x && x !== '__press__'; });
+            b.ref.preset = 'custom'; b.ref.press = (b.ref.press !== false); b.ref.user_ids = ahora;
+          }
+          b.ref.user_ids = (b.ref.user_ids || []).map(String).filter(function (x) { return x !== quitar; });
+        }
         delete b.html_cache; marca(); pintaContactos(b); buscaPersonal(contactsModal.querySelector('[data-pr-contacts-search]').value);
       }
     });

@@ -7234,6 +7234,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `empresa_promoter_v1`): limpia el promotor externo de los conciertos a empresa que ya existían y les
   pone `group_company_id`.
 
+- **NOTAS DE PRENSA · LOS CONTACTOS: dos módulos sueltos y NINGUNO FIJO** (sep 2026, lo pidió Dani).
+  En la paleta hay **«Contacto de promoción»** (nace con Nuria, `PRESS_CONTACT_*`) y **«Otro
+  contacto»** (nace con **quien está escribiendo** la nota: el usuario de la sesión en
+  `promo_press_assets`, y si no el creador), los dos arrastrables por separado. En cualquiera de los
+  dos se **quita** y se **añade** gente (del personal, con su foto; el de promoción se vuelve a añadir
+  con su botón): nadie lleva «Siempre». Lo dice `ref`: `preset` (**press** | **custom**), `press`
+  (True/False: lleva la tarjeta de promoción) y `user_ids`. Punto único `_press_contact_rows`.
+  ⚠️ Un módulo **ANTIGUO** (sin `preset`) se sigue leyendo como antes —promoción + quien creó la nota
+  + los añadidos—, y en cuanto se toca en el pop-up el JS lo pasa a la forma nueva con la lista tal
+  como se veía (`press_editor.js`), para no perder a quien iba implícito.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

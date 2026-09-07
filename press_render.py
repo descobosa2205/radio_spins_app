@@ -548,9 +548,9 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
             return ""
         return ('<div style="text-align:%s;font-size:0;line-height:0;">%s</div>' % (align, "".join(iconos)))
     if tipo == "contact":
-        # SIEMPRE el contacto de PRENSA y QUIEN CREA la nota; además, los que se añadan (personal de la
-        # casa). Cada uno con su función —«Contacto de prensa», «Contacto de Producción»…— y, debajo,
-        # lo mismo: nombre · correo · teléfono. Los de antes (un solo contacto en `data`) se siguen leyendo.
+        # Los contactos del módulo (el de promoción y/o personal de la casa; ninguno es fijo). Cada uno
+        # con su función —«Contacto de prensa», «Contacto de Producción»…— y, debajo, lo mismo:
+        # nombre · correo · teléfono. Los de antes (un solo contacto en `data`) se siguen leyendo.
         contactos = d.get("contacts") if isinstance(d.get("contacts"), list) else None
         if contactos is None:
             contactos = [d] if (d.get("name") or d.get("email")) else []

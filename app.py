@@ -51944,18 +51944,31 @@ def _press_staff_rows(session_db, q: str = "", *, ids=None) -> list[dict]:
     return filas
 
 
+def _press_contact_press_row() -> dict:
+    """La tarjeta del contacto de PROMOCIÓN (Nuria, promocion@)."""
+    return {"kind": "press", "fixed": False, "name": PRESS_CONTACT_NAME, "role_label": PRESS_CONTACT_ROLE,
+            "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE, "photo": "", "user_id": ""}
+
+
 def _press_contact_rows(session_db, pr, ref: dict | None) -> list[dict]:
-    """Los CONTACTOS del módulo de contacto de una nota, en este orden y siempre: (1) el de PRENSA
-    (Nuria, promocion@), (2) QUIEN CREA la nota y (3) los que se hayan añadido a mano
-    (`ref['user_ids']`, personal de la casa), cada uno con «Contacto de <Departamento>» y, debajo, lo
-    mismo que la tarjeta de prensa: nombre · correo · teléfono."""
+    """Los CONTACTOS de un módulo de contacto. **Ninguno es fijo** (sep 2026, lo pidió Dani): en la
+    paleta hay DOS módulos sueltos —«Contacto de promoción» (Nuria, promocion@) y «Otro contacto» (por
+    defecto, quien está escribiendo la nota)— y en cualquiera de los dos se cambia y se añade gente.
+    · `ref['preset']`: **press** (nace con el de promoción) · **custom** (nace con quien escribe).
+    · `ref['press']` (True/False) dice si lleva la tarjeta de promoción; `ref['user_ids']`, el personal.
+    · Un módulo ANTIGUO (sin `preset`) se lee como antes —promoción + quien creó la nota + los
+      añadidos— para que las notas ya hechas sigan igual, pero también sin nada fijo."""
     ref = ref if isinstance(ref, dict) else {}
-    filas = [{"kind": "press", "fixed": True, "name": PRESS_CONTACT_NAME, "role_label": PRESS_CONTACT_ROLE,
-              "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE, "photo": "", "user_id": ""}]
-    vistos_email = {PRESS_CONTACT_EMAIL.lower()}
+    preset = (ref.get("preset") or "").strip().lower()
+    legado = not preset
+    con_prensa = ref.get("press")
+    if con_prensa is None:
+        con_prensa = (preset == "press") or legado
+    filas = [_press_contact_press_row()] if con_prensa else []
+    vistos_email = {PRESS_CONTACT_EMAIL.lower()} if con_prensa else set()
     ids = []
     creador = getattr(pr, "created_by_user_id", None)
-    if creador:
+    if legado and creador:
         ids.append(str(creador))
     for x in (ref.get("user_ids") or []) if isinstance(ref.get("user_ids"), list) else []:
         if str(x) not in ids and to_uuid(str(x)):
@@ -51967,7 +51980,7 @@ def _press_contact_rows(session_db, pr, ref: dict | None) -> list[dict]:
             if not f or (f["email"] and f["email"] in vistos_email):
                 continue
             vistos_email.add(f["email"])
-            filas.append(dict(f, kind=("creator" if str(creador) == uid else "extra"), fixed=(str(creador) == uid)))
+            filas.append(dict(f, kind="extra", fixed=False))
     return filas
 
 
@@ -52079,7 +52092,7 @@ def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:
                     "icon_url": _external_url_for("brand_icon_png", nombre=l["icon_name"], c=l["color"], s=64, f="brands"),
                 } for l in enlaces if (elegidos is None or l["key"] in elegidos)]
             elif tipo == "contact":
-                # SIEMPRE el de prensa y quien crea la nota; además, los que se añadan a mano.
+                # Los contactos del módulo (promoción y/o personal de la casa); ninguno es fijo.
                 data["contacts"] = _press_contact_rows(session_db, pr, ref)
             elif tipo == "artwork":
                 data.update(_press_artwork_data(session_db, ref))
@@ -52460,8 +52473,19 @@ def _press_assets(session_db, pr) -> dict:
                             "html": pinta("links", {"album_id": str(a.id)})})
     fotos = [{"kind": "photos", "ref": {"album_id": al["id"]}, "label": al["name"], "cover": al["cover"],
               "sub": "%s fotos" % al["count"], "html": pinta("photos", {"album_id": al["id"]})} for al in _press_photo_albums(session_db, pr)]
-    contacto = [{"kind": "contact", "ref": {}, "label": "Contactos", "cover": "",
-                 "sub": "Prensa · quien crea la nota · y los que se añadan", "html": pinta("contact", {})}]
+    # DOS módulos de contacto sueltos (sep 2026): el de PROMOCIÓN y «otro» que nace con quien está
+    # escribiendo la nota. Los dos se cambian y se les añade gente; ninguno es fijo.
+    try:
+        _yo = str((_current_user_state() or {}).get("user_id") or "") or ""
+    except Exception:
+        _yo = ""
+    if not _yo and getattr(pr, "created_by_user_id", None):
+        _yo = str(pr.created_by_user_id)
+    _ref_otro = {"preset": "custom", "press": False, "user_ids": ([_yo] if _yo else [])}
+    contacto = [{"kind": "contact", "ref": {"preset": "press", "press": True, "user_ids": []}, "label": "Contacto de promoción", "cover": "",
+                 "sub": "%s · %s" % (PRESS_CONTACT_NAME, PRESS_CONTACT_EMAIL), "html": pinta("contact", {"preset": "press", "press": True, "user_ids": []})},
+                {"kind": "contact", "ref": _ref_otro, "label": "Otro contacto", "cover": "",
+                 "sub": "Por defecto, quien escribe la nota; se cambia y se añade gente", "html": pinta("contact", _ref_otro)}]
     # La CARTELERÍA: la de la actividad y, aparte, la GENERAL de su gira, ciclo o evento (un módulo
     # por cada una; cada uno enlaza a la MISMA página pública que se comparte con el artista).
     carteles = []
@@ -53742,7 +53766,7 @@ def promo_press_edit(release_id):
             return redirect(url_for("promo_press_detail", release_id=pr.id))
         _press_ensure_token(s, pr)
         _press_bg_palette_ensure(s, pr)
-        return render_template("press_release_editor.html", **_press_editor_context(s, pr))
+        return render_template("press_release_editor.html", press_contact_name=PRESS_CONTACT_NAME, **_press_editor_context(s, pr))
     finally:
         s.close()
 

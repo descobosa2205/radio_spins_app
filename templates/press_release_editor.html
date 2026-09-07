@@ -257,9 +257,10 @@
   </div></div>
 </div>
 
-{# ---------- Los CONTACTOS del módulo de contacto ----------
-   SIEMPRE el de prensa y quien crea la nota (no se quitan) y, debajo, los que se añadan del personal
-   de la casa (se buscan por su nombre, con su foto): cada uno sale como «Contacto de <Departamento>». #}
+{# ---------- Los CONTACTOS de un módulo de contacto ----------
+   NINGUNO es fijo (sep 2026): en la paleta hay dos módulos sueltos —«Contacto de promoción» y «Otro
+   contacto» (por defecto, quien escribe)— y en cualquiera se quita y se añade gente del personal
+   (se buscan por su nombre, con su foto): cada uno sale como «Contacto de <Departamento>». #}
 <div class="modal fade" id="prContactsModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content" data-pr-contacts-modal>
     <div class="modal-header">
@@ -267,8 +268,10 @@
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
     </div>
     <div class="modal-body">
-      <div class="small text-muted mb-2">El contacto de prensa y quien crea la nota salen siempre. Añade a quien haga falta del personal: sale como <b>Contacto de</b> su departamento, con su correo y su teléfono.</div>
+      <div class="small text-muted mb-2">Quita o añade a quien haga falta: nadie es fijo. Cada persona del personal sale como <b>Contacto de</b> su departamento, con su correo y su teléfono.</div>
       <div class="pr-contacts" data-pr-contacts-list><div class="text-muted small">Cargando…</div></div>
+      <button type="button" class="btn btn-sm btn-outline-primary mt-2 d-none" data-pr-contact-press-add>
+        <i class="fa fa-bullhorn me-1"></i>Añadir el contacto de promoción ({{ press_contact_name or 'Promoción' }})</button>
       <div class="mt-3">
         <label class="form-label small text-muted mb-1"><i class="fa fa-user-plus me-1"></i>Añadir otro (personal de la empresa)</label>
         <input class="form-control" data-pr-contacts-search autocomplete="off" placeholder="Escribe su nombre…">

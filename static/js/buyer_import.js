@@ -288,7 +288,7 @@
       if (om) {
         if (r.sin_contacto) {
           om.innerHTML = '<i class="fa fa-circle-info me-1"></i><strong>' + r.sin_contacto +
-            '</strong> fila(s) se descartan porque no traen ni email ni teléfono: sin uno de los dos no hay a quién escribirle.';
+            '</strong> comprador(es) entran sin email ni teléfono: se guardan con su nombre, pero no se les podrá escribir.';
           om.classList.remove('d-none');
         } else { om.classList.add('d-none'); }
       }

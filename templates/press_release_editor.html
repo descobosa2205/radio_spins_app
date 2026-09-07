@@ -13,7 +13,7 @@
      data-block-url="{{ url_for('promo_press_block_html', release_id=pr.id) }}"
      data-detail-url="{{ url_for('promo_press_detail', release_id=pr.id) }}"
      data-next-url="{{ next_url }}"
-     data-files-url="{{ files_url }}" data-image-url="{{ image_url }}" data-photos-url="{{ photos_url_tpl }}"
+     data-files-url="{{ files_url }}" data-image-url="{{ image_url }}" data-image-crop-url="{{ image_crop_url }}" data-photos-url="{{ photos_url_tpl }}"
      data-staff-url="{{ url_for('promo_press_staff_search') }}" data-campaign="{{ '1' if campaign else '' }}"
      data-thumb-url="{{ thumb_save_url }}"
      data-design-asset="{{ design_asset|tojson|forceescape }}" data-corporate="{{ palette_corporate|tojson|forceescape }}"
@@ -116,7 +116,13 @@
       </div>
     </div>
 
-    <aside class="pr-editor__side">
+    <aside class="pr-editor__side" data-pr-side>
+      {# Las OPCIONES DEL BLOQUE SELECCIONADO van ARRIBA del todo, a la derecha: es lo que se está
+         tocando en ese momento. Debajo de la paleta de módulos quedaban fuera de la pantalla. #}
+      <div class="pr-side__group pr-side__group--props d-none" data-pr-props>
+        <div class="pr-side__title"><i class="fa fa-sliders"></i>Opciones del bloque <span class="text-muted small fw-normal" data-pr-props-kind></span></div>
+        <div data-pr-props-body></div>
+      </div>
       <div class="pr-side__group">
         <div class="pr-side__title"><i class="fa fa-font"></i>Texto <span class="text-muted small fw-normal">— arrástralo sobre el fondo</span></div>
         <div class="pr-palette">
@@ -135,10 +141,6 @@
         <div class="pr-side__title"><i class="fa fa-cubes"></i>Módulos <span class="text-muted small fw-normal">— arrástralos a la nota</span></div>
         <div class="text-muted small mb-2">Si solo se arrastran, se colocan debajo del último; después se mueven y se ajustan libremente.</div>
         <div class="pr-palette" data-pr-modules><div class="text-muted small">Cargando…</div></div>
-      </div>
-      <div class="pr-side__group d-none" data-pr-props>
-        <div class="pr-side__title"><i class="fa fa-sliders"></i>Bloque seleccionado</div>
-        <div data-pr-props-body></div>
       </div>
     </aside>
   </div>

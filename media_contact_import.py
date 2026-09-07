@@ -14,7 +14,8 @@ Reglas de la casa que se aplican aquí:
   pantalla pregunte a qué corresponde (o se marque para omitirla).
 - El TELÉFONO se deja en formato internacional con `sms_utils.normalize_phone`, el punto único de
   «cómo se escribe un teléfono».
-- Una fila sin NADA con lo que llamar a esa persona (ni nick, ni nombre) no se importa: se dice
+- Ningún campo es obligatorio. Una fila sin NADA de la persona (ni nick, ni nombre, ni correo,
+  ni teléfono) no se importa: se dice
   cuántas se han quedado fuera, no desaparecen sin más.
 """
 
@@ -155,8 +156,10 @@ def apply_mapping(rows: list[list], mapping: dict) -> list[dict]:
 def contact_rows(rows: list[dict]) -> tuple[list[dict], int]:
     """De lo mapeado a los CONTACTOS que se van a importar.
 
-    Devuelve `(filas, descartadas)`: una fila sin nada con lo que llamar a esa persona (ni nick, ni
-    nombre completo, ni nombre/apellidos) no se puede importar y se cuenta aparte."""
+    Devuelve `(filas, descartadas)`. NINGÚN campo es obligatorio: un listado puede venir sin nick
+    (se enseña entonces el nombre, y si tampoco lo trae, el correo o el teléfono). Solo se descarta
+    la fila que no trae NADA de la persona (ni nick, ni nombre, ni correo, ni teléfono), que no hay
+    a quién dar de alta, y se cuenta aparte para decirlo."""
     salida, fuera = [], 0
     for datos in rows or []:
         nombre = (datos.get("first_name") or "").strip()
@@ -164,7 +167,7 @@ def contact_rows(rows: list[dict]) -> tuple[list[dict], int]:
         if not (nombre or apellidos) and datos.get("name"):
             nombre, apellidos = split_full_name(datos.get("name") or "")
         nick = (datos.get("nick") or "").strip()
-        if not (nick or nombre or apellidos):
+        if not (nick or nombre or apellidos or (datos.get("email") or "").strip() or (datos.get("phone") or "").strip()):
             fuera += 1
             continue
         salida.append({

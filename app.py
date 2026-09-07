@@ -46892,12 +46892,16 @@ def _promoter_import_can_edit() -> bool:
 def _promoter_import_indexes(session_db) -> dict:
     """Índices para saber si un tercero del fichero ya está: por DNI/NIF (también el de sus
     sociedades), por nick y por nombre y apellidos."""
-    por_doc, por_nick, por_nombre, por_correo, por_palabras = {}, {}, {}, {}, {}
+    por_doc, por_nick, por_nombre, por_correo, por_palabras, por_telefono = {}, {}, {}, {}, {}, {}
     for p in session_db.query(Promoter).all():
         pid = str(p.id)
         doc = _prl_norm_dni(getattr(p, "tax_id", None) or "")
         if doc:
             por_doc.setdefault(doc, pid)
+        # El TELÉFONO: una fila que no trae ni nombre ni correo solo se puede reconocer por él.
+        tel = _norm_phone_key(getattr(p, "contact_phone", None) or "")
+        if tel:
+            por_telefono.setdefault(tel, pid)
         nick_key = _norm_text_key(getattr(p, "nick", None) or "")
         if nick_key:
             por_nick.setdefault(nick_key, pid)
@@ -46923,7 +46927,15 @@ def _promoter_import_indexes(session_db) -> dict:
                 por_correo.setdefault(correo, str(row.promoter_id))
     except Exception:
         app.logger.exception("[terceros] no se pudieron indexar los correos para la importación")
-    return {"doc": por_doc, "nick": por_nick, "name": por_nombre, "email": por_correo, "words": por_palabras}
+    try:
+        for row in session_db.query(PromoterPhone).all():
+            tel = _norm_phone_key(getattr(row, "phone", None) or "")
+            if tel and getattr(row, "promoter_id", None):
+                por_telefono.setdefault(tel, str(row.promoter_id))
+    except Exception:
+        app.logger.exception("[terceros] no se pudieron indexar los teléfonos para la importación")
+    return {"doc": por_doc, "nick": por_nick, "name": por_nombre, "email": por_correo, "words": por_palabras,
+            "phone": por_telefono}
 
 
 def _promoter_import_match(indexes: dict, values: dict) -> tuple[str | None, str]:
@@ -46947,6 +46959,11 @@ def _promoter_import_match(indexes: dict, values: dict) -> tuple[str | None, str
     correo = (values.get("contact_email") or "").strip().lower()
     if correo and correo in (indexes.get("email") or {}):
         return indexes["email"][correo], "por su correo"
+    # El TELÉFONO (el de la ficha o los de su pestaña de contacto): con él una fila sin nombre ni
+    # correo se reconoce igual, y reimportar el mismo listado no la duplica.
+    telefono = _norm_phone_key(values.get("contact_phone") or "")
+    if telefono and telefono in (indexes.get("phone") or {}):
+        return indexes["phone"][telefono], "por su teléfono"
     # Y un nombre PARECIDO (uno contiene al otro: «José García» y «José García López»): se enseña
     # como coincidencia para decidir si es el mismo, incluirlo como contacto o crear otro.
     for clave in (nick_key, nombre):
@@ -46958,16 +46975,25 @@ def _promoter_import_match(indexes: dict, values: dict) -> tuple[str | None, str
     return None, ""
 
 
+PROMOTER_IMPORT_NAMELESS_NICK = "Tercero sin nombre"
+
+
 def _promoter_import_nick(values: dict) -> str:
-    """El nick con el que se da de alta: el del fichero, o el nombre completo, o el DNI/NIF."""
+    """El nick con el que se da de alta. NINGÚN campo del fichero es obligatorio (un listado puede
+    no traer nick), así que se cae en cascada a lo que sí venga: el nick del fichero → el nombre
+    completo → el DNI/NIF → el correo → el teléfono → y, si no trae nada con lo que llamarlo,
+    «Tercero sin nombre» (numerado por `_intake_unique_nick`), para que la fila entre igual y se
+    complete después en su ficha."""
     for candidato in (values.get("nick"),
                       " ".join([x for x in [(values.get("first_name") or ""),
                                             (values.get("last_name") or "")] if x]),
-                      values.get("tax_id")):
+                      values.get("tax_id"),
+                      values.get("contact_email"),
+                      values.get("contact_phone")):
         texto = re.sub(r"\s+", " ", str(candidato or "")).strip()
         if texto:
-            return texto
-    return ""
+            return texto[:120]
+    return PROMOTER_IMPORT_NAMELESS_NICK
 
 
 def _promoter_import_label(session_db, promoter) -> dict:
@@ -47137,10 +47163,7 @@ def promoters_import_create():
         for fila in filas:
             values = (fila or {}).get("values") or {}
             alt = (fila or {}).get("alt") or []
-            nick = _promoter_import_nick(values)
-            if not nick:
-                errores.append("Una fila no tiene ni nombre ni DNI/NIF: no se puede dar de alta.")
-                continue
+            nick = _promoter_import_nick(values) or PROMOTER_IMPORT_NAMELESS_NICK
             try:
                 with session_db.begin_nested():
                     p = Promoter(nick=_intake_unique_nick(session_db, nick))
@@ -53721,6 +53744,7 @@ def _press_editor_context(s, pr) -> dict:
         "next_url": url_for("promo_press_send_view", release_id=pr.id),
         "files_url": url_for("promo_press_files", release_id=pr.id),
         "image_url": url_for("promo_press_image_upload", release_id=pr.id),
+        "image_crop_url": url_for("promo_press_image_crop", release_id=pr.id),
         "thumb_save_url": url_for("promo_press_thumb_save", release_id=pr.id),
         "photos_url_tpl": url_for("promo_press_album_photos", release_id=pr.id, album_id="__ALBUM__"),
         "pitch": _press_pitch_for(s, pr),
@@ -53917,6 +53941,91 @@ def promo_press_image_upload(release_id):
     except Exception:
         app.logger.exception("[notas de prensa] no se pudo subir la imagen")
         return jsonify({"ok": False, "error": "No se pudo subir la imagen."}), 400
+    finally:
+        s.close()
+
+
+PRESS_IMAGE_CROP_MAX_SIDE = 2400      # una imagen de un correo no necesita más; y así el JPEG no pesa de más
+
+
+@app.post("/notas-de-prensa/<release_id>/imagen/recortar", endpoint="promo_press_image_crop")
+@admin_required
+def promo_press_image_crop(release_id):
+    """RECORTA (y/o GIRA) una imagen YA SUBIDA de un bloque de imagen y devuelve la nueva.
+
+    El recuadro llega en FRACCIONES (0..1) de la imagen **ya girada** (`rotate` 0 · 90 · 180 · 270,
+    en el sentido de las agujas del reloj), que es como lo ve quien recorta. Se hace en el SERVIDOR
+    con Pillow: así no depende del CORS de Storage ni de que el navegador pueda leer el lienzo, y
+    la imagen original NO se toca (el editor se guarda su URL en `ref.orig_url` para poder volver a
+    recortar desde ella). Solo se recortan imágenes NUESTRAS (`_is_own_media_url`): si no, esto
+    sería un proxy de imágenes abierto."""
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr or not _press_can_edit(pr):
+            return jsonify({"ok": False, "error": "Esa nota no se puede editar."}), 409
+        if not _press_edit_ok(pr):
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        datos = request.get_json(silent=True) or {}
+        url = str(datos.get("url") or "").strip()
+        if not url or not _is_own_media_url(url):
+            return jsonify({"ok": False, "error": "Solo se pueden recortar las imágenes subidas a la app."}), 400
+
+        def _frac(clave, defecto):
+            try:
+                v = float(datos.get(clave))
+            except (TypeError, ValueError):
+                return defecto
+            return max(0.0, min(1.0, v))
+        fx, fy = _frac("x", 0.0), _frac("y", 0.0)
+        fw, fh = _frac("w", 1.0), _frac("h", 1.0)
+        try:
+            giro = int(datos.get("rotate") or 0) % 360
+        except (TypeError, ValueError):
+            giro = 0
+        if giro not in (0, 90, 180, 270):
+            giro = 0
+        try:
+            contenido, _ct = _download_remote_content(url, timeout=25)
+            from PIL import Image, ImageOps
+            img = Image.open(BytesIO(contenido))
+            img.load()
+        except Exception:
+            return jsonify({"ok": False, "error": "No se pudo leer la imagen para recortarla."}), 400
+        try:
+            img = ImageOps.exif_transpose(img) or img
+        except Exception:
+            pass
+        if giro:
+            # PIL gira en sentido CONTRARIO a las agujas del reloj: 90º «a la derecha» son -90 aquí.
+            img = img.rotate(-giro, expand=True)
+        W, H = img.size
+        x0, y0 = int(round(fx * W)), int(round(fy * H))
+        x1, y1 = int(round((fx + fw) * W)), int(round((fy + fh) * H))
+        x0, y0 = max(0, min(W - 1, x0)), max(0, min(H - 1, y0))
+        x1, y1 = max(x0 + 1, min(W, x1)), max(y0 + 1, min(H, y1))
+        if (x1 - x0) < 8 or (y1 - y0) < 8:
+            return jsonify({"ok": False, "error": "El recorte es demasiado pequeño."}), 400
+        if (x0, y0, x1, y1) != (0, 0, W, H):
+            img = img.crop((x0, y0, x1, y1))
+        if max(img.size) > PRESS_IMAGE_CROP_MAX_SIDE:
+            img.thumbnail((PRESS_IMAGE_CROP_MAX_SIDE, PRESS_IMAGE_CROP_MAX_SIDE))
+        # Con transparencia se conserva el PNG; si no, JPEG (que es lo que pesa poco en un correo).
+        con_alfa = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+        salida = BytesIO()
+        if con_alfa:
+            img.convert("RGBA").save(salida, format="PNG", optimize=True)
+            ext, ctype = "png", "image/png"
+        else:
+            img.convert("RGB").save(salida, format="JPEG", quality=90, optimize=True)
+            ext, ctype = "jpg", "image/jpeg"
+        nueva = _upload_bytes(salida.getvalue(), "press_releases/%s.%s" % (uuid.uuid4().hex, ext), ctype)
+        if not nueva:
+            return jsonify({"ok": False, "error": "No se pudo guardar la imagen recortada."}), 400
+        return jsonify({"ok": True, "url": nueva, "w": int(img.size[0]), "h": int(img.size[1])})
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudo recortar la imagen")
+        return jsonify({"ok": False, "error": "No se pudo recortar la imagen."}), 400
     finally:
         s.close()
 
@@ -81372,6 +81481,9 @@ INVOICE_EDIT_ACCESS_KEYS = ("databases.invoices", "contabilidad")
 # pestaña «Contabilizado» (que es HERMANA, no descendiente) también tiene que poder devolver algo a
 # pendiente o corregir un dato desde ahí.
 ACCOUNTING_ACTION_ACCESS_KEYS = ("contabilidad.pendiente", "contabilidad.contabilizado")
+# Las BOLSAS se abren y se trabajan desde «Bolsas» (Bases de datos) y desde PRODUCCIÓN, que es de quien
+# es ese trabajo: la primera de estas claves que tenga el usuario (ver el mapeo de `bag_*`).
+BAG_ACCESS_KEYS = ("databases.bags", "produccion")
 
 
 def _first_access_key(claves, default_key: str, *, edit: bool = False) -> str:
@@ -81647,8 +81759,16 @@ def _resolve_request_resource_key() -> str | None:
         return "promocion"
     if endpoint.startswith("media_"):
         return "databases.media"
-    if endpoint.startswith("bag_") or endpoint == "bags_view":
+    if endpoint == "bags_view":
         return "databases.bags"
+    if endpoint.startswith("bag_"):
+        # ⚠️ LA BOLSA ES EL TRABAJO DE PRODUCCIÓN (los gastos de lo que produce, el cierre de la bolsa
+        # de una promoción con producción): quien tiene la sección de Producción entra y trabaja en
+        # las bolsas aunque no tenga concedida la pestaña «Bolsas» de Bases de datos. Sin esto, quien
+        # produce se comía un 403 al abrir la bolsa de su propia actividad (bug real, sep 2026).
+        # La primera clave que tenga el usuario, para que el 403 diga lo que de verdad le falta.
+        return _first_access_key(BAG_ACCESS_KEYS, "databases.bags",
+                                 edit=request.method in ("POST", "PUT", "PATCH", "DELETE"))
     # ⚠️ ANTES de la regla de abajo, o sería CÓDIGO MUERTO (gana el mapeo de `supplier_invoice*`):
     # CORREGIR LOS DATOS de una factura se hace desde la base de facturas Y desde CONTABILIDAD, que es
     # donde es el trabajo del día. Sin esto, quien es de contabilidad y no tiene la base de facturas se
@@ -89487,14 +89607,16 @@ def _access_seed_for_department(marker: str, resource_key: str, departamentos: s
         if session_db.get(UserAccessResource, resource_key) is None:
             return                                   # aún no se ha sincronizado el catálogo
         fuera = _inactive_user_ids(session_db)
-        buscados = {d.strip().lower() for d in departamentos}
         tocados = 0
         for user, profile in (session_db.query(User, UserProfile)
                               .join(UserProfile, UserProfile.user_id == User.id).all()):
             if user.id in fuera:
                 continue
-            deps = {str(d).strip().lower() for d in (getattr(profile, "departments", None) or [])}
-            if not (deps & buscados):
+            # ⚠️ Con TOLERANCIA (`_profile_in_department`): el departamento lo escribe una persona
+            # («Producción musical», «Producción y logística», guardado como texto…) y comparando la
+            # cadena exacta la siembra se saltaba a esa gente SIN dar ningún error — y como corre una
+            # sola vez, se quedaban sin el acceso para siempre (el caso real de Irene con las bolsas).
+            if not _profile_in_department(profile, *departamentos):
                 continue
             grant = (session_db.query(UserAccessGrant)
                      .filter(UserAccessGrant.user_id == user.id,
@@ -89521,7 +89643,9 @@ def _access_seed_for_department(marker: str, resource_key: str, departamentos: s
 def _produccion_bags_access_seed() -> None:
     """PRODUCCIÓN necesita entrar en las bolsas: es quien gestiona los gastos de lo que produce y
     quien cierra la bolsa de una promoción con producción."""
-    _access_seed_for_department("produccion_bags_access_seed_v1", "databases.bags", {"producción", "produccion"})
+    # v2 (sep 2026): la v1 comparaba el departamento de forma exacta y dejó fuera a quien lo tenía
+    # escrito de otra manera. Se vuelve a pasar UNA vez con la comparación tolerante.
+    _access_seed_for_department("produccion_bags_access_seed_v2", "databases.bags", {"producción", "produccion"})
 
 
 def _personnel_tabs_access_seed(session_db=None) -> None:
@@ -98190,7 +98314,9 @@ def _media_contact_name(contact) -> str:
     Punto único: lo usan la ficha del medio y cualquier sitio que enseñe un contacto."""
     if not contact:
         return ""
-    return (getattr(contact, "nick", "") or "").strip() or _media_contact_full_name(contact) or "Contacto"
+    return ((getattr(contact, "nick", "") or "").strip() or _media_contact_full_name(contact)
+            or (getattr(contact, "email", "") or "").strip() or (getattr(contact, "phone", "") or "").strip()
+            or "Contacto")
 
 
 def _media_programs(session_db, media_id) -> list:
@@ -98551,7 +98677,8 @@ def _media_import_row_payload(row) -> dict:
         "id": str(row.id),
         "nick": (row.nick or "").strip(),
         "full_name": completo,
-        "name": (row.nick or "").strip() or completo or "Contacto",
+        # Sin nick ni nombre se enseña lo que haya (el correo o el teléfono): ningún campo es obligatorio.
+        "name": (row.nick or "").strip() or completo or (row.email or "").strip() or (row.phone or "").strip() or "Contacto",
         "program": (row.program or "").strip(),
         "role": (row.role or "").strip(),
         "phone": (row.phone or "").strip(),
@@ -98671,8 +98798,8 @@ def media_contacts_import_create():
     contactos, descartadas = media_contact_import.contact_rows(
         media_contact_import.apply_mapping(filas, mapeo))
     if not contactos:
-        return jsonify({"ok": False, "error": ("Ninguna fila trae con qué llamar a la persona (ni "
-                                               "nick ni nombre): di qué columna es el nombre.")}), 400
+        return jsonify({"ok": False, "error": ("Ninguna fila trae ningún dato de la persona (ni nick, ni "
+                                               "nombre, ni correo, ni teléfono): di qué columna es cada cosa.")}), 400
     if len(contactos) > MEDIA_IMPORT_MAX_ROWS:
         return jsonify({"ok": False,
                         "error": "El fichero trae %s contactos: el tope es %s."
@@ -98755,12 +98882,17 @@ def _media_import_same_contact(session_db, media_id, fila):
     """¿Esa persona ya está en ese medio? Se identifica por su EMAIL y, si no lo trae, por su
     nombre (sin acentos ni mayúsculas). Un contacto no se duplica: se le completa lo que le falte."""
     email = (fila.email or "").strip().lower()
+    telefono = _norm_phone_key(fila.phone or "")
     nombre = _norm_text_key(" ".join([x for x in [(fila.nick or "").strip(),
                                                   (fila.first_name or "").strip(),
                                                   (fila.last_name or "").strip()] if x]))
     for c in session_db.query(MediaContact).filter(MediaContact.media_id == media_id).all():
         if email and (c.email or "").strip().lower() == email:
             return c
+        if telefono and not email and not nombre:
+            suyo_tel = _norm_phone_key(c.phone or "")
+            if suyo_tel and suyo_tel == telefono:
+                return c
         if nombre:
             suyo = _norm_text_key(" ".join([x for x in [(c.nick or "").strip(),
                                                         (c.first_name or "").strip(),
@@ -143318,20 +143450,24 @@ def _buyer_import_dt(value: str):
 
 
 def _buyer_import_group(rows: list[dict]) -> tuple[list[dict], int]:
-    """Agrupa las filas del fichero por comprador. Devuelve (grupos, filas sin contacto)."""
+    """Agrupa las filas del fichero por comprador. Devuelve (grupos, filas SIN CONTACTO).
+
+    NINGÚN campo es obligatorio: un comprador se identifica por su EMAIL, si no por su TELÉFONO y,
+    si no trae ninguno de los dos, por su NOMBRE (sin acentos ni mayúsculas) — entra igual, solo que
+    no se le podrá escribir, y eso es lo que cuenta `sin_contacto`. Lo único que se descarta es una
+    fila sin nada de la persona (ni email, ni teléfono, ni nombre): no hay a quién dar de alta."""
     grupos: dict[str, dict] = {}
     orden: list[str] = []
     sin_contacto = 0
     for r in (rows or []):
-        if (r.get("_sin_contacto") or "") == "1":
-            sin_contacto += 1
-            continue
         email = (r.get("email") or "").strip().lower()
         telefono = _normalize_phone_value((r.get("phone") or "").strip()) or ""
+        nombre_clave = _norm_text_key((r.get("name") or "").strip()) if not email and not telefono else ""
         if not email and not telefono:
+            if not nombre_clave:
+                continue                    # una fila sin nada de la persona: nada que importar
             sin_contacto += 1
-            continue
-        clave = ("e:" + email) if email else ("t:" + telefono)
+        clave = ("e:" + email) if email else (("t:" + telefono) if telefono else ("n:" + nombre_clave))
         g = grupos.get(clave)
         if g is None:
             g = {"key": clave, "email": email, "phone": telefono, "name": "",
@@ -143366,11 +143502,24 @@ def _buyer_import_group(rows: list[dict]) -> tuple[list[dict], int]:
     return [grupos[k] for k in orden], sin_contacto
 
 
-def _buyer_import_match(session_db, grupos: list[dict]) -> dict:
-    """A qué comprador ya existente corresponde cada grupo (por email y, si no, por teléfono)."""
+def _buyer_import_match(session_db, grupos: list[dict], source: dict | None = None) -> dict:
+    """A qué comprador ya existente corresponde cada grupo (por email y, si no, por teléfono).
+
+    Los que no traen NI email NI teléfono (clave `n:`) solo se reconocen dentro del MISMO listado y
+    por su nombre: fuera de un listado un nombre a secas no identifica a nadie, y así reimportar el
+    mismo fichero no los duplica."""
     emails = [g["email"] for g in grupos if g["email"]]
     telefonos = [g["phone"] for g in grupos if g["phone"]]
-    por_email, por_telefono = {}, {}
+    por_email, por_telefono, por_nombre = {}, {}, {}
+    nombres = [g["key"][2:] for g in grupos if g["key"].startswith("n:")]
+    if nombres and source and source.get("pk"):
+        q = session_db.query(Buyer).join(BuyerEvent, BuyerEvent.buyer_id == Buyer.id)
+        q = q.filter(BuyerEvent.event_id == to_uuid(source["pk"])) if source.get("kind") == "ET" else \
+            q.filter(BuyerEvent.list_id == to_uuid(source["pk"]))
+        for b in q.filter(Buyer.email.is_(None), or_(Buyer.phone.is_(None), Buyer.phone == "")).all():
+            k = _norm_text_key(b.name or "")
+            if k and k not in por_nombre:
+                por_nombre[k] = b
     if emails:
         for b in session_db.query(Buyer).filter(func.lower(Buyer.email).in_(emails)).all():
             por_email[(b.email or "").lower()] = b
@@ -143383,6 +143532,8 @@ def _buyer_import_match(session_db, grupos: list[dict]) -> dict:
         b = por_email.get(g["email"]) if g["email"] else None
         if b is None and g["phone"]:
             b = por_telefono.get(g["phone"])
+        if b is None and g["key"].startswith("n:"):
+            b = por_nombre.get(g["key"][2:])
         if b is not None:
             salida[g["key"]] = b
     return salida
@@ -143402,7 +143553,7 @@ def _buyer_import_missing_labels(b: Buyer, g: dict) -> list[str]:
 
 def _buyer_import_summary(session_db, grupos: list[dict], sin_contacto: int, source: dict) -> dict:
     """Lo que va a pasar al importar, para enseñarlo ANTES de tocar nada."""
-    existentes = _buyer_import_match(session_db, grupos)
+    existentes = _buyer_import_match(session_db, grupos, source)
     ya_en_listado = set()
     if existentes and source.get("pk"):
         q = session_db.query(BuyerEvent.buyer_id)
@@ -143437,7 +143588,7 @@ def _buyer_import_summary(session_db, grupos: list[dict], sin_contacto: int, sou
 
 def _buyer_import_apply(session_db, grupos: list[dict], source: dict) -> dict:
     """Da de alta / completa los compradores y los mete en el listado. Devuelve el recuento."""
-    existentes = _buyer_import_match(session_db, grupos)
+    existentes = _buyer_import_match(session_db, grupos, source)
     creados, completados, actualizados = 0, 0, 0
     afectados = set()
     es_et = source["kind"] == "ET"
@@ -143459,10 +143610,12 @@ def _buyer_import_apply(session_db, grupos: list[dict], source: dict) -> dict:
             except Exception:
                 # Choque con el índice único (alguien lo ha dado de alta a la vez): se relee.
                 session_db.rollback()
-                b = (session_db.query(Buyer)
-                     .filter(func.lower(Buyer.email) == (g["email"] or "").lower()).first()
-                     if g["email"] else
-                     session_db.query(Buyer).filter(Buyer.phone == g["phone"]).first())
+                if g["email"]:
+                    b = session_db.query(Buyer).filter(func.lower(Buyer.email) == g["email"].lower()).first()
+                elif g["phone"]:
+                    b = session_db.query(Buyer).filter(Buyer.phone == g["phone"]).first()
+                else:
+                    b = None                # sin email ni teléfono no hay índice con el que chocar
                 if b is None:
                     continue
                 por_comprador = {be.buyer_id: be for be in q_be.all()}
@@ -143820,8 +143973,8 @@ def _buyer_import_legacy_from_payload(datos: dict) -> tuple[dict | None, str | N
 @app.post("/compradores/importar/preparar", endpoint="buyers_import_prepare")
 @admin_required
 def buyers_import_prepare():
-    """Qué va a pasar al importar: cuántos son nuevos, a cuántos se les completa un dato y cuántas
-    filas se descartan por no traer ni email ni teléfono."""
+    """Qué va a pasar al importar: cuántos son nuevos, a cuántos se les completa un dato y cuántos
+    entran sin email ni teléfono (a esos no se les podrá escribir, pero entran igual)."""
     if not can_edit_buyers():
         return jsonify({"ok": False, "error": "No tienes permiso para importar compradores."}), 403
     datos, filas, mapeo = _buyers_import_payload()

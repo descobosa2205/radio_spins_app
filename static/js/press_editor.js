@@ -27,6 +27,7 @@
   var staffUrl = root.getAttribute('data-staff-url') || '';
   var esCampana = root.getAttribute('data-campaign') === '1';
   var imageUrl = root.getAttribute('data-image-url') || '';
+  var imageCropUrl = root.getAttribute('data-image-crop-url') || '';
   var photosUrlTpl = root.getAttribute('data-photos-url') || '';
   var designAsset = {}; try { designAsset = JSON.parse(root.getAttribute('data-design-asset') || '{}') || {}; } catch (e) {}
   var corporate = []; try { corporate = JSON.parse(root.getAttribute('data-corporate') || '[]') || []; } catch (e) {}
@@ -190,23 +191,40 @@
     toolbar.style.top = Math.round(top) + 'px';
     toolbar.style.left = Math.round(Math.max(4, Math.min(r.left - s.left + stage.scrollLeft, stage.clientWidth - toolbar.offsetWidth - 4))) + 'px';
   }
+  var TIPO_LABEL = { title: 'Titular', text: 'Texto', audio: 'Audio', album: 'Repertorio del disco', video: 'Videoclip', links: 'Enlaces de plataformas', contact: 'Contactos', photos: 'Fotos', image: 'Imagen', files: 'Archivos adjuntos', playlist: 'Playlist', artwork: 'Cartelería' };
   function pintaProps(b) {
     var box = root.querySelector('[data-pr-props]'), body = root.querySelector('[data-pr-props-body]');
     if (!box || !body) return;
     if (!b) { box.classList.add('d-none'); return; }
     box.classList.remove('d-none');
+    var kind = root.querySelector('[data-pr-props-kind]'); if (kind) kind.textContent = '— ' + (TIPO_LABEL[b.type] || b.type);
+    // El panel va ARRIBA de la columna de la derecha: se enseña desde el principio, no donde se
+    // hubiera quedado el scroll de la paleta.
+    var side = root.querySelector('[data-pr-side]'); if (side) side.scrollTop = 0;
     var o = b.opts || {};
-    var html = '<div class="small text-muted mb-2">' + esc({ title: 'Titular', text: 'Texto', audio: 'Audio', album: 'Repertorio del disco', video: 'Videoclip', links: 'Enlaces de plataformas', contact: 'Contactos', photos: 'Fotos', image: 'Imagen', files: 'Archivos adjuntos', playlist: 'Playlist', artwork: 'Cartelería' }[b.type] || b.type) + '</div>';
+    var html = '';
     if (b.type === 'contact') {
       html += '<div class="small text-muted mb-2">Salen siempre el contacto de prensa y quien crea la nota; se pueden añadir otros del personal.</div>' +
         '<button type="button" class="btn btn-sm btn-outline-primary" data-pr-contacts-open><i class="fa fa-user-plus me-1"></i>Añadir otro</button>';
     }
     if (b.type === 'image') {
-      html += '<label class="form-label small text-muted mb-1">Enlace al pinchar la imagen <span class="fw-normal">(opcional)</span></label>' +
+      var ref = b.ref || {}, tieneImg = !!ref.url;
+      if (tieneImg) {
+        // La imagen que hay, con RECORTAR / AJUSTAR (girar, proporción) al lado; si ya se recortó,
+        // se puede volver a la original.
+        html += '<div class="pr-props__img mb-2"><img src="' + esc(ref.url) + '" alt=""></div>' +
+          '<div class="d-flex gap-2 flex-wrap mb-2">' +
+          '<button type="button" class="btn btn-sm btn-outline-primary" data-pr-image-crop title="Recortar, girar o cambiar la proporción de la imagen"><i class="fa fa-crop-simple me-1"></i>Recortar o ajustar</button>' +
+          (ref.orig_url && ref.orig_url !== ref.url ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-pr-image-orig title="Deshacer el recorte y volver a la imagen tal como se subió"><i class="fa fa-rotate-left me-1"></i>Original</button>' : '') +
+          '</div>';
+      }
+      html += '<button type="button" class="btn btn-sm btn-outline-' + (tieneImg ? 'secondary' : 'primary') + ' mb-3" data-pr-image-pick><i class="fa fa-image me-1"></i>' + (tieneImg ? 'Cambiar la imagen' : 'Elegir la imagen') + '</button>' +
+        '<label class="form-label small text-muted mb-1 d-flex justify-content-between">Esquinas redondeadas <span data-pr-range-val>' + (parseInt(o.radius || 0, 10) || 0) + ' px</span></label>' +
+        '<input type="range" class="form-range mb-2" min="0" max="40" step="1" data-pr-opt-range="radius" value="' + (parseInt(o.radius || 0, 10) || 0) + '">' +
+        '<label class="form-label small text-muted mb-1">Enlace al pinchar la imagen <span class="fw-normal">(opcional)</span></label>' +
         '<input class="form-control form-control-sm mb-2" data-pr-opt-text="href" value="' + esc(o.href || '') + '" placeholder="https://…">' +
         '<label class="form-label small text-muted mb-1">Texto alternativo</label>' +
-        '<input class="form-control form-control-sm mb-2" data-pr-ref-text="alt" value="' + esc((b.ref || {}).alt || '') + '" placeholder="Qué se ve en la imagen">' +
-        '<button type="button" class="btn btn-sm btn-outline-primary" data-pr-image-pick><i class="fa fa-image me-1"></i>' + ((b.ref || {}).url ? 'Cambiar la imagen' : 'Elegir la imagen') + '</button>';
+        '<input class="form-control form-control-sm mb-2" data-pr-ref-text="alt" value="' + esc(ref.alt || '') + '" placeholder="Qué se ve en la imagen">';
     }
     if (b.type === 'files') {
       html += '<label class="form-label small text-muted mb-1">Cómo se llama este bloque</label>' +
@@ -247,6 +265,12 @@
     var b = sel ? bloque(sel) : null; if (!b) return;
     var t = ev.target.closest('[data-pr-opt-text]');
     if (t) { b.opts = b.opts || {}; b.opts[t.getAttribute('data-pr-opt-text')] = t.value; marca(); refrescaModuloLuego(b); return; }
+    var rg = ev.target.closest('[data-pr-opt-range]');
+    if (rg) {
+      b.opts = b.opts || {}; b.opts[rg.getAttribute('data-pr-opt-range')] = parseInt(rg.value, 10) || 0;
+      var lbl = root.querySelector('[data-pr-range-val]'); if (lbl) lbl.textContent = (parseInt(rg.value, 10) || 0) + ' px';
+      marca(); refrescaModuloLuego(b); return;
+    }
     var r = ev.target.closest('[data-pr-ref-text]');
     if (r) { b.ref = b.ref || {}; b.ref[r.getAttribute('data-pr-ref-text')] = r.value; marca(); refrescaModuloLuego(b); }
   });
@@ -255,6 +279,8 @@
     if (al && sel) { var b = bloque(sel); b.opts = b.opts || {}; b.opts.align = al.getAttribute('data-pr-opt-align'); marca(); refrescaModulo(b); pintaProps(b); return; }
     if (ev.target.closest('[data-pr-del]') && sel) { borra(sel); return; }
     if (ev.target.closest('[data-pr-image-pick]') && sel) { abreImagen(bloque(sel)); return; }
+    if (ev.target.closest('[data-pr-image-crop]') && sel) { abreRecorte(bloque(sel)); return; }
+    if (ev.target.closest('[data-pr-image-orig]') && sel) { var bo = bloque(sel); if (bo && bo.ref && bo.ref.orig_url) aplicaImagenBloque(bo, bo.ref.orig_url, 0, 0, bo.ref.orig_url); return; }
     if (ev.target.closest('[data-pr-files-open]') && sel) { abreArchivos(bloque(sel)); return; }
     if (ev.target.closest('[data-pr-contacts-open]') && sel) { abreContactos(bloque(sel)); return; }
     var cp = ev.target.closest('[data-pr-color-pick]');
@@ -770,15 +796,20 @@
       return;
     }
     var b = bloque(imgTarget); if (!b) return;
+    aplicaImagenBloque(b, url, w, h, url);
+    var inst = window.bootstrap && bootstrap.Modal.getInstance(imgModal); if (inst) inst.hide();
+  }
+  /* Pone una imagen en un bloque (elegida, subida o recortada) conservando la proporción.
+     `origUrl` es la imagen TAL COMO SE SUBIÓ: desde ella se vuelve a recortar y a ella se vuelve. */
+  function aplicaImagenBloque(b, url, w, h, origUrl) {
     function aplica(ww, hh) {
-      b.ref = { url: url, w: ww || 0, h: hh || 0, alt: (b.ref || {}).alt || '' };
+      b.ref = { url: url, w: ww || 0, h: hh || 0, alt: (b.ref || {}).alt || '', orig_url: origUrl || url };
       if (ww > 0 && hh > 0) b.h = Math.round(b.w * hh / ww);
       delete b.html_cache; pintaBloque(b); refrescaModulo(b); marca(); selecciona(b.id);
       canvas.style.height = Math.round(canvasH()) + 'px'; escala();
     }
     if (w > 0 && h > 0) aplica(w, h);
     else { var im = new Image(); im.onload = function () { aplica(im.naturalWidth, im.naturalHeight); }; im.onerror = function () { aplica(0, 0); }; im.src = url; }
-    var inst = window.bootstrap && bootstrap.Modal.getInstance(imgModal); if (inst) inst.hide();
   }
   function subeImagen(file) {
     if (!file) return;
@@ -807,6 +838,152 @@
       dropImg.addEventListener('dragleave', function () { dropImg.classList.remove('is-over'); });
       dropImg.addEventListener('drop', function (ev) { ev.preventDefault(); dropImg.classList.remove('is-over'); var f = ev.dataTransfer.files && ev.dataTransfer.files[0]; if (f) subeImagen(f); });
     }
+  }
+
+  /* ---------- RECORTAR / AJUSTAR la imagen de un bloque ----------
+     Un recuadro que se arrastra y se redimensiona sobre la imagen (con la parte de fuera atenuada),
+     botones de PROPORCIÓN (libre, la original, 1:1, 4:3, 3:2, 16:9, 9:16) y de GIRAR. El recuadro se
+     mide en FRACCIONES de la imagen ya girada y el recorte lo hace el SERVIDOR (Pillow), que
+     devuelve una imagen NUEVA: la original no se toca y queda en `ref.orig_url` para poder volver. */
+  var ASPECTS = [['', 'Libre'], ['orig', 'Original'], ['1', '1:1'], ['1.3333', '4:3'], ['1.5', '3:2'], ['1.7778', '16:9'], ['0.5625', '9:16']];
+  function abreRecorte(b) {
+    if (!b || !b.ref || !b.ref.url || !imageCropUrl) return;
+    var src = b.ref.orig_url || b.ref.url;
+    var ov = document.createElement('div');
+    ov.className = 'prcrop-ov';
+    ov.innerHTML = '<div class="prcrop-panel"><div class="prcrop-head"><i class="fa fa-crop-simple me-2"></i>Recortar o ajustar la imagen' +
+      '<button type="button" class="btn-close btn-close-white ms-auto" data-prcrop-cancel aria-label="Cerrar"></button></div>' +
+      '<div class="prcrop-tools">' +
+      '<span class="prcrop-tools__t">Proporción</span>' + ASPECTS.map(function (a) { return '<button type="button" class="prcrop-tb' + (a[0] === '' ? ' is-on' : '') + '" data-prcrop-aspect="' + a[0] + '">' + a[1] + '</button>'; }).join('') +
+      '<span class="prcrop-tools__sep"></span>' +
+      '<button type="button" class="prcrop-tb" data-prcrop-rot="-90" title="Girar a la izquierda"><i class="fa fa-rotate-left"></i></button>' +
+      '<button type="button" class="prcrop-tb" data-prcrop-rot="90" title="Girar a la derecha"><i class="fa fa-rotate-right"></i></button>' +
+      '<span class="prcrop-tools__sep"></span>' +
+      '<button type="button" class="prcrop-tb" data-prcrop-reset title="Toda la imagen, sin girar"><i class="fa fa-expand"></i> Toda</button>' +
+      '</div>' +
+      '<div class="prcrop-stage" data-prcrop-stage><div class="prcrop-loading text-muted small">Cargando la imagen…</div></div>' +
+      '<div class="prcrop-foot"><span class="small text-muted" data-prcrop-info></span>' +
+      '<button type="button" class="btn btn-outline-secondary btn-sm" data-prcrop-cancel>Cancelar</button>' +
+      '<button type="button" class="btn btn-primary btn-sm" data-prcrop-apply disabled><i class="fa fa-check me-1"></i>Aplicar</button></div></div>';
+    document.body.appendChild(ov);
+    var stageEl = ov.querySelector('[data-prcrop-stage]'), info = ov.querySelector('[data-prcrop-info]'), btnApply = ov.querySelector('[data-prcrop-apply]');
+    var natW = 0, natH = 0, rot = 0, aspect = null, aspectKey = '';
+    var st = { x: 0, y: 0, w: 1, h: 1 };            // en fracciones de la imagen GIRADA
+    var dispW = 0, dispH = 0, img = null, boxEl = null;
+    function cierra() { ov.remove(); }
+    function rotDims() { return (rot === 90 || rot === 270) ? [natH, natW] : [natW, natH]; }
+    function monta() {
+      var rd = rotDims(), rw = rd[0], rh = rd[1];
+      var maxW = Math.min(window.innerWidth * 0.92, 900) - 24, maxH = Math.max(240, window.innerHeight * 0.62);
+      var sc = Math.min(maxW / rw, maxH / rh, 1); if (!isFinite(sc) || sc <= 0) sc = 1;
+      dispW = Math.round(rw * sc); dispH = Math.round(rh * sc);
+      stageEl.style.width = dispW + 'px'; stageEl.style.height = dispH + 'px';
+      var iw = (rot === 90 || rot === 270) ? dispH : dispW, ih = (rot === 90 || rot === 270) ? dispW : dispH;
+      stageEl.innerHTML = '<img class="prcrop-img" src="' + esc(src) + '" alt="" draggable="false" style="width:' + iw + 'px;height:' + ih + 'px;left:' + Math.round((dispW - iw) / 2) + 'px;top:' + Math.round((dispH - ih) / 2) + 'px;transform:rotate(' + rot + 'deg);">' +
+        '<div class="prcrop-box" data-prcrop-box>' + ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'].map(function (h) { return '<span class="prcrop-h prcrop-h--' + h + '" data-h="' + h + '"></span>'; }).join('') + '</div>';
+      boxEl = stageEl.querySelector('[data-prcrop-box]');
+      pinta();
+    }
+    function pinta() {
+      if (!boxEl) return;
+      boxEl.style.left = Math.round(st.x * dispW) + 'px'; boxEl.style.top = Math.round(st.y * dispH) + 'px';
+      boxEl.style.width = Math.round(st.w * dispW) + 'px'; boxEl.style.height = Math.round(st.h * dispH) + 'px';
+      var rd = rotDims();
+      info.textContent = Math.round(st.w * rd[0]) + ' × ' + Math.round(st.h * rd[1]) + ' px' + (rot ? ' · girada ' + rot + '°' : '');
+    }
+    function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+    // Encaja un recuadro con la proporción pedida (en px del stage), lo más grande posible y centrado.
+    function encaja(asp) {
+      if (!asp) { st = { x: 0, y: 0, w: 1, h: 1 }; pinta(); return; }
+      var w = dispW, h = w / asp; if (h > dispH) { h = dispH; w = h * asp; }
+      st = { x: (dispW - w) / 2 / dispW, y: (dispH - h) / 2 / dispH, w: w / dispW, h: h / dispH }; pinta();
+    }
+    function aspectValor(key) { if (key === 'orig') { var rd = rotDims(); return rd[1] ? rd[0] / rd[1] : null; } var v = parseFloat(key); return (isFinite(v) && v > 0) ? v : null; }
+    // Arrastrar: mover o redimensionar (en px del stage); con proporción fija manda el ancho y el
+    // alto se deduce, anclando la esquina contraria.
+    var drag = null;
+    stageEl.addEventListener('pointerdown', function (ev) {
+      if (!boxEl) return;
+      var h = ev.target.closest('.prcrop-h'), enBox = ev.target.closest('.prcrop-box');
+      var r = stageEl.getBoundingClientRect(), px = ev.clientX - r.left, py = ev.clientY - r.top;
+      var bx = { x: st.x * dispW, y: st.y * dispH, w: st.w * dispW, h: st.h * dispH };
+      if (h) drag = { modo: h.getAttribute('data-h'), sx: px, sy: py, o: bx };
+      else if (enBox) drag = { modo: 'move', sx: px, sy: py, o: bx };
+      else {
+        // Pinchar FUERA del recuadro empieza uno nuevo desde ese punto.
+        drag = { modo: 'se', sx: px, sy: py, o: { x: clamp(px, 0, dispW), y: clamp(py, 0, dispH), w: 0, h: 0 }, nuevo: true };
+      }
+      ev.preventDefault();
+      try { stageEl.setPointerCapture(ev.pointerId); } catch (e) {}
+    });
+    stageEl.addEventListener('pointermove', function (ev) {
+      if (!drag) return;
+      var r = stageEl.getBoundingClientRect(), px = clamp(ev.clientX - r.left, 0, dispW), py = clamp(ev.clientY - r.top, 0, dispH);
+      var dx = px - drag.sx, dy = py - drag.sy, o = drag.o, MIN = 24;
+      var x1 = o.x, y1 = o.y, x2 = o.x + o.w, y2 = o.y + o.h;
+      if (drag.modo === 'move') {
+        x1 = clamp(o.x + dx, 0, dispW - o.w); y1 = clamp(o.y + dy, 0, dispH - o.h); x2 = x1 + o.w; y2 = y1 + o.h;
+      } else {
+        var m = drag.modo;
+        if (m.indexOf('w') >= 0) x1 = clamp(o.x + dx, 0, x2 - MIN);
+        if (m.indexOf('e') >= 0) x2 = clamp(o.x + o.w + dx, x1 + MIN, dispW);
+        if (m.indexOf('n') >= 0) y1 = clamp(o.y + dy, 0, y2 - MIN);
+        if (m.indexOf('s') >= 0) y2 = clamp(o.y + o.h + dy, y1 + MIN, dispH);
+        if (aspect) {
+          // El ANCHO manda salvo en los tiradores de arriba/abajo; la esquina contraria se queda quieta.
+          var w = x2 - x1, hh = y2 - y1;
+          if (m === 'n' || m === 's') w = hh * aspect; else hh = w / aspect;
+          if (m.indexOf('w') >= 0) x1 = x2 - w; else x2 = x1 + w;
+          if (m.indexOf('n') >= 0) y1 = y2 - hh; else y2 = y1 + hh;
+          if (m === 'n' || m === 's') { x1 = o.x + (o.w - w) / 2; x2 = x1 + w; }
+          if (m === 'e' || m === 'w') { y1 = o.y + (o.h - hh) / 2; y2 = y1 + hh; }
+          // Si se sale del lienzo se encoge conservando la proporción.
+          var k2 = 1;
+          if (x1 < 0) k2 = Math.min(k2, (x2) / (x2 - x1)); if (x2 > dispW) k2 = Math.min(k2, (dispW - x1) / (x2 - x1));
+          if (y1 < 0) k2 = Math.min(k2, (y2) / (y2 - y1)); if (y2 > dispH) k2 = Math.min(k2, (dispH - y1) / (y2 - y1));
+          if (k2 < 1) {
+            var nw = (x2 - x1) * k2, nh = (y2 - y1) * k2;
+            if (m.indexOf('w') >= 0) x1 = x2 - nw; else x2 = x1 + nw;
+            if (m.indexOf('n') >= 0) y1 = y2 - nh; else y2 = y1 + nh;
+            if (m === 'n' || m === 's') { x1 = clamp(o.x + (o.w - nw) / 2, 0, dispW - nw); x2 = x1 + nw; }
+            if (m === 'e' || m === 'w') { y1 = clamp(o.y + (o.h - nh) / 2, 0, dispH - nh); y2 = y1 + nh; }
+          }
+        }
+      }
+      st = { x: x1 / dispW, y: y1 / dispH, w: (x2 - x1) / dispW, h: (y2 - y1) / dispH };
+      pinta();
+    });
+    function suelta() { drag = null; }
+    stageEl.addEventListener('pointerup', suelta); stageEl.addEventListener('pointercancel', suelta);
+    ov.addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-prcrop-cancel]')) { cierra(); return; }
+      var a = ev.target.closest('[data-prcrop-aspect]');
+      if (a) {
+        aspectKey = a.getAttribute('data-prcrop-aspect'); aspect = aspectValor(aspectKey);
+        ov.querySelectorAll('[data-prcrop-aspect]').forEach(function (x) { x.classList.toggle('is-on', x === a); });
+        encaja(aspect); return;
+      }
+      var rb = ev.target.closest('[data-prcrop-rot]');
+      if (rb) { rot = (rot + parseInt(rb.getAttribute('data-prcrop-rot'), 10) + 360) % 360; monta(); aspect = aspectValor(aspectKey); encaja(aspect); return; }
+      if (ev.target.closest('[data-prcrop-reset]')) {
+        rot = 0; aspectKey = ''; aspect = null;
+        ov.querySelectorAll('[data-prcrop-aspect]').forEach(function (x) { x.classList.toggle('is-on', x.getAttribute('data-prcrop-aspect') === ''); });
+        monta(); return;
+      }
+      if (ev.target.closest('[data-prcrop-apply]')) {
+        btnApply.disabled = true; btnApply.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Recortando…';
+        post(imageCropUrl, { url: src, x: st.x, y: st.y, w: st.w, h: st.h, rotate: rot }).then(function (js) {
+          if (!js || !js.ok) { alert((js && js.error) || 'No se pudo recortar la imagen.'); btnApply.disabled = false; btnApply.innerHTML = '<i class="fa fa-check me-1"></i>Aplicar'; return; }
+          aplicaImagenBloque(b, js.url, js.w, js.h, src);
+          cierra();
+        }).catch(function () { alert('No se pudo recortar la imagen.'); btnApply.disabled = false; btnApply.innerHTML = '<i class="fa fa-check me-1"></i>Aplicar'; });
+      }
+    });
+    document.addEventListener('keydown', function esc_(ev) { if (!document.body.contains(ov)) { document.removeEventListener('keydown', esc_); return; } if (ev.key === 'Escape') { cierra(); document.removeEventListener('keydown', esc_); } });
+    var pre = new Image();
+    pre.onload = function () { natW = pre.naturalWidth; natH = pre.naturalHeight; if (!natW || !natH) { stageEl.innerHTML = '<div class="text-danger small p-3">No se pudo leer la imagen.</div>'; return; } monta(); btnApply.disabled = false; };
+    pre.onerror = function () { stageEl.innerHTML = '<div class="text-danger small p-3">No se pudo cargar la imagen.</div>'; };
+    pre.src = src;
   }
 
   /* ---------- los CONTACTOS del módulo de contacto: prensa + quien crea la nota + los que se añadan ---------- */

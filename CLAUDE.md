@@ -7245,6 +7245,58 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   + los añadidos—, y en cuanto se toca en el pop-up el JS lo pasa a la forma nueva con la lista tal
   como se veía (`press_editor.js`), para no perder a quien iba implícito.
 
+- ⚠️⚠️ **LA BOLSA ES TRABAJO DE PRODUCCIÓN: quien tiene la sección entra en ella** (sep 2026, bug
+  real: «a Irene no le deja abrir la bolsa del concierto y sí tiene permisos»). Dos causas:
+  · el gate de `bag_*` exigía **solo** `databases.bags`, y la siembra que se lo daba al departamento
+    de Producción (`_access_seed_for_department`) comparaba el departamento con la CADENA EXACTA
+    («producción»/«produccion»): a quien lo tiene escrito de otra forma («Producción musical») se lo
+    saltó **sin dar ningún error** y, como corre UNA vez, se quedó sin él para siempre.
+  · Ahora la siembra usa **`_profile_in_department`** (tolerante) y se vuelve a pasar una vez
+    (`produccion_bags_access_seed_v2`); y el mapeo de `bag_*` en `_resolve_request_resource_key` acepta
+    **la primera clave que tenga el usuario** de `BAG_ACCESS_KEYS` (`databases.bags` · `produccion`,
+    con `edit=` en los POST), así que no depende de que la siembra llegue. `bags_view` (el listado de
+    Bases de datos) sigue siendo solo de «Bolsas». Probado: producción sin «Bolsas» abre y escribe en la
+    bolsa; sin ninguna de las dos claves, el 403 sigue diciendo que falta «Bolsas».
+
+- **IMPORTAR TERCEROS, CONTACTOS DE MEDIOS Y COMPRADORES: NINGÚN CAMPO ES OBLIGATORIO** (sep 2026).
+  Un listado puede venir sin nick, sin nombre o sin correo; lo que no trae no puede impedir la
+  importación. **Lo único que se descarta es una fila sin NADA de la persona.**
+  · **Terceros**: `_promoter_import_nick` cae en cascada nick → nombre completo → DNI/NIF → correo →
+    teléfono → **«Tercero sin nombre»** (numerado por `_intake_unique_nick`; `Promoter.nick` es NOT
+    NULL y UNIQUE). Y `_promoter_import_match` reconoce también **por TELÉFONO**
+    (`_norm_phone_key`, de la ficha y de `PromoterPhone`): una fila con solo teléfono no se duplica al
+    reimportar.
+  · **Contactos de medios**: `contact_rows` acepta la fila con solo correo o solo teléfono, y donde se
+    enseña el nombre (`_media_contact_name`, `_media_import_row_payload`) se cae al correo y al
+    teléfono. `_media_import_same_contact` reconoce también por teléfono (cuando no hay ni correo ni
+    nombre).
+  · **Compradores**: sin email ni teléfono el comprador **entra igual**, identificado por su NOMBRE
+    (clave `n:` en `_buyer_import_group`) y solo dentro del MISMO listado (`_buyer_import_match` con
+    `source`): fuera de un listado un nombre no identifica a nadie, y así reimportar no lo duplica.
+    `sin_contacto` pasa a significar «entra, pero no se le podrá escribir» (la pantalla lo dice así).
+
+- **EDITOR DE NOTAS DE PRENSA (y del correo a compradores): las OPCIONES DEL BLOQUE van ARRIBA A LA
+  DERECHA, y una IMAGEN se RECORTA y se GIRA** (sep 2026).
+  · El grupo `[data-pr-props]` es el **PRIMER** grupo de la columna derecha (`data-pr-side`, que se
+    lleva a `scrollTop = 0` al seleccionar): debajo de la paleta de módulos quedaba fuera de pantalla.
+    El título dice «Opciones del bloque — \<tipo\>».
+  · **Recortar o ajustar** (`abreRecorte` en `press_editor.js`, overlay `.prcrop-*` propio, sin
+    Bootstrap): un recuadro que se arrastra y se redimensiona (8 tiradores, lo de fuera atenuado con
+    el `box-shadow` de 9999px), **proporciones** (libre · original · 1:1 · 4:3 · 3:2 · 16:9 · 9:16),
+    **girar** ±90° y «Toda». El recuadro va en **FRACCIONES de la imagen ya girada** y el recorte lo
+    hace el **SERVIDOR** (`promo_press_image_crop`, Pillow: `exif_transpose` → `rotate(-giro)` →
+    `crop` → tope `PRESS_IMAGE_CROP_MAX_SIDE`; PNG si hay alfa, si no JPEG q90) y sube una imagen
+    NUEVA con `_upload_bytes`. Así no depende del CORS de Storage ni de leer el lienzo.
+  ⚠️ **La original no se toca**: queda en `ref.orig_url` (el guardado conserva cualquier clave escalar
+    del `ref`), se vuelve a recortar siempre desde ella y el botón **«Original»** la devuelve. Solo se
+    recortan imágenes NUESTRAS (`_is_own_media_url`).
+  · **Esquinas redondeadas** (`opts.radius`, deslizador 0–40): el motor ya lo pintaba
+    (`border-radius` en `module_html`) pero no había dónde ponerlo.
+  ⚠️ En el editor un CLIC sin mover sobre una imagen abre el selector de imagen: seleccionarla para ver
+    sus opciones es pinchar y cerrar (o coger el bloque por su asa). Probado en el navegador con la
+    app real: 1:1 + 90° + arrastre → aplicar → la imagen queda recortada, «Original» la devuelve y
+    «Guardar» entra.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

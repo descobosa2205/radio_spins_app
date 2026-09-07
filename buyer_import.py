@@ -202,9 +202,9 @@ def parse_file(data: bytes, filename: str = "") -> dict:
 def apply_mapping(rows: list[list], mapping: dict) -> list[dict]:
     """Convierte las filas del fichero en compradores: [{campo: valor}].
 
-    El nombre se compone si el fichero trae «Nombre» y «Apellidos» por separado. Las filas sin
-    email NI teléfono salen igual (con `_sin_contacto`) para poder decir cuántas se descartan y
-    por qué, en vez de que desaparezcan sin más.
+    El nombre se compone si el fichero trae «Nombre» y «Apellidos» por separado. NINGÚN campo es
+    obligatorio: las filas sin email NI teléfono salen igual, marcadas con `_sin_contacto`, para
+    poder decir cuántas entran sin forma de escribirles (se identifican por su nombre).
     """
     salida = []
     for row in rows or []:

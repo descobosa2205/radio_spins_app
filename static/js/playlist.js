@@ -649,9 +649,22 @@
         note: (noteEl && noteEl.value) || '',
         items: JSON.stringify(payload())
       }).then(function (js) {
-        if (btn) btn.disabled = false;
         if (js && js.ok) {
-          // Las líneas nuevas ya tienen id: se recogen para que un segundo guardado no las duplique.
+          if (savedEl) savedEl.textContent = 'Guardada';
+          /* ⚠️ AL GUARDAR SE PASA A VER LA PLAYLIST: quedarse en la pantalla de edición hace pensar
+             que no se ha guardado nada (o que la playlist no se ha creado). Se navega con
+             `location.replace`, así el paso de edición NO se queda en el historial y el botón de
+             atrás lleva al listado, no a rellenar el nombre otra vez (la misma razón por la que
+             «Ver la playlist» va con `data-replace-history`). */
+          var ver = root.getAttribute('data-view-url') || '';
+          if (ver) {
+            if (window.appLoader && window.appLoader.show) { try { window.appLoader.show(); } catch (e) {} }
+            window.location.replace(ver);
+            return js;   // el botón se queda deshabilitado a propósito: ya se está saliendo
+          }
+          if (btn) btn.disabled = false;
+          // Sin sitio a donde ir se sigue editando: las líneas nuevas ya tienen id y se recogen
+          // para que un segundo guardado no las duplique.
           rows = (js.items || []).map(function (r) {
             return {
               id: r.id || '', kind: (r.kind || 'SONG').toUpperCase(), title: r.title || '',
@@ -661,8 +674,8 @@
             };
           });
           render();
-          if (savedEl) savedEl.textContent = 'Guardada';
         } else {
+          if (btn) btn.disabled = false;
           if (savedEl) savedEl.textContent = '';
           alert('No se pudo guardar la playlist.' + (js && js.error ? ' (' + js.error + ')' : ''));
         }

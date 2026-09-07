@@ -2372,6 +2372,12 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   SALE de un paso de formulario se marca con **`data-replace-history`** (hoy, «Ver la playlist»):
   usa `location.replace`, así esa entrada no se queda en el historial.
   Probado en el navegador: crear una playlist → «Ver la playlist» → Volver **lleva al listado**.
+  · ⚠️⚠️ **Y AL GUARDAR SE PASA A VER LO GUARDADO**: el «Guardar» del editor de una playlist se
+  quedaba en la MISMA pantalla de edición (guarda por AJAX y solo cambia el rótulo a «Guardada»), y
+  eso hace pensar que la playlist no se ha creado. Ahora, en cuanto el servidor confirma, se navega a
+  su vista (`data-view-url` del contenedor `[data-playlist-edit]`) con **`location.replace`** —el
+  mismo criterio que `data-replace-history`—, así el paso de edición **no se queda en el historial**.
+  ⚠️ Si el guardado FALLA no se navega: se avisa con el motivo y el botón se vuelve a habilitar.
 
 - ⚠️⚠️ **UN `{% from %}` SIN `with context` NO VE LOS GLOBALES** (bug real, sep 2026, la misma trampa
   que ya documentaba el pop-up de marketing): `_playlist_row.html` se importaba así en TRES pantallas,

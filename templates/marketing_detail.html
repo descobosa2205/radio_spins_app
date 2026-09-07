@@ -4,7 +4,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <a href="{{ url_for('marketing_view', tab='active' if promotion.status != 'ARCHIVED' else 'archived') }}" class="btn btn-outline-secondary btn-volver" title="Volver a marketing" aria-label="Volver a marketing"><i class="fa fa-arrow-left"></i></a>
   <div class="d-flex gap-2">
-    {% if promotion.bag_id %}<a class="btn btn-outline-primary" href="{{ url_for('bag_detail_view', bag_id=promotion.bag_id) }}"><i class="fa fa-sack-dollar me-1"></i> Bolsa de campaña</a>{% endif %}
+    {% if promotion.bag_id %}<a class="btn btn-outline-primary" href="{{ url_for('bag_detail_view', bag_id=promotion.bag_id) }}"><i class="fa fa-sack-dollar me-1"></i> {{ 'Bolsa de la actividad' if promotion.subject_type == 'CONCERT' else 'Bolsa de campaña' }}</a>{% endif %}
     {% if can_edit_promocion %}
       <form method="post" action="{{ url_for('promotion_archive_toggle', promotion_id=promotion.id) }}">
         <input type="hidden" name="next" value="{{ request.url }}">
@@ -65,7 +65,8 @@
         <div class="d-flex justify-content-between mt-2"><span>Inversión con IVA</span><strong>{{ '%.2f'|format(action_totals_gross|float) }} €</strong></div>
         <hr>
         {% if promotion.bag_id %}
-          <a href="{{ url_for('bag_detail_view', bag_id=promotion.bag_id) }}" class="btn btn-outline-primary w-100">Ver bolsa de campaña</a>
+          <a href="{{ url_for('bag_detail_view', bag_id=promotion.bag_id) }}" class="btn btn-outline-primary w-100">{{ 'Ver la bolsa de la actividad' if promotion.subject_type == 'CONCERT' else 'Ver bolsa de campaña' }}</a>
+          {% if promotion.subject_type == 'CONCERT' %}<div class="small text-muted mt-2">El gasto de cada acción va a la categoría «Marketing» de la bolsa de la actividad, y la bolsa no se cierra hasta que la factura de la acción esté subida.</div>{% endif %}
         {% else %}
           <div class="small text-muted">La bolsa se creará automáticamente al añadir acciones con presupuesto o factura.</div>
         {% endif %}

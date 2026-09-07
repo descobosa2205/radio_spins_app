@@ -7168,6 +7168,39 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ `action_files.get(...)` devuelve `None` en una acción sin adjuntos: el `for` de la plantilla
   lleva `or []` (500 real de la primera prueba).
 
+- ⚠️⚠️ **MARKETING · UNA CAMPAÑA DE UNA ACTIVIDAD VA CON LA ACTIVIDAD: su bolsa y su fecha** (sep 2026,
+  dos bugs reales: «se cambió la fecha del concierto y no se reflejó en la acción de marketing» y «el
+  gasto de la acción no aparece en Marketing de la bolsa de la actividad»).
+  · **LA BOLSA ES LA DE LA ACTIVIDAD**: antes cada campaña se creaba su propia bolsa («Marketing ·
+  \<artista\>») y el gasto se quedaba en el aire, fuera de la liquidación del concierto. Punto único
+  **`_promotion_link_concert_bag`** (desde `_ensure_promotion_bag`): la campaña apunta a la bolsa del
+  concierto (`_create_bag_for_concert`, get-or-create) y sus gastos van a la categoría **MARKETING** de
+  esa bolsa. Es el MISMO dinero visto desde dos sitios (la acción en Marketing, el gasto en la bolsa) y
+  **la bolsa no se cierra hasta que la factura de la acción esté subida** —la factura se sube desde
+  Marketing (`marketing_action_document_upload`) y consolida el gasto; `bag_close` ya exigía
+  `_bag_expense_is_consolidated`—. Una campaña que ya tenía bolsa propia **mueve sus gastos** a la de
+  la actividad y la vieja, vacía, se archiva. ⚠️ Una bolsa de actividad ya en liquidación o archivada
+  no se toca: la campaña se queda con la suya.
+  ⚠️ Efecto colateral asumido: una acción de marketing sobre un concierto SIN bolsa **le crea la
+  bolsa**, así que ese concierto aparece en el listado de Producción (que conserva «las que ya tienen
+  bolsa»).
+  · **LA FECHA SIGUE A LA ACTIVIDAD**: `_marketing_shift_dates` mueve con el mismo desplazamiento la
+  fecha objetivo, el plazo de la campaña y **las acciones que todavía no han pasado** (las ya hechas y
+  las canceladas se quedan: lo que se hizo, se hizo ese día), con sus oleadas no finalizadas y su
+  `details_json.end_date`; `_marketing_sync_concert_date` lo hace **al guardar la fecha** (la sección
+  «Datos» de la ficha y el aplazamiento) y **`_promotion_refresh_from_subject`** lo hace **al pintar**
+  (la ficha de la campaña, el listado de Marketing y el panel de la ficha del concierto), como red de
+  seguridad para cualquier otro camino. Rehace también el `snapshot` (fecha · recinto).
+  ⚠️ `_promotion_request_snapshot_from_source` usa **`url_for`**: fuera de una petición revienta, así
+  que el resumen se rehace en su propio `try` y el relleno del arranque
+  (`_marketing_concert_bags_relink_once`, marca `marketing_concert_bags_v1`) va con
+  `app.test_request_context`. El relleno pasa las campañas de actividad YA existentes a la bolsa de su
+  actividad y a su fecha.
+  Probado con la app real: la acción va a la bolsa del concierto (MARKETING) · +7 días en el concierto
+  → la acción, el plazo y la fecha objetivo se mueven +7 · un cambio por otro camino se recoge al abrir
+  la campaña · la bolsa no cierra sin la factura y sí la consolida la subida desde Marketing · una
+  campaña vieja con bolsa propia queda enlazada y su bolsa archivada.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

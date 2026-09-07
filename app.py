@@ -62830,7 +62830,10 @@ def concert_section_update_handler(cid, section):
             elif not venue_raw and not manual_name:
                 raise ValueError("Elige un recinto de la lista (o crea uno con el botón +), o marca "
                                  "«Todavía no se sabe» y escribe lo que se sepa.")
+            _fecha_antes = getattr(c, "date", None)
             c.date = parse_date(request.form["date"])
+            # Las campañas de MARKETING de la actividad siguen a la fecha nueva.
+            _marketing_sync_concert_date(session, c, _fecha_antes)
             # FECHA DE FIN: una actividad puede durar varios días (ensayos, rodajes, ferias).
             _fin = parse_optional_date(request.form.get("end_date"))
             c.end_date = _fin if (_fin and c.date and _fin >= c.date) else None
@@ -73995,6 +73998,7 @@ def _bootstrap_schema_bg():
     # La foto de un EVENTO se ve por su artista espejo: los que ya la habían cambiado se quedaron
     # con la antigua por toda la app. Se ponen al día una vez.
     _safe_ensure(lambda: globals()["_event_mirrors_backfill_once"](), "_event_mirrors_backfill_once")
+    _safe_ensure(lambda: globals()["_marketing_concert_bags_relink_once"](), "_marketing_concert_bags_relink_once")
     # Los ISRC pasan a escribirse en seco (es con lo que se encuentran fuera).
     _safe_ensure(lambda: globals()["_isrc_dashes_backfill_once"](), "_isrc_dashes_backfill_once")
     # Las canciones marcadas como «no está en Chartmetric» por el fallo del array vuelven a la cola.
@@ -85689,6 +85693,12 @@ def _promotion_entity_promotions(session_db, source_type, source_id):
         .order_by(Promotion.target_date.asc().nullslast(), Promotion.created_at.desc())
         .all()
     )
+    # Las campañas de una ACTIVIDAD se ponen al día con ella (fecha, resumen y bolsa) al pintarlas.
+    try:
+        if source_type == "CONCERT" and any(_promotion_refresh_from_subject(session_db, r) for r in filas):
+            session_db.commit()
+    except Exception:
+        session_db.rollback()
     hechas = _promotions_done_map(session_db, [r.id for r in filas])
     return [r for r in filas if hechas.get(str(r.id), True)]
 
@@ -85988,7 +85998,226 @@ def _promotion_primary_artist_uuid(promotion_row):
         return None
 
 
+def _promotion_subject_concert(session_db, promotion):
+    """El CONCIERTO (la actividad) del que es la campaña, o None si no es de una actividad."""
+    if (getattr(promotion, "subject_type", None) or "").strip().upper() != "CONCERT":
+        return None
+    if not getattr(promotion, "subject_id", None):
+        return None
+    try:
+        return session_db.get(Concert, promotion.subject_id)
+    except Exception:
+        return None
+
+
+def _promotion_link_concert_bag(session_db, promotion, concert) -> bool:
+    """⚠️⚠️ LA BOLSA DE UNA CAMPAÑA DE UNA ACTIVIDAD ES LA BOLSA DE LA ACTIVIDAD (sep 2026).
+
+    Antes cada campaña se creaba SU propia bolsa («Marketing · <artista>»), así que el gasto de una
+    acción configurada sobre un concierto no aparecía en la categoría «Marketing» de la bolsa de ese
+    concierto: se quedaba en el aire, en una bolsa aparte que nadie liquidaba con la actividad. Ahora
+    la campaña apunta a la bolsa de la actividad (`_create_bag_for_concert`, get-or-create) y sus
+    gastos van a la categoría MARKETING de ESA bolsa: el mismo dinero visto desde dos sitios (la
+    acción en Marketing y el gasto en la bolsa), y la bolsa no se puede cerrar hasta que la factura
+    de la acción esté subida (`_bag_expense_is_consolidated`, que ya exige `bag_close`).
+    Si la campaña YA tenía su propia bolsa, sus gastos se MUEVEN a la de la actividad y la vieja, si se
+    queda vacía, se archiva. ⚠️ Una bolsa de actividad ya en liquidación (o archivada) no se toca: ahí
+    ya no se puede meter un gasto nuevo, y la campaña se queda con la suya.
+    Devuelve True si ha cambiado algo."""
+    if concert is None:
+        return False
+    try:
+        bag = _create_bag_for_concert(session_db, concert)
+    except Exception:
+        app.logger.exception("[marketing] no se pudo resolver la bolsa de la actividad")
+        return False
+    if bag is None:
+        return False
+    if bool(getattr(bag, "is_archived", False)) or \
+            (getattr(bag, "liquidation_status", None) or "NO_INICIADA").strip().upper() != "NO_INICIADA":
+        return False
+    if str(getattr(promotion, "bag_id", None) or "") == str(bag.id):
+        return False
+    vieja_id = getattr(promotion, "bag_id", None)
+    promotion.bag_id = bag.id
+    acciones = (session_db.query(PromotionActivity)
+                .filter(PromotionActivity.promotion_id == promotion.id).all())
+    ids = [a.bag_expense_id for a in acciones if getattr(a, "bag_expense_id", None)]
+    if ids:
+        for gasto in session_db.query(BagExpense).filter(BagExpense.id.in_(ids)).all():
+            if str(gasto.bag_id) != str(bag.id):
+                gasto.bag_id = bag.id
+                gasto.category = "MARKETING"
+                gasto.updated_at = _now_madrid()
+    if vieja_id and str(vieja_id) != str(bag.id):
+        vieja = session_db.get(WorkflowBag, vieja_id)
+        if vieja is not None and (getattr(vieja, "linked_type", None) or "").strip().upper() != "CONCERT":
+            session_db.flush()
+            restantes = (session_db.query(func.count(BagExpense.id))
+                         .filter(BagExpense.bag_id == vieja.id).scalar() or 0)
+            if not restantes:
+                vieja.is_archived = True          # se quedó vacía: fuera de la vista, sin borrar nada
+    return True
+
+
+def _marketing_shift_dates(session_db, promotion, old_date, new_date) -> int:
+    """La campaña SIGUE a la actividad cuando esta cambia de fecha (sep 2026, bug real: se movió el
+    concierto de Álvaro García en Madrid y la acción de marketing se quedó con la fecha vieja).
+
+    Se mueven, con el mismo desplazamiento, la fecha objetivo, el plazo de la campaña y las ACCIONES
+    que todavía no han pasado (las ya hechas —fecha anterior a hoy— y las canceladas se quedan donde
+    estaban: lo que se hizo, se hizo ese día). Devuelve cuántas acciones se han movido."""
+    if not old_date or not new_date or old_date == new_date:
+        return 0
+    delta = new_date - old_date
+    hoy = today_local()
+    promotion.target_date = new_date
+    if getattr(promotion, "starts_on", None) and promotion.starts_on >= hoy:
+        promotion.starts_on = promotion.starts_on + delta
+    if getattr(promotion, "ends_on", None) and promotion.ends_on >= hoy:
+        promotion.ends_on = promotion.ends_on + delta
+    movidas = 0
+    acciones = (session_db.query(PromotionActivity)
+                .filter(PromotionActivity.promotion_id == promotion.id).all())
+    for a in acciones:
+        if getattr(a, "cancelled_at", None) or not getattr(a, "activity_date", None):
+            continue
+        if a.activity_date < hoy:
+            continue
+        a.activity_date = a.activity_date + delta
+        det = dict(getattr(a, "details_json", None) or {})
+        fin = (det.get("end_date") or "").strip() if isinstance(det.get("end_date"), str) else ""
+        if fin:
+            try:
+                det["end_date"] = (date.fromisoformat(fin) + delta).isoformat()
+            except Exception:
+                pass
+        det["shifted_with_concert"] = {"from": old_date.isoformat(), "to": new_date.isoformat()}
+        a.details_json = det
+        olas = []
+        for w in list(getattr(a, "waves_json", None) or []):
+            w = dict(w or {})
+            if (w.get("status") or "PENDIENTE").upper() != "FINALIZADO":
+                for k in ("start", "end"):
+                    v = w.get(k)
+                    if isinstance(v, str) and v.strip():
+                        try:
+                            w[k] = (date.fromisoformat(v.strip()) + delta).isoformat()
+                        except Exception:
+                            pass
+            olas.append(w)
+        a.waves_json = olas
+        try:
+            from sqlalchemy.orm.attributes import flag_modified as _fm
+            _fm(a, "details_json")
+            _fm(a, "waves_json")
+        except Exception:
+            pass
+        movidas += 1
+    promotion.updated_at = _now_madrid()
+    return movidas
+
+
+def _promotion_refresh_from_subject(session_db, promotion) -> bool:
+    """Pone la campaña AL DÍA con su actividad (punto único, red de seguridad al pintar).
+
+    Si el concierto ha cambiado de fecha, se mueven la campaña y sus acciones
+    (`_marketing_shift_dates`); el resumen (`snapshot`: fecha y recinto) se rehace en vivo; y la
+    bolsa pasa a ser la de la actividad (`_promotion_link_concert_bag`). Devuelve True si ha
+    cambiado algo (el que llama decide si hace commit)."""
+    concert = _promotion_subject_concert(session_db, promotion)
+    if concert is None:
+        return False
+    cambiado = False
+    try:
+        viva = getattr(concert, "date", None)
+        actual = getattr(promotion, "target_date", None)
+        if viva and actual and viva != actual:
+            _marketing_shift_dates(session_db, promotion, actual, viva)
+            cambiado = True
+        elif viva and not actual:
+            promotion.target_date = viva
+            cambiado = True
+        if _promotion_link_concert_bag(session_db, promotion, concert):
+            cambiado = True
+    except Exception:
+        app.logger.exception("[marketing] no se pudo poner al día la campaña con su actividad")
+    # El RESUMEN (fecha y recinto) se rehace aparte: `_promotion_request_snapshot_from_source` usa
+    # `url_for` y fuera de una petición (el relleno del arranque) revienta; que no se lleve lo demás.
+    try:
+        snap = _promotion_request_snapshot_from_source(session_db, "CONCERT", promotion.subject_id)
+        if snap:
+            viejo = dict(getattr(promotion, "snapshot", None) or {})
+            if (viejo.get("subtitle") != snap.get("subtitle")) or (viejo.get("title") != snap.get("title")):
+                nuevo = dict(viejo)
+                nuevo.update(snap)
+                promotion.snapshot = nuevo
+                cambiado = True
+    except Exception:
+        pass
+    return cambiado
+
+
+def _marketing_sync_concert_date(session_db, concert, old_date) -> int:
+    """Al CAMBIAR LA FECHA de una actividad, sus campañas de marketing la siguen (se llama desde los
+    sitios que escriben `Concert.date`). Best-effort: nunca revienta el guardado de la actividad."""
+    try:
+        nueva = getattr(concert, "date", None)
+        if not old_date or not nueva or old_date == nueva:
+            return 0
+        n = 0
+        for pr in (session_db.query(Promotion)
+                   .filter(Promotion.subject_type == "CONCERT", Promotion.subject_id == concert.id).all()):
+            n += _marketing_shift_dates(session_db, pr, (getattr(pr, "target_date", None) or old_date), nueva)
+            # El resumen (fecha · recinto) aparte: `url_for` no está disponible fuera de una petición
+            # y un fallo ahí no puede deshacer el movimiento de las fechas.
+            try:
+                snap = _promotion_request_snapshot_from_source(session_db, "CONCERT", concert.id)
+                if snap:
+                    nuevo = dict(getattr(pr, "snapshot", None) or {})
+                    nuevo.update(snap)
+                    pr.snapshot = nuevo
+            except Exception:
+                pass
+        return n
+    except Exception:
+        app.logger.exception("[marketing] no se pudieron mover las campañas con la actividad")
+        return 0
+
+
+def _marketing_concert_bags_relink_once():
+    """Arreglo PUNTUAL (sep 2026): las campañas de una ACTIVIDAD que ya existían con su propia bolsa
+    pasan a la bolsa de la actividad, con sus gastos, y se ponen al día con su fecha. A partir de
+    ahora lo hace `_ensure_promotion_bag` al crear y `_promotion_refresh_from_subject` al pintar."""
+    marca = "marketing_concert_bags_v1"
+    s = db()
+    try:
+        if (_get_app_setting(marca) or "").strip():
+            return
+        tocadas = 0
+        # Con contexto de PETICIÓN: el resumen de la campaña se compone con `url_for`.
+        with app.test_request_context("/"):
+            for pr in s.query(Promotion).filter(Promotion.subject_type == "CONCERT").all():
+                if _promotion_refresh_from_subject(s, pr):
+                    tocadas += 1
+        s.commit()
+        _set_app_setting(marca, "ok")
+        if tocadas:
+            app.logger.info("[marketing] %d campañas de actividad enlazadas a la bolsa de su actividad", tocadas)
+    except Exception:
+        s.rollback()
+        app.logger.exception("[marketing] no se pudieron enlazar las campañas a la bolsa de su actividad")
+    finally:
+        s.close()
+
+
 def _ensure_promotion_bag(session_db, promotion_row):
+    # Una campaña de una ACTIVIDAD usa LA BOLSA DE LA ACTIVIDAD (no una propia).
+    concert = _promotion_subject_concert(session_db, promotion_row)
+    if concert is not None:
+        _promotion_link_concert_bag(session_db, promotion_row, concert)
+        if getattr(promotion_row, 'bag_id', None):
+            return
     if getattr(promotion_row, 'bag_id', None):
         return
     snap = dict(getattr(promotion_row, 'snapshot', None) or {})
@@ -86130,6 +86359,10 @@ def _marketing_index_response(default_tab="requested"):
             .order_by(Promotion.target_date.asc().nullslast(), Promotion.created_at.desc())
             .all()
         )
+        # Las campañas de una ACTIVIDAD siguen a su actividad (si cambió de fecha, se mueven).
+        if any(_promotion_refresh_from_subject(session_db, r) for r in promotion_rows
+               if (getattr(r, 'status', None) or 'ACTIVE').strip().upper() == 'ACTIVE'):
+            session_db.commit()
         active_promotions = [_promotion_display_promotion(row) for row in promotion_rows if (getattr(row, 'status', None) or 'ACTIVE').strip().upper() == 'ACTIVE']
         archived_promotions = [_promotion_display_promotion(row) for row in promotion_rows if (getattr(row, 'status', None) or '').strip().upper() == 'ARCHIVED']
 
@@ -86420,6 +86653,9 @@ def promotion_detail_view(promotion_id):
         if not promotion:
             flash('Campaña de marketing no encontrada.', 'warning')
             return redirect(url_for('promocion_view'))
+        # La campaña SIGUE a su actividad (fecha, resumen y bolsa): red de seguridad al abrirla.
+        if _promotion_refresh_from_subject(session_db, promotion):
+            session_db.commit()
         tab = (request.args.get('tab') or 'informacion').strip().lower()
         # LAS ACCIONES YA NO SON UNA PESTAÑA (sep 2026): son un MÓDULO debajo de la información. Los
         # enlaces antiguos con `tab=acciones` (los avisos, el volver de crear una acción) siguen
@@ -105052,6 +105288,8 @@ def _cancel_apply(session_db, concert, notice_kind: str) -> dict:
                 if getattr(concert, "end_date", None) and anterior:
                     concert.end_date = concert.date + (concert.end_date - anterior)
                 fila["old_date"] = anterior.isoformat() if anterior else ""
+                # Las campañas de MARKETING de la actividad siguen a la fecha nueva.
+                _marketing_sync_concert_date(session_db, concert, anterior)
             except Exception:
                 app.logger.exception("[aplazamiento] no se pudo mover la fecha")
             concert.status = "RESERVADO"

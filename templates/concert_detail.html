@@ -724,9 +724,17 @@
                 <select name="promoter_id" id="concertDatosPromoter" class="form-select select-providers"><option value="">—</option>{% for p in promoters %}<option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}" {% if concert.promoter_id == p.id %}selected{% endif %}>{{ p.nick }}</option>{% endfor %}</select>
                 <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="concertDatosPromoter"><i class="fa fa-plus"></i></button>
               </div>
-              <div class="form-text">Quién promueve la actividad, sea cual sea el tipo de venta.</div>
+              <div class="form-text">Quién promueve la actividad.</div>
             </div>
-            <div class="col-md-3">
+            {# A EMPRESA: no hay promotor externo, el promotor ES la empresa del grupo que factura. El
+               JS (`applySaleType`) esconde y deshabilita el promotor y su sociedad, y enseña esto. #}
+            <div class="col-md-9 d-none" data-promoter-empresa-note style="display:none">
+              <div class="alert alert-light border mb-0 py-2 small">
+                <i class="fa fa-building me-1 text-primary"></i><strong>A empresa:</strong> lo organiza la casa, así que
+                <strong>el promotor es la empresa del grupo que factura</strong> (elígela aquí al lado). No se elige un promotor externo.
+              </div>
+            </div>
+            <div class="col-md-3" data-promoter-company-wrap>
               <label class="form-label">Con qué sociedad factura <span class="text-muted fw-normal">(opcional)</span></label>
               <select name="promoter_company_id" class="form-select">
                 <option value="">—</option>
@@ -835,13 +843,21 @@
     {# Las TARJETAS de resumen que había aquí se han retirado: repetían lo que ya dice la cabecera
        (estado, tipo, fecha, recinto, aforo, empresa que factura, anuncio y salida a la venta). Lo
        que no está arriba —el promotor y su sociedad— va abajo, en la tabla compacta. #}
-    {% if concert.promoter %}
+    {# QUIÉN PROMUEVE (punto único `concert_promoter_display`): en un concierto A EMPRESA es la
+       empresa del grupo que factura, con su logo; en los demás, el tercero con su foto. #}
+    {% set _qp = concert_promoter_display(concert) %}
+    {% if _qp %}
       <div class="cfila mb-3">
-        <img class="cfila__ph" src="{{ concert.promoter.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+        {% if _qp.kind == 'COMPANY' %}
+          {{ company_logo(_qp.company, size=44, cls='cfila__ph') }}
+        {% else %}
+          <img class="cfila__ph" src="{{ _qp.logo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+        {% endif %}
         <div class="min-w-0">
           <div class="cfila__lab">Promotor</div>
-          <a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('promoter_detail_view', pid=concert.promoter.id) }}">{{ concert.promoter.nick }}</a>
-          {% if concert.promoter_company %}<span class="small text-muted ms-2"><i class="fa fa-landmark me-1"></i>{{ concert.promoter_company.legal_name }}</span>{% endif %}
+          <a class="fw-semibold text-reset text-decoration-none" href="{{ _qp.url or '#' }}">{{ _qp.name }}</a>
+          {% if _qp.kind == 'COMPANY' %}<span class="badge text-bg-light border ms-2"><i class="fa fa-building me-1"></i>Empresa del grupo · a empresa</span>
+          {% elif _qp.note %}<span class="small text-muted ms-2"><i class="fa fa-landmark me-1"></i>{{ _qp.note }}</span>{% endif %}
         </div>
       </div>
     {% endif %}

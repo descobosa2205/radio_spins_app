@@ -7220,6 +7220,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   para las que no tienen artista) se ven las suyas con su cabecera y el volver. Una campaña de varios
   artistas sale en cada uno. `?tab=requested` (enlaces antiguos) cae en «Acciones».
 
+- ⚠️⚠️ **«A EMPRESA»: EL PROMOTOR ES LA EMPRESA DEL GRUPO QUE FACTURA** (sep 2026, lo pidió Dani). En
+  un concierto con `sale_type == 'EMPRESA'` lo organiza la casa, así que **no se puede elegir un promotor
+  externo**: en la sección «Datos» de la ficha el promotor y su sociedad se **esconden y se
+  DESHABILITAN** (`applySaleType` en `concert_form.js`; un campo oculto se envía igual) y se dice quién
+  promueve; el **servidor lo impone** al guardar (`promoter_id`/`promoter_company_id` a None y
+  `group_company_id` = la empresa que factura), como ya hacía el asistente. Punto único de **quién
+  promueve tal como se enseña**: **`_concert_promoter_display(concert)`** (global de plantilla
+  `concert_promoter_display`): a empresa → la empresa del grupo con su logo; si no, el tercero. Lo usan
+  la ficha de contratación (`_concert_contracting_general_rows`, «Promotor: X (empresa del grupo)») y la
+  fila del promotor de la pestaña General. `_concert_is_group_promoted` da True también con
+  EMPRESA + empresa que factura. Relleno puntual `_empresa_promoter_backfill_once` (marca
+  `empresa_promoter_v1`): limpia el promotor externo de los conciertos a empresa que ya existían y les
+  pone `group_company_id`.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

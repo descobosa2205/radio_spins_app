@@ -1592,6 +1592,8 @@ def inject_globals():
         # CARTELERÍA: de qué es un cartel (IMAGE | VIDEO | PDF), para pintarlo como toca.
         artwork_kind=_artwork_kind_of,
         artwork_category=_artwork_asset_category,
+        # Quién promueve una actividad tal como se enseña (a empresa = la empresa del grupo).
+        concert_promoter_display=_concert_promoter_display,
         # Con qué URL se REPRODUCE un vídeo: su versión web (H.264 + faststart) si está lista.
         video_play_url=_video_web_url,
         # AFORO: «Aforo a la venta» o, en una actividad gratuita, «Aforo» a secas.
@@ -62872,6 +62874,16 @@ def concert_section_update_handler(cid, section):
             c.sale_type = sale_type
             c.artist_id = to_uuid(request.form["artist_id"])
             c.billing_company_id = to_uuid(request.form.get("billing_company_id") or None)
+            # ⚠️⚠️ A EMPRESA: EL PROMOTOR ES LA EMPRESA DEL GRUPO QUE FACTURA (sep 2026). No hay
+            # promotor externo que elegir: se limpia el que hubiera y la empresa que factura queda
+            # también como la que promueve (`group_company_id`, que es lo que mira
+            # `_concert_is_group_promoted`). El formulario esconde y deshabilita el campo, pero el
+            # servidor lo vuelve a imponer: esconder un campo no basta.
+            if sale_type == "EMPRESA":
+                c.promoter_id = None
+                c.promoter_company_id = None
+                if c.billing_company_id:
+                    c.group_company_id = c.billing_company_id
             # AFORO: «aforo libre» manda (una actividad sin aforo cerrado no tiene número).
             c.no_capacity = _truthy(request.form.get("no_capacity"))
             requested_capacity = 0 if c.no_capacity else max(0, int(request.form.get("capacity") or 0))
@@ -62911,7 +62923,7 @@ def concert_section_update_handler(cid, section):
             # demás se ponía a None: el campo desaparecía de la pantalla y, al guardar, se BORRABA el
             # promotor que ya había (bug real). Quién promueve es un dato de la actividad, no del tipo
             # de venta.
-            if "promoter_id" in request.form:
+            if "promoter_id" in request.form and sale_type != "EMPRESA":
                 c.promoter_id = to_uuid(request.form.get("promoter_id") or None)
                 # Y con qué SOCIEDAD del promotor se factura (solo si es una suya).
                 _soc = to_uuid((request.form.get("promoter_company_id") or "").strip() or None)
@@ -73999,6 +74011,7 @@ def _bootstrap_schema_bg():
     # con la antigua por toda la app. Se ponen al día una vez.
     _safe_ensure(lambda: globals()["_event_mirrors_backfill_once"](), "_event_mirrors_backfill_once")
     _safe_ensure(lambda: globals()["_marketing_concert_bags_relink_once"](), "_marketing_concert_bags_relink_once")
+    _safe_ensure(lambda: globals()["_empresa_promoter_backfill_once"](), "_empresa_promoter_backfill_once")
     # Los ISRC pasan a escribirse en seco (es con lo que se encuentran fuera).
     _safe_ensure(lambda: globals()["_isrc_dashes_backfill_once"](), "_isrc_dashes_backfill_once")
     # Las canciones marcadas como «no está en Chartmetric» por el fallo del array vuelven a la cola.
@@ -86298,6 +86311,37 @@ def _marketing_sync_concert_date(session_db, concert, old_date) -> int:
     except Exception:
         app.logger.exception("[marketing] no se pudieron mover las campañas con la actividad")
         return 0
+
+
+def _empresa_promoter_backfill_once():
+    """Arreglo PUNTUAL (sep 2026): en los conciertos A EMPRESA el promotor es la empresa del grupo que
+    factura, así que se limpia el promotor externo que se hubiera elegido y la empresa que factura
+    queda también como la que promueve (`group_company_id`). A partir de ahora lo impone el guardado."""
+    marca = "empresa_promoter_v1"
+    s = db()
+    try:
+        if (_get_app_setting(marca) or "").strip():
+            return
+        tocados = 0
+        for c in s.query(Concert).filter(Concert.sale_type == "EMPRESA").all():
+            cambio = False
+            if getattr(c, "promoter_id", None) or getattr(c, "promoter_company_id", None):
+                c.promoter_id = None
+                c.promoter_company_id = None
+                cambio = True
+            if getattr(c, "billing_company_id", None) and not getattr(c, "group_company_id", None):
+                c.group_company_id = c.billing_company_id
+                cambio = True
+            tocados += 1 if cambio else 0
+        s.commit()
+        _set_app_setting(marca, "ok")
+        if tocados:
+            app.logger.info("[contratacion] %d conciertos a empresa sin promotor externo", tocados)
+    except Exception:
+        s.rollback()
+        app.logger.exception("[contratacion] no se pudo aplicar la regla de «a empresa» a lo ya creado")
+    finally:
+        s.close()
 
 
 def _marketing_concert_bags_relink_once():
@@ -103201,6 +103245,35 @@ def _promoter_info_rows(session_db, promoter, *, prefijo: str = "Promotor") -> l
     return [("%s · %s" % (prefijo, etiqueta), valor) for etiqueta, valor in filas]
 
 
+def _concert_promoter_display(concert) -> dict | None:
+    """QUIÉN PROMUEVE, tal como se ENSEÑA (punto único). En un concierto **A EMPRESA** el promotor es
+    **la empresa del grupo que factura** (no hay promotor externo: lo organiza la casa); en los demás,
+    el tercero de `promoter_id`. None si no consta ninguno."""
+    if concert is None:
+        return None
+    st = (getattr(concert, "sale_type", None) or "").strip().upper()
+    if st == "EMPRESA":
+        co = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+        if co is None:
+            return None
+        try:
+            url = url_for("company_detail", cid=co.id)
+        except Exception:
+            url = ""
+        return {"kind": "COMPANY", "name": (co.name or "Empresa del grupo"), "logo": (getattr(co, "logo_url", None) or ""),
+                "url": url, "company": co, "note": "Empresa del grupo (a empresa)"}
+    pr = getattr(concert, "promoter", None)
+    if pr is None:
+        return None
+    try:
+        url = url_for("promoter_detail_view", pid=pr.id)
+    except Exception:
+        url = ""
+    soc = getattr(concert, "promoter_company", None)
+    return {"kind": "PROMOTER", "name": (pr.nick or ""), "logo": (getattr(pr, "logo_url", None) or ""), "url": url,
+            "company": None, "note": (getattr(soc, "legal_name", None) or "") if soc is not None else ""}
+
+
 def _concert_contracting_general_rows(session_db, concert):
     rows = []
 
@@ -103219,13 +103292,17 @@ def _concert_contracting_general_rows(session_db, concert):
     add("Festival / evento", getattr(concert, "festival_name", None))
     if getattr(concert, "billing_company", None):
         add("Empresa que factura", concert.billing_company.name)
-    if getattr(concert, "promoter", None):
+    _quien = _concert_promoter_display(concert)
+    if _quien and _quien["kind"] == "COMPANY":
+        # A EMPRESA: promueve la empresa del grupo que factura (no hay promotor externo).
+        add("Promotor", "%s (empresa del grupo)" % _quien["name"])
+    elif getattr(concert, "promoter", None):
         add("Promotor", concert.promoter.nick)
         # Y SUS DATOS, los que se pusieron al darlo de alta (nombre/razón social, CIF o DNI,
         # dirección fiscal, contacto y quién lo representa). Un campo vacío no se pinta.
         for _etiqueta, _valor in _promoter_info_rows(session_db, concert.promoter):
             add(_etiqueta, _valor)
-    if getattr(concert, "promoter_company", None):
+    if getattr(concert, "promoter_company", None) and (_quien or {}).get("kind") != "COMPANY":
         add("Sociedad promotor", getattr(concert.promoter_company, "legal_name", None) or getattr(concert.promoter_company, "name", None))
     # LAS COMISIONES, con cómo se aplica cada una (y por tanto si se le comunican al artista).
     for _c in _concert_commission_rows(session_db, concert):
@@ -127186,6 +127263,9 @@ def _concert_is_group_promoted(session_db, concert) -> bool:
     if not concert:
         return False
     if getattr(concert, "group_company_id", None):
+        return True
+    # A EMPRESA lo organiza la casa: la empresa del grupo que factura es la que promueve.
+    if (getattr(concert, "sale_type", None) or "").strip().upper() == "EMPRESA" and getattr(concert, "billing_company_id", None):
         return True
     cid = getattr(concert, "id", None)
     if not cid:

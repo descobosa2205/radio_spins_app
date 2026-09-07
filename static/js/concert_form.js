@@ -281,10 +281,21 @@
     var sel = form.querySelector('[data-sale-type]');
     var v = sel ? sel.value : '';
     var prom = form.querySelector('[data-promoter-wrap]');
+    var promCo = form.querySelector('[data-promoter-company-wrap]');
+    var nota = form.querySelector('[data-promoter-empresa-note]');
     var be = form.querySelector('[data-breakeven-wrap]');
-    setShown(prom, true);
+    /* ⚠️ A EMPRESA (sep 2026): el promotor ES la empresa del grupo que factura, así que no se puede
+       elegir un promotor externo: el promotor y su sociedad se esconden y se DESHABILITAN (un campo
+       oculto se envía igual) y se dice quién promueve. El servidor lo vuelve a imponer al guardar. */
+    var esEmpresa = (v === 'EMPRESA');
+    setShown(prom, !esEmpresa);
+    setShown(promCo, !esEmpresa);
+    if (nota) { nota.classList.toggle('d-none', !esEmpresa); nota.style.display = esEmpresa ? '' : 'none'; }
+    [prom, promCo].forEach(function (w) {
+      if (!w) return;
+      w.querySelectorAll('select, input').forEach(function (el) { el.disabled = esEmpresa; });
+    });
     setShown(be, true);
-    if (v) { /* el tipo de venta se sigue usando para lo demás del formulario */ }
   }
 
   function initDatosForm(form) {

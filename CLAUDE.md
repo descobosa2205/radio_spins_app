@@ -10295,6 +10295,77 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Los números salen de `_invitation_ficha_header_counts`, el MISMO que pinta las galletas de la
   cabecera de invitaciones: no pueden decir cosas distintas.
 
+- ⚠️⚠️⚠️ **EL LECTOR DE DNI, NIE Y PASAPORTE: LEE LAS DOS CARAS Y NO SE LE PIDE «LA PARTE DE ATRÁS»**
+  (sep 2026, rediseño; bug real: «el lector no funciona, tarda muchísimo, te pide la parte de atrás y
+  la gente se equivoca»). En el DNI español el **MRZ está en el REVERSO**, así que un lector que solo
+  sepa leer el MRZ obliga a dar la vuelta al documento… y quien pone la cara de la foto —que es «el
+  DNI» para cualquiera— **no conseguía nada NUNCA**: se agotaban los 90 intentos y salía el error.
+  · **AHORA SE LEEN LAS DOS**: el **REVERSO va primero** (su banda lleva dígitos de control, así que
+  se dispara en cuanto un fotograma sale limpio) y, si en dos vueltas no aparece, **se alterna con la
+  CARA DELANTERA** (`parse_front` / `parseFrontText`), de la que salen el **número** —comprobado con
+  su letra mod-23—, **nombre y apellidos** (por sus rótulos), **fechas**, sexo y nacionalidad.
+  ⚠️ Antes del impreso solo se rascaba el número: quien subía la foto de su anverso se quedaba **sin
+  nombre, sin apellidos y sin fechas** (`extract_fields` los cogía solo del MRZ).
+  · ⚠️⚠️ **LO QUE HACE QUE FUNCIONE ES REPARAR LO QUE EL OCR LEE MAL, POR POSICIÓN.** En el MRZ cada
+  posición solo puede ser una cosa (una fecha son seis DÍGITOS, la nacionalidad tres LETRAS), así que
+  una «O» donde va un cero **se traduce**, no se descarta. Antes **una sola «O» en la fecha tiraba el
+  MRZ ENTERO** —ni el nombre se salvaba— y la cámara se quedaba «pensando»: eso era el «no funciona»
+  y el «tarda muchísimo». Comprobado: los cinco fallos típicos (O por 0, I/L por 1, S por 5, la «M»
+  del sexo leída como «H», «1D» por «ID») **antes daban NADA y ahora se leen perfectos**.
+  · Capas, en este orden: **1)** traducción por posición (`_a_digitos`/`_a_letras`, determinista);
+  **2)** los rellenos **«<» leídos como K/L/C** (una racha de 3+ letras idénticas es relleno, y solo
+  en las zonas de relleno: un pasaporte «AAA123456» tiene tres letras iguales de verdad);
+  **3)** corrección de UN carácter guiada por el dígito de control, **solo si la solución es ÚNICA**
+  (`_arregla_por_check`); **4)** la **letra de control leída como un DÍGITO** («…78Z» → «…782»), que
+  es el fallo más típico del impreso: se traduce y **se comprueba el mod-23**.
+  ⚠️ Las letras que no se parecen a ningún dígito (H, K, M, N, W) **no se traducen**: ahí reparar
+  sería inventar. Y **la LETRA del DNI nunca se recalcula**: es la comprobación — recalculándola,
+  cualquier tira de ocho dígitos daría un «DNI válido».
+  · ⚠️ **La forma de cada línea se comprueba YA REPARADA**, pero exigiendo que **la mayoría de esas
+  posiciones sean dígitos de verdad** (11 de 14): traduciendo a ciegas, «IDESPBAA000589…» —que es la
+  línea 1— también casaba con «fechas + sexo» y el MRZ se leía del revés (bug de este mismo lote).
+  · **Y EL OCR JUNTA LAS COSAS**: las líneas del MRZ vienen **pegadas** (`_desdobla` prueba 3×30 y
+  2×44 y devuelve TODAS las particiones: 88 caracteres son un pasaporte pero también entran en 3×30)
+  y las fechas del impreso salen sin separadores («0101 1980», «01011980»), que con el patrón de
+  siempre (`dd/mm/aaaa`) **no encontraba NINGUNA** — el DNI las imprime con espacios.
+  · **QUE NO CUELE UN DATO INVENTADO**: `find_spanish_id` exige límites en los extremos —sin ellos
+  «PEDIDO 20260908 REFERENCIA» daba el «DNI» 20260908R, con la letra de la palabra de al lado (bug
+  que ya existía)—; la versión tolerante exige **6 de los 8 dígitos de verdad**; el nombre del
+  impreso solo se acepta **si hay número o fechas** (si no, la palabra «NOMBRE» de cualquier texto
+  colaba como el de una persona); y la letra se repara solo junto a su rótulo o con **dos rótulos de
+  documento** presentes (`_RE_ANV_PISTAS`), descartando lo que va tras «Teléfono» o «Móvil».
+  Medido sobre 40.000 caracteres de texto real (README, CLAUDE.md, una factura): **cero** números,
+  nombres y fechas inventados.
+  · **VELOCIDAD** (`doc_camera.js`): **fuera los 220 ms de espera muerta** entre vueltas (el OCR ya
+  corre en su worker) → 40 ms · **720p** en vez de 1080p (la banda queda a ~23 px por carácter, de
+  sobra, y cuesta la mitad) · la banda se **reduce a 200 px de alto** (≈65 px por línea) · binarizado
+  por **Otsu** en vez de «la media × 0,82», que con una sombra o un reflejo se queda corto · **dos
+  workers** con el MISMO modelo (uno con la lista de caracteres del MRZ y otro con la del texto: así
+  no se descarga nada más) · y el **tope es por TIEMPO** (30 s), no por número de intentos.
+  Medido en el navegador: **~7,5 lecturas por segundo alternando las dos caras** (antes ~2), OCR de
+  118-164 ms por vuelta y los dos workers listos en 134 ms ya calientes.
+  ⚠️ **El modelo se precarga MIENTRAS la persona rellena** la hoja (`minor_auth.js`, con
+  `requestIdleCallback`): son varios megas y, descargándolos al abrir la cámara, los primeros
+  segundos se iban en eso y parecía que «no lee».
+  · ⚠️⚠️ **UNA FOTO DE UNA SOLA CARA YA NO SE PARTE POR LA MITAD** (bug real de la subida por
+  fichero): `splitFaces` partía por la PROPORCIÓN del contenido, así que una foto de móvil **en
+  vertical** de un DNI (0,75) se cortaba en dos mitades y no se leía nada. Y la proporción no puede
+  distinguirlo, porque una foto 3:4 partida da justo dos trozos con forma de tarjeta: lo que lo
+  distingue es que **entre dos documentos apilados queda una franja de FONDO**, así que ahora se mira
+  la «tinta» por filas (`hayHuecoEnMedio`) y solo se parte si hay un hueco de verdad.
+  ⚠️ `scan(file, kind, 'front'|'back')` **no parte la imagen**; pero un **PDF de dos páginas manda**
+  (el hueco del anverso admite a propósito el PDF con las dos caras) — poner la rama de `which`
+  delante rompía ese caso.
+  · **PARIDAD OBLIGATORIA `mrz_utils.py` ↔ `static/js/doc_scan.js`** (el servidor parsea también, en
+  `/api/documento/leer`). La prueba de regresión es **`python3 tools/check_mrz.py`** (57
+  comprobaciones) y la paridad se comprueba **en el navegador** con una página que pasa los mismos
+  casos por el JS y los compara con el resultado de Python (todos cuadrando). Si se toca un motor, se
+  toca el otro y se pasan las dos.
+  ⚠️ Los casos de la prueba **no son inventados**: son lo que devolvió tesseract leyendo un DNI
+  dibujado en un lienzo, con sus tres fallos (fechas pegadas, letra de control como dígito y rellenos
+  como K/L). Un OCR que mete un carácter **DE MÁS** desplaza todo y eso no se puede arreglar: lo que
+  tiene que pasar —y se comprueba— es que **ese fotograma NO se dé por bueno**.
+
 - ⚠️⚠️⚠️ **UNA COLUMNA NUEVA NO SE METE EN UN BLOQUE `DO $$ … IF NOT EXISTS(…) THEN ALTER …`**
   (bug real y grave, sep 2026: **500 en toda la app al abrir la ficha de una actividad**). En
   `ensure_isrc_and_song_detail_schema` hay un `DO` con una guarda de rendimiento que **solo ejecuta

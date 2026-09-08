@@ -1,14 +1,18 @@
 /* ESCÁNER DE DOCUMENTOS CON LA CÁMARA — lee un DNI, un NIE o un pasaporte en vivo, como un lector
  * de códigos QR, y dice a quién corresponde.
  *
- * Cómo consigue ser casi instantáneo (y no equivocarse):
- *   · No lee el documento entero: lee SOLO la banda de abajo, el MRZ (esas dos o tres líneas de
- *     letras y «<»). Es un recorte pequeño, así que el OCR tarda una fracción de lo que tardaría
- *     con la tarjeta completa.
- *   · El MRZ lleva DÍGITOS DE CONTROL: cada fotograma se valida y, si no cuadra, se tira y se prueba
- *     con el siguiente. Por eso no hace falta que el usuario acierte con el encuadre: se dispara solo
- *     en cuanto un fotograma sale limpio, y nunca da un dato inventado por el OCR.
- *   · Un único worker de OCR reutilizado, con la lista blanca de caracteres del MRZ.
+ * ⚠️⚠️ LEE LAS DOS CARAS, Y NO SE LE PIDE A NADIE «LA PARTE DE ATRÁS». En el DNI español el MRZ
+ * (la banda de letras y «<») está en el REVERSO, así que un lector que solo sepa leer el MRZ obliga
+ * a dar el documento de la vuelta… y quien pone la cara de la foto —que es «el DNI» para cualquiera—
+ * no consigue nada nunca. Aquí:
+ *   · **el REVERSO va primero y es lo más rápido**: se lee SOLO la banda de abajo (un recorte
+ *     pequeño), y el MRZ lleva DÍGITOS DE CONTROL, así que en cuanto un fotograma sale limpio se
+ *     dispara solo —sin que nadie tenga que acertar con el encuadre— y nunca da un dato inventado;
+ *   · si en las primeras vueltas no aparece esa banda, es que están poniendo la CARA DELANTERA: se
+ *     alterna con el OCR del impreso (`DocScan.parseFrontText`), que saca el número —comprobado con
+ *     su letra de control—, el nombre, los apellidos y las fechas.
+ *   · Dos workers de OCR reutilizados (uno con la lista de caracteres del MRZ y otro con la del
+ *     texto), el MISMO modelo para los dos y el binarizado por el método de Otsu.
  *
  * Uso:  window.DocCamera.open({ onFound: fn, onCreate: fn })
  *   onFound(resultado)  — se llamó al servidor y hay fichas con ese número
@@ -31,15 +35,20 @@
   'use strict';
 
   var LOOKUP_URL = '/api/documento/leer';
-  var INTERVALO_MS = 220;          // entre intentos; el OCR de la banda tarda ~150-400 ms
-  var MAX_INTENTOS = 90;           // ~20 s: pasado eso se avisa en vez de girar en balde
+  // ⚠️ El OCR ya corre en su propio worker, así que el hilo de la página no está esperando: el
+  // intervalo solo existe para dejarlo respirar. Antes eran 220 ms de tiempo MUERTO en cada vuelta.
+  var INTERVALO_MS = 40;
+  var MAX_MS = 30000;              // medio minuto y se avisa, en vez de girar en balde
+  // Vueltas de solo REVERSO antes de empezar a probar también la cara delantera: así el caso rápido
+  // (la banda del MRZ) se resuelve en menos de un segundo y no paga nada.
+  var VUELTAS_SOLO_MRZ = 2;
   var overlay = null, stream = null, corriendo = false, temporizador = null, cbs = {};
   var detQr = null;                // detector de QR (solo en modo qr y si el navegador lo trae)
   // ⚠️ Todo lo asíncrono (getUserMedia, el OCR, el fetch) lleva el número de SESIÓN con el que se
   // lanzó: al cerrar o reiniciar el escáner, lo que vuelva de la sesión vieja se descarta. Sin esto
   // una cámara que tardaba en abrir se quedaba encendida después de cerrar, y una consulta lenta de
   // la lectura anterior secuestraba el escaneo nuevo.
-  var sesion = 0, intentos = 0;
+  var sesion = 0, intentos = 0, arranque = 0, tocaAnverso = false;
   function viva(n) { return n === sesion && !!overlay; }
 
   function esc(s) {
@@ -67,13 +76,13 @@
           '<div class="doccam__guide"><span class="doccam__band"></span></div>' +
           '<div class="doccam__hint" data-doccam-hint>' +
             (cbs.qr
-              ? 'Pon delante el <b>DNI</b> (dentro del marco, con la banda de letras de abajo visible) <b>o el código QR</b>: lee lo que aparezca antes'
-              : 'Pon el documento dentro del marco, con la banda de letras de abajo bien visible') +
+              ? 'Pon delante el <b>DNI</b> dentro del marco —<b>por cualquiera de las dos caras</b>— <b>o el código QR</b>: lee lo que aparezca antes'
+              : 'Pon el documento dentro del marco, <b>por cualquiera de las dos caras</b>') +
           '</div>' +
         '</div>' +
         '<div class="doccam__foot">' +
           '<div class="doccam__state" data-doccam-state><span class="doccam__dot"></span>' +
-            (cbs.qr ? 'Buscando un documento o un código QR…' : 'Buscando la banda del documento…') +
+            (cbs.qr ? 'Buscando un documento o un código QR…' : 'Buscando el documento…') +
           '</div>' +
           '<div class="d-flex gap-2">' +
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-doccam-manual><i class="fa fa-keyboard me-1"></i>Escribir el número</button>' +
@@ -107,7 +116,10 @@
     return navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: camaraTrasera ? { ideal: 'environment' } : 'user',
-        width: { ideal: 1920 }, height: { ideal: 1080 },
+        // ⚠️ 720p es DE SOBRA para el MRZ (la banda queda a ~23 px por carácter) y cuesta la mitad
+        // de trabajo por fotograma que 1080p: con 1080p el móvil se arrastraba sin leer mejor.
+        width: { ideal: 1280 }, height: { ideal: 720 },
+        frameRate: { ideal: 24 },
       },
       audio: false,
     }).then(function (s) {
@@ -146,55 +158,126 @@
     pararCamara();
     sesion += 1;                     // la pista anterior ya no cuenta
     var mia = sesion;
-    intentos = 0;
+    intentos = 0; arranque = Date.now(); tocaAnverso = false;
     arrancarCamara(mia).then(function () {
       if (viva(mia) && !corriendo) { corriendo = true; bucle(mia); }
     }).catch(function () {});
   }
 
-  // Recorta la BANDA de abajo del marco guía: ahí está el MRZ, tanto en la tarjeta (TD1, 3 líneas)
-  // como en el pasaporte (TD3, 2 líneas). Se coge un 45% de alto para que quepan las dos.
-  function recorteBanda(video) {
+  /* ---------------- Los recortes que se le dan al OCR ---------------- */
+  // El marco guía: el 88% del ancho y proporción de tarjeta (85,6×54 mm ≈ 1,585). Es el mismo que
+  // se dibuja en pantalla, así que lo que el usuario ve encuadrado es lo que se lee.
+  function marco(video) {
     var vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return null;
-    // El marco guía ocupa el 88% del ancho y una proporción de tarjeta (85,6×54 mm ≈ 1,585).
     var gw = vw * 0.88, gh = gw / 1.585;
     if (gh > vh * 0.9) { gh = vh * 0.9; gw = gh * 1.585; }
-    var gx = (vw - gw) / 2, gy = (vh - gh) / 2;
-    var bh = gh * 0.45, by = gy + gh - bh;
-    var escala = Math.min(2, Math.max(1, 1000 / gw));   // subir un poco la resolución ayuda al OCR
-    var c = document.createElement('canvas');
-    c.width = Math.round(gw * escala);
-    c.height = Math.round(bh * escala);
-    var ctx = c.getContext('2d');
-    ctx.drawImage(video, gx, by, gw, bh, 0, 0, c.width, c.height);
-    // Umbral simple: el MRZ es negro sobre fondo claro; binarizar sube mucho el acierto.
-    try {
-      var img = ctx.getImageData(0, 0, c.width, c.height), d = img.data, suma = 0;
-      for (var i = 0; i < d.length; i += 4) suma += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-      var media = suma / (d.length / 4);
-      for (var j = 0; j < d.length; j += 4) {
-        var g = d[j] * 0.299 + d[j + 1] * 0.587 + d[j + 2] * 0.114;
-        var v = g < media * 0.82 ? 0 : 255;
-        d[j] = d[j + 1] = d[j + 2] = v;
+    return { x: (vw - gw) / 2, y: (vh - gh) / 2, w: gw, h: gh };
+  }
+
+  // Umbral de OTSU: el valor que mejor separa el texto del fondo, calculado del propio fotograma.
+  // ⚠️ Antes se usaba «la media × 0,82» y con una sombra o un reflejo en el plástico se queda corto:
+  // la banda salía empastada y el OCR no leía nada, vuelta tras vuelta.
+  function umbralOtsu(hist, total) {
+    var suma = 0, i;
+    for (i = 0; i < 256; i++) suma += i * hist[i];
+    var sumaB = 0, wB = 0, mejor = -1, umbral = 128;
+    for (i = 0; i < 256; i++) {
+      wB += hist[i];
+      if (!wB) continue;
+      var wF = total - wB;
+      if (wF <= 0) break;
+      sumaB += i * hist[i];
+      var mB = sumaB / wB, mF = (suma - sumaB) / wF, entre = wB * wF * (mB - mF) * (mB - mF);
+      if (entre > mejor) { mejor = entre; umbral = i; }
+    }
+    return umbral;
+  }
+  function aGris(d, hist) {
+    for (var i = 0; i < d.length; i += 4) {
+      var g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0;
+      d[i] = d[i + 1] = d[i + 2] = g;
+      if (hist) hist[g]++;
+    }
+  }
+  function binariza(ctx, w, h) {
+    var img;
+    try { img = ctx.getImageData(0, 0, w, h); } catch (_) { return; }
+    var d = img.data, hist = [], i;
+    for (i = 0; i < 256; i++) hist.push(0);
+    aGris(d, hist);
+    var u = umbralOtsu(hist, d.length / 4);
+    for (i = 0; i < d.length; i += 4) {
+      var v = d[i] < u ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  // Para la cara delantera NO se binariza: el DNI tiene el fondo lleno de dibujos y un umbral de
+  // golpe empasta el texto pequeño. Se pasa a gris y se estira el contraste.
+  function estiraContraste(ctx, w, h) {
+    var img;
+    try { img = ctx.getImageData(0, 0, w, h); } catch (_) { return; }
+    var d = img.data, hist = [], i;
+    for (i = 0; i < 256; i++) hist.push(0);
+    aGris(d, hist);
+    var total = d.length / 4, acc = 0, lo = 0, hi = 255;
+    for (i = 0; i < 256; i++) { acc += hist[i]; if (acc > total * 0.02) { lo = i; break; } }
+    acc = 0;
+    for (i = 255; i >= 0; i--) { acc += hist[i]; if (acc > total * 0.02) { hi = i; break; } }
+    if (hi - lo > 24) {
+      var k = 255 / (hi - lo);
+      for (i = 0; i < d.length; i += 4) {
+        var v = (d[i] - lo) * k;
+        d[i] = d[i + 1] = d[i + 2] = v < 0 ? 0 : (v > 255 ? 255 : v);
       }
-      ctx.putImageData(img, 0, 0);
-    } catch (_) { /* si el canvas está contaminado, se manda tal cual */ }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  // La BANDA de abajo del marco: ahí está el MRZ, tanto en la tarjeta (TD1, 3 líneas) como en el
+  // pasaporte (TD3, 2). Se coge un 45% de alto para que quepan las dos y se REDUCE a ~200 px de
+  // alto: con tres líneas son ~65 px cada una, de sobra para el OCR, y es bastante menos trabajo por
+  // fotograma que mandar la resolución bruta.
+  var BANDA_ALTO = 200;
+  function recorteBanda(video) {
+    var g = marco(video);
+    if (!g) return null;
+    var bh = g.h * 0.45, by = g.y + g.h - bh;
+    var escala = Math.min(1.4, BANDA_ALTO / bh);
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(g.w * escala));
+    c.height = Math.max(1, Math.round(bh * escala));
+    var ctx = c.getContext('2d');
+    ctx.drawImage(video, g.x, by, g.w, bh, 0, 0, c.width, c.height);
+    binariza(ctx, c.width, c.height);
     return c;
   }
 
-  // Recorta la TARJETA entera del marco guía (sin binarizar): es la foto del documento que se
+  // La CARA DELANTERA entera (el impreso: rótulos, nombre, fechas y el número).
+  var ANVERSO_ANCHO = 1000;
+  function recorteAnverso(video) {
+    var g = marco(video);
+    if (!g) return null;
+    var escala = Math.min(1.2, ANVERSO_ANCHO / g.w);
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(g.w * escala));
+    c.height = Math.max(1, Math.round(g.h * escala));
+    var ctx = c.getContext('2d');
+    ctx.drawImage(video, g.x, g.y, g.w, g.h, 0, 0, c.width, c.height);
+    estiraContraste(ctx, c.width, c.height);
+    return c;
+  }
+
+  // Recorta la TARJETA entera del marco guía (sin tocar el color): es la foto del documento que se
   // guarda cuando el escáner se usa para rellenar un formulario.
   function recorteTarjeta(video) {
-    var vw = video.videoWidth, vh = video.videoHeight;
-    if (!vw || !vh) return '';
-    var gw = vw * 0.88, gh = gw / 1.585;
-    if (gh > vh * 0.9) { gh = vh * 0.9; gw = gh * 1.585; }
-    var gx = (vw - gw) / 2, gy = (vh - gh) / 2;
+    var g = marco(video);
+    if (!g) return '';
     var c = document.createElement('canvas');
-    c.width = Math.round(gw); c.height = Math.round(gh);
+    c.width = Math.round(g.w); c.height = Math.round(g.h);
     try {
-      c.getContext('2d').drawImage(video, gx, gy, gw, gh, 0, 0, c.width, c.height);
+      c.getContext('2d').drawImage(video, g.x, g.y, g.w, g.h, 0, 0, c.width, c.height);
       return c.toDataURL('image/jpeg', 0.88);
     } catch (_) { return ''; }
   }
@@ -202,11 +285,11 @@
   function reintentar(miSesion) {
     if (!viva(miSesion) || !corriendo) return;
     intentos += 1;
-    if (intentos > MAX_INTENTOS) {
+    if (Date.now() - arranque > MAX_MS) {
       corriendo = false;
       estado(cbs.qr
         ? 'No se ha podido leer ni el documento ni el código. Prueba con más luz, sin reflejos, o escribe el número.'
-        : 'No se ha podido leer la banda del documento. Prueba con más luz, sin reflejos, o escribe el número.', 'is-err');
+        : 'No se ha podido leer el documento. Prueba con más luz, sin reflejos, o acércalo un poco más. También puedes escribir el número.', 'is-err');
       return;
     }
     temporizador = setTimeout(function () { bucle(miSesion); }, INTERVALO_MS);
@@ -247,10 +330,22 @@
     bucleDoc(miSesion, video);
   }
 
+  /* ⚠️⚠️ LAS DOS CARAS. El REVERSO va primero porque es lo más rápido y lo más fiable (su banda
+     lleva dígitos de control); si en las primeras vueltas no aparece, es que están poniendo la CARA
+     DELANTERA —que es lo normal— y se empieza a alternar con el OCR del impreso. */
   function bucleDoc(miSesion, video) {
     if (!corriendo || !viva(miSesion)) return;
+    var pruebaAnverso = intentos >= VUELTAS_SOLO_MRZ && tocaAnverso;
+    tocaAnverso = !tocaAnverso;
+    if (pruebaAnverso) leeAnverso(miSesion, video);
+    else leeBanda(miSesion, video);
+  }
+
+  // El REVERSO: la banda del MRZ.
+  function leeBanda(miSesion, video) {
     var banda = video ? recorteBanda(video) : null;
     if (!banda) { reintentar(miSesion); return; }        // el vídeo aún no tiene dimensiones
+    if (intentos >= VUELTAS_SOLO_MRZ) estado('Leyendo el reverso…', 'is-warn');
     window.DocScan.ocrMrz(banda).then(function (texto) {
       if (!corriendo || !viva(miSesion)) return;
       var mrz = window.DocScan.parseMrzText(texto);
@@ -261,19 +356,8 @@
       var tipo = mrz && mrz.number ? window.DocScan.docNumberKind(mrz.number) : 'OTHER';
       var fiable = tipo === 'DNI' || tipo === 'NIE' || !!(mrz && mrz.valid_strict);
       if (mrz && mrz.valid && mrz.number && fiable) {
-        corriendo = false;
-        estado('Documento leído · ' + mrz.number, 'is-ok');
-        // Modo solo leer: no hay servidor al que preguntar (páginas públicas). Se devuelve la
-        // lectura con la foto de la tarjeta y se cierra.
-        if (cbs.onRead) {
-          var foto = recorteTarjeta(video);
-          var fn = cbs.onRead;
-          mrz.number_kind = tipo;
-          close();
-          fn({ data: mrz, image: foto });
-          return;
-        }
-        consultar(texto, mrz, miSesion);
+        mrz.number_kind = tipo;
+        acepta(miSesion, video, texto, mrz);
         return;
       }
       if (mrz && mrz.full_name) estado('Leyendo… ' + mrz.full_name, 'is-warn');
@@ -281,6 +365,43 @@
     }).catch(function () {
       reintentar(miSesion);
     });
+  }
+
+  // La CARA DELANTERA: el impreso (rótulos, nombre, fechas y el número).
+  function leeAnverso(miSesion, video) {
+    var img = video ? recorteAnverso(video) : null;
+    if (!img) { reintentar(miSesion); return; }
+    estado('Leyendo la cara delantera…', 'is-warn');
+    window.DocScan.ocrFront(img).then(function (texto) {
+      if (!corriendo || !viva(miSesion)) return;
+      var d = window.DocScan.parseFrontText(texto) || {};
+      var tipo = d.number ? window.DocScan.docNumberKind(d.number) : 'OTHER';
+      // ⚠️ El impreso no tiene dígitos de control: la garantía es la LETRA del DNI/NIE (que solo
+      // cuadra por azar 1 de cada 23 veces), así que solo se acepta con un número español válido.
+      // Un pasaporte no entra por aquí: su MRZ está en la propia página de datos.
+      if (tipo === 'DNI' || tipo === 'NIE') {
+        d.number_kind = tipo;
+        acepta(miSesion, video, texto, d);
+        return;
+      }
+      if (d.full_name) estado('Leyendo… ' + d.full_name, 'is-warn');
+      reintentar(miSesion);
+    }).catch(function () {
+      reintentar(miSesion);
+    });
+  }
+
+  // Lectura buena: se cierra (modo solo leer) o se pregunta al servidor a quién corresponde.
+  function acepta(miSesion, video, texto, datos) {
+    corriendo = false;
+    estado('Documento leído · ' + datos.number, 'is-ok');
+    if (cbs.onRead) {
+      var foto = recorteTarjeta(video), fn = cbs.onRead;
+      close();
+      fn({ data: datos, image: foto });
+      return;
+    }
+    consultar(texto, datos, miSesion);
   }
 
   function consultar(textoMrz, mrzLocal, miSesion) {
@@ -360,9 +481,9 @@
     var caja = overlay.querySelector('[data-doccam-result]');
     caja.classList.add('d-none'); caja.innerHTML = '';
     overlay.querySelector('.doccam__stage').classList.remove('d-none');
-    estado('Buscando la banda del documento…');
+    estado('Buscando el documento…');
     pararCamara();
-    sesion += 1; intentos = 0;
+    sesion += 1; intentos = 0; arranque = Date.now(); tocaAnverso = false;
     var mia = sesion;
     arrancarCamara(mia).then(function () {
       if (!viva(mia)) return;
@@ -431,10 +552,15 @@
     }
     overlay = ui();
     document.body.classList.add('doccam-open');
-    sesion += 1; intentos = 0;
+    sesion += 1; intentos = 0; arranque = Date.now(); tocaAnverso = false;
     var mia = sesion;
     // El modelo de OCR se va cargando mientras el usuario coloca el documento.
+    // El modelo de OCR se va cargando mientras el usuario coloca el documento (los dos workers
+    // comparten el mismo modelo, así que el segundo no descarga nada más).
     if (window.DocScan && window.DocScan.mrzWarmUp) window.DocScan.mrzWarmUp();
+    if (window.DocScan && window.DocScan.frontWarmUp) {
+      setTimeout(function () { try { window.DocScan.frontWarmUp(); } catch (_) {} }, 400);
+    }
     arrancarCamara(mia).then(function () {
       if (!viva(mia)) return;
       corriendo = true;

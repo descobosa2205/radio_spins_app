@@ -14,6 +14,23 @@
   var root = document.querySelector('[data-ma]');
   if (!root) return;
 
+  /* ⚠️ El lector (tesseract y su modelo) son varios megas: si se descargan al ABRIR la cámara, los
+     primeros segundos se van en eso y parece que «no lee». Aquí se van cargando en cuanto la hoja
+     está en pantalla —mientras la persona rellena sus datos—, así que al pulsar «Escanear» ya
+     está listo. Es *best-effort*: si no se puede, el escáner lo descarga como antes. */
+  (function precarga() {
+    function vamos() {
+      try {
+        if (window.DocScan && window.DocScan.mrzWarmUp) window.DocScan.mrzWarmUp();
+        if (window.DocScan && window.DocScan.frontWarmUp) {
+          setTimeout(function () { try { window.DocScan.frontWarmUp(); } catch (_) {} }, 1200);
+        }
+      } catch (_) {}
+    }
+    if (window.requestIdleCallback) window.requestIdleCallback(vamos, { timeout: 2500 });
+    else setTimeout(vamos, 1200);
+  })();
+
   var UPLOAD_URL = root.getAttribute('data-upload-url');
   var SUBMIT_URL = root.getAttribute('data-submit-url');
   var LIMITE = parseInt(root.getAttribute('data-age-limit') || '18', 10) || 18;
@@ -110,6 +127,7 @@
       if (!window.DocCamera) { error('Este navegador no puede abrir la cámara. Sube una foto del DNI.'); return; }
       window.DocCamera.open({
         title: prefijo === 'guardian' ? 'DNI del padre, madre o tutor' : 'DNI de la persona autorizada',
+        // ⚠️ El escáner lee las DOS caras, así que aquí no se le pide a nadie que le dé la vuelta.
         onRead: function (res) { rellenarPersona(prefijo, res.data || {}, res.image || ''); },
       });
     });
@@ -138,7 +156,7 @@
           try { img = cara.canvas.toDataURL('image/jpeg', 0.88); } catch (_) {}
         }
         rellenarPersona(prefijo, datos, img);
-        if (!datos.number) error('No hemos podido leer el documento. Rellena los datos a mano; la foto ya está guardada.');
+        if (!datos.number) error('No hemos podido leer el documento (prueba con más luz y sin reflejos, o con la otra cara). Rellena los datos a mano; la foto ya está guardada.');
       }).catch(function () {
         if (caja) caja.classList.remove('is-loading');
         error('No hemos podido leer el documento. Rellena los datos a mano.');

@@ -600,7 +600,11 @@
         });
         return chain.then(function () {
           var summary = fillFields(res.data, kind);
-          if (summary) ocrMsg('Detectado: ' + summary + '. Revisa y corrige si hace falta.', false);
+          // De dónde ha salido: la banda del reverso (MRZ) o la cara delantera. Se dice porque
+          // ayuda a entender por qué falta algún dato: del impreso no siempre sale todo.
+          var de = res.data.source === 'MRZ' ? ' (leído de la banda del reverso)'
+                 : (res.data.source === 'FRONT' ? ' (leído de la cara delantera)' : '');
+          if (summary) ocrMsg('Detectado: ' + summary + de + '. Revisa y corrige si hace falta.', false);
           else ocrMsg('No se leyeron datos automáticamente; rellénalos a mano. Puedes ajustar el recorte.', false);
         });
       }).catch(function () {

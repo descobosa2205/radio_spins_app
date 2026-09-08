@@ -51882,6 +51882,40 @@ def _press_template_rows(session_db) -> list[dict]:
     return filas
 
 
+def _photo_albums_artist_backfill_once():
+    """Arreglo PUNTUAL (sep 2026): los álbumes de fotos creados al SUBIR no guardaban `artist_id`,
+    así que no salían en los selectores que buscan «los álbumes de este artista» (el de las notas de
+    prensa aparecía vacío teniendo fotos). Se les pone el del dueño. A partir de ahora lo hace
+    `_fotos_album_from_form` al crearlos."""
+    marca = "photo_albums_artist_v1"
+    s = db()
+    try:
+        if (_get_app_setting(marca) or "").strip():
+            return
+        n = 0
+        for al in s.query(PhotoAlbum).filter(PhotoAlbum.artist_id.is_(None)).all():
+            ot = (al.owner_type or "").upper()
+            if ot == "ARTIST":
+                al.artist_id = al.owner_id
+            elif ot == "CONCERT":
+                c = s.get(Concert, al.owner_id)
+                al.artist_id = getattr(c, "artist_id", None)
+            elif ot == "ACTION":
+                a = s.get(CompanyAction, al.owner_id)
+                ids = [_safe_uuid(x) for x in (getattr(a, "artist_ids", None) or [])] if a is not None else []
+                al.artist_id = next((x for x in ids if x), None)
+            n += 1 if al.artist_id is not None else 0
+        s.commit()
+        _set_app_setting(marca, "ok")
+        if n:
+            app.logger.info("[fotos] %d álbumes se quedan con su artista", n)
+    except Exception:
+        s.rollback()
+        app.logger.exception("[fotos] no se pudo rellenar el artista de los álbumes")
+    finally:
+        s.close()
+
+
 def _press_templates_migrate_once():
     """Arreglo PUNTUAL (sep 2026): los FONDOS que se habían guardado como plantilla
     (`PressReleaseTemplate`) pasan a ser PLANTILLAS de verdad (una nota con `purpose='TEMPLATE'` y
@@ -52526,16 +52560,18 @@ def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:
             elif tipo == "artwork":
                 data.update(_press_artwork_data(session_db, ref))
             elif tipo == "photos" and ref.get("album_id"):
-                album = session_db.get(PhotoAlbum, to_uuid(ref["album_id"]))
-                if album:
-                    fotos = _press_album_photos(session_db, album)
+                # ⚠️ La referencia puede ser un ÁLBUM o el DUEÑO de las fotos (`o-CONCERT-<uuid>`):
+                # lo resuelve el punto único, porque la mayoría de las fotos no están en un álbum.
+                clave = str(ref.get("album_id") or "")
+                nombre_grupo, fotos = _press_photos_source(session_db, clave)
+                if fotos:
                     data.update({
-                        "album_name": (album.name or "").strip(),
+                        "album_name": (nombre_grupo or "").strip(),
                         "count": len(fotos),
                         "photos": [{"thumb": _absolute_media_url(p.poster_url or p.file_url or ""),
                                     "url": _absolute_media_url(p.file_url or "")} for p in fotos[:6]],
-                        "gallery_url": _external_url_for("public_press_photos", token=token, album_id=str(album.id)),
-                        "download_url": _external_url_for("public_press_photos_zip", token=token, album_id=str(album.id)),
+                        "gallery_url": _external_url_for("public_press_photos", token=token, album_id=clave),
+                        "download_url": _external_url_for("public_press_photos_zip", token=token, album_id=clave),
                     })
             elif tipo == "image":
                 # Una IMAGEN integrada en el cuerpo: la URL, el texto alternativo y, si lleva, el enlace.
@@ -52570,30 +52606,102 @@ def _press_album_photos(session_db, album) -> list:
     return [por_id[i] for i in ids if i in por_id and (por_id[i].kind or "IMAGE").upper() == "IMAGE"]
 
 
+# ⚠️⚠️ LAS FOTOS DE UNA NOTA vienen de un ÁLBUM o de un DUEÑO (una actividad, un artista, un
+# evento): la mayoría de las fotos se suben y se quedan **sin álbum**, así que ofreciendo solo los
+# álbumes el selector salía vacío teniendo fotos (bug real: «sale la opción pero no salen los
+# contenidos»). La referencia que viaja en el bloque y en la URL pública es una CLAVE: el uuid del
+# álbum, o `o-<OWNER_TYPE>-<uuid>` para las fotos de un dueño. Punto único para leerla.
+PRESS_PHOTO_OWNER_PREFIX = "o-"
+
+
+def _press_photos_source(session_db, key: str) -> tuple[str, list]:
+    """(nombre, fotos) de una clave de fotos: un ÁLBUM o el DUEÑO de las fotos."""
+    key = str(key or "").strip()
+    if not key:
+        return ("", [])
+    if key.startswith(PRESS_PHOTO_OWNER_PREFIX):
+        trozos = key[len(PRESS_PHOTO_OWNER_PREFIX):].split("-", 1)
+        if len(trozos) != 2:
+            return ("", [])
+        ot = _photo_owner_type_norm(trozos[0]) or trozos[0].upper()
+        oid = _safe_uuid(trozos[1])
+        if not oid:
+            return ("", [])
+        _owner, _art, titulo = _photo_resolve_owner(session_db, ot, str(oid))
+        fotos = (session_db.query(Photo)
+                 .filter(Photo.owner_type == ot, Photo.owner_id == oid,
+                         Photo.discarded.is_(False),
+                         func.upper(func.coalesce(Photo.kind, "IMAGE")) == "IMAGE")
+                 .order_by(Photo.sort_order.asc(), Photo.created_at.asc()).all())
+        return ((titulo or "Fotos"), fotos)
+    al = session_db.get(PhotoAlbum, _safe_uuid(key))
+    if al is None:
+        return ("", [])
+    return ((al.name or "Fotos"), _press_album_photos(session_db, al))
+
+
 def _press_photo_albums(session_db, pr) -> list[dict]:
-    """Los álbumes de fotos que se pueden arrastrar a la nota: los del artista (o los artistas), los
-    del evento y los de la actividad de la que va la nota."""
+    """Los grupos de fotos que se pueden arrastrar a la nota: los ÁLBUMES del artista (o los
+    artistas), los del evento y los de la actividad de la que va la nota, **y las fotos de la
+    actividad y de cada artista que no están en ningún álbum**."""
     ids = _press_artist_ids(session_db, pr.subject_kind, pr.subject_id, pr.artist_ids or [])
     conds = []
     if ids:
+        # ⚠️ Los álbumes de un artista se buscan por `artist_id`, por el DUEÑO y por SUS ACTIVIDADES:
+        # los que se crean al subir fotos no rellenaban `artist_id` (arreglado), así que los antiguos
+        # solo se encuentran por el dueño.
         conds.append(PhotoAlbum.artist_id.in_(ids))
+        conds.append(and_(PhotoAlbum.owner_type == "ARTIST", PhotoAlbum.owner_id.in_(ids)))
+        try:
+            act_ids = [r[0] for r in (session_db.query(Concert.id)
+                                      .filter(or_(Concert.artist_id.in_(ids),
+                                                  *[Concert.artist_ids.contains([str(x)]) for x in ids]))
+                                      .limit(400).all())]
+            if act_ids:
+                conds.append(and_(PhotoAlbum.owner_type == "CONCERT", PhotoAlbum.owner_id.in_(act_ids)))
+        except Exception:
+            app.logger.exception("[notas de prensa] no se pudieron buscar los álbumes de las actividades")
     if (pr.subject_kind or "").upper() == "EVENT" and pr.subject_id:
         conds.append(and_(PhotoAlbum.owner_type == "EVENT", PhotoAlbum.owner_id == pr.subject_id))
     if (pr.about_kind or "").upper() == "ACTIVITY" and pr.about_id:
         conds.append(and_(PhotoAlbum.owner_type == "CONCERT", PhotoAlbum.owner_id == pr.about_id))
-    if not conds:
-        return []
-    salida = []
-    for al in session_db.query(PhotoAlbum).filter(or_(*conds)).order_by(PhotoAlbum.created_at.desc()).limit(40).all():
-        fotos = _press_album_photos(session_db, al)
-        if not fotos:
-            continue
-        portada = None
-        if al.cover_photo_id:
-            portada = next((p for p in fotos if p.id == al.cover_photo_id), None)
-        portada = portada or fotos[0]
-        salida.append({"id": str(al.id), "name": al.name or "Fotos", "count": len(fotos),
-                       "cover": portada.poster_url or portada.file_url or ""})
+    salida, vistos = [], set()
+
+    def añade(key, nombre, fotos, sub=""):
+        if not fotos or key in vistos:
+            return
+        vistos.add(key)
+        portada = fotos[0]
+        salida.append({"id": key, "name": nombre or "Fotos", "count": len(fotos),
+                       "sub": sub, "cover": portada.poster_url or portada.file_url or ""})
+
+    if conds:
+        for al in (session_db.query(PhotoAlbum).filter(or_(*conds))
+                   .order_by(PhotoAlbum.created_at.desc()).limit(60).all()):
+            fotos = _press_album_photos(session_db, al)
+            if not fotos:
+                continue
+            portada = None
+            if al.cover_photo_id:
+                portada = next((p for p in fotos if p.id == al.cover_photo_id), None)
+            _owner, _a, titulo = _photo_resolve_owner(session_db, al.owner_type, str(al.owner_id))
+            ordenadas = ([portada] + [p for p in fotos if p is not portada]) if portada else fotos
+            añade(str(al.id), (al.name or "Fotos"), ordenadas,
+                  ("Álbum · %s" % titulo) if titulo else "Álbum")
+    # LAS FOTOS SIN ÁLBUM: de la actividad de la nota, del evento y de cada artista (lo normal es
+    # subirlas y que se queden ahí, sin agruparlas).
+    dueños = []
+    if (pr.about_kind or "").upper() == "ACTIVITY" and pr.about_id:
+        dueños.append(("CONCERT", str(pr.about_id)))
+    if (pr.subject_kind or "").upper() == "EVENT" and pr.subject_id:
+        dueños.append(("EVENT", str(pr.subject_id)))
+    for x in ids:
+        dueños.append(("ARTIST", str(x)))
+    for ot, oid in dueños:
+        key = "%s%s-%s" % (PRESS_PHOTO_OWNER_PREFIX, ot, oid)
+        nombre, fotos = _press_photos_source(session_db, key)
+        añade(key, (nombre or "Fotos"), fotos,
+              "Fotos de la actividad" if ot == "CONCERT" else ("Fotos del artista" if ot == "ARTIST" else "Fotos del evento"))
     return salida
 
 
@@ -52900,8 +53008,11 @@ def _press_assets(session_db, pr) -> dict:
             enlaces.append({"kind": "links", "ref": {"album_id": str(a.id)}, "label": a.title or "—", "cover": a.cover_url or "",
                             "sub": "Enlaces · " + ", ".join(l["label"] for l in ls), "items": [{"key": l["key"], "label": l["label"]} for l in ls],
                             "html": pinta("links", {"album_id": str(a.id)})})
+    # ⚠️ En el selector se dice DE DÓNDE son (el álbum y su actividad, o «Fotos de la actividad»):
+    # con solo «12 fotos» no se sabe qué se está arrastrando.
     fotos = [{"kind": "photos", "ref": {"album_id": al["id"]}, "label": al["name"], "cover": al["cover"],
-              "sub": "%s fotos" % al["count"], "html": pinta("photos", {"album_id": al["id"]})} for al in _press_photo_albums(session_db, pr)]
+              "sub": ("%s · %s fotos" % (al.get("sub") or "", al["count"])).strip(" ·"),
+              "html": pinta("photos", {"album_id": al["id"]})} for al in _press_photo_albums(session_db, pr)]
     # DOS módulos de contacto sueltos (sep 2026): el de PROMOCIÓN y «otro» que nace con quien está
     # escribiendo la nota. Los dos se cambian y se les añade gente; ninguno es fijo.
     try:
@@ -54602,6 +54713,12 @@ def promo_press_save(release_id):
         paleta = _press_palette_clean(bg.get("palette") if bg.get("palette") is not None else ((pr.design or {}).get("bg") or {}).get("palette"))
         if paleta:
             nuevo["bg"]["palette"] = paleta
+        # ⚠️ Los COLORES COGIDOS CON EL CUENTAGOTAS son del diseño: sin conservarlos aquí se perderían
+        # en cada guardado (el guardado rehace el diseño desde cero).
+        propios = _press_palette_clean(design.get("swatches") if design.get("swatches") is not None
+                                       else (pr.design or {}).get("swatches"))
+        if propios:
+            nuevo["swatches"] = propios[:12]
         pr.design = nuevo
         # ⚠️ En una PLANTILLA, `title` es SU NOMBRE (lo pone quien la crea) y no se pisa con el
         # titular del diseño: si no, la plantilla se quedaría sin nombre en cuanto se guardara.
@@ -55656,10 +55773,10 @@ def public_press_photos(token, album_id):
         pr, _r = _press_public_load(s, token)
         if not pr or not _press_block_allows(pr, "photos", "album_id", album_id, ""):
             abort(404)
-        album = s.get(PhotoAlbum, to_uuid(album_id))
-        if not album:
+        nombre_grupo, fotos = _press_photos_source(s, album_id)
+        if not fotos:
             abort(404)
-        fotos = _press_album_photos(s, album)
+        album = SimpleNamespace(name=nombre_grupo or "Fotos")
         permitida = _press_block_allows(pr, "photos", "album_id", album_id, "download")
         return render_template(
             "public_press_photos.html", album=album, pr=pr,
@@ -55680,11 +55797,10 @@ def public_press_photos_zip(token, album_id):
         pr, _r = _press_public_load(s, token)
         if not pr or not _press_block_allows(pr, "photos", "album_id", album_id, "download"):
             abort(404)
-        album = s.get(PhotoAlbum, to_uuid(album_id))
-        fotos = _press_album_photos(s, album) if album else []
+        nombre_grupo, fotos = _press_photos_source(s, album_id)
         if not fotos:
             abort(404)
-        datos, nombre = _photos_zip_bytes(fotos, "original", album.name or "fotos")
+        datos, nombre = _photos_zip_bytes(fotos, "original", nombre_grupo or "fotos")
         return send_file(BytesIO(datos), mimetype="application/zip", as_attachment=True, download_name=nombre)
     finally:
         s.close()
@@ -74726,6 +74842,9 @@ def _bootstrap_schema_bg():
     # Una sola vez: los FONDOS guardados como plantilla pasan a ser plantillas de verdad (una
     # plantilla puede llevar ya módulos, así que hay un solo concepto).
     _safe_ensure(lambda: globals()["_press_templates_migrate_once"](), "_press_templates_migrate_once")
+    # Una sola vez: los álbumes de fotos se quedan con su artista (si no, no salen en los selectores
+    # que buscan «los álbumes de este artista»).
+    _safe_ensure(lambda: globals()["_photo_albums_artist_backfill_once"](), "_photo_albums_artist_backfill_once")
     # A partir de aquí la instancia SÍ puede recibir tráfico. Se marca pase lo que pase (si alguna
     # migración falló, ya se ha anotado en el log): quedarse sin marcar dejaría la instancia
     # inservible, que es peor que arrancar con un aviso.
@@ -120994,7 +121113,14 @@ def _photo_resolve_owner(session_db, owner_type, owner_id):
         c = session_db.get(Concert, oid)
         if not c:
             return (None, None, "")
+        # ⚠️ CÓMO SE LLAMA una actividad en fotos y vídeos: su nombre (el del festival o el ciclo) y,
+        # si no tiene, **EL LUGAR** («Municipio, Provincia», el formato único de la casa). Antes caía
+        # al nombre del ARTISTA, así que en su galería todas se llamaban igual y no había forma de
+        # saber a cuál se subían las fotos (bug real).
         title = (getattr(c, "festival_name", None) or "").strip()
+        if not title:
+            title = _place_label(_concert_city(c) or "", _concert_province_value(c) or "",
+                                 _concert_country_value(c) or "")
         if not title:
             art = session_db.get(Artist, c.artist_id) if getattr(c, "artist_id", None) else None
             title = (getattr(art, "name", None) or "Concierto").strip()
@@ -121917,6 +122043,9 @@ def _build_artist_fotos_groups(session_db, artist_id):
             "event_name": event_name,
             "city": city,
             "province": province,
+            # EL LUGAR de una pieza: «Municipio, Provincia» (el formato único de la casa). Con la
+            # ciudad sola no se sabe de qué actividad se trata.
+            "place": _place_label(city or "", province or "", ""),
             "date_label": d.strftime("%d/%m/%Y") if d else "",
             "date_iso": d.isoformat() if d else "",
             "count": len(plist),
@@ -122130,29 +122259,55 @@ def _media_active_targets(s):
 @app.get("/api/media/artist-activities/<artist_id>", endpoint="api_media_artist_activities")
 @admin_required
 def api_media_artist_activities(artist_id):
-    """Actividades del artista en orden cronológico (para vincular fotos): conciertos + acciones."""
+    """Actividades del artista en orden cronológico (para vincular fotos): conciertos + acciones.
+
+    ⚠️ Cada una tiene que decir **CUÁL ES**: su nombre (el del festival o el de la acción) y, si no
+    tiene, **el LUGAR** («Municipio, Provincia», el formato único de la casa) — con «Concierto» a
+    secas no hay forma de saber a cuál se refiere (bug real). Y la fecha va en **formato de aquí**
+    (dd/mm/aaaa): el ISO es para ORDENAR, no para leer."""
     s = db()
     try:
         aid = to_uuid(artist_id)
         if not aid:
             return jsonify([])
         out = []
-        for c in s.query(Concert).filter(or_(Concert.artist_id == aid, Concert.artist_ids.contains([str(aid)]))).all():
+        for c in (s.query(Concert)
+                  .options(joinedload(Concert.venue))
+                  .filter(or_(Concert.artist_id == aid, Concert.artist_ids.contains([str(aid)]))).all()):
             if (c.status or "").upper() == "BORRADOR":
                 continue
+            lugar = _place_label(_concert_city(c) or "", _concert_province_value(c) or "",
+                                 _concert_country_value(c) or "")
+            nombre = (c.festival_name or "").strip()
             out.append({"owner_type": "CONCERT", "owner_id": str(c.id),
-                        "label": (c.festival_name or "").strip() or "Concierto",
+                        # El nombre si lo tiene y, si no, el LUGAR (que es como se identifica un
+                        # concierto). El lugar viaja además aparte para pintarlo debajo.
+                        "label": nombre or lugar or "Sin recinto",
+                        "place": ("" if nombre == lugar else lugar),
+                        "venue": (_concert_venue_name(c) or ""),
                         "type_label": _invitation_event_type_label(c), "icon": _concert_activity_icon(c),
-                        "date": (c.date.isoformat() if c.date else ""),
+                        "date": (c.date.strftime("%d/%m/%Y") if c.date else ""),
+                        "date_iso": (c.date.isoformat() if c.date else ""),
                         "url": url_for("media_panel_view", owner_type="concert", owner_id=str(c.id))})
-        for a in s.query(CompanyAction).filter(CompanyAction.artist_ids.contains([str(aid)])).all():
+        for a in (s.query(CompanyAction)
+                  .options(joinedload(CompanyAction.venue))
+                  .filter(CompanyAction.artist_ids.contains([str(aid)])).all()):
             ak = (a.action_type or "").upper()
+            _snap = _json_loads_safe(getattr(a, "location_snapshot", None), {}) or {}
+            _venue = getattr(a, "venue", None)
+            lugar = _place_label((getattr(_venue, "municipality", None) or _snap.get("city") or ""),
+                                 (getattr(_venue, "province", None) or _snap.get("province") or ""), "")
+            nombre = (a.title or "").strip()
             out.append({"owner_type": "ACTION", "owner_id": str(a.id),
-                        "label": (a.title or "Acción").strip(),
+                        "label": nombre or lugar or "Acción",
+                        "place": ("" if nombre == lugar else lugar),
+                        "venue": (getattr(_venue, "name", None) or _snap.get("venue") or ""),
                         "type_label": ACTION_TYPE_LABELS.get(ak, "Acción"), "icon": ACTION_TYPE_ICONS.get(ak, "fa-bullhorn"),
-                        "date": (a.start_date.isoformat() if a.start_date else ""),
+                        "date": (a.start_date.strftime("%d/%m/%Y") if a.start_date else ""),
+                        "date_iso": (a.start_date.isoformat() if a.start_date else ""),
                         "url": url_for("media_panel_view", owner_type="action", owner_id=str(a.id))})
-        out.sort(key=lambda x: x["date"] or "0000", reverse=True)
+        # ⚠️ Se ordena por el ISO: con «dd/mm/aaaa» el orden alfabético no es el cronológico.
+        out.sort(key=lambda x: x["date_iso"] or "0000", reverse=True)
         return jsonify(out)
     finally:
         s.close()
@@ -123965,6 +124120,41 @@ def push_manifest():
     })
 
 
+def _media_panel_facts(session_db, owner_type: str, owner) -> list[dict]:
+    """La línea de datos de la cabecera de fotos/vídeos: (icono, texto) de lo que identifica la
+    actividad — el tipo, el artista, el recinto, el LUGAR y la FECHA (dd/mm/aaaa)."""
+    filas = []
+
+    def pon(icono, texto):
+        texto = (str(texto or "")).strip()
+        if texto:
+            filas.append({"icon": icono, "text": texto})
+
+    if owner_type == "CONCERT":
+        pon("fa-tag", _invitation_event_type_label(owner))
+        nombres = []
+        try:
+            nombres = [a.name for a in _artists_from_ids(session_db, _concert_primary_artist_ids(owner)) if getattr(a, "name", None)]
+        except Exception:
+            nombres = []
+        pon("fa-guitar", ", ".join(nombres))
+        pon("fa-calendar", owner.date.strftime("%d/%m/%Y") if getattr(owner, "date", None) else "")
+        pon("fa-location-dot", _concert_venue_name(owner) or "")
+        pon("fa-map-pin", _place_label(_concert_city(owner) or "", _concert_province_value(owner) or "",
+                                       _concert_country_value(owner) or ""))
+    elif owner_type == "ACTION":
+        ak = (getattr(owner, "action_type", None) or "").upper()
+        pon("fa-tag", ACTION_TYPE_LABELS.get(ak, "Acción"))
+        d = getattr(owner, "start_date", None)
+        pon("fa-calendar", d.strftime("%d/%m/%Y") if d else "")
+        snap = _json_loads_safe(getattr(owner, "location_snapshot", None), {}) or {}
+        venue = getattr(owner, "venue", None)
+        pon("fa-location-dot", (getattr(venue, "name", None) or snap.get("venue") or ""))
+        pon("fa-map-pin", _place_label((getattr(venue, "municipality", None) or snap.get("city") or ""),
+                                       (getattr(venue, "province", None) or snap.get("province") or ""), ""))
+    return filas
+
+
 @app.get("/fotos-videos/<owner_type>/<owner_id>", endpoint="media_panel_view")
 @admin_required
 def media_panel_view(owner_type, owner_id):
@@ -123979,7 +124169,10 @@ def media_panel_view(owner_type, owner_id):
         if not owner:
             abort(404)
         fotos_ctx = _build_fotos_context(s, ot, owner_id)
-        return render_template("media_panel.html", fotos_ctx=fotos_ctx, panel_title=title, owner_type=ot)
+        return render_template("media_panel.html", fotos_ctx=fotos_ctx, panel_title=title, owner_type=ot,
+                               # DE QUÉ es este panel: el tipo, el artista, el recinto, el lugar y la
+                               # fecha (en formato de aquí). Sin esto la cabecera era solo un nombre.
+                               panel_facts=_media_panel_facts(s, ot, owner))
     finally:
         s.close()
 
@@ -124034,7 +124227,15 @@ def _fotos_album_from_form(session_db, form, owner_type, owner, *, state=None):
     if ya is not None:
         return ya
     st = state or (_current_user_state() or {})
-    al = PhotoAlbum(owner_type=owner_type, owner_id=owner.id, name=nombre,
+    # ⚠️ CON SU ARTISTA: sin `artist_id` el álbum no aparecía en los selectores que buscan «los
+    # álbumes de este artista» (el de las notas de prensa salía vacío teniendo fotos: bug real).
+    _art_id = getattr(owner, "artist_id", None)
+    if _art_id is None and owner_type == "ARTIST":
+        _art_id = getattr(owner, "id", None)
+    if _art_id is None and owner_type == "ACTION":
+        _ids = [_safe_uuid(x) for x in (getattr(owner, "artist_ids", None) or [])]
+        _art_id = next((x for x in _ids if x), None)
+    al = PhotoAlbum(owner_type=owner_type, owner_id=owner.id, name=nombre, artist_id=_art_id,
                     created_by_user_id=_safe_uuid(st.get("user_id")),
                     created_by_nick=(st.get("nick") or "").strip() or None)
     session_db.add(al)

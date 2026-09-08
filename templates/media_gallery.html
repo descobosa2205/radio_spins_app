@@ -162,6 +162,10 @@
     var ll=e.target.closest('#mgLinkLoose'); if(ll){ window.location.href = "{{ url_for('media_panel_view', owner_type='artist', owner_id='AID') }}".replace('AID', artistId); return; }
   });
 
+  // El nombre de una actividad lo escribe una persona: se escapa antes de pintarlo.
+  function esc(v){ return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
   function loadActivities(){
     var wrap=document.getElementById('mgActivities'); wrap.innerHTML='<div class="text-muted small p-2">Cargando…</div>';
     fetch("{{ url_for('api_media_artist_activities', artist_id='AID') }}".replace('AID', artistId))
@@ -171,7 +175,13 @@
         wrap.innerHTML='';
         list.forEach(function(a){
           var el=document.createElement('a'); el.className='list-group-item list-group-item-action mg-act-row d-flex align-items-center gap-2'; el.href=a.url;
-          el.innerHTML='<i class="fa '+a.icon+' text-muted"></i><span class="flex-grow-1"><span class="fw-semibold">'+(a.label||'')+'</span> <span class="text-muted small">· '+(a.type_label||'')+'</span></span>'+(a.date?('<span class="text-muted small">'+a.date+'</span>'):'');
+          // CUÁL ES: su nombre (o el lugar) arriba y, debajo, el tipo · el recinto · el municipio.
+          // La fecha, a la derecha y en formato de aquí (la manda ya así el servidor).
+          var sub=[a.type_label||'', a.venue||'', a.place||''].filter(Boolean).join(' · ');
+          el.innerHTML='<i class="fa '+a.icon+' text-muted"></i>'
+            +'<span class="flex-grow-1 min-w-0"><span class="fw-semibold d-block text-truncate">'+esc(a.label||'')+'</span>'
+            +(sub?'<span class="text-muted small d-block text-truncate">'+esc(sub)+'</span>':'')+'</span>'
+            +(a.date?('<span class="text-muted small flex-shrink-0">'+esc(a.date)+'</span>'):'');
           wrap.appendChild(el);
         });
       })

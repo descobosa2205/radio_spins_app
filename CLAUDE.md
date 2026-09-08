@@ -10819,3 +10819,44 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   desde una nota, los módulos en blanco conservando estilo y opciones, crear la nota con la
   plantilla, cargarla desde el editor, que no sale en la pestaña, renombrar (y que el nombre
   sobrevive a guardar el diseño) y eliminar.
+
+- **FOTOS Y VÍDEOS · SE SABE A QUÉ ACTIVIDAD SE SUBE, Y LAS FECHAS EN FORMATO DE AQUÍ** (sep 2026).
+  El listado para elegir la actividad decía **«Concierto»** a secas —sin nombre no había forma de
+  saber a cuál— y la fecha salía en **ISO** («2026-07-18»).
+  · Ahora cada actividad se identifica por **su nombre (el del festival) o EL LUGAR**
+  («Municipio, Provincia», punto único `_place_label`) y trae aparte el **recinto** y el lugar;
+  `api_media_artist_activities` devuelve **`date` en dd/mm/aaaa** y **`date_iso` solo para ORDENAR**
+  (⚠️ con «dd/mm/aaaa» el orden alfabético no es el cronológico).
+  · El punto único **`_photo_resolve_owner`** ya no cae al nombre del ARTISTA cuando la actividad no
+  tiene nombre: cae al LUGAR (en la galería de un artista, todas se llamaban igual).
+  · La fila del listado por artista enseña el lugar COMPLETO (`place`, no solo la ciudad) y la
+  cabecera del panel dice **de qué es** (tipo · artista · fecha · recinto · lugar,
+  `_media_panel_facts`).
+  ⚠️ `fa-user-music` **no existe** en esta versión de Font Awesome (saldría vacío): el artista va con
+  `fa-guitar`.
+
+- ⚠️⚠️ **NOTAS DE PRENSA · LAS FOTOS QUE SE OFRECEN: los ÁLBUMES Y LAS FOTOS SIN ÁLBUM** (bug real,
+  sep 2026: «sale la opción pero no salen los contenidos que existen»). Dos causas:
+  · **La mayoría de las fotos NO están en un álbum** (se suben a la actividad y se quedan ahí), y el
+  selector solo ofrecía `PhotoAlbum`. Ahora `_press_photo_albums` ofrece además **las fotos de la
+  actividad, del evento y de cada artista** que no están agrupadas, y cada grupo dice **de dónde es**
+  («Álbum · Jerez de la Frontera, Cádiz», «Fotos de la actividad»).
+  · ⚠️ **`_fotos_album_from_form` creaba los álbumes SIN `artist_id`** (el otro camino sí lo ponía),
+  así que «los álbumes de este artista» no encontraba ninguno. Arreglado al crear + relleno puntual
+  `_photo_albums_artist_backfill_once` (marca `photo_albums_artist_v1`). Y la búsqueda mira ya
+  `artist_id`, **el dueño** y **las actividades de ese artista**.
+  ⚠️⚠️ La referencia de un módulo de fotos es una **CLAVE**: el uuid del álbum **o
+  `o-<OWNER_TYPE>-<uuid>`** para las fotos de un dueño, y la resuelve el punto único
+  **`_press_photos_source`** — lo usan el módulo del correo, la **galería pública** y el **ZIP**, así
+  que las tres formas no se pueden desparejar. `album_id` sigue siendo el nombre del parámetro de la
+  URL pública (una clave, no siempre un álbum).
+
+- **NOTAS DE PRENSA · CUENTAGOTAS DE COLOR** (sep 2026): al lado del selector de color del texto hay
+  un **cuentagotas** que coge un color de **cualquier parte de la pantalla** (`EyeDropper`, la API
+  nativa) y lo **AÑADE a la paleta** del diseño, así queda a un clic para el resto del texto (doble
+  clic en una muestra propia la quita). Se guardan en **`design.swatches`** y ⚠️ el guardado los
+  **CONSERVA** aunque el cliente no los mande (rehace el diseño desde cero, como con la paleta del
+  fondo).
+  ⚠️ Si el navegador no tiene `EyeDropper` (Safari) **el botón no se pinta**: un botón que no
+  funciona estorba. El color de un módulo (los adjuntos) también alimenta la paleta
+  (`window.app33PressAddColor`).

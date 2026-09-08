@@ -16,6 +16,11 @@
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">Fotos / Vídeos{% if owner_type == 'ARTIST' %} · Suelto (del artista){% endif %}</div>
     <h1 class="ficha-hero__title">{{ panel_title }}</h1>
+    {% if panel_facts %}
+      <div class="ficha-hero__facts">
+        {% for f in panel_facts %}<span><i class="fa {{ f.icon }}"></i>{{ f.text }}</span>{% endfor %}
+      </div>
+    {% endif %}
   </div>
 </div>
 {% include '_fotos_panel.html' %}

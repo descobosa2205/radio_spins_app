@@ -558,19 +558,63 @@
     var b = sel ? bloque(sel) : null; if (!b) return;
     if (ev.target.matches('[data-pr-color]')) aplicaColor(b, ev.target.value);
   });
-  // Los COLORES DEL FONDO que hay puesto (los calcula el servidor al subirlo): se eligen de un clic.
+  /* Los COLORES a un clic: los del FONDO (los calcula el servidor al subirlo) y los que se hayan
+     COGIDO CON EL CUENTAGOTAS (`design.swatches`, que se guardan con el diseño). */
+  function misColores() {
+    return (Array.isArray(design.swatches) ? design.swatches : []).filter(function (c) {
+      return /^#[0-9a-fA-F]{6}$/.test(String(c || ''));
+    });
+  }
   function pintaSwatches() {
     var box = toolbar.querySelector('[data-pr-swatches]'); if (!box) return;
     var pal = (design.bg && Array.isArray(design.bg.palette)) ? design.bg.palette : [];
-    box.innerHTML = pal.map(function (c) {
+    var mios = misColores();
+    var html = pal.map(function (c) {
       return '<button type="button" class="pr-swatch" data-pr-swatch="' + esc(c) + '" style="background:' + esc(c) + '" title="Color del fondo · ' + esc(c) + '"></button>';
+    }).join('') + mios.map(function (c) {
+      return '<button type="button" class="pr-swatch pr-swatch--mine" data-pr-swatch="' + esc(c) + '" style="background:' + esc(c) + '" title="Color cogido con el cuentagotas · ' + esc(c) + ' (doble clic para quitarlo)"></button>';
     }).join('');
-    box.classList.toggle('d-none', !pal.length);
+    box.innerHTML = html;
+    box.classList.toggle('d-none', !(pal.length || mios.length));
   }
   toolbar.addEventListener('click', function (ev) {
     var sw = ev.target.closest('[data-pr-swatch]'); var b = sel ? bloque(sel) : null;
     if (sw && b) aplicaColor(b, sw.getAttribute('data-pr-swatch'));
   });
+  // Doble clic en un color propio: se quita de la paleta.
+  toolbar.addEventListener('dblclick', function (ev) {
+    var sw = ev.target.closest('.pr-swatch--mine'); if (!sw) return;
+    var c = (sw.getAttribute('data-pr-swatch') || '').toLowerCase();
+    design.swatches = misColores().filter(function (x) { return String(x).toLowerCase() !== c; });
+    pintaSwatches(); marca();
+  });
+
+  /* ⚠️⚠️ CUENTAGOTAS: coge un color de CUALQUIER PARTE DE LA PANTALLA (`EyeDropper`, la API nativa
+     del navegador) y lo AÑADE a la paleta del diseño, así queda a un clic para el resto del texto.
+     Si el navegador no la tiene (Safari), el botón no se pinta: un botón que no funciona estorba. */
+  function añadeColor(c) {
+    c = String(c || '').toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(c)) return;
+    var ya = misColores().map(function (x) { return String(x).toLowerCase(); });
+    if (ya.indexOf(c) < 0) design.swatches = misColores().concat([c]).slice(-12);
+    pintaSwatches(); marca();
+  }
+  window.app33PressAddColor = añadeColor;      // lo usan también los selectores de color de módulo
+  var btnGota = toolbar.querySelector('[data-pr-eyedrop]');
+  if (btnGota && window.EyeDropper) {
+    btnGota.classList.remove('d-none');
+    btnGota.addEventListener('click', function () {
+      var b = sel ? bloque(sel) : null;
+      new window.EyeDropper().open().then(function (res) {
+        var c = (res && res.sRGBHex) || '';
+        añadeColor(c);
+        // Si hay un texto seleccionado, se le aplica ya; si no, queda en la paleta para usarlo.
+        if (b && c) aplicaColor(b, c);
+        var inp = toolbar.querySelector('[data-pr-color]');
+        if (inp && /^#[0-9a-fA-F]{6}$/.test(c)) inp.value = c;
+      }).catch(function () {});   // cancelar con Escape no es un error
+    });
+  }
 
   /* ---------- añadir: desde la paleta (arrastrando o pinchando) ---------- */
   function nuevoBloque(tipo, x, y, extra) {
@@ -1199,7 +1243,10 @@
     filesModal.addEventListener('input', function (ev) {
       var b = bloque(filesTarget); if (!b) return;
       if (ev.target.matches('[data-pr-files-title]')) { b.opts = b.opts || {}; b.opts.title = ev.target.value; marca(); refrescaModuloLuego(b); if (sel === b.id) pintaProps(b); }
-      if (ev.target.matches('[data-pr-files-color-custom]')) { b.opts = b.opts || {}; b.opts.color = ev.target.value; marca(); refrescaModuloLuego(b); }
+      if (ev.target.matches('[data-pr-files-color-custom]')) {
+        b.opts = b.opts || {}; b.opts.color = ev.target.value; marca(); refrescaModuloLuego(b);
+        if (window.app33PressAddColor) window.app33PressAddColor(ev.target.value);
+      }
     });
   }
   /* «Guardar este diseño como plantilla»: guarda primero (para que la plantilla lleve lo que hay
@@ -1225,7 +1272,7 @@
 
   /* ---------- guardar y previsualizar ---------- */
   function serializa() {
-    return { width: W, bg: design.bg, blocks: design.blocks.map(function (b) {
+    return { width: W, bg: design.bg, swatches: misColores(), blocks: design.blocks.map(function (b) {
       var o = { id: b.id, type: b.type, x: b.x, y: b.y, w: b.w, h: b.h };
       if (b.type === 'title' || b.type === 'text') { var el = elDe(b.id); o.html = el ? el.querySelector('.pr-blk__text').innerHTML : (b.html || ''); o.style = b.style || {}; }
       else { o.ref = b.ref || {}; o.opts = b.opts || {}; }

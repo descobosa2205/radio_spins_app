@@ -121,7 +121,10 @@
           {% for f in fonts %}<option value="{{ f.css }}">{{ f.label }}</option>{% endfor %}
         </select>
         <label class="pr-tb pr-tb--color" title="Color del texto seleccionado"><i class="fa fa-palette"></i><input type="color" data-pr-color value="#111827"></label>
-        {# Los COLORES DEL FONDO que hay puesto, para elegirlos directamente. #}
+        {# CUENTAGOTAS: coge un color de CUALQUIER PARTE DE LA PANTALLA y lo añade a la paleta.
+           Solo se pinta si el navegador lo tiene (`EyeDropper`): un botón que no funciona estorba. #}
+        <button type="button" class="pr-tb d-none" data-pr-eyedrop title="Cuentagotas: coger un color de cualquier parte de la pantalla"><i class="fa fa-eye-dropper"></i></button>
+        {# Los COLORES DEL FONDO que hay puesto (y los que se cojan con el cuentagotas). #}
         <span class="pr-tb__swatches d-none" data-pr-swatches></span>
         <span class="pr-tb__sep"></span>
         <button type="button" class="pr-tb" data-pr-size="-1" title="Texto más pequeño (todo el bloque)"><i class="fa fa-minus"></i></button>

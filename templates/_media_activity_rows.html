@@ -16,14 +16,16 @@
   <div class="media-cards" data-media-rows>
     {% for r in rows %}
       {% set drill = url_for('media_panel_view', owner_type=r.owner_type|lower, owner_id=r.owner_id, back=row_back, back_id=row_back_id) %}
+      {# CUÁL ES: su nombre (el del festival) y el LUGAR («Municipio, Provincia»); con la ciudad
+         sola no se sabe a qué actividad se sube. La fecha, en formato de aquí. #}
       {% set parts = [r.type_label] %}
       {% if r.event_name %}{% set _ = parts.append(r.event_name) %}{% endif %}
-      {% if r.city %}{% set _ = parts.append(r.city) %}{% endif %}
+      {% if r.place %}{% set _ = parts.append(r.place) %}{% endif %}
       {% if r.date_label %}{% set _ = parts.append(r.date_label) %}{% endif %}
       <a class="media-card" href="{{ drill }}"
          data-type-key="{{ r.type_key }}" data-type-label="{{ r.type_label }}" data-type-icon="{{ r.type_icon or 'fa-images' }}"
          data-date="{{ r.date_iso }}"
-         data-text="{{ (r.type_label ~ ' ' ~ r.event_name ~ ' ' ~ r.city ~ ' ' ~ (r.title or ''))|lower }}">
+         data-text="{{ (r.type_label ~ ' ' ~ r.event_name ~ ' ' ~ r.place ~ ' ' ~ (r.title or ''))|lower }}">
         <div class="media-card__cover">
           {% if r.cover_url and r.cover_is_video %}<span class="cover-vidfallback"><i class="fa fa-film"></i></span><video class="video-thumb" src="{{ r.cover_url }}" preload="metadata" muted playsinline></video>
           {% elif r.cover_url %}<img src="{{ r.cover_url }}" loading="lazy" alt="">

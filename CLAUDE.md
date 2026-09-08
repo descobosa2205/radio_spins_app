@@ -10860,3 +10860,59 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Si el navegador no tiene `EyeDropper` (Safari) **el botón no se pinta**: un botón que no
   funciona estorba. El color de un módulo (los adjuntos) también alimenta la paleta
   (`window.app33PressAddColor`).
+
+- **EL TAMAÑO DE UN BLOQUE SE AJUSTA POR CUALQUIER LADO** (sep 2026, notas de prensa y comunicaciones
+  a compradores): un bloque seleccionado enseña **OCHO asas** —las cuatro esquinas y el medio de cada
+  lado (`data-pr-rs="nw|n|ne|e|se|s|sw|w"`)— y se tira del borde que toca, sin tener que apuntar
+  siempre a la esquina de abajo a la derecha. El arrastre trabaja con los **BORDES**: cogiendo la
+  izquierda o el de arriba, el bloque crece hacia ese lado y **el borde de enfrente se queda donde
+  estaba**. Las guías se imantan con el borde que se está moviendo (`alinea(b, modo, dir)`).
+  ⚠️ El alto de un **MÓDULO** lo calcula su contenido (`ajustaAltoModulo`), así que ahí las asas de
+  arriba y de abajo **no se ofrecen** (`.pr-blk--autoh`): volverían solas a su sitio y parecería que
+  no funcionan. En una **imagen** las cuatro esquinas y los cuatro lados valen, y la proporción se
+  respeta (tirando de arriba o de abajo manda el ALTO).
+  ⚠️ Las asas llevan `touch-action:none` y van por **encima** del asa de mover, que se les solapa en
+  la esquina de arriba a la izquierda.
+
+- ⚠️⚠️⚠️ **NOTAS DE PRENSA Y CORREO A COMPRADORES · LO QUE SE VE EN EL EDITOR ES LO QUE SE MANDA**
+  (sep 2026, bug real: «en el editor las cosas se ven como se han configurado, pero en la vista previa
+  te crea huecos o alinea los textos de otra forma»). La vista previa **ES** el correo
+  (`promo_press_preview` → `_press_email_html` → `press_render.render_email`), así que todo esto se
+  arregla en el motor y vale para la previa, el envío, la página pública y el PDF a la vez. Eran
+  CUATRO cosas, y ninguna daba error:
+  · ⚠️⚠️ **EL EDITOR INFLABA EL ALTO DE CADA TEXTO 6 px EN CADA REPASO** (la causa de los huecos).
+    `crecerTexto` medía `t.scrollHeight`, pero el texto va con `height:100%`, así que su scrollHeight
+    **nunca es menor que el bloque**: `necesario = alto + 8` salía siempre mayor y el bloque crecía
+    cada vez que se soltaba el ratón o se escribía. Al final pisaba al de abajo y, en el correo —donde
+    dos bloques NO se pueden superponer—, los dos salían apilados con un hueco enorme. Ahora se mide
+    el CONTENIDO (`height:auto` un instante y se lee el scrollHeight).
+  · ⚠️⚠️ **CADA UNO TENÍA SUS VALORES POR DEFECTO**: el editor pintaba un titular a **26 px con
+    interlineado 1,25** y el correo lo mandaba a **15 px con 1,4**. Punto único
+    **`press_render.TEXT_DEFAULTS`** (+ `text_defaults(kind)`), que **viaja al editor** en
+    `data-text-defaults` — así no se pueden desparejar — y que usan también el PDF y la miniatura.
+  · ⚠️⚠️ **EL HUECO ENTRE PÁRRAFOS**: en el editor los `<p>` llevaban el margen del navegador (1em
+    arriba y abajo) y en el correo `margin:0 0 .35em 0`, así que el texto se veía más abajo y más
+    separado. El CSS del editor (`.pr-blk__text p`) usa ya el mismo, y los enlaces también
+    (`color:inherit;text-decoration:underline`). ⚠️ Y el marco del bloque va en **`outline`**, no en
+    `border`: con un borde de 1 px el contenido medía 2 px menos y el texto empezaba 1 px desplazado.
+  · ⚠️⚠️ **UN MÓDULO MEDÍA 18 px MÁS EN EL EDITOR**: heredaba la tipografía de la app (Bootstrap:
+    16 px y 1,5 de interlineado) y en el correo la del cliente. La tarjeta declara ya su base
+    (**`press_render.MODULE_BASE`**, espejada en `.pr-blk__mod`), así que mide igual en los cuatro
+    sitios.
+  · **Y EL CORREO SE COMPONE CORTANDO EL LIENZO, NO EN COLUMNAS A PELO** (`press_render._pack`): en un
+    correo no hay `position:absolute`, así que el rectángulo se va cortando **en franjas mientras se
+    pueda y, si no, en columnas**, hasta que cada bloque se queda solo en su celda con su sitio, su
+    **ancho exacto** y su alto. Cualquier maqueta en la que los bloques no se pisen sale EXACTA.
+    ⚠️ Antes los bloques de una franja se metían en columnas por su x y **los que compartían columna
+    se apilaban con el `padding-top` medido desde el inicio de la banda** (se sumaba al alto del
+    anterior: de ahí los huecos), y la celda tenía el ancho del GRUPO, así que un texto centrado se
+    centraba respecto a otro ancho.
+    ⚠️ **Un solape de menos de `OVERLAP_EPS` (4 px) no cuenta como «se pisan»**: dos textos puestos
+    uno al lado del otro que se rozan 2 px acababan apilados y dos puestos uno debajo de otro se
+    separaban con un hueco enorme.
+    ⚠️ Lo que se pisa DE VERDAD se pone uno detrás de otro sin hueco: en un correo no hay otra.
+  · **Las FRANJAS de primer nivel siguen anclando su trozo de fondo** (`compute_bands` + `_bg_css`
+    con `background-position` negativo): así un estiramiento no desalinea todo el fondo de golpe.
+  · **Prueba de regresión**: `python3 tools/check_press_render.py` (sección 6: los casos que
+    fallaban). Comprobado además con la app real, midiendo bloque a bloque el editor y la vista
+    previa: **el mismo x, y, ancho y alto en los dos**, con fondo y sin fondo.

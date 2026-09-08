@@ -77,21 +77,46 @@
   }
 
   /* ---------- bloques ---------- */
+  /* ⚠️⚠️ LO QUE SE VE AQUÍ ES LO QUE SE MANDA: los valores por defecto de un texto los da el motor
+     (`press_render.TEXT_DEFAULTS`, que viajan en `data-text-defaults`), no este fichero. Cuando cada
+     uno tenía los suyos, un titular se pintaba a 26px con interlineado 1,25 en el editor y salía a
+     15px con 1,4 en el correo, así que la vista previa no se parecía a lo configurado. */
+  var TEXT_DEF = (function () {
+    var d = {};
+    try { d = JSON.parse(root.getAttribute('data-text-defaults') || '{}') || {}; } catch (e) { d = {}; }
+    return d;
+  })();
+  function porDefecto(b) {
+    return TEXT_DEF[b && b.type === 'title' ? 'title' : 'text'] || {};
+  }
   function estiloTexto(b) {
-    var st = b.style || {};
-    return 'font-family:' + (st.font || 'Arial, Helvetica, sans-serif') + ';font-size:' + (st.size || (b.type === 'title' ? 26 : 15)) + 'px;' +
-      'line-height:' + (st.line || (b.type === 'title' ? 1.25 : 1.45)) + ';color:' + (st.color || '#111827') + ';text-align:' + (st.align || 'left') + ';' +
+    var st = b.style || {}, d = porDefecto(b);
+    return 'font-family:' + (st.font || d.font || 'Arial, Helvetica, sans-serif') + ';font-size:' + (st.size || d.size || 15) + 'px;' +
+      'line-height:' + (st.line || d.line || 1.45) + ';color:' + (st.color || d.color || '#111827') + ';text-align:' + (st.align || d.align || 'left') + ';' +
       (st.bold ? 'font-weight:700;' : '');
   }
   function elDe(id) { return canvas.querySelector('.pr-blk[data-id="' + id + '"]'); }
+
+  /* ---------- las ASAS del tamaño: las cuatro esquinas y el medio de cada lado ----------
+     Con un cuadradito en cada lado se ajusta el tamaño tirando del borde que toca, sin tener que
+     apuntar siempre a la esquina de abajo a la derecha.
+     ⚠️ El alto de un MÓDULO lo manda su contenido (`ajustaAltoModulo`), así que ahí las asas de
+     arriba y de abajo no se ofrecen: volverían solas a su sitio y parecería que no funcionan. */
+  var RS_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+  function altoAuto(b) { return !esTexto(b) && !(b && b.type === 'image'); }
+  function asasHtml() {
+    return RS_DIRS.map(function (d) {
+      return '<div class="pr-blk__rs pr-blk__rs--' + d + '" data-pr-rs="' + d + '" title="Arrastra para cambiar el tamaño"></div>';
+    }).join('');
+  }
   function pintaBloque(b) {
     var el = elDe(b.id);
     if (!el) {
       el = document.createElement('div');
-      el.className = 'pr-blk pr-blk--' + b.type;
+      el.className = 'pr-blk pr-blk--' + b.type + (altoAuto(b) ? ' pr-blk--autoh' : '');
       el.setAttribute('data-id', b.id);
       el.innerHTML = '<div class="pr-blk__grip" title="Arrastra para mover"><i class="fa fa-grip-lines"></i></div>' +
-        '<div class="pr-blk__body"></div><div class="pr-blk__rs" title="Arrastra para cambiar el tamaño"></div>';
+        '<div class="pr-blk__body"></div>' + asasHtml();
       canvas.appendChild(el);
       var body = el.querySelector('.pr-blk__body');
       if (b.type === 'title' || b.type === 'text') {
@@ -157,8 +182,16 @@
   function crecerTexto(b) {
     var el = elDe(b.id); if (!el) return;
     var t = el.querySelector('.pr-blk__text');
-    var necesario = t.scrollHeight + 8;
-    if (necesario > b.h) { b.h = necesario; el.style.height = Math.round(b.h) + 'px'; canvas.style.height = Math.round(canvasH()) + 'px'; escala(); }
+    /* ⚠️⚠️ SE MIDE EL CONTENIDO, NO EL CONTENEDOR. El texto va con `height:100%`, así que su
+       `scrollHeight` NUNCA es menor que el bloque: midiéndolo así (y sumándole 8) el bloque crecía
+       unos píxeles en CADA repaso, acababa pisando al de abajo y en el correo —donde dos bloques no
+       se pueden superponer— los dos salían apilados con un hueco enorme. Era la causa de que la
+       vista previa no se pareciera a lo configurado. */
+    var antes = t.style.height;
+    t.style.height = 'auto';
+    var necesario = Math.ceil(t.scrollHeight);
+    t.style.height = antes;
+    if (necesario > Math.round(b.h)) { b.h = necesario; el.style.height = Math.round(b.h) + 'px'; canvas.style.height = Math.round(canvasH()) + 'px'; escala(); }
   }
   function bloque(id) { return design.blocks.filter(function (b) { return b.id === id; })[0]; }
 
@@ -176,7 +209,7 @@
     if (b && (b.type === 'title' || b.type === 'text')) {
       var st = b.style || {};
       var f = toolbar.querySelector('[data-pr-font]'); if (f) f.value = st.font || f.options[0].value;
-      var n = toolbar.querySelector('[data-pr-size-input]'); if (n) n.value = st.size || (b.type === 'title' ? 26 : 15);
+      var n = toolbar.querySelector('[data-pr-size-input]'); if (n) n.value = st.size || porDefecto(b).size || 15;
       var c = toolbar.querySelector('[data-pr-color]'); if (c) c.value = /^#[0-9a-fA-F]{6}$/.test(st.color || '') ? st.color : '#111827';
     }
     colocaToolbar();
@@ -313,7 +346,8 @@
     // actúan sobre el bloque y no sobre una letra del texto de antes.
     var act = document.activeElement;
     if (act && act.closest && act.closest('.pr-blk__text')) act.blur();
-    drag = { id: id, modo: rs ? 'rs' : 'mv', x0: ev.clientX, y0: ev.clientY, bx: b.x, by: b.y, bw: b.w, bh: b.h, moved: false };
+    drag = { id: id, modo: rs ? 'rs' : 'mv', dir: rs ? (rs.getAttribute('data-pr-rs') || 'se') : '',
+      x0: ev.clientX, y0: ev.clientY, bx: b.x, by: b.y, bw: b.w, bh: b.h, moved: false };
     el.classList.add('is-dragging');
     try { el.setPointerCapture(ev.pointerId); } catch (e) {}
   });
@@ -326,11 +360,26 @@
       b.x = drag.bx + dx;
       b.y = drag.by + dy;
     } else {
-      b.w = drag.bw + dx;
-      if (esTexto(b)) b.h = drag.bh + dy;
+      // Se trabaja con los BORDES, no con el ancho: así tirando de la izquierda o de arriba el bloque
+      // crece hacia ese lado y el borde de enfrente se queda donde estaba.
+      var d = drag.dir || 'se';
+      var izq = drag.bx, der = drag.bx + drag.bw, arr = drag.by, aba = drag.by + drag.bh;
+      var altoLibre = esTexto(b) || conMedidas(b);
+      if (d.indexOf('e') >= 0) der = Math.max(izq + 60, der + dx);
+      if (d.indexOf('w') >= 0) izq = Math.min(der - 60, Math.max(0, izq + dx));
+      if (altoLibre && d.indexOf('s') >= 0) aba = Math.max(arr + 24, aba + dy);
+      if (altoLibre && d.indexOf('n') >= 0) arr = Math.min(aba - 24, Math.max(0, arr + dy));
+      if (conMedidas(b)) {                                   // la imagen no se deforma
+        var prop = b.ref.h / b.ref.w;
+        if (d === 'n' || d === 's') der = izq + Math.max(60, (aba - arr) / prop);
+        var alto = (der - izq) * prop;
+        if (d.indexOf('n') >= 0) arr = aba - alto; else aba = arr + alto;
+      }
+      b.x = izq; b.w = der - izq;
+      if (altoLibre) { b.y = arr; b.h = aba - arr; }
     }
     // Las GUÍAS: se imanta al borde o al ancho de los demás bloques (con Alt pulsado, no).
-    if (ev.altKey) limpiaGuias(); else alinea(b, drag.modo);
+    if (ev.altKey) limpiaGuias(); else alinea(b, drag.modo, drag.dir);
     b.x = Math.max(0, Math.min(W - 40, b.x)); b.y = Math.max(0, b.y);
     b.w = Math.max(60, Math.min(W - b.x, b.w)); if (esTexto(b)) b.h = Math.max(24, b.h);
     if (conMedidas(b)) b.h = b.w * b.ref.h / b.ref.w;      // la imagen no se deforma
@@ -372,7 +421,7 @@
     if (eje === 'v') g.style.left = Math.round(pos) + 'px'; else g.style.top = Math.round(pos) + 'px';
     canvas.appendChild(g);
   }
-  function alinea(b, modo) {
+  function alinea(b, modo, dir) {
     var otros = design.blocks.filter(function (o) { return o.id !== b.id; });
     var cx = [], cy = [], mid = W / 2;
     if (modo === 'mv') {
@@ -385,13 +434,29 @@
       });
       cx.push({ d: Math.abs(b.x + b.w / 2 - mid), v: mid, set: function () { b.x = mid - b.w / 2; } });
     } else {
+      // Cada borde se imanta con lo que tiene sentido: el derecho con los bordes derechos, el izquierdo
+      // con los izquierdos… Así la guía que se pinta es la del borde que se está moviendo.
+      var d = dir || 'se';
+      var este = d.indexOf('e') >= 0, oeste = d.indexOf('w') >= 0;
+      var sur = d.indexOf('s') >= 0, norte = d.indexOf('n') >= 0;
+      var altoLibre = esTexto(b);
       otros.forEach(function (o) {
-        cx.push({ d: Math.abs(b.x + b.w - o.x - o.w), v: o.x + o.w, set: function () { b.w = o.x + o.w - b.x; }, ref: o });
-        cx.push({ d: Math.abs(b.w - o.w), v: b.x + o.w, set: function () { b.w = o.w; }, ref: o, ancho: true });
-        cx.push({ d: Math.abs(b.x + b.w / 2 - o.x - o.w / 2), v: o.x + o.w / 2, set: function () { b.w = 2 * (o.x + o.w / 2 - b.x); }, ref: o });
-        if (esTexto(b)) cy.push({ d: Math.abs(b.y + b.h - o.y - o.h), v: o.y + o.h, set: function () { b.h = o.y + o.h - b.y; }, ref: o });
+        if (este) {
+          cx.push({ d: Math.abs(b.x + b.w - o.x - o.w), v: o.x + o.w, set: function () { b.w = o.x + o.w - b.x; }, ref: o });
+          cx.push({ d: Math.abs(b.x + b.w - o.x), v: o.x, set: function () { b.w = o.x - b.x; }, ref: o });
+          cx.push({ d: Math.abs(b.w - o.w), v: b.x + o.w, set: function () { b.w = o.w; }, ref: o, ancho: true });
+          cx.push({ d: Math.abs(b.x + b.w / 2 - o.x - o.w / 2), v: o.x + o.w / 2, set: function () { b.w = 2 * (o.x + o.w / 2 - b.x); }, ref: o });
+        }
+        if (oeste) {
+          cx.push({ d: Math.abs(b.x - o.x), v: o.x, set: function () { b.w = b.x + b.w - o.x; b.x = o.x; }, ref: o });
+          cx.push({ d: Math.abs(b.x - o.x - o.w), v: o.x + o.w, set: function () { b.w = b.x + b.w - o.x - o.w; b.x = o.x + o.w; }, ref: o });
+          cx.push({ d: Math.abs(b.w - o.w), v: b.x + b.w - o.w, set: function () { b.x = b.x + b.w - o.w; b.w = o.w; }, ref: o, ancho: true });
+        }
+        if (altoLibre && sur) cy.push({ d: Math.abs(b.y + b.h - o.y - o.h), v: o.y + o.h, set: function () { b.h = o.y + o.h - b.y; }, ref: o });
+        if (altoLibre && norte) cy.push({ d: Math.abs(b.y - o.y), v: o.y, set: function () { b.h = b.y + b.h - o.y; b.y = o.y; }, ref: o });
       });
-      cx.push({ d: Math.abs(b.x + b.w / 2 - mid), v: mid, set: function () { b.w = 2 * (mid - b.x); } });
+      if (este) cx.push({ d: Math.abs(b.x + b.w / 2 - mid), v: mid, set: function () { b.w = 2 * (mid - b.x); } });
+      if (oeste) cx.push({ d: Math.abs(b.x + b.w / 2 - mid), v: mid, set: function () { var der = b.x + b.w; b.x = 2 * mid - der; b.w = der - b.x; } });
     }
     limpiaGuias();
     [[cx, 'v'], [cy, 'h']].forEach(function (par) {

@@ -20,6 +20,7 @@
      data-staff-url="{{ url_for('promo_press_staff_search') }}" data-campaign="{{ '1' if campaign else '' }}"
      data-thumb-url="{{ thumb_save_url }}"
      data-design-asset="{{ design_asset|tojson|forceescape }}" data-corporate="{{ palette_corporate|tojson|forceescape }}"
+     data-text-defaults="{{ text_defaults|tojson|forceescape }}"
      data-can-edit="{{ '1' if can_edit else '' }}">
 
   <div class="pr-editor__top">

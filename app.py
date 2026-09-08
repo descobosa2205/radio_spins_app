@@ -53271,18 +53271,19 @@ def _press_thumbnail_bytes(session_db, pr, width: int = 600) -> bytes | None:
                 pass
             continue
         st = b.get("style") or {}
+        dft = press_render.text_defaults(b.get("type") or "text")
         texto = press_render.plain_text_of_html(b.get("html") or "")
         if not texto:
             continue
-        tam = max(8, int(round(float(st.get("size", 15)) * k)))
+        tam = max(8, int(round(float(st.get("size") or dft["size"]) * k)))
         ruta = _press_font_path(bool(st.get("bold")))
         try:
             fuente = ImageFont.truetype(ruta, tam) if ruta else ImageFont.load_default()
         except Exception:
             fuente = ImageFont.load_default()
-        color = st.get("color") or "#111827"
+        color = st.get("color") or dft["color"]
         x, y, w = int(round(b["x"] * k)), int(round(b["y"] * k)), int(round(b["w"] * k))
-        alto_linea = int(round(tam * float(st.get("line", 1.3))))
+        alto_linea = int(round(tam * float(st.get("line") or dft["line"])))
         lineas = []
         for parrafo in texto.split("\n"):
             palabras, actual = parrafo.split(" "), ""
@@ -53307,7 +53308,7 @@ def _press_thumbnail_bytes(session_db, pr, width: int = 600) -> bytes | None:
                 ancho = draw.textlength(linea, font=fuente)
             except Exception:
                 ancho = len(linea) * tam * 0.55
-            align = st.get("align") or "left"
+            align = st.get("align") or dft["align"]
             xx = x if align in ("left", "justify") else (x + (w - ancho) / 2 if align == "center" else x + w - ancho)
             draw.text((xx, yy), linea, font=fuente, fill=color)
     salida = BytesIO()
@@ -53380,15 +53381,17 @@ def _press_pdf_bytes(session_db, pr) -> bytes:
         top = alto - y
         if b["type"] in press_render.TEXT_TYPES:
             st = b.get("style") or {}
+            dft = press_render.text_defaults(b.get("type"))
+            tam = float(st.get("size") or dft["size"])
             align = {"left": TA_LEFT, "center": TA_CENTER, "right": TA_RIGHT, "justify": TA_JUSTIFY}
             flows = []
             for para in press_render.paragraphs_for_pdf(b):
                 estilo = ParagraphStyle(
                     "pr_%s" % b.get("id", ""), parent=styles["BodyText"],
-                    fontName=press_render.rl_font_for(st.get("font", ""), bool(st.get("bold"))),
-                    fontSize=float(st.get("size", 15)) * k, leading=float(st.get("size", 15)) * k * float(st.get("line", 1.4)),
-                    textColor=colors.HexColor(st.get("color") or "#111827") if str(st.get("color") or "").startswith("#") else colors.black,
-                    alignment=align.get(para.get("align") or st.get("align") or "left", TA_LEFT), spaceAfter=3)
+                    fontName=press_render.rl_font_for(st.get("font") or dft["font"], bool(st.get("bold"))),
+                    fontSize=tam * k, leading=tam * k * float(st.get("line") or dft["line"]),
+                    textColor=colors.HexColor(st.get("color") or dft["color"]) if str(st.get("color") or dft["color"]).startswith("#") else colors.black,
+                    alignment=align.get(para.get("align") or st.get("align") or dft["align"], TA_LEFT), spaceAfter=3)
                 try:
                     flows.append(Paragraph(para["markup"], estilo))
                 except Exception:
@@ -54270,6 +54273,9 @@ def _press_editor_context(s, pr) -> dict:
         "design_asset": _press_design_asset(s, pr),
         "palette_corporate": PRESS_CORPORATE_COLORS,
         "fonts": [{"css": css, "label": label} for css, label in press_render.FONTS],
+        # ⚠️ Cómo se pinta un texto lo dice el MOTOR (`press_render.TEXT_DEFAULTS`), no el editor: así
+        # lo que se ve al colocar el bloque es lo que llega en la vista previa y en el correo.
+        "text_defaults": press_render.TEXT_DEFAULTS,
         "email_subject": _press_email_subject(s, pr),
         "can_edit": _press_can_edit(pr) and _press_edit_ok(pr),
         "can_edit_promo": _press_edit_ok(pr),

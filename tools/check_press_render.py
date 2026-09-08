@@ -84,5 +84,41 @@ ok("dos párrafos para el PDF, el primero justificado y con el enlace subrayado"
    len(paras) == 2 and paras[0]["align"] == "justify" and "<a href=\"https://x\"" in paras[0]["markup"] and "<u>" in paras[0]["markup"])
 ok("la tipografía se mapea a las del PDF", pr.rl_font_for("Georgia, serif", True) == "Times-Bold" and pr.rl_font_for("Arial") == "Helvetica")
 
+# ── 6) ⚠️⚠️ EL CORREO SE VE COMO EL DISEÑO ────────────────────────────────────────────────────
+# Lo que se configura en el editor tiene que llegar TAL CUAL: sin huecos inventados y sin textos
+# alineados de otra forma. Estos son los casos que fallaban.
+def _d(blocks):
+    return {"width": 600, "bg": {}, "blocks": blocks}
+
+
+def _t(i, x, y, w, h, txt="Hola", **st):
+    return {"id": i, "type": "text", "x": x, "y": y, "w": w, "h": h, "html": "<p>%s</p>" % txt, "style": st}
+
+
+m = pr.render_email(_d([_t("a", 40, 400, 520, 200, "Arriba"), _t("b", 40, 597, 520, 100, "Abajo")]))
+ok("dos textos que se ROZAN en vertical: sin el hueco de 197 px que salía antes",
+   'height="197"' not in m and "padding-top:197px" not in m)
+m = pr.render_email(_d([_t("i", 40, 400, 262, 120, "Izquierda"), _t("j", 300, 400, 260, 120, "Derecha")]))
+ok("dos textos que se ROZAN a lo ancho siguen uno al lado del otro",
+   'width="262"' in m and 'width="260"' in m)
+m = pr.render_email(_d([_t("g", 40, 100, 520, 60, "Ancho"), _t("p", 40, 150, 200, 60, "Estrecho", align="center")]))
+ok("cada bloque va con SU ancho (un texto centrado se centra como en el editor)",
+   'width="520"' in m and 'width="200"' in m)
+m = pr.render_email(_d([_t("a", 137, 40, 300, 80)]))
+ok("el hueco de los lados es exacto (137 + 300 + 163)", 'width="137"' in m and 'width="163"' in m)
+m = pr.render_email(_d([{"id": "t", "type": "title", "x": 0, "y": 0, "w": 600, "h": 60, "html": "<p>T</p>"}]))
+ok("un TITULAR sin tamaño puesto va a 26px y 1.25, como en el editor",
+   "font-size:26px" in m and "line-height:1.25" in m)
+ok("y en la página, igual", "font-size:26px" in pr.render_web(_d([{"id": "t", "type": "title", "x": 0, "y": 0, "w": 600, "h": 60, "html": "<p>T</p>"}])))
+ok("un texto normal, a 15px y 1.45", "font-size:15px" in pr.render_email(_d([_t("x", 0, 0, 600, 60)])))
+ok("los valores por defecto son de UN solo sitio", pr.text_defaults("title")["size"] == 26 and pr.text_defaults("text")["line"] == 1.45)
+m = pr.render_email(_d([_t("a", 0, 0, 600, 80, "Uno</p><p>Dos")]))
+ok("los párrafos con el mismo hueco que en el editor, y el estilo UNA vez",
+   m.count("margin:0 0 .35em 0;") == 2 and 'style="margin:0 0 .35em 0;" style=' not in m)
+uno = pr.text_block_html({"type": "text", "html": '<p style="text-align:center">C</p>'}, for_email=True)
+ok("un párrafo que ya trae estilo lo conserva", 'style="margin:0 0 .35em 0;text-align:center"' in uno)
+ok("un módulo declara su tipografía base (mide igual en el editor y en el correo)",
+   "font-size:14px;line-height:1.35" in pr.module_html({"type": "contact", "data": {"name": "X"}}, for_email=True))
+
 print("\nFALLOS: %s" % fallos)
 sys.exit(1 if fallos else 0)

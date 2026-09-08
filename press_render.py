@@ -50,6 +50,22 @@ FONTS = [
 ]
 
 TEXT_TYPES = ("title", "text")
+
+# ⚠️⚠️ CÓMO SE PINTA UN TEXTO cuando el autor no ha dicho otra cosa. Es el ÚNICO sitio: el EDITOR lo
+# lee de aquí (viaja al navegador en `data-pr-text-defaults`), así que lo que se ve al colocar el
+# bloque es EXACTAMENTE lo que llega en el correo, en la página y en el PDF. Antes cada uno tenía sus
+# valores (el editor pintaba un titular a 26px con interlineado 1,25 y el correo a 15px con 1,4) y la
+# vista previa no se parecía a lo configurado.
+TEXT_DEFAULTS = {
+    "title": {"font": DEFAULT_FONT, "size": 26, "line": 1.25, "color": TEXT_COLOR, "align": "left"},
+    "text": {"font": DEFAULT_FONT, "size": 15, "line": 1.45, "color": TEXT_COLOR, "align": "left"},
+}
+PARAGRAPH_GAP = ".35em"             # el hueco entre párrafos, el mismo en el editor (CSS) y aquí
+
+
+def text_defaults(kind: str) -> dict:
+    """Los valores por defecto de un bloque de texto («title» o «text»)."""
+    return dict(TEXT_DEFAULTS["title" if kind == "title" else "text"])
 MODULE_TYPES = ("audio", "album", "video", "links", "contact", "photos", "image", "files", "playlist", "artwork")
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -316,30 +332,46 @@ def summary_of(design: dict, max_len: int = 220) -> str:
     return (corte or texto[:max_len]) + "…"
 
 
+# ⚠️ Un solape de POCOS PÍXELES no cuenta como «estos dos bloques se pisan»: dos textos puestos uno
+# al lado del otro que se rozan 2 px acababan apilados uno debajo del otro, y dos puestos uno debajo
+# de otro que se rozan 2 px se separaban con un hueco enorme.
+OVERLAP_EPS = 4.0
+
+
+def _groups_v(blocks: list[dict]) -> list[dict]:
+    """Los bloques agrupados en FRANJAS: cada una llega hasta donde acaba el más bajo de los que se
+    solapan con ella en vertical. Las franjas salen disjuntas y en orden."""
+    out: list[dict] = []
+    for b in sorted(blocks, key=lambda z: (z["y"], z["x"])):
+        y0, y1 = float(b["y"]), float(b["y"]) + float(b["h"])
+        if out and y0 < out[-1]["y1"] - OVERLAP_EPS:
+            out[-1]["blocks"].append(b)
+            out[-1]["y1"] = max(out[-1]["y1"], y1)
+        else:
+            if out:
+                y0 = max(y0, out[-1]["y1"])
+            out.append({"y0": y0, "y1": max(y0, y1), "blocks": [b]})
+    return out
+
+
+def _groups_h(blocks: list[dict]) -> list[dict]:
+    """Lo mismo a lo ancho: los bloques agrupados en COLUMNAS por su x."""
+    out: list[dict] = []
+    for b in sorted(blocks, key=lambda z: (z["x"], z["y"])):
+        x0, x1 = float(b["x"]), float(b["x"]) + float(b["w"])
+        if out and x0 < out[-1]["x1"] - OVERLAP_EPS:
+            out[-1]["blocks"].append(b)
+            out[-1]["x1"] = max(out[-1]["x1"], x1)
+        else:
+            if out:
+                x0 = max(x0, out[-1]["x1"])
+            out.append({"x0": x0, "x1": max(x0, x1), "blocks": [b]})
+    return out
+
+
 def compute_bands(blocks: list[dict]) -> list[dict]:
-    """Las FRANJAS horizontales del correo: cada una empieza donde empieza un bloque y llega hasta
-    donde acaba el más bajo de los que se solapan con ella en vertical."""
-    bandas: list[dict] = []
-    for b in sorted(blocks, key=lambda x: (x["y"], x["x"])):
-        if bandas and b["y"] < bandas[-1]["y1"]:
-            bandas[-1]["blocks"].append(b)
-            bandas[-1]["y1"] = max(bandas[-1]["y1"], b["y"] + b["h"])
-        else:
-            bandas.append({"y0": b["y"], "y1": b["y"] + b["h"], "blocks": [b]})
-    return bandas
-
-
-def _columns(blocks: list[dict]) -> list[dict]:
-    """Los bloques de una franja, en COLUMNAS por su x. Los que se solapan en horizontal van
-    apilados en la misma columna (raro: en el editor estarían uno encima de otro)."""
-    cols: list[dict] = []
-    for b in sorted(blocks, key=lambda x: (x["x"], x["y"])):
-        if cols and b["x"] < cols[-1]["x1"]:
-            cols[-1]["blocks"].append(b)
-            cols[-1]["x1"] = max(cols[-1]["x1"], b["x"] + b["w"])
-        else:
-            cols.append({"x0": b["x"], "x1": b["x"] + b["w"], "blocks": [b]})
-    return cols
+    """Las FRANJAS de primer nivel del correo (cada una ancla su trozo de fondo)."""
+    return _groups_v(blocks)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -350,16 +382,32 @@ def _e(v) -> str:
     return _html.escape(str(v if v is not None else ""), quote=True)
 
 
+_P_RE = re.compile(r"<p((?:\s[^>]*)?)>", re.I)
+
+
+def _p_margin(m) -> str:
+    """El hueco entre párrafos, respetando el estilo que ya traiga el párrafo (va DELANTE, así que si
+    el autor puso su propio margen, gana el suyo)."""
+    attrs = m.group(1) or ""
+    st = re.search(r'style="([^"]*)"', attrs, re.I)
+    if st:
+        return "<p" + attrs.replace(st.group(0), 'style="margin:0 0 %s 0;%s"' % (PARAGRAPH_GAP, st.group(1)), 1) + ">"
+    return '<p style="margin:0 0 %s 0;"%s>' % (PARAGRAPH_GAP, attrs)
+
+
 def text_block_html(b: dict, *, for_email: bool) -> str:
     st = b.get("style") or {}
+    d = text_defaults(b.get("type") or "text")
     estilo = ("font-family:%s;font-size:%spx;line-height:%s;color:%s;text-align:%s;%s"
               "margin:0;padding:0;word-wrap:break-word;overflow-wrap:break-word;"
-              % (st.get("font", DEFAULT_FONT), st.get("size", 15), st.get("line", 1.4),
-                 st.get("color", TEXT_COLOR), st.get("align", "left"),
+              % (st.get("font") or d["font"], st.get("size") or d["size"], st.get("line") or d["line"],
+                 st.get("color") or d["color"], st.get("align") or d["align"],
                  "font-weight:700;" if st.get("bold") else ""))
     inner = b.get("html") or ""
-    # Los párrafos sin margen: el hueco lo decide quien coloca el bloque, no el navegador.
-    inner = inner.replace("<p>", '<p style="margin:0 0 .35em 0;">').replace("<p ", '<p style="margin:0 0 .35em 0;" ')
+    # Los párrafos con el MISMO hueco que en el editor (el navegador les pondría 1em arriba y abajo).
+    # ⚠️ Va con una regex y de una pasada: con dos `replace` («<p>» y «<p ») el segundo volvía a casar
+    # con lo que había dejado el primero y el párrafo salía con el atributo `style` DOS veces.
+    inner = _P_RE.sub(_p_margin, inner)
     # Un enlace hereda el color del texto y va SUBRAYADO por defecto; si el autor le quitó el
     # subrayado, lo trae en su propio estilo y gana.
     inner = re.sub(r'<a (?![^>]*style=)', '<a style="color:inherit;text-decoration:underline;" ', inner)
@@ -398,10 +446,17 @@ def _button(texto: str, url: str, *, filled: bool = True, icon_url: str = "", cl
             % (_e(url), (' class="%s"' % cls) if cls else "", estilo, DEFAULT_FONT, ico, _e(texto)))
 
 
+# ⚠️⚠️ La TIPOGRAFÍA BASE de un módulo se declara en su propia tarjeta y NO se hereda: en un correo
+# se hereda la del cliente (Times a 16 px con interlineado «normal») y en el editor la de la app
+# (Bootstrap, 16 px y 1,5), así que el MISMO módulo medía 18 px más en el editor que en el correo y
+# lo de debajo se movía. Declarándola, mide igual en el editor, en el correo, en la página y en el PDF.
+MODULE_BASE = "font-family:%s;font-size:14px;line-height:1.35;color:%s;" % (DEFAULT_FONT, TEXT_COLOR)
+
+
 def _card_open(extra: str = "") -> str:
     return ('<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" '
-            'style="border-collapse:separate;border:1px solid #e5e7eb;border-radius:14px;background:#ffffff;%s">'
-            '<tr><td style="padding:12px 14px;">' % extra)
+            'style="border-collapse:separate;border:1px solid #e5e7eb;border-radius:14px;background:#ffffff;%s%s">'
+            '<tr><td style="padding:12px 14px;%s">' % (MODULE_BASE, extra, MODULE_BASE))
 
 
 _CARD_CLOSE = "</td></tr></table>"
@@ -668,6 +723,89 @@ def _bg_css(design: dict, y0: float) -> str:
             'background-position:0 -%dpx;background-size:%dpx auto;' % (_e(bg.get("url")), round(y0), WIDTH))
 
 
+def _tbl(w: float, filas: str) -> str:
+    w = round(w)
+    return ('<table role="presentation" width="%d" cellpadding="0" cellspacing="0" border="0" '
+            'style="width:%dpx;border-collapse:collapse;table-layout:fixed;">%s</table>' % (w, w, filas))
+
+
+def _hueco_cell(w: float) -> str:
+    w = round(w)
+    return '<td width="%d" style="width:%dpx;font-size:0;line-height:0;">&nbsp;</td>' % (w, w)
+
+
+def _hueco_row(w: float, h: float) -> str:
+    h, w = round(h), round(w)
+    if h <= 0:
+        return ""
+    return ('<tr><td width="%d" height="%d" style="width:%dpx;height:%dpx;line-height:%dpx;font-size:0;">&nbsp;</td></tr>'
+            % (w, h, w, h, h))
+
+
+def _one_cell(b: dict, x0: float, x1: float, top: float = 0.0) -> str:
+    """UN bloque dentro de su hueco, con su ANCHO EXACTO: así un texto centrado se centra respecto a
+    su bloque —como en el editor— y no respecto a la columna que le haya tocado."""
+    izq = max(0, round(float(b["x"]) - x0))
+    ancho = max(1, round(float(b["w"])))
+    der = max(0, round(x1 - float(b["x"]) - float(b["w"])))
+    cuerpo = block_html(b, for_email=True)
+    if round(top) > 0:
+        cuerpo = '<div style="padding-top:%dpx;">%s</div>' % (round(top), cuerpo)
+    celdas = []
+    if izq > 0:
+        celdas.append(_hueco_cell(izq))
+    celdas.append('<td width="%d" valign="top" style="width:%dpx;vertical-align:top;">%s</td>' % (ancho, ancho, cuerpo))
+    if der > 0:
+        celdas.append(_hueco_cell(der))
+    return _tbl(x1 - x0, "<tr>%s</tr>" % "".join(celdas))
+
+
+def _pack(blocks: list[dict], x0: float, y0: float, x1: float, y1: float) -> str:
+    """⚠️⚠️ EL CORREO TIENE QUE VERSE COMO EL DISEÑO. En un correo no hay `position:absolute`, así que
+    el rectángulo se va CORTANDO —en franjas mientras se pueda y, si no, en columnas— hasta que cada
+    bloque se queda solo en su celda, con su sitio, su ancho y su alto. Cualquier maqueta en la que
+    los bloques no se pisen sale exacta."""
+    if not blocks:
+        return _tbl(x1 - x0, _hueco_row(x1 - x0, y1 - y0))
+    if len(blocks) == 1:
+        return _one_cell(blocks[0], x0, x1, float(blocks[0]["y"]) - y0)
+    ancho = x1 - x0
+    franjas = _groups_v(blocks)
+    if len(franjas) > 1:
+        trs, cursor = [], y0
+        for f in franjas:
+            trs.append(_hueco_row(ancho, f["y0"] - cursor))
+            alto = max(1, round(f["y1"] - f["y0"]))
+            trs.append('<tr><td width="%d" height="%d" valign="top" style="width:%dpx;height:%dpx;vertical-align:top;">%s</td></tr>'
+                       % (round(ancho), alto, round(ancho), alto, _pack(f["blocks"], x0, f["y0"], x1, f["y1"])))
+            cursor = f["y1"]
+        trs.append(_hueco_row(ancho, y1 - cursor))
+        return _tbl(ancho, "".join(trs))
+    cols = _groups_h(blocks)
+    if len(cols) > 1:
+        celdas, cursor = [], x0
+        for c in cols:
+            if round(c["x0"] - cursor) > 0:
+                celdas.append(_hueco_cell(c["x0"] - cursor))
+            w = max(1, round(c["x1"] - c["x0"]))
+            celdas.append('<td width="%d" valign="top" style="width:%dpx;vertical-align:top;">%s</td>'
+                          % (w, w, _pack(c["blocks"], c["x0"], y0, c["x1"], y1)))
+            cursor = c["x1"]
+        if round(x1 - cursor) > 0:
+            celdas.append(_hueco_cell(x1 - cursor))
+        return _tbl(ancho, "<tr>%s</tr>" % "".join(celdas))
+    # Se pisan DE VERDAD (en el editor uno está encima del otro): en un correo eso no se puede, así
+    # que van uno detrás de otro sin hueco, cada uno con su ancho y su sitio a lo ancho.
+    trs, cursor = [], y0
+    for b in sorted(blocks, key=lambda z: (z["y"], z["x"])):
+        trs.append(_hueco_row(ancho, float(b["y"]) - cursor))
+        alto = max(1, round(float(b["h"])))
+        trs.append('<tr><td width="%d" height="%d" valign="top" style="width:%dpx;height:%dpx;vertical-align:top;">%s</td></tr>'
+                   % (round(ancho), alto, round(ancho), alto, _one_cell(b, x0, x1)))
+        cursor = max(cursor, float(b["y"]) + float(b["h"]))
+    return _tbl(ancho, "".join(trs))
+
+
 def render_email(design: dict) -> str:
     """El cuerpo del correo (la composición en bandas). Sin `<html>`: quien lo manda lo envuelve."""
     bl = [b for b in blocks_of(design) if not is_pending(b)]
@@ -686,27 +824,10 @@ def render_email(design: dict) -> str:
     for banda in bandas:
         if banda["y0"] > cursor:
             filas.append(fila_fondo(cursor, banda["y0"]))
-        cols = _columns(banda["blocks"])
-        celdas = []
-        x_cursor = 0.0
-        for col in cols:
-            hueco = round(col["x0"] - x_cursor)
-            if hueco > 0:
-                celdas.append('<td width="%d" style="width:%dpx;font-size:0;line-height:0;">&nbsp;</td>' % (hueco, hueco))
-            ancho = round(col["x1"] - col["x0"])
-            dentro = []
-            for b in sorted(col["blocks"], key=lambda z: z["y"]):
-                margen = round(b["y"] - banda["y0"])
-                dentro.append('<div style="padding-top:%dpx;">%s</div>' % (max(0, margen), block_html(b, for_email=True)))
-            celdas.append('<td width="%d" valign="top" style="width:%dpx;vertical-align:top;">%s</td>' % (ancho, ancho, "".join(dentro)))
-            x_cursor = col["x1"]
-        resto = round(WIDTH - x_cursor)
-        if resto > 0:
-            celdas.append('<td width="%d" style="width:%dpx;font-size:0;line-height:0;">&nbsp;</td>' % (resto, resto))
         alto = round(banda["y1"] - banda["y0"])
-        filas.append('<tr><td height="%d" valign="top" style="height:%dpx;vertical-align:top;%s">'
-                     '<table role="presentation" width="%d" cellpadding="0" cellspacing="0" border="0" style="width:%dpx;table-layout:fixed;">'
-                     '<tr>%s</tr></table></td></tr>' % (alto, alto, _bg_css(design, banda["y0"]), WIDTH, WIDTH, "".join(celdas)))
+        filas.append('<tr><td height="%d" valign="top" style="height:%dpx;vertical-align:top;%s">%s</td></tr>'
+                     % (alto, alto, _bg_css(design, banda["y0"]),
+                        _pack(banda["blocks"], 0.0, banda["y0"], float(WIDTH), banda["y1"])))
         cursor = max(cursor, banda["y1"])
     if cursor < fondo_h:
         filas.append(fila_fondo(cursor, fondo_h))

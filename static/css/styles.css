@@ -6400,9 +6400,11 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .pr-canvas__empty{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
   text-align:center; padding:2rem; color:#495057; }
 .pr-canvas__empty > i{ font-size:2.2rem; color:#adb5bd; }
-.pr-blk{ position:absolute; box-sizing:border-box; border:1px dashed transparent; border-radius:4px; }
-.pr-canvas--edit .pr-blk:hover{ border-color:rgba(0,124,162,.55); }
-.pr-canvas--edit .pr-blk.is-sel{ border-color:var(--brand-accent,#007CA2); box-shadow:0 0 0 2px rgba(0,124,162,.15); }
+/* El marco va en OUTLINE, no en border: así el bloque mide EXACTAMENTE su ancho y su alto y el texto
+   empieza donde empieza el bloque, igual que en el correo (un borde le robaba 1 px por cada lado). */
+.pr-blk{ position:absolute; box-sizing:border-box; outline:1px dashed transparent; border-radius:4px; }
+.pr-canvas--edit .pr-blk:hover{ outline-color:rgba(0,124,162,.55); }
+.pr-canvas--edit .pr-blk.is-sel{ outline-color:var(--brand-accent,#007CA2); box-shadow:0 0 0 2px rgba(0,124,162,.15); }
 .pr-blk.is-dragging{ opacity:.85; }
 /* las GUÍAS de alineación mientras se mueve o se redimensiona un bloque (y el bloque de referencia) */
 .pr-guide{ position:absolute; pointer-events:none; z-index:28; background:var(--brand-primary,#E33D48); opacity:.85; }
@@ -6437,13 +6439,35 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .pr-blk__grip{ position:absolute; top:-18px; left:0; height:18px; padding:0 8px; background:var(--brand-accent,#007CA2); color:#fff;
   border-radius:6px 6px 0 0; font-size:.7rem; line-height:18px; cursor:grab; display:none; user-select:none; }
 .pr-blk.is-sel .pr-blk__grip, .pr-canvas--edit .pr-blk:hover .pr-blk__grip{ display:block; }
-.pr-blk__rs{ position:absolute; right:-6px; bottom:-6px; width:14px; height:14px; background:#fff; border:2px solid var(--brand-accent,#007CA2);
-  border-radius:3px; cursor:nwse-resize; display:none; }
+/* LAS OCHO ASAS del tamaño: las cuatro esquinas y el medio de cada lado. El cuadradito va por encima
+   del asa de mover (que se le solapa en la esquina de arriba a la izquierda) y con touch-action:none,
+   para que también se pueda arrastrar con el dedo. */
+.pr-blk__rs{ position:absolute; width:12px; height:12px; margin:0; background:#fff; border:2px solid var(--brand-accent,#007CA2);
+  border-radius:3px; display:none; z-index:6; touch-action:none; }
 .pr-blk.is-sel .pr-blk__rs{ display:block; }
+.pr-blk__rs--nw{ left:-6px;  top:-6px;    cursor:nwse-resize; }
+.pr-blk__rs--n { left:50%;   top:-6px;    margin-left:-6px; cursor:ns-resize; }
+.pr-blk__rs--ne{ right:-6px; top:-6px;    cursor:nesw-resize; }
+.pr-blk__rs--e { right:-6px; top:50%;     margin-top:-6px;  cursor:ew-resize; }
+.pr-blk__rs--se{ right:-6px; bottom:-6px; cursor:nwse-resize; }
+.pr-blk__rs--s { left:50%;   bottom:-6px; margin-left:-6px; cursor:ns-resize; }
+.pr-blk__rs--sw{ left:-6px;  bottom:-6px; cursor:nesw-resize; }
+.pr-blk__rs--w { left:-6px;  top:50%;     margin-top:-6px;  cursor:ew-resize; }
+/* Un módulo calcula su alto solo, así que ahí no se ofrecen las de arriba y abajo. */
+.pr-blk--autoh > .pr-blk__rs--n, .pr-blk--autoh > .pr-blk__rs--s{ display:none !important; }
 .pr-blk__body{ width:100%; height:100%; }
-.pr-blk__text{ width:100%; height:100%; outline:none; overflow:visible; word-wrap:break-word; cursor:text; }
+.pr-blk__text{ width:100%; height:100%; outline:none; overflow:visible; word-wrap:break-word; overflow-wrap:break-word;
+  margin:0; padding:0; cursor:text; }
 .pr-blk__text:empty:before{ content:attr(data-placeholder); color:#adb5bd; }
-.pr-blk__text a{ color:inherit; }
+/* ⚠️⚠️ LO QUE SE VE AQUÍ ES LO QUE SE MANDA: el mismo hueco entre párrafos y los mismos enlaces que
+   `press_render.text_block_html`. Sin esto el navegador le pone a cada <p> 1em arriba y abajo (16 px),
+   así que el texto se veía más abajo y más separado que en la vista previa y en el correo. */
+.pr-blk__text p{ margin:0 0 .35em 0; }
+.pr-blk__text a{ color:inherit; text-decoration:underline; }
+/* ⚠️ El módulo se mide con la MISMA tipografía base que en el correo (`press_render.MODULE_BASE`):
+   heredando la de la app (Bootstrap: 16px y 1,5 de interlineado) salía más alto aquí que en el
+   correo y lo de debajo se movía. */
+.pr-blk__mod{ font-family:Arial, Helvetica, sans-serif; font-size:14px; line-height:1.35; color:#111827; }
 /* Un módulo se mueve agarrándolo entero: dentro no se pincha nada mientras se edita. */
 .pr-canvas--edit .pr-blk__mod{ pointer-events:none; }
 .pr-canvas--edit .pr-blk--audio, .pr-canvas--edit .pr-blk--album, .pr-canvas--edit .pr-blk--video,

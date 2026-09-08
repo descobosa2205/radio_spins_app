@@ -17,14 +17,26 @@
       {% if sheet.submitted_at %} · enviada el {{ sheet.submitted_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}
     </div>
   </div>
-  <div class="d-flex gap-2 align-items-center">
+  <div class="d-flex gap-2 align-items-center flex-wrap">
     {% if compare_diff %}
       <span class="badge text-bg-warning text-dark"><i class="fa fa-code-compare me-1"></i>{{ compare_diff }} dato(s) distintos</span>
     {% else %}
       <span class="badge text-bg-success"><i class="fa fa-check me-1"></i>Coincide con lo que teníamos</span>
     {% endif %}
+    {# RECHAZAR LA FICHA: se le pide la SUBSANACIÓN con el motivo, y al promotor le vuelve a salir su
+       formulario con todo lo que ya había rellenado (no empieza de cero). #}
+    <button class="btn btn-sm btn-outline-danger" type="button"
+            data-bs-toggle="modal" data-bs-target="#sheetRejectModal">
+      <i class="fa fa-rotate-left me-1"></i>Rechazar ficha
+    </button>
   </div>
 </div>
+
+{% if sheet.rejection_reason and sheet.rejected_at and not sheet.submitted_at %}
+  <div class="alert alert-warning"><i class="fa fa-circle-info me-2"></i>
+    Se le pidió la subsanación el {{ sheet.rejected_at.strftime('%d/%m/%Y') }}: {{ sheet.rejection_reason }}
+  </div>
+{% endif %}
 
 <form method="post">
   <div class="cmp-legend mb-2">
@@ -115,4 +127,28 @@ document.querySelectorAll('[data-cmp-all]').forEach(function (b) {
   });
 });
 </script>
+<div class="modal fade" id="sheetRejectModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" autocomplete="off"
+          action="{{ url_for('concert_contract_sheet_reject', cid=concert.id) }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-rotate-left me-2 text-danger"></i>Pedirle que subsane la ficha</h5>
+          <div class="small text-muted">Se le avisa con el motivo y le sale su formulario con lo que ya rellenó.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">¿Qué hay que corregir? *</label>
+        <textarea class="form-control" name="reason" rows="4" required
+                  placeholder="Falta el aforo real y el desglose de entradas; la hora de apertura no cuadra…"></textarea>
+        <div class="form-text">Es lo que va a leer el promotor, así que dile exactamente qué falta o qué está mal.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Rechazar y pedir subsanación</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}

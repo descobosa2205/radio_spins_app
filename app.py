@@ -71760,28 +71760,45 @@ def concert_contract_sheet_reject(cid):
             flash('No hay ficha de contratación para este concierto.', 'warning')
             return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
         reason = (request.form.get('reason') or '').strip()
+        volver = url_for('concert_contract_sheet_review', cid=cid)
         if not reason:
-            flash('Debes indicar el motivo del rechazo.', 'warning')
-            return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
+            # ⚠️ El motivo es lo que el promotor tiene que corregir: sin él no se rechaza nada.
+            _flash_form_error('Di qué hay que corregir para poder pedirle la subsanación.',
+                              campos=['reason'], abrir='sheetRejectModal')
+            return redirect(volver)
         sheet = concert.contract_sheet
         now = datetime.now(ZoneInfo('Europe/Madrid'))
         sheet.status = 'REJECTED'
         sheet.rejection_reason = reason
+        # ⚠️ `allow_resubmission`: es lo que le deja volver a enviarla (`_contract_sheet_can_submit`).
         sheet.allow_resubmission = True
         sheet.rejected_at = now
         sheet.reviewed_at = now
+        # Ya está revisada: el aviso amarillo de «el promotor ha cumplimentado la ficha» deja de
+        # esperar a nadie (la regla de `_notify_resolve`).
+        sheet.promoter_reviewed_at = now
         sheet.updated_at = now
+        _notify_resolve(session, "concert", str(concert.id))
         session.commit()
         form_url = _external_url_for('concert_contract_public_form', token=sheet.public_token)
-        html_body = f'''<div style="font-family:Arial,sans-serif;color:#1f2937;"><h2>Solicitud de subsanación de ficha de contratación</h2><p>La ficha enviada para <strong>{concert.artist.name if concert.artist else 'el concierto'}</strong> necesita correcciones.</p><p><strong>Motivo:</strong><br>{reason}</p><p><a href="{form_url}" style="display:inline-block;background:#0d6efd;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Subsanar ficha</a></p></div>'''
-        ok, error = _send_optional_email(sheet.promoter_email or '', 'Subsanación ficha de contratación', html_body, text_body=form_url)
+        # A QUIÉN se le escribe: el correo de la ficha y, si no, el del propio promotor
+        # (⚠️ en `Promoter` el campo es `contact_email`, no `email`).
+        destino = (sheet.promoter_email or '').strip()
+        if not destino:
+            destino, _tel = _promoter_email_phone(getattr(concert, 'promoter', None))
+        asunto = _contract_sheet_subject(concert, 'Subsanación ficha de contratación')
+        cuerpo = _contract_sheet_reject_email_html(session, concert, form_url, reason)
+        ok, error = _send_optional_email(destino, asunto, cuerpo, text_body=form_url)
         if ok:
-            flash('Ficha rechazada y solicitud de subsanación enviada.', 'warning')
+            flash('Ficha rechazada. Se le ha pedido la subsanación a %s.' % destino, 'warning')
         else:
-            flash(f'Ficha rechazada. No se pudo enviar el correo automáticamente: {error}', 'warning')
+            # Si el correo no sale NO se dice que se ha avisado: se da el enlace para mandarlo a mano.
+            flash('Ficha rechazada, pero no se pudo avisar%s. Mándale este enlace: %s'
+                  % ((' a %s' % destino) if destino else ' (no consta su correo)', form_url), 'warning')
     except Exception as exc:
         session.rollback()
-        flash(f'Error rechazando ficha: {exc}', 'danger')
+        app.logger.exception("No se pudo rechazar la ficha de contratación")
+        flash('No se pudo rechazar la ficha: %s' % exc, 'danger')
     finally:
         session.close()
     return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
@@ -105533,6 +105550,71 @@ def _contract_sheet_request_email_html(session_db, concert, public_url: str, mes
 </div>"""
 
 
+def _contract_sheet_subject(concert, titulo: str) -> str:
+    """El asunto de un correo de la ficha de contratación: dice DE QUÉ actividad es.
+
+    «Subsanación ficha de contratación · Los Ñus · 20/11/2026»."""
+    partes = [titulo]
+    nombre = (getattr(getattr(concert, "artist", None), "name", None) or "").strip()
+    if nombre:
+        partes.append(nombre)
+    fecha = getattr(concert, "date", None)
+    if fecha:
+        partes.append(fecha.strftime("%d/%m/%Y"))
+    return " · ".join(partes)
+
+
+def _contract_sheet_reject_email_html(session_db, concert, public_url: str, reason: str) -> str:
+    """Correo de SUBSANACIÓN de la ficha de contratación: el MISMO esqueleto que la solicitud (logo
+    de la empresa del grupo arriba a la derecha, título centrado y la cabecera de la actividad con
+    el botón dentro), con el MOTIVO destacado — que es lo que tiene que corregir.
+
+    ⚠️ Y se le dice que **no empieza de cero**: el formulario le sale con lo que ya rellenó."""
+    company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+    logo = (getattr(company, "logo_url", None) or "").strip()
+    artista = (getattr(getattr(concert, "artist", None), "name", None) or "la actividad")
+    foto = (getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()
+    try:
+        tipo = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+    except Exception:
+        tipo = ""
+    datos = "".join(
+        '<tr><td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">%s</td>'
+        '<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">%s</td></tr>'
+        % (escape(lab), escape(str(val))) for _ico, lab, val in _contract_sheet_hero_rows(concert))
+    return f"""
+<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:640px;">
+  <div style="text-align:right;margin-bottom:6px;">
+    {f'<img src="{logo}" alt="" style="max-height:52px;max-width:190px;">' if logo else ''}
+  </div>
+  <h2 style="text-align:center;font-size:20px;margin:0 0 14px;">Subsanación de la ficha de contratación</h2>
+  <p style="margin:0 0 12px;">La ficha que nos ha enviado necesita alguna corrección.</p>
+  <div style="border:1px solid #f3d38a;background:#fff8e6;border-radius:12px;padding:12px 14px;margin:0 0 16px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8a6d00;">Qué hay que corregir</div>
+    <div style="white-space:pre-line;margin-top:4px;">{escape(reason)}</div>
+  </div>
+  <div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">
+    <table style="width:100%;border-collapse:collapse;"><tr>
+      <td style="width:64px;vertical-align:top;">
+        {f'<img src="{foto}" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">' if foto else ''}
+      </td>
+      <td style="vertical-align:top;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b95a1;">{escape(tipo)}</div>
+        <div style="font-size:18px;font-weight:800;margin:1px 0 6px;">{escape(artista)}</div>
+        <table style="border-collapse:collapse;">{datos}</table>
+      </td>
+      <td style="vertical-align:middle;text-align:right;white-space:nowrap;">
+        <a href="{public_url}" style="display:inline-block;padding:11px 16px;background:#E33D48;color:#fff;
+           text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">Subsanar la ficha</a>
+      </td>
+    </tr></table>
+  </div>
+  <p style="margin:16px 0 0;">No tiene que empezar de cero: el formulario le sale con todo lo que ya
+    había rellenado, y solo hay que corregir lo que le indicamos.</p>
+  <p style="margin:10px 0 0;color:#6b7683;font-size:12px;">Si el botón no funciona, copia este enlace: {public_url}</p>
+</div>"""
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # AVISO AL ARTISTA DE UNA ACTIVIDAD
 #
@@ -111858,8 +111940,7 @@ def concert_contract_sheet_request(cid):
         sheet.updated_at = _now_madrid()
         public_url = _external_url_for('concert_contract_public_form', token=sheet.public_token)
         if emails:
-            artist_name = getattr(getattr(concert, 'artist', None), 'name', None) or 'actividad'
-            subject = f"Solicitud ficha de contratación · {artist_name}"
+            subject = _contract_sheet_subject(concert, "Solicitud ficha de contratación")
             html_body = _contract_sheet_request_email_html(session_db, concert, public_url, message)
             ok, err = _send_optional_email(emails, subject, html_body, reply_to=_current_user_email())
             if ok:

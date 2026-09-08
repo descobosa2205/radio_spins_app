@@ -36,6 +36,15 @@
   {% elif not can_submit and public_mode %}
     <div class="alert alert-warning">Este formulario ya no está disponible para nuevos envíos.</div>
     {% if sheet and sheet.rejection_reason %}<div class="alert alert-light border">Motivo del último rechazo: {{ sheet.rejection_reason }}</div>{% endif %}
+  {% elif public_mode and sheet and sheet.rejection_reason and (sheet.status or '')|upper == 'REJECTED' %}
+    {# SUBSANAR: se le dice QUÉ hay que corregir, y el formulario sale ya con lo que envió (no
+       empieza de cero). #}
+    <div class="alert alert-warning">
+      <div class="fw-semibold mb-1"><i class="fa fa-triangle-exclamation me-1"></i>Hay que corregir algo de la ficha</div>
+      <div style="white-space:pre-line;">{{ sheet.rejection_reason }}</div>
+      <div class="small mt-2">Abajo tienes tu ficha con todo lo que ya habías rellenado: corrige lo
+        que te indicamos y vuelve a enviarla.</div>
+    </div>
   {% endif %}
 
   {% if not submitted %}

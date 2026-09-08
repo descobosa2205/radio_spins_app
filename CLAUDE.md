@@ -10749,3 +10749,33 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   decimales** que pasara por texto (los snapshots de royalties, los payloads) se multiplicó por mil
   **al enseñarlo y al guardarlo si alguien lo confirmó** — hay que revisar lo grabado esos días:
   facturas subidas, gastos corregidos a mano y liquidaciones facturadas.
+
+- **FICHA DE CONTRATACIÓN · RECHAZARLA Y PEDIRLE QUE LA SUBSANE** (sep 2026). En la pantalla de
+  **revisión** de lo que ha mandado el promotor (`concert_contract_sheet_review`), **arriba a la
+  derecha**, botón **«Rechazar ficha»** → pop-up que **exige el motivo** (es lo que él va a leer) →
+  se le manda la **subsanación** y **al entrar le sale SU ficha con todo lo que ya había rellenado**:
+  no empieza de cero.
+  ⚠️⚠️ El endpoint `concert_contract_sheet_reject` **ya existía y no había forma de llegar a él**:
+  ninguna plantilla lo enlazaba (un endpoint muerto). Al añadir un endpoint, comprobar que su botón
+  está en la pantalla (`tools/check_botones.py` encuentra lo contrario —un botón sin destino— pero no
+  un destino sin botón: eso se ve con `grep -rn "<endpoint>" templates/`).
+  · **Lo que le deja volver a enviarla es `allow_resubmission`** (lo mira `_contract_sheet_can_submit`:
+  con `status='RECEIVED'` no se puede). El rechazo lo pone a True y sella `rejected_at` +
+  `rejection_reason`.
+  · **El aviso amarillo de «el promotor ha cumplimentado la ficha» se cierra al rechazarla**
+  (`promoter_reviewed_at` + `_notify_resolve`): ya se ha revisado, aunque el resultado sea que la
+  corrija — si no, se quedaba esperando a alguien para siempre.
+  · **El CORREO es el de la casa** (`_contract_sheet_reject_email_html`, el mismo esqueleto que la
+  solicitud): logo de la empresa del grupo arriba a la derecha, título centrado, **el motivo
+  destacado en ámbar**, la cabecera de la actividad (`_contract_sheet_hero_rows`) con el botón
+  **«Subsanar la ficha»** dentro, y la frase de que no empieza de cero. Asunto por el punto único
+  **`_contract_sheet_subject`** (que usa también la solicitud): dice el artista y la fecha.
+  ⚠️ Si el correo NO sale **no se dice que se ha avisado**: el flash da el enlace para mandarlo a
+  mano. Y si la ficha no trae correo se cae al del promotor (**`_promoter_email_phone`**: en
+  `Promoter` el campo es `contact_email`, no `email`).
+  · **El promotor ve QUÉ corregir**: `concert_contract_public.html` pinta el motivo en un aviso
+  arriba cuando el estado es REJECTED. ⚠️ Antes solo se enseñaba en la rama `not can_submit`, o sea
+  **justo cuando NO podía arreglarlo**: al pedirle la subsanación sí puede enviar, así que no lo veía.
+  · El precumplimentado ya funcionaba (`_contract_sheet_prefill` + lo de `promoter_data` encima).
+  Probado con la app real: el botón arriba, sin motivo no se rechaza, el correo con su motivo y su
+  enlace, la página con los datos puestos, y al reenviarla vuelve a quedar pendiente de revisar.

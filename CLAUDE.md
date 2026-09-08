@@ -7809,11 +7809,58 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️⚠️ **La pestaña ARCHIVADAS colgaba de un `{% else %}`**, así que al añadir pestañas nuevas el
   archivo se pintaba **debajo de ellas** (visto en pantalla). Ahora es `{% elif tab == 'archivadas' %}`:
   una pestaña nueva no puede heredar el contenido de otra.
-  · **PENDIENTE (siguiente lote)**: el detalle del **ROOMING** (los hoteles en fila con su contador
-  de habitaciones reservadas x/x, arrastrar habitaciones y huéspedes entre hoteles, «no necesita
-  habitación», el aviso de las habitaciones que se quedan vacías) y del **PERSONAL** (los campos
-  visibles que se eligen y se guardan con la plantilla, rellenar un dato incompleto desde ahí,
-  buscar y añadir a cualquiera sobre la marcha) y los **RIDERS** por secciones.
+  · **PENDIENTE (siguiente lote)**: el detalle del **PERSONAL** (los campos visibles que se eligen y
+  se guardan con la plantilla, rellenar un dato incompleto desde ahí, buscar y añadir a cualquiera
+  sobre la marcha) y los **RIDERS** por secciones.
+
+- ⚠️⚠️ **ROOMING · LAS HABITACIONES SE FORMAN ANTES Y LUEGO SE REPARTEN ENTRE LOS HOTELES**
+  (sep 2026). Antes una habitación nacía DENTRO de un hotel, así que una gira con tres hoteles
+  obligaba a montar el rooming tres veces. Ahora las habitaciones se forman **sin hotel** y se
+  **arrastran** al que les toque: mientras quede alguna por repartir se ve el **bloque de reparto**
+  —los hoteles en una FILA y debajo el montón— y, cuando no queda ninguna, ese bloque desaparece y
+  se ven los hoteles con su rooming list de siempre.
+  · **DÓNDE VIVEN**: `roadmap_payload['rooms_pool']` (punto único **`_rooming_pool`**), hermano de
+  `hotels[i]['rooms']`. Una habitación se **BUSCA en los dos sitios** con
+  **`_rooming_find_room(payload, room_id)`** → `(hotel_o_None, lista, i)`: cualquier endpoint que
+  toque una habitación (mover, eliminar, huésped) pasa por ahí, así que da igual dónde esté.
+  · **EL CONTADOR x/x SON LAS RESERVAS** (`hotels[i]['rooms_reserved']`, `_rooming_hotel_capacity` ↔
+  `hotelCap` en `roadmap.js`, **espejados**): se ve en la tarjeta del hotel y en su columna del
+  reparto, en **verde** cuando está completo, en **rojo** si se pasa y en **ámbar cuando SOBRAN**
+  reservas («Sobran 3 habitaciones reservadas»), que es dinero que nadie va a usar. «sin reserva» se
+  pincha para decir cuántas hay.
+  ⚠️⚠️ **NO SE SUELTA UNA HABITACIÓN EN UN HOTEL QUE NO ESTÁ RESERVADO**: `roadmap_room_move`
+  responde **409** con `needs_reserve` y el pop-up ofrece **«Modificar la reserva»** o **«Ampliar a
+  N»** (y solo entonces se mueve, con `force`). Prometerle a alguien un hotel que no está reservado
+  es peor que pararse a preguntar.
+  · **SE ARRASTRAN LAS DOS COSAS**: una **habitación en bloque** (con su gente dentro, del montón a
+  un hotel y de un hotel a otro) y un **huésped** suelto a otra habitación
+  (`roadmap_room_guest`, que lo saca de donde estuviera). Al mover una habitación a un hotel, sus
+  días pasan a ser **los del hotel de destino**.
+  · **«NO NECESITA HABITACIÓN»** (`roadmap_person_no_room`): quien duerme en su casa deja de salir en
+  «sin habitación» y no se le vuelve a reclamar. Se deshace.
+  · **AL CARGAR UNA PLANTILLA DE ROOMING** (`roadmap_template_load`, rama ROOMING) las habitaciones
+  entran **ya formadas y sin hotel**, y **se pregunta lo que no se puede decidir solo**: si la
+  plantilla trae gente que no está en el personal de la actividad se responde `needs_decision` y el
+  pop-up ofrece **añadirla al personal** o **dejarla fuera** (`mode=add_missing` | `skip_missing`);
+  quien esté en el personal y no en la plantilla se queda **sin habitación**. Y si al dejar gente
+  fuera alguna habitación se queda **VACÍA**, se avisa y se elige **conservarla** (para meter a otra
+  persona) o **eliminarla** — nunca se borra sola.
+  ⚠️ **Los HOTELES de la plantilla solo se traen si la actividad no tiene ninguno**: si no, cargarla
+  dos veces (o cargarla sobre una actividad que ya tiene su hotel) los DUPLICA.
+  ⚠️ **`bed` (Twin/Doble) hay que guardarlo también en `roadmap_hotel_rooms_save`**: sin eso, editar
+  la rooming list del hotel perdía el tipo de cama que se había elegido.
+  ⚠️ En una **PLANTILLA** los días no se tocan al mover (no tiene fechas: sus días son «Día 1, Día
+  2…», anclados en `TEMPLATE_DAY_ANCHOR`).
+  · Motor: `_rooming_pool` · `_rooming_find_room` · `_rooming_hotel_capacity` ·
+  `roadmap_hotel_reserved` · `roadmap_room_move` · `roadmap_room_delete` · `roadmap_room_guest` ·
+  `roadmap_person_no_room`; cliente `roomsPool` · `hotelCap` · `roomChip` · `repartoBlock` ·
+  `sinHabitacion` · `wireReparto` · `moverHabitacion` · `pedirReserva` · `pedirDecisionPersonas` ·
+  `avisarHabitacionesVacias`; estilos `.rmr*`.
+  Probado en el navegador con la app real: se arrastra una habitación del montón a un hotel (el
+  contador pasa a 2/3), se arrastra un huésped a otra habitación, con las reservas justas sale el
+  pop-up y «Ampliar a 3» mueve la habitación y deja el hotel en 3/3, el hotel que se queda sin
+  habitaciones avisa en ámbar de las que sobran, y el aviso dice «solo hay 1 habitación reservada y
+  ya está puesta» o «2 habitaciones reservadas y ya están puestas» según toque.
 
 - ⚠️ **PARA VER LA APP EN EL NAVEGADOR EN LOCAL**: `.claude/launch.json` → **`tools/dev_server.py`**,
   que arranca Flask en el **5099** contra la **BD DE PRUEBA** (nunca la real), pone los CERROJOS del

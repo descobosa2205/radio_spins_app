@@ -15,6 +15,7 @@
     try { CTX = JSON.parse(document.getElementById('roadmapData').textContent || '{}'); } catch (e) {}
     var P = CTX.payload || {};
     P.personnel = P.personnel || []; P.hotels = P.hotels || []; P.agenda = P.agenda || [];
+    P.rooms_pool = P.rooms_pool || [];   // habitaciones ya formadas que todavía no tienen hotel
     var DAYS = CTX.days || [];
     var KINDS = CTX.kinds || {};
     var ACT = CTX.activity_picker || [];
@@ -41,7 +42,7 @@
     function getJson(url) { return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(function (r) { return r.json().catch(function () { return []; }); }); }
     function postForm(url, fd) { return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd }).then(function (r) { return r.json().catch(function () { return {}; }); }); }
     function apply(resp) {
-      if (resp && resp.ok) { P = resp.payload || P; P.personnel = P.personnel || []; P.hotels = P.hotels || []; P.agenda = P.agenda || []; DAYS = resp.days || DAYS; render(); return true; }
+      if (resp && resp.ok) { P = resp.payload || P; P.personnel = P.personnel || []; P.hotels = P.hotels || []; P.agenda = P.agenda || []; P.rooms_pool = P.rooms_pool || []; DAYS = resp.days || DAYS; render(); return true; }
       alert((resp && resp.error) || 'No se pudo guardar.'); return false;
     }
     function agendaItem(id) { for (var i = 0; i < P.agenda.length; i++) if (String(P.agenda[i].id) === String(id)) return P.agenda[i]; return null; }
@@ -147,30 +148,73 @@
       ]);
       return m;
     }
-    function loadTemplate(kind, tid, mode, dias) {
+    function loadTemplate(kind, tid, mode, dias, addKeys) {
       var fd = new FormData();
       if (mode) fd.append('mode', mode);
       (dias || []).forEach(function (d) { fd.append('days', d); });
+      (addKeys || []).forEach(function (k) { fd.append('add_keys', k); });
       return postForm(ep('/plantillas/' + tid + '/cargar'), fd).then(function (resp) {
         if (!resp || !resp.ok) { alert((resp && resp.error) || 'No se pudo cargar la plantilla.'); return; }
-        if (resp.needs_decision) {
-          // ROOMING: hay gente en la plantilla que NO está en el personal de esta actividad.
-          var lista = (resp.missing || []).map(function (m) {
-            return '<li>' + esc(m.name) + (m.role ? ' <span class="text-muted small">· ' + esc(m.role) + '</span>' : '') + '</li>';
-          }).join('');
-          var body = '<p class="mb-2">En «' + esc(resp.name) + '» hay <strong>' + (resp.missing || []).length
-            + ' persona(s)</strong> que no están en el personal de esta actividad:</p><ul class="mb-3">' + lista + '</ul>'
-            + '<p class="mb-0 small text-muted">Puedes añadirlas al personal (y quedan repartidas en sus habitaciones) o '
-            + 'dejarlas fuera (se cargan las habitaciones sin ellas). Quien esté en el personal y no en la plantilla se queda sin habitación.</p>';
-          openModal('rmTplModal', 'modal-md', 'Cargar rooming list', body, [
-            btn('Dejarlas fuera', 'btn-outline-secondary', function () { var i = bs('rmTplModal'); if (i) i.hide(); loadTemplate(kind, tid, 'skip_missing', dias); }),
-            btn('Añadirlas al personal', 'btn-primary', function () { var i = bs('rmTplModal'); if (i) i.hide(); loadTemplate(kind, tid, 'add_missing', dias); }),
-          ]);
-          return;
-        }
+        if (resp.needs_decision) { pedirDecisionPersonas(kind, tid, dias, resp); return; }
         var inst = bs('rmTplModal'); if (inst) inst.hide();
         if (apply(resp) && resp.message) rmToast(resp.message);
+        // ⚠️ Al dejar gente fuera pueden quedarse habitaciones VACÍAS: se pregunta si se conservan
+        // o se eliminan. Eso NO toca la plantilla, solo esta actividad.
+        if ((resp.empty_rooms || []).length) avisarHabitacionesVacias(resp.empty_rooms);
       });
+    }
+    /* ⚠️⚠️ LA DECISIÓN ES DE CADA PERSONA: en un equipo de doce, «añadir todas» o «dejarlas todas
+       fuera» no sirve. Cada una sale con su foto y su función, marcada por defecto, y se desmarca a
+       quien no venga a esta actividad. */
+    function pedirDecisionPersonas(kind, tid, dias, resp) {
+      var gente = resp.missing || [];
+      var filas = gente.map(function (m) {
+        return '<label class="rmr-dec">'
+          + '<input class="form-check-input" type="checkbox" checked value="' + esc(m.key) + '" data-dec>'
+          + avatar(m.photo_url) + '<span class="rmr-dec__txt"><span class="fw-semibold">' + esc(m.name) + '</span>'
+          + (m.role ? '<span class="rmr-dec__role">' + esc(m.role) + '</span>' : '') + '</span></label>';
+      }).join('');
+      var body = '<p class="mb-2">En «' + esc(resp.name) + '» hay <strong>' + gente.length
+        + ' persona' + (gente.length === 1 ? '' : 's') + '</strong> que no está'
+        + (gente.length === 1 ? '' : 'n') + ' en el personal de esta actividad. '
+        + 'Marca quién se añade:</p>'
+        + '<div class="rmr-decs mb-2">' + filas + '</div>'
+        + '<div class="d-flex gap-2 mb-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-dec-all>Todas</button>'
+        + '<button type="button" class="btn btn-sm btn-outline-secondary" data-dec-none>Ninguna</button></div>'
+        + '<p class="mb-0 small text-muted">Quien se quede fuera se cae del reparto (si su habitación queda vacía, '
+        + 'se pregunta qué hacer con ella). Quien esté en el personal y no en la plantilla se queda sin habitación.</p>';
+      var m = openModal('rmTplModal', 'modal-md', 'Cargar rooming list', body, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmTplModal'); if (i) i.hide(); }),
+        btn('Cargar', 'btn-primary', function () {
+          var keys = Array.prototype.slice.call(m.querySelectorAll('[data-dec]:checked')).map(function (c) { return c.value; });
+          var i = bs('rmTplModal'); if (i) i.hide();
+          // Sin nadie marcado se manda el modo «dejarlas fuera» (una lista vacía no es una decisión).
+          loadTemplate(kind, tid, keys.length ? '' : 'skip_missing', dias, keys);
+        }),
+      ]);
+      m.querySelector('[data-dec-all]').addEventListener('click', function () {
+        m.querySelectorAll('[data-dec]').forEach(function (c) { c.checked = true; });
+      });
+      m.querySelector('[data-dec-none]').addEventListener('click', function () {
+        m.querySelectorAll('[data-dec]').forEach(function (c) { c.checked = false; });
+      });
+    }
+    function avisarHabitacionesVacias(vacias) {
+      var body = '<p class="mb-2">' + vacias.length + ' habitaci' + (vacias.length === 1 ? 'ón se ha' : 'ones se han')
+        + ' quedado <strong>vacía' + (vacias.length === 1 ? '' : 's') + '</strong> al dejar gente fuera.</p>'
+        + '<p class="mb-0 small text-muted">Se pueden conservar (para meter a otra persona) o eliminar. '
+        + 'Esto solo afecta a esta actividad: la plantilla no se toca.</p>';
+      openModal('rmEmptyRoomsModal', 'modal-md', 'Habitaciones vacías', body, [
+        btn('Conservarlas', 'btn-outline-secondary', function () { var i = bs('rmEmptyRoomsModal'); if (i) i.hide(); }),
+        btn('Eliminarlas', 'btn-danger', function () {
+          var i = bs('rmEmptyRoomsModal'); if (i) i.hide();
+          var cadena = Promise.resolve();
+          vacias.forEach(function (v) {
+            cadena = cadena.then(function () { return postJson(ep('/habitacion/eliminar'), { room_id: v.id }); });
+          });
+          cadena.then(function (resp) { apply(resp); rmToast(vacias.length === 1 ? 'Habitación eliminada' : (vacias.length + ' habitaciones eliminadas')); });
+        }),
+      ]);
     }
     function openTemplates(kind) {
       fetch(ep('/plantillas')).then(function (r) { return r.json(); }).then(function (d) {
@@ -663,9 +707,86 @@
     }
 
     // ================================================================ HOTELES
+    /* ⚠️⚠️ EL REPARTO. Al cargar una plantilla de rooming las habitaciones llegan «YA FORMADAS»
+       (quién va con quién) pero SIN HOTEL: en qué hotel duerme cada una se decide aquí, arrastrando.
+       Mientras haya habitaciones sin repartir se ve el bloque de reparto —los hoteles en una FILA y
+       debajo las habitaciones—; cuando no queda ninguna, ese bloque desaparece y se ven los hoteles
+       con su rooming list de siempre. */
+    function roomsPool() { return P.rooms_pool || []; }
+    function hotelCap(ho) {
+      var reservadas = parseInt(ho.rooms_reserved, 10) || 0, puestas = (ho.rooms || []).length;
+      return { reserved: reservadas, used: puestas, over: !!(reservadas && puestas > reservadas),
+               full: !!(reservadas && puestas >= reservadas),
+               /* ⚠️ Una reserva que nadie usa es DINERO: se ve en ámbar en la tarjeta del hotel. */
+               spare: (reservadas && puestas < reservadas) ? (reservadas - puestas) : 0 };
+    }
+    function roomChip(r, movible) {
+      var n = (r.occupant_ids || []).length;
+      var quien = (r.occupant_ids || []).map(function (id) { var p = personById(id); return p ? p.name : ''; })
+        .filter(Boolean).map(esc).join(', ');
+      return '<span class="rmr-room' + (movible ? ' is-move' : '') + '"' + (movible ? ' draggable="true"' : '')
+        + ' data-room="' + esc(r.id) + '" title="' + esc(quien || 'vacía') + '">'
+        + '<i class="fa fa-bed"></i><b>' + esc(roomTypeLabel(n, r.bed)) + '</b>'
+        + '<span class="rmr-room__who">' + (quien || 'vacía') + '</span></span>';
+    }
+    function repartoBlock() {
+      var pool = roomsPool();
+      if (RO || !pool.length) return '';
+      var cols = (P.hotels || []).map(function (ho) {
+        var cap = hotelCap(ho);
+        var cont = cap.reserved
+          ? '<span class="rmr-count' + (cap.over ? ' is-over' : (cap.full ? ' is-full' : '')) + '">'
+            + cap.used + '/' + cap.reserved + ' hab.</span>'
+          : '<span class="rmr-count rmr-count--none" data-room-reserve="' + esc(ho.id) + '" title="Decir cuántas hay reservadas">sin reserva</span>';
+        return '<div class="rmr-hotel" data-drop-hotel="' + esc(ho.id) + '">'
+          + '<div class="rmr-hotel__head"><span class="rmr-hotel__name">' + esc(ho.name || 'Hotel') + '</span>' + cont + '</div>'
+          + '<div class="rmr-hotel__rooms">'
+          + ((ho.rooms || []).map(function (r) { return roomChip(r, true); }).join('') || '<span class="rmr-empty">Suelta aquí</span>')
+          + '</div></div>';
+      }).join('');
+      return '<div class="rmr">'
+        + '<div class="rmr__head"><span class="fw-semibold"><i class="fa fa-shuffle me-1"></i>Reparto de habitaciones</span>'
+        + '<span class="rmr__hint">Arrastra cada habitación a su hotel</span></div>'
+        + (cols ? '<div class="rmr-hotels">' + cols + '</div>'
+                : '<div class="rmr-empty p-2">Añade un hotel para poder repartirlas.</div>')
+        + '<div class="rmr__sub">Habitaciones por repartir · ' + pool.length + '</div>'
+        + '<div class="rmr-pool" data-drop-pool>' + pool.map(function (r) { return roomChip(r, true); }).join('') + '</div>'
+        + '</div>';
+    }
+    function sinHabitacion() {
+      var dentro = {};
+      (P.hotels || []).forEach(function (h) { (h.rooms || []).forEach(function (r) { (r.occupant_ids || []).forEach(function (id) { dentro[String(id)] = 1; }); }); });
+      roomsPool().forEach(function (r) { (r.occupant_ids || []).forEach(function (id) { dentro[String(id)] = 1; }); });
+      return (P.personnel || []).filter(function (p) { return !dentro[String(p.id)] && !p.no_room; });
+    }
+    function pendientesBlock() {
+      if (RO || !(P.hotels || []).length) return '';
+      var falta = sinHabitacion();
+      var noNecesitan = (P.personnel || []).filter(function (p) { return p.no_room; });
+      if (!falta.length && !noNecesitan.length) return '';
+      var chips = falta.map(function (p) {
+        return '<span class="rmr-person" draggable="true" data-guest="' + esc(p.id) + '">'
+          + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span>'
+          + '<button type="button" class="rmr-person__no" data-no-room="' + esc(p.id) + '" title="No necesita habitación"><i class="fa fa-ban"></i></button></span>';
+      }).join('');
+      var otros = noNecesitan.map(function (p) {
+        return '<span class="rmr-person is-off" data-guest="' + esc(p.id) + '">' + avatar(p.photo_url)
+          + '<span>' + esc(p.name) + '</span>'
+          + '<button type="button" class="rmr-person__no" data-need-room="' + esc(p.id) + '" title="Sí necesita habitación"><i class="fa fa-rotate-left"></i></button></span>';
+      }).join('');
+      return '<div class="rmr rmr--people">'
+        + (falta.length
+            ? '<div class="rmr__head"><span class="fw-semibold text-danger"><i class="fa fa-user-clock me-1"></i>'
+              + falta.length + ' sin habitación</span><span class="rmr__hint">Arrástralos a una habitación o marca que no la necesitan</span></div>'
+              + '<div class="rmr-pool" data-drop-people>' + chips + '</div>'
+            : '')
+        + (otros ? '<div class="rmr__sub">No necesitan habitación</div><div class="rmr-pool">' + otros + '</div>' : '')
+        + '</div>';
+    }
     function renderHoteles() {
       var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir hotel</button>';
       var html = '<div class="rm-toolbar"><div class="text-muted small">Alojamientos</div><span class="ms-auto d-flex gap-1 align-items-center">' + tplBtn('ROOMING') + addBtn + '</span></div>';
+      html += repartoBlock() + pendientesBlock();
       html += '<div class="d-flex flex-column gap-2">';
       if (!P.hotels.length) html += '<div class="rm-empty">Sin hoteles todavía.</div>';
       P.hotels.forEach(function (ho) { html += hotelCard(ho); });
@@ -675,7 +796,120 @@
       view.querySelector('[data-add]').addEventListener('click', function () { openHotelEditor(newHotel()); });
       view.querySelectorAll('[data-hedit]').forEach(function (b) { b.addEventListener('click', function () { openHotelEditor(JSON.parse(JSON.stringify(hotelById(b.getAttribute('data-hedit'))))); }); });
       view.querySelectorAll('[data-hdel]').forEach(function (b) { b.addEventListener('click', function () { if (!confirm('¿Eliminar este hotel?')) return; postJson(ep('/hotel/delete'), { id: b.getAttribute('data-hdel') }).then(apply); }); });
+      wireReparto();
       wireRooming();
+    }
+
+    /* Arrastrar: una HABITACIÓN entera (con su gente) entre hoteles y al montón de las que faltan
+       por repartir, y un HUÉSPED entre habitaciones o de vuelta al listado de personal. */
+    function wireReparto() {
+      function drag(sel, tipo) {
+        view.querySelectorAll(sel).forEach(function (chip) {
+          chip.addEventListener('dragstart', function (e) {
+            chip.classList.add('dragging');
+            try {
+              e.dataTransfer.setData('text/plain', tipo + ':' + chip.getAttribute(tipo === 'room' ? 'data-room' : 'data-guest'));
+              e.dataTransfer.effectAllowed = 'move';
+            } catch (err) {}
+          });
+          chip.addEventListener('dragend', function () { chip.classList.remove('dragging'); });
+        });
+      }
+      drag('[data-room]', 'room');
+      drag('[data-guest]', 'guest');
+
+      function zona(sel, alSoltar) {
+        view.querySelectorAll(sel).forEach(function (z) {
+          z.addEventListener('dragover', function (e) { e.preventDefault(); z.classList.add('drag-over'); });
+          z.addEventListener('dragleave', function () { z.classList.remove('drag-over'); });
+          z.addEventListener('drop', function (e) {
+            e.preventDefault(); e.stopPropagation(); z.classList.remove('drag-over');
+            var dato = '';
+            try { dato = e.dataTransfer.getData('text/plain') || ''; } catch (err) {}
+            var partes = dato.split(':');
+            if (partes.length < 2) return;
+            alSoltar(z, partes[0], partes.slice(1).join(':'));
+          });
+        });
+      }
+      // Un hotel acepta habitaciones enteras.
+      zona('[data-drop-hotel]', function (z, tipo, id) {
+        if (tipo !== 'room') return;
+        moverHabitacion(id, z.getAttribute('data-drop-hotel'), false);
+      });
+      // El montón de «por repartir» las acepta de vuelta.
+      zona('[data-drop-pool]', function (z, tipo, id) {
+        if (tipo !== 'room') return;
+        moverHabitacion(id, '', false);
+      });
+      // Una habitación (en el reparto o en la rooming list) acepta un huésped.
+      zona('[data-room]', function (z, tipo, id) {
+        if (tipo !== 'guest') return;
+        postJson(ep('/habitacion/huesped'), { person_id: id, room_id: z.getAttribute('data-room') }).then(apply);
+      });
+      // El listado de personal: quien se suelta ahí se queda sin habitación.
+      zona('[data-drop-people]', function (z, tipo, id) {
+        if (tipo !== 'guest') return;
+        postJson(ep('/habitacion/huesped'), { person_id: id, room_id: '' }).then(apply);
+      });
+      view.querySelectorAll('[data-no-room]').forEach(function (b) {
+        b.addEventListener('click', function (e) {
+          e.stopPropagation();
+          postJson(ep('/personal/sin-habitacion'), { person_id: b.getAttribute('data-no-room') }).then(apply);
+        });
+      });
+      view.querySelectorAll('[data-need-room]').forEach(function (b) {
+        b.addEventListener('click', function (e) {
+          e.stopPropagation();
+          postJson(ep('/personal/sin-habitacion'), { person_id: b.getAttribute('data-need-room'), undo: 1 }).then(apply);
+        });
+      });
+      view.querySelectorAll('[data-room-reserve]').forEach(function (b) {
+        b.addEventListener('click', function () { pedirReserva(hotelById(b.getAttribute('data-room-reserve'))); });
+      });
+    }
+
+    /* ⚠️ El tope son las habitaciones RESERVADAS: si se pasa, NO se suelta a la callada — se dice y
+       se ofrece ampliar la reserva o cambiarla. Prometer un hotel que no está reservado es peor. */
+    function moverHabitacion(roomId, hotelId, force) {
+      return postJson(ep('/habitacion/mover'), { room_id: roomId, hotel_id: hotelId, force: (force ? 1 : '') })
+        .then(function (resp) {
+          if (resp && resp.ok) { apply(resp); return; }
+          if (resp && resp.needs_reserve) {
+            var body = '<p class="mb-2">' + esc(resp.error) + '</p>'
+              + '<p class="mb-0 small text-muted">Puedes ampliar la reserva a ' + (resp.used + 1)
+              + ' habitaciones o cambiar el número reservado.</p>';
+            openModal('rmReserveModal', 'modal-md', 'No hay reservas suficientes', body, [
+              btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmReserveModal'); if (i) i.hide(); }),
+              btn('Modificar la reserva', 'btn-outline-primary', function () {
+                var i = bs('rmReserveModal'); if (i) i.hide();
+                pedirReserva(hotelById(resp.hotel_id), function () { moverHabitacion(roomId, hotelId, true); });
+              }),
+              btn('Ampliar a ' + (resp.used + 1), 'btn-primary', function () {
+                var i = bs('rmReserveModal'); if (i) i.hide();
+                postJson(ep('/hotel/reserva'), { hotel_id: resp.hotel_id, rooms_reserved: (resp.used + 1) })
+                  .then(function () { moverHabitacion(roomId, hotelId, true); });
+              }),
+            ]);
+            return;
+          }
+          alert((resp && resp.error) || 'No se pudo mover la habitación.');
+        });
+    }
+    function pedirReserva(ho, despues) {
+      if (!ho) return;
+      var body = '<label class="form-label">Habitaciones reservadas en «' + esc(ho.name || 'Hotel') + '»</label>'
+        + '<input class="form-control" type="number" min="0" max="99" value="' + (parseInt(ho.rooms_reserved, 10) || 0) + '" data-rsv>'
+        + '<div class="form-text">Es el tope al repartir: sale el contador «x/x» y, si se pasa, se avisa. 0 = sin tope.</div>';
+      var m = openModal('rmReserveEditModal', 'modal-sm', 'Reserva del hotel', body, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmReserveEditModal'); if (i) i.hide(); }),
+        btn('Guardar', 'btn-primary', function () {
+          var v = parseInt((m.querySelector('[data-rsv]') || {}).value, 10) || 0;
+          var i = bs('rmReserveEditModal'); if (i) i.hide();
+          postJson(ep('/hotel/reserva'), { hotel_id: ho.id, rooms_reserved: v })
+            .then(function (resp) { apply(resp); if (despues) despues(); });
+        }),
+      ]);
     }
     function wireRooming() {
       view.querySelectorAll('[data-rooming-edit]').forEach(function (b) {
@@ -911,6 +1145,21 @@
         + (ho.address ? '<div class="rm-sub"><i class="fa fa-location-dot"></i> ' + esc(ho.address) + '</div>' : '')
         + ((ho.phone || ho.email) ? '<div class="rm-sub">' + [ho.phone, ho.email].filter(Boolean).map(esc).join(' · ') + '</div>' : '')
         + (daysTxt ? '<div class="rm-sub"><i class="fa fa-calendar"></i> ' + esc(daysTxt) + '</div>' : '')
+        + (function () {   // cuántas habitaciones hay reservadas y cuántas se han puesto
+            var cap = hotelCap(ho);
+            if (!cap.reserved && !(ho.rooms || []).length) return '';
+            if (!cap.reserved) return RO ? '' : '<div class="rm-sub"><i class="fa fa-bed"></i> '
+              + (ho.rooms || []).length + ' hab. · <a href="#" data-room-reserve="' + esc(ho.id) + '">decir cuántas hay reservadas</a></div>';
+            var sobran = cap.spare
+              ? (cap.spare === 1 ? 'Sobra 1 habitación reservada' : 'Sobran ' + cap.spare + ' habitaciones reservadas')
+              : '';
+            return '<div class="rm-sub"><i class="fa fa-bed"></i> <span class="rmr-count'
+              + (cap.over ? ' is-over' : (cap.full ? ' is-full' : (cap.spare ? ' is-spare' : '')))
+              + '"' + (sobran ? ' title="' + esc(sobran + ': o se usan o se cambia la reserva') + '"' : '') + '>'
+              + cap.used + '/' + cap.reserved + ' hab. reservadas</span>'
+              + (sobran ? ' <span class="rmr-spare">' + esc(sobran) + '</span>' : '')
+              + (RO ? '' : ' <a href="#" data-room-reserve="' + esc(ho.id) + '">cambiar</a>') + '</div>';
+          })()
         + '<div class="rm-sub"><i class="fa fa-users"></i> ' + esc(whoNames || '—') + '</div>'
         + (ho.note ? '<div class="rm-sub"><i class="fa fa-note-sticky"></i> ' + esc(ho.note) + '</div>' : '')
         + (atts ? '<div class="mt-1">' + atts + '</div>' : '')

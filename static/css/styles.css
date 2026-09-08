@@ -6704,3 +6704,61 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
   .tplg__row{ flex-wrap:wrap; }
   .tplg__row-date{ min-width:0; }
 }
+
+/* ============ HOJA DE RUTA · REPARTO DE HABITACIONES ============
+   Las habitaciones llegan de la plantilla «ya formadas» y sin hotel: se arrastran a su hotel. Los
+   hoteles van en una FILA y debajo el montón de las que faltan por repartir. Cuando no queda
+   ninguna, este bloque desaparece y se ven los hoteles con su rooming list de siempre. */
+.rmr{ border:1px solid var(--bs-border-color); border-radius:14px; background:#fff; padding:.7rem .8rem;
+  margin-bottom:.75rem; }
+.rmr--people{ background:rgba(227,61,72,.03); }
+.rmr__head{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap;
+  margin-bottom:.5rem; }
+.rmr__hint{ font-size:.76rem; color:#6c757d; }
+.rmr__sub{ font-size:.74rem; text-transform:uppercase; letter-spacing:.04em; color:#8a97a5;
+  margin:.6rem 0 .3rem; }
+.rmr-hotels{ display:flex; gap:.5rem; overflow-x:auto; padding-bottom:.25rem; }
+.rmr-hotel{ flex:1 1 190px; min-width:190px; border:1px dashed var(--bs-border-color); border-radius:12px;
+  padding:.45rem .5rem; background:rgba(0,0,0,.015); transition:background .12s ease, border-color .12s ease; }
+.rmr-hotel.drag-over{ border-color:var(--brand-primary,#E33D48); background:rgba(227,61,72,.06); border-style:solid; }
+.rmr-hotel__head{ display:flex; align-items:center; justify-content:space-between; gap:.4rem; margin-bottom:.35rem; }
+.rmr-hotel__name{ font-weight:700; font-size:.84rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rmr-hotel__rooms{ display:flex; flex-direction:column; gap:.25rem; min-height:2.2rem; }
+.rmr-count{ font-size:.72rem; font-weight:700; color:#6c757d; background:rgba(0,0,0,.05);
+  border-radius:999px; padding:.05rem .45rem; white-space:nowrap; }
+.rmr-count.is-full{ color:#0f5132; background:rgba(25,135,84,.12); }
+.rmr-count.is-over{ color:#842029; background:rgba(220,53,69,.14); }
+.rmr-count.is-spare{ color:#7a4b00; background:rgba(255,193,7,.18); }
+.rmr-spare{ font-size:.72rem; color:#7a4b00; }
+.rmr-count--none{ cursor:pointer; text-decoration:underline dotted; }
+.rmr-pool{ display:flex; flex-wrap:wrap; gap:.3rem; min-height:2.4rem; border-radius:10px;
+  padding:.25rem; transition:background .12s ease; }
+.rmr-pool.drag-over{ background:rgba(227,61,72,.06); outline:1px dashed var(--brand-primary,#E33D48); }
+.rmr-room{ display:inline-flex; align-items:center; gap:.35rem; background:#fff; border:1px solid var(--bs-border-color);
+  border-radius:999px; padding:.2rem .55rem; font-size:.8rem; max-width:100%; }
+.rmr-room.is-move{ cursor:grab; }
+.rmr-room.dragging{ opacity:.45; }
+.rmr-room.drag-over{ border-color:var(--brand-primary,#E33D48); box-shadow:0 0 0 2px rgba(227,61,72,.15); }
+.rmr-room i{ color:var(--brand-accent,#007CA2); }
+.rmr-room__who{ color:#6c757d; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:11rem; }
+.rmr-person{ display:inline-flex; align-items:center; gap:.35rem; background:#fff; border:1px solid var(--bs-border-color);
+  border-radius:999px; padding:.15rem .5rem .15rem .2rem; font-size:.82rem; cursor:grab; }
+.rmr-person.dragging{ opacity:.45; }
+.rmr-person.is-off{ opacity:.6; cursor:default; }
+.rmr-person img{ width:24px; height:24px; border-radius:50%; object-fit:cover; }
+.rmr-person__no{ border:0; background:transparent; color:#adb5bd; padding:0 .1rem; line-height:1; }
+.rmr-person__no:hover{ color:var(--brand-primary,#E33D48); }
+.rmr-empty{ font-size:.76rem; color:#adb5bd; font-style:italic; }
+@media (max-width: 767.98px){
+  .rmr-hotels{ gap:.4rem; }
+  .rmr-hotel{ min-width:150px; }
+  .rmr-room__who{ max-width:7rem; }
+}
+/* Quién se añade al personal al cargar una plantilla de rooming (uno a uno) */
+.rmr-decs{ display:flex; flex-direction:column; gap:.25rem; max-height:280px; overflow:auto; }
+.rmr-dec{ display:flex; align-items:center; gap:.5rem; border:1px solid var(--bs-border-color);
+  border-radius:10px; padding:.3rem .5rem; cursor:pointer; }
+.rmr-dec:hover{ background:rgba(0,0,0,.02); }
+.rmr-dec img{ width:28px; height:28px; border-radius:50%; object-fit:cover; }
+.rmr-dec__txt{ display:flex; flex-direction:column; min-width:0; }
+.rmr-dec__role{ font-size:.74rem; color:#6c757d; }

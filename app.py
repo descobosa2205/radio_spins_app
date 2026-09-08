@@ -75559,8 +75559,12 @@ def _roadmap_hotel_from_json(data: dict) -> dict:
         "for_all": bool(data.get("for_all")),
         "assignee_ids": [str(x) for x in (data.get("assignee_ids") or [])],
         "note": (data.get("note") or "").strip(),
+        # Cuántas habitaciones se han RESERVADO en este hotel: es el tope al repartir (sale el
+        # contador «x/x» y, si se pasa, se avisa y se ofrece modificar o ampliar la reserva).
+        # 0 = no se ha dicho, y entonces no hay tope.
+        "rooms_reserved": max(0, _roadmap_int(data.get("rooms_reserved"), 0)),
         "attachments": [],
-        "rooms": [],  # rooming list: [{id, breakfast, day_from, day_to, occupant_ids[]}]
+        "rooms": [],  # rooming list: [{id, bed, breakfast, day_from, day_to, occupant_ids[]}]
     }
 
 
@@ -76068,6 +76072,9 @@ def roadmap_hotel_save(entity_type, entity_id):
             hotel["id"] = hid
             hotel["attachments"] = current.get("attachments") or []
             hotel["rooms"] = current.get("rooms") or []  # la rooming list se conserva al editar
+            # La reserva solo se cambia si el formulario la trae (así un guardado parcial no la borra).
+            if "rooms_reserved" not in (data or {}):
+                hotel["rooms_reserved"] = max(0, _roadmap_int(current.get("rooms_reserved"), 0))
             hotels[idx] = hotel
         else:
             hotels.append(hotel)
@@ -76133,6 +76140,9 @@ def roadmap_hotel_rooms_save(entity_type, entity_id):
             es_plantilla = isinstance(row, ArtistTemplate)
             rooms.append({
                 "id": (str(raw.get("id") or "").strip() or _roadmap_new_id()),
+                # ⚠️ La CAMA: «Twin» son dos camas separadas y «Doble» una sola. Sin esto se
+                # perdía al guardar y todas volvían a leerse como Twin.
+                "bed": ("DOBLE" if str(raw.get("bed") or "").upper() == "DOBLE" else "TWIN"),
                 "breakfast": bool(raw.get("breakfast")),
                 "day_from": ("" if es_plantilla else _roadmap_clean_day(raw.get("day_from") or "")),
                 "day_to": ("" if es_plantilla else _roadmap_clean_day(raw.get("day_to") or "")),
@@ -76140,12 +76150,233 @@ def roadmap_hotel_rooms_save(entity_type, entity_id):
             })
         hotel["rooms"] = rooms
         hotels[idx] = hotel
-        # Una persona con habitación aquí no puede estar alojada en OTRO hotel.
+        # Una persona con habitación aquí no puede estar alojada en OTRO hotel (ni en una habitación
+        # todavía SIN HOTEL, las que están esperando a que se repartan).
         for other in hotels:
             if str(other.get("id")) == hid:
                 continue
             for r in (other.get("rooms") or []):
                 r["occupant_ids"] = [x for x in (r.get("occupant_ids") or []) if x not in seen_occupants]
+        for r in (payload.get("rooms_pool") or []):
+            r["occupant_ids"] = [x for x in (r.get("occupant_ids") or []) if x not in seen_occupants]
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+# ═══════════════ REPARTIR LAS HABITACIONES ENTRE LOS HOTELES (y quien no necesita) ═══════════════
+# ⚠️⚠️ AL CARGAR UNA PLANTILLA DE ROOMING LAS HABITACIONES LLEGAN «YA FORMADAS» PERO SIN HOTEL: la
+# plantilla dice **quién va con quién**, y en qué hotel duerme cada habitación se decide en la
+# actividad. Viven en `payload['rooms_pool']` (misma forma que las de un hotel) y se arrastran a su
+# hotel; cuando no queda ninguna, el reparto desaparece de la pantalla.
+# ⚠️ Con UN SOLO hotel no se pregunta nada: se asignan solas (la regla de la casa).
+def _rooming_pool(payload: dict) -> list:
+    pool = payload.get("rooms_pool")
+    if not isinstance(pool, list):
+        pool = []
+        payload["rooms_pool"] = pool
+    return pool
+
+
+def _rooming_find_room(payload: dict, room_id: str):
+    """Dónde está una habitación: (contenedor, lista, índice). El contenedor es el hotel o None
+    (cuando todavía no tiene hotel)."""
+    room_id = str(room_id or "").strip()
+    for hotel in (payload.get("hotels") or []):
+        for i, r in enumerate(hotel.get("rooms") or []):
+            if str(r.get("id")) == room_id:
+                return hotel, hotel["rooms"], i
+    for i, r in enumerate(_rooming_pool(payload)):
+        if str(r.get("id")) == room_id:
+            return None, payload["rooms_pool"], i
+    return None, None, -1
+
+
+def _rooming_hotel_capacity(hotel: dict) -> dict:
+    """Cuántas habitaciones tiene reservadas un hotel y cuántas llevan asignadas."""
+    reservadas = max(0, _roadmap_int(hotel.get("rooms_reserved"), 0))
+    puestas = len(hotel.get("rooms") or [])
+    return {"reserved": reservadas, "used": puestas,
+            "free": (max(0, reservadas - puestas) if reservadas else None),
+            "over": bool(reservadas and puestas > reservadas)}
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/hotel/reserva", endpoint="roadmap_hotel_reserved")
+@admin_required
+def roadmap_hotel_reserved(entity_type, entity_id):
+    """Cuántas habitaciones hay reservadas en un hotel (el tope del reparto).
+
+    Es lo que se cambia cuando al arrastrar una habitación de más se avisa de que no hay reservas
+    suficientes: se modifica la reserva o se amplía."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or request.form
+        payload = _roadmap_load(row)
+        hotels = payload.setdefault("hotels", [])
+        idx, hotel = _roadmap_find(hotels, (data.get("hotel_id") or "").strip())
+        if hotel is None:
+            return jsonify({"ok": False, "error": "Hotel no encontrado."}), 404
+        hotel["rooms_reserved"] = max(0, _roadmap_int(data.get("rooms_reserved"), 0))
+        hotels[idx] = hotel
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/habitacion/mover", endpoint="roadmap_room_move")
+@admin_required
+def roadmap_room_move(entity_type, entity_id):
+    """Mueve una habitación ENTERA (con su gente) a otro hotel, o la deja sin hotel.
+
+    `hotel_id` vacío = al montón de las que están sin repartir. Con `force` se acepta pasarse de las
+    habitaciones reservadas (se avisa antes y se ofrece ampliar la reserva)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or request.form
+        payload = _roadmap_load(row)
+        room_id = (data.get("room_id") or "").strip()
+        destino_id = (data.get("hotel_id") or "").strip()
+        origen, lista, i = _rooming_find_room(payload, room_id)
+        if lista is None:
+            return jsonify({"ok": False, "error": "Habitación no encontrada."}), 404
+        hab = lista[i]
+        destino = None
+        if destino_id:
+            _idx, destino = _roadmap_find(payload.setdefault("hotels", []), destino_id)
+            if destino is None:
+                return jsonify({"ok": False, "error": "Hotel no encontrado."}), 404
+            # ⚠️ El tope son las habitaciones RESERVADAS: si se pasa, se dice y se ofrece ampliar,
+            # en vez de dejar que se prometa un hotel que no está reservado.
+            if str((origen or {}).get("id") or "") != destino_id:
+                cap = _rooming_hotel_capacity(destino)
+                if cap["reserved"] and cap["used"] >= cap["reserved"] and not _truthy(data.get("force")):
+                    return jsonify({
+                        "ok": False, "needs_reserve": True,
+                        "hotel_id": destino_id, "hotel_name": (destino.get("name") or "Hotel"),
+                        "reserved": cap["reserved"], "used": cap["used"],
+                        "error": ("En «%s» solo hay %s y ya %s puesta%s."
+                                  % ((destino.get("name") or "Hotel"),
+                                     ("1 habitación reservada" if cap["reserved"] == 1
+                                      else "%d habitaciones reservadas" % cap["reserved"]),
+                                     ("está" if cap["reserved"] == 1 else "están"),
+                                     ("" if cap["reserved"] == 1 else "s"))),
+                    }), 409
+        # Se saca de donde estaba y se pone en el destino (los días son los del hotel de destino).
+        lista.pop(i)
+        if destino is None:
+            _rooming_pool(payload).append(hab)
+        else:
+            dias = destino.get("days") or []
+            if dias and not isinstance(row, ArtistTemplate):
+                hab["day_from"] = dias[0]
+                hab["day_to"] = dias[-1]
+            destino.setdefault("rooms", []).append(hab)
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/habitacion/eliminar", endpoint="roadmap_room_delete")
+@admin_required
+def roadmap_room_delete(entity_type, entity_id):
+    """Elimina una habitación (esté en un hotel o sin repartir). Su gente vuelve a quedar libre."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or request.form
+        payload = _roadmap_load(row)
+        _origen, lista, i = _rooming_find_room(payload, (data.get("room_id") or "").strip())
+        if lista is None:
+            return jsonify({"ok": False, "error": "Habitación no encontrada."}), 404
+        lista.pop(i)
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/habitacion/huesped", endpoint="roadmap_room_guest")
+@admin_required
+def roadmap_room_guest(entity_type, entity_id):
+    """Mueve a UNA persona de habitación (o la saca de todas: `room_id` vacío).
+
+    Vale entre hoteles y con las habitaciones que todavía no tienen hotel, así que es el punto único
+    de «arrastrar a alguien a una habitación» y de «devolverlo al listado de personal»."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or request.form
+        payload = _roadmap_load(row)
+        pid = str((data.get("person_id") or "")).strip()
+        if not pid:
+            return jsonify({"ok": False, "error": "Falta la persona."}), 400
+        # Fuera de donde esté (una persona duerme en UNA habitación).
+        for lista in [h.get("rooms") or [] for h in (payload.get("hotels") or [])] + [_rooming_pool(payload)]:
+            for r in lista:
+                r["occupant_ids"] = [x for x in (r.get("occupant_ids") or []) if str(x) != pid]
+        destino = (data.get("room_id") or "").strip()
+        if destino:
+            _o, lista, i = _rooming_find_room(payload, destino)
+            if lista is None:
+                return jsonify({"ok": False, "error": "Habitación no encontrada."}), 404
+            lista[i].setdefault("occupant_ids", []).append(pid)
+        # Quien tiene habitación ya no puede estar marcado como «no necesita».
+        for p in (payload.get("personnel") or []):
+            if str(p.get("id")) == pid and destino:
+                p["no_room"] = False
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/personal/sin-habitacion", endpoint="roadmap_person_no_room")
+@admin_required
+def roadmap_person_no_room(entity_type, entity_id):
+    """«No necesita habitación»: así deja de aparecer como pendiente de asignar.
+
+    Es lo que cierra el reparto: quien no duerme en el hotel (los de la ciudad, quien se va esa
+    noche) no puede quedarse pidiendo una habitación para siempre."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or request.form
+        payload = _roadmap_load(row)
+        pid = str((data.get("person_id") or "")).strip()
+        quitar = _truthy(data.get("undo"))
+        for p in (payload.get("personnel") or []):
+            if str(p.get("id")) == pid:
+                p["no_room"] = (not quitar)
+        if not quitar:
+            # Si no la necesita, no puede seguir dentro de una habitación.
+            for lista in [h.get("rooms") or [] for h in (payload.get("hotels") or [])] + [_rooming_pool(payload)]:
+                for r in lista:
+                    r["occupant_ids"] = [x for x in (r.get("occupant_ids") or []) if str(x) != pid]
         return _roadmap_ok(session_db, row, payload)
     except Exception as exc:
         session_db.rollback()
@@ -80378,18 +80609,40 @@ def roadmap_template_load(entity_type, entity_id, tid):
             actuales = {_artist_template_person_key(p): p for p in (payload.get("personnel") or [])}
             faltan = [p for p in (origen.get("personnel") or [])
                       if _artist_template_person_key(p) not in actuales]
-            if faltan and modo not in ("add_missing", "skip_missing"):
-                # Se pregunta antes de tocar nada.
+            # ⚠️ La decisión es DE CADA UNA: llegan las claves de quien SÍ se añade (`add_keys`) y el
+            # resto se queda fuera. Antes era todo o nada («añadir todas» / «omitir todas»), y en un
+            # equipo de doce personas eso no sirve.
+            claves_pedidas = (request.form.getlist("add_keys")
+                              or ((request.get_json(silent=True) or {}).get("add_keys") or []))
+            claves_pedidas = {str(x) for x in claves_pedidas}
+            decidido = bool(claves_pedidas) or modo in ("add_missing", "skip_missing")
+            if faltan and not decidido:
+                # Se pregunta antes de tocar nada, con su foto y su función para poder decidir.
                 return jsonify({"ok": True, "needs_decision": True, "kind": "ROOMING",
                                 "name": tpl.name,
-                                "missing": [{"name": (p.get("name") or "").strip() or "Sin nombre",
-                                             "role": (p.get("role") or "")} for p in faltan]})
+                                "missing": [{"key": _artist_template_person_key(p),
+                                             "name": (p.get("name") or "").strip() or "Sin nombre",
+                                             "role": (p.get("role") or ""),
+                                             "photo_url": (p.get("photo_url") or "")} for p in faltan]})
             id_map = {}
-            if modo == "add_missing":
+            añadidos = 0
+            if modo == "add_missing" and not claves_pedidas:
                 res = _artist_template_copy_personnel(origen, payload)
                 id_map = res["id_map"]
+                añadidos = res["added"]
             else:
-                # Solo se mapea a quien ya está; el resto se cae del reparto.
+                # Se añade SOLO a los elegidos; a los demás se les mapea si ya estaban y, si no, se
+                # caen del reparto (sus habitaciones pueden quedarse vacías: se avisa al final).
+                sueltos = {_artist_template_person_key(p): p for p in faltan}
+                for clave in claves_pedidas:
+                    persona = sueltos.get(clave)
+                    if persona is None:
+                        continue
+                    nueva = dict(persona)
+                    nueva["id"] = _roadmap_new_id()
+                    payload.setdefault("personnel", []).append(nueva)
+                    actuales[clave] = nueva
+                    añadidos += 1
                 for p in (origen.get("personnel") or []):
                     actual = actuales.get(_artist_template_person_key(p))
                     if actual:
@@ -80402,35 +80655,63 @@ def roadmap_template_load(entity_type, entity_id, tid):
                        if str(x)[:10] in dias_actividad]
             dias = sorted({str(x)[:10] for x in pedidos}) or dias_actividad
             hoteles = payload.setdefault("hotels", [])
-            copiados = 0
+            # ⚠️⚠️ LAS HABITACIONES LLEGAN «YA FORMADAS» PERO SIN HOTEL: la plantilla dice quién va
+            # con quién y en qué hotel duerme cada una se decide aquí, arrastrándolas.
+            # ⚠️ Los hoteles de la plantilla se traen SOLO si la actividad no tiene ninguno: si los
+            # tiene, son los suyos los que están reservados de verdad (traerlos además dejaba la
+            # actividad con hoteles de más y obligaba a repartir donde no hacía falta).
+            traidos = 0
+            if not hoteles:
+                for hotel in (origen.get("hotels") or []):
+                    nuevo = dict(hotel)
+                    nuevo["id"] = _roadmap_new_id()
+                    nuevo["attachments"] = []
+                    nuevo["days"] = list(dias)
+                    nuevo["rooms"] = []
+                    nuevo["assignee_ids"] = [id_map[x] for x in (hotel.get("assignee_ids") or []) if x in id_map]
+                    hoteles.append(nuevo)
+                    traidos += 1
+            pool = _rooming_pool(payload)
+            vacias, habitaciones = [], []
             for hotel in (origen.get("hotels") or []):
-                nuevo = dict(hotel)
-                nuevo["id"] = _roadmap_new_id()
-                nuevo["attachments"] = []
-                nuevo["days"] = list(dias)
-                nuevo["assignee_ids"] = [id_map[x] for x in (hotel.get("assignee_ids") or []) if x in id_map]
-                habitaciones = []
                 for hab in (hotel.get("rooms") or []):
                     h = dict(hab)
                     h["id"] = _roadmap_new_id()
                     h["occupant_ids"] = [id_map[x] for x in (hab.get("occupant_ids") or []) if x in id_map]
-                    # El mismo reparto para todos los días elegidos.
                     h["day_from"] = dias[0] if dias else ""
                     h["day_to"] = dias[-1] if dias else ""
                     habitaciones.append(h)
-                nuevo["rooms"] = habitaciones
-                hoteles.append(nuevo)
-                copiados += 1
+                    if not h["occupant_ids"]:
+                        vacias.append({"id": h["id"],
+                                       "was": len(hab.get("occupant_ids") or []),
+                                       "hotel": (hotel.get("name") or "")})
+            # Con UN SOLO hotel no se pregunta nada: se asignan solas.
+            auto = len(hoteles) == 1
+            if auto:
+                hoteles[0].setdefault("rooms", []).extend(habitaciones)
+            else:
+                pool.extend(habitaciones)
             _roadmap_save(session_db, row, payload)
+            ocupadas = {str(x) for lista in
+                        ([h.get("rooms") or [] for h in hoteles] + [pool])
+                        for hab in lista for x in (hab.get("occupant_ids") or [])}
             sin_habitacion = [p for p in (payload.get("personnel") or [])
-                              if not any(str(p.get("id")) in (hab.get("occupant_ids") or [])
-                                         for h in hoteles for hab in (h.get("rooms") or []))]
+                              if str(p.get("id")) not in ocupadas and not p.get("no_room")]
             _dias_txt = (f"{len(dias)} día{'s' if len(dias) != 1 else ''}"
                          if len(dias) != len(dias_actividad) else "todos los días")
-            resumen.update(hotels=copiados, unassigned=len(sin_habitacion), days_applied=dias,
+            partes = [f"{len(habitaciones)} habitaci{'ones' if len(habitaciones) != 1 else 'ón'}"]
+            partes.append("repartidas" if auto else "por repartir")
+            if añadidos:
+                partes.append(f"{añadidos} persona(s) añadida(s) al personal")
+            if sin_habitacion:
+                partes.append(f"{len(sin_habitacion)} sin habitación")
+            resumen.update(hotels=traidos, rooms=len(habitaciones), pooled=(0 if auto else len(habitaciones)),
+                           added=añadidos, unassigned=len(sin_habitacion), days_applied=dias,
+                           # Las que se han quedado VACÍAS al dejar gente fuera: se pregunta si se
+                           # conservan o se eliminan (eso NO toca la plantilla, solo esta actividad).
+                           empty_rooms=vacias,
                            payload=payload, days=_roadmap_days(row, payload),
-                           message=(f"{copiados} hotel(es) con su reparto · {_dias_txt}"
-                                    + (f" · {len(sin_habitacion)} sin habitación" if sin_habitacion else "")))
+                           message=(" · ".join(partes) + f" · {_dias_txt}"))
             return jsonify(resumen)
 
         # HOJA DE RUTA (horarios)

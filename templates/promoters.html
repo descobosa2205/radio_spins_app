@@ -94,6 +94,12 @@
                 <label class="form-label">Logo <span class="text-muted">(opcional)</span></label>
                 <input type="file" name="logo" class="form-control" accept="image/*" />
               </div>
+              {# ---------- Y TODO LO DEMÁS, si se quiere (el MISMO parcial que el alta rápida) ---------- #}
+              <div class="col-12">
+                <div class="d-flex flex-column gap-2">
+                  {% with pe_fiscal=True, pe_address=False %}{% include '_promoter_extra_fields.html' %}{% endwith %}
+                </div>
+              </div>
             </div>
             {% include '_doc_intake_hidden.html' %}
           </div>

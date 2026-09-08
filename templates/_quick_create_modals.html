@@ -150,15 +150,28 @@
                     <label class="form-label">DNI</label>
                     <input class="form-control" name="tax_id">
                   </div>
+                  {{ fiscal.fields() }}
+                </div>
+              </div>
+            </div>
+
+            {# ---------- DATOS DE CONTACTO (de una empresa y de una persona) ---------- #}
+            {# ⚠️ Va FUERA de los paneles de empresa / particular: son los mismos campos para las dos
+               y, duplicados, se pisarían (los dos viajan en el formulario y el servidor lee el
+               primero). Antes solo los tenía el particular, así que una EMPRESA se creaba sin poder
+               ponerle ni correo ni teléfono. #}
+            <div class="demo-card">
+              <div class="demo-card__head"><i class="fa fa-address-book"></i>Datos de contacto</div>
+              <div class="demo-card__body">
+                <div class="row g-2">
                   <div class="col-12 col-md-7">
-                    <label class="form-label">Teléfono</label>
-                    <input class="form-control" name="contact_phone">
-                  </div>
-                  <div class="col-12">
                     <label class="form-label">Email</label>
                     <input type="email" class="form-control" name="contact_email">
                   </div>
-                  {{ fiscal.fields() }}
+                  <div class="col-12 col-md-5">
+                    <label class="form-label">Teléfono</label>
+                    <input class="form-control" name="contact_phone">
+                  </div>
                 </div>
               </div>
             </div>
@@ -180,6 +193,10 @@
                 </div>
               </div>
             </div>
+
+            {# ---------- Y TODO LO DEMÁS, si se quiere ---------- #}
+            {# La dirección fiscal ya la piden los paneles de arriba (uno por rama), aquí no. #}
+            {% with pe_fiscal=False, pe_address=True %}{% include '_promoter_extra_fields.html' %}{% endwith %}
           </div>
           <div class="qc-feedback mt-2"></div>
         </div>

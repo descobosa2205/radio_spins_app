@@ -1610,6 +1610,10 @@ def inject_globals():
         promoter_manual_roles=_promoter_manual_roles,
         PROMOTER_ASSOCIATIONS=PROMOTER_ASSOCIATIONS,
         PROMOTER_MANUAL_ROLES=PROMOTER_MANUAL_ROLES,
+        # Para el «Rellenar más campos» del alta de un tercero, que se pinta en CUALQUIER pantalla
+        # (el modal de alta rápida va en `layout.html`). Son constantes: no cuestan ninguna consulta.
+        PRL_WORKER_TYPES=PRL_WORKER_TYPES,
+        NOTIFY_CHANNELS=NOTIFY_CHANNELS,
         media_type_icon=_media_type_icon,
         media_type_label=_media_type_label,
         # DIRECCIÓN FISCAL: se pide en piezas (Holded las necesita separadas) y se muestra junta.
@@ -46806,6 +46810,9 @@ def promoters_view():
                 )
                 session.add(p)
                 session.flush()
+                # Y TODO LO DEMÁS que se haya rellenado con «Rellenar más campos» (el mismo punto
+                # único que el alta rápida): etiquetas, alta y PRL, banco, sociedad, viaje…
+                _promoter_apply_extra_form(session, p, request.form)
                 _person_document_create_from_intake(session, "PROMOTER", p)
                 linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
                 session.commit()
@@ -46866,6 +46873,84 @@ def promoters_view():
         )
     finally:
         session.close()
+
+
+def _promoter_apply_extra_form(session_db, p, form) -> None:
+    """Lo que trae el **«Rellenar más campos»** del alta de un tercero
+    (`templates/_promoter_extra_fields.html`).
+
+    Punto ÚNICO: lo usan el **alta rápida** de cualquier pantalla (`api_create_promoter`) y el
+    **«Nuevo tercero»** de Terceros, así que un tercero creado por un camino o por el otro queda
+    exactamente igual y no hay dos formas de guardar lo mismo.
+
+    ⚠️⚠️ **NADA ES OBLIGATORIO**: lo que llegue vacío **no se escribe**, así que un alta rápida sigue
+    siendo rápida. Es solo la opción de meter todo lo que se sepa sin tener que volver a su ficha.
+    ⚠️ Los **CENTINELAS** son los mismos que en la ficha (`assoc_present`, `travel_prefs_present`):
+    si el formulario no trae ese módulo, no se toca nada.
+    ⚠️ Los nombres de los campos son los de la ficha: los leen los mismos helpers
+    (`_tags_from_form`, `_parse_travel_prefs_form`, `_apply_fiscal_address`).
+    """
+    if p is None or form is None:
+        return
+
+    def txt(clave):
+        try:
+            return (form.get(clave) or "").strip()
+        except Exception:
+            return ""
+
+    # ---- Dirección: el domicilio y (si el formulario la trae) la fiscal ----
+    if txt("address"):
+        p.address = txt("address")
+    if any(txt(k) for k in ("fiscal_address", "fiscal_postal_code", "fiscal_city",
+                            "fiscal_province", "fiscal_country")):
+        _apply_fiscal_address(p, _fiscal_form_values(form))
+
+    # ---- ETIQUETAS: asociaciones (APM, Arte) y categorías a mano (promotor, autor, músico…) ----
+    if form.get("assoc_present"):
+        p.assoc_tags = _tags_from_form(form, "assoc_tags", PROMOTER_ASSOC_LABELS)
+        p.roles_manual = _tags_from_form(form, "roles_manual", PROMOTER_ROLE_LABELS)
+
+    # ---- ALTA Y PRL: cómo factura (los documentos se le piden con su enlace desde la ficha) ----
+    _prl = txt("prl_type").upper()
+    if _prl in PRL_ALTA_DOC_BY_TYPE:
+        p.prl_type = _prl
+
+    # ---- CUENTA BANCARIA (es a donde se le paga en una remesa) ----
+    if txt("bank_account"):
+        p.bank_account = " ".join(txt("bank_account").upper().split())
+    if txt("bank_bic"):
+        p.bank_bic = txt("bank_bic").upper().replace(" ", "")
+
+    # ---- VIAJE Y HOTELES ----
+    if form.get("travel_prefs_present"):
+        if txt("travel_notes"):
+            p.travel_notes = txt("travel_notes")
+        try:
+            p.travel_prefs = _parse_travel_prefs_form(form)
+        except Exception:
+            pass
+        if txt("travel_departure_flight"):
+            p.travel_departure_flight = txt("travel_departure_flight")
+        if txt("travel_departure_train"):
+            p.travel_departure_train = txt("travel_departure_train")
+    if txt("hotel_notes"):
+        p.hotel_notes = txt("hotel_notes")
+
+    # ---- CÓMO SE LE AVISA. ⚠️ Solo tiene sentido con correo Y teléfono: con una sola cosa no hay
+    #      nada que preferir (la misma regla que la ficha, que entonces la borra). ----
+    _pref = _notify_pref_clean(txt("notify_channel"))
+    if _pref and (p.contact_email or "").strip() and (p.contact_phone or "").strip():
+        p.notify_channel = _pref
+
+    # ---- LA SOCIEDAD CON LA QUE FACTURA (se le pueden añadir más en su ficha) ----
+    _soc = txt("company_legal_name")
+    if _soc:
+        try:
+            session_db.add(PromoterCompany(promoter_id=p.id, legal_name=_soc,
+                                           tax_id=txt("company_tax_id") or None))
+        except Exception:
+            app.logger.exception("[terceros] no se pudo crear la sociedad del alta")
 
 
 def _promoter_search_blobs(session_db, promoters) -> dict:
@@ -63673,6 +63758,8 @@ def api_create_promoter():
         _apply_fiscal_address(p, _fiscal_form_values(request.form))
         session.add(p)
         session.flush()
+        # Y TODO LO DEMÁS de «Rellenar más campos» (nada de esto es obligatorio).
+        _promoter_apply_extra_form(session, p, request.form)
         # ⚠️ EL REPRESENTANTE de una empresa es OTRO TERCERO: se crean los dos en la misma operación
         # y quedan VINCULADOS entre sí (la vinculación es bidireccional, así que se ve en las dos
         # fichas). Si no se rellena nada, no se crea nada.

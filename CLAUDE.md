@@ -7374,6 +7374,41 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **ficha del artista**: aquí es lo que hay que GESTIONAR y solo hacía ruido. Misma regla que la
   cabecera de una actividad y la de una canción.
 
+- ⚠️⚠️ **CREAR UN TERCERO · «RELLENAR MÁS CAMPOS», desde cualquier parte de la app** (sep 2026). Al
+  dar de alta un tercero se pedía lo justo, así que había que **entrar después en su ficha** para
+  completarlo. Ahora el alta tiene un botón que abre, **uno debajo de otro y por módulos**, TODO lo
+  demás: **Dirección** · **Etiquetas** (asociaciones + categorías, incluidas Músicos y Técnicos /
+  Operadores) · **Alta y PRL** · **Cuenta bancaria** · **Sociedad con la que factura** · **Viaje y
+  hoteles** · **¿Cómo prefiere que le avisemos?**.
+  · **UN SOLO SITIO para las dos altas**: parcial **`templates/_promoter_extra_fields.html`** (con
+  `pe_fiscal` / `pe_address` según lo que ya pida el formulario que lo incluye) y punto único
+  **`_promoter_apply_extra_form(session_db, p, form)`**, que usan **el alta rápida de cualquier
+  pantalla** (`api_create_promoter`, el modal de `layout.html`) **y** el «Nuevo tercero» de Terceros.
+  Un tercero creado por un camino o por el otro queda exactamente igual.
+  ⚠️⚠️ **NADA ES OBLIGATORIO**: lo que llegue vacío **no se escribe**, así que un alta rápida sigue
+  siendo rápida. Los nombres de los campos son **los mismos que en la ficha**, así que los leen los
+  helpers de siempre (`_tags_from_form`, `_parse_travel_prefs_form`, `_apply_fiscal_address`) y con
+  sus **CENTINELAS** (`assoc_present`, `travel_prefs_present`).
+  ⚠️⚠️ Los módulos nacen **ocultos Y DESHABILITADOS** (`mas()` en `quick_create.js`, por selector y
+  no al abrir el modal, porque el «Nuevo tercero» de Terceros **no es un `.qc-form`**): un campo
+  oculto **se envía igual**, y esos dos centinelas harían que se guardara un vacío como si se hubiera
+  dicho. Al abrir el modal se vuelven a plegar.
+  ⚠️ Si lo que se escribió y no se envió **se repone** (`form_autosave.js` avisa con un `input` por
+  campo), la caja **se abre sola**: si no, esos datos volverían escondidos y deshabilitados y se
+  perderían al guardar otra vez.
+  ⚠️ **SIN `id=` en ningún campo del parcial**: en Terceros hay **DOS copias en el DOM** (la del
+  modal global de alta rápida y la del «Nuevo tercero»), y unos ids repetidos se pisarían.
+  ⚠️ El **correo y el teléfono** pasan a un módulo COMÚN del alta rápida: estaban solo en el panel de
+  «particular», así que **una EMPRESA se creaba sin poder ponerle ni correo ni teléfono**. No se
+  pueden dejar en los dos paneles: los dos viajan en el formulario y el servidor lee el primero.
+  ⚠️ El **IBAN** se normaliza (mayúsculas, un espacio) y el **BIC** sin espacios; que el IBAN cuadre
+  ya lo comprueba la remesa (`sepa_check_payment`), que es donde importa.
+  ⚠️ Los **DOCUMENTOS de PRL** (el recibo de autónomos, el alta, el ITA, la formación) no se suben
+  aquí: se le piden con su enlace desde la pestaña «Alta y PRL» de su ficha. Aquí solo se dice **cómo
+  va** (`prl_type`).
+  ⚠️ Los catálogos que necesitan los módulos (`PRL_WORKER_TYPES`, `NOTIFY_CHANNELS`) se inyectan en
+  `inject_globals`: el parcial se pinta en **cualquier** pantalla y son constantes (ninguna consulta).
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

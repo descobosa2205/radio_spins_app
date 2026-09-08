@@ -143,6 +143,57 @@
     pintaTipoTercero(e.target.closest('[data-qc-promoter]'));
   });
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════
+     «RELLENAR MÁS CAMPOS» de un TERCERO (`_promoter_extra_fields.html`)
+
+     Al crear un tercero se pedía lo justo y había que entrar después en su ficha. Con el botón se
+     abren, uno debajo de otro, los módulos con TODO lo demás (etiquetas, alta y PRL, banco, la
+     sociedad con la que factura, viaje, cómo se le avisa). Nada es obligatorio.
+
+     ⚠️⚠️ Nacen ocultos **y DESHABILITADOS**: un campo oculto se envía igual, y sus CENTINELAS
+     (`assoc_present`, `travel_prefs_present`) harían que se guardara un vacío como si se hubiera
+     dicho. Esto vale para el modal de alta rápida Y para el «Nuevo tercero» de Terceros, que no es
+     un `.qc-form`: por eso se inicializa por selector, no al abrir el modal.
+     ══════════════════════════════════════════════════════════════════════════════════════════ */
+  function mas(raiz, abierto) {
+    if (!raiz) return;
+    var caja = raiz.querySelector('[data-qc-more]');
+    if (!caja) return;
+    caja.classList.toggle('d-none', !abierto);
+    caja.querySelectorAll('input,select,textarea').forEach(function (c) { c.disabled = !abierto; });
+    var boton = raiz.querySelector('[data-qc-more-btn]');
+    if (boton) boton.classList.toggle('d-none', !!abierto);
+    caja.dataset.qcMoreOpen = abierto ? '1' : '';
+  }
+
+  function raizDe(el) { return (el && (el.closest('form') || el.closest('.modal'))) || document; }
+
+  document.addEventListener('click', function (e) {
+    var abre = e.target.closest('[data-qc-more-open]');
+    if (!abre) return;
+    e.preventDefault();
+    mas(raizDe(abre), true);
+  });
+
+  /* ⚠️ Si lo que se escribió y NO se envió se repone (`form_autosave.js` avisa con un `input` por
+     cada campo que rellena), la caja se abre sola: si no, esos datos volverían escondidos —y
+     deshabilitados— y se perderían al guardar otra vez. */
+  document.addEventListener('input', function (e) {
+    var caja = e.target.closest && e.target.closest('[data-qc-more]');
+    if (caja && !caja.dataset.qcMoreOpen) mas(raizDe(caja), true);
+  });
+
+  function arrancaMas() {
+    document.querySelectorAll('[data-qc-more]').forEach(function (caja) {
+      if (caja.dataset.qcMoreInit) return;
+      caja.dataset.qcMoreInit = '1';
+      mas(raizDe(caja), false);
+    });
+  }
+  if (document.readyState !== 'loading') arrancaMas();
+  else document.addEventListener('DOMContentLoaded', arrancaMas);
+  document.addEventListener('inline:updated', arrancaMas);
+
   // Abrir el modal del tipo indicado
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-quick-create]');
@@ -158,6 +209,7 @@
     var form = modalEl.querySelector('.qc-form');
     if (form) { form.reset(); feedback(form, ''); }
     pintaTipoTercero(modalEl.querySelector('[data-qc-promoter]'));
+    mas(modalEl, false);          // los módulos de más, plegados otra vez
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
     var first = modalEl.querySelector('input,select,textarea');
     if (first) setTimeout(function () { first.focus(); }, 300);

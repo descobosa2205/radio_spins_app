@@ -1,0 +1,166 @@
+{# ============================================================================================
+   «RELLENAR MÁS CAMPOS» de un TERCERO — TODO lo que se sepa, al crearlo.
+
+   Al crear un tercero desde cualquier parte de la app solo se pedía lo justo, así que había que
+   entrar después en su ficha para completarlo. Con esto se abren, uno debajo de otro, los MÓDULOS
+   con el resto de sus datos (los mismos de su ficha, más el ALTA/PRL y la cuenta bancaria).
+
+   ⚠️ NADA ES OBLIGATORIO: es solo la opción de meter lo que se sepa. Lo que se deje vacío no se
+      escribe (así un alta rápida sigue siendo rápida).
+   ⚠️ Los NOMBRES de los campos son los MISMOS que en la ficha del tercero, para que los lea el
+      mismo punto único (`_promoter_apply_extra_form`) y no haya dos formas de guardar lo mismo.
+   ⚠️ SIN `id=` en ningún campo: este parcial se pinta en el modal de alta rápida (que va en
+      `layout.html`, o sea en TODAS las pantallas) y además en el «Nuevo tercero» de Terceros, así
+      que en esa pantalla hay DOS copias en el DOM y unos ids repetidos se pisarían.
+   ⚠️ Los módulos nacen ocultos **y DESHABILITADOS** (lo hace `quick_create.js`): un campo oculto se
+      envía igual, y sus CENTINELAS (`assoc_present`, `travel_prefs_present`) harían que se guardara
+      un vacío como si se hubiera dicho.
+
+   Parámetros (se pasan con un «with» al incluirlo):
+     pe_fiscal  : pintar la DIRECCIÓN FISCAL (el alta rápida ya la trae en su panel de empresa /
+                  particular, así que ahí va a False para no duplicar los nombres de los campos)
+     pe_address : pintar el DOMICILIO (el «Nuevo tercero» de Terceros ya lo trae)
+   ============================================================================================ #}
+{% import '_fiscal_address_fields.html' as pe_fiscal_macro with context %}
+
+<div class="demo-card" data-qc-more-btn>
+  <div class="demo-card__body">
+    <button type="button" class="btn btn-outline-primary w-100" data-qc-more-open>
+      <i class="fa fa-list-check me-1"></i>Rellenar más campos
+    </button>
+    <div class="form-text mt-1">
+      Todo lo demás que se sepa de este tercero (contacto, etiquetas, alta y PRL, banco, viaje…),
+      para no tener que volver a su ficha. <strong>Nada es obligatorio.</strong>
+    </div>
+  </div>
+</div>
+
+<div class="d-none d-flex flex-column gap-2" data-qc-more>
+
+  {# ---------- DIRECCIÓN ---------- #}
+  {% if pe_address or pe_fiscal %}
+    <div class="demo-card">
+      <div class="demo-card__head"><i class="fa fa-location-dot"></i>Dirección</div>
+      <div class="demo-card__body">
+        <div class="row g-2">
+          {% if pe_address %}
+            <div class="col-12">
+              <label class="form-label">Domicilio</label>
+              <span data-address-autocomplete class="d-block position-relative"><input class="form-control" name="address" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…"></span>
+            </div>
+          {% endif %}
+          {% if pe_fiscal %}{{ pe_fiscal_macro.fields() }}{% endif %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {# ---------- ETIQUETAS: asociaciones y categorías ---------- #}
+  {# ⚠️ Con CENTINELA (`assoc_present`), como en la ficha: sin él, un guardado que no las pregunte
+     las borraría. #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-tags"></i>Etiquetas</div>
+    <div class="demo-card__body">
+      <input type="hidden" name="assoc_present" value="1">
+      <div class="form-text mb-2">¿Es miembro de una asociación? ¿Y qué es para nosotros?</div>
+      <div class="d-flex flex-wrap gap-2 mb-2">
+        {% for key, label, desc, icon in PROMOTER_ASSOCIATIONS %}
+          <label class="pr-tag-check"><input type="checkbox" name="assoc_tags[]" value="{{ key }}"><i class="fa {{ icon }}"></i><span><b>{{ label }}</b><small>{{ desc }}</small></span></label>
+        {% endfor %}
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        {% for key, label, icon in PROMOTER_MANUAL_ROLES %}
+          <label class="pr-tag-check"><input type="checkbox" name="roles_manual[]" value="{{ key }}"><i class="fa {{ icon }}"></i><span><b>{{ label }}</b></span></label>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ---------- ALTA Y PRL ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-helmet-safety"></i>Alta y PRL</div>
+    <div class="demo-card__body">
+      <div class="form-text mb-2">Cómo factura y con qué se le da de alta en un evento.</div>
+      <div class="d-flex flex-wrap gap-2">
+        {% for key, label, icon, hint in PRL_WORKER_TYPES %}
+          <label class="pr-tag-check"><input type="radio" name="prl_type" value="{{ key }}"><i class="fa {{ icon }}"></i><span><b>{{ label }}</b><small>{{ hint }}</small></span></label>
+        {% endfor %}
+      </div>
+      <div class="form-text mt-2">
+        Los DOCUMENTOS (el recibo de autónomos, el alta, el ITA, la formación) se le piden con su
+        enlace desde la pestaña <strong>Alta y PRL</strong> de su ficha: aquí solo se dice cómo va.
+      </div>
+    </div>
+  </div>
+
+  {# ---------- CUENTA BANCARIA ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-building-columns"></i>Cuenta bancaria</div>
+    <div class="demo-card__body">
+      <div class="row g-2">
+        <div class="col-12 col-md-8">
+          <label class="form-label">IBAN</label>
+          <input class="form-control" name="bank_account" placeholder="ES00 0000 0000 0000 0000 0000">
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label">SWIFT / BIC <span class="text-muted small fw-normal">(opcional)</span></label>
+          <input class="form-control" name="bank_bic">
+        </div>
+      </div>
+      <div class="form-text mt-1">Es la cuenta a la que se le paga en una remesa.</div>
+    </div>
+  </div>
+
+  {# ---------- SOCIEDAD CON LA QUE FACTURA ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-building"></i>Sociedad con la que factura</div>
+    <div class="demo-card__body">
+      <div class="row g-2">
+        <div class="col-12 col-md-7">
+          <label class="form-label">Razón social</label>
+          <input class="form-control" name="company_legal_name" placeholder="Sonidos del Sur, S.L.">
+        </div>
+        <div class="col-12 col-md-5">
+          <label class="form-label">CIF</label>
+          <input class="form-control" name="company_tax_id">
+        </div>
+      </div>
+      <div class="form-text mt-1">
+        Si factura con una sociedad y no a título personal. Se le pueden añadir más en su ficha.
+      </div>
+    </div>
+  </div>
+
+  {# ---------- VIAJE Y HOTELES ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-suitcase-rolling"></i>Viaje y hoteles</div>
+    <div class="demo-card__body">
+      <input type="hidden" name="travel_prefs_present" value="1">
+      {% with tp_prefs={}, tp_row={}, tp_can_edit=True %}{% include '_travel_prefs_panel.html' %}{% endwith %}
+      <div class="mt-2">
+        <label class="form-label"><i class="fa fa-bed me-1 text-danger"></i>Petición especial de hoteles
+          <span class="text-muted small fw-normal">(sale como nota en las rooming lists)</span></label>
+        <input class="form-control" name="hotel_notes" placeholder="Ej.: habitación individual, planta baja, alergias…">
+      </div>
+    </div>
+  </div>
+
+  {# ---------- CÓMO SE LE AVISA ---------- #}
+  {# ⚠️ Solo sirve con correo Y teléfono: si falta uno, el servidor la descarta (no hay nada que
+     preferir). Por defecto, el correo. #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-bell"></i>¿Cómo prefiere que le avisemos?</div>
+    <div class="demo-card__body">
+      <div class="notify-pref">
+        {% for key, label, icon in NOTIFY_CHANNELS %}
+          <label class="notify-pref__opt{% if key == 'EMAIL' %} is-on{% endif %}">
+            <input class="visually-hidden" type="radio" name="notify_channel" value="{{ key }}" {% if key == 'EMAIL' %}checked{% endif %}>
+            <i class="fa {{ icon }}"></i><span>{{ label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      <div class="form-text">Se usa en los envíos automáticos. Solo cuenta si tiene correo y teléfono.</div>
+    </div>
+  </div>
+
+</div>

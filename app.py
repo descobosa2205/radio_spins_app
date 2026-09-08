@@ -52120,7 +52120,18 @@ def _press_container_active(row, upcoming: set, archived_value: str) -> bool:
     return True   # sin fechas y sin archivar: se está preparando
 
 
-def _press_subject_options(session_db) -> list[dict]:
+def _subject_options(session_db, *, con_empresas: bool = False) -> list[dict]:
+    """A QUÉ se puede vincular algo, con lo ACTIVO por delante: los ARTISTAS (los activos de la
+    casa), los EVENTOS con algo próximo, las GIRAS compradas y los CICLOS / FESTIVALES nuestros con
+    actividades por venir (`CycleFestival`: un festival de otro al que va un artista es una
+    actividad, no un sujeto) y, si se piden, las EMPRESAS DEL GRUPO.
+
+    ⚠️ Punto ÚNICO: lo usan las NOTAS DE PRENSA y las PLANTILLAS de producción, así que la lista y el
+    criterio de «activo» no se pueden desparejar."""
+    return _press_subject_options(session_db, con_empresas=con_empresas)
+
+
+def _press_subject_options(session_db, *, con_empresas: bool = True) -> list[dict]:
     """Lo que se puede elegir al crear una nota, con lo ACTIVO por delante (el resto queda tras «Ver
     más»): los ARTISTAS (los activos de la casa), los EVENTOS con algo próximo, las GIRAS compradas y
     los CICLOS / FESTIVALES nuestros con actividades por venir (`CycleFestival`: un festival de otro
@@ -52154,8 +52165,11 @@ def _press_subject_options(session_db) -> list[dict]:
         filas.append({"kind": "CYCLE", "id": str(c.id), "label": c.name or "—", "photo": c.logo_url or "",
                       "active": _press_container_active(c, ciclos_prox, "ARCHIVADO"),
                       "sub": PRESS_CYCLE_KIND_LABELS.get((c.kind or "").upper(), "Ciclo"), "icon": "fa-calendar-week"})
-    # Las EMPRESAS DEL GRUPO: la foto es su LOGO (lo pinta `company_logo`, que le quita el fondo blanco).
-    for co in session_db.query(GroupCompany).order_by(func.lower(GroupCompany.name).asc()).all():
+    # Las EMPRESAS DEL GRUPO: la foto es su LOGO (lo pinta `company_logo`, que le quita el fondo
+    # blanco). Solo donde tienen sentido: una nota puede ser de la empresa, una plantilla de
+    # producción no.
+    for co in (session_db.query(GroupCompany).order_by(func.lower(GroupCompany.name).asc()).all()
+               if con_empresas else []):
         filas.append({"kind": "COMPANY", "id": str(co.id), "label": co.name or "—", "photo": (co.logo_url or "").strip().rstrip("?"),
                       "active": _press_company_is_house(co.name), "sub": "Empresa del grupo", "icon": "fa-building",
                       "logo": True})
@@ -79926,11 +79940,30 @@ def _travel_summary(row) -> dict:
 # ---------------------------------------------------------------------------
 
 def _artist_template_rows(session_db, artist_id, kind=None) -> list:
+    """Las plantillas de un ARTISTA (lo que usa su ficha). Para otros sujetos: `_template_rows_of`."""
     q = (session_db.query(ArtistTemplate)
          .filter(ArtistTemplate.artist_id == to_uuid(str(artist_id))))
     if kind:
         q = q.filter(ArtistTemplate.kind == kind)
     return q.order_by(ArtistTemplate.kind.asc(), ArtistTemplate.name.asc()).all()
+
+
+def _template_rows_of(session_db, owner_type: str, owner_id, kind=None) -> list:
+    """Las plantillas de UN SUJETO (artista, evento, gira o ciclo), del tipo que se pida.
+
+    ⚠️ Las plantillas de antes de ser polimórficas no tienen `owner_id`, así que también se aceptan
+    por `artist_id` cuando el sujeto es un artista."""
+    tipo = (owner_type or "ARTIST").strip().upper()
+    oid = to_uuid(str(owner_id or ""))
+    if not oid:
+        return []
+    cond = and_(func.upper(ArtistTemplate.owner_type) == tipo, ArtistTemplate.owner_id == oid)
+    if tipo == "ARTIST":
+        cond = or_(cond, ArtistTemplate.artist_id == oid)
+    q = session_db.query(ArtistTemplate).filter(cond)
+    if kind:
+        q = q.filter(func.upper(ArtistTemplate.kind) == str(kind).upper())
+    return q.order_by(ArtistTemplate.updated_at.desc().nullslast()).all()
 
 
 def _artist_template_summary(row) -> dict:
@@ -80077,6 +80110,97 @@ def artist_template_create(artist_id):
         session_db.close()
 
 
+@app.post("/produccion/plantillas/crear", endpoint="production_template_create")
+@admin_required
+def production_template_create():
+    """Crea una plantilla desde Producción y abre su editor.
+
+    Se elige el TIPO y a qué se VINCULA (artista, evento, gira comprada, ciclo o festival nuestro).
+    ⚠️ Los RIDERS todavía no: su editor va por secciones y está por hacer, así que se dice.
+    ⚠️ Las de GASTOS son un `ExpenseTemplate` (otra tabla, la misma que usan las simulaciones y las
+    bolsas): así lo que se mejore en los gastos vale también aquí."""
+    session_db = db()
+    try:
+        if not (is_master() or has_access_key("produccion", edit=True, include_descendants=True)):
+            flash("No tienes permiso para crear plantillas de producción.", "warning")
+            return redirect(url_for("produccion_view", tab="plantillas"))
+        kind = (request.form.get("kind") or "").strip().upper()
+        if kind not in PRODUCTION_TEMPLATE_LABELS:
+            _flash_form_error("Elige el tipo de plantilla.", ["kind"], abrir="prodTemplateModal")
+            return redirect(url_for("produccion_view", tab="plantillas"))
+        if not PRODUCTION_TEMPLATE_READY.get(kind):
+            flash(f"Las plantillas de {PRODUCTION_TEMPLATE_LABELS[kind].lower()} están en camino.", "info")
+            return redirect(url_for("produccion_view", tab="plantillas", tipo=kind.lower()))
+        # El sujeto viaja como «TIPO:id» (el mismo formato que el selector de las notas de prensa).
+        crudo = (request.form.get("subject") or "").strip()
+        otipo, _, oid = crudo.partition(":")
+        otipo = (otipo or "").strip().upper()
+        oid_uuid = to_uuid((oid or "").strip())
+        if otipo not in TEMPLATE_OWNER_KINDS or not oid_uuid:
+            _flash_form_error("Elige a quién se vincula la plantilla.", ["subject"], abrir="prodTemplateModal")
+            return redirect(url_for("produccion_view", tab="plantillas", tipo=kind.lower()))
+        modelos = {"ARTIST": Artist, "EVENT": AppEvent, "TOUR": PurchasedTour, "CYCLE": CycleFestival}
+        sujeto = session_db.get(modelos[otipo], oid_uuid)
+        if sujeto is None:
+            _flash_form_error("Ese sujeto ya no existe.", ["subject"], abrir="prodTemplateModal")
+            return redirect(url_for("produccion_view", tab="plantillas", tipo=kind.lower()))
+        nombre = (request.form.get("name") or "").strip()
+        if not nombre:
+            nombre = f"{PRODUCTION_TEMPLATE_LABELS[kind]} de {getattr(sujeto, 'name', '') or 'sujeto'}"
+        st = _current_user_state()
+
+        if PRODUCTION_TEMPLATE_SOURCE.get(kind) == "expense_template":
+            row = ExpenseTemplate(owner_type=otipo, owner_id=oid_uuid, name=nombre[:160])
+            session_db.add(row)
+            session_db.commit()
+            return redirect(url_for("expense_template_edit", tid=str(row.id)))
+
+        row = ArtistTemplate(
+            owner_type=otipo, owner_id=oid_uuid,
+            # ⚠️ `artist_id` se sigue rellenando cuando el sujeto ES un artista: de él tiran su ficha
+            # y la maquinaria de la hoja de ruta.
+            artist_id=(oid_uuid if otipo == "ARTIST" else None),
+            kind=kind, name=nombre[:160],
+            day_count=max(1, min(_roadmap_int(request.form.get("day_count"), 1) or 1, TEMPLATE_MAX_DAYS)),
+            roadmap_payload={"version": 2, "personnel": [], "hotels": [], "agenda": []},
+            created_by_user_id=to_uuid(st.get("user_id")) if st.get("user_id") else None,
+            created_by_nick=(st.get("nick") or "").strip() or None,
+        )
+        # ROOMING: se puede partir de una plantilla de PERSONAL del mismo sujeto para tener a la
+        # gente que repartir (y si no, se busca y se añade en el propio editor).
+        base_id = to_uuid((request.form.get("personnel_template_id") or "").strip())
+        if kind == "ROOMING" and base_id:
+            base = session_db.get(ArtistTemplate, base_id)
+            if base is not None and _template_owner_of(base) == (otipo, str(oid_uuid)):
+                row.personnel_template_id = base.id
+                row.roadmap_payload = {"version": 2, "hotels": [], "agenda": [],
+                                       "personnel": [dict(p) for p in (_roadmap_load(base).get("personnel") or [])]}
+        session_db.add(row)
+        session_db.commit()
+        return redirect(url_for("artist_template_edit", tid=str(row.id)))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("production_template_create")
+        flash(f"No se pudo crear la plantilla: {exc}", "danger")
+        return redirect(url_for("produccion_view", tab="plantillas"))
+    finally:
+        session_db.close()
+
+
+@app.get("/produccion/plantillas/<owner_type>/<owner_id>/personal", endpoint="production_template_personnel")
+@admin_required
+def production_template_personnel(owner_type, owner_id):
+    """Las plantillas de PERSONAL de un sujeto (para partir de ellas al crear un rooming)."""
+    session_db = db()
+    try:
+        filas = _template_rows_of(session_db, owner_type, owner_id, "PERSONNEL")
+        return jsonify({"ok": True, "rows": [{"id": str(r.id), "name": (r.name or "Plantilla"),
+                                              "detail": f"{len(((r.roadmap_payload or {}).get('personnel') or []))} personas"}
+                                             for r in filas]})
+    finally:
+        session_db.close()
+
+
 @app.get("/plantillas/<tid>", endpoint="artist_template_edit")
 @admin_required
 def artist_template_edit(tid):
@@ -80091,15 +80215,22 @@ def artist_template_edit(tid):
         base = None
         if row.personnel_template_id:
             base = session_db.get(ArtistTemplate, row.personnel_template_id)
+        # ⚠️ El sujeto de una plantilla puede NO ser un artista (un evento, una gira, un ciclo): la
+        # cabecera y las plantillas de personal que se ofrecen salen del sujeto, no de `artist_id`.
+        otipo, oid = _template_owner_of(row)
+        sujeto = (_template_subjects_map(session_db, [row]) or {}).get((otipo, oid)) or {}
+        etiqueta = (PRODUCTION_TEMPLATE_LABELS.get((row.kind or "").upper())
+                    or ARTIST_TEMPLATE_LABELS.get(row.kind, "Plantilla"))
         return render_template(
             "artist_template_edit.html",
-            tpl=row, roadmap_ctx=ctx, artist=row.artist,
-            kind_label=ARTIST_TEMPLATE_LABELS.get(row.kind, "Plantilla"),
-            kind_icon=ARTIST_TEMPLATE_ICONS.get(row.kind, "fa-clone"),
+            tpl=row, roadmap_ctx=ctx, artist=row.artist, subject=sujeto,
+            kind_label=etiqueta,
+            kind_icon=(PRODUCTION_TEMPLATE_ICONS.get((row.kind or "").upper())
+                       or ARTIST_TEMPLATE_ICONS.get(row.kind, "fa-clone")),
             personnel_base=base,
             personnel_templates=[{"id": str(r.id), "name": (r.name or "Plantilla")}
-                                 for r in _artist_template_rows(session_db, row.artist_id, "PERSONNEL")],
-            title=f"{ARTIST_TEMPLATE_LABELS.get(row.kind, 'Plantilla')} · {row.name}",
+                                 for r in _template_rows_of(session_db, otipo, oid, "PERSONNEL")],
+            title=f"{etiqueta} · {row.name}",
         )
     finally:
         session_db.close()
@@ -80746,7 +80877,172 @@ PRODUCTION_ACTIVITY_TYPES = [
 # ⚠️ ACTIVAS es la PÁGINA PRINCIPAL de Producción (sep 2026) y las PETICIONES ya no son una
 # pestaña: son un MÓDULO encima de la rejilla, que solo se ve si hay alguna pendiente (el mismo
 # rediseño que Marketing). «Archivadas» no lleva contador: es un archivo que solo crece.
-PRODUCTION_TABS = ("activas", "archivadas")
+# ═════════════════════ PLANTILLAS DE PRODUCCIÓN (todas, agrupadas por sujeto) ═════════════════════
+# Las plantillas se crean y se editan en un solo sitio: Producción → **Plantillas**, con una
+# subpestaña por tipo. Lo de la ficha del artista sigue funcionando (es el MISMO `ArtistTemplate`).
+#
+# ⚠️ Una plantilla se vincula a un ARTISTA, a un EVENTO, a una GIRA comprada o a un CICLO /
+# FESTIVAL nuestro (`owner_type`/`owner_id`); `artist_id` se sigue rellenando cuando el sujeto es un
+# artista, porque de él tira la ficha del artista y la maquinaria de la hoja de ruta.
+#
+# ⚠️ Los RIDERS están **por hacer**: irán por secciones (que serán pestañas), y hasta entonces su
+# subpestaña —y la pestaña «Riders» de Producción— dicen «próximamente». No se pueden crear.
+PRODUCTION_TEMPLATE_KINDS = [
+    # clave        etiqueta          icono            de dónde salen        ¿se puede crear ya?
+    ("ROADMAP",   "Hoja de ruta",   "fa-route",      "artist_template",    True),
+    ("PERSONNEL", "Personal",       "fa-users",      "artist_template",    True),
+    ("ROOMING",   "Rooming",        "fa-hotel",      "artist_template",    True),
+    ("EXPENSE",   "Gastos",         "fa-receipt",    "expense_template",   True),
+    ("RIDER",     "Riders",         "fa-guitar",     "artist_template",    False),
+]
+PRODUCTION_TEMPLATE_LABELS = {k: l for k, l, _i, _s, _c in PRODUCTION_TEMPLATE_KINDS}
+PRODUCTION_TEMPLATE_ICONS = {k: i for k, _l, i, _s, _c in PRODUCTION_TEMPLATE_KINDS}
+PRODUCTION_TEMPLATE_SOURCE = {k: s for k, _l, _i, s, _c in PRODUCTION_TEMPLATE_KINDS}
+PRODUCTION_TEMPLATE_READY = {k: c for k, _l, _i, _s, c in PRODUCTION_TEMPLATE_KINDS}
+PRODUCTION_TEMPLATE_TAB_KEYS = tuple(k.lower() for k, _l, _i, _s, _c in PRODUCTION_TEMPLATE_KINDS)
+# Un sujeto de plantilla: de qué tabla sale y cómo se llega a su ficha.
+TEMPLATE_OWNER_KINDS = {
+    "ARTIST": ("Artista", "fa-user-music"),
+    "EVENT": ("Evento", "fa-calendar-star"),
+    "TOUR": ("Gira comprada", "fa-route"),
+    "CYCLE": ("Ciclo o festival", "fa-calendar-week"),
+}
+
+
+def _template_owner_of(row) -> tuple:
+    """(owner_type, owner_id) de una plantilla, cayendo al artista de las que ya existían."""
+    tipo = (getattr(row, "owner_type", "") or "").strip().upper() or "ARTIST"
+    oid = getattr(row, "owner_id", None) or getattr(row, "artist_id", None)
+    return tipo, (str(oid) if oid else "")
+
+
+def _template_subjects_map(session_db, filas: list) -> dict:
+    """Nombre, foto y ficha de los sujetos de unas plantillas, **en bloque** (una consulta por tipo).
+
+    Con decenas de plantillas, resolver el sujeto de cada una por su cuenta serían decenas de
+    consultas."""
+    por_tipo = {}
+    for r in filas:
+        tipo, oid = _template_owner_of(r)
+        if oid:
+            por_tipo.setdefault(tipo, set()).add(oid)
+    out = {}
+    modelos = {"ARTIST": Artist, "EVENT": AppEvent, "TOUR": PurchasedTour, "CYCLE": CycleFestival}
+    for tipo, ids in por_tipo.items():
+        modelo = modelos.get(tipo)
+        if not modelo or not ids:
+            continue
+        uuids = [to_uuid(x) for x in ids if to_uuid(x)]
+        if not uuids:
+            continue
+        for obj in session_db.query(modelo).filter(modelo.id.in_(uuids)).all():
+            foto = (getattr(obj, "photo_url", None) or getattr(obj, "logo_url", None) or "").strip()
+            url = ""
+            try:
+                if tipo == "ARTIST":
+                    url = url_for("artist_detail_view", artist_id=str(obj.id))
+                elif tipo == "EVENT":
+                    url = url_for("event_detail_view", eid=str(obj.id))
+                elif tipo == "TOUR":
+                    url = url_for("purchased_tour_detail", tid=str(obj.id))
+                elif tipo == "CYCLE":
+                    url = url_for("cycle_festival_detail", cfid=str(obj.id))
+            except Exception:
+                url = ""
+            etiqueta_tipo, icono = TEMPLATE_OWNER_KINDS.get(tipo, ("Sujeto", "fa-clone"))
+            out[(tipo, str(obj.id))] = {
+                "kind": tipo, "id": str(obj.id), "name": (getattr(obj, "name", "") or "—"),
+                "photo": foto, "url": url, "kind_label": etiqueta_tipo, "icon": icono,
+            }
+    return out
+
+
+def _production_template_groups(session_db, kind: str) -> list[dict]:
+    """Las plantillas de un tipo, AGRUPADAS POR SUJETO (con su foto y la última actualización)."""
+    kind = (kind or "").strip().upper()
+    fuente = PRODUCTION_TEMPLATE_SOURCE.get(kind, "artist_template")
+    if fuente == "expense_template":
+        filas = (session_db.query(ExpenseTemplate)
+                 .order_by(ExpenseTemplate.updated_at.desc().nullslast()).all())
+        # Las plantillas de GASTOS ya eran polimórficas (ARTIST | EVENT | VENUE).
+        for r in filas:
+            r.owner_type = (r.owner_type or "ARTIST").upper()
+        mapa = _template_subjects_map(session_db, filas)
+        # Los RECINTOS solo los tienen las de gastos: se resuelven aparte.
+        venue_ids = [to_uuid(str(r.owner_id)) for r in filas
+                     if (r.owner_type or "").upper() == "VENUE" and to_uuid(str(r.owner_id))]
+        if venue_ids:
+            for v in session_db.query(Venue).filter(Venue.id.in_(venue_ids)).all():
+                mapa[("VENUE", str(v.id))] = {
+                    "kind": "VENUE", "id": str(v.id), "name": v.name or "—",
+                    "photo": (v.photo_url or ""), "kind_label": "Recinto", "icon": "fa-location-dot",
+                    "url": "",
+                }
+    else:
+        filas = (session_db.query(ArtistTemplate)
+                 .filter(func.upper(ArtistTemplate.kind) == kind)
+                 .order_by(ArtistTemplate.updated_at.desc().nullslast()).all())
+        mapa = _template_subjects_map(session_db, filas)
+
+    grupos = {}
+    for r in filas:
+        tipo, oid = _template_owner_of(r)
+        info = mapa.get((tipo, oid)) or {"kind": tipo, "id": oid, "name": "Sin vincular",
+                                         "photo": "", "url": "", "kind_label": "", "icon": "fa-clone"}
+        clave = (tipo, oid)
+        g = grupos.setdefault(clave, {**info, "rows": [], "updated": None})
+        detalle = ""
+        if fuente == "expense_template":
+            n = len(r.items or [])
+            detalle = f"{n} gasto{'s' if n != 1 else ''}"
+            url = url_for("expense_template_edit", tid=str(r.id))
+        else:
+            payload = r.roadmap_payload if isinstance(r.roadmap_payload, dict) else {}
+            if kind == "PERSONNEL":
+                n = len(payload.get("personnel") or [])
+                detalle = f"{n} persona{'s' if n != 1 else ''}"
+            elif kind == "ROOMING":
+                n = sum(len(h.get("rooms") or []) for h in (payload.get("hotels") or []))
+                detalle = f"{n} habitaci{'ones' if n != 1 else 'ón'}"
+            else:
+                detalle = f"{max(1, int(getattr(r, 'day_count', 1) or 1))} día(s)"
+            url = url_for("artist_template_edit", tid=str(r.id))
+        g["rows"].append({
+            "id": str(r.id), "name": (r.name or "Plantilla"), "detail": detalle, "url": url,
+            "updated": getattr(r, "updated_at", None) or getattr(r, "created_at", None),
+            "by": (getattr(r, "created_by_nick", "") or ""),
+        })
+        u = g["rows"][-1]["updated"]
+        if u and (g["updated"] is None or u > g["updated"]):
+            g["updated"] = u
+    salida = list(grupos.values())
+    # De la más recientemente actualizada a la más antigua: es lo que se está tocando.
+    salida.sort(key=lambda g: (g["updated"] is not None, g["updated"]), reverse=True)
+    return salida
+
+
+def _production_templates_context(session_db, subtab: str) -> dict:
+    """Contexto de la pestaña PLANTILLAS de Producción."""
+    subtab = (subtab or "").strip().lower()
+    if subtab not in PRODUCTION_TEMPLATE_TAB_KEYS:
+        subtab = PRODUCTION_TEMPLATE_TAB_KEYS[0]
+    kind = subtab.upper()
+    listo = PRODUCTION_TEMPLATE_READY.get(kind, False)
+    return {
+        "tpl_kinds": PRODUCTION_TEMPLATE_KINDS,
+        "tpl_subtab": subtab,
+        "tpl_kind": kind,
+        "tpl_kind_label": PRODUCTION_TEMPLATE_LABELS.get(kind, "Plantillas"),
+        "tpl_ready": listo,
+        "tpl_groups": (_production_template_groups(session_db, kind) if listo else []),
+        # A qué se vincula una plantilla: lo activo primero y el resto tras «Ver más».
+        "tpl_subjects": _subject_options(session_db),
+        # Editar plantillas es editar producción (no hay recurso nuevo que conceder).
+        "tpl_can_edit": bool(is_master() or has_access_key("produccion", edit=True, include_descendants=True)),
+    }
+
+
+PRODUCTION_TABS = ("activas", "archivadas", "plantillas", "riders")
 PRODUCTION_REQUEST_STATUS_LABELS = {
     "REQUESTED": "Solicitud",
     "APPROVED": "Aprobada",
@@ -81569,7 +81865,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "promocion"
     if endpoint in {"acciones_view", "action_detail_view"} or endpoint.startswith("action_") or endpoint.startswith("acciones_"):
         return "acciones"
-    if endpoint == "produccion_view":
+    if endpoint == "produccion_view" or endpoint.startswith("production_template"):
         return "produccion"
     if endpoint == "administracion_view":
         return "administracion"
@@ -82463,6 +82759,9 @@ def _resolve_request_resource_key() -> str | None:
             "acciones_view": "acciones",
             "action_detail_view": "acciones",
             "produccion_view": "produccion",
+            # Las PLANTILLAS de producción (hoja de ruta, personal, rooming, gastos, riders).
+            "production_template_create": "produccion",
+            "production_template_personnel": "produccion",
             "contabilidad_view": "contabilidad",
             "personnel_view": "personal.usuarios",
             "personnel_bulk_access": "personal.usuarios.accesos",
@@ -94901,6 +95200,13 @@ def produccion_view():
         # Se calcula también en «Archivadas» porque su pestaña sigue llevando el contador.
         activas = _production_active_context(session_db)
 
+        # PLANTILLAS: una subpestaña por tipo (hoja de ruta, personal, rooming, gastos y riders),
+        # agrupadas por el sujeto al que están vinculadas. ⚠️ Solo se calculan en su pestaña: son
+        # varias consultas y no hacen falta en Activas.
+        tpl_ctx = {}
+        if tab == "plantillas":
+            tpl_ctx = _production_templates_context(session_db, request.args.get("tipo"))
+
         # PETICIONES: el módulo de encima de la rejilla de Activas. Solo se cargan donde se pintan
         # (en la rejilla, no dentro de un artista ni en el archivo).
         request_rows = []
@@ -94967,6 +95273,7 @@ def produccion_view():
             filter_q=f_q,
             filter_artist=f_artist,
             filter_activity_type=f_type,
+            **tpl_ctx,
         )
     finally:
         # ⚠️ Se marca DESPUÉS de renderizar: si se hiciera antes, el destacado «Nueva actividad»

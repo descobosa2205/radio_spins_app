@@ -7777,6 +7777,50 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   se toca el otro.
   ⚠️ 1 persona sigue siendo **DUI** y 3 **Triple**: ahí no hay ambigüedad.
 
+- **PRODUCCIÓN · PLANTILLAS Y RIDERS** (sep 2026). Producción gana dos pestañas: **Plantillas** —con
+  una subpestaña por tipo, en este orden: **Hoja de ruta · Personal · Rooming · Gastos · Riders**— y
+  **Riders**, que de momento dice **«próximamente»** (irán por secciones, una pestaña cada una).
+  · Dentro de cada subpestaña, las plantillas van **agrupadas por el SUJETO al que están
+  vinculadas**: su foto, su nombre, qué es (artista, evento, gira, ciclo) y **cuándo se actualizó**;
+  al pinchar una se abre **su editor de siempre**, que es donde se monta y se actualiza.
+  · ⚠️⚠️ **UNA PLANTILLA YA NO ES SOLO DE UN ARTISTA**: se vincula a un **ARTISTA**, un **EVENTO**,
+  una **GIRA comprada** o un **CICLO / FESTIVAL nuestro** — `ArtistTemplate.owner_type`/`owner_id`
+  (`ensure_artist_templates_schema`). **`artist_id` se conserva y se sigue rellenando cuando el
+  sujeto ES un artista**, porque de él tiran su ficha y toda la maquinaria de la hoja de ruta; con
+  otro sujeto va NULL (la columna pasa a ser nullable). Puntos únicos `_template_owner_of` ·
+  **`_template_rows_of(session_db, owner_type, owner_id, kind)`** (las del mismo sujeto, aceptando
+  también las antiguas por `artist_id`) · `_template_subjects_map` (nombre, foto y ficha **en
+  bloque**: una consulta por tipo, no una por plantilla).
+  · **«+ Plantilla»** (`_production_template_modal.html` → `production_template_create`): el TIPO
+  con su icono y a quién se vincula, con **lo ACTIVO delante y el resto tras «Ver más»** y un
+  buscador. Al crearla se abre su editor.
+  ⚠️ El selector de sujetos es el **MISMO** que el de las notas de prensa (punto único
+  **`_subject_options(session_db, con_empresas=)`**): las EMPRESAS DEL GRUPO solo se ofrecen donde
+  tienen sentido (una nota puede ser de la empresa, una plantilla de producción no).
+  · **Las de GASTOS son un `ExpenseTemplate`** (la misma tabla que usan las simulaciones y las
+  bolsas, ya polimórfica ARTIST|EVENT|VENUE), así que lo que se mejore en los gastos vale aquí, y su
+  editor es el de siempre (`/plantillas-gastos/<id>`). Las de recinto solo salen ahí.
+  · **Los RIDERS no se pueden crear todavía**: su tarjeta sale deshabilitada con «próximamente» y el
+  endpoint lo rebota diciéndolo (`PRODUCTION_TEMPLATE_READY`).
+  ⚠️ El catálogo de la pantalla es **`PRODUCTION_TEMPLATE_KINDS`** (5 tipos), distinto de
+  `ARTIST_TEMPLATE_KINDS` (los 3 que son hoja de ruta y deciden qué pestañas enseña el editor).
+  ⚠️ Los endpoints nuevos (`production_template_*`) hay que mapearlos en los **DOS** mapeos, y editar
+  plantillas es **editar producción** (no hay recurso nuevo que conceder).
+  ⚠️⚠️ **La pestaña ARCHIVADAS colgaba de un `{% else %}`**, así que al añadir pestañas nuevas el
+  archivo se pintaba **debajo de ellas** (visto en pantalla). Ahora es `{% elif tab == 'archivadas' %}`:
+  una pestaña nueva no puede heredar el contenido de otra.
+  · **PENDIENTE (siguiente lote)**: el detalle del **ROOMING** (los hoteles en fila con su contador
+  de habitaciones reservadas x/x, arrastrar habitaciones y huéspedes entre hoteles, «no necesita
+  habitación», el aviso de las habitaciones que se quedan vacías) y del **PERSONAL** (los campos
+  visibles que se eligen y se guardan con la plantilla, rellenar un dato incompleto desde ahí,
+  buscar y añadir a cualquiera sobre la marcha) y los **RIDERS** por secciones.
+
+- ⚠️ **PARA VER LA APP EN EL NAVEGADOR EN LOCAL**: `.claude/launch.json` → **`tools/dev_server.py`**,
+  que arranca Flask en el **5099** contra la **BD DE PRUEBA** (nunca la real), pone los CERROJOS del
+  tempdir antes de importar (si no, el bootstrap del esquema tarda >10 min), desactiva el CSRF y
+  activa el **auto-reload de plantillas** (sin eso, Jinja las cachea y hay que reiniciar en cada
+  cambio de HTML). Se abre con `preview_start` por su nombre.
+
 - **PLANTILLAS DE ARTISTA** (`ArtistTemplate`, kind PERSONNEL|ROOMING|ROADMAP): se crean en la ficha
   del artista (pestaña «Plantillas», `_templates_hub.html`) y se cargan en la hoja de ruta de cualquier
   actividad. ⚠️ **El editor de una plantilla ES la hoja de ruta**: la columna se llama

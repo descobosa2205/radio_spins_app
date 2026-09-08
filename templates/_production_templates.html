@@ -1,0 +1,77 @@
+{# ============ PRODUCCIÓN · PLANTILLAS ============
+   Una subpestaña por TIPO (hoja de ruta, personal, rooming, gastos y riders) y, dentro, las
+   plantillas AGRUPADAS POR EL SUJETO al que están vinculadas: su foto, su nombre y cuándo se
+   actualizó por última vez. Al pinchar una se abre su editor, que es donde se monta y se actualiza.
+   ⚠️ Los RIDERS están por hacer (irán por secciones): su subpestaña lo dice y no se pueden crear. #}
+<ul class="nav nav-tabs contract-tabs mb-3">
+  {% for key, label, icon, _src, listo in tpl_kinds %}
+    <li class="nav-item">
+      <a class="nav-link {% if tpl_subtab == key|lower %}active{% endif %}"
+         href="{{ url_for('produccion_view', tab='plantillas', tipo=key|lower) }}">
+        <i class="fa {{ icon }} me-1"></i>{{ label }}
+        {% if not listo %}<span class="badge text-bg-light border ms-1">pronto</span>{% endif %}
+      </a>
+    </li>
+  {% endfor %}
+</ul>
+
+{% if not tpl_ready %}
+  <div class="ficha-section">
+    <div class="ficha-section__body text-center py-5">
+      <i class="fa {{ tpl_kinds|selectattr('0','equalto',tpl_kind)|map(attribute='2')|first or 'fa-guitar' }} fa-2x text-muted mb-3"></i>
+      <h5 class="mb-1">{{ tpl_kind_label }} · próximamente</h5>
+      <p class="text-muted mb-0">
+        Irán por secciones (una pestaña cada una) y se vincularán a un artista, un evento, una gira
+        o un ciclo, igual que las demás plantillas.
+      </p>
+    </div>
+  </div>
+{% else %}
+  {% if tpl_groups %}
+    <div class="tplg-list">
+      {% for g in tpl_groups %}
+        <div class="tplg">
+          <div class="tplg__head">
+            {% if g.photo %}
+              <img class="tplg__photo" src="{{ g.photo }}" alt="" data-avatar="1">
+            {% else %}
+              <span class="tplg__photo tplg__photo--icon"><i class="fa {{ g.icon }}"></i></span>
+            {% endif %}
+            <div class="min-w-0">
+              <div class="tplg__name">
+                {% if g.url %}<a class="text-reset text-decoration-none" href="{{ g.url }}">{{ g.name }}</a>
+                {% else %}{{ g.name }}{% endif %}
+              </div>
+              <div class="tplg__sub">
+                {% if g.kind_label %}{{ g.kind_label }} · {% endif %}
+                {{ g.rows|length }} plantilla{{ '' if g.rows|length == 1 else 's' }}
+                {% if g.updated %} · actualizada el {{ g.updated.strftime('%d/%m/%Y') }}{% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="tplg__rows">
+            {% for t in g.rows %}
+              <a class="tplg__row" href="{{ t.url }}">
+                <i class="fa {{ tpl_kinds|selectattr('0','equalto',tpl_kind)|map(attribute='2')|first }} tplg__row-ico"></i>
+                <span class="tplg__row-name">{{ t.name }}</span>
+                <span class="tplg__row-detail">{{ t.detail }}</span>
+                <span class="tplg__row-date">
+                  {% if t.updated %}{{ t.updated.strftime('%d/%m/%Y') }}{% endif %}
+                </span>
+                <i class="fa fa-arrow-right text-muted"></i>
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="ficha-section">
+      <div class="ficha-section__body text-center py-5 text-muted">
+        <i class="fa fa-clone fa-2x mb-3 d-block"></i>
+        Todavía no hay plantillas de {{ tpl_kind_label|lower }}.
+        {% if tpl_can_edit %}Pulsa «+ Plantilla» y elige a quién se vincula.{% endif %}
+      </div>
+    </div>
+  {% endif %}
+{% endif %}

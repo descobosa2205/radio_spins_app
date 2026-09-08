@@ -1,0 +1,130 @@
+{# ============ + PLANTILLA (Producción) ============
+   Dos pasos: el TIPO (con su icono) y a QUIÉN se vincula (artista, evento, gira comprada, ciclo o
+   festival nuestro), con lo ACTIVO delante y el resto tras «Ver más». Al crearla se abre su editor,
+   que es donde se monta con las mismas funciones con las que luego se ve.
+   ⚠️ Los RIDERS salen en el catálogo pero todavía no se pueden crear (irán por secciones): la
+   tarjeta lo dice y no se puede elegir. #}
+<div class="modal fade" id="prodTemplateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form method="post" action="{{ url_for('production_template_create') }}" autocomplete="off"
+          data-autosave="prod-template" data-autosave-title="la plantilla de producción">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title"><i class="fa fa-clone me-2"></i>Nueva plantilla</h5>
+            <div class="text-muted small">Qué plantilla es y a quién se vincula. Después se monta en su editor.</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="kind" value="{{ tpl_kind if tpl_ready else '' }}" data-pt-kind>
+          <input type="hidden" name="subject" value="" data-pt-subject>
+
+          <div class="demo-card">
+            <div class="demo-card__t"><i class="fa fa-shapes me-1"></i>¿Qué plantilla es?</div>
+            <div class="promo-pick-grid promo-pick-grid--wide">
+              {% for key, label, icon, _src, listo in tpl_kinds %}
+                <button type="button" class="promo-pick w-100" data-pt-pick-kind="{{ key }}"
+                        {% if not listo %}disabled title="Próximamente"{% endif %}>
+                  <span class="promo-pick__box{% if listo and tpl_ready and key == tpl_kind %} is-on{% endif %}{% if not listo %} opacity-50{% endif %}">
+                    <i class="fa {{ icon }}"></i>
+                    <span class="promo-pick__name">{{ label }}</span>
+                    {% if not listo %}<span class="promo-pick__hint">próximamente</span>{% endif %}
+                  </span>
+                </button>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="demo-card">
+            <div class="demo-card__t"><i class="fa fa-link me-1"></i>¿A quién se vincula?</div>
+            <input class="form-control form-control-sm mb-2" placeholder="Buscar artista, evento, gira, ciclo…" data-pt-search>
+            <div class="pt-subjects" data-pt-list>
+              {% for s in tpl_subjects %}
+                <button type="button" class="pt-subj{% if not s.active %} pt-subj--more d-none{% endif %}"
+                        data-pt-pick-subject="{{ s.kind }}:{{ s.id }}"
+                        data-pt-name="{{ s.label|e }}" data-pt-search-blob="{{ (s.label ~ ' ' ~ s.sub)|lower|e }}">
+                  {% if s.photo %}
+                    <img src="{{ s.photo }}" alt="" data-avatar="1">
+                  {% else %}
+                    <span class="pt-subj__ico"><i class="fa {{ s.icon }}"></i></span>
+                  {% endif %}
+                  <span class="min-w-0">
+                    <span class="pt-subj__name">{{ s.label }}</span>
+                    <span class="pt-subj__sub">{{ s.sub }}</span>
+                  </span>
+                </button>
+              {% endfor %}
+            </div>
+            <button type="button" class="btn btn-sm btn-link px-0 mt-1" data-pt-more>Ver más</button>
+            <div class="form-text" data-pt-chosen></div>
+          </div>
+
+          <div class="demo-card" data-pt-extra-roadmap hidden>
+            <div class="demo-card__t"><i class="fa fa-calendar-days me-1"></i>¿Cuántos días?</div>
+            <input class="form-control form-control-sm w-auto" type="number" min="1" max="30" value="1" name="day_count">
+            <div class="form-text">Se ven como «Día 1, Día 2…»: al cargarla en una actividad se colocan en sus días.</div>
+          </div>
+
+          <div class="demo-card">
+            <div class="demo-card__t"><i class="fa fa-tag me-1"></i>Nombre <span class="fw-normal text-muted">(opcional)</span></div>
+            <input class="form-control" name="name" maxlength="160" placeholder="Se pone solo si lo dejas vacío">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear y montar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  (function () {
+    var m = document.getElementById('prodTemplateModal');
+    if (!m) return;
+    var hKind = m.querySelector('[data-pt-kind]'), hSubj = m.querySelector('[data-pt-subject]');
+    var elegido = m.querySelector('[data-pt-chosen]');
+    function marca(sel, btn) {
+      m.querySelectorAll(sel).forEach(function (b) {
+        var box = b.querySelector('.promo-pick__box'); if (box) box.classList.remove('is-on');
+        b.classList.remove('is-on');
+      });
+      if (!btn) return;
+      var box = btn.querySelector('.promo-pick__box');
+      if (box) box.classList.add('is-on'); else btn.classList.add('is-on');
+    }
+    function pintaExtra() {
+      var k = (hKind.value || '').toUpperCase();
+      var extra = m.querySelector('[data-pt-extra-roadmap]');
+      if (extra) extra.hidden = (k !== 'ROADMAP');
+    }
+    m.addEventListener('click', function (ev) {
+      var k = ev.target.closest('[data-pt-pick-kind]');
+      if (k && !k.disabled) { hKind.value = k.getAttribute('data-pt-pick-kind'); marca('[data-pt-pick-kind]', k); pintaExtra(); return; }
+      var s = ev.target.closest('[data-pt-pick-subject]');
+      if (s) {
+        hSubj.value = s.getAttribute('data-pt-pick-subject');
+        marca('[data-pt-pick-subject]', s);
+        if (elegido) elegido.textContent = 'Se vincula a: ' + (s.getAttribute('data-pt-name') || '');
+        return;
+      }
+      if (ev.target.closest('[data-pt-more]')) {
+        m.querySelectorAll('.pt-subj--more').forEach(function (b) { b.classList.remove('d-none'); });
+        ev.target.closest('[data-pt-more]').remove();
+      }
+    });
+    // El buscador filtra lo que se ve (y saca de su escondite a los que no están activos).
+    var buscador = m.querySelector('[data-pt-search]');
+    if (buscador) buscador.addEventListener('input', function () {
+      var q = (buscador.value || '').trim().toLowerCase();
+      m.querySelectorAll('[data-pt-pick-subject]').forEach(function (b) {
+        var blob = b.getAttribute('data-pt-search-blob') || '';
+        var casa = !q || blob.indexOf(q) >= 0;
+        b.classList.toggle('d-none', !casa);
+        if (q && casa) b.classList.remove('pt-subj--more');
+      });
+    });
+    pintaExtra();
+  })();
+</script>

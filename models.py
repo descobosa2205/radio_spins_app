@@ -3892,9 +3892,15 @@ class ArtistTemplate(Base):
     __tablename__ = "artist_templates"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    # ⚠️ Una plantilla ya NO es solo de un ARTISTA: se vincula también a un EVENTO, a una GIRA
+    # comprada o a un CICLO / FESTIVAL nuestro (owner polimórfico, como las fotos o los documentos).
+    # `artist_id` se conserva —y se sigue rellenando cuando el sujeto ES un artista— porque de él
+    # tiran la ficha del artista y toda la maquinaria de la hoja de ruta; con otro sujeto va NULL.
     artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"),
-                       nullable=False, index=True)
-    kind = Column(Text, nullable=False)                 # PERSONNEL | ROOMING | ROADMAP
+                       nullable=True, index=True)
+    owner_type = Column(Text, nullable=False, server_default=text("'ARTIST'"))  # ARTIST|EVENT|TOUR|CYCLE
+    owner_id = Column(PGUUID(as_uuid=True), index=True)
+    kind = Column(Text, nullable=False)                 # PERSONNEL | ROOMING | ROADMAP | RIDER
     name = Column(Text, nullable=False, server_default=text("''"))
     notes = Column(Text)
     # Rooming: de qué plantilla de PERSONAL se partió (para poder recargarla).
@@ -3912,9 +3918,19 @@ class ArtistTemplate(Base):
 
 
 def ensure_artist_templates_schema():
-    """Plantillas de personal / rooming / hoja de ruta por artista. Idempotente."""
+    """Plantillas de personal / rooming / hoja de ruta / rider. Idempotente.
+
+    ⚠️ Una columna nueva va SIEMPRE en su propia sentencia (nunca dentro de un bloque `DO $$` con
+    guarda): si la guarda enumera columnas que ya existen, el ALTER no se ejecuta nunca y la columna
+    no se crea —sin dar ningún error— (bug real de sep 2026)."""
     _create_all_once()
     _exec_ddl_statements([
+        "ALTER TABLE artist_templates ADD COLUMN IF NOT EXISTS owner_type text NOT NULL DEFAULT 'ARTIST';",
+        "ALTER TABLE artist_templates ADD COLUMN IF NOT EXISTS owner_id uuid;",
+        "ALTER TABLE artist_templates ALTER COLUMN artist_id DROP NOT NULL;",
+        # Las que ya existían son todas de un ARTISTA.
+        "UPDATE artist_templates SET owner_id = artist_id WHERE owner_id IS NULL AND artist_id IS NOT NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_artist_templates_owner ON artist_templates(owner_type, owner_id);",
         """
         CREATE TABLE IF NOT EXISTS artist_templates (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

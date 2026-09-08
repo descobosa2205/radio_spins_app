@@ -13,11 +13,23 @@
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
   <div>
     <h3 class="m-0">Producción</h3>
-    <div class="text-muted">Las actividades activas y el archivo de lo ya liquidado.</div>
+    <div class="text-muted">
+      {%- if tab == 'plantillas' %}Las plantillas de hoja de ruta, personal, rooming, gastos y riders, por artista.
+      {%- elif tab == 'riders' %}Los riders del artista, por secciones.
+      {%- else %}Las actividades activas y el archivo de lo ya liquidado.{% endif %}
+    </div>
   </div>
-  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newProductionRequestModal">
-    <i class="fa fa-plus me-1"></i> Nueva solicitud
-  </button>
+  {% if tab == 'plantillas' %}
+    {% if tpl_can_edit %}
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#prodTemplateModal">
+        <i class="fa fa-plus me-1"></i> Plantilla
+      </button>
+    {% endif %}
+  {% elif tab != 'riders' %}
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newProductionRequestModal">
+      <i class="fa fa-plus me-1"></i> Nueva solicitud
+    </button>
+  {% endif %}
 </div>
 
 {# PESTAÑAS (sep 2026): «Activas» es la página principal y «Archivadas» NO lleva contador (es un
@@ -33,7 +45,38 @@
       Archivadas
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='plantillas' %}active{% endif %}" href="{{ url_for('produccion_view', tab='plantillas') }}">
+      <i class="fa fa-clone me-1"></i>Plantillas
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='riders' %}active{% endif %}" href="{{ url_for('produccion_view', tab='riders') }}">
+      <i class="fa fa-guitar me-1"></i>Riders
+      <span class="badge text-bg-light border ms-1">pronto</span>
+    </a>
+  </li>
 </ul>
+
+{% if tab == 'plantillas' %}
+  {% include '_production_templates.html' %}
+{% endif %}
+
+{% if tab == 'riders' %}
+  {# Los riders van por SECCIONES (que serán pestañas) y están por hacer: se dice, en vez de dejar
+     una pestaña vacía que parece rota. #}
+  <div class="ficha-section">
+    <div class="ficha-section__body text-center py-5">
+      <i class="fa fa-guitar fa-2x text-muted mb-3"></i>
+      <h5 class="mb-1">Riders · próximamente</h5>
+      <p class="text-muted mb-0">
+        Irán por secciones (una pestaña cada una) y se vincularán a un artista, un evento, una gira
+        o un ciclo, igual que las demás plantillas. Las plantillas de rider se verán también en
+        <a href="{{ url_for('produccion_view', tab='plantillas', tipo='rider') }}">Plantillas → Riders</a>.
+      </p>
+    </div>
+  </div>
+{% endif %}
 
 {% if tab == 'archivadas' %}
   {# Los filtros son de las TARJETAS del archivo (el JS de abajo). En «Activas» no se pintan: allí se
@@ -304,7 +347,9 @@
       {% endfor %}
     </div></div>
   {% endif %}
-{% else %}
+{# ⚠️ ARCHIVADAS, no «todo lo que no sea Activas»: con las pestañas nuevas (Plantillas,
+   Riders) un `else` pintaba el archivo debajo de ellas. #}
+{% elif tab == 'archivadas' %}
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
       <div class="production-section-title">Actividades archivadas</div>
@@ -427,4 +472,9 @@
   applyLiveFilters();
 })();
 </script>
+
+{% if tab == 'plantillas' and tpl_can_edit %}
+  {% include '_production_template_modal.html' %}
+{% endif %}
+
 {% endblock %}

@@ -10643,3 +10643,49 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   prueba, DNS (con resolvedor simulado), remitentes, envío de una nota por la cuenta (From, sin
   Reply-To ajeno, sin Auto-Submitted, Message-ID del dominio), tope por hora, hilo que termina,
   reanudación por el barrido, cerrojo por nota y replicar con adjuntos.
+
+- ⚠️⚠️ **PRODUCCIÓN · ACTIVAS ES LA PÁGINA PRINCIPAL y las PETICIONES son un MÓDULO ENCIMA**
+  (sep 2026, el mismo rediseño que Marketing). La pestaña «Solicitudes» **desaparece**: quedan
+  **Activas** (con su contador) y **Archivadas** (**sin contador**: es un archivo que solo crece).
+  · Las peticiones (`ProductionRequest` en REQUESTED/APPROVED) se pintan en una tarjeta **encima de
+  la rejilla**, con sus botones de siempre (Convertir en bolsa · Rechazar), y **solo si hay alguna**.
+  ⚠️ Solo en la REJILLA: dentro de un artista lo que interesa son sus actividades (y así el
+  `?artist=` del drill-down no filtra el módulo sin que nadie lo haya pedido).
+  ⚠️ Un `?tab=solicitudes` de un enlace antiguo **cae en «activas»**, que es donde están ahora
+  (`PRODUCTION_TABS` + `_tab_arg("activas", valid=PRODUCTION_TABS)`, así un orden de pestañas
+  guardado que apunte a la que ya no existe no decide nada), y los redirects de crear/rechazar/
+  convertir van ya ahí.
+  ⚠️ El **formulario de filtros** (buscar · artista · tipo) se pinta **solo en Archivadas**, que es
+  lo que de verdad filtra (sus tarjetas, en el navegador): en Activas se filtra con la rejilla de
+  artistas y los chips de tipo, y encima su `name="artist"` coincide con el `?artist=` del
+  drill-down.
+  ⚠️ Cada pestaña carga **solo lo suyo**: las archivadas (que son TODAS las bolsas cerradas, sin
+  tope) solo en su pestaña — antes se consultaban en las tres para pintar un contador que ya no
+  está—. `active_rows` (bolsas + 250 conciertos + 250 acciones) se **retiró**: no lo pintaba
+  ninguna plantilla desde el rediseño de agosto y solo servía para un contador que decía otra cosa
+  que la pestaña. El contador de Activas es ya SIEMPRE `activas["total"]`, o sea lo que se ve.
+  ⚠️ El «visto» de «Nueva actividad» se marca mirando la pestaña **RESUELTA**, no `?tab=`: Activas
+  es la página por defecto y con la condición vieja entrar en Producción a secas no marcaba nada
+  (el destacado no se habría ido nunca).
+  · **La persona de PRODUCCIÓN solo ve las activas que tenga ASIGNADAS** (lo pidió Dani): eso ya
+  era la intención, pero **no funcionaba** — ver la trampa de abajo.
+
+- ⚠️⚠️⚠️ **`_snapshot_user_profile` DESTROZABA LOS DEPARTAMENTOS: `list("Producción")` SON LETRAS**
+  (bug real y transversal, sep 2026). El snapshot del perfil hacía
+  `departments=list(getattr(profile, "departments", None) or [])`, y `UserProfile.departments` es una
+  lista en JSONB **pero hay filas donde quedó guardado como TEXTO**: recorrer un texto devuelve
+  `['P','r','o','d',…]`. Ese snapshot es lo que ve TODA la app a través de `_current_user_state()`,
+  así que esa persona se quedaba **sin ningún departamento** y —sin dar ningún error— en Producción
+  veía las actividades de **toda la casa** en vez de las suyas. Ahora se lee con el punto único
+  **`_departments_iter`**, así que el dato llega bien a todo lo que pregunta por el departamento
+  desde la sesión.
+  ⚠️ Y la comparación de `_production_active_context` era la cadena literal
+  (`"producción" in deps`): pasa a **`_profile_in_department(profile, "Producción")`**, que además
+  tolera «Producción musical» (`_department_guess`). Con las dos cosas, el filtro por asignación
+  funciona con el departamento escrito de cualquier forma.
+  ⚠️ Quedan lecturas crudas de `departments` sobre el objeto del ORM (la ficha de personal, el
+  listado, las dos siembras puntuales ya ejecutadas): al tocar una, usar `_profile_in_department` /
+  `_departments_iter`.
+  Probado con la app real: con `departments = ["Producción musical"]` y con `"Producción"` guardado
+  como TEXTO, cada una ve **solo su actividad** (contador 1) y sin «Pendientes de asignar»;
+  dirección y quien no es de producción siguen viéndolo todo.

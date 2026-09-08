@@ -80175,6 +80175,10 @@ PRODUCTION_ACTIVITY_TYPES = [
     ("EVENTO_PROMOCIONAL", "Evento promocional"),
     ("GENERAL", "General"),
 ]
+# ⚠️ ACTIVAS es la PÁGINA PRINCIPAL de Producción (sep 2026) y las PETICIONES ya no son una
+# pestaña: son un MÓDULO encima de la rejilla, que solo se ve si hay alguna pendiente (el mismo
+# rediseño que Marketing). «Archivadas» no lleva contador: es un archivo que solo crece.
+PRODUCTION_TABS = ("activas", "archivadas")
 PRODUCTION_REQUEST_STATUS_LABELS = {
     "REQUESTED": "Solicitud",
     "APPROVED": "Aprobada",
@@ -81994,7 +81998,11 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         dni=(getattr(profile, "dni", None) or "").strip(),
         birth_date=getattr(profile, "birth_date", None),
         mobile_phones=list(getattr(profile, "mobile_phones", None) or []),
-        departments=list(getattr(profile, "departments", None) or []),
+        # ⚠️⚠️ Los departamentos, por el punto único: `departments` es una lista en JSONB, pero hay
+        # filas donde quedó guardado como TEXTO y `list("Producción")` devuelve **LETRAS** — con eso,
+        # el snapshot que ve TODA la app dejaba a esa persona sin ningún departamento (y sin dar
+        # ningún error: en Producción veía las actividades de toda la casa en vez de las suyas).
+        departments=_departments_iter(getattr(profile, "departments", None)),
         assigned_artist_ids=list(getattr(profile, "assigned_artist_ids", None) or []),
         assigned_artist_ids_produccion=list(getattr(profile, "assigned_artist_ids_produccion", None) or []),
         assigned_artist_ids_sello=list(getattr(profile, "assigned_artist_ids_sello", None) or []),
@@ -94226,6 +94234,7 @@ def _production_group_archived(rows: list[dict]) -> list[dict]:
 @admin_required
 def produccion_view():
     session_db = db()
+    _mark_seen = False
     try:
         if request.method == "POST":
             mode = (request.form.get("mode") or "create_request").strip().lower()
@@ -94235,7 +94244,7 @@ def produccion_view():
                 activity_type = (request.form.get("activity_type") or "GENERAL").strip().upper() or "GENERAL"
                 if not title:
                     flash("El nombre de la actividad es obligatorio.", "warning")
-                    return redirect(url_for("produccion_view", tab="solicitudes"))
+                    return redirect(url_for("produccion_view", tab="activas"))
                 audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": "Usuario"}
                 req = ProductionRequest(
                     activity_type=activity_type,
@@ -94253,11 +94262,13 @@ def produccion_view():
                 session_db.add(req)
                 session_db.commit()
                 flash("Solicitud de producción creada.", "success")
-                return redirect(url_for("produccion_view", tab="solicitudes"))
+                return redirect(url_for("produccion_view", tab="activas"))
 
-        tab = (_tab_arg("solicitudes")).strip().lower()
-        if tab not in {"solicitudes", "activas", "archivadas"}:
-            tab = "solicitudes"
+        # ACTIVAS es la página principal; un `?tab=solicitudes` de un enlace antiguo cae aquí, que
+        # es donde están ahora las peticiones (en su módulo de encima).
+        tab = (_tab_arg("activas", valid=PRODUCTION_TABS)).strip().lower()
+        if tab not in set(PRODUCTION_TABS):
+            tab = "activas"
         f_q = (request.args.get("q") or "").strip()
         f_artist = (request.args.get("artist") or "").strip()
         f_type = (request.args.get("activity_type") or "").strip().upper()
@@ -94270,93 +94281,50 @@ def produccion_view():
         if f_type not in valid_types:
             f_type = ""
 
-        request_rows_db = (
-            session_db.query(ProductionRequest)
-            .filter(ProductionRequest.status.in_(["REQUESTED", "APPROVED"]))
-            .order_by(ProductionRequest.activity_date.asc().nullslast(), ProductionRequest.created_at.desc())
-            .all()
-        )
-        # Las solicitudes de actividades del HISTÓRICO (antes del corte) no se procesan: se quedan
-        # fuera del listado de Producción, que es lo que hay por hacer.
-        request_rows = [_production_request_row(session_db, req) for req in request_rows_db
-                        if not _is_legacy_activity_date(req.activity_date)]
+        # ACTIVAS: por SUJETO (artista o evento) y, al entrar, sus actividades con la estética de la
+        # sección Actividades. Cada persona de producción ve SOLO lo que se le ha asignado.
+        # Se calcula también en «Archivadas» porque su pestaña sigue llevando el contador.
+        activas = _production_active_context(session_db)
 
-        active_bags_db = (
-            session_db.query(WorkflowBag)
-            .options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company))
-            .filter(WorkflowBag.is_archived == False)  # noqa: E712
-            .filter(~WorkflowBag.status.in_(["CERRADA", "LIQUIDADA", "ARCHIVADA"]))
-            .order_by(WorkflowBag.start_date.asc().nullslast(), WorkflowBag.created_at.desc())
-            .all()
-        )
-        active_rows = [_production_bag_row(session_db, bag, row_kind="activity") for bag in active_bags_db]
-
-        production_concerts_db = (
-            session_db.query(Concert)
-            .options(joinedload(Concert.artist), joinedload(Concert.venue))
-            .filter(Concert.status.in_(["RESERVADO", "CONFIRMADO"]))
-            .order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
-            .limit(250)
-            .all()
-        )
-        # Las fechas de una gira comprada que promueve un tercero (no una empresa del grupo) no las
-        # producimos nosotros: fuera del listado de Producción.
-        # ⚠️ Salvo que YA se esté trabajando en ellas (tienen bolsa): esconder trabajo empezado sería
-        # peor que enseñar una fecha de más. La regla vale para lo nuevo, no para borrar lo que hay.
-        _ids = [c.id for c in production_concerts_db]
-        _con_bolsa = set()
-        if _ids:
-            try:
-                _con_bolsa = {r[0] for r in session_db.query(WorkflowBag.linked_id).filter(
-                    WorkflowBag.linked_type.in_(("CONCERT", "concert")),
-                    WorkflowBag.linked_id.in_(_ids)).all()}
-            except Exception:
-                _con_bolsa = set()
-        production_concerts_db = [c for c in production_concerts_db
-                                  if _concert_needs_production(c, session_db) or c.id in _con_bolsa]
-        active_rows.extend([_production_concert_row(session_db, concert) for concert in production_concerts_db])
-        production_actions_db = []
-        try:
-            production_actions_db = (
-                session_db.query(CompanyAction)
-                .options(joinedload(CompanyAction.venue))
-                .filter(CompanyAction.status.in_(["RESERVA", "CONFIRMADO"]))
-                .order_by(CompanyAction.start_date.asc().nullslast(), CompanyAction.created_at.desc())
-                .limit(250)
+        # PETICIONES: el módulo de encima de la rejilla de Activas. Solo se cargan donde se pintan
+        # (en la rejilla, no dentro de un artista ni en el archivo).
+        request_rows = []
+        if tab == "activas" and not activas.get("subject"):
+            request_rows_db = (
+                session_db.query(ProductionRequest)
+                .filter(ProductionRequest.status.in_(["REQUESTED", "APPROVED"]))
+                .order_by(ProductionRequest.activity_date.asc().nullslast(), ProductionRequest.created_at.desc())
                 .all()
             )
-        except Exception:
-            production_actions_db = []
-        active_rows.extend([_production_action_row(session_db, action) for action in production_actions_db])
+            # Las solicitudes de actividades del HISTÓRICO (antes del corte) no se procesan: se
+            # quedan fuera del listado de Producción, que es lo que hay por hacer.
+            request_rows = [_production_request_row(session_db, req) for req in request_rows_db
+                            if not _is_legacy_activity_date(req.activity_date)]
+            request_rows = [row for row in request_rows
+                            if _production_passes_filters(row, q=f_q, artist_id=f_artist, activity_type=f_type)]
+            request_rows.sort(key=lambda row: (row.get("date") or date.max, row.get("title") or ""))
 
-        archived_bags_db = (
-            session_db.query(WorkflowBag)
-            .options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company))
-            .filter(or_(WorkflowBag.is_archived == True, WorkflowBag.status.in_(["CERRADA", "LIQUIDADA", "ARCHIVADA"])))  # noqa: E712
-            .order_by(WorkflowBag.start_date.desc().nullslast(), WorkflowBag.created_at.desc())
-            .all()
-        )
-        archived_rows = [_production_bag_row(session_db, bag, row_kind="archived") for bag in archived_bags_db]
+        # ARCHIVADAS: son TODAS las bolsas cerradas y ya no llevan contador, así que se cargan solo
+        # en su pestaña (antes se consultaban en las tres).
+        archived_rows, archived_groups = [], []
+        if tab == "archivadas":
+            archived_bags_db = (
+                session_db.query(WorkflowBag)
+                .options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company))
+                .filter(or_(WorkflowBag.is_archived == True, WorkflowBag.status.in_(["CERRADA", "LIQUIDADA", "ARCHIVADA"])))  # noqa: E712
+                .order_by(WorkflowBag.start_date.desc().nullslast(), WorkflowBag.created_at.desc())
+                .all()
+            )
+            archived_rows = [_production_bag_row(session_db, bag, row_kind="archived") for bag in archived_bags_db]
+            archived_rows = [row for row in archived_rows
+                             if _production_passes_filters(row, q=f_q, artist_id=f_artist, activity_type=f_type)]
+            archived_rows.sort(key=lambda row: (row.get("date") or date.min, row.get("title") or ""), reverse=True)
+            archived_groups = _production_group_archived(archived_rows)
 
-        request_rows = [row for row in request_rows if _production_passes_filters(row, q=f_q, artist_id=f_artist, activity_type=f_type)]
-        active_rows = [row for row in active_rows if _production_passes_filters(row, q=f_q, artist_id=f_artist, activity_type=f_type)]
-        archived_rows = [row for row in archived_rows if _production_passes_filters(row, q=f_q, artist_id=f_artist, activity_type=f_type)]
-
-        request_rows.sort(key=lambda row: (row.get("date") or date.max, row.get("title") or ""))
-        active_rows.sort(key=lambda row: (row.get("date") or date.max, row.get("title") or ""))
-        archived_rows.sort(key=lambda row: (row.get("date") or date.min, row.get("title") or ""), reverse=True)
-        archived_groups = _production_group_archived(archived_rows)
-
-        counts = {
-            "solicitudes": len(request_rows),
-            "activas": len(active_rows),
-            "archivadas": len(archived_rows),
-        }
-        # ACTIVAS: por SUJETO (artista o evento) y, al entrar, sus actividades con la estética de la
-        # sección Actividades. Cada persona de producción ve solo lo suyo.
-        activas = _production_active_context(session_db) if tab == "activas" else None
-        if activas is not None:
-            counts["activas"] = activas["total"]
+        # El único contador que se pinta: el de ACTIVAS (y es el de lo que de verdad se ve, ya
+        # filtrado por quien mira). «Archivadas» no lleva número: es un archivo que solo crece.
+        counts = {"activas": activas["total"]}
+        _mark_seen = (tab == "activas" and not activas.get("subject"))
         return render_template(
             "produccion.html",
             tab=tab,
@@ -94367,9 +94335,7 @@ def produccion_view():
             # el responsable de una que ya lo tiene, y sin la lista salía vacío.
             production_people=_production_people(session_db),
             requests=request_rows,
-            active_rows=active_rows,
             activas=activas,
-            archived_rows=archived_rows,
             archived_groups=archived_groups,
             artists=artists,
             activity_types=PRODUCTION_ACTIVITY_TYPES,
@@ -94383,8 +94349,9 @@ def produccion_view():
         # nunca se vería (la propia visita lo borraría).
         # Se marca «visto» solo en la REJILLA (sin artista concreto): así, al entrar en un artista, el
         # destacado de lo nuevo sigue estando donde hace falta verlo.
-        if ((request.args.get("tab") or "").strip().lower() == "activas"
-                and not (request.args.get("artist") or request.args.get("event"))):
+        # ⚠️ Se mira la pestaña RESUELTA, no `?tab=`: Activas es ya la página por defecto y sin esto
+        # entrar en Producción a secas no marcaría nada (el destacado no se iría nunca).
+        if _mark_seen:
             try:
                 _production_mark_seen(session_db)
             except Exception:
@@ -94400,7 +94367,7 @@ def production_request_convert_to_bag(request_id):
         req = session_db.get(ProductionRequest, to_uuid(request_id))
         if not req:
             flash("Solicitud de producción no encontrada.", "warning")
-            return redirect(url_for("produccion_view", tab="solicitudes"))
+            return redirect(url_for("produccion_view", tab="activas"))
         if getattr(req, "bag_id", None):
             flash("Esta solicitud ya está vinculada a una bolsa.", "info")
             return redirect(safe_next_or(url_for("bag_detail_view", bag_id=req.bag_id)))
@@ -94440,7 +94407,7 @@ def production_request_convert_to_bag(request_id):
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo convertir la solicitud: {exc}", "danger")
-        return redirect(url_for("produccion_view", tab="solicitudes"))
+        return redirect(url_for("produccion_view", tab="activas"))
     finally:
         session_db.close()
 
@@ -94458,7 +94425,7 @@ def production_request_reject(request_id):
             flash("Solicitud de producción rechazada.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("produccion_view", tab="solicitudes"))
+    return redirect(url_for("produccion_view", tab="activas"))
 
 
 
@@ -105041,11 +105008,15 @@ def _production_active_context(session_db) -> dict:
     Actividades."""
     estado = _current_user_state() or {}
     uid = str(estado.get("user_id") or "")
-    deps = [str(d).strip().lower() for d in (getattr(estado.get("profile"), "departments", None) or [])]
     # ⚠️ Dirección se decide por el ROL DE LA BD (`estado["role"]`), no con `is_master()`: ese lee el
     # rol de la SESIÓN y sin él cae a dirección, con lo que producción vería todo.
     es_direccion = int(estado.get("role") or 0) == 10
-    soy_produccion = ("producción" in deps or "produccion" in deps) and not es_direccion
+    # ⚠️⚠️ El departamento lo ESCRIBE una persona, así que se pregunta con el punto único TOLERANTE
+    # (`_profile_in_department`) y no comparando la cadena literal: `departments` puede estar
+    # guardado como TEXTO (y entonces recorrerlo devuelve LETRAS) o escrito «Producción musical», y
+    # con la comparación exacta esa persona veía las producciones de TODA la casa sin dar ningún
+    # error — que es justo lo que hay que evitar aquí.
+    soy_produccion = _profile_in_department(estado.get("profile"), "Producción") and not es_direccion
     filas = _production_active_rows(session_db)
     sin_dueno = [f for f in filas if not f["owner_id"]]
     if soy_produccion:

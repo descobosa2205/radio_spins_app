@@ -13,62 +13,63 @@
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
   <div>
     <h3 class="m-0">Producción</h3>
-    <div class="text-muted">Solicitudes, actividades activas y archivo de producción vinculado a bolsas.</div>
+    <div class="text-muted">Las actividades activas y el archivo de lo ya liquidado.</div>
   </div>
   <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newProductionRequestModal">
     <i class="fa fa-plus me-1"></i> Nueva solicitud
   </button>
 </div>
 
+{# PESTAÑAS (sep 2026): «Activas» es la página principal y «Archivadas» NO lleva contador (es un
+   archivo que solo crece). Las PETICIONES ya no son una pestaña: son el módulo de encima. #}
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item">
-    <a class="nav-link {% if tab=='solicitudes' %}active{% endif %}" href="{{ url_for('produccion_view', tab='solicitudes', q=filter_q or None, artist=filter_artist or None, activity_type=filter_activity_type or None) }}">
-      Solicitudes <span class="badge text-bg-warning text-dark ms-1">{{ counts.solicitudes }}</span>
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if tab=='activas' %}active{% endif %}" href="{{ url_for('produccion_view', tab='activas', q=filter_q or None, artist=filter_artist or None, activity_type=filter_activity_type or None) }}">
+    <a class="nav-link {% if tab=='activas' %}active{% endif %}" href="{{ url_for('produccion_view', tab='activas') }}">
       Activas <span class="badge text-bg-light border ms-1">{{ counts.activas }}</span>
     </a>
   </li>
   <li class="nav-item">
-    <a class="nav-link {% if tab=='archivadas' %}active{% endif %}" href="{{ url_for('produccion_view', tab='archivadas', q=filter_q or None, artist=filter_artist or None, activity_type=filter_activity_type or None) }}">
-      Archivadas <span class="badge text-bg-light border ms-1">{{ counts.archivadas }}</span>
+    <a class="nav-link {% if tab=='archivadas' %}active{% endif %}" href="{{ url_for('produccion_view', tab='archivadas') }}">
+      Archivadas
     </a>
   </li>
 </ul>
 
-<form class="card card-body mb-4" method="get" id="productionFiltersForm">
-  <input type="hidden" name="tab" value="{{ tab }}">
-  <div class="row g-3 align-items-end">
-    <div class="col-12 col-lg-5">
-      <label class="form-label">Buscar</label>
-      <input type="search" class="form-control" name="q" id="productionSearchInput" value="{{ filter_q }}" placeholder="Artista, actividad, ciudad, provincia, estado o notas...">
+{% if tab == 'archivadas' %}
+  {# Los filtros son de las TARJETAS del archivo (el JS de abajo). En «Activas» no se pintan: allí se
+     filtra con la rejilla de artistas y los chips de tipo. #}
+  <form class="card card-body mb-4" method="get" id="productionFiltersForm">
+    <input type="hidden" name="tab" value="archivadas">
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-lg-5">
+        <label class="form-label">Buscar</label>
+        <input type="search" class="form-control" name="q" id="productionSearchInput" value="{{ filter_q }}" placeholder="Artista, actividad, ciudad, provincia, estado o notas...">
+      </div>
+      <div class="col-12 col-md-4 col-lg-3">
+        <label class="form-label">Artista</label>
+        <select class="form-select" name="artist" id="productionArtistFilter">
+          <option value="">Todos</option>
+          {% for artist in artists %}
+            <option value="{{ artist.id }}" {% if filter_artist == artist.id|string %}selected{% endif %}>{{ artist.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-4 col-lg-2">
+        <label class="form-label">Tipo de actividad</label>
+        <select class="form-select" name="activity_type" id="productionTypeFilter">
+          <option value="">Todas</option>
+          {% for value,label in activity_types %}
+            <option value="{{ value }}" {% if filter_activity_type == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-4 col-lg-2 d-flex gap-2">
+        <button class="btn btn-primary flex-grow-1"><i class="fa fa-filter me-1"></i>Filtrar</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('produccion_view', tab='archivadas') }}">Limpiar</a>
+      </div>
     </div>
-    <div class="col-12 col-md-4 col-lg-3">
-      <label class="form-label">Artista</label>
-      <select class="form-select" name="artist" id="productionArtistFilter">
-        <option value="">Todos</option>
-        {% for artist in artists %}
-          <option value="{{ artist.id }}" {% if filter_artist == artist.id|string %}selected{% endif %}>{{ artist.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-12 col-md-4 col-lg-2">
-      <label class="form-label">Tipo de actividad</label>
-      <select class="form-select" name="activity_type" id="productionTypeFilter">
-        <option value="">Todas</option>
-        {% for value,label in activity_types %}
-          <option value="{{ value }}" {% if filter_activity_type == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-12 col-md-4 col-lg-2 d-flex gap-2">
-      <button class="btn btn-primary flex-grow-1"><i class="fa fa-filter me-1"></i>Filtrar</button>
-      <a class="btn btn-outline-secondary" href="{{ url_for('produccion_view', tab=tab) }}">Limpiar</a>
-    </div>
-  </div>
-</form>
+  </form>
+{% endif %}
 
 {% macro artist_stack(row) -%}
   <div class="production-cover-stack">
@@ -82,9 +83,9 @@
   </div>
 {%- endmacro %}
 
-{% macro activity_row(row, show_actions=False) -%}
+{% macro activity_row(row, show_actions=False, last=False) -%}
   {% set href = row.detail_url if row.detail_url and row.detail_url != '#' and not row.detail_url.startswith('#productionRequestModal') else None %}
-  <div class="production-row production-row-card card mb-3"
+  <div class="production-row production-row-card card {{ '' if last else 'mb-3' }}"
        data-production-search="{{ row.search_blob|lower }}"
        data-production-artists="{{ row.artist_ids|join(',') }}"
        data-production-type="{{ row.activity_type }}">
@@ -125,21 +126,25 @@
   </div>
 {%- endmacro %}
 
-{% if tab == 'solicitudes' %}
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-      <div class="production-section-title">Solicitudes realizadas</div>
-      <div class="text-muted small">Ordenadas de la más próxima a la más lejana.</div>
+{% if tab == 'activas' %}
+  {# ---------- PETICIONES PENDIENTES: un MÓDULO encima de las activas, solo si hay alguna ----------
+     (el mismo patrón que Marketing; solo en la rejilla: dentro de un artista lo que interesa son sus
+     actividades). #}
+  {% if requests %}
+    <div class="card mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <h5 class="mb-0"><i class="fa fa-inbox me-2 text-danger"></i>Peticiones de producción
+            <span class="badge text-bg-warning text-dark ms-1">{{ requests|length }}</span></h5>
+          <span class="small text-muted">De la más próxima a la más lejana</span>
+        </div>
+        {% for row in requests %}
+          {{ activity_row(row, True, loop.last) }}
+        {% endfor %}
+      </div>
     </div>
-  </div>
-  <div id="productionRowsWrap">
-    {% for row in requests %}
-      {{ activity_row(row, True) }}
-    {% else %}
-      <div class="alert alert-light border">No hay solicitudes de producción con estos filtros.</div>
-    {% endfor %}
-  </div>
-{% elif tab == 'activas' %}
+  {% endif %}
+
   {# ACTIVAS igual que la sección Actividades: primero DE QUIÉN es (artistas y eventos con su nº) y
      al entrar sus actividades, con el icono de su tipo. Cada persona de producción ve solo lo que se
      le ha asignado. #}

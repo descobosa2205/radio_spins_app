@@ -25,9 +25,12 @@
 
   /* Los grupos que se pueden ordenar. Se cogen por selector para no tener que tocar 20 plantillas. */
   // ⚠️ `ul.nav-tabs` cubre las subpestañas de las secciones (Producción, Registros, Administración…),
-  //    que no llevan una clase propia. Se excluye la barra del NAVBAR, que tiene su propio orden.
+  //    que no llevan una clase propia, y `ul.nav-pills` las SUBPESTAÑAS de dentro de una ficha (las
+  //    de un proyecto, las de Administración → Pendiente, las de una empresa en Integraciones…):
+  //    también se ordenan manteniendo pulsado. Se excluye la barra del NAVBAR, que tiene su propio
+  //    orden, y cualquier barra marcada con `data-no-sort`.
   var SELECTORES = ['ul.ficha-tabs', 'ul.contract-tabs', 'ul.nav-tabs:not(.navbar-nav)',
-                    '[data-sortable]'];
+                    'ul.nav-pills:not(.navbar-nav)', '[data-sortable]'];
 
   function items(grupo) {
     return Array.prototype.filter.call(grupo.children, function (el) {
@@ -54,7 +57,7 @@
     var propia = grupo.getAttribute('data-sortable');
     if (propia) return 'tabs:' + propia;
     var clase = 'nav';
-    ['ficha-tabs', 'contract-tabs', 'nav-tabs'].forEach(function (c) {
+    ['ficha-tabs', 'contract-tabs', 'nav-tabs', 'nav-pills'].forEach(function (c) {
       if (grupo.classList.contains(c) && clase === 'nav') clase = c;
     });
     var hermanos = Array.prototype.slice.call(document.querySelectorAll('ul.' + clase));
@@ -81,12 +84,14 @@
   /* ══════════════════════════════════════════════════════════════════════════════════════════
      AL ENTRAR EN UNA SECCIÓN SE ABRE **SU** PRIMERA PESTAÑA
 
-     Si esa persona ha reordenado las pestañas, al entrar sin decir cuál (`?tab=`) se abre la
-     PRIMERA DE SU ORDEN, no la de por defecto: es lo que espera quien se ha colocado las suyas.
+     ⚠️⚠️ Esto lo decide ya el **SERVIDOR** (`_tab_arg` en `app.py`): la pestaña buena se pinta de
+     una sola vez, sin una segunda carga. Lo de aquí es la RED DE SEGURIDAD para las pantallas que
+     el servidor no resuelve (una barra de subpestañas con otro parámetro, por ejemplo).
 
      ⚠️ Solo cuando la URL NO trae `tab` (si se pide una, manda la que se pide), solo si esa
-     pestaña tiene su propio enlace con `tab=` y solo UNA vez por pantalla (marca en
-     `sessionStorage`), para que no pueda quedarse en bucle.
+     pestaña tiene su propio enlace con `tab=`, solo si no está YA abierta (que es lo que pasa
+     cuando el servidor la ha resuelto) y solo UNA vez por pantalla (marca en `sessionStorage`),
+     para que no pueda quedarse en bucle.
      ══════════════════════════════════════════════════════════════════════════════════════════ */
   function abreLaSuya(grupo) {
     try {

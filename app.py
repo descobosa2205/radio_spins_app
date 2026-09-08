@@ -2042,7 +2042,7 @@ def artist_detail_view(artist_id):
             flash("Artista no encontrado.", "warning")
             return redirect(url_for("artists_view"))
 
-        tab = (request.args.get("tab") or "datos").strip().lower()
+        tab = (_tab_arg("datos")).strip().lower()
         allowed_tabs = {
             "datos",
             "contratos",
@@ -22106,7 +22106,7 @@ def discografica_royalties_liquidation_status():
 @app.get("/discografica/canciones/<song_id>")
 @admin_required
 def discografica_song_detail(song_id):
-    tab = (request.args.get("tab") or "informacion").lower().strip()
+    tab = (_tab_arg("informacion")).lower().strip()
     if tab not in SONG_DETAIL_TABS:
         tab = "informacion"
 
@@ -30149,7 +30149,7 @@ def disco_project_create():
 @admin_required
 def disco_project_detail(project_id):
     """La ficha del proyecto y sus tres partes: Calendario · Hoja de ruta · Bolsa."""
-    tab = (request.args.get("tab") or "calendario").strip().lower()
+    tab = (_tab_arg("calendario")).strip().lower()
     if tab not in dict((k, l) for k, l, _i in DISCO_PROJECT_TABS):
         tab = "calendario"
     session_db = db()
@@ -44658,7 +44658,7 @@ def discografica_album_create():
 @app.get("/discografica/albumes/<album_id>")
 @admin_required
 def discografica_album_detail(album_id):
-    tab = (request.args.get("tab") or "informacion").lower().strip()
+    tab = (_tab_arg("informacion")).lower().strip()
     if tab not in ALBUM_DETAIL_TABS:
         tab = "informacion"
 
@@ -46825,6 +46825,8 @@ def promoters_view():
         author_ids = {pid for (pid,) in (session.query(SongEditorialShare.promoter_id).filter(SongEditorialShare.promoter_id.isnot(None)).distinct().all()) if pid}
 
         promoter_tag_tabs: list[str] = []
+        # Con qué se busca cada uno: TODOS sus datos, ya normalizados (ver `_promoter_search_blobs`).
+        blobs = _promoter_search_blobs(session, promoters)
         for promoter in promoters:
             tags: list[str] = []
             pid = getattr(promoter, 'id', None)
@@ -46839,9 +46841,18 @@ def promoters_view():
                 tags.append('Promotores')
             if pid in author_ids or "AUTHOR" in manual:
                 tags.append('Autores / compositores')
+            # ⚠️ Y CUALQUIER categoría marcada a mano, con la etiqueta de su catálogo: así una nueva
+            # (músicos, técnicos/operadores…) sale sola en el listado Y en sus filtros, sin tocar
+            # esta pantalla. Las tres de arriba se deducen además de la actividad y de las obras.
+            for k in manual:
+                etiqueta = PROMOTER_ROLE_LABELS.get(k)
+                if etiqueta and etiqueta not in tags:
+                    tags.append(etiqueta)
             for k in asociaciones:
                 tags.append(PROMOTER_ASSOC_LABELS[k])
             setattr(promoter, 'display_tags', tags)
+            setattr(promoter, 'search_blob',
+                    (blobs.get(str(pid), '') + ' ' + _norm_text_key(' '.join(tags))).strip())
             promoter_tag_tabs.extend(tags)
 
         promoter_tag_tabs = sorted(set(promoter_tag_tabs), key=lambda value: value.casefold())
@@ -46855,6 +46866,65 @@ def promoters_view():
         )
     finally:
         session.close()
+
+
+def _promoter_search_blobs(session_db, promoters) -> dict:
+    """Con qué se busca cada tercero en el listado: **TODOS sus datos**, no solo los que se ven.
+
+    ⚠️⚠️ El buscador de Terceros filtra EN EL NAVEGADOR contra `data-promoter-search`, y ahí solo
+    iban el nick, el correo, el CIF y el teléfono: buscar por **parte del nombre o del apellido** no
+    encontraba nada en cuanto el nick era otra cosa (el nombre de la empresa, un apodo). Ahora va
+    todo: nombre y apellidos, razón social, direcciones (la fiscal y el domicilio), sus SOCIEDADES,
+    y sus correos y teléfonos de la pestaña de contacto con su concepto.
+    ⚠️ Se devuelve **YA NORMALIZADO** (`_norm_text_key`: minúsculas y sin acentos, el espejo exacto
+    de `normalizeSearchText`): normalizar un texto largo por fila y en cada tecla, con cientos de
+    terceros, es trabajo tonto.
+    ⚠️ El DNI/CIF va también **sin puntuación** (`12.345.678-A` → `12345678a`), para que se encuentre
+    escrito de las dos formas.
+    ⚠️ En BLOQUE: una consulta por tabla, no una por tercero.
+    ⚠️ El IBAN NO se pone a propósito: en un listado no hace falta y no tiene por qué viajar al HTML.
+    """
+    ids = [p.id for p in (promoters or []) if getattr(p, "id", None)]
+    if not ids:
+        return {}
+    extra: dict = {}
+
+    def añade(pid, *valores):
+        if not pid:
+            return
+        trozos = extra.setdefault(str(pid), [])
+        for v in valores:
+            v = (v or "").strip() if isinstance(v, str) else ""
+            if v:
+                trozos.append(v)
+
+    try:
+        for r in (session_db.query(PromoterCompany)
+                  .filter(PromoterCompany.promoter_id.in_(ids)).all()):
+            añade(r.promoter_id, r.legal_name, r.tax_id, _prl_norm_dni(r.tax_id or ""),
+                  getattr(r, "fiscal_address", None), getattr(r, "fiscal_city", None))
+        for r in session_db.query(PromoterEmail).filter(PromoterEmail.promoter_id.in_(ids)).all():
+            añade(r.promoter_id, r.email, r.concept)
+        for r in session_db.query(PromoterPhone).filter(PromoterPhone.promoter_id.in_(ids)).all():
+            añade(r.promoter_id, r.phone, r.concept)
+        for r in session_db.query(PromoterAltValue).filter(PromoterAltValue.promoter_id.in_(ids)).all():
+            añade(r.promoter_id, r.value, r.label)
+    except Exception:
+        app.logger.exception("[terceros] no se pudieron reunir los datos del buscador")
+
+    salida = {}
+    for p in promoters:
+        pid = str(getattr(p, "id", "") or "")
+        trozos = [
+            p.nick, p.first_name, p.last_name, getattr(p, "legal_name", None),
+            p.tax_id, _prl_norm_dni(p.tax_id or ""),
+            p.contact_email, p.contact_phone,
+            getattr(p, "address", None), getattr(p, "fiscal_address", None),
+            getattr(p, "fiscal_postal_code", None), getattr(p, "fiscal_city", None),
+            getattr(p, "fiscal_province", None), getattr(p, "fiscal_country", None),
+        ] + extra.get(pid, [])
+        salida[pid] = _norm_text_key(" ".join([str(t) for t in trozos if t]))
+    return salida
 
 
 # ==================== IMPORTAR TERCEROS DESDE UN FICHERO ====================
@@ -50698,23 +50768,22 @@ PETICION_DEPARTMENTS = {"CONTRATACION", "SELLO", "PROMO", "DISENO"}
 
 
 def _peticion_departments(activity_type, no_cache, explicit=None):
-    """Departamentos que ven la petición:
-    - Con caché → Contratación; sin caché → Sello.
-    - Actividad de TV → además Promoción (aparece en los dos).
-    - ``explicit`` (del botón global «¿para qué es?») fuerza un departamento concreto.
+    """A quién le llega la petición.
+
+    ⚠️⚠️ **UNA PETICIÓN DE ACTIVIDAD ES PARA CONTRATACIÓN, Y SOLO PARA ELLOS**: es quien la valora,
+    la habla y la cierra. Antes una actividad **sin caché** se le mandaba al **SELLO** y una de **TV**
+    además a **PROMOCIÓN**, así que la petición le aparecía en Inicio a gente que no tenía nada que
+    hacer con ella. **Cuando se acepta ya sigue su curso**: las fases son de quien la pidió
+    (`_peticion_accept_tasks`) y la producción se le asigna a la persona que corresponda.
+    ⚠️ `explicit` sigue mandando: es lo que usan los asistentes de PROMOCIÓN y de MARKETING, que no
+    son actividades y no se contratan (esos, además, ya escriben su `departments` a mano).
+    ⚠️ `activity_type` y `no_cache` se conservan en la firma —los pasan los que llaman— pero ya no
+    deciden nada: el tipo de actividad y el caché no cambian de quién es la petición.
     """
-    at = (activity_type or "").strip().upper()
-    depts = []
     e = (explicit or "").strip().upper()
     if e in PETICION_DEPARTMENTS:
-        depts.append(e)
-    if e not in ("PROMO", "DISENO"):
-        base = "SELLO" if no_cache else "CONTRATACION"
-        if base not in depts:
-            depts.append(base)
-    if at == "TV" and "PROMO" not in depts:
-        depts.append("PROMO")
-    return depts or ["CONTRATACION"]
+        return [e]
+    return ["CONTRATACION"]
 
 
 def _peticion_month_label(ym):
@@ -51483,6 +51552,10 @@ PROMOTER_MANUAL_ROLES = [
     ("PROMOTER", "Promotores", "fa-handshake"),
     ("AUTHOR", "Autores / compositores", "fa-pen-nib"),
     ("BENEFICIARY", "Beneficiarios de royalties", "fa-coins"),
+    # ⚠️ Estas dos NO se deducen de nada (no hay actividad ni obra de la que sacarlas): se marcan a
+    # mano en la ficha o al crear el tercero, y de ahí salen su etiqueta y su filtro en el listado.
+    ("MUSICIAN", "Músicos", "fa-guitar"),
+    ("TECH", "Técnicos / Operadores", "fa-sliders"),
 ]
 PROMOTER_ROLE_LABELS = {k: v for k, v, _i in PROMOTER_MANUAL_ROLES}
 
@@ -55179,7 +55252,7 @@ def promo_view():
     # Una sola pantalla: las PETICIONES son un módulo arriba (solo si las hay) y debajo las
     # promociones activas, de la más próxima en adelante. `?archivadas=1` enseña las archivadas y
     # `?vista=sujetos` la rejilla por artista / gira / evento / festival.
-    tab = (request.args.get("tab") or "activas").strip().lower()
+    tab = (_tab_arg("activas")).strip().lower()
     if _truthy(request.args.get("archivadas")):
         tab = "archivadas"
     if tab not in {"activas", "archivadas"}:
@@ -57039,7 +57112,7 @@ def event_detail_view(eid):
             .filter(Concert.event_id == ev.id)
             .order_by(Concert.date.desc().nullslast()).all()
         )
-        tab = (request.args.get("tab") or "datos").strip().lower()
+        tab = (_tab_arg("datos")).strip().lower()
         act_rows, resultado = [], {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0}
         for c in actividades:
             fila = {
@@ -58888,7 +58961,7 @@ def _simulation_detail_response(s, sim, public=False, public_token=""):
     Con public=True es el ENLACE COMPARTIDO (solo visualización): sin edición, con base
     layout_public, URLs de navegación por token (PUBLIC_VIEW/PUBLIC_TOKEN en la plantilla)
     y sin ingresos a 0 / omitidos / no aplican. No cierra la sesión: eso es del caller."""
-    tab = (request.args.get("tab") or "resumen").strip().lower()
+    tab = (_tab_arg("resumen")).strip().lower()
     if tab not in ("resumen", "ticketing", "ingresos", "gastos", "resultado", "socios"):
         tab = "resumen"
     all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
@@ -60292,7 +60365,7 @@ def concerts_page():
         all_concert_tags = _collect_all_concert_tags(s)
         type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERT_TYPE_CHOICES_ORDER]
 
-        active_tab = (request.args.get("tab") or "vista").lower()
+        active_tab = (_tab_arg("vista")).lower()
         # El formulario clásico desaparece: cualquier acceso antiguo a alta vuelve al listado.
         if active_tab == "alta" or active_tab not in ("vista", "facturacion"):
             active_tab = "vista"
@@ -60708,7 +60781,7 @@ def concert_detail_view(cid):
 
         # ⚠️ «ficha» ya NO es una pestaña: la ficha del promotor duplicaba la de contratación y se
         # retiró. Los enlaces antiguos con ?tab=ficha caen a «general», que es donde está la ficha.
-        tab = (request.args.get("tab") or "general").strip().lower()
+        tab = (_tab_arg("general")).strip().lower()
         # ⚠️ Una pestaña NUEVA hay que meterla en esta lista blanca: si no, cae en «general» y su
         # panel no se pinta (sin dar ningún error).
         if tab not in {"inicio", "general", "invitations", "ticketing", "menores", "carteleria",
@@ -64355,7 +64428,7 @@ def company_detail(cid):
         if not co:
             flash("Empresa no encontrada.", "warning")
             return redirect(url_for("companies_view"))
-        tab = (request.args.get("tab") or "datos").strip().lower()
+        tab = (_tab_arg("datos")).strip().lower()
         if tab not in ("datos", "documentacion"):
             tab = "datos"
         doc_rows = _company_doc_rows(session_db, co.id)
@@ -69154,7 +69227,7 @@ def promoter_detail_view(pid):
         if not promoter:
             flash('Tercero no encontrado.', 'warning')
             return redirect(url_for('promoters_view'))
-        tab = (request.args.get('tab') or 'general').strip().lower()
+        tab = (_tab_arg('general')).strip().lower()
         if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones', 'documentos', 'prl',
                        'adelantos', 'syncro'}:
             tab = 'general'
@@ -73220,7 +73293,7 @@ def _build_registros_context(session_db) -> dict:
 @app.get('/registros', endpoint='registros_view')
 @admin_required
 def registros_view():
-    tab = (request.args.get('tab') or 'pendiente').strip().lower()
+    tab = (_tab_arg('pendiente')).strip().lower()
     # ⚠️ Una pestaña nueva hay que añadirla a esta lista blanca: si no, cae en «pendiente» y sale
     # marcada pero se pinta otra cosa.
     if tab not in {'pendiente', 'sgae', 'isrc'}:
@@ -79854,7 +79927,7 @@ def _tour_concerts_by_slug(session_db, slug: str) -> list[Concert]:
 @app.get('/contratacion/giras-compradas/<slug>', endpoint='tour_detail_view')
 @admin_required
 def tour_detail_view(slug):
-    tab = (request.args.get('tab') or 'info').strip().lower()
+    tab = (_tab_arg('info')).strip().lower()
     if tab not in {'info', 'conciertos', 'onesheet'}:
         tab = 'info'
     session_db = db()
@@ -83990,6 +84063,78 @@ def _direccion_board():
     return salida
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# AL ENTRAR EN UNA FICHA (O EN UNA SECCIÓN) SE ABRE **SU** PRIMERA PESTAÑA
+#
+# Quien se ha COLOCADO las pestañas (manteniendo pulsada una, `UserProfile.ui_order`) espera que al
+# entrar se le abra LA PRIMERA DE SU ORDEN, no la de por defecto de la casa.
+#
+# ⚠️⚠️ Lo decide el **SERVIDOR**: así se pinta ya la pestaña buena de una sola vez. Antes lo
+#      intentaba solo el navegador (`abreLaSuya` en `sortable_tabs.js`), que tenía que NAVEGAR otra
+#      vez y, con su cerrojo contra bucles, solo lo hacía **UNA vez por pantalla y sesión** — o sea
+#      que a la segunda visita volvía a salir la pestaña de siempre.
+# ⚠️ El orden se guarda por GRUPO (`tabs:<endpoint>:<clase>:<índice>`) y cada pestaña con lo que la
+#    distingue en su enlace (`tab=contactos`), así que aquí solo hay que leer el `tab=` de la
+#    PRIMERA. Si esa pestaña ya no existe, manda la de siempre.
+# ⚠️ Solo manda cuando la URL **no pide** ninguna (`?tab=`): lo que se pide, se abre.
+UI_TAB_GROUPS = ("ficha-tabs", "contract-tabs", "nav-tabs", "nav-pills")
+
+
+def _ui_order_map() -> dict:
+    """El orden de pestañas que se ha colocado quien mira (cacheado en la petición)."""
+    if not session.get("user_id"):
+        return {}
+    cache = getattr(g, "_ui_order_map", None)
+    if cache is None:
+        try:
+            perfil = (_current_user_state() or {}).get("profile")
+            cache = dict(getattr(perfil, "ui_order", None) or {})
+        except Exception:
+            cache = {}
+        try:
+            g._ui_order_map = cache
+        except Exception:
+            pass
+    return cache
+
+
+def _ui_first_tab(valid=None) -> str:
+    """La PRIMERA pestaña del orden que esa persona ha puesto en ESTA pantalla («» si no hay).
+
+    `valid` son las pestañas de la pantalla: lo que no esté en ella se descarta (una pestaña que ya
+    no existe —o que esa persona no puede ver— no decide con qué se abre la ficha)."""
+    todo = _ui_order_map()
+    if not todo:
+        return ""
+    validas = {str(v).strip().lower() for v in (valid or []) if str(v or "").strip()}
+    pagina = request.endpoint or ""
+    for clase in UI_TAB_GROUPS:
+        orden = todo.get("tabs:%s:%s:0" % (pagina, clase)) or []
+        if not orden:
+            continue
+        # ⚠️ Solo la PRIMERA: si esa no se puede resolver (una pestaña que se abre sin recargar, con
+        # `data-bs-target`), no se salta a la siguiente — abriría una que no es la suya.
+        try:
+            tab = (parse_qs(str(orden[0])).get("tab") or [""])[0].strip()
+        except Exception:
+            tab = ""
+        if not tab:
+            continue
+        if validas and tab.lower() not in validas:
+            continue
+        return tab
+    return ""
+
+
+def _tab_arg(default: str, valid=None) -> str:
+    """La pestaña que se PIDE en la URL y, si no se pide ninguna, la primera del orden de esa
+    persona; si tampoco tiene orden, la de por defecto."""
+    pedida = (request.args.get("tab") or "").strip()
+    if pedida:
+        return pedida
+    return _ui_first_tab(valid) or default
+
+
 @app.context_processor
 def inject_personnel_globals():
     current_user = _build_current_user_summary() if session.get("user_id") else None
@@ -86993,7 +87138,7 @@ def promotion_detail_view(promotion_id):
         # La campaña SIGUE a su actividad (fecha, resumen y bolsa): red de seguridad al abrirla.
         if _promotion_refresh_from_subject(session_db, promotion):
             session_db.commit()
-        tab = (request.args.get('tab') or 'informacion').strip().lower()
+        tab = (_tab_arg('informacion')).strip().lower()
         # LAS ACCIONES YA NO SON UNA PESTAÑA (sep 2026): son un MÓDULO debajo de la información. Los
         # enlaces antiguos con `tab=acciones` (los avisos, el volver de crear una acción) siguen
         # valiendo: caen en «informacion», que es donde están ahora.
@@ -88727,7 +88872,7 @@ def promo_detail_view(promotion_id):
         if not promotion:
             flash("Promoción no encontrada.", "warning")
             return redirect(url_for("promo_view"))
-        tab = (request.args.get("tab") or "informacion").strip().lower()
+        tab = (_tab_arg("informacion")).strip().lower()
         if tab not in {"informacion", "promociones", "hoja_ruta", "gastos", "fotos"}:
             tab = "informacion"
         activities = (session_db.query(PromotionActivity)
@@ -94023,7 +94168,7 @@ def produccion_view():
                 flash("Solicitud de producción creada.", "success")
                 return redirect(url_for("produccion_view", tab="solicitudes"))
 
-        tab = (request.args.get("tab") or "solicitudes").strip().lower()
+        tab = (_tab_arg("solicitudes")).strip().lower()
         if tab not in {"solicitudes", "activas", "archivadas"}:
             tab = "solicitudes"
         f_q = (request.args.get("q") or "").strip()
@@ -95115,7 +95260,7 @@ def _admin_pending_counts(session_db) -> dict:
 def administracion_view():
     session_db = db()
     try:
-        tab = (request.args.get("tab") or "pendiente").strip().lower()
+        tab = (_tab_arg("pendiente")).strip().lower()
         valid_tabs = {key for key, _label in ADMINISTRATION_TABS}
         if tab not in valid_tabs:
             tab = "pendiente"
@@ -96737,7 +96882,7 @@ def contabilidad_view():
     # Cada pestaña tiene su PERMISO propio: solo se ofrecen (y se abren) las que se pueden ver, y sin
     # pestaña pedida se entra en la primera que sí. Quien tenga la sección entera las tiene todas.
     visibles = [k for k, _l, _i in ACCOUNTING_TABS if has_access_key("contabilidad.%s" % k)]
-    tab = (request.args.get("tab") or "").strip().lower()
+    tab = (_tab_arg("", valid=visibles)).strip().lower()
     if tab not in dict((k, l) for k, l, _i in ACCOUNTING_TABS):
         tab = visibles[0] if visibles else "pendiente"
     if visibles and tab not in visibles:
@@ -97833,7 +97978,7 @@ def personnel_detail_view(user_id):
             "accesos": is_master(),
         }
         visibles = [k for k, v in tab_access.items() if v]
-        tab = (request.args.get("tab") or "").strip().lower()
+        tab = (_tab_arg("", valid=visibles)).strip().lower()
         if tab not in tab_access:
             # Sin pestaña pedida (o una que no existe): a la primera que sí pueda ver.
             tab = visibles[0] if visibles else "accesos"
@@ -98497,7 +98642,7 @@ def media_outlet_detail_view(media_id):
         if not outlet:
             flash("Medio no encontrado.", "warning")
             return redirect(url_for("media_outlets_view"))
-        tab = (request.args.get("tab") or "contactos").strip().lower()
+        tab = (_tab_arg("contactos")).strip().lower()
         if tab not in {"contactos", "historico", "vinculaciones"}:
             tab = "contactos"
         if request.method == "POST":
@@ -100500,7 +100645,7 @@ def bags_view():
             flash("Bolsa creada.", "success")
             return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
 
-        tab = (request.args.get("tab") or "active").strip().lower()
+        tab = (_tab_arg("active")).strip().lower()
         if tab not in {"active", "archived"}:
             tab = "active"
         query = session_db.query(WorkflowBag).options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company))
@@ -102389,7 +102534,7 @@ def invoices_view():
             flash("Factura guardada.", "success")
             return redirect(url_for("invoices_view", tab=invoice_kind))
 
-        tab = (request.args.get("tab") or "UPLOADED").strip().upper()
+        tab = (_tab_arg("UPLOADED")).strip().upper()
         if tab not in {t for t, _l in INVOICE_KINDS}:
             tab = "UPLOADED"
         # «Sin vincular» solo existe si hay facturas sin vincular: se cuentan siempre (es una consulta
@@ -120021,7 +120166,7 @@ def venue_detail_view(vid):
             key=lambda item: (item.get('date') or date.min),
         )
         activities_past = [a for a in activities if (a.get('date') or date.min) < _today]
-        _tab = (request.args.get('tab') or 'actividad').strip().lower()
+        _tab = (_tab_arg('actividad')).strip().lower()
         # FORMATO activo (subpestaña de Ticketing): ?map=<id> o el principal. Las categorías
         # clásicas y el mapa que se muestran/editan son SIEMPRE los del formato activo.
         _active_map = _venue_seatmap_resolve(session_db, venue.id, request.args.get('map'))
@@ -120128,7 +120273,7 @@ def acciones_view():
             flash('Acción creada correctamente.', 'success')
             return redirect(url_for('action_detail_view', action_id=action.id))
 
-        tab = (request.args.get('tab') or 'inicio').strip().lower()
+        tab = (_tab_arg('inicio')).strip().lower()
         if tab not in {'inicio', 'acciones', 'solicitudes'}:
             tab = 'inicio'
         subtab = (request.args.get('subtab') or 'activas').strip().lower()
@@ -120233,7 +120378,7 @@ def action_detail_view(action_id):
             session_db.commit()
             flash('Acción actualizada.', 'success')
             return redirect(url_for('action_detail_view', action_id=action.id))
-        tab = (request.args.get('tab') or 'info').strip().lower()
+        tab = (_tab_arg('info')).strip().lower()
         if tab not in {'info', 'ingresos', 'bolsa', 'roadmap', 'produccion', 'resultado', 'fotos', 'repertorio'}:
             tab = 'info'
         display = _action_display_row(session_db, action)
@@ -129703,7 +129848,7 @@ def _invitation_rejection_email_body(session_db, row: InvitationRequest, reason:
 @app.get('/invitaciones', endpoint='invitations_view')
 @admin_required
 def invitations_view():
-    tab = (request.args.get('tab') or 'pedir').strip().lower()
+    tab = (_tab_arg('pedir')).strip().lower()
     if tab == 'mis':
         tab = 'pedir'
     if tab not in {'pedir', 'gestionar'}:
@@ -147385,7 +147530,7 @@ def vacaciones_view():
         month = max(1, min(12, int(request.args.get("mes") or hoy.month)))
     except Exception:
         month = hoy.month
-    tab = (request.args.get("tab") or "calendario").strip().lower()
+    tab = (_tab_arg("calendario")).strip().lower()
     # ⚠️ Una pestaña nueva hay que añadirla a esta lista blanca: si no, cae en «calendario» y sale
     # marcada pero se pinta otra cosa (el mismo tropiezo que en Discográfica).
     if tab not in {"calendario", "peticiones", "festivos", "cuadrante"}:

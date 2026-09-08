@@ -7303,6 +7303,77 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
     app real: 1:1 + 90° + arrastre → aplicar → la imagen queda recortada, «Original» la devuelve y
     «Guardar» entra.
 
+- ⚠️⚠️ **AL ENTRAR EN UNA FICHA SE ABRE **SU** PRIMERA PESTAÑA, y las SUBPESTAÑAS también se ordenan**
+  (sep 2026). Quien se ha colocado las pestañas (manteniendo pulsada una, `UserProfile.ui_order`)
+  espera que al entrar se le abra **la primera de SU orden**, no la de por defecto de la casa.
+  · **Lo decide el SERVIDOR**: punto único **`_tab_arg(default, valid=None)`** (+ `_ui_first_tab` /
+  `_ui_order_map`), que sustituye a los `request.args.get("tab") or "…"` de las **27** vistas de
+  ficha y de sección. Lo que se PIDE en la URL sigue mandando; sin `?tab=` manda su orden y, si no
+  tiene, la de siempre.
+  ⚠️⚠️ Antes lo intentaba **solo el navegador** (`abreLaSuya` en `sortable_tabs.js`), que tenía que
+  **NAVEGAR otra vez** y, con su cerrojo contra bucles (`sessionStorage`), lo hacía **UNA sola vez
+  por pantalla y sesión**: a la segunda visita volvía a salir la pestaña de siempre. Eso queda como
+  **red de seguridad** para las barras que el servidor no resuelve (las que van con otro parámetro,
+  `?subtab=`, `?liq_tab=`…). Comprobado en el navegador: **una sola carga** (`navs: 1`) y la URL
+  limpia.
+  ⚠️ La clave del grupo la compone el JS (`tabs:<endpoint>:<clase>:<índice>`) y cada pestaña se
+  identifica por lo que la distingue en su enlace (`tab=contactos`), así que el servidor solo lee el
+  `tab=` de la PRIMERA. **Si esa pestaña ya no existe, manda la de siempre** (y si no se puede
+  resolver —una que se abre sin recargar, con `data-bs-target`— no se salta a la siguiente: abriría
+  una que no es la suya).
+  ⚠️ Donde cada pestaña tiene **su propio permiso** (la ficha de PERSONAL, CONTABILIDAD) se le pasa
+  **`valid=visibles`**: su pestaña no puede saltarse un permiso, y si no la puede ver se cae a la
+  primera que sí (que es lo que ya hacían esas dos vistas).
+  · **Las SUBPESTAÑAS también se ordenan manteniendo pulsado**: `ul.nav-pills` entra en los
+  `SELECTORES` de `sortable_tabs.js` (las de un proyecto, las de Administración → Pendiente, las de
+  cada empresa en Integraciones…). Opt-out `data-no-sort` (lo lleva el selector de imagen del editor
+  de notas de prensa, que es un picker de un pop-up).
+  ⚠️ Al añadir una clase de barra hay que añadirla en los DOS sitios: `SELECTORES` **y** la lista de
+  `claveDe` (si no, la clave sale como `nav` y el orden se guarda en otro cajón), y en
+  **`UI_TAB_GROUPS`** de `app.py`.
+
+- ⚠️⚠️ **EL BUSCADOR DE TERCEROS BUSCA POR CUALQUIER DATO Y POR PALABRAS** (sep 2026). El listado de
+  Terceros filtra **en el navegador** contra `data-promoter-search`, y ahí solo iban el **nick**, el
+  correo, el CIF y el teléfono: buscar por **parte del nombre o del apellido** no encontraba nada en
+  cuanto el nick era otra cosa (el nombre de la empresa, un apodo).
+  · Punto único **`_promoter_search_blobs(session_db, promoters)`**: nombre y apellidos, razón
+  social, DNI/CIF (**y sin puntuación**, `12.345.678-A` → `12345678a`, para que valga escrito de las
+  dos formas), correo y teléfono, el domicilio y la dirección fiscal, sus **SOCIEDADES**, y los
+  **correos y teléfonos de su pestaña de contacto con su concepto**. En BLOQUE (una consulta por
+  tabla, no una por tercero) y colgado de cada tercero como `search_blob`, igual que `display_tags`.
+  ⚠️ Se emite **YA NORMALIZADO** (`_norm_text_key`, el espejo exacto de `normalizeSearchText`):
+  normalizar un texto largo por fila y en cada tecla, con cientos de terceros, es trabajo tonto.
+  ⚠️ **Se busca por PALABRAS** (cada palabra tiene que aparecer en algún dato, no hace falta que esté
+  completa ni en ese orden), como el buscador del servidor (`_promoter_search_clause`): así «perez
+  juan» encuentra a «Juan Pérez Gómez». Antes se exigía que TODO lo escrito apareciera seguido.
+  ⚠️ El **IBAN no se pone** a propósito: en un listado no hace falta y no tiene por qué viajar al HTML.
+
+- **ETIQUETAS «MÚSICOS» y «TÉCNICOS / OPERADORES» en Terceros** (sep 2026): dos categorías más de
+  `PROMOTER_MANUAL_ROLES`, que se marcan **a mano** en la ficha (o al crear el tercero) y de ahí
+  salen su **etiqueta** en el listado y su **filtro**.
+  ⚠️ Estas dos **no se deducen de nada** (no hay actividad ni obra de la que sacarlas), al contrario
+  que Promotores / Autores / Beneficiarios.
+  ⚠️ El listado pinta ya **cualquier** categoría marcada a mano con la etiqueta de su catálogo
+  (`PROMOTER_ROLE_LABELS`), así que **una nueva sale sola** en las filas y en los filtros sin tocar
+  esa pantalla. La ficha y la importación ya iteraban el catálogo.
+  ⚠️ Lo que mira una clave CONCRETA se queda como estaba: los destinatarios «Promotores» de una nota
+  de prensa siguen exigiendo `"PROMOTER" in manual` (si no, un músico saldría ahí).
+
+- ⚠️⚠️ **UNA PETICIÓN DE ACTIVIDAD ES PARA CONTRATACIÓN, Y SOLO PARA ELLOS** (sep 2026). Es quien la
+  valora, la habla y la cierra. `_peticion_departments` mandaba una actividad **SIN CACHÉ** al
+  **SELLO** y una de **TV** además a **PROMOCIÓN**, así que la petición le aparecía en Inicio (y en la
+  bandeja) a gente que no tenía nada que hacer con ella. **Al aceptarla ya sigue su curso**: las
+  fases son de quien la pidió (`_peticion_accept_tasks`) y la producción se le asigna a la persona
+  que corresponda.
+  ⚠️ `explicit` sigue mandando (lo usan los asistentes de PROMOCIÓN y de MARKETING, que no son
+  actividades y no se contratan; esos, además, ya escriben su `departments` a mano), y
+  `activity_type`/`no_cache` se conservan en la firma pero **ya no deciden nada**.
+
+- ⚠️ **INVITACIONES PENDIENTES DE GESTIONAR · fuera las personas vinculadas** (sep 2026): el módulo
+  de Inicio pintaba, junto a cada artista, sus personas vinculadas (`linked_mini`). Eso es de la
+  **ficha del artista**: aquí es lo que hay que GESTIONAR y solo hacía ruido. Misma regla que la
+  cabecera de una actividad y la de una canción.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

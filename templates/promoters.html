@@ -27,7 +27,7 @@
     {# El botón del escáner lee el DNI/NIE/pasaporte con la cámara y dice si ese número ya está en la
        casa (como tercero o como personal). Si no está, ofrece crearlo con los datos ya leídos. #}
     <div class="input-group">
-      <input type="search" class="form-control" id="promotersSearchInput" placeholder="Escribe para filtrar por nick, email, etiquetas o CIF...">
+      <input type="search" class="form-control" id="promotersSearchInput" placeholder="Escribe cualquier dato: nombre, apellidos, email, teléfono, CIF, sociedad, dirección…">
       <button class="btn btn-outline-secondary" type="button" id="promotersScanBtn"
               title="Escanear un DNI, NIE o pasaporte con la cámara">
         <i class="fa fa-expand me-1"></i>Escanear documento
@@ -118,7 +118,11 @@
 <div class="card">
   <div class="list-group list-group-flush" id="promotersListWrap">
     {% for p in promoters %}
-      {% set search_blob = ((p.nick or '') ~ ' ' ~ (p.contact_email or '') ~ ' ' ~ (p.tax_id or '') ~ ' ' ~ (p.contact_phone or '') ~ ' ' ~ ((p.display_tags or [])|join(' ')))|lower %}
+      {# ⚠️ Con qué se busca: TODOS los datos del tercero (nombre y apellidos, razón social, CIF —con
+         y sin puntuación—, correos y teléfonos, direcciones y sus sociedades), ya normalizados por
+         el servidor (`_promoter_search_blobs`). Antes solo iban el nick, el correo, el CIF y el
+         teléfono, así que buscar por parte del NOMBRE o del APELLIDO no encontraba nada. #}
+      {% set search_blob = p.search_blob or '' %}
       {% set tags_attr = ((p.display_tags or [])|join('||')) %}
       <a href="{{ url_for('promoter_detail_view', pid=p.id) }}"
          class="list-group-item list-group-item-action py-3 promoter-list-row"
@@ -175,12 +179,18 @@
     const rows = Array.from(document.querySelectorAll('.promoter-list-row'));
     let activeTag = 'all';
 
+    /* ⚠️⚠️ SE BUSCA POR PALABRAS y por CUALQUIER campo: cada palabra tiene que aparecer en algún
+       dato del tercero (no hace falta que esté completa ni en ese orden), así que «perez juan»
+       encuentra a «Juan Pérez Gómez» y «gomez» a quien tenga ese apellido aunque su nick sea otro.
+       ⚠️ El blob viene YA normalizado del servidor (minúsculas y sin acentos): normalizar un texto
+       largo por fila y en cada tecla, con cientos de terceros, es trabajo tonto. */
     function applyFilters(){
-      const q = window.normalizeSearchText ? window.normalizeSearchText(searchInput && searchInput.value) : (searchInput && searchInput.value ? searchInput.value : '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const norm = window.normalizeSearchText || function(v){ return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); };
+      const palabras = norm(searchInput && searchInput.value).split(' ').filter(Boolean);
       rows.forEach((row) => {
-        const searchBlob = window.normalizeSearchText ? window.normalizeSearchText(row.dataset.promoterSearch || '') : (row.dataset.promoterSearch || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const searchBlob = row.dataset.promoterSearch || '';
         const tags = (row.dataset.promoterTags || '').split('||').filter(Boolean);
-        const matchesSearch = !q || searchBlob.includes(q);
+        const matchesSearch = !palabras.length || palabras.every((w) => searchBlob.indexOf(w) >= 0);
         const matchesTag = activeTag === 'all' || tags.includes(activeTag);
         row.style.display = (matchesSearch && matchesTag) ? '' : 'none';
       });

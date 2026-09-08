@@ -7809,9 +7809,68 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️⚠️ **La pestaña ARCHIVADAS colgaba de un `{% else %}`**, así que al añadir pestañas nuevas el
   archivo se pintaba **debajo de ellas** (visto en pantalla). Ahora es `{% elif tab == 'archivadas' %}`:
   una pestaña nueva no puede heredar el contenido de otra.
-  · **PENDIENTE (siguiente lote)**: el detalle del **PERSONAL** (los campos visibles que se eligen y
-  se guardan con la plantilla, rellenar un dato incompleto desde ahí, buscar y añadir a cualquiera
-  sobre la marcha) y los **RIDERS** por secciones.
+  · **PENDIENTE (siguiente lote)**: los **RIDERS** por secciones.
+
+- ⚠️⚠️ **PERSONAL DE LA HOJA DE RUTA · QUIÉN VA, CON QUÉ FUNCIÓN Y CON QUÉ DATOS** (sep 2026).
+  ⚠️⚠️ **Los datos de una persona NO se duplican aquí**: viven en su ficha (un tercero, alguien de
+  la oficina o un integrante de un artista) y esto solo dice **quién va** y **con qué función**. Lo
+  que falte se rellena desde el propio listado y **se guarda EN SU FICHA**, así que no hay que
+  volver a escribirlo en la actividad siguiente.
+  · **SE BUSCA EN TODA LA BASE** (`api_roadmap_person_search`, `/api/hoja-ruta/personas`): el
+  **personal de la oficina** (kind `USER`), los **integrantes de los artistas** y los **terceros**
+  (`PROMOTER`), cada uno con su **foto** y con un subtítulo que dice qué es («Personal de la
+  oficina», «Integrante de Los Ñus», «Tercero · su nick · su correo»). Al elegir a alguien se traen
+  su teléfono y su email de su ficha, y **lo que no esté se crea al vuelo** con el «+».
+  ⚠️ El **subtítulo tiene que servir para DISTINGUIR**: puede haber dos «Luis Gil», así que en un
+  tercero lleva su nick (si no es ya el nombre) y su correo o su teléfono.
+  ⚠️ Un **integrante que ya tiene ficha de tercero va como `PROMOTER`** (es la misma persona: la
+  regla de `_artist_person_unify`); solo si no la tiene va como `MEMBER`.
+  ⚠️ Los **bloqueados y eliminados no salen** (`_inactive_user_ids`, el punto único de siempre).
+  · **QUÉ DATOS SE VEN** (botón «Qué datos se ven»): función · teléfono · email · DNI · fecha de
+  nacimiento · necesidades de viaje · documento (la foto del DNI o el pasaporte). Se guarda **CON LA
+  ACTIVIDAD o CON LA PLANTILLA** (`roadmap_payload['personnel_cols']`, `roadmap_personnel_cols`), y
+  al **cargar una plantilla de personal se traen sus columnas** si la actividad no las ha tocado (lo
+  elegido a mano manda). Catálogo `ROADMAP_PERSON_FIELDS`, punto único `_roadmap_person_cols`.
+  ⚠️⚠️ **El PDF y el Excel se llevan LO QUE SE VE**: así el listado y el documento no pueden decir
+  cosas distintas — y de paso se retiran los dos `confirm()` («¿incluir teléfono?», «¿incluir el
+  DNI?») que preguntaban lo mismo otra vez. `?contact=` y `?dni=` siguen mandando si llegan.
+  · **LO QUE FALTA SE DICE Y SE COMPLETA AHÍ MISMO** (`roadmap_person_fill`): la fila avisa en ámbar
+  («Falta Teléfono · Email · DNI / NIE») y el pop-up lo guarda **en su ficha**.
+  ⚠️⚠️ **Lo que YA está escrito en su ficha NO se pisa**: esto es para COMPLETAR, no para corregir
+  (eso se hace en su ficha, que es la fuente de verdad). En la hoja de ruta sí se apunta lo escrito,
+  que es lo que sale en el listado y en lo que se comparte.
+  ⚠️⚠️ **Lo que se puede completar depende de DÓNDE está su ficha** (`ROADMAP_PERSON_FILLABLE` +
+  `_roadmap_person_fillable`): un **TERCERO no tiene columna de fecha de nacimiento** (`Promoter`
+  no la tiene: ese dato sale de su DNI escaneado) y a alguien de la **oficina no se le pregunta el
+  correo** (es el de acceso, se cambia en su ficha). De una persona escrita **a mano** no se reclama
+  nada: no hay dónde guardarlo.
+  ⚠️ **Solo se avisa de lo que se está VIENDO** (más el teléfono y el email, que son lo básico): si
+  nadie ha pedido ver el DNI, que falte no es una tarea.
+  · **FUNCIONES**: el campo sigue siendo LIBRE, con **sugerencias** — las que YA se usan en esa hoja
+  de ruta primero y detrás el catálogo `ROADMAP_ROLE_SUGGESTIONS` (`_roadmap_role_options`, que
+  compara **sin acentos ni mayúsculas**: si no, «Tour Manager» y «tour manager» serían dos).
+  · **FILTROS**: buscador de texto (nombre, función, teléfono, email, DNI), **chips por función** con
+  su contador (selección única, «Todas» delante) y el botón de **orden** (por función / alfabético).
+  ⚠️ El filtro de función **no se ofrece con un solo grupo** (no haría nada), y el buscador
+  **normaliza los DOS lados** (`normText` ↔ `_norm_text_key`): si no, «nus» no encuentra «Ñus».
+  · **EN BLOQUE, siempre**: `_roadmap_person_rows(session_db, personnel)` carga los terceros, los
+  perfiles, los usuarios y los documentos **de una vez** (30 personas serían 90 consultas una a
+  una). Lo usan la pestaña de PERSONAL (`roadmap_personnel_data`), el listado de VIAJE, el PDF y el
+  Excel, así que los cuatro dicen lo mismo — `_travel_person_row` (que era una consulta por persona)
+  se retiró.
+  ⚠️ El teléfono y el email se **caen a la ficha** cuando en la hoja de ruta no se escribieron, y el
+  DNI y el nacimiento **al documento** cuando la ficha no los tiene (el mismo criterio que la ficha).
+  ⚠️⚠️ **`nick` NO es columna de `User`** (está en `UserProfile`) y **el correo de alguien de la casa
+  sí lo es de `User`**: hay que unir las dos tablas. Un `User.nick` es un **AttributeError → 500**.
+  ⚠️ Los endpoints van en `SUPPORT_*` (`roadmap_personnel_cols`, `roadmap_person_fill`,
+  `roadmap_personnel_data`, `api_roadmap_person_search`), y de paso entraron los del **rooming**
+  (`roadmap_hotel_reserved`, `roadmap_room_move`, `roadmap_room_delete`, `roadmap_room_guest`,
+  `roadmap_person_no_room`), que se habían quedado fuera: sin eso, quien monta la producción se come
+  un **403 al mover una habitación**.
+  Probado con la app real (66 comprobaciones) y en el navegador: la búsqueda con los tres tipos, los
+  datos que salen de la ficha, el aviso de lo que falta, completarlo sin pisar lo escrito, las
+  columnas con su orden, el Excel siguiéndolas, la plantilla y los permisos de producción; y a
+  375 px, sin desbordes y sin texto partido.
 
 - ⚠️⚠️ **ROOMING · LAS HABITACIONES SE FORMAN ANTES Y LUEGO SE REPARTEN ENTRE LOS HOTELES**
   (sep 2026). Antes una habitación nacía DENTRO de un hotel, así que una gira con tres hoteles

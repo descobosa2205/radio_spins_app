@@ -25,6 +25,11 @@
     var isConcert = !!CTX.is_concert;
     var RO = (root.getAttribute('data-readonly') === '1');   // modo solo lectura (enlace público)
     var BASE_DAYS = CTX.base_days || [];                      // días del evento (no se pueden quitar)
+    var IS_TEMPLATE = !!CTX.is_template;
+    // PERSONAL: qué datos se pueden ver, los que se ven ahora y las funciones que se sugieren.
+    var PERSON_FIELDS = CTX.person_fields || [];
+    var PERSON_COLS = CTX.person_cols || ['role', 'phone', 'email'];
+    var PERSON_ROLES = CTX.roles || [];
     var view = document.getElementById('rmView');
     // Pestaña de arranque: la primera que exista (una plantilla de personal solo tiene «personal»).
     var TABS = (CTX.tabs && CTX.tabs.length) ? CTX.tabs : ['agenda', 'logistica', 'hoteles', 'personal'];
@@ -52,6 +57,15 @@
     function timeLabel(it) { if (it.tbc) return '<span class="tbc">TBC</span>'; var s = it.start_time || '', e = it.end_time || ''; if (!s && !e) return '<span class="tbc">TBC</span>'; return esc(s) + (e ? ('–' + esc(e)) : ''); }
     function dayLabel(date) { for (var i = 0; i < DAYS.length; i++) if (DAYS[i].date === date) return DAYS[i].label; return date; }
     function avatar(url, icon) { return url ? '<img src="' + esc(url) + '" alt="">' : '<span class="noimg"><i class="fa ' + (icon || 'fa-user') + '"></i></span>'; }
+    // ⚠️ Para buscar hay que normalizar LOS DOS lados (sin acentos ni mayúsculas): si no, «nus» no
+    // encuentra a «Ñus» (el bug que ya salió en el reporte de ventas).
+    function normText(s) {
+      return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+    function fechaEs(iso) {
+      var p = String(iso || '').slice(0, 10).split('-');
+      return (p.length === 3) ? (p[2] + '/' + p[1] + '/' + p[0]) : String(iso || '');
+    }
 
     // ---------------------------------------------------------------- modales
     function ensureModal(id, size) {
@@ -102,6 +116,11 @@
       return getJson('/api/search/promoters?q=' + encodeURIComponent(q)).then(function (list) {
         return (list || []).map(function (r) { return { id: r.id, label: r.label, logo_url: r.logo_url, sub: r.link_summary_text || '', email: r.contact_email, phone: r.contact_phone }; });
       });
+    }
+    /* Quien puede ir en una hoja de ruta: la oficina (USER), los integrantes de los artistas y los
+       terceros (PROMOTER). El `kind` lo decide el SERVIDOR: es el que espera el personal. */
+    function searchRoadmapPeople(q) {
+      return getJson('/api/hoja-ruta/personas?q=' + encodeURIComponent(q));
     }
     function searchMedia(q) {
       return getJson('/api/vinculaciones/search?type=media&q=' + encodeURIComponent(q)).then(function (list) {
@@ -1284,12 +1303,123 @@
         .catch(function () { view.innerHTML = personalSubtabs() + '<div class="rm-empty">No se pudo cargar el listado de viaje.</div>'; wirePersonalSubtabs(); });
     }
 
+    /* ---------------------------------------------------------------- PERSONAL
+       Quién va, con qué FUNCIÓN y con los datos que se hayan elegido ver. Los datos de una persona
+       NO viven aquí: viven en su ficha (un tercero o alguien de la oficina). Lo que falte se puede
+       rellenar desde el propio listado y se guarda EN SU FICHA.
+       ⚠️ Las columnas se guardan CON LA ACTIVIDAD (o con la plantilla): `personnel_cols`. */
+    var PERS_ROWS = null;      // el personal con los datos de su ficha (se pide una vez)
+    var pBusca = '', pRol = '', pOrden = 'rol';
+
+    function personCols() {
+      var c = (P.personnel_cols && P.personnel_cols.length !== undefined) ? P.personnel_cols : PERSON_COLS;
+      return (c && c.length !== undefined) ? c : ['role', 'phone', 'email'];
+    }
+    function personColOn(k) { return personCols().indexOf(k) >= 0; }
+    function personFieldLabel(k) {
+      for (var i = 0; i < PERSON_FIELDS.length; i++) if (PERSON_FIELDS[i].key === k) return PERSON_FIELDS[i].label;
+      return k;
+    }
+    function personRowById(id) {
+      var rows = PERS_ROWS || [];
+      for (var i = 0; i < rows.length; i++) if (String(rows[i].id) === String(id)) return rows[i];
+      return null;
+    }
+    /* Lo que se pinta: si ya se pidieron los datos completos manda ESO (trae el DNI, el viaje y lo
+       que le falta a cada uno); si no, lo que ya está en el payload, para no dejar la pestaña en
+       blanco mientras llega. */
+    function personRowsNow() {
+      if (PERS_ROWS) return PERS_ROWS;
+      return (P.personnel || []).map(function (p) {
+        return { id: p.id, kind: p.kind, ref_id: p.ref_id, name: p.name, role: p.role, phone: p.phone,
+                 email: p.email, photo_url: p.photo_url, dni: '', birth_date: '', travel: null,
+                 doc_front: '', doc_back: '', missing: null, has_ficha: !!p.ref_id, ficha_url: '' };
+      });
+    }
+    function cargaPersonRows(despues) {
+      fetch(ep('/personal/datos'), { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+          if (resp && resp.ok) {
+            PERS_ROWS = resp.rows || [];
+            if (resp.cols) PERSON_COLS = resp.cols;
+            if (resp.roles) PERSON_ROLES = resp.roles;
+          }
+          if (despues) despues();
+        })
+        .catch(function () { if (despues) despues(); });
+    }
+    function personMatches(r) {
+      if (pRol && normText(r.role || 'Sin función') !== normText(pRol)) return false;
+      if (!pBusca) return true;
+      var heno = normText([r.name, r.role, r.phone, r.email, r.dni].filter(Boolean).join(' '));
+      return pBusca.split(/\s+/).every(function (w) { return heno.indexOf(w) >= 0; });
+    }
+    function personRoleChips(rows) {
+      var vistos = {}, orden = [];
+      rows.forEach(function (r) {
+        var nombre = (r.role || '').trim() || 'Sin función';
+        var clave = normText(nombre);
+        if (!vistos[clave]) { vistos[clave] = { label: nombre, n: 0 }; orden.push(clave); }
+        vistos[clave].n++;
+      });
+      if (orden.length < 2) return '';                  // un solo grupo: el filtro no hace nada
+      var h = '<div class="rm-pfilters">'
+        + '<button type="button" class="filter-chip' + (pRol ? '' : ' is-on') + '" data-prol="">Todas</button>';
+      orden.forEach(function (k) {
+        var g = vistos[k];
+        h += '<button type="button" class="filter-chip' + (normText(pRol) === k ? ' is-on' : '')
+          + '" data-prol="' + esc(g.label) + '">' + esc(g.label) + ' <span class="n">' + g.n + '</span></button>';
+      });
+      return h + '</div>';
+    }
+    function personDatos(r) {
+      var out = [];
+      if (personColOn('phone') && r.phone) out.push('<span><i class="fa fa-phone"></i> ' + esc(r.phone) + '</span>');
+      if (personColOn('email') && r.email) out.push('<span><i class="fa fa-envelope"></i> ' + esc(r.email) + '</span>');
+      if (personColOn('dni') && r.dni) out.push('<span><i class="fa fa-id-card"></i> ' + esc(r.dni) + '</span>');
+      if (personColOn('birth_date') && r.birth_date) out.push('<span><i class="fa fa-cake-candles"></i> ' + esc(fechaEs(r.birth_date)) + '</span>');
+      return out.length ? '<div class="rm-pdatos">' + out.join('') + '</div>' : '';
+    }
+    function personViaje(r) {
+      if (!personColOn('travel') || !r.travel) return '';
+      var t = r.travel;
+      if (!t.has_any) return '<div class="rm-sub fst-italic">Sin necesidades de viaje anotadas en su ficha.</div>';
+      var marcas = (t.marks || []).map(function (m) {
+        return '<span class="rm-tag"><i class="fa ' + esc(m.icon) + '"></i> ' + esc(m.label) + '</span>';
+      }).join('');
+      var salidas = [];
+      if (t.departure_flight) salidas.push('<span><i class="fa fa-plane-departure"></i> ' + esc(t.departure_flight) + '</span>');
+      if (t.departure_train) salidas.push('<span><i class="fa fa-train"></i> ' + esc(t.departure_train) + '</span>');
+      return (marcas ? '<div class="mt-1">' + marcas + '</div>' : '')
+        + (salidas.length ? '<div class="rm-pdatos">' + salidas.join('') + '</div>' : '')
+        + (t.notes ? '<div class="small mt-1" style="white-space:pre-wrap;">' + esc(t.notes) + '</div>' : '');
+    }
+    function personDoc(r) {
+      if (!personColOn('doc') || !(r.doc_front || r.doc_back)) return '';
+      var h = '<div class="rm-pdoc">';
+      [r.doc_front, r.doc_back].forEach(function (u) {
+        if (u) h += '<img src="' + esc(u) + '" alt="" data-viewer-src="' + esc(u) + '" data-viewer-kind="IMAGE"'
+          + ' data-viewer-name="' + esc((r.doc_kind === 'PASSPORT' ? 'Pasaporte ' : 'DNI ') + (r.name || '')) + '">';
+      });
+      return h + '</div>';
+    }
+    /* ⚠️ Solo se avisa de lo que se está VIENDO: si nadie ha pedido ver el DNI, que falte no es una
+       tarea. Y de una persona escrita a mano (sin ficha) no se reclama nada: no hay dónde guardarlo. */
+    function personFaltan(r) {
+      if (!r.missing || !r.has_ficha) return [];
+      return r.missing.filter(function (k) { return personColOn(k) || k === 'phone' || k === 'email'; });
+    }
+    function personColLabel(k) { return personFieldLabel(k); }
     function renderPersonal() {
       if (psub === 'prl') { renderPrl(); return; }
       if (psub === 'viaje') { renderViaje(); return; }
-      var groups = {};
-      P.personnel.forEach(function (p) { var g = (p.role || 'Sin función').trim() || 'Sin función'; (groups[g] = groups[g] || []).push(p); });
+      var rows = personRowsNow().filter(personMatches);
       var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir</button>';
+      var colsBtn = RO ? '' : '<button class="btn btn-sm btn-outline-secondary py-0 me-1" data-pcols><i class="fa fa-table-columns me-1"></i>Qué datos se ven</button>';
+      var ordenBtn = '<button class="btn btn-sm btn-outline-secondary py-0 me-1" data-porden title="Cambiar el orden">'
+        + '<i class="fa ' + (pOrden === 'rol' ? 'fa-user-tag' : 'fa-arrow-down-a-z') + ' me-1"></i>'
+        + (pOrden === 'rol' ? 'Por función' : 'Alfabético') + '</button>';
       var exportBtns = '<div class="dropdown d-inline-block me-1"><button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i> Exportar / compartir</button>'
         + '<ul class="dropdown-menu"><li><button class="dropdown-item" data-pexp="pdf"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar PDF</button></li>'
         + '<li><button class="dropdown-item" data-pexp="xlsx"><i class="fa fa-file-excel fa-fw me-1"></i>Descargar Excel</button></li>'
@@ -1297,42 +1427,146 @@
         + '<li><button class="dropdown-item" data-pexp="email"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</button></li>'
         + '<li><button class="dropdown-item" data-pexp="wa"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
         + '<li><button class="dropdown-item" data-pexp="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li></ul></div>';
-      var html = personalSubtabs() + '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div><span>' + exportBtns + tplBtn('PERSONNEL') + addBtn + '</span></div>';
-      if (!P.personnel.length) html += '<div class="rm-empty">Sin personal todavía.</div>';
-      Object.keys(groups).sort().forEach(function (g) {
-        html += '<div class="rm-group-title">' + esc(g) + '</div><div class="d-flex flex-column gap-2">';
-        groups[g].forEach(function (p) {
-          var menu = RO ? '' : '<div class="dropdown ms-2"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button><ul class="dropdown-menu dropdown-menu-end"><li><button class="dropdown-item" data-pedit="' + esc(p.id) + '">Editar</button></li><li><button class="dropdown-item text-danger" data-pdel="' + esc(p.id) + '">Eliminar</button></li></ul></div>';
-          html += '<div class="rm-person"><span class="av">' + avatar(p.photo_url) + '</span><div class="flex-grow-1"><div class="nm">' + esc(p.name) + '</div><div class="rl">' + esc(p.role || '') + '</div></div><div class="ct text-end">' + (p.phone ? '<div>' + esc(p.phone) + '</div>' : '') + (p.email ? '<div>' + esc(p.email) + '</div>' : '') + '</div>' + menu + '</div>';
+      var buscador = '<div class="rm-pbusca"><i class="fa fa-magnifying-glass"></i>'
+        + '<input class="form-control form-control-sm" placeholder="Buscar en el personal…" value="' + esc(pBusca) + '" data-pbusca></div>';
+      var html = personalSubtabs()
+        + '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div>'
+        + '<span>' + ordenBtn + colsBtn + exportBtns + tplBtn('PERSONNEL') + addBtn + '</span></div>'
+        + buscador + personRoleChips(personRowsNow());
+      if (!(P.personnel || []).length) html += '<div class="rm-empty">Sin personal todavía.</div>';
+      else if (!rows.length) html += '<div class="rm-empty">Nadie casa con lo que se está buscando.</div>';
+
+      function fila(r) {
+        var menu = RO ? '' : '<div class="dropdown ms-2"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>'
+          + '<ul class="dropdown-menu dropdown-menu-end">'
+          + '<li><button class="dropdown-item" data-pedit="' + esc(r.id) + '">Editar</button></li>'
+          + (r.has_ficha ? '<li><button class="dropdown-item" data-pfill="' + esc(r.id) + '">Completar sus datos</button></li>' : '')
+          + (r.ficha_url ? '<li><a class="dropdown-item" href="' + esc(r.ficha_url) + '" target="_blank">Ver su ficha</a></li>' : '')
+          + '<li><button class="dropdown-item text-danger" data-pdel="' + esc(r.id) + '">Eliminar</button></li></ul></div>';
+        var faltan = personFaltan(r);
+        var aviso = (faltan.length && !RO)
+          ? '<div class="rm-pfalta"><i class="fa fa-triangle-exclamation"></i> Falta '
+            + faltan.map(personFieldLabel).join(' · ')
+            + ' <button type="button" class="btn btn-sm btn-outline-warning py-0 ms-1" data-pfill="' + esc(r.id) + '">Completar</button></div>'
+          : '';
+        return '<div class="rm-person"><span class="av">' + avatar(r.photo_url) + '</span>'
+          + '<div class="flex-grow-1"><div class="nm">' + esc(r.name) + '</div>'
+          + (personColOn('role') && r.role ? '<div class="rl">' + esc(r.role) + '</div>' : '')
+          + personDatos(r) + personViaje(r) + personDoc(r) + aviso
+          + '</div>' + menu + '</div>';
+      }
+      if (pOrden === 'alfa') {
+        var orden = rows.slice().sort(function (a, b) { return normText(a.name).localeCompare(normText(b.name)); });
+        if (orden.length) html += '<div class="d-flex flex-column gap-2">' + orden.map(fila).join('') + '</div>';
+      } else {
+        var groups = {};
+        rows.forEach(function (r) { var g = (r.role || '').trim() || 'Sin función'; (groups[g] = groups[g] || []).push(r); });
+        Object.keys(groups).sort().forEach(function (g) {
+          html += '<div class="rm-group-title">' + esc(g) + ' <span class="n">' + groups[g].length + '</span></div>'
+            + '<div class="d-flex flex-column gap-2">' + groups[g].map(fila).join('') + '</div>';
         });
-        html += '</div>';
-      });
+      }
       view.innerHTML = html;
       wirePersonalSubtabs();
+      if (!PERS_ROWS) cargaPersonRows(function () { if (psub === 'list') renderPersonal(); });
+      var bus = view.querySelector('[data-pbusca]');
+      if (bus) {
+        bus.addEventListener('input', debounce(function () { pBusca = normText(bus.value.trim()); renderPersonal(); }, 200));
+        if (pBusca) { bus.focus(); try { bus.setSelectionRange(bus.value.length, bus.value.length); } catch (_) {} }
+      }
+      view.querySelectorAll('[data-prol]').forEach(function (b) {
+        b.addEventListener('click', function () { pRol = b.getAttribute('data-prol') || ''; renderPersonal(); });
+      });
+      var ob = view.querySelector('[data-porden]');
+      if (ob) ob.addEventListener('click', function () { pOrden = (pOrden === 'rol' ? 'alfa' : 'rol'); renderPersonal(); });
       view.querySelectorAll('[data-pexp]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          var mode = b.getAttribute('data-pexp');
-          if (mode === 'pdf' || mode === 'xlsx') {
-            var withContact = confirm('¿Incluir teléfono y email de cada persona?\n\nAceptar = sí · Cancelar = no');
-            var withDni = (mode === 'pdf') ? confirm('¿Incluir la foto del DNI (las dos caras) de cada persona?\n\nAceptar = sí · Cancelar = no') : false;
-            var qs = [];
-            if (withContact) qs.push('contact=1');
-            if (withDni) qs.push('dni=1');
-            window.open(ep('/personal/' + mode) + (qs.length ? '?' + qs.join('&') : ''), '_blank');
-          } else {
-            var lines = ['Listado de personal'];
-            P.personnel.forEach(function (p) { lines.push((p.name || '') + (p.role ? ' · ' + p.role : '') + (p.phone ? ' · ' + p.phone : '')); });
-            var text = lines.join('\n');
-            if (mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
-            else if (mode === 'sms') window.location.href = 'sms:?&body=' + encodeURIComponent(text);
-            else window.location.href = 'mailto:?subject=' + encodeURIComponent('Listado de personal') + '&body=' + encodeURIComponent(text);
-          }
-        });
+        b.addEventListener('click', function () { exportarPersonal(b.getAttribute('data-pexp')); });
       });
       if (RO) return;
+      var cb = view.querySelector('[data-pcols]');
+      if (cb) cb.addEventListener('click', openPersonCols);
       view.querySelector('[data-add]').addEventListener('click', function () { openPersonEditor({ id: '', kind: 'MANUAL', ref_id: '', name: '', role: '', phone: '', email: '', photo_url: '' }); });
       view.querySelectorAll('[data-pedit]').forEach(function (b) { b.addEventListener('click', function () { openPersonEditor(JSON.parse(JSON.stringify(personById(b.getAttribute('data-pedit'))))); }); });
-      view.querySelectorAll('[data-pdel]').forEach(function (b) { b.addEventListener('click', function () { if (!confirm('¿Eliminar del personal?')) return; postJson(ep('/personal/delete'), { id: b.getAttribute('data-pdel') }).then(apply); }); });
+      view.querySelectorAll('[data-pfill]').forEach(function (b) { b.addEventListener('click', function () { openPersonFill(b.getAttribute('data-pfill')); }); });
+      view.querySelectorAll('[data-pdel]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (!confirm('¿Eliminar del personal?')) return;
+          postJson(ep('/personal/delete'), { id: b.getAttribute('data-pdel') }).then(function (r) { PERS_ROWS = null; apply(r); });
+        });
+      });
+    }
+    /* El PDF y el Excel se llevan LO QUE SE VE (el botón «Qué datos se ven»): no se pregunta dos
+       veces lo mismo con un par de `confirm()`, que es lo que había. */
+    function exportarPersonal(mode) {
+      if (mode === 'pdf' || mode === 'xlsx') { window.open(ep('/personal/' + mode), '_blank'); return; }
+      var lines = ['Listado de personal'];
+      personRowsNow().filter(personMatches).forEach(function (r) {
+        lines.push((r.name || '') + (r.role ? ' · ' + r.role : '') + (r.phone ? ' · ' + r.phone : ''));
+      });
+      var text = lines.join('\n');
+      if (mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+      else if (mode === 'sms') window.location.href = 'sms:?&body=' + encodeURIComponent(text);
+      else window.location.href = 'mailto:?subject=' + encodeURIComponent('Listado de personal') + '&body=' + encodeURIComponent(text);
+    }
+    function openPersonCols() {
+      var actuales = personCols();
+      var h = '<div class="text-muted small mb-2">Lo que se marque se ve en el listado y es lo que se lleva el PDF y el Excel. Se guarda en esta '
+        + (IS_TEMPLATE ? 'plantilla' : 'actividad') + '.</div>';
+      PERSON_FIELDS.forEach(function (f) {
+        h += '<label class="rm-pcol"><input type="checkbox" value="' + esc(f.key) + '"'
+          + (actuales.indexOf(f.key) >= 0 ? ' checked' : '') + '>'
+          + '<span><i class="fa ' + esc(f.icon) + ' fa-fw me-1"></i>' + esc(f.label) + '</span></label>';
+      });
+      var m = openModal('rmPersonColsModal', 'modal-sm', 'Qué datos se ven', h, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmPersonColsModal'); if (i) i.hide(); }),
+        btn('Guardar', 'btn-primary', function () {
+          var cols = [].map.call(m.querySelectorAll('input:checked'), function (c) { return c.value; });
+          var i = bs('rmPersonColsModal'); if (i) i.hide();
+          postJson(ep('/personal/columnas'), { cols: cols }).then(function (resp) {
+            if (resp && resp.ok) { PERSON_COLS = resp.cols || cols; P.personnel_cols = PERSON_COLS; renderPersonal(); }
+            else alert((resp && resp.error) || 'No se pudo guardar.');
+          });
+        }),
+      ]);
+    }
+    /* Completar lo que le falta a una persona. ⚠️ Se guarda EN SU FICHA, así que no hay que volver a
+       escribirlo en la siguiente actividad; lo que ya está escrito allí no se pisa (eso se corrige
+       en su ficha, que es la fuente de verdad). */
+    function openPersonFill(pid) {
+      var r = personRowById(pid) || personById(pid) || {};
+      // Solo lo que ESA ficha puede guardar (lo dice el servidor: un tercero no tiene fecha de
+      // nacimiento y a alguien de la oficina no se le pregunta el correo, que es el de acceso).
+      var puede = r.fillable || ['phone', 'email', 'dni'];
+      var faltan = personFaltan(r).filter(function (k) { return puede.indexOf(k) >= 0; });
+      if (!faltan.length) faltan = puede;
+      if (!faltan.length) { alert('De esta persona no hay nada que completar aquí: no tiene ficha.'); return; }
+      var campos = [
+        ['phone', 'Teléfono', 'tel'], ['email', 'Email', 'email'],
+        ['dni', 'DNI / NIE', 'text'], ['birth_date', 'Fecha de nacimiento', 'date'],
+      ].filter(function (c) { return faltan.indexOf(c[0]) >= 0; });
+      var h = '<div class="text-muted small mb-2">Se guarda en la ficha de <strong>' + esc(r.name || '') + '</strong>, así que no habrá que volver a escribirlo.</div><div class="row g-2">';
+      campos.forEach(function (c) {
+        h += '<div class="col-md-6"><label class="form-label">' + esc(c[1]) + '</label>'
+          + '<input class="form-control" type="' + c[2] + '" data-f="' + c[0] + '" value=""></div>';
+      });
+      h += '</div>';
+      if (r.ficha_url) h += '<div class="mt-2"><a href="' + esc(r.ficha_url) + '" target="_blank">Abrir su ficha</a></div>';
+      var m = openModal('rmPersonFillModal', 'modal-md', 'Completar sus datos', h, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmPersonFillModal'); if (i) i.hide(); }),
+        btn('Guardar', 'btn-primary', function () {
+          var d = { person_id: pid };
+          m.querySelectorAll('[data-f]').forEach(function (i) { d[i.getAttribute('data-f')] = i.value.trim(); });
+          if (!Object.keys(d).some(function (k) { return k !== 'person_id' && d[k]; })) { alert('No has escrito nada.'); return; }
+          var i = bs('rmPersonFillModal'); if (i) i.hide();
+          postJson(ep('/personal/completar'), d).then(function (resp) {
+            if (resp && resp.ok) {
+              PERS_ROWS = resp.rows || null;
+              if ((resp.ficha || []).length) rmToast('Guardado en su ficha: ' + resp.ficha.join(', '));
+              apply(resp);
+            } else alert((resp && resp.error) || 'No se pudo guardar.');
+          });
+        }),
+      ]);
     }
     // ---------------------------------------------------------------- PRL (alta y riesgos laborales)
     var PRL_ALTA_BY_TYPE = { AUTONOMO: 'AUTONOMO_RECIBO', PUNTUAL: 'ALTA_SS', EMPRESA: 'ITA' };
@@ -1531,20 +1765,59 @@
         })
       ]);
     }
+    /* ⚠️ El personal se busca en TODA la base: la oficina, los integrantes de los artistas y los
+       terceros —con su foto y diciendo qué es cada uno—; y lo que no esté se crea al vuelo. Así no
+       se teclea a mano a alguien que ya tenemos (y que trae su DNI, su teléfono y su viaje). */
     function openPersonEditor(p) {
       var editing = !!p.id;
-      var h = '<div class="row g-2">';
-      if (!editing) h += '<div class="col-12"><label class="form-label">Buscar tercero (opcional)</label><input class="form-control" placeholder="Buscar tercero…" data-psearch><div class="list-group position-absolute d-none" style="z-index:5" data-presults></div></div>';
-      h += '<div class="col-md-8"><label class="form-label">Nombre</label><input class="form-control" data-p="name" value="' + esc(p.name) + '"></div>';
-      h += '<div class="col-md-4"><label class="form-label">Función</label><input class="form-control" data-p="role" value="' + esc(p.role) + '" placeholder="Músico, Tour manager…"></div>';
+      var h = '';
+      if (!editing) {
+        h += '<div class="mb-2"><label class="form-label">Buscar a quien va</label>'
+          + '<div class="rm-psearch"><input class="form-control" placeholder="Escribe un nombre: la oficina, los artistas y los terceros…" data-psearch>'
+          + '<button type="button" class="btn btn-outline-secondary" data-pnew title="Crear un tercero con lo escrito"><i class="fa fa-plus"></i></button></div>'
+          + '<div class="list-group position-absolute d-none" style="z-index:5" data-presults></div>'
+          + '<div class="form-text">Al elegir a alguien se traen su teléfono y su email de su ficha.</div></div>';
+      }
+      h += '<div class="rm-ppick d-none" data-ppick></div>';
+      h += '<div class="row g-2">';
+      h += '<div class="col-md-7"><label class="form-label">Nombre</label><input class="form-control" data-p="name" value="' + esc(p.name) + '"></div>';
+      h += '<div class="col-md-5"><label class="form-label">Función</label><input class="form-control" list="rmRolesList" data-p="role" value="' + esc(p.role) + '" placeholder="Músico, Tour manager…"></div>';
       h += '<div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" data-p="phone" value="' + esc(p.phone) + '"></div>';
       h += '<div class="col-md-6"><label class="form-label">Email</label><input class="form-control" data-p="email" value="' + esc(p.email) + '"></div>';
       h += '</div>';
-      var m = openModal('rmPersonModal', 'modal-md', (editing ? 'Editar' : 'Nuevo') + ' personal', h, [btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmPersonModal'); if (i) i.hide(); }), btn('Guardar', 'btn-primary', function () { savePersonForm(p, m); })]);
-      if (!editing) attachSearch(m.querySelector('[data-psearch]'), m.querySelector('[data-presults]'), searchPromoters, function (r) {
-        p.kind = 'PROMOTER'; p.ref_id = r.id; p.photo_url = r.logo_url || '';
-        m.querySelector('[data-p="name"]').value = r.label; m.querySelector('[data-p="phone"]').value = r.phone || ''; m.querySelector('[data-p="email"]').value = r.email || '';
-      }, { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) { p.kind = 'PROMOTER'; p.ref_id = r.id; m.querySelector('[data-p="name"]').value = r.label || q; } }); } });
+      h += '<datalist id="rmRolesList">' + PERSON_ROLES.map(function (r) { return '<option value="' + esc(r) + '">'; }).join('') + '</datalist>';
+      var m = openModal('rmPersonModal', 'modal-md', (editing ? 'Editar' : 'Nuevo') + ' personal', h, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmPersonModal'); if (i) i.hide(); }),
+        btn('Guardar', 'btn-primary', function () { savePersonForm(p, m); }),
+      ]);
+      if (editing) return;
+      var pick = m.querySelector('[data-ppick]');
+      function elegido(r) {
+        p.kind = r.kind || 'PROMOTER'; p.ref_id = r.id; p.photo_url = r.logo_url || '';
+        m.querySelector('[data-p="name"]').value = r.label || '';
+        if (r.phone) m.querySelector('[data-p="phone"]').value = r.phone;
+        if (r.email) m.querySelector('[data-p="email"]').value = r.email;
+        pick.innerHTML = '<span class="av">' + avatar(r.logo_url) + '</span><div><div class="fw-semibold">'
+          + esc(r.label || '') + '</div>' + (r.sub ? '<div class="rm-sub">' + esc(r.sub) + '</div>' : '') + '</div>'
+          + '<button type="button" class="btn btn-sm btn-light ms-auto" data-pclear title="Quitar"><i class="fa fa-xmark"></i></button>';
+        pick.classList.remove('d-none');
+        pick.querySelector('[data-pclear]').addEventListener('click', function () {
+          p.kind = 'MANUAL'; p.ref_id = ''; p.photo_url = '';
+          pick.classList.add('d-none'); pick.innerHTML = '';
+        });
+      }
+      function crear(q) {
+        if (!q) { alert('Escribe antes el nombre.'); return; }
+        createPromoter(q).then(function (r) {
+          if (r && r.id) elegido({ kind: 'PROMOTER', id: r.id, label: r.label || q, logo_url: r.logo_url || '', sub: 'Tercero nuevo' });
+          else alert((r && r.error) || 'No se pudo crear el tercero.');
+        });
+      }
+      attachSearch(m.querySelector('[data-psearch]'), m.querySelector('[data-presults]'), searchRoadmapPeople,
+        elegido, { onCreate: crear });
+      m.querySelector('[data-pnew]').addEventListener('click', function () {
+        crear((m.querySelector('[data-psearch]').value || '').trim());
+      });
     }
     function savePersonForm(p, m) {
       p.name = m.querySelector('[data-p="name"]').value.trim();
@@ -1553,6 +1826,7 @@
       p.email = m.querySelector('[data-p="email"]').value.trim();
       if (!p.name) { alert('Falta el nombre.'); return; }
       var i = bs('rmPersonModal'); if (i) i.hide();
+      PERS_ROWS = null;   // sus datos de ficha se vuelven a pedir
       postJson(ep('/personal'), p).then(apply);
     }
 

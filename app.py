@@ -75414,6 +75414,11 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "activity_picker": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in ROADMAP_ACTIVITY_TYPES],
         "transport_picker": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_TRANSPORT_MODES],
         "interview_types": ROADMAP_INTERVIEW_TYPES,
+        # PERSONAL: qué datos se ven (se guarda con la actividad o con la plantilla) y las funciones
+        # que se sugieren al escribir (las que ya se usan aquí primero).
+        "person_fields": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_PERSON_FIELDS],
+        "person_cols": _roadmap_person_cols(payload),
+        "roles": _roadmap_role_options(payload),
     }
 
 
@@ -76644,14 +76649,19 @@ def roadmap_personnel_pdf(entity_type, entity_id):
     ?contact=1 añade teléfono/email y con ?dni=1 las fotos de las dos caras del DNI."""
     if not REPORTLAB_AVAILABLE:
         return abort(503)
-    include_dni = _truthy(request.args.get('dni'))
-    include_contact = _truthy(request.args.get('contact'))
     session_db = db()
     try:
         kind, row = _roadmap_entity(session_db, entity_type, entity_id)
         if not row:
             abort(404)
         payload = _roadmap_load(row)
+        # ⚠️ Por defecto se lleva LO QUE SE VE en la pantalla (el botón «Qué datos se ven»): así el
+        # PDF y el listado no pueden decir cosas distintas. Los parámetros siguen mandando si llegan.
+        cols = _roadmap_person_cols(payload)
+        include_contact = (_truthy(request.args.get('contact')) if request.args.get('contact') is not None
+                           else bool({"phone", "email"} & set(cols)))
+        include_dni = (_truthy(request.args.get('dni')) if request.args.get('dni') is not None
+                       else ("doc" in cols))
         header = _roadmap_export_header(kind, row)
         buf = BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=24, bottomMargin=24)
@@ -76710,13 +76720,15 @@ def roadmap_personnel_pdf(entity_type, entity_id):
 @app.get('/hoja-ruta/<entity_type>/<entity_id>/personal/xlsx', endpoint='roadmap_personnel_xlsx')
 @admin_required
 def roadmap_personnel_xlsx(entity_type, entity_id):
-    include_contact = _truthy(request.args.get('contact'))
     session_db = db()
     try:
         kind, row = _roadmap_entity(session_db, entity_type, entity_id)
         if not row:
             abort(404)
         payload = _roadmap_load(row)
+        # Lo mismo que el PDF: por defecto va LO QUE SE VE en la pantalla.
+        include_contact = (_truthy(request.args.get('contact')) if request.args.get('contact') is not None
+                           else bool({"phone", "email"} & set(_roadmap_person_cols(payload))))
         header = _roadmap_export_header(kind, row)
         from openpyxl import Workbook
         wb = Workbook()
@@ -77110,47 +77122,204 @@ def _prl_rows_for_concert(session_db, kind, row_entity) -> list:
             for p in (payload.get("personnel") or [])]
 
 
-def _travel_person_row(session_db, person: dict) -> dict:
-    """Una persona del listado de VIAJE: sus datos + las necesidades de viaje de su ficha y,
-    si se pide, la foto del documento (DNI o pasaporte) para enseñarla al comprar billetes."""
+# ---------------------------------------------------------------------------
+#  PERSONAL de la hoja de ruta (y de una plantilla): quién va, con qué función y con qué datos
+#  ------------------------------------------------------------------------
+#  ⚠️ Los datos de una persona NO se duplican aquí: viven en su ficha (un tercero, alguien de la
+#  oficina o un integrante de un artista) y esto solo dice QUIÉN va y con qué FUNCIÓN. Lo que falte
+#  se puede rellenar desde aquí, y se guarda EN SU FICHA (`roadmap_person_fill`), no en la actividad.
+# ---------------------------------------------------------------------------
+
+# Qué datos se pueden ver de cada persona. Se eligen con el botón «Qué datos se ven» y se guardan
+# CON LA ACTIVIDAD (o con la plantilla), en `roadmap_payload['personnel_cols']`.
+ROADMAP_PERSON_FIELDS = [
+    ("role", "Función", "fa-user-tag"),
+    ("phone", "Teléfono", "fa-phone"),
+    ("email", "Email", "fa-envelope"),
+    ("dni", "DNI / NIE", "fa-id-card"),
+    ("birth_date", "Fecha de nacimiento", "fa-cake-candles"),
+    ("travel", "Necesidades de viaje", "fa-suitcase-rolling"),
+    ("doc", "Documento (foto)", "fa-passport"),
+]
+ROADMAP_PERSON_FIELD_KEYS = [k for k, _l, _i in ROADMAP_PERSON_FIELDS]
+ROADMAP_PERSON_FIELDS_DEFAULT = ["role", "phone", "email"]
+# ⚠️ Lo que se puede COMPLETAR depende de DÓNDE está su ficha: un TERCERO no tiene columna de
+# fecha de nacimiento (esa solo se sabe por su DNI escaneado) y a alguien de la oficina no se le
+# pregunta el correo (es el de acceso, se cambia en su ficha). Un MANUAL no tiene dónde guardar nada.
+ROADMAP_PERSON_FILLABLE = {
+    "PROMOTER": ["phone", "email", "dni"],
+    "MEMBER": ["phone", "email", "dni"],
+    "USER": ["phone", "dni", "birth_date"],
+    "MANUAL": [],
+}
+
+
+def _roadmap_person_fillable(kind: str) -> list[str]:
+    return list(ROADMAP_PERSON_FILLABLE.get((kind or "MANUAL").upper(), []))
+
+# Funciones que se sugieren al escribir (el campo sigue siendo LIBRE: lo que no esté se escribe).
+ROADMAP_ROLE_SUGGESTIONS = [
+    "Artista", "Tour manager", "Road manager", "Producción", "Regidor",
+    "Técnico de sonido", "Técnico de monitores", "Técnico de luces", "Backline",
+    "Músico", "Guitarra", "Bajo", "Batería", "Teclado", "Percusión", "Coros",
+    "Bailarín", "Conductor", "Fotógrafo", "Vídeo", "Redes", "Prensa",
+    "Management", "Merchandising", "Seguridad", "Catering", "Acompañante",
+]
+
+
+def _roadmap_person_cols(payload: dict) -> list[str]:
+    """Los datos que se ven del personal en ESTA actividad (o plantilla)."""
+    raw = (payload or {}).get("personnel_cols")
+    if not isinstance(raw, list):
+        return list(ROADMAP_PERSON_FIELDS_DEFAULT)
+    cols = [str(x) for x in raw if str(x) in ROADMAP_PERSON_FIELD_KEYS]
+    return cols
+
+
+def _roadmap_role_options(payload: dict) -> list[str]:
+    """Las funciones que se ofrecen: las que YA se usan en esta hoja de ruta primero y luego el
+    catálogo. ⚠️ Se comparan sin acentos ni mayúsculas, o «Tour Manager» y «tour manager» saldrían
+    como dos funciones distintas."""
+    vistas, out = set(), []
+    for p in ((payload or {}).get("personnel") or []):
+        nombre = (p.get("role") or "").strip()
+        clave = _norm_text_key(nombre)
+        if nombre and clave not in vistas:
+            vistas.add(clave)
+            out.append(nombre)
+    for nombre in ROADMAP_ROLE_SUGGESTIONS:
+        clave = _norm_text_key(nombre)
+        if clave not in vistas:
+            vistas.add(clave)
+            out.append(nombre)
+    return out
+
+
+def _roadmap_person_entity(session_db, person: dict, *, promoters=None, profiles=None):
+    """La ficha de una persona del personal → (entidad, owner_type) para leer y escribir sus datos."""
     kind = (person.get("kind") or "MANUAL").upper()
     ref = to_uuid(person.get("ref_id") or "") if person.get("ref_id") else None
-    entity = None
-    doc_row = None
-    if kind == "PROMOTER" and ref:
-        entity = session_db.get(Promoter, ref)
-        owner_type = "PROMOTER"
-    elif kind == "USER" and ref:
-        entity = session_db.query(UserProfile).filter(UserProfile.user_id == ref).first()
-        owner_type = "USER"
-    else:
-        owner_type = None
-    if ref and owner_type:
-        doc_row = (
-            session_db.query(PersonDocument)
-            .filter(PersonDocument.owner_type == owner_type, PersonDocument.owner_id == ref)
-            .filter(PersonDocument.kind.in_(["DNI", "PASSPORT"]))
-            .order_by(PersonDocument.created_at.desc())
-            .first()
-        )
-    travel = _travel_summary(entity) if entity is not None else {
-        "notes": "", "marks": [], "departure_flight": "", "departure_train": "", "has_any": False}
-    return {
-        "id": person.get("id") or "",
-        "name": (person.get("name") or "").strip(),
-        "role": (person.get("role") or "").strip(),
-        "photo_url": (person.get("photo_url") or ""),
-        "phone": (person.get("phone") or ""),
-        "email": (person.get("email") or ""),
-        "dni": ((getattr(entity, "tax_id", None) or getattr(entity, "dni", None) or "") if entity is not None else ""),
-        "birth_date": (getattr(entity, "birth_date", None).isoformat() if getattr(entity, "birth_date", None) else ""),
-        "travel": travel,
-        "doc_kind": (getattr(doc_row, "kind", "") or ""),
-        "doc_front": (getattr(doc_row, "front_url", "") or ""),
-        "doc_back": (getattr(doc_row, "back_url", "") or ""),
-        "doc_number": (getattr(doc_row, "doc_number", "") or ""),
-        "doc_expiry": (getattr(doc_row, "expiry_date", None).isoformat() if getattr(doc_row, "expiry_date", None) else ""),
-    }
+    if not ref:
+        return None, None
+    if kind in ("PROMOTER", "MEMBER"):
+        entity = (promoters or {}).get(ref) if promoters is not None else session_db.get(Promoter, ref)
+        return entity, ("PROMOTER" if entity is not None else None)
+    if kind == "USER":
+        if profiles is not None:
+            entity = (profiles or {}).get(ref)
+        else:
+            entity = session_db.query(UserProfile).filter(UserProfile.user_id == ref).first()
+        return entity, ("USER" if entity is not None else None)
+    return None, None
+
+
+def _roadmap_person_ficha_url(person: dict, entity) -> str:
+    """El enlace a la ficha de esa persona (para ir a completar lo que falte con calma)."""
+    kind = (person.get("kind") or "MANUAL").upper()
+    ref = str(person.get("ref_id") or "")
+    if not ref or entity is None:
+        return ""
+    try:
+        if kind == "USER":
+            return url_for("personnel_detail_view", uid=ref)
+        return url_for("promoter_detail_view", pid=str(getattr(entity, "id", ref)))
+    except Exception:      # fuera de una petición (un cron, un hilo) no hay url_for
+        return ""
+
+
+def _roadmap_person_rows(session_db, personnel: list, *, with_doc: bool = True) -> list[dict]:
+    """El personal con sus datos de ficha, EN BLOQUE.
+
+    ⚠️ Una consulta por persona sería inaceptable (30 personas = 90 consultas): los terceros, los
+    perfiles y los documentos se cargan de una vez. Lo usan la pestaña de PERSONAL, el listado de
+    VIAJE, el PDF y el Excel, así que los cuatro dicen lo mismo.
+    """
+    personnel = list(personnel or [])
+    ids_prom, ids_user = set(), set()
+    for p in personnel:
+        kind = (p.get("kind") or "MANUAL").upper()
+        ref = to_uuid(p.get("ref_id") or "") if p.get("ref_id") else None
+        if not ref:
+            continue
+        if kind in ("PROMOTER", "MEMBER"):
+            ids_prom.add(ref)
+        elif kind == "USER":
+            ids_user.add(ref)
+    promoters, profiles, docs, users = {}, {}, {}, {}
+    if ids_prom:
+        for pr in session_db.query(Promoter).filter(Promoter.id.in_(list(ids_prom))).all():
+            promoters[pr.id] = pr
+    if ids_user:
+        for pf in session_db.query(UserProfile).filter(UserProfile.user_id.in_(list(ids_user))).all():
+            profiles[pf.user_id] = pf
+        for us in session_db.query(User).filter(User.id.in_(list(ids_user))).all():
+            users[us.id] = us
+    if with_doc and (ids_prom or ids_user):
+        q = (session_db.query(PersonDocument)
+             .filter(PersonDocument.kind.in_(["DNI", "PASSPORT"]))
+             .filter(or_(
+                 and_(PersonDocument.owner_type == "PROMOTER", PersonDocument.owner_id.in_(list(ids_prom) or [uuid.uuid4()])),
+                 and_(PersonDocument.owner_type == "USER", PersonDocument.owner_id.in_(list(ids_user) or [uuid.uuid4()])),
+             ))
+             .order_by(PersonDocument.created_at.desc()))
+        for d in q.all():
+            docs.setdefault((d.owner_type, d.owner_id), d)   # el más reciente de cada persona
+
+    out = []
+    for p in personnel:
+        entity, owner_type = _roadmap_person_entity(session_db, p, promoters=promoters, profiles=profiles)
+        ref = to_uuid(p.get("ref_id") or "") if p.get("ref_id") else None
+        doc_row = docs.get((owner_type, ref)) if (owner_type and ref) else None
+        travel = _travel_summary(entity) if entity is not None else {
+            "notes": "", "marks": [], "departure_flight": "", "departure_train": "", "has_any": False}
+        dni = ""
+        birth = None
+        if entity is not None:
+            dni = (getattr(entity, "tax_id", None) or getattr(entity, "dni", None) or "").strip()
+            birth = getattr(entity, "birth_date", None)
+        # Lo que dice el DOCUMENTO vale cuando la ficha no lo tiene (el mismo criterio que la ficha).
+        if not dni and doc_row is not None and (doc_row.kind or "") == "DNI":
+            dni = (doc_row.doc_number or "").strip()
+        if not birth and doc_row is not None:
+            birth = getattr(doc_row, "birth_date", None)
+        fila = {
+            "id": p.get("id") or "",
+            "kind": (p.get("kind") or "MANUAL").upper(),
+            "ref_id": str(p.get("ref_id") or ""),
+            "name": (p.get("name") or "").strip(),
+            "role": (p.get("role") or "").strip(),
+            "photo_url": (p.get("photo_url") or ""),
+            "phone": (p.get("phone") or "").strip(),
+            "email": (p.get("email") or "").strip(),
+            "dni": dni,
+            "birth_date": (birth.isoformat() if birth else ""),
+            "travel": travel,
+            "doc_kind": (getattr(doc_row, "kind", "") or ""),
+            "doc_front": (getattr(doc_row, "front_url", "") or ""),
+            "doc_back": (getattr(doc_row, "back_url", "") or ""),
+            "doc_number": (getattr(doc_row, "doc_number", "") or ""),
+            "doc_expiry": (getattr(doc_row, "expiry_date", None).isoformat()
+                           if getattr(doc_row, "expiry_date", None) else ""),
+            "has_ficha": entity is not None,
+            "ficha_url": _roadmap_person_ficha_url(p, entity),
+        }
+        # El teléfono y el email de la ficha, si en la hoja de ruta no se pusieron.
+        if entity is not None:
+            if not fila["phone"]:
+                movil = ""
+                for valor in (getattr(entity, "mobile_phones", None) or []):
+                    movil = (valor if isinstance(valor, str) else (valor or {}).get("phone", "")) or ""
+                    if movil:
+                        break
+                fila["phone"] = (getattr(entity, "contact_phone", None) or movil or "").strip()
+            if not fila["email"]:
+                usuario = users.get(ref) if ref else None
+                fila["email"] = (getattr(entity, "contact_email", None)
+                                 or getattr(usuario, "email", None) or "").strip()
+        fila["fillable"] = _roadmap_person_fillable(fila["kind"]) if entity is not None else []
+        fila["missing"] = [k for k in fila["fillable"] if not fila.get(k)]
+        out.append(fila)
+    return out
 
 
 @app.get('/hoja-ruta/<entity_type>/<entity_id>/viaje', endpoint='roadmap_travel_json')
@@ -77165,7 +77334,7 @@ def roadmap_travel_json(entity_type, entity_id):
         payload = _roadmap_load(row)
         return jsonify({
             "ok": True,
-            "rows": [_travel_person_row(session_db, p) for p in (payload.get("personnel") or [])],
+            "rows": _roadmap_person_rows(session_db, payload.get("personnel") or []),
         })
     finally:
         session_db.close()
@@ -79958,6 +80127,205 @@ def roadmap_personnel_save(entity_type, entity_id):
         session_db.close()
 
 
+@app.get("/hoja-ruta/<entity_type>/<entity_id>/personal/datos", endpoint="roadmap_personnel_data")
+@admin_required
+def roadmap_personnel_data(entity_type, entity_id):
+    """El personal con TODOS sus datos (los de su ficha incluidos) y qué le falta a cada uno."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_load(row)
+        return jsonify({
+            "ok": True,
+            "rows": _roadmap_person_rows(session_db, payload.get("personnel") or []),
+            "cols": _roadmap_person_cols(payload),
+            "fields": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_PERSON_FIELDS],
+            "roles": _roadmap_role_options(payload),
+        })
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/personal/columnas", endpoint="roadmap_personnel_cols")
+@admin_required
+def roadmap_personnel_cols(entity_type, entity_id):
+    """Qué datos se ven del personal. Se guarda CON LA ACTIVIDAD (o con la plantilla)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        pedidas = data.get("cols")
+        if not isinstance(pedidas, list):
+            return jsonify({"ok": False, "error": "No se ha dicho qué datos se ven."}), 400
+        payload = _roadmap_load(row)
+        # Se respeta el ORDEN del catálogo: así la tabla se lee igual en todas las actividades.
+        payload["personnel_cols"] = [k for k in ROADMAP_PERSON_FIELD_KEYS if k in {str(x) for x in pedidas}]
+        _roadmap_save(session_db, row, payload)
+        return jsonify({"ok": True, "cols": _roadmap_person_cols(payload)})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/personal/completar", endpoint="roadmap_person_fill")
+@admin_required
+def roadmap_person_fill(entity_type, entity_id):
+    """Rellena los datos que le FALTAN a una persona y los guarda EN SU FICHA.
+
+    ⚠️ Lo que ya está escrito en su ficha NO se pisa: esto es para completar, no para corregir (eso
+    se hace en su ficha, que es la fuente de verdad). Y en la hoja de ruta se copia el teléfono y el
+    email para que salgan en el listado y en lo que se comparte.
+    """
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        people = payload.setdefault("personnel", [])
+        _idx, person = _roadmap_find(people, (data.get("person_id") or "").strip())
+        if person is None:
+            return jsonify({"ok": False, "error": "Esa persona no está en el personal."}), 404
+        entity, owner_type = _roadmap_person_entity(session_db, person)
+        telefono = (data.get("phone") or "").strip()
+        email = (data.get("email") or "").strip()
+        dni = (data.get("dni") or "").strip()
+        nacimiento = parse_optional_date(data.get("birth_date"))
+        guardado, ficha = [], []
+        if telefono:
+            person["phone"] = telefono
+            guardado.append("teléfono")
+        if email:
+            person["email"] = email
+            guardado.append("email")
+        if entity is not None:
+            if owner_type == "PROMOTER":
+                if telefono and not (getattr(entity, "contact_phone", None) or "").strip():
+                    entity.contact_phone = telefono
+                    ficha.append("teléfono")
+                if email and not (getattr(entity, "contact_email", None) or "").strip():
+                    entity.contact_email = email
+                    ficha.append("email")
+                if dni and not (getattr(entity, "tax_id", None) or "").strip():
+                    entity.tax_id = dni
+                    ficha.append("DNI")
+            else:   # alguien de la oficina
+                if telefono and not (getattr(entity, "mobile_phones", None) or []):
+                    entity.mobile_phones = [telefono]
+                    ficha.append("teléfono")
+                if dni and not (getattr(entity, "dni", None) or "").strip():
+                    entity.dni = dni
+                    ficha.append("DNI")
+            # ⚠️ La fecha de nacimiento solo se guarda donde HAY columna (la oficina): en un tercero
+            # ese dato sale de su DNI escaneado, no se teclea aquí.
+            if (nacimiento and "birth_date" in _roadmap_person_fillable(person.get("kind"))
+                    and not getattr(entity, "birth_date", None)):
+                entity.birth_date = nacimiento
+                ficha.append("fecha de nacimiento")
+            # ⚠️ El teléfono y la dirección se normalizan en el `before_flush`: aquí no hay que tocar nada.
+            if owner_type == "PROMOTER":
+                _promoter_sync_contact_rows(session_db, entity)
+        _roadmap_save(session_db, row, payload)
+        return jsonify({
+            "ok": True,
+            "payload": payload,
+            "days": _roadmap_days(row, payload),
+            "rows": _roadmap_person_rows(session_db, payload.get("personnel") or []),
+            "saved": guardado,
+            "ficha": ficha,
+            "has_ficha": entity is not None,
+        })
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.get("/api/hoja-ruta/personas", endpoint="api_roadmap_person_search")
+@admin_required
+def api_roadmap_person_search():
+    """Busca en TODA la base a quien puede ir en una hoja de ruta: personal de la oficina,
+    integrantes de los artistas y terceros. Devuelve el `kind` que espera el personal."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify([])
+    session_db = db()
+    try:
+        out, vistos = [], set()
+
+        def añade(kind, ref_id, nombre, foto, sub, phone="", email=""):
+            clave = (kind, str(ref_id))
+            if not nombre or clave in vistos:
+                return
+            vistos.add(clave)
+            out.append({"kind": kind, "id": str(ref_id), "label": nombre, "logo_url": foto or "",
+                        "sub": sub, "phone": phone or "", "email": email or ""})
+
+        inactivos = _inactive_user_ids(session_db)
+        # 1) personal de la oficina
+        filas = (session_db.query(User, UserProfile)
+                 .outerjoin(UserProfile, UserProfile.user_id == User.id)
+                 .filter(or_(_sa_contains_text(UserProfile.nick, q),
+                             _sa_contains_text(User.email, q),
+                             _sa_contains_text(UserProfile.first_name, q),
+                             _sa_contains_text(UserProfile.last_name, q)))
+                 .order_by(UserProfile.nick.asc()).limit(8).all())
+        for user, prof in filas:
+            if user.id in inactivos:
+                continue
+            nombre = " ".join([x for x in [getattr(prof, "first_name", ""), getattr(prof, "last_name", "")] if x]).strip()
+            movil = ""
+            for valor in (getattr(prof, "mobile_phones", None) or []):
+                movil = (valor if isinstance(valor, str) else (valor or {}).get("phone", "")) or ""
+                if movil:
+                    break
+            añade("USER", user.id, nombre or (getattr(prof, "nick", "") or ""), getattr(prof, "photo_url", "") or "",
+                  "Personal de la oficina", movil, user.email or "")
+        # 2) integrantes de los artistas (son TERCEROS, así que van como PROMOTER con su ficha)
+        miembros = (session_db.query(ArtistPerson, Artist)
+                    .join(Artist, Artist.id == ArtistPerson.artist_id)
+                    .filter(or_(_sa_contains_text(ArtistPerson.first_name, q),
+                                _sa_contains_text(ArtistPerson.last_name, q)))
+                    .order_by(ArtistPerson.first_name.asc()).limit(8).all())
+        for miembro, artista in miembros:
+            nombre = _artist_person_full_name(miembro)
+            if miembro.promoter_id:
+                pr = session_db.get(Promoter, miembro.promoter_id)
+                if pr is not None:
+                    correo, tel = _promoter_email_phone(pr)
+                    añade("PROMOTER", pr.id, _promoter_display_name(pr) or nombre,
+                          getattr(pr, "logo_url", "") or "", "Integrante de " + (artista.name or ""), tel, correo)
+                    continue
+            añade("MEMBER", miembro.id, nombre, "", "Integrante de " + (artista.name or ""))
+        # 3) terceros
+        for pr in (session_db.query(Promoter)
+                   .filter(_promoter_search_clause(session_db, q))
+                   .order_by(Promoter.nick.asc()).limit(10).all()):
+            correo, tel = _promoter_email_phone(pr)
+            nombre = _promoter_display_name(pr)
+            # ⚠️ Puede haber DOS personas con el mismo nombre: el subtítulo tiene que servir para
+            # distinguirlas, así que lleva su nick (si no es ya el nombre) y su correo o su teléfono.
+            partes = ["Tercero"]
+            nick = (getattr(pr, "nick", "") or "").strip()
+            if nick and _norm_text_key(nick) != _norm_text_key(nombre):
+                partes.append(nick)
+            if correo or tel:
+                partes.append(correo or tel)
+            añade("PROMOTER", pr.id, nombre, getattr(pr, "logo_url", "") or "",
+                  " · ".join(partes), tel, correo)
+        return jsonify(out[:20])
+    finally:
+        session_db.close()
+
+
 @app.post('/hoja-ruta/<entity_type>/<entity_id>/personal/delete', endpoint='roadmap_personnel_delete')
 @admin_required
 def roadmap_personnel_delete(entity_type, entity_id):
@@ -80597,6 +80965,10 @@ def roadmap_template_load(entity_type, entity_id, tid):
 
         if tpl.kind == "PERSONNEL":
             res = _artist_template_copy_personnel(origen, payload)
+            # Los DATOS QUE SE VEN son parte de cómo se ha montado esa plantilla: se traen con ella
+            # (solo si la actividad no los ha tocado; lo elegido a mano manda).
+            if isinstance(origen.get("personnel_cols"), list) and not isinstance(payload.get("personnel_cols"), list):
+                payload["personnel_cols"] = _roadmap_person_cols(origen)
             _roadmap_save(session_db, row, payload)
             resumen.update(added=res["added"], skipped=res["skipped"],
                            payload=payload, days=_roadmap_days(row, payload),
@@ -85780,6 +86152,12 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_personnel_save", "roadmap_personnel_delete",
     "roadmap_attachment_upload", "roadmap_attachment_delete",
     "roadmap_days_save", "roadmap_public_link",
+    # Reparto de habitaciones: la reserva del hotel, mover una habitación o un huésped y decir que
+    # alguien no necesita habitación. ⚠️ Sin esto, quien monta la producción se come un 403.
+    "roadmap_hotel_reserved", "roadmap_room_move", "roadmap_room_delete", "roadmap_room_guest",
+    "roadmap_person_no_room",
+    # Personal: qué datos se ven y completar en su ficha lo que le falta a una persona.
+    "roadmap_personnel_cols", "roadmap_person_fill",
     # PRL / altas del personal del evento (subpestaña PRL del Personal + fichas)
     "prl_request_docs", "prl_doc_upload", "prl_doc_reject", "prl_doc_delete", "prl_set_worker_type",
     # Bolsa: cargar plantillas de gastos y pedir facturas a los proveedores
@@ -85849,6 +86227,9 @@ SUPPORT_READ_ENDPOINTS = {
     "prl_status_json", "prl_export_pdf", "prl_export_xlsx",
     # Listado de VIAJE de la hoja de ruta (necesidades de viaje del personal).
     "roadmap_travel_json",
+    # Personal de la hoja de ruta: sus datos (los de su ficha incluidos) y la búsqueda de quien
+    # puede ir (personal de la oficina, integrantes de los artistas y terceros). Son BÚSQUEDAS.
+    "roadmap_personnel_data", "api_roadmap_person_search",
     # Royalties «a favor»: PDF de la liquidación.
     "afavor_liquidation_pdf",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",

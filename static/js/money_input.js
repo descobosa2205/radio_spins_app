@@ -86,7 +86,11 @@
     v = v.replace(/[€$£\s]/g, '');
     var neg = v.charAt(0) === '-';
     if (neg) v = v.slice(1);
-    v = v.replace(/[^\d.,]/g, '');
+    /* ⚠️⚠️ EL PRIMER NÚMERO, antes de tirar las letras: quitarlas a secas PEGA las cifras de todo
+       lo que haya detrás («1.500 € + IVA (21%)» se quedaba en 1.50021) y el texto de detrás rompe
+       la regla de los separadores. Es el espejo de `_money_first_number` (app.py). */
+    var mNum = v.match(/\d[\d.,]*/);
+    v = mNum ? mNum[0].replace(/[.,]+$/, '') : '';
     var coma = v.lastIndexOf(','), punto = v.lastIndexOf('.');
     if (coma !== -1 && punto !== -1) {
       if (coma > punto) v = v.replace(/\./g, '').replace(/,/g, '.');

@@ -1,0 +1,359 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ═══════════════════════════════════════════════════════════════════════════════════════════════
+   EL EDITOR DE UN RIDER · **CADA SECCIÓN ES UNA PESTAÑA**
+
+   Un rider es lo que el artista necesita para actuar y lo que se le manda al promotor: el sonido,
+   el backline, las luces, el escenario, los camerinos, el catering… De cada línea hace falta saber
+   la CANTIDAD, el CONCEPTO y **QUIÉN LO PONE**, que es lo que de verdad se negocia.
+
+   ⚠️ El ORDEN de las secciones es el del DOCUMENTO (es el orden en el que sale el PDF y la página
+   pública), así que se mueve con las flechas de cada sección y la barra lleva `data-no-sort`: el
+   gesto de «mantener pulsado para ordenar» de la casa guarda una PREFERENCIA de quien mira, y aquí
+   el orden es del rider.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ #}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-volver" href="{{ url_for('produccion_view', tab='riders') }}"
+     title="Volver a los riders" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="ficha-hero mb-3">
+  <div class="d-flex flex-wrap gap-3 align-items-center">
+    {# ⚠️ Un ARTISTA sin foto va con el MUÑEQUITO GRIS (la regla de la casa: se VE, así que el hueco
+       no descoloca la fila); un evento, una gira o un ciclo, con el icono de lo que son. #}
+    <div class="ficha-hero__media">
+      {% if rider_subject.photo %}
+        <img src="{{ rider_subject.photo }}" alt="" data-avatar="1">
+      {% elif rider_subject.kind == 'ARTIST' %}
+        <img src="{{ DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+      {% else %}
+        <span class="rd-hero__ico"><i class="fa {{ rider_subject.icon }}"></i></span>
+      {% endif %}
+    </div>
+    <div class="flex-grow-1 min-w-0">
+      <div class="small text-muted">
+        <i class="fa fa-guitar me-1"></i>Rider · {{ rider_subject.kind_label }}
+        {% if rider_subject.url %}
+          · <a class="text-reset" href="{{ rider_subject.url }}">{{ rider_subject.name }}</a>
+        {% else %}· {{ rider_subject.name }}{% endif %}
+      </div>
+      <h3 class="m-0 text-truncate">{{ rider.name }}</h3>
+      <div class="small text-muted">{{ rider_summary }}{% if rider_counts.files %} · {{ rider_counts.files }} adjunto{{ '' if rider_counts.files == 1 else 's' }}{% endif %}</div>
+    </div>
+    {% if rider_brand.logo_url %}
+      <div class="hero-company"><img src="{{ rider_brand.logo_url }}" alt="{{ rider_brand.company_name or '33 Producciones' }}"></div>
+    {% endif %}
+  </div>
+</div>
+
+{# La barra de botones: lo que se HACE con el rider. #}
+<div class="ficha-quick mb-3">
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('rider_pdf', tid=rider.id) }}" data-dl-bar>
+    <i class="fa fa-file-pdf me-1"></i>Descargar en PDF
+  </a>
+  <div class="dropdown">
+    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+      <i class="fa fa-share-nodes me-1"></i>Compartir
+    </button>
+    <ul class="dropdown-menu">
+      <li><button class="dropdown-item" type="button" data-rd-share="wa"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+      <li><button class="dropdown-item" type="button" data-rd-share="mail"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
+      <li><button class="dropdown-item" type="button" data-rd-share="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
+      <li><button class="dropdown-item" type="button" data-rd-share="copy"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+      <li><hr class="dropdown-divider"></li>
+      <li><a class="dropdown-item" href="{{ rider_public_url }}" target="_blank" rel="noopener">
+        <i class="fa fa-up-right-from-square fa-fw me-1"></i>Ver la página que reciben</a></li>
+    </ul>
+  </div>
+  {% if rider_can_edit %}
+    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#riderHeadModal">
+      <i class="fa fa-pen me-1"></i>Nombre y presentación
+    </button>
+    <form method="post" action="{{ url_for('artist_template_duplicate', tid=rider.id) }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-secondary btn-sm"><i class="fa fa-copy me-1"></i>Duplicar</button>
+    </form>
+    <form method="post" action="{{ url_for('artist_template_delete', tid=rider.id) }}" class="d-inline"
+          data-confirm="¿Eliminar este rider? No se puede deshacer.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash me-1"></i>Eliminar</button>
+    </form>
+  {% endif %}
+</div>
+
+{% if rider_data.intro %}
+  <div class="ficha-section mb-3">
+    <div class="ficha-section__body rd-intro">{{ rider_data.intro }}</div>
+  </div>
+{% endif %}
+
+{# ══════════ LAS SECCIONES SON LAS PESTAÑAS ══════════ #}
+<ul class="nav nav-tabs rd-tabs mb-3" data-no-sort>
+  {% for s in rider_sections %}
+    <li class="nav-item">
+      <a class="nav-link {% if s.id == rider_active %}active{% endif %}"
+         href="{{ url_for('rider_edit', tid=rider.id, s=s.id) }}">
+        <i class="fa {{ s.icon }} me-1"></i>{{ s.label }}
+        {% if s['lines'] %}<span class="badge text-bg-light border ms-1">{{ s['lines']|length }}</span>{% endif %}
+        {% if s.files %}<i class="fa fa-paperclip ms-1 text-muted small"></i>{% endif %}
+      </a>
+    </li>
+  {% endfor %}
+  {% if rider_can_edit %}
+    <li class="nav-item">
+      <button class="nav-link rd-tabs__add" type="button" data-bs-toggle="modal" data-bs-target="#riderSectionModal"
+              title="Añadir una sección"><i class="fa fa-plus"></i></button>
+    </li>
+  {% endif %}
+</ul>
+
+{% if not rider_section %}
+  <div class="ficha-section">
+    <div class="ficha-section__body text-center py-5 text-muted">
+      <i class="fa fa-layer-group fa-2x mb-3 d-block"></i>
+      Este rider todavía no tiene secciones.
+      {% if rider_can_edit %}Pulsa <i class="fa fa-plus"></i> y elige las que lleva.{% endif %}
+    </div>
+  </div>
+{% else %}
+  {% set sec = rider_section %}
+  <div class="ficha-section" data-rd-section="{{ sec.id }}">
+    <div class="ficha-section__head">
+      <h6 class="ficha-section__title"><i class="fa {{ sec.icon }}"></i>{{ sec.label }}</h6>
+      {% if rider_can_edit %}
+        <div class="d-flex align-items-center gap-1">
+          {# El orden es el del DOCUMENTO: se mueve con las flechas. #}
+          <form method="post" action="{{ url_for('rider_section_move', tid=rider.id, sid=sec.id) }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="dir" value="up">
+            <button class="btn btn-sm btn-outline-secondary" title="Mover antes"><i class="fa fa-arrow-up"></i></button>
+          </form>
+          <form method="post" action="{{ url_for('rider_section_move', tid=rider.id, sid=sec.id) }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="dir" value="down">
+            <button class="btn btn-sm btn-outline-secondary" title="Mover después"><i class="fa fa-arrow-down"></i></button>
+          </form>
+          <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" title="Más">
+              <i class="fa fa-ellipsis-vertical"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#riderRenameModal">
+                <i class="fa fa-pen fa-fw me-1"></i>Cambiar el nombre</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="{{ url_for('rider_section_delete', tid=rider.id, sid=sec.id) }}"
+                      data-confirm="¿Eliminar la sección «{{ sec.label }}» y todo lo que tiene dentro?">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar la sección</button>
+                </form>
+              </li>
+            </ul>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    {# ── LAS LÍNEAS: se guardan TODAS de una vez y el orden del DOM es el que se guarda ── #}
+    <form class="ficha-section__body" method="post" autocomplete="off"
+          action="{{ url_for('rider_items_save', tid=rider.id, sid=sec.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="table-responsive">
+        <table class="table table-sm align-middle rd-table mb-2">
+          <thead>
+            <tr>
+              <th style="width:5.5rem">Cant.</th>
+              <th>Concepto</th>
+              <th style="width:12rem">Quién lo pone</th>
+              <th>Nota</th>
+              {% if rider_can_edit %}<th style="width:3rem"></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody data-rd-rows>
+            {% for it in sec['lines'] %}
+              <tr data-rd-row>
+                <input type="hidden" name="item_id" value="{{ it.id }}">
+                <td><input class="form-control form-control-sm" name="item_qty" value="{{ it.qty }}"
+                           {% if not rider_can_edit %}readonly{% endif %}></td>
+                <td><input class="form-control form-control-sm" name="item_concept" value="{{ it.concept }}"
+                           placeholder="Qué hace falta" {% if not rider_can_edit %}readonly{% endif %}></td>
+                <td>
+                  <select class="form-select form-select-sm" name="item_provider" {% if not rider_can_edit %}disabled{% endif %}>
+                    {% for p in rider_providers %}
+                      <option value="{{ p.key }}" {% if it.provider == p.key %}selected{% endif %}>{{ p.label }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td><input class="form-control form-control-sm" name="item_note" value="{{ it.note }}"
+                           {% if not rider_can_edit %}readonly{% endif %}></td>
+                {% if rider_can_edit %}
+                  <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-rd-del
+                      title="Quitar la línea"><i class="fa fa-trash"></i></button></td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if not sec['lines'] %}
+        <div class="ficha-empty mb-2">Esta sección todavía no tiene líneas.</div>
+      {% endif %}
+      {% if rider_can_edit %}
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+          <button type="button" class="btn btn-sm btn-outline-primary" data-rd-add>
+            <i class="fa fa-plus me-1"></i>Añadir línea
+          </button>
+          <span class="text-muted small">De cada línea hace falta saber quién la pone: es lo que se negocia con el promotor.</span>
+        </div>
+        <label class="form-label">Notas de la sección</label>
+        <textarea class="form-control mb-3" name="note" rows="3"
+                  placeholder="Lo que haya que aclarar de esta sección">{{ sec.note }}</textarea>
+        <div class="d-flex justify-content-end">
+          <button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar la sección</button>
+        </div>
+      {% elif sec.note %}
+        <div class="rd-intro">{{ sec.note }}</div>
+      {% endif %}
+    </form>
+
+    {# ── ADJUNTOS: el plano de escenario, el input list, un PDF del promotor ── #}
+    <div class="ficha-section__body pt-0">
+      <div class="fw-semibold small text-muted mb-2"><i class="fa fa-paperclip me-1"></i>Adjuntos de la sección</div>
+      {% if sec['files'] %}
+        <div class="rd-files mb-2">
+          {% for f in sec['files'] %}
+            <div class="rd-file">
+              <a class="rd-file__a" href="{{ f.url }}" target="_blank" rel="noopener">
+                <i class="fa {{ 'fa-image' if f.kind == 'IMAGE' else ('fa-file-pdf' if f.kind == 'PDF' else 'fa-file-lines') }} me-1"></i>{{ f.name }}
+              </a>
+              {% if rider_can_edit %}
+                <form method="post" action="{{ url_for('rider_file_delete', tid=rider.id, sid=sec.id, fid=f.id) }}"
+                      data-confirm="¿Eliminar «{{ f.name }}»?">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-link text-danger p-0" title="Eliminar"><i class="fa fa-xmark"></i></button>
+                </form>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="ficha-empty mb-2">Sin adjuntos.</div>
+      {% endif %}
+      {% if rider_can_edit %}
+        <form method="post" enctype="multipart/form-data"
+              action="{{ url_for('rider_file_upload', tid=rider.id, sid=sec.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="rd-drop" data-file-drop-for="#riderFiles">
+            <i class="fa fa-file-arrow-up me-1"></i>Arrastra aquí los archivos o
+            <label class="btn btn-sm btn-outline-secondary ms-1 mb-0" for="riderFiles">elígelos</label>
+            <input class="d-none" type="file" id="riderFiles" name="files" multiple
+                   accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.svg,.xlsx,.xls,.csv,.doc,.docx,.txt,.zip">
+            <div class="small text-muted mt-1">El plano de escenario, el input list, lo que haga falta.</div>
+          </div>
+          <div class="d-flex justify-content-end mt-2">
+            <button class="btn btn-outline-primary btn-sm"><i class="fa fa-paperclip me-1"></i>Adjuntar</button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
+{# ══════════ POP-UPS ══════════ #}
+{% if rider_can_edit %}
+  <div class="modal fade" id="riderSectionModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <form method="post" action="{{ url_for('rider_section_save', tid=rider.id) }}" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-content">
+          <div class="modal-header">
+            <div>
+              <h5 class="modal-title"><i class="fa fa-layer-group me-2"></i>Añadir secciones</h5>
+              <div class="text-muted small">Cada sección es una pestaña del rider.</div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            {% if rider_catalog %}
+              <div class="demo-card">
+                <div class="demo-card__t"><i class="fa fa-list-check me-1"></i>De las habituales</div>
+                <div class="rd-pick">
+                  {% for c in rider_catalog %}
+                    <label class="rd-pick__i">
+                      <input class="form-check-input me-2" type="checkbox" name="section_keys" value="{{ c.key }}">
+                      <i class="fa {{ c.icon }} fa-fw me-1 text-muted"></i>{{ c.label }}
+                    </label>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+            <div class="demo-card">
+              <div class="demo-card__t"><i class="fa fa-pen me-1"></i>O una con su nombre</div>
+              <input class="form-control" name="new_label" maxlength="120" placeholder="Cómo se llama la sección">
+              <div class="form-text">El catálogo es una sugerencia: se puede añadir la que haga falta.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary"><i class="fa fa-plus me-1"></i>Añadir</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal fade" id="riderHeadModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form method="post" action="{{ url_for('rider_head_save', tid=rider.id) }}" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="s" value="{{ rider_active }}">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-pen me-2"></i>Nombre y presentación</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label">Nombre del rider</label>
+            <input class="form-control mb-3" name="name" value="{{ rider.name }}" maxlength="160">
+            <label class="form-label">Presentación <span class="text-muted fw-normal">(opcional)</span></label>
+            <textarea class="form-control" name="intro" rows="4"
+                      placeholder="Lo que se lee antes de las secciones">{{ rider_data.intro }}</textarea>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if rider_section %}
+    <div class="modal fade" id="riderRenameModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form method="post" action="{{ url_for('rider_section_save', tid=rider.id) }}" autocomplete="off">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="section_id" value="{{ rider_section.id }}">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fa fa-pen me-2"></i>Nombre de la sección</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <input class="form-control" name="label" value="{{ rider_section.label }}" maxlength="120">
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+{% endif %}
+
+{# Los datos que necesita el JS de la pantalla (las opciones de «quién lo pone» y el enlace). #}
+<script type="application/json" data-rider-cfg>{{ {'providers': rider_providers, 'url': rider_public_url, 'title': ('Rider · ' ~ (rider_subject.name or '') ~ ' · ' ~ rider.name)}|tojson }}</script>
+<script src="{{ url_for('static', filename='js/rider.js') }}?v={{ ASSET_V }}"></script>
+{% endblock %}

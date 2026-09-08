@@ -2,7 +2,8 @@
    Una subpestaña por TIPO (hoja de ruta, personal, rooming, gastos y riders) y, dentro, las
    plantillas AGRUPADAS POR EL SUJETO al que están vinculadas: su foto, su nombre y cuándo se
    actualizó por última vez. Al pinchar una se abre su editor, que es donde se monta y se actualiza.
-   ⚠️ Los RIDERS están por hacer (irán por secciones): su subpestaña lo dice y no se pueden crear. #}
+   ⚠️ Los RIDERS son el MISMO dato que la pestaña «Riders» de Producción (donde se trabajan): su
+   editor va por secciones (`rider_edit`). #}
 <ul class="nav nav-tabs contract-tabs mb-3">
   {% for key, label, icon, _src, listo in tpl_kinds %}
     <li class="nav-item">

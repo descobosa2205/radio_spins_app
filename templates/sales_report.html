@@ -51,7 +51,7 @@
       <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2"
               data-artist-chip="{{ e.key }}" title="{{ e.name }}">
         {% if e.photo %}<img src="{{ e.photo }}" class="artist-mini" alt="">
-        {% else %}<span class="sales-chip__ico"><i class="fa {{ 'fa-calendar-star' if e.kind == 'event' else 'fa-user' }}"></i></span>{% endif %}
+        {% else %}<span class="sales-chip__ico"><i class="fa {{ 'fa-calendar-day' if e.kind == 'event' else 'fa-user' }}"></i></span>{% endif %}
         <span>{{ e.name }}</span>
       </button>
     {% endfor %}

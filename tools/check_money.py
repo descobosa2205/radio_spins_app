@@ -35,7 +35,7 @@ def _carga_parsers():
     src = io.open(os.path.join(RAIZ, "app.py"), encoding="utf-8").read()
     i = src.index("def _money_number(")
     j = src.index("\n# ---", i)
-    ns = {"Decimal": Decimal}
+    ns = {"Decimal": Decimal, "re": re}
     from decimal import InvalidOperation
     ns["InvalidOperation"] = InvalidOperation
     exec(src[i:j], ns)
@@ -58,6 +58,18 @@ CASOS_PERSONA = [
     ("1,234.56", "1234.56"),      # formato de allí
     ("1.5", "1.5"),
     ("100", "100"),
+    # ⚠️⚠️ UN IMPORTE CASI NUNCA LLEGA SOLO: viene con su moneda y su nota detrás. El texto de
+    # detrás ROMPÍA la regla de los separadores y el respaldo pegaba las cifras de todo lo que
+    # hubiera: «1.500 € + IVA» daba **1,5 €** y «1.500 € + IVA (21%)» daba **1,50021** (bug real de
+    # dinero, sep 2026 — el importe orientativo de una petición).
+    ("1.500 € + IVA", "1500"),
+    ("1.500 € + IVA (21%)", "1500"),
+    ("40.000 € más IVA", "40000"),
+    ("12.000 € netos", "12000"),
+    ("Total: 1.500", "1500"),
+    ("2.500€", "2500"),
+    ("3000 euros", "3000"),
+    ("-1.500 €", "-1500"),
     ("-40.000", "-40000"),
     ("1.200,50 €", "1200.50"),
     ("", "0"),

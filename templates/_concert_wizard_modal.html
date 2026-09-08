@@ -1832,7 +1832,7 @@
         const useExisting = confirm(`Ya existe un artista similar: ${first.label}.\n\nAceptar = seleccionar existente\nCancelar = crear uno nuevo`);
         const targetId = window.artistCreateTargetSelectId || 'wizard_artist_id';
         if(useExisting){
-          const sel = document.getElementById(targetId) || document.querySelector('select[name="artist_id"]');
+          const sel = document.getElementById(targetId) || wzQ('select[name="artist_id"]');
           if(sel){
             const exists = Array.from(sel.options).find(o => o.value === first.id);
             if(exists){ sel.value = first.id; }
@@ -1847,7 +1847,7 @@
       }
       if(!res.ok){ alert(data.error || 'Error creando artista'); return false; }
       const targetId = window.artistCreateTargetSelectId || 'wizard_artist_id';
-      const sel = document.getElementById(targetId) || document.querySelector('select[name="artist_id"]');
+      const sel = document.getElementById(targetId) || wzQ('select[name="artist_id"]');
       if(sel){
         const opt = document.createElement('option');
         opt.value = data.id;
@@ -1872,7 +1872,21 @@
     const nextBtn = document.getElementById('wizardNextBtn');
     const submitBtn = document.getElementById('wizardSubmitBtn');
     const modeInput = document.getElementById('wizard_mode');
-    const modeChoices = document.querySelectorAll('input[name="wizard_mode_choice"]');
+    /* ⚠️⚠️ TODO LO DEL ASISTENTE SE BUSCA DENTRO DE SU PROPIO FORMULARIO (bug real, sep 2026).
+       Este parcial se incluye en pantallas donde hay OTRO formulario con los MISMOS nombres de
+       campo —la ficha de una PETICIÓN trae también el asistente de peticiones, con su
+       `activity_type`, su `artist_sings`…— y `wzQ('[name=…]')` coge **el primero
+       del DOCUMENTO**: al configurar un evento promocional aprobado, el tipo de actividad se
+       marcaba en el asistente de PETICIONES y el de la actividad se quedaba en «Concierto», o sea
+       que volvía a preguntarlo. Con `wzQ`/`wzQA` eso no puede pasar. */
+    function wzRoot(){
+      return document.getElementById('concertWizardForm')
+             || document.getElementById('concertWizardModal') || document;
+    }
+    function wzQ(sel){ return wzRoot().querySelector(sel); }
+    function wzQA(sel){ return wzRoot().querySelectorAll(sel); }
+    window.app33WzQ = wzQ; window.app33WzQA = wzQA;   // para el bloque del precumplimentado
+    const modeChoices = wzQA('input[name="wizard_mode_choice"]');
     const knowsVenue = document.getElementById('wizard_knows_venue');
     const venueKnownWrap = document.getElementById('wizardVenueKnownWrap');
     const venueManualWrap = document.getElementById('wizardVenueManualWrap');
@@ -1890,7 +1904,7 @@
     const SINGING_TYPES = ['DISC_PREMIOS', 'DISC_FIRMA'];
 
     function activityType(){
-      const t = document.querySelector('input[name="activity_type"]:checked');
+      const t = wzQ('input[name="activity_type"]:checked');
       return t ? t.value : 'CONCIERTO';
     }
     function isPromoActivity(){ return PROMO_TYPES.indexOf(activityType()) >= 0; }
@@ -1899,7 +1913,7 @@
       return r ? r.value : '';
     }
     function artistSings(){
-      const r = document.querySelector('input[name="artist_sings"]:checked');
+      const r = wzQ('input[name="artist_sings"]:checked');
       return r ? r.value === '1' : false;
     }
 
@@ -2011,6 +2025,11 @@
       goStep: showStep,
       sequence: stepSequence,
       current: function () { return currentStep; },
+      /* ⚠️ Elegir el PROMOTOR desde fuera (una petición aprobada que se configura). Antes el
+         precumplimentado rellenaba la barra de búsqueda y disparaba su `change`, pero ese listener
+         lo pone `initPromoterSearch`, que REINTENTA hasta que exista `initTypeahead`: si todavía no
+         estaba, el promotor se quedaba VACÍO y se volvía a preguntar (bug real). */
+      pickPromoter: function (id, kind, label, logo) { onMainPromoterPicked(id, kind, label, logo); },
     };
 
     /* ---- DE QUIÉN ES: artistas y EVENTOS en el MISMO selector, varios a la vez ----
@@ -2117,7 +2136,7 @@
     syncSubjectPick();
 
     function syncMode(){
-      const checked = document.querySelector('input[name="wizard_mode_choice"]:checked');
+      const checked = wzQ('input[name="wizard_mode_choice"]:checked');
       modeInput.value = checked ? checked.value : 'direct';
       document.querySelectorAll('.direct-only').forEach(el => {
         el.classList.toggle('d-none', modeInput.value !== 'direct');
@@ -2530,7 +2549,7 @@
 
     /* Vendedor de entradas: tarjetas dinámicas con los nombres reales. */
     function updateSellerCards(){
-      const usName = document.querySelector('input[name="billing_company_id"]:checked')?.dataset.companyName || '';
+      const usName = wzQ('input[name="billing_company_id"]:checked')?.dataset.companyName || '';
       const usEl = document.getElementById('wzSellerUsName');
       if(usEl) usEl.textContent = usName;
       // Promotor
@@ -2576,7 +2595,7 @@
       document.getElementById('wizardSellerThirdWrap')?.classList.toggle('d-none', !third);
     }
     document.querySelectorAll('.wizard-seller-radio').forEach(r => r.addEventListener('change', updateSellerCards));
-    document.querySelectorAll('input[name="billing_company_id"]').forEach(r => r.addEventListener('change', updateSellerCards));
+    wzQA('input[name="billing_company_id"]').forEach(r => r.addEventListener('change', updateSellerCards));
 
     function initSellerThirdSearch(){
       const el = document.getElementById('wizard_seller_third_search');
@@ -2641,14 +2660,14 @@
     }
     function recalcCacheTotals(){
       let total = 0;
-      document.querySelectorAll('#wizardCaches .cache-fixed input[name="cache_amount[]"]').forEach(inp => {
+      wzQA('#wizardCaches .cache-fixed input[name="cache_amount[]"]').forEach(inp => {
         const row = inp.closest('.border');
         const kind = row?.querySelector('select[name="cache_kind[]"]')?.value || 'FIXED';
         if(kind === 'VARIABLE') return;
         total += importe(inp.value);
       });
       let paid = 0;
-      document.querySelectorAll('#wizardPaymentRows input[name="payment_amount[]"]').forEach(inp => {
+      wzQA('#wizardPaymentRows input[name="payment_amount[]"]').forEach(inp => {
         paid += importe(inp.value);
       });
       const pending = Math.round((total - paid) * 100) / 100;
@@ -2699,7 +2718,7 @@
         // igual que los suma el servidor: si aquí solo se contaran los fijos, el importe del aviso
         // («con este caché sumaría X») no cuadraría con el que decide si se avisa o no.
         let total = 0;
-        document.querySelectorAll('#wizardCaches input[name="cache_amount[]"]').forEach(inp => {
+        wzQA('#wizardCaches input[name="cache_amount[]"]').forEach(inp => {
           total += importe(inp.value);
         });
         return total;
@@ -2707,8 +2726,8 @@
 
       function checkLimit(){
         if (skipped) return;
-        const company = document.querySelector('input[name="billing_company_id"]:checked');
-        const dateVal = (document.querySelector('input[name="date"]')?.value || '').trim();
+        const company = wzQ('input[name="billing_company_id"]:checked');
+        const dateVal = (wzQ('input[name="date"]')?.value || '').trim();
         const cache = currentCache();
         if (!company || !dateVal || cache <= 0){ box.classList.add('d-none'); return; }
         const year = dateVal.slice(0, 4);
@@ -2733,7 +2752,7 @@
       }
       window.__wzCheckBillingLimit = checkLimit;
       document.getElementById('wizardCacheStep')?.addEventListener('input', () => setTimeout(checkLimit, 350));
-      document.querySelectorAll('input[name="billing_company_id"]').forEach(r =>
+      wzQA('input[name="billing_company_id"]').forEach(r =>
         r.addEventListener('change', () => { skipped = false; lastKey = ''; checkLimit(); }));
     })();
 
@@ -2791,7 +2810,7 @@
     }
 
     function syncFestivalName(){
-      const t = document.querySelector('input[name="activity_type"]:checked');
+      const t = wzQ('input[name="activity_type"]:checked');
       const tipo = (t && t.value) || '';
       const wrap = document.getElementById('wizardFestivalNameWrap');
       if(wrap) wrap.classList.toggle('d-none', tipo === 'CONCIERTO');
@@ -2851,11 +2870,11 @@
       if(step === 3){
         const fecha = document.getElementById('wizard_date');
         if(!fecha.value) return falla(fecha, 'Indica la fecha de la actividad.');
-        if(!document.getElementById('wizard_venue_id').value && !document.querySelector('input[name="manual_municipality"]').value.trim() && !document.querySelector('input[name="manual_province"]').value.trim()){
+        if(!document.getElementById('wizard_venue_id').value && !wzQ('input[name="manual_municipality"]').value.trim() && !wzQ('input[name="manual_province"]').value.trim()){
           // Sin recinto hace falta al menos el sitio: se marca la barra de búsqueda, que es por
           // donde se rellena (los campos sueltos aparecen al elegir una sugerencia).
           const barra = form.querySelector('#wizardVenueManualWrap [data-addr="search"]')
-                     || document.querySelector('input[name="manual_municipality"]');
+                     || wzQ('input[name="manual_municipality"]');
           return falla(barra, 'Indica el recinto o, si no lo sabes, busca el municipio.');
         }
       }
@@ -2866,7 +2885,7 @@
       if(step === 4 && modeInput.value === 'direct' && isPromoActivity()){
         // Solo en actividades promocionales/TV/marca/otros: en un concierto o festival se canta
         // siempre, así que ni se pregunta ni se puede exigir (el panel está oculto).
-        if(!document.querySelector('input[name="artist_sings"]:checked')){
+        if(!wzQ('input[name="artist_sings"]:checked')){
           return falla(document.querySelector('.wizard-sings-radio'), 'Indica si el artista canta o no.');
         }
       }
@@ -2894,7 +2913,7 @@
 
     modeChoices.forEach(el => el.addEventListener('change', syncMode));
     knowsVenue?.addEventListener('change', toggleVenueKnown);
-    document.querySelectorAll('input[name="activity_type"]').forEach(el => el.addEventListener('change', () => { syncFestivalName(); syncEconomyCards(); syncSimpleType(); renderStepPills(); }));
+    wzQA('input[name="activity_type"]').forEach(el => el.addEventListener('change', () => { syncFestivalName(); syncEconomyCards(); syncSimpleType(); renderStepPills(); }));
 
     // DISCOGRÁFICAS: su tarjeta despliega los tipos; al elegir uno de arriba se recogen.
     const discCard = document.getElementById('wizardDiscCard');
@@ -2994,7 +3013,7 @@
     form.addEventListener('submit', (ev)=> {
       if(!validateStep(currentStep)){ ev.preventDefault(); return; }
       // Vínculo a gira comprada / ciclo / festival elegido en su paso.
-      const gref = document.querySelector('input[name="wizard_group_ref"]:checked');
+      const gref = wzQ('input[name="wizard_group_ref"]:checked');
       const ptEl = document.getElementById('wizard_purchased_tour_id');
       const cfEl = document.getElementById('wizard_cycle_festival_id');
       if(ptEl) ptEl.value = '';
@@ -3046,18 +3065,27 @@
   (function () {
     var pre = window.CONCERT_WIZARD_PREFILL;
     if (!pre || !pre.enabled) return;
+    /* Los campos del asistente, DENTRO de su formulario (ver el aviso de `wzQ` más arriba: en la
+       ficha de una petición hay otro formulario con los mismos nombres). */
+    var wzQ = window.app33WzQ || function (sel) {
+      var r = document.getElementById('concertWizardForm')
+              || document.getElementById('concertWizardModal') || document;
+      return r.querySelector(sel);
+    };
 
     function setRadio(name, value) {
       if (value === undefined || value === null || value === '') return;
-      var el = document.querySelector('input[name="' + name + '"][value="' + value + '"]');
+      var el = wzQ('input[name="' + name + '"][value="' + value + '"]');
       if (el) { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); }
     }
+    /* ⚠️ Los campos se buscan DENTRO del asistente: la ficha de una petición trae también el
+       asistente de PETICIONES con los mismos nombres (ver el aviso de `wzQ`). */
     function setVal(sel, value) {
-      var el = document.querySelector(sel);
+      var el = wzQ(sel) || document.querySelector(sel);
       if (el && value) { el.value = value; el.dispatchEvent(new Event('change', { bubbles: true })); }
     }
     function pickSelect2(sel, id, label, logo) {
-      var el = document.querySelector(sel);
+      var el = wzQ(sel) || document.querySelector(sel);
       if (!el || !id) return;
       if (!el.querySelector('option[value="' + id + '"]')) {
         var o = document.createElement('option');
@@ -3123,13 +3151,30 @@
           pIn.value = pre.promoter_name || '';
           pHid.value = pre.promoter_id;
           if (pLogo) pLogo.value = pre.promoter_logo || '';
+        }
+        /* ⚠️ Se le SIEMBRA lo elegido al buscador (`app33TaPick`, el punto único de la casa): si no,
+           el `change`/`blur` siguiente llama a `resolveSelection`, no encuentra el texto en el
+           datalist —que con imagen se vacía a propósito— y **BORRA el oculto**. */
+        if (pIn && pIn.app33TaPick) {
+          try { pIn.app33TaPick(pre.promoter_id, pre.promoter_name || ''); } catch (e) {}
+        }
+        /* ⚠️⚠️ Y se ELIGE por la API del asistente, NO disparando el `change` de la barra: ese
+           listener lo cablea `initPromoterSearch`, que REINTENTA hasta que exista `initTypeahead`,
+           así que si todavía no estaba el promotor se quedaba VACÍO —y si el oculto se había
+           limpiado, el propio `change` llamaba a `clearMainPromoter` y lo BORRABA— y la actividad
+           volvía a preguntar quién promueve (bug real). */
+        var apiP = window.app33ConcertWizard;
+        if (apiP && apiP.pickPromoter) {
+          try { apiP.pickPromoter(pre.promoter_id, 'promoter', pre.promoter_name || '', pre.promoter_logo || ''); }
+          catch (e) { if (pIn) pIn.dispatchEvent(new Event('change', { bubbles: true })); }
+        } else if (pIn) {
           pIn.dispatchEvent(new Event('change', { bubbles: true }));
         }
       }
       // 5 · ¿Tiene caché? y el importe orientativo que traía la petición.
       setRadio('has_cache', (pre.has_cache ? '1' : '0'));
       if (pre.has_cache && pre.fee_amount) {
-        var amt = document.querySelector('#wizardCaches input[name="cache_amount[]"]');
+        var amt = wzQ('#wizardCaches input[name="cache_amount[]"]');
         if (amt && !amt.value) { amt.value = pre.fee_amount; amt.dispatchEvent(new Event('input', { bubbles: true })); }
       }
       // 6 · Lo que cubre el promotor (el mismo módulo que en la petición).
@@ -3203,6 +3248,13 @@
   /* Auto-apertura del asistente con artista preseleccionado (desde el botón + de la agenda:
      .../conciertos?open_wizard=1&wizard_artist=<id>). */
   (function () {
+    /* Los campos del asistente, DENTRO de su formulario (ver el aviso de `wzQ` más arriba: en la
+       ficha de una petición hay otro formulario con los mismos nombres). */
+    var wzQ = window.app33WzQ || function (sel) {
+      var r = document.getElementById('concertWizardForm')
+              || document.getElementById('concertWizardModal') || document;
+      return r.querySelector(sel);
+    };
     var params = new URLSearchParams(window.location.search);
     if (params.get('open_wizard') !== '1') return;
     var artistId = params.get('wizard_artist') || '';
@@ -3245,11 +3297,11 @@
       }
       // Alta de fecha desde una gira/ciclo: tipo CONCIERTO y vínculo al grupo de origen.
       if (actType) {
-        var atRadio = document.querySelector('input[name="activity_type"][value="' + actType + '"]');
+        var atRadio = wzQ('input[name="activity_type"][value="' + actType + '"]');
         if (atRadio) { atRadio.checked = true; atRadio.dispatchEvent(new Event('change', { bubbles: true })); }
       }
       if (groupRef) {
-        var gRadio = document.querySelector('input[name="wizard_group_ref"][value="' + groupRef + '"]');
+        var gRadio = wzQ('input[name="wizard_group_ref"][value="' + groupRef + '"]');
         if (gRadio) gRadio.checked = true;
       }
       // Conversión desde simulación: sus gastos previstos pasarán a ser el presupuesto.

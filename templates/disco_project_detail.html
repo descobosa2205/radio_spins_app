@@ -33,7 +33,7 @@
       {% if row.focus_single %}<span class="badge text-bg-danger ms-1" title="Focus single · lanzamiento prioritario"><i class="fa fa-star me-1"></i>Focus single</span>{% endif %}
     </div>
     <div class="ficha-hero__facts">
-      {% if row.artist_name %}<span{% if row.artist_id %} data-artist-link="{{ row.artist_id }}"{% endif %}><i class="fa fa-user-music"></i>{{ row.artist_name }}</span>{% endif %}
+      {% if row.artist_name %}<span{% if row.artist_id %} data-artist-link="{{ row.artist_id }}"{% endif %}><i class="fa fa-guitar"></i>{{ row.artist_name }}</span>{% endif %}
       <span><i class="fa fa-calendar-day"></i>{{ row.release_label }}</span>
       {% if row.release_mode_label %}<span><i class="fa fa-boxes-stacked"></i>{{ row.release_mode_label }}</span>{% endif %}
       {% if row.physical_label %}<span><i class="fa fa-compact-disc"></i>{{ row.physical_label }}</span>{% endif %}

@@ -29,7 +29,7 @@
 
         {# ── Paso A · ¿de quién es la actividad? ───────────────────────────────────── #}
         <div class="d-none" data-bi-step="subject">
-          <div class="sw-step__q mb-2"><i class="fa fa-user-music me-2 text-danger"></i>¿De quién es la actividad?</div>
+          <div class="sw-step__q mb-2"><i class="fa fa-guitar me-2 text-danger"></i>¿De quién es la actividad?</div>
           <input class="form-control mb-2" type="search" placeholder="Buscar artista o evento…" data-bi-subject-search>
           <div class="promo-pick-grid" data-bi-subject-grid>
             {% for sj in subjects %}
@@ -40,9 +40,9 @@
                   {% if sj.photo_url and 'placeholder_photo' not in sj.photo_url %}
                     <img src="{{ sj.photo_url }}" alt="" data-avatar="1">
                   {% else %}
-                    <span class="promo-pick__avatar"><i class="fa {{ 'fa-calendar-star' if sj.kind == 'EVENT' else 'fa-user' }}"></i></span>
+                    <span class="promo-pick__avatar"><i class="fa {{ 'fa-calendar-day' if sj.kind == 'EVENT' else 'fa-user' }}"></i></span>
                   {% endif %}
-                  <span class="promo-pick__name">{{ sj.name }}{% if sj.kind == 'EVENT' %} <i class="fa fa-calendar-star text-muted small"></i>{% endif %}</span>
+                  <span class="promo-pick__name">{{ sj.name }}{% if sj.kind == 'EVENT' %} <i class="fa fa-calendar-day text-muted small"></i>{% endif %}</span>
                 </span>
               </label>
             {% endfor %}

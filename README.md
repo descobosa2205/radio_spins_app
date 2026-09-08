@@ -189,6 +189,43 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-09-08 — Los RIDERS, por secciones · el asistente ya no vuelve a preguntar lo que sabe
+
+- **LOS RIDERS, POR SECCIONES (Producción → Riders).** El rider es lo que el artista necesita para
+  actuar y **lo que se le manda al promotor**: el sonido, los monitores, el backline, las luces, el
+  escenario, los camerinos, el catering… Se monta **por secciones, y cada sección es una pestaña**.
+  De cada línea se dice la **cantidad**, el **concepto** y **quién lo pone** (el promotor, nosotros
+  o por concretar), con la **nota** de cada cosa y los **adjuntos** de la sección (el plano de
+  escenario, el input list…). Nace con las secciones habituales marcadas, se pueden **añadir las que
+  hagan falta con su nombre** y se **ordenan** con las flechas (el orden es el del documento).
+  Un rider se vincula a un **artista, un evento, una gira o un ciclo**, se **duplica**, se descarga
+  en **PDF** (con el logo de 33 Producciones y las páginas numeradas) y se **comparte con el
+  promotor** por WhatsApp, correo, SMS o copiando el enlace — lo que se manda es una **página web
+  que está siempre al día**, nunca un archivo suelto. Y en la ficha de cada **actividad**, dentro de
+  «Equipamiento», salen los riders de sus artistas con su PDF y su enlace.
+- **UNA PETICIÓN APROBADA YA NO VUELVE A PREGUNTAR LO QUE YA SE DIJO.** Al configurar un evento
+  promocional ya aprobado por contratación, el asistente volvía a pedir el **artista**, el **tipo de
+  actividad** y el **promotor**. La causa: el asistente buscaba sus campos en **toda la página** y
+  en la ficha de la petición hay **otro formulario con los mismos nombres** (el de la propia
+  petición), así que lo escribía en el equivocado. Ahora entra **directamente en el primer paso que
+  falta** y trae ya puestos el artista, el tipo, la fecha, el municipio y la provincia, el promotor,
+  si tiene caché y su importe, lo que cubre el promotor y la empresa del grupo. Los pasos anteriores
+  siguen ahí para repasarlos.
+- **ARREGLADO UN ERROR DE IMPORTES: «1.500 € + IVA» se leía como 1,5 €.** Un importe escrito con su
+  moneda y una nota detrás («1.500 € + IVA», «40.000 € más IVA») se leía mal, y con un porcentaje
+  detrás («1.500 € + IVA (21%)») se pegaban las cifras y salía **1,50021**. Pasaba en el importe
+  orientativo de una petición y en cualquier campo de dinero escrito así. Y un «20% de la taquilla»
+  ya **no se vuelca como 20 € de caché**: un porcentaje no es un importe.
+- **PERMISOS: el editor de un rider (y crear plantillas de producción) no comprobaba el acceso.**
+  Un usuario sin acceso a Producción podía abrir el editor. Corregido: ahora da 403, y quien solo
+  tiene lectura lo ve **sin los botones de editar**.
+- **ICONOS QUE SALÍAN VACÍOS.** Dos iconos que no existen en la versión de Font Awesome de la app se
+  usaban en **20 sitios** (el sujeto de una plantilla y de una nota de prensa, el asistente de un
+  proyecto, la cabecera de una bolsa, el reporte de ventas, el alta de una demo, el botón + de la
+  agenda…) y dejaban el hueco en blanco. Ya se ven.
+- **«COPIAR ENLACE» dejaba de funcionar** en una ficha después de guardar cualquier sección (el
+  botón no hacía nada, sin dar ningún error). Arreglado para toda la app.
+
 ### 2026-09-06 — Pasar de canción en el coche · las playlists en el móvil · Mis avisos
 
 - **EN CARPLAY Y EN EL IPHONE YA SE PUEDE PASAR DE CANCIÓN.** Se veía el tema, se podía pausar y

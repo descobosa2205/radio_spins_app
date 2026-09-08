@@ -36,7 +36,7 @@
     <div class="ficha-hero__title">{{ group.name }}</div>
     <div class="ficha-hero__facts">
       {% if group.managing_company %}<span><i class="fa fa-building me-1"></i>{{ group.managing_company.name }}</span>{% endif %}
-      {% if is_tour and group.artist %}<span><i class="fa fa-user-music me-1"></i>{{ group.artist.name }}</span>{% endif %}
+      {% if is_tour and group.artist %}<span><i class="fa fa-guitar me-1"></i>{{ group.artist.name }}</span>{% endif %}
       {% if not is_tour and group.venue %}<span><i class="fa fa-location-dot me-1"></i>{{ group.venue.name }}</span>{% endif %}
       {% if group.start_date %}<span><i class="fa fa-calendar me-1"></i>{{ group.start_date.strftime('%d/%m/%Y') }}{% if group.end_date and group.end_date != group.start_date %} – {{ group.end_date.strftime('%d/%m/%Y') }}{% endif %}</span>{% endif %}
       <span class="badge {{ status_badge }}">{{ status_label }}</span>

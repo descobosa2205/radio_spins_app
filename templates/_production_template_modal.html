@@ -2,8 +2,8 @@
    Dos pasos: el TIPO (con su icono) y a QUIÉN se vincula (artista, evento, gira comprada, ciclo o
    festival nuestro), con lo ACTIVO delante y el resto tras «Ver más». Al crearla se abre su editor,
    que es donde se monta con las mismas funciones con las que luego se ve.
-   ⚠️ Los RIDERS salen en el catálogo pero todavía no se pueden crear (irán por secciones): la
-   tarjeta lo dice y no se puede elegir. #}
+   ⚠️ Un RIDER va POR SECCIONES: al elegirlo se marcan las que lleva (las habituales vienen ya
+   marcadas) y nace con ellas, así se entra a rellenarlo en vez de a una pantalla vacía. #}
 <div class="modal fade" id="prodTemplateModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <form method="post" action="{{ url_for('production_template_create') }}" autocomplete="off"
@@ -60,10 +60,25 @@
             <div class="form-text" data-pt-chosen></div>
           </div>
 
-          <div class="demo-card" data-pt-extra-roadmap hidden>
+          <div class="demo-card" data-pt-extra="ROADMAP" hidden>
             <div class="demo-card__t"><i class="fa fa-calendar-days me-1"></i>¿Cuántos días?</div>
             <input class="form-control form-control-sm w-auto" type="number" min="1" max="30" value="1" name="day_count">
             <div class="form-text">Se ven como «Día 1, Día 2…»: al cargarla en una actividad se colocan en sus días.</div>
+          </div>
+
+          {# Un RIDER nace con sus SECCIONES (cada una será una pestaña de su editor). #}
+          <div class="demo-card" data-pt-extra="RIDER" hidden>
+            <div class="demo-card__t"><i class="fa fa-layer-group me-1"></i>¿Qué secciones lleva?</div>
+            <div class="rd-pick">
+              {% for c in tpl_rider_catalog or [] %}
+                <label class="rd-pick__i">
+                  <input class="form-check-input me-2" type="checkbox" name="rider_sections"
+                         value="{{ c.key }}" {% if c.usual %}checked{% endif %}>
+                  <i class="fa {{ c.icon }} fa-fw me-1 text-muted"></i>{{ c.label }}
+                </label>
+              {% endfor %}
+            </div>
+            <div class="form-text">Se pueden añadir o quitar después, y crear otras con su nombre.</div>
           </div>
 
           <div class="demo-card">
@@ -96,8 +111,13 @@
     }
     function pintaExtra() {
       var k = (hKind.value || '').toUpperCase();
-      var extra = m.querySelector('[data-pt-extra-roadmap]');
-      if (extra) extra.hidden = (k !== 'ROADMAP');
+      /* ⚠️ El panel que no toca se DESHABILITA además de esconderse: un campo oculto se envía
+         igual (la regla de la casa). */
+      m.querySelectorAll('[data-pt-extra]').forEach(function (box) {
+        var suyo = (box.getAttribute('data-pt-extra') || '').toUpperCase() === k;
+        box.hidden = !suyo;
+        box.querySelectorAll('input,select,textarea').forEach(function (el) { el.disabled = !suyo; });
+      });
     }
     m.addEventListener('click', function (ev) {
       var k = ev.target.closest('[data-pt-pick-kind]');

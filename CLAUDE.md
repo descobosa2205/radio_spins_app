@@ -7436,6 +7436,128 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Los catálogos que necesitan los módulos (`PRL_WORKER_TYPES`, `NOTIFY_CHANNELS`) se inyectan en
   `inject_globals`: el parcial se pinta en **cualquier** pantalla y son constantes (ninguna consulta).
 
+- ⚠️⚠️ **PRODUCCIÓN · RIDERS, POR SECCIONES** (sep 2026). El rider es lo que el artista necesita
+  para actuar y **lo que se le manda al promotor**: el sonido, los monitores, el backline, las
+  luces, el escenario, los camerinos, el catering… Va **POR SECCIONES, y cada sección es una
+  PESTAÑA** de su editor (`rider_edit`, `templates/rider_edit.html` + `static/js/rider.js`).
+  · ⚠️⚠️ **UN RIDER ES UNA PLANTILLA** (`ArtistTemplate` con `kind='RIDER'`), vinculada a un
+  **ARTISTA**, un **EVENTO**, una **GIRA comprada** o un **CICLO / FESTIVAL nuestro**, igual que las
+  demás. Con eso hereda gratis el sujeto polimórfico, el listado agrupado, duplicar, eliminar y los
+  permisos: **ni una tabla nueva**. Su contenido vive en `roadmap_payload['rider']`.
+  ⚠️ Su editor **NO es la hoja de ruta** (un rider no tiene días ni horarios): es su propia
+  pantalla, y **`artist_template_edit` REDIRIGE** a ella (así un enlace antiguo sigue valiendo).
+  Punto único de «a dónde se edita una plantilla»: **`_template_edit_url`**.
+  · **Motor**: `RIDER_SECTION_CATALOG` (18 secciones sugeridas con su icono; las habituales vienen
+  marcadas al crear) · `RIDER_PROVIDERS` (**quién lo pone**: el promotor · nosotros · por concretar)
+  · `_rider_load` / `_rider_save` (con **`flag_modified`**: la trampa de siempre del JSONB) ·
+  `_rider_context` · `_rider_summary` · `_build_rider_pdf_bytes` · `_concert_rider_rows`.
+  ⚠️⚠️ **La clave de las líneas se llama `lines`, NO `items`**: en Jinja `s.items` devuelve el
+  MÉTODO del dict y `s.items|length` revienta con «object of type builtin_function_or_method has no
+  len()» (500 real de esta épica). La regla de la casa es **no llamar `items`/`keys`/`values`/`get`
+  a una clave que se vaya a leer en una plantilla** — y por eso los contadores también son `lines`.
+  ⚠️ **Una línea SIN CONCEPTO no se guarda** («2» de qué): para lo que no es una línea está la nota
+  de la sección. Cada fila lleva DENTRO sus campos, así que **el orden del DOM es el que se guarda**.
+  · **EL CATÁLOGO ES UNA SUGERENCIA**: se añaden las secciones que hagan falta con su nombre (la
+  misma regla que los géneros de una canción), y una del catálogo **no se puede añadir dos veces**
+  (partiría el documento en dos sitios).
+  ⚠️ **El ORDEN de las secciones es el del DOCUMENTO** (es el orden del PDF y de la página
+  pública), así que se mueve con las **flechas** de cada sección y su barra lleva **`data-no-sort`**:
+  el gesto de «mantener pulsado para ordenar» de la casa guarda una PREFERENCIA de quien mira.
+  · **ADJUNTOS por sección** (el plano de escenario, el input list): se arrastran o se eligen (el
+  `data-file-drop-for` global) y **un archivo que no se admite NO se calla** (se dice cuál y los
+  demás entran).
+  · **EL PDF** (`rider_pdf`): logo de **33 Producciones** arriba a la derecha en todas las páginas
+  —un rider es producción—, el título centrado, la cabecera del sujeto y una sección tras otra con
+  su tabla (Cant. · Concepto · Quién lo pone · Nota), su nota y sus adjuntos, con las páginas x/x.
+  Se sirve con **`_pdf_al_vuelo_response`** (`no-store`: se compone en el momento).
+  · **EL ENLACE PÚBLICO** (`public_rider_view`, `/rider/<token>`, `templates/public_rider.html`):
+  es lo que se comparte con el promotor (WhatsApp · correo · SMS · copiar), **siempre la PÁGINA,
+  nunca el PDF ni el archivo**, con sus `og:` (la foto del sujeto → el logo). El token es **OPACO**
+  (`ArtistTemplate.public_token`) y **se crea CON COMMIT**: con un flush sin commit se perdería y un
+  enlace ya compartido dejaría de valer (bug real de las demos).
+  ⚠️ Los adjuntos se descargan por **nuestro dominio** (`public_rider_file`, que valida el id
+  contra lo que ESE token puede enseñar): la dirección de Storage no sale nunca a la página.
+  · **DÓNDE SE VE**: la pestaña **Producción → Riders** (donde se trabajan) y **Plantillas →
+  Riders**, que son **EL MISMO dato** (`_production_template_groups`, punto único, así que no se
+  pueden desparejar); y en la **ficha de la ACTIVIDAD**, dentro de «Equipamiento», los riders de sus
+  artistas (o de su evento, gira o ciclo) con su PDF y su enlace para el promotor.
+  ⚠️ `_rider_rows_for_owners` va **en BLOQUE** (una consulta) y su `url_for` está **protegido**:
+  esto se lee también desde un cron o un hilo («Working outside of application context»).
+  ⚠️ Los endpoints se llaman **`rider_*`** y se resuelven a `produccion` **por PREFIJO**
+  (ver el aviso de abajo); los cuatro públicos, en las TRES listas. Editar un rider es **editar
+  producción** (no hay recurso nuevo que conceder): punto único **`_production_can_edit()`**.
+
+- ⚠️⚠️⚠️ **UN ENDPOINT PUESTO EN EL `mapping` DE `_resolve_request_resource_key` ES CÓDIGO MUERTO**
+  (bug real y de PERMISOS, sep 2026). Ese dict vive **dentro de un `if endpoint in {…}`** que solo
+  enumera las vistas de sección (`produccion_view`, `contabilidad_view`…), así que a un endpoint que
+  no esté en ese conjunto **no se llega nunca**: `_resolve_request_resource_key` devolvía **None** y
+  entonces el gate **no comprobaba NADA en un GET** y en un POST solo miraba `is_master()`. Pasó con
+  `production_template_create`/`_personnel` (del lote anterior) y con los `rider_*`: comprobado que
+  un usuario sin acceso a Producción **entraba** en el editor de un rider (200 en vez de 403).
+  **Un endpoint nuevo se mapea con una regla de PREFIJO arriba**, junto a las demás de su sección.
+  Es la misma trampa que ya documenta la resolución por pestaña de contabilidad.
+  ⚠️ La comprobación es de tres líneas y hay que hacerla al añadir endpoints:
+  `with app.test_request_context(ruta, method=…): print(_resolve_request_resource_key())` —
+  tiene que devolver su sección, nunca `None`.
+
+- ⚠️⚠️⚠️ **UN IMPORTE CON TEXTO DETRÁS SE LEÍA MAL: «1.500 € + IVA» daba 1,5 €** (bug real de
+  DINERO, sep 2026; lo sacó el importe orientativo de una petición). Un importe casi nunca llega
+  solo: viene con su moneda y su nota. Quitar las letras a secas **PEGA las cifras de todo lo que
+  haya** —«1.500 € + IVA (21%)» se quedaba en **1,50021**— y, peor, el texto de detrás **rompe la
+  regla de los separadores**, así que el respaldo leía el punto como DECIMAL.
+  · Punto único **`_money_first_number(texto)`**: recorta **EL PRIMER NÚMERO** (respetando el signo)
+  **ANTES** de aplicar la regla de los separadores, y lo usan los DOS parsers
+  (`_parse_money_decimal` y `_parse_pct_decimal`, donde un «21% (mínimo 500)» daba **21500%**).
+  ⚠️ Espejado en los otros tres motores (regla de la casa): **`toCanonical`** de `money_input.js`
+  y **`clean_money`** de `buyer_import.py` (`invoice_read.parse_amount` ya era inmune: extrae la
+  coincidencia con su propio regex). **Si se toca uno, se tocan los cuatro.**
+  · **`_fee_text_amount`** es el punto único del «importe orientativo» de una petición (texto
+  libre): coge el primer número, y **si el texto EMPIEZA por un PORCENTAJE no vuelca nada** («el 20%
+  de la taquilla» → en blanco; poner 20 € de caché sería peor). ⚠️ El importe de una petición vive
+  en **`BookingRequest.fee_text`**, no en su payload.
+  · **PRUEBA DE REGRESIÓN**: `python3 tools/check_money.py` (los casos del texto pegado están en el
+  bloque 1). Comprobado además en el navegador: los 12 casos dan lo mismo en `numv` y en el servidor.
+
+- ⚠️⚠️⚠️ **EL ASISTENTE DE ACTIVIDAD LEÍA LOS CAMPOS DE OTRO FORMULARIO** (bug real y grave, sep
+  2026: «al configurar un evento promocional ya aprobado te vuelve a preguntar el artista, el tipo
+  de actividad y todo eso»). Su JS buscaba sus campos con **`document.querySelector('[name=…]')`**,
+  y `_concert_wizard_modal.html` se incluye en pantallas donde hay **OTRO formulario con los MISMOS
+  nombres** —la ficha de una PETICIÓN trae también el asistente de peticiones, con su
+  `activity_type`, su `artist_sings`…—: `document.querySelector` coge **el primero del DOCUMENTO**,
+  así que el precumplimentado marcaba el tipo en el asistente de **PETICIONES** y el de la actividad
+  se quedaba en «Concierto» (y su `stepSequence()` se decidía con el tipo de la otra pantalla).
+  · Punto único **`wzQ`/`wzQA`** (expuestos como `window.app33WzQ`/`app33WzQA` para los IIFE de
+  abajo): **todo lo del asistente se busca DENTRO de su propio formulario**. Los 24 selectores por
+  `name` están acotados; **un selector nuevo va con `wzQ`, nunca con `document.querySelector`**.
+  ⚠️⚠️ **Y EL PROMOTOR se elige por la API del asistente** (`app33ConcertWizard.pickPromoter`), no
+  disparando el `change` de su barra de búsqueda: ese listener lo cablea `initPromoterSearch`, que
+  **REINTENTA hasta que exista `initTypeahead`**, así que si todavía no estaba el promotor se
+  quedaba VACÍO —y, peor, el `change` con el oculto limpio llamaba a `clearMainPromoter` y **lo
+  BORRABA**—. Además se le **SIEMBRA lo elegido al buscador** con **`app33TaPick`** (el punto único
+  de la casa): sin eso, el `resolveSelection` siguiente no encuentra el texto en el datalist —que
+  con imagen se vacía a propósito— y **borra el oculto**.
+  · Probado en el navegador con la app real, de punta a punta: una petición de EVENTO PROMOCIONAL
+  aprobada se abre en el **paso 14 («Contactos de la actividad»)**, que es el primero que la
+  petición no puede contestar, con el **artista, el tipo, la fecha, el municipio y la provincia, el
+  promotor, «¿tiene caché?» con su importe, los gastos que cubre y la empresa del grupo YA
+  PUESTOS**; al terminar, la actividad queda creada **como EVENTO PROMOCIONAL · CON CACHÉ** y ligada
+  a su petición. Los pasos anteriores siguen ahí para repasarlos.
+
+- ⚠️⚠️ **`fa-user-music` Y `fa-calendar-star` NO EXISTEN en esta versión de Font Awesome**: salían
+  **VACÍOS** en 20 sitios (el sujeto de una plantilla y de una nota de prensa, el asistente de un
+  proyecto, la cabecera de una bolsa, el reporte de ventas, Integraciones, el alta de una demo, el
+  botón + de la agenda…). Se han cambiado por **`fa-guitar`** (el artista) y **`fa-calendar-day`**
+  (el evento). ⚠️ Al usar un icono, comprobarlo antes:
+  `grep -c "\.fa-<nombre>:" static/vendor/fontawesome/css/all.min.css`.
+
+- ⚠️⚠️ **UN BOTÓN «COPIAR ENLACE» DENTRO DE UNA ZONA INLINE SE QUEDABA MUERTO** (sep 2026):
+  `initCopyLinkButtons` enganchaba con `querySelectorAll` **al cargar la página**, así que un
+  `.copy-link-btn` que viviera en una zona `data-inline-zone` (la ficha de una actividad, la de una
+  canción…) dejaba de funcionar en cuanto se guardaba una sección y esa zona se reemplazaba por
+  AJAX — el clic no hacía nada y sin ningún error. Ahora va por **DELEGACIÓN en `document`** (la
+  regla de la casa), así que da igual cuántas veces se repinte. Comprobado en el navegador
+  reemplazando `#concert-general-zone` a mano: el botón sigue copiando.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.
@@ -7779,7 +7901,7 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 
 - **PRODUCCIÓN · PLANTILLAS Y RIDERS** (sep 2026). Producción gana dos pestañas: **Plantillas** —con
   una subpestaña por tipo, en este orden: **Hoja de ruta · Personal · Rooming · Gastos · Riders**— y
-  **Riders**, que de momento dice **«próximamente»** (irán por secciones, una pestaña cada una).
+  **Riders**, que es donde se trabajan (por secciones: ver «PRODUCCIÓN · RIDERS» más abajo).
   · Dentro de cada subpestaña, las plantillas van **agrupadas por el SUJETO al que están
   vinculadas**: su foto, su nombre, qué es (artista, evento, gira, ciclo) y **cuándo se actualizó**;
   al pinchar una se abre **su editor de siempre**, que es donde se monta y se actualiza.
@@ -7800,12 +7922,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Las de GASTOS son un `ExpenseTemplate`** (la misma tabla que usan las simulaciones y las
   bolsas, ya polimórfica ARTIST|EVENT|VENUE), así que lo que se mejore en los gastos vale aquí, y su
   editor es el de siempre (`/plantillas-gastos/<id>`). Las de recinto solo salen ahí.
-  · **Los RIDERS no se pueden crear todavía**: su tarjeta sale deshabilitada con «próximamente» y el
-  endpoint lo rebota diciéndolo (`PRODUCTION_TEMPLATE_READY`).
+  · **Los RIDERS tienen su propio editor** (por secciones, `rider_edit`): `_template_edit_url` es
+  el punto único de «a dónde se edita una plantilla». `PRODUCTION_TEMPLATE_READY` se conserva para
+  poder meter un tipo nuevo desactivado sin que se pueda crear.
   ⚠️ El catálogo de la pantalla es **`PRODUCTION_TEMPLATE_KINDS`** (5 tipos), distinto de
   `ARTIST_TEMPLATE_KINDS` (los 3 que son hoja de ruta y deciden qué pestañas enseña el editor).
-  ⚠️ Los endpoints nuevos (`production_template_*`) hay que mapearlos en los **DOS** mapeos, y editar
-  plantillas es **editar producción** (no hay recurso nuevo que conceder).
+  ⚠️⚠️ Los endpoints nuevos (`production_template_*`, `rider_*`) se mapean con una regla de
+  **PREFIJO** en `_resolve_request_resource_key`: puestos en su `mapping` son **código muerto** (ver
+  el aviso propio más abajo). Editar plantillas es **editar producción** (no hay recurso nuevo que
+  conceder): punto único **`_production_can_edit()`**, que decide dirección con el **rol del
+  ESTADO** y no con `is_master()` (ese lee el rol de la SESIÓN y sin él cae a 10).
   ⚠️⚠️ **La pestaña ARCHIVADAS colgaba de un `{% else %}`**, así que al añadir pestañas nuevas el
   archivo se pintaba **debajo de ellas** (visto en pantalla). Ahora es `{% elif tab == 'archivadas' %}`:
   una pestaña nueva no puede heredar el contenido de otra.

@@ -25,7 +25,13 @@
         <i class="fa fa-plus me-1"></i> Plantilla
       </button>
     {% endif %}
-  {% elif tab != 'riders' %}
+  {% elif tab == 'riders' %}
+    {% if tpl_can_edit %}
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#prodTemplateModal">
+        <i class="fa fa-plus me-1"></i> Rider
+      </button>
+    {% endif %}
+  {% else %}
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newProductionRequestModal">
       <i class="fa fa-plus me-1"></i> Nueva solicitud
     </button>
@@ -53,7 +59,6 @@
   <li class="nav-item">
     <a class="nav-link {% if tab=='riders' %}active{% endif %}" href="{{ url_for('produccion_view', tab='riders') }}">
       <i class="fa fa-guitar me-1"></i>Riders
-      <span class="badge text-bg-light border ms-1">pronto</span>
     </a>
   </li>
 </ul>
@@ -63,19 +68,57 @@
 {% endif %}
 
 {% if tab == 'riders' %}
-  {# Los riders van por SECCIONES (que serán pestañas) y están por hacer: se dice, en vez de dejar
-     una pestaña vacía que parece rota. #}
-  <div class="ficha-section">
-    <div class="ficha-section__body text-center py-5">
-      <i class="fa fa-guitar fa-2x text-muted mb-3"></i>
-      <h5 class="mb-1">Riders · próximamente</h5>
-      <p class="text-muted mb-0">
-        Irán por secciones (una pestaña cada una) y se vincularán a un artista, un evento, una gira
-        o un ciclo, igual que las demás plantillas. Las plantillas de rider se verán también en
-        <a href="{{ url_for('produccion_view', tab='plantillas', tipo='rider') }}">Plantillas → Riders</a>.
-      </p>
+  {# ============ PRODUCCIÓN · RIDERS ============
+     Lo que el artista necesita para actuar y lo que se le manda al promotor. Van AGRUPADOS POR EL
+     SUJETO al que están vinculados (artista, evento, gira o ciclo) y al pinchar uno se abre su
+     editor, donde **cada sección es una pestaña**.
+     ⚠️ Es el MISMO dato que «Plantillas → Riders» (`_production_template_groups`), así que no se
+     pueden desparejar. #}
+  {% if rider_groups %}
+    <div class="tplg-list">
+      {% for g in rider_groups %}
+        <div class="tplg">
+          <div class="tplg__head">
+            {% if g.photo %}
+              <img class="tplg__photo" src="{{ g.photo }}" alt="" data-avatar="1">
+            {% else %}
+              <span class="tplg__photo tplg__photo--icon"><i class="fa {{ g.icon }}"></i></span>
+            {% endif %}
+            <div class="min-w-0">
+              <div class="tplg__name">
+                {% if g.url %}<a class="text-reset text-decoration-none" href="{{ g.url }}">{{ g.name }}</a>
+                {% else %}{{ g.name }}{% endif %}
+              </div>
+              <div class="tplg__sub">
+                {% if g.kind_label %}{{ g.kind_label }} · {% endif %}
+                {{ g.rows|length }} rider{{ '' if g.rows|length == 1 else 's' }}
+                {% if g.updated %} · actualizado el {{ g.updated.strftime('%d/%m/%Y') }}{% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="tplg__rows">
+            {% for t in g.rows %}
+              <a class="tplg__row" href="{{ t.url }}">
+                <i class="fa fa-guitar tplg__row-ico"></i>
+                <span class="tplg__row-name">{{ t.name }}</span>
+                <span class="tplg__row-detail">{{ t.detail }}</span>
+                <span class="tplg__row-date">{% if t.updated %}{{ t.updated.strftime('%d/%m/%Y') }}{% endif %}</span>
+                <i class="fa fa-arrow-right text-muted"></i>
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
     </div>
-  </div>
+  {% else %}
+    <div class="ficha-section">
+      <div class="ficha-section__body text-center py-5 text-muted">
+        <i class="fa fa-guitar fa-2x mb-3 d-block"></i>
+        Todavía no hay riders.
+        {% if tpl_can_edit %}Pulsa «+ Rider», elige a quién se vincula y marca las secciones que lleva.{% endif %}
+      </div>
+    </div>
+  {% endif %}
 {% endif %}
 
 {% if tab == 'archivadas' %}
@@ -473,7 +516,8 @@
 })();
 </script>
 
-{% if tab == 'plantillas' and tpl_can_edit %}
+{# El modal de «+ Plantilla» es el MISMO en las dos pestañas (en Riders con el tipo ya fijado). #}
+{% if tab in ('plantillas', 'riders') and tpl_can_edit %}
   {% include '_production_template_modal.html' %}
 {% endif %}
 

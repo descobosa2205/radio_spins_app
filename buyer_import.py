@@ -113,6 +113,10 @@ def clean_money(value) -> str:
         return ""
     negativo = txt.startswith("-")
     txt = txt.lstrip("-+")
+    # ⚠️ EL PRIMER NÚMERO (espejo de `_money_first_number` en app.py): quitar las letras a secas
+    # pega las cifras de todo lo que traiga la celda («1.500 € + IVA (21%)» → 1.50021).
+    m = re.search(r"\d[\d.,]*", txt)
+    txt = m.group(0).rstrip(".,") if m else ""
     if "," in txt and "." in txt:
         # El separador decimal es el ÚLTIMO que aparece.
         if txt.rfind(",") > txt.rfind("."):

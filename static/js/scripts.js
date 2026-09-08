@@ -1536,11 +1536,19 @@ function initUsageOrderedOverflowNav(){
   setTimeout(applyOverflow, 50);
 }
 
+/* COPIAR UN ENLACE · por DELEGACIÓN en `document`.
+ *
+ * ⚠️⚠️ Antes se enganchaba con `querySelectorAll` al cargar la página, así que un botón que
+ * viviera dentro de una zona `data-inline-zone` (la ficha de una actividad, la de una canción…)
+ * se quedaba MUERTO en cuanto se guardaba una sección y esa zona se reemplazaba por AJAX: el clic
+ * no hacía nada y sin ningún error (la trampa de la casa). Con delegación da igual cuántas veces
+ * se repinte. */
 function initCopyLinkButtons(){
-  document.querySelectorAll('.copy-link-btn[data-copy-url]').forEach((btn) => {
-    if (btn.dataset.copyBound === '1') return;
-    btn.dataset.copyBound = '1';
-    btn.addEventListener('click', async () => {
+  if (document.body && document.body.dataset.copyDelegated === '1') return;
+  if (document.body) document.body.dataset.copyDelegated = '1';
+  document.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest && ev.target.closest('.copy-link-btn[data-copy-url]');
+    if (btn) {
       const value = btn.dataset.copyUrl || '';
       if (!value) return;
       try {
@@ -1563,7 +1571,7 @@ function initCopyLinkButtons(){
         console.error(err);
         alert('No se pudo copiar el enlace.');
       }
-    });
+    }
   });
 }
 

@@ -3939,6 +3939,9 @@ class ArtistTemplate(Base):
     kind = Column(Text, nullable=False)                 # PERSONNEL | ROOMING | ROADMAP | RIDER
     name = Column(Text, nullable=False, server_default=text("''"))
     notes = Column(Text)
+    # RIDER: el token de su enlace público (opaco, `_uuid_token`). Lo que se comparte con el
+    # promotor es SIEMPRE esa página, nunca el archivo de Storage.
+    public_token = Column(Text, unique=True, index=True)
     # Rooming: de qué plantilla de PERSONAL se partió (para poder recargarla).
     personnel_template_id = Column(PGUUID(as_uuid=True),
                                    ForeignKey("artist_templates.id", ondelete="SET NULL"))
@@ -3962,6 +3965,9 @@ def ensure_artist_templates_schema():
     _create_all_once()
     _exec_ddl_statements([
         "ALTER TABLE artist_templates ADD COLUMN IF NOT EXISTS owner_type text NOT NULL DEFAULT 'ARTIST';",
+        # El enlace público de un RIDER (lo que se manda al promotor).
+        "ALTER TABLE artist_templates ADD COLUMN IF NOT EXISTS public_token text;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_artist_templates_public_token ON artist_templates(public_token) WHERE public_token IS NOT NULL;",
         "ALTER TABLE artist_templates ADD COLUMN IF NOT EXISTS owner_id uuid;",
         "ALTER TABLE artist_templates ALTER COLUMN artist_id DROP NOT NULL;",
         # Las que ya existían son todas de un ARTISTA.

@@ -60,7 +60,7 @@
             <div class="card-body d-flex align-items-center gap-3">
               {% if g.kind == 'COMPANY' %}{{ company_logo(name=g.label, logo_url=g.photo, size=52, cls='promo-row__cover promo-row__cover--logo') }}
               {% elif g.photo %}<img src="{{ g.photo }}" class="promo-row__cover" alt="" data-avatar="1">
-              {% else %}<span class="promo-row__cover promo-row__cover--ph"><i class="fa {{ 'fa-users' if g.multi else ('fa-calendar-star' if g.kind == 'EVENT' else ('fa-route' if g.kind == 'TOUR' else ('fa-calendar-week' if g.kind == 'CYCLE' else 'fa-user-music'))) }}"></i></span>{% endif %}
+              {% else %}<span class="promo-row__cover promo-row__cover--ph"><i class="fa {{ 'fa-users' if g.multi else ('fa-calendar-day' if g.kind == 'EVENT' else ('fa-route' if g.kind == 'TOUR' else ('fa-calendar-week' if g.kind == 'CYCLE' else 'fa-guitar'))) }}"></i></span>{% endif %}
               <div style="min-width:0">
                 <div class="fw-semibold text-truncate">{{ g.label }}</div>
                 <div class="small text-muted">{{ g.count }} nota{{ '' if g.count == 1 else 's' }} de prensa</div>

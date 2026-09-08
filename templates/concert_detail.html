@@ -1520,6 +1520,30 @@
         {% if eq %}<div class="mb-2 fw-semibold">{% if eq.covered_by_promoter and eq.covered_mode == 'RIDER' %}Rider de festival{% elif eq.covered_by_promoter %}Promotor cubre equipos{% elif eq.covered_mode == 'ARTIST' %}Equipo a cargo del artista{% elif eq.included or eq.other %}Equipos incluidos{% endif %}</div>{% endif %}
         {% if not (eq or concert.equipment_documents or concert.equipment_notes) %}<div class="ficha-empty">Sin información de equipamiento. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
       </div>
+      {# EL RIDER del artista (o de su evento, gira o ciclo): es lo que se le manda al promotor.
+         Se monta en Producción → Riders (por secciones) y aquí se ve, se baja en PDF y se comparte:
+         lo que se manda es SIEMPRE su página pública, que está al día. #}
+      {% if concert_riders %}
+        <div class="ficha-section__body pt-0 pb-2">
+          <div class="fw-semibold small text-muted mb-2"><i class="fa fa-guitar me-1"></i>Rider del artista</div>
+          {% for rd in concert_riders %}
+            <div class="rd-file mb-1 me-1">
+              <a class="rd-file__a" href="{{ rd.url }}"><i class="fa fa-guitar me-1"></i>{{ rd.name }}</a>
+              <span class="text-muted small">· {{ rd.summary }}</span>
+              <a class="btn btn-sm btn-link p-0 ms-1" href="{{ rd.pdf_url }}" data-dl-bar
+                 title="Descargar el rider en PDF"><i class="fa fa-file-pdf"></i></a>
+              {% if rd.public_url %}
+                <button type="button" class="btn btn-sm btn-link p-0 ms-1 copy-link-btn"
+                        data-copy-url="{{ rd.public_url }}" title="Copiar el enlace para el promotor">
+                  <i class="fa fa-link"></i></button>
+                <button type="button" class="btn btn-sm btn-link p-0 ms-1" title="Mandarlo por WhatsApp"
+                        onclick="shareByWhatsapp('Rider · {{ rd.name|e }}', '{{ rd.public_url }}')">
+                  <i class="fa-brands fa-whatsapp"></i></button>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
       <div class="ficha-section__body pt-0">
         {% for d in concert.equipment_documents %}<div class="d-flex justify-content-between align-items-center gap-2 py-1"><a href="{{ d.pdf_url }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>{{ d.concept }}</a>{% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ url_for('concert_equipment_doc_delete', cid=concert.id, did=d.id) }}" data-inline data-inline-target="#concert-general-zone" data-confirm="¿Eliminar este documento?"><input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button></form>{% endif %}</div>{% endfor %}
         {% for n in concert.equipment_notes %}<div class="d-flex justify-content-between align-items-start gap-2 py-1"><div class="small text-muted">{{ n.body }}</div>{% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ url_for('concert_equipment_note_delete', cid=concert.id, note_id=n.id) }}" data-inline data-inline-target="#concert-general-zone" data-confirm="¿Eliminar esta nota?"><input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button></form>{% endif %}</div>{% endfor %}
@@ -2917,7 +2941,7 @@
                         <div class="col-6 col-md-4 col-xl-3">
                           <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
                             <input class="form-check-input" type="checkbox" name="expense_template_ids[]" value="{{ t.id }}">
-                            <i class="fa fa-user-music d-none"></i><i class="fa fa-microphone-lines text-danger"></i>
+                            <i class="fa fa-guitar d-none"></i><i class="fa fa-microphone-lines text-danger"></i>
                             <span class="small"><span class="fw-semibold d-block">{{ t.name }}</span><span class="text-muted">Del artista · {{ t.count }} gastos</span></span>
                           </label>
                         </div>

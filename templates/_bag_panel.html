@@ -110,9 +110,9 @@
     </div>
     <div class="ficha-hero__facts">
       {% if bag_artists %}
-        <span><i class="fa fa-user-music"></i>{{ bag_artists|map(attribute='name')|join(', ') }}</span>
+        <span><i class="fa fa-guitar"></i>{{ bag_artists|map(attribute='name')|join(', ') }}</span>
       {% else %}
-        <span><i class="fa fa-user-music"></i>Sin artista vinculado</span>
+        <span><i class="fa fa-guitar"></i>Sin artista vinculado</span>
       {% endif %}
       {% if bag.linked_title %}<span><i class="fa fa-link"></i>{{ bag.linked_title }}</span>{% endif %}
       {% if bag.start_date %}

@@ -474,7 +474,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
     "concert_artwork_public_upload",
     # LA BAJA DE PUBLICIDAD de un comprador: el POST llega del propio cliente de correo (un clic).
     "public_buyer_unsubscribe",
@@ -903,7 +903,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -15849,6 +15849,20 @@ def _money_number(val) -> Decimal | None:
     return None
 
 
+def _money_first_number(texto: str) -> str:
+    """**EL PRIMER NÚMERO** de un texto escrito por una persona («1.500 € + IVA (21%)» → «1.500»).
+
+    ⚠️⚠️ Un importe casi nunca llega solo: viene con su moneda y su nota detrás. Quitar las letras
+    a secas **PEGA las cifras de todo lo que haya** —«1.500 € + IVA (21%)» se quedaba en «1.50021»—
+    y, peor, el texto de detrás **rompe la regla de los separadores**: «1.500 € + IVA» acababa en el
+    respaldo como «1.500» leído con el punto DECIMAL, o sea **1,5 € en vez de 1.500 €** (bug real de
+    dinero, sep 2026). Por eso se recorta el número ANTES de aplicar la regla.
+    ⚠️ Se respeta el signo y se tiran los separadores que queden colgando al final («1.500.» ).
+    """
+    m = re.search(r"-?\d[\d.,]*", str(texto or ""))
+    return m.group(0).rstrip(".,") if m else ""
+
+
 def _money_value(val) -> Decimal:
     """Un importe que YA ES UN DATO: una columna, un JSONB, un snapshot, un cálculo.
 
@@ -15926,6 +15940,10 @@ def _parse_money_decimal(val: str | None) -> Decimal:
     for ch in ("€", "$", "£"):
         s = s.replace(ch, "")
     s = s.replace(" ", "")
+    # ⚠️⚠️ Y EL TEXTO DE DETRÁS SE QUITA AQUÍ, no al final: «1.500 € + IVA» tiene que dar 1.500 €
+    # (ver `_money_first_number`). Sin esto, la regla de abajo no se aplicaba y el respaldo leía el
+    # punto como DECIMAL: 1,5 € (bug real de dinero).
+    s = _money_first_number(s) or s
 
     # ⚠️⚠️ AQUÍ EL PUNTO ES DE MILES, NO DECIMAL (modelo de euros, no el de Estados Unidos): un
     # «40.000» son CUARENTA MIL, y este parser devolvía **40** (bug real de dinero: un caché de
@@ -15960,9 +15978,11 @@ def _parse_money_decimal(val: str | None) -> Decimal:
         dec = Decimal(s)
         return dec if dec.is_finite() else Decimal("0")
     except Exception:
-        # fallback: strip anything weird
-        cleaned = "".join(ch for ch in s if ch.isdigit() or ch == "." or ch == "-")
-        dec = Decimal(cleaned or "0")
+        # Respaldo: el primer número tal cual (⚠️ NUNCA los dígitos de TODO el texto pegados).
+        try:
+            dec = Decimal(_money_first_number(s).replace(",", ".") or "0")
+        except Exception:
+            return Decimal("0")
         return dec if dec.is_finite() else Decimal("0")
 
 
@@ -16038,7 +16058,9 @@ def _parse_pct_decimal(val) -> Decimal:
     if not s:
         return Decimal("0")
     s = s.replace("%", "").replace(" ", "").replace(",", ".")
-    s = "".join(ch for ch in s if ch.isdigit() or ch in ".-")
+    # ⚠️ El PRIMER número, como en los importes: pegando los dígitos de todo el texto, un
+    # «21% (mínimo 500)» salía como 21500%.
+    s = _money_first_number(s).replace(",", ".") or ""
     if s.count(".") > 1:                     # «33.333.3»: se queda el primer punto como decimal
         entero, _, resto = s.partition(".")
         s = entero + "." + resto.replace(".", "")
@@ -51957,6 +51979,28 @@ def _peticion_stub_backfill_once():
     _set_app_setting(PETICION_STUB_BACKFILL_FLAG, _now_madrid().isoformat())
 
 
+def _fee_text_amount(texto) -> str:
+    """El IMPORTE de un «importe orientativo» escrito a mano, o «» si eso no es un importe.
+
+    El campo es texto libre, así que se coge **el primer número** («3.000 € + IVA (21%)» → 3000).
+    ⚠️ Un PORCENTAJE no es un importe: si el texto EMPIEZA por uno («el 20% de la taquilla»), no se
+    vuelca nada — poner 20 € de caché sería peor que dejarlo en blanco."""
+    s = str(texto or "").strip()
+    if not s:
+        return ""
+    primero = _money_first_number(s)
+    if not primero:
+        return ""
+    resto = s.split(primero, 1)[1].lstrip() if primero in s else ""
+    if resto.startswith("%"):
+        return ""
+    try:
+        dec = _parse_money_decimal(primero)
+    except Exception:
+        return ""
+    return format(dec.normalize(), "f") if dec > 0 else ""
+
+
 def _peticion_wizard_prefill(session_db, r) -> dict:
     """Lo que la petición ya sabe, en el formato que entiende el ASISTENTE de actividad.
 
@@ -51988,14 +52032,9 @@ def _peticion_wizard_prefill(session_db, r) -> dict:
             promotor = str(p.id)
             promotor_nombre = (p.nick or p.name or "").strip()
             promotor_logo = (p.logo_url or "").strip()
-    # El importe orientativo es texto libre («3.000 € + IVA»): solo se vuelca si es un número.
-    importe = ""
-    try:
-        _d = _parse_optional_money(r.fee_text)
-        if _d is not None and _d > 0:
-            importe = format(_d.normalize(), "f")
-    except Exception:
-        importe = ""
+    # El importe orientativo es TEXTO LIBRE («3.000 € + IVA», «el 20% de la taquilla», «a
+    # convenir»): solo se vuelca si de verdad es un importe.
+    importe = _fee_text_amount(r.fee_text)
     return {
         "enabled": True,
         "peticion_id": str(r.id),
@@ -52885,13 +52924,13 @@ def _press_subject_options(session_db, *, con_empresas: bool = True) -> list[dic
             espejos[str(a.event_id)] = str(a.id)
             continue
         filas.append({"kind": "ARTIST", "id": str(a.id), "label": a.name or "—", "photo": a.photo_url or "",
-                      "active": str(a.id) in activos, "sub": "Artista", "icon": "fa-user-music"})
+                      "active": str(a.id) in activos, "sub": "Artista", "icon": "fa-guitar"})
     eventos_prox = _press_upcoming_ids(session_db, Concert.event_id)
     for e in session_db.query(AppEvent).order_by(func.lower(AppEvent.name).asc()).all():
         eid = str(e.id)
         filas.append({"kind": "EVENT", "id": eid, "label": e.name or "—", "photo": e.logo_url or "",
                       "active": (eid in eventos_prox) or (espejos.get(eid) in activos),
-                      "sub": "Evento", "icon": "fa-calendar-star"})
+                      "sub": "Evento", "icon": "fa-calendar-day"})
     giras_prox = _press_upcoming_ids(session_db, Concert.purchased_tour_id)
     for t in session_db.query(PurchasedTour).order_by(PurchasedTour.start_date.desc().nullslast()).all():
         filas.append({"kind": "TOUR", "id": str(t.id), "label": t.name or "—", "photo": t.logo_url or "",
@@ -62365,6 +62404,14 @@ def concert_detail_view(cid):
         # El bloque «Actividad» (qué tiene que hacer el artista) se enseña donde el asistente lo
         # pregunta: promocionales, ensayos y discográficas.
         is_promo_activity = _activity_has_performance_detail(c.activity_type)
+        # EL RIDER del artista (o de su evento / gira / ciclo): es lo que se le manda al promotor.
+        # ⚠️ Solo en su pestaña: son un par de consultas y no hacen falta en las demás.
+        concert_riders = []
+        if tab == "general":
+            try:
+                concert_riders = _concert_rider_rows(session, c)
+            except Exception:
+                app.logger.exception("[rider] no se pudieron leer los riders de la actividad")
         if tab == "general" and (is_master() or can_edit_concerts()):
             edit_artists = session.query(Artist).order_by(Artist.name.asc()).all()
             edit_venues = session.query(Venue).order_by(Venue.name.asc()).all()
@@ -62554,6 +62601,8 @@ def concert_detail_view(cid):
             type_choices=edit_type_choices,
             all_concert_tags=all_concert_tags,
             is_promo_activity=is_promo_activity,
+            # El RIDER del artista: se ve y se le manda al promotor desde «Equipamiento».
+            concert_riders=concert_riders,
             activity_type_label=_activity_kind_label(c.activity_type),
             # LAS COMISIONES de la actividad, con cómo se aplica cada una y su factura.
             commission_rows=_concert_commission_rows(session, c),
@@ -81457,7 +81506,7 @@ def production_template_create():
     bolsas): así lo que se mejore en los gastos vale también aquí."""
     session_db = db()
     try:
-        if not (is_master() or has_access_key("produccion", edit=True, include_descendants=True)):
+        if not _production_can_edit():
             flash("No tienes permiso para crear plantillas de producción.", "warning")
             return redirect(url_for("produccion_view", tab="plantillas"))
         kind = (request.form.get("kind") or "").strip().upper()
@@ -81467,6 +81516,9 @@ def production_template_create():
         if not PRODUCTION_TEMPLATE_READY.get(kind):
             flash(f"Las plantillas de {PRODUCTION_TEMPLATE_LABELS[kind].lower()} están en camino.", "info")
             return redirect(url_for("produccion_view", tab="plantillas", tipo=kind.lower()))
+        # Un RIDER nace con las SECCIONES que se marquen (si no se dice nada, las habituales): así
+        # se entra a rellenarlo en vez de a una pantalla vacía.
+        secciones_rider = [x for x in request.form.getlist("rider_sections") if (x or "").strip()]
         # El sujeto viaja como «TIPO:id» (el mismo formato que el selector de las notas de prensa).
         crudo = (request.form.get("subject") or "").strip()
         otipo, _, oid = crudo.partition(":")
@@ -81511,9 +81563,15 @@ def production_template_create():
                 row.personnel_template_id = base.id
                 row.roadmap_payload = {"version": 2, "hotels": [], "agenda": [],
                                        "personnel": [dict(p) for p in (_roadmap_load(base).get("personnel") or [])]}
+        if kind == "RIDER":
+            payload = dict(row.roadmap_payload or {})
+            payload["rider"] = {"sections": _rider_new_sections(secciones_rider or RIDER_DEFAULT_SECTION_KEYS),
+                                "intro": ""}
+            row.roadmap_payload = payload
         session_db.add(row)
         session_db.commit()
-        return redirect(url_for("artist_template_edit", tid=str(row.id)))
+        # ⚠️ Un RIDER va a SU editor (por secciones), no a la hoja de ruta.
+        return redirect(_template_edit_url(row))
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("production_template_create")
@@ -81547,6 +81605,10 @@ def artist_template_edit(tid):
                .filter(ArtistTemplate.id == to_uuid(tid)).first())
         if not row:
             abort(404)
+        # ⚠️ Un RIDER tiene su PROPIO editor (por secciones): un enlace antiguo lleva allí en vez de
+        # abrir una hoja de ruta sin pestañas.
+        if _rider_is(row):
+            return redirect(url_for("rider_edit", tid=str(row.id)))
         ctx = _roadmap_context(session_db, "template", row)
         base = None
         if row.personnel_template_id:
@@ -81597,7 +81659,7 @@ def artist_template_update(tid):
                 flash(f"Personal cargado de «{base.name}»: {res['added']} añadido(s).", "success")
         row.updated_at = _now_madrid()
         session_db.commit()
-        return redirect(url_for("artist_template_edit", tid=row.id))
+        return redirect(_template_edit_url(row))
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo guardar: {exc}", "danger")
@@ -81617,6 +81679,10 @@ def artist_template_duplicate(tid):
         st = _current_user_state()
         copia = ArtistTemplate(
             artist_id=row.artist_id, kind=row.kind, name=(f"{row.name} (copia)")[:160],
+            # ⚠️ La copia se lleva el SUJETO: sin esto, la copia de un rider de un evento o de una
+            # gira se quedaba sin vincular a nada.
+            owner_type=(getattr(row, "owner_type", None) or "ARTIST"),
+            owner_id=(getattr(row, "owner_id", None) or row.artist_id),
             notes=row.notes, personnel_template_id=row.personnel_template_id,
             day_count=row.day_count, roadmap_payload=dict(_roadmap_load(row)),
             created_by_user_id=to_uuid(st.get("user_id")) if st.get("user_id") else None,
@@ -81624,7 +81690,7 @@ def artist_template_duplicate(tid):
         )
         session_db.add(copia)
         session_db.commit()
-        return redirect(url_for("artist_template_edit", tid=copia.id))
+        return redirect(_template_edit_url(copia))
     finally:
         session_db.close()
 
@@ -81638,10 +81704,17 @@ def artist_template_delete(tid):
         if not row:
             abort(404)
         artist_id = row.artist_id
+        es_rider = _rider_is(row)
         session_db.delete(row)
         session_db.commit()
-        flash("Plantilla eliminada.", "success")
-        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="plantillas")))
+        flash("Rider eliminado." if es_rider else "Plantilla eliminada.", "success")
+        # ⚠️ Sin artista (un evento, una gira, un ciclo) NO se puede volver a la ficha de un artista:
+        # `url_for('artist_detail_view', artist_id=None)` revienta.
+        if es_rider or not artist_id:
+            destino = url_for("produccion_view", tab=("riders" if es_rider else "plantillas"))
+        else:
+            destino = url_for("artist_detail_view", artist_id=artist_id, tab="plantillas")
+        return redirect(safe_next_or(destino))
     finally:
         session_db.close()
 
@@ -82275,15 +82348,17 @@ PRODUCTION_ACTIVITY_TYPES = [
 # FESTIVAL nuestro (`owner_type`/`owner_id`); `artist_id` se sigue rellenando cuando el sujeto es un
 # artista, porque de él tira la ficha del artista y la maquinaria de la hoja de ruta.
 #
-# ⚠️ Los RIDERS están **por hacer**: irán por secciones (que serán pestañas), y hasta entonces su
-# subpestaña —y la pestaña «Riders» de Producción— dicen «próximamente». No se pueden crear.
+# ⚠️ Los RIDERS van **POR SECCIONES** (cada sección es una pestaña) y tienen su propio editor
+# (`rider_edit`), no la hoja de ruta: ver el bloque «RIDERS · POR SECCIONES» de más abajo. La
+# pestaña «Riders» de Producción y esta subpestaña enseñan LO MISMO (el mismo `ArtistTemplate` kind
+# RIDER leído por `_production_template_groups`), así que no se pueden desparejar.
 PRODUCTION_TEMPLATE_KINDS = [
     # clave        etiqueta          icono            de dónde salen        ¿se puede crear ya?
     ("ROADMAP",   "Hoja de ruta",   "fa-route",      "artist_template",    True),
     ("PERSONNEL", "Personal",       "fa-users",      "artist_template",    True),
     ("ROOMING",   "Rooming",        "fa-hotel",      "artist_template",    True),
     ("EXPENSE",   "Gastos",         "fa-receipt",    "expense_template",   True),
-    ("RIDER",     "Riders",         "fa-guitar",     "artist_template",    False),
+    ("RIDER",     "Riders",         "fa-guitar",     "artist_template",    True),
 ]
 PRODUCTION_TEMPLATE_LABELS = {k: l for k, l, _i, _s, _c in PRODUCTION_TEMPLATE_KINDS}
 PRODUCTION_TEMPLATE_ICONS = {k: i for k, _l, i, _s, _c in PRODUCTION_TEMPLATE_KINDS}
@@ -82292,8 +82367,8 @@ PRODUCTION_TEMPLATE_READY = {k: c for k, _l, _i, _s, c in PRODUCTION_TEMPLATE_KI
 PRODUCTION_TEMPLATE_TAB_KEYS = tuple(k.lower() for k, _l, _i, _s, _c in PRODUCTION_TEMPLATE_KINDS)
 # Un sujeto de plantilla: de qué tabla sale y cómo se llega a su ficha.
 TEMPLATE_OWNER_KINDS = {
-    "ARTIST": ("Artista", "fa-user-music"),
-    "EVENT": ("Evento", "fa-calendar-star"),
+    "ARTIST": ("Artista", "fa-guitar"),
+    "EVENT": ("Evento", "fa-calendar-day"),
     "TOUR": ("Gira comprada", "fa-route"),
     "CYCLE": ("Ciclo o festival", "fa-calendar-week"),
 }
@@ -82394,9 +82469,12 @@ def _production_template_groups(session_db, kind: str) -> list[dict]:
             elif kind == "ROOMING":
                 n = sum(len(h.get("rooms") or []) for h in (payload.get("hotels") or []))
                 detalle = f"{n} habitaci{'ones' if n != 1 else 'ón'}"
+            elif kind == "RIDER":
+                detalle = _rider_summary(r)
             else:
                 detalle = f"{max(1, int(getattr(r, 'day_count', 1) or 1))} día(s)"
-            url = url_for("artist_template_edit", tid=str(r.id))
+            # ⚠️ Un RIDER se abre en SU editor (por secciones), no en la hoja de ruta.
+            url = _template_edit_url(r)
         g["rows"].append({
             "id": str(r.id), "name": (r.name or "Plantilla"), "detail": detalle, "url": url,
             "updated": getattr(r, "updated_at", None) or getattr(r, "created_at", None),
@@ -82427,9 +82505,932 @@ def _production_templates_context(session_db, subtab: str) -> dict:
         "tpl_groups": (_production_template_groups(session_db, kind) if listo else []),
         # A qué se vincula una plantilla: lo activo primero y el resto tras «Ver más».
         "tpl_subjects": _subject_options(session_db),
+        # Un RIDER nace con sus SECCIONES: el modal las ofrece (las habituales ya marcadas).
+        "tpl_rider_catalog": [{"key": k, "label": l, "icon": i, "usual": d}
+                              for k, l, i, d in RIDER_SECTION_CATALOG],
         # Editar plantillas es editar producción (no hay recurso nuevo que conceder).
-        "tpl_can_edit": bool(is_master() or has_access_key("produccion", edit=True, include_descendants=True)),
+        "tpl_can_edit": _production_can_edit(),
     }
+
+
+# ═══════════════════════════════ RIDERS · POR SECCIONES ═══════════════════════════════
+# El RIDER es lo que el artista necesita para actuar y lo que se le manda al promotor: el sonido, el
+# backline, las luces, el escenario, los camerinos, el catering… Va **POR SECCIONES, y cada sección
+# es una PESTAÑA** (lo pidió así Dani).
+#
+# ⚠️⚠️ UN RIDER ES UNA PLANTILLA (`ArtistTemplate` con `kind='RIDER'`), vinculada a un ARTISTA, un
+# EVENTO, una GIRA comprada o un CICLO / FESTIVAL nuestro, igual que las demás. Con eso hereda
+# gratis el sujeto polimórfico, el listado agrupado de Producción → Plantillas, duplicar, eliminar y
+# los permisos: ni una tabla nueva. Su contenido vive en `roadmap_payload['rider']`.
+# ⚠️ Su editor NO es la hoja de ruta (un rider no tiene días ni horarios): es su propia pantalla.
+#
+# ⚠️ El CATÁLOGO de secciones es una SUGERENCIA, no una imposición: se pueden añadir las que hagan
+# falta con su nombre (la misma regla que los géneros de una canción o las funciones de la hoja de
+# ruta). El orden de las secciones es el del DOCUMENTO (es el orden en el que sale el PDF), así que
+# se mueve con las flechas de cada sección — no es una preferencia de quien mira.
+RIDER_SECTION_CATALOG = [
+    # clave          etiqueta                        icono                  ¿de las habituales?
+    ("SONIDO",       "Sonido (P.A.)",                "fa-volume-high",      True),
+    ("MONITORES",    "Monitores",                    "fa-headphones",       True),
+    ("MICROFONIA",   "Microfonía",                   "fa-microphone-lines", False),
+    ("INPUTS",       "Input list",                   "fa-list-ol",          True),
+    ("BACKLINE",     "Backline",                     "fa-guitar",           True),
+    ("ILUMINACION",  "Iluminación",                  "fa-lightbulb",        True),
+    ("VIDEO",        "Vídeo y pantallas",            "fa-tv",               False),
+    ("ESCENARIO",    "Escenario",                    "fa-person-chalkboard", True),
+    ("ELECTRICIDAD", "Electricidad",                 "fa-plug",             False),
+    ("PERSONAL",     "Personal técnico local",       "fa-users-gear",       True),
+    ("CARGA",        "Carga y descarga",             "fa-truck-ramp-box",   False),
+    ("CAMERINOS",    "Camerinos",                    "fa-door-closed",      True),
+    ("CATERING",     "Catering y bebida",            "fa-utensils",         True),
+    ("ALOJAMIENTO",  "Alojamiento",                  "fa-hotel",            False),
+    ("TRANSPORTE",   "Transporte",                   "fa-van-shuttle",      False),
+    ("SEGURIDAD",    "Seguridad",                    "fa-shield-halved",    False),
+    ("PRODUCCION",   "Producción y horarios",        "fa-clipboard-list",   True),
+    ("OTROS",        "Otros",                        "fa-circle-info",      False),
+]
+RIDER_SECTION_LABELS = {k: l for k, l, _i, _d in RIDER_SECTION_CATALOG}
+RIDER_SECTION_ICONS = {k: i for k, _l, i, _d in RIDER_SECTION_CATALOG}
+RIDER_DEFAULT_SECTION_KEYS = [k for k, _l, _i, d in RIDER_SECTION_CATALOG if d]
+RIDER_SECTION_ICON_FALLBACK = "fa-circle-info"
+RIDER_MAX_SECTIONS = 40
+
+# ⚠️ De cada línea hace falta saber **QUIÉN LA PONE**: es lo que de verdad se negocia con el
+# promotor y lo que producción tiene que saber para montarlo.
+RIDER_PROVIDERS = [
+    ("PROMOTOR",      "Lo pone el promotor", "fa-handshake"),
+    ("NOSOTROS",      "Lo llevamos nosotros", "fa-truck-fast"),
+    ("POR_CONCRETAR", "Por concretar",       "fa-circle-question"),
+]
+RIDER_PROVIDER_LABELS = {k: l for k, l, _i in RIDER_PROVIDERS}
+RIDER_PROVIDER_ICONS = {k: i for k, _l, i in RIDER_PROVIDERS}
+RIDER_DEFAULT_PROVIDER = "PROMOTOR"
+# Los adjuntos de una sección: el plano de escenario, el input list en Excel, un PDF del promotor…
+RIDER_FILE_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg",
+                   ".xlsx", ".xls", ".csv", ".doc", ".docx", ".txt", ".zip"}
+RIDER_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
+
+
+def _production_can_edit() -> bool:
+    """¿Puede esta persona MONTAR cosas de producción (plantillas, riders)?
+
+    ⚠️⚠️ Dirección se decide con el ROL DEL ESTADO (que lo lee de la BD), **no con `is_master()`**:
+    ese lee el rol de la SESIÓN y **sin él cae a 10**, así que en un hilo, en un cron o en una
+    sesión a medias todo el mundo saldría como dirección (bug real de la casa)."""
+    st = _current_user_state()
+    if int(st.get("role") or 0) == 10:
+        return True
+    return has_access_key("produccion", edit=True, include_descendants=True)
+
+
+def _rider_is(row) -> bool:
+    return isinstance(row, ArtistTemplate) and (getattr(row, "kind", "") or "").upper() == "RIDER"
+
+
+def _rider_section_icon(key: str, icono: str = "") -> str:
+    """El icono de una sección: el que trae, el de su clave del catálogo o el de respaldo."""
+    ico = (icono or "").strip()
+    if not ico:
+        ico = RIDER_SECTION_ICONS.get((key or "").strip().upper(), "")
+    return ico or RIDER_SECTION_ICON_FALLBACK
+
+
+def _rider_clean_item(raw) -> dict:
+    """Una línea del rider: cantidad, concepto, quién lo pone y su nota."""
+    if not isinstance(raw, dict):
+        return {}
+    concepto = str(raw.get("concept") or "").strip()[:400]
+    qty = str(raw.get("qty") or "").strip()[:40]
+    nota = str(raw.get("note") or "").strip()[:600]
+    # ⚠️ Una línea SIN CONCEPTO no dice nada («2» de qué): no se guarda. Para lo que no es una
+    # línea está la nota de la sección.
+    if not concepto:
+        return {}
+    quien = str(raw.get("provider") or "").strip().upper()
+    return {
+        "id": str(raw.get("id") or "").strip() or _roadmap_new_id(),
+        "qty": qty,
+        "concept": concepto,
+        "note": nota,
+        "provider": quien if quien in RIDER_PROVIDER_LABELS else RIDER_DEFAULT_PROVIDER,
+    }
+
+
+def _rider_clean_file(raw) -> dict:
+    if not isinstance(raw, dict) or not (raw.get("url") or "").strip():
+        return {}
+    nombre = str(raw.get("name") or "").strip()[:200] or "Archivo"
+    return {
+        "id": str(raw.get("id") or "").strip() or _roadmap_new_id(),
+        "name": nombre,
+        "url": str(raw.get("url") or "").strip(),
+        "kind": (str(raw.get("kind") or "").strip().upper() or _rider_file_kind(nombre)),
+    }
+
+
+def _rider_file_kind(nombre: str) -> str:
+    ext = os.path.splitext(str(nombre or "").split("?")[0])[1].lower()
+    if ext in RIDER_IMAGE_EXTS:
+        return "IMAGE"
+    if ext == ".pdf":
+        return "PDF"
+    return "FILE"
+
+
+def _rider_load(row) -> dict:
+    """El rider de una plantilla, normalizado. NO toca la fila."""
+    payload = _json_loads_safe(getattr(row, "roadmap_payload", None), {})
+    crudo = payload.get("rider") if isinstance(payload, dict) else None
+    secciones = []
+    for s in (crudo.get("sections") if isinstance(crudo, dict) else None) or []:
+        if not isinstance(s, dict):
+            continue
+        clave = str(s.get("key") or "").strip().upper()
+        etiqueta = str(s.get("label") or "").strip()[:120] or RIDER_SECTION_LABELS.get(clave, "Sección")
+        secciones.append({
+            "id": str(s.get("id") or "").strip() or _roadmap_new_id(),
+            "key": clave,
+            "label": etiqueta,
+            "icon": _rider_section_icon(clave, s.get("icon")),
+            "note": str(s.get("note") or "").strip()[:4000],
+            # ⚠️⚠️ La clave se llama `lines`, NO `items`: en Jinja `s.items` devuelve el MÉTODO del
+            # dict y `s.items|length` revienta con «object of type builtin_function_or_method has
+            # no len()» (500 real). La regla de la casa es no llamar `items`/`keys`/`values`/`get`
+            # a una clave que se vaya a leer en una plantilla. Se lee `items` como respaldo por si
+            # quedara algún rider guardado con el nombre viejo.
+            "lines": [x for x in (_rider_clean_item(i)
+                                  for i in (s.get("lines") or s.get("items") or [])) if x],
+            "files": [x for x in (_rider_clean_file(f) for f in (s.get("files") or [])) if x],
+        })
+    return {"sections": secciones,
+            "intro": str((crudo or {}).get("intro") or "").strip()[:4000] if isinstance(crudo, dict) else ""}
+
+
+def _rider_save(session_db, row, data: dict) -> None:
+    """Guarda el rider. ⚠️ Con `flag_modified`: el patrón de leer-copiar-reasignar NO escribe la
+    segunda vez en la misma petición (la trampa de siempre del JSONB)."""
+    from sqlalchemy.orm.attributes import flag_modified
+    payload = _json_loads_safe(getattr(row, "roadmap_payload", None), {})
+    if not isinstance(payload, dict):
+        payload = {}
+    payload["version"] = 2
+    payload["rider"] = {"sections": (data or {}).get("sections") or [],
+                        "intro": (data or {}).get("intro") or ""}
+    payload["updated_at"] = _now_madrid().isoformat()
+    payload["updated_by"] = _email_to_nick(_current_user_email() or "")
+    row.roadmap_payload = payload
+    flag_modified(row, "roadmap_payload")
+    row.updated_at = _now_madrid()
+    session_db.commit()
+
+
+def _rider_section(data: dict, sid: str) -> dict | None:
+    for s in (data or {}).get("sections") or []:
+        if s.get("id") == str(sid or "").strip():
+            return s
+    return None
+
+
+def _rider_totals(data: dict) -> tuple:
+    secciones = (data or {}).get("sections") or []
+    lineas = sum(len(s.get("lines") or []) for s in secciones)
+    adjuntos = sum(len(s.get("files") or []) for s in secciones)
+    return len(secciones), lineas, adjuntos
+
+
+def _rider_summary(row) -> str:
+    """«5 secciones · 23 líneas», que es lo que dice el listado."""
+    n_sec, n_lin, _n_adj = _rider_totals(_rider_load(row))
+    if not n_sec:
+        return "sin secciones"
+    trozos = ["%d secci%s" % (n_sec, "ones" if n_sec != 1 else "ón")]
+    if n_lin:
+        trozos.append("%d línea%s" % (n_lin, "s" if n_lin != 1 else ""))
+    return " · ".join(trozos)
+
+
+def _rider_new_sections(claves) -> list[dict]:
+    """Las secciones con las que NACE un rider (las del catálogo que se marquen, en su orden)."""
+    pedidas = {str(k or "").strip().upper() for k in (claves or [])}
+    salida = []
+    for clave, etiqueta, icono, _d in RIDER_SECTION_CATALOG:
+        if clave in pedidas:
+            salida.append({"id": _roadmap_new_id(), "key": clave, "label": etiqueta,
+                           "icon": icono, "note": "", "lines": [], "files": []})
+    return salida
+
+
+def _ensure_rider_token(session_db, row) -> str:
+    """El token del enlace público del rider. ⚠️ Se crea CON COMMIT: con un flush sin commit se
+    perdería al cerrar la sesión y en la carga siguiente saldría otro, o sea que un enlace ya
+    compartido dejaría de valer (bug real de las demos)."""
+    tok = (getattr(row, "public_token", None) or "").strip()
+    if tok:
+        return tok
+    tok = _uuid_token()
+    row.public_token = tok
+    session_db.commit()
+    return tok
+
+
+def _rider_public_url(session_db, row) -> str:
+    """El enlace que se comparte. ⚠️ Con el host CANÓNICO (`_external_url_for`), nunca con el de la
+    petición: una variable olvidada con el dominio antiguo hacía salir mal todos los enlaces."""
+    try:
+        return _external_url_for("public_rider_view", token=_ensure_rider_token(session_db, row))
+    except Exception:
+        return ""
+
+
+def _rider_by_token(session_db, token: str):
+    tok = (token or "").strip()
+    if not tok:
+        return None
+    return (session_db.query(ArtistTemplate)
+            .filter(ArtistTemplate.public_token == tok,
+                    func.upper(ArtistTemplate.kind) == "RIDER").first())
+
+
+def _rider_subject(session_db, row) -> dict:
+    """El sujeto del rider (artista, evento, gira o ciclo) con su foto y su ficha."""
+    otipo, oid = _template_owner_of(row)
+    info = (_template_subjects_map(session_db, [row]) or {}).get((otipo, oid))
+    if info:
+        return info
+    etiqueta, icono = TEMPLATE_OWNER_KINDS.get(otipo, ("Sujeto", "fa-clone"))
+    return {"kind": otipo, "id": oid, "name": "Sin vincular", "photo": "", "url": "",
+            "kind_label": etiqueta, "icon": icono}
+
+
+def _rider_brand(session_db) -> dict:
+    """La marca del documento: 33 PRODUCCIONES (un rider es producción).
+
+    ⚠️ Aquí SIEMPRE tiene que salir una marca: es un documento que se manda fuera, así que si la
+    empresa del grupo no tiene logo se cae al de la casa."""
+    marca = dict(_treinta_y_tres_brand_assets(session_db) or {})
+    if not (marca.get("logo_url") or "").strip():
+        try:
+            marca["logo_url"] = url_for("static", filename="img/logo_33_producciones.png")
+        except Exception:
+            marca["logo_url"] = "/static/img/logo_33_producciones.png"
+    return marca
+
+
+def _rider_context(session_db, row, activa: str = "") -> dict:
+    """Lo que necesita el editor de un rider (y, en solo lectura, su página pública)."""
+    data = _rider_load(row)
+    secciones = data.get("sections") or []
+    sec = _rider_section(data, activa) if activa else None
+    if sec is None:
+        sec = secciones[0] if secciones else None
+    n_sec, n_lin, n_adj = _rider_totals(data)
+    # Solo se ofrecen las secciones del catálogo que NO están ya puestas: una sección repetida no
+    # dice nada y parte el documento en dos sitios.
+    puestas = {s.get("key") for s in secciones if s.get("key")}
+    return {
+        "rider": row,
+        "rider_data": data,
+        "rider_sections": secciones,
+        "rider_section": sec,
+        "rider_active": (sec or {}).get("id", ""),
+        # ⚠️ `lines`, no `items`: una clave que se lee en una plantilla no puede llamarse como
+        # un método de dict (`d.items` devolvería el método).
+        "rider_counts": {"sections": n_sec, "lines": n_lin, "files": n_adj},
+        "rider_summary": _rider_summary(row),
+        "rider_providers": [{"key": k, "label": l, "icon": i} for k, l, i in RIDER_PROVIDERS],
+        "rider_catalog": [{"key": k, "label": l, "icon": i, "usual": d}
+                          for k, l, i, d in RIDER_SECTION_CATALOG if k not in puestas],
+        "rider_subject": _rider_subject(session_db, row),
+        "rider_brand": _rider_brand(session_db),
+        "rider_public_url": _rider_public_url(session_db, row),
+        "rider_can_edit": _production_can_edit(),
+    }
+
+
+def _rider_rows_for_owners(session_db, pares: list) -> list[dict]:
+    """Los riders de unos sujetos (`[(tipo, id), …]`), para ofrecerlos en una ACTIVIDAD.
+
+    ⚠️ En BLOQUE (una consulta): una actividad puede tener varios artistas."""
+    claves = {(str(t or "").upper(), str(i)) for t, i in (pares or []) if i}
+    if not claves:
+        return []
+    ids = [to_uuid(i) for _t, i in claves if to_uuid(i)]
+    if not ids:
+        return []
+    filas = (session_db.query(ArtistTemplate)
+             .filter(func.upper(ArtistTemplate.kind) == "RIDER",
+                     or_(ArtistTemplate.owner_id.in_(ids), ArtistTemplate.artist_id.in_(ids)))
+             .order_by(ArtistTemplate.updated_at.desc().nullslast()).all())
+    mapa = _template_subjects_map(session_db, filas)
+    salida = []
+    for r in filas:
+        if _template_owner_of(r) not in claves:
+            continue
+        info = mapa.get(_template_owner_of(r)) or {}
+        # ⚠️ `url_for` revienta con «Working outside of application context»: esto se lee también
+        # desde un cron o un hilo (la trampa de siempre de la casa).
+        try:
+            url = url_for("rider_edit", tid=str(r.id))
+            pdf = url_for("rider_pdf", tid=str(r.id))
+        except Exception:
+            url, pdf = "", ""
+        salida.append({
+            "id": str(r.id),
+            "name": (r.name or "Rider"),
+            "summary": _rider_summary(r),
+            "subject": (info.get("name") or ""),
+            "url": url,
+            "pdf_url": pdf,
+            "public_url": _rider_public_url(session_db, r),
+            "updated": getattr(r, "updated_at", None),
+        })
+    return salida
+
+
+def _concert_rider_rows(session_db, concert) -> list[dict]:
+    """Los riders que se pueden mandar al promotor de ESTA actividad.
+
+    Los de sus ARTISTAS y, si la actividad es de un evento, de una gira comprada o de un ciclo
+    nuestro, también los de ese contenedor: el rider puede ser del conjunto, no de un artista."""
+    pares = [("ARTIST", x) for x in (_roadmap_artist_ids(concert) or [])]
+    if getattr(concert, "event_id", None):
+        pares.append(("EVENT", str(concert.event_id)))
+    if getattr(concert, "purchased_tour_id", None):
+        pares.append(("TOUR", str(concert.purchased_tour_id)))
+    if getattr(concert, "cycle_festival_id", None):
+        pares.append(("CYCLE", str(concert.cycle_festival_id)))
+    return _rider_rows_for_owners(session_db, pares)
+
+
+def _template_edit_url(row) -> str:
+    """A dónde se va a editar una plantilla. ⚠️ Punto ÚNICO: un RIDER tiene su propio editor (por
+    secciones), así que un `url_for('artist_template_edit')` a pelo lo llevaría a la hoja de ruta."""
+    if _rider_is(row):
+        return url_for("rider_edit", tid=str(row.id))
+    return url_for("artist_template_edit", tid=str(row.id))
+
+
+def _build_rider_pdf_bytes(session_db, row) -> tuple:
+    """El RIDER en PDF: es lo que se manda al promotor.
+
+    Estilo de casa: logo de **33 Producciones** arriba a la DERECHA (en todas las páginas), el
+    título centrado, la cabecera del sujeto (su foto y su nombre) y, debajo, una SECCIÓN tras otra
+    en el orden del documento, cada una con su tabla (Cantidad · Concepto · Quién lo pone · Nota),
+    su nota y sus adjuntos. Las páginas van numeradas x/x abajo a la derecha.
+    """
+    if not REPORTLAB_AVAILABLE:
+        raise LookupError("Generación de PDF no disponible en el servidor.")
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors as rl_colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+                                    Image as RLImage, KeepTogether)
+
+    data = _rider_load(row)
+    sujeto = _rider_subject(session_db, row)
+    marca = _rider_brand(session_db)
+    nombre_archivo = _safe_download_filename(
+        "Rider_%s_%s" % ((sujeto.get("name") or "").strip() or "sujeto", (row.name or "rider")),
+        "rider") + ".pdf"
+
+    page_w, page_h = A4
+    margin = 15 * mm
+    usable_w = page_w - 2 * margin
+    GRIS_T = rl_colors.HexColor("#6b7683")
+    AZUL = rl_colors.HexColor("#07607e")
+
+    _cache_img: dict = {}
+
+    def _bytes_de(url):
+        clave = str(url or "")
+        if clave in _cache_img:
+            return _cache_img[clave]
+        datos = None
+        try:
+            if clave.lower().startswith("http"):
+                datos = urlopen(Request(clave, headers={"User-Agent": "Mozilla/5.0"}), timeout=8).read()
+            elif clave.startswith("/static/"):
+                with open(os.path.join(app.static_folder, clave[len("/static/"):]), "rb") as fh:
+                    datos = fh.read()
+        except Exception:
+            datos = None
+        _cache_img[clave] = datos
+        return datos
+
+    def _flowable(url, lado_mm):
+        """⚠️ `RLImage` NO admite un `ImageReader`: hay que darle una ruta o un fichero en memoria."""
+        datos = _bytes_de(url)
+        if not datos:
+            return None
+        try:
+            return RLImage(BytesIO(datos), width=lado_mm * mm, height=lado_mm * mm)
+        except Exception:
+            return None
+
+    def _reader(url):
+        datos = _bytes_de(url)
+        if not datos:
+            return None
+        try:
+            return ImageReader(BytesIO(datos))
+        except Exception:
+            return None
+
+    est_titulo = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=19, leading=23,
+                                alignment=1, textColor=rl_colors.HexColor("#111827"))
+    est_sujeto = ParagraphStyle("s", fontName="Helvetica-Bold", fontSize=13.5, leading=17)
+    est_sub = ParagraphStyle("sb", fontName="Helvetica", fontSize=9, leading=11.5, textColor=GRIS_T)
+    est_sec = ParagraphStyle("sec", fontName="Helvetica-Bold", fontSize=12, leading=15,
+                             textColor=AZUL, spaceBefore=0, spaceAfter=2)
+    est_th = ParagraphStyle("th", fontName="Helvetica-Bold", fontSize=7.8, leading=9.8, textColor=GRIS_T)
+    est_td = ParagraphStyle("td", fontName="Helvetica", fontSize=8.6, leading=11)
+    est_td_b = ParagraphStyle("tdb", fontName="Helvetica-Bold", fontSize=8.8, leading=11.4)
+    est_nota = ParagraphStyle("n", fontName="Helvetica-Oblique", fontSize=8.6, leading=11.6,
+                              textColor=rl_colors.HexColor("#374151"))
+    est_intro = ParagraphStyle("i", fontName="Helvetica", fontSize=9.6, leading=13,
+                               alignment=4, textColor=rl_colors.HexColor("#374151"))
+
+    story = [Spacer(1, 2 * mm), Paragraph(html.escape(row.name or "Rider"), est_titulo),
+             Spacer(1, 5 * mm)]
+
+    # Cabecera: la foto del sujeto y su nombre (lo que identifica de quién es el rider).
+    foto = _flowable(sujeto.get("photo"), 16) if sujeto.get("photo") else None
+    cab = [[foto if foto is not None else "",
+            [Paragraph(html.escape(sujeto.get("name") or "—"), est_sujeto),
+             Paragraph(html.escape(sujeto.get("kind_label") or ""), est_sub)]]]
+    t_cab = Table(cab, colWidths=[19 * mm, usable_w - 19 * mm])
+    t_cab.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                               ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                               ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
+    story.append(t_cab)
+    if (data.get("intro") or "").strip():
+        story.append(Spacer(1, 2 * mm))
+        for par in [p for p in re.split(r"\n{1,}", data["intro"]) if p.strip()]:
+            story.append(Paragraph(html.escape(par.strip()), est_intro))
+        story.append(Spacer(1, 2 * mm))
+    story.append(Spacer(1, 4 * mm))
+
+    secciones = data.get("sections") or []
+    if not secciones:
+        story.append(Paragraph("Este rider todavía no tiene secciones.", est_td))
+
+    cols = [usable_w * p for p in (0.10, 0.42, 0.20, 0.28)]
+    for sec in secciones:
+        piezas = [Paragraph(html.escape(sec.get("label") or "Sección"), est_sec)]
+        lineas = sec.get("lines") or []
+        if lineas:
+            filas = [[Paragraph(t, est_th) for t in ("Cant.", "Concepto", "Quién lo pone", "Nota")]]
+            for it in lineas:
+                filas.append([
+                    Paragraph(html.escape(it.get("qty") or ""), est_td),
+                    Paragraph(html.escape(it.get("concept") or ""), est_td_b),
+                    Paragraph(html.escape(RIDER_PROVIDER_LABELS.get(it.get("provider") or "", "")), est_td),
+                    Paragraph(html.escape(it.get("note") or ""), est_td),
+                ])
+            tabla = Table(filas, colWidths=cols, repeatRows=1)
+            tabla.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BACKGROUND", (0, 0), (-1, 0), rl_colors.HexColor("#f1f3f5")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.5, rl_colors.HexColor("#dfe3e8")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [rl_colors.white, rl_colors.HexColor("#fbfcfd")]),
+                ("GRID", (0, 0), (-1, -1), 0.25, rl_colors.HexColor("#e9ecef")),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            piezas.append(tabla)
+        if (sec.get("note") or "").strip():
+            piezas.append(Spacer(1, 1.5 * mm))
+            for par in [p for p in re.split(r"\n{1,}", sec["note"]) if p.strip()]:
+                piezas.append(Paragraph(html.escape(par.strip()), est_nota))
+        if sec.get("files"):
+            piezas.append(Spacer(1, 1.5 * mm))
+            piezas.append(Paragraph("Adjuntos: " + html.escape(
+                ", ".join([(f.get("name") or "") for f in sec["files"]])), est_sub))
+        if not lineas and not (sec.get("note") or "").strip() and not sec.get("files"):
+            piezas.append(Paragraph("—", est_sub))
+        # La cabecera de la sección no se separa de su primera fila.
+        story.append(KeepTogether(piezas) if len(lineas) <= 8 else piezas[0])
+        if len(lineas) > 8:
+            for x in piezas[1:]:
+                story.append(x)
+        story.append(Spacer(1, 6 * mm))
+
+    class _Numerada(rl_canvas.Canvas):
+        """Numera las páginas x/x abajo a la derecha (hay que saber el total: dos pasadas)."""
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self._paginas = []
+
+        def showPage(self):
+            self._paginas.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._paginas)
+            for estado in self._paginas:
+                self.__dict__.update(estado)
+                self.setFont("Helvetica", 7)
+                self.setFillColor(GRIS_T)
+                self.drawRightString(page_w - margin, 8 * mm, "%d/%d" % (self._pageNumber, total))
+                super().showPage()
+            super().save()
+
+    def _logo(canv, _doc):
+        """El logo de 33 Producciones, arriba a la DERECHA (en todas las páginas)."""
+        img = _reader(marca.get("logo_url"))
+        if img is None:
+            img = _reader(url_for("static", filename="img/logo_33_producciones.png"))
+        if img is None:
+            return
+        try:
+            iw, ih = img.getSize()
+            alto = 13 * mm
+            ancho = alto * (iw / float(ih or 1))
+            tope = 45 * mm
+            if ancho > tope:
+                ancho = tope
+                alto = ancho * (ih / float(iw or 1))
+            canv.drawImage(img, page_w - margin - ancho, page_h - margin - alto,
+                           width=ancho, height=alto, mask="auto")
+        except Exception:
+            pass
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=margin, rightMargin=margin,
+                            topMargin=margin + 15 * mm, bottomMargin=margin + 4 * mm,
+                            title=(row.name or "Rider"))
+    doc.build(story, onFirstPage=_logo, onLaterPages=_logo, canvasmaker=_Numerada)
+    return buf.getvalue(), nombre_archivo
+
+
+# ───────────────────────────────── RIDERS · el editor y sus acciones ─────────────────────────────
+def _rider_or_404(session_db, tid):
+    row = session_db.get(ArtistTemplate, to_uuid(tid))
+    if row is None or not _rider_is(row):
+        abort(404)
+    return row
+
+
+def _rider_edit_ok() -> bool:
+    """Montar un rider es editar PRODUCCIÓN (no hay recurso nuevo que conceder)."""
+    return _production_can_edit()
+
+
+def _rider_back(tid, sid: str = ""):
+    return redirect(url_for("rider_edit", tid=str(tid), **({"s": sid} if sid else {})))
+
+
+@app.get("/riders/<tid>", endpoint="rider_edit")
+@admin_required
+def rider_edit(tid):
+    """El editor de un rider: **una pestaña por SECCIÓN**."""
+    session_db = db()
+    try:
+        row = _rider_or_404(session_db, tid)
+        ctx = _rider_context(session_db, row, (request.args.get("s") or "").strip())
+        return render_template("rider_edit.html", title=f"Rider · {row.name}", **ctx)
+    finally:
+        session_db.close()
+
+
+@app.post("/riders/<tid>/datos", endpoint="rider_head_save")
+@admin_required
+def rider_head_save(tid):
+    """El nombre del rider y su presentación (lo que se lee antes de las secciones)."""
+    session_db = db()
+    try:
+        row = _rider_or_404(session_db, tid)
+        if not _rider_edit_ok():
+            flash("No tienes permiso para editar riders.", "warning")
+            return _rider_back(tid)
+        nombre = (request.form.get("name") or "").strip()
+        if nombre:
+            row.name = nombre[:160]
+        data = _rider_load(row)
+        if "intro" in request.form:
+            data["intro"] = (request.form.get("intro") or "").strip()[:4000]
+        _rider_save(session_db, row, data)
+        flash("Rider guardado.", "success")
+        return _rider_back(tid, (request.form.get("s") or "").strip())
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("rider_head_save")
+        flash(f"No se pudo guardar: {exc}", "danger")
+        return _rider_back(tid)
+    finally:
+        session_db.close()
+
+
+@app.post("/riders/<tid>/seccion", endpoint="rider_section_save")
+@admin_required
+def rider_section_save(tid):
+    """Añade una sección (del catálogo o con su nombre) o cambia el nombre y la nota de una."""
+    session_db = db()
+    try:
+        row = _rider_or_404(session_db, tid)
+        if not _rider_edit_ok():
+            flash("No tienes permiso para editar riders.", "warning")
+            return _rider_back(tid)
+        data = _rider_load(row)
+        sid = (request.form.get("section_id") or "").strip()
+        if sid:                                     # EDITAR una sección
+            sec = _rider_section(data, sid)
+            if sec is None:
+                abort(404)
+            nombre = (request.form.get("label") or "").strip()
+            if nombre:
+                sec["label"] = nombre[:120]
+            if "note" in request.form:
+                sec["note"] = (request.form.get("note") or "").strip()[:4000]
+            _rider_save(session_db, row, data)
+            return _rider_back(tid, sid)
+        # AÑADIR una o varias del catálogo, o una nueva con su nombre.
+        claves = [x for x in request.form.getlist("section_keys") if (x or "").strip()]
+        nuevas = _rider_new_sections(claves)
+        libre = (request.form.get("new_label") or "").strip()
+        if libre:
+            nuevas.append({"id": _roadmap_new_id(), "key": "", "label": libre[:120],
+                           "icon": RIDER_SECTION_ICON_FALLBACK, "note": "", "lines": [], "files": []})
+        if not nuevas:
+            _flash_form_error("Elige alguna sección o escribe el nombre de la nueva.",
+                              ["new_label"], abrir="riderSectionModal")
+            return _rider_back(tid)
+        # Una sección del catálogo que ya está no se añade otra vez: partiría el documento en dos.
+        puestas = {s.get("key") for s in (data.get("sections") or []) if s.get("key")}
+        nuevas = [s for s in nuevas if not (s.get("key") and s["key"] in puestas)]
+        if len(data.get("sections") or []) + len(nuevas) > RIDER_MAX_SECTIONS:
+            flash(f"Un rider no puede tener más de {RIDER_MAX_SECTIONS} secciones.", "warning")
+            return _rider_back(tid)
+        data["sections"] = (data.get("sections") or []) + nuevas
+        _rider_save(session_db, row, data)
+        flash("Sección añadida." if len(nuevas) == 1 else f"{len(nuevas)} secciones añadidas.", "success")
+        return _rider_back(tid, nuevas[0]["id"] if nuevas else "")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("rider_section_save")
+        flash(f"No se pudo guardar la sección: {exc}", "danger")
+        return _rider_back(tid)
+    finally:
+        session_db.close()
+
+
+@app.post("/riders/<tid>/seccion/<sid>/eliminar", endpoint="rider_section_delete")
+@admin_required
+def rider_section_delete(tid, sid):
+    session_db = db()
+    try:
+        row = _rider_or_404(session_db, tid)
+        if not _rider_edit_ok():
+            flash("No tienes permiso para editar riders.", "warning")
+            return _rider_back(tid)
+        data = _rider_load(row)
+        antes = len(data.get("sections") or [])
+        data["sections"] = [s for s in (data.get("sections") or []) if s.get("id") != str(sid)]
+        if len(data["sections"]) == antes:
+            abort(404)
+        _rider_save(session_db, row, data)
+        flash("Sección eliminada.", "success")
+        return _rider_back(tid)
+    finally:
+        session_db.close()
+
+
+@app.post("/riders/<tid>/seccion/<sid>/mover", endpoint="rider_section_move")
+@admin_required
+def rider_section_move(tid, sid):
+    """Mueve una sección. ⚠️ El orden de las secciones es el del DOCUMENTO (es el orden en el que
+    sale el PDF y la página pública), no una preferencia de quien mira."""
+    session_db = db()
+    try:
+        row = _rider_or_404(session_db, tid)
+        if not _rider_edit_ok():
+            return _rider_back(tid, sid)
+        data = _rider_load(row)
+        secciones = data.get("sections") or []
+        idx = next((i for i, s in enumerate(secciones) if s.get("id") == str(sid)), None)
+        if idx is None:
+            abort(404)
+        paso = -1 if (request.form.get("dir") or "up").strip().lower() == "up" else 1
+        destino = idx + paso
+        if 0 <= destino < len(secciones):
+            secciones[idx], secciones[destino] = secciones[destino], secciones[idx]
+            data["sections"] = secciones
+            _rider_save(session_db, row, data)
+        return _rider_back(tid, sid)
+    finally:
+        session_db.close()
+
+
+@app.post("/riders/<tid>/seccion/<sid>/lineas", endpoint="rider_items_save")
+@admin_required
+def rider_items_save(tid, sid):
+    """Guarda TODAS las líneas de la sección de una vez (filas dinámicas).
+
+    ⚠️ Cada fila lleva DENTRO sus campos, así que **el orden del DOM es el orden que se guarda**."""
+    session_db = db()
+    try:
+        row = _rider_or_404(session_db, tid)
+        if not _rider_edit_ok():
+            flash("No tienes permiso para editar riders.", "warning")
+            return _rider_back(tid, sid)
+        data = _rider_load(row)
+        sec = _rider_section(data, sid)
+        if sec is None:
+            abort(404)
+        ids = request.form.getlist("item_id")
+        qtys = request.form.getlist("item_qty")
+        conceptos = request.form.getlist("item_concept")
+        notas = request.form.getlist("item_note")
+        quienes = request.form.getlist("item_provider")
+        lineas = []
+        for i in range(len(conceptos)):
+            fila = _rider_clean_item({
+                "id": ids[i] if i < len(ids) else "",
+                "qty": qtys[i] if i < len(qtys) else "",
+                "concept": conceptos[i],
+                "note": notas[i] if i < len(notas) else "",
+                "provider": quienes[i] if i < len(quienes) else RIDER_DEFAULT_PROVIDER,
+            })
+            if fila:
+                lineas.append(fila)
+        sec["lines"] = lineas
+        if "note" in request.form:
+            sec["note"] = (request.form.get("note") or "").strip()[:4000]
+        _rider_save(session_db, row, data)
+        flash("Sección guardada.", "success")
+        return _rider_back(tid, sid)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("rider_items_save")
+        flash(f"No se pudo guardar: {exc}", "danger")
+        return _rider_back(tid, sid)
+    finally:
+        session_db.close()
+
+
+@app.post("/riders/<tid>/seccion/<sid>/adjuntar", endpoint="rider_file_upload")
+@admin_required
+def rider_file_upload(tid, sid):
+    """Adjunta archivos a una sección (el plano de escenario, el input list, un PDF del promotor)."""
+    session_db = db()
+    try:
+        row = _rider_or_404(session_db, tid)
+        if not _rider_edit_ok():
+            flash("No tienes permiso para editar riders.", "warning")
+            return _rider_back(tid, sid)
+        data = _rider_load(row)
+        sec = _rider_section(data, sid)
+        if sec is None:
+            abort(404)
+        subidos, fallidos = 0, []
+        for fs in request.files.getlist("files"):
+            if not fs or not (fs.filename or "").strip():
+                continue
+            try:
+                url = upload_file(fs, "riders", allowed_extensions=RIDER_FILE_EXTS)
+            except Exception as exc:
+                app.logger.exception("rider_file_upload")
+                fallidos.append(f"{fs.filename} ({exc})")
+                continue
+            if not url:
+                fallidos.append(fs.filename)
+                continue
+            sec.setdefault("files", []).append(_rider_clean_file(
+                {"name": os.path.basename(fs.filename), "url": url}))
+            subidos += 1
+        if subidos:
+            _rider_save(session_db, row, data)
+        # ⚠️ Un archivo que no se admite NO se calla: se dice cuál (y los demás sí entran).
+        if fallidos:
+            flash("No se pudieron adjuntar: " + ", ".join(fallidos[:5]), "warning")
+        elif not subidos:
+            flash("Elige algún archivo.", "warning")
+        else:
+            flash(f"{subidos} archivo(s) adjuntado(s).", "success")
+        return _rider_back(tid, sid)
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo adjuntar: {exc}", "danger")
+        return _rider_back(tid, sid)
+    finally:
+        session_db.close()
+
+
+@app.post("/riders/<tid>/seccion/<sid>/adjunto/<fid>/eliminar", endpoint="rider_file_delete")
+@admin_required
+def rider_file_delete(tid, sid, fid):
+    session_db = db()
+    try:
+        row = _rider_or_404(session_db, tid)
+        if not _rider_edit_ok():
+            return _rider_back(tid, sid)
+        data = _rider_load(row)
+        sec = _rider_section(data, sid)
+        if sec is None:
+            abort(404)
+        sec["files"] = [f for f in (sec.get("files") or []) if f.get("id") != str(fid)]
+        _rider_save(session_db, row, data)
+        flash("Adjunto eliminado.", "success")
+        return _rider_back(tid, sid)
+    finally:
+        session_db.close()
+
+
+@app.get("/riders/<tid>/pdf", endpoint="rider_pdf")
+@admin_required
+def rider_pdf(tid):
+    """El rider en PDF: es lo que se manda al promotor (o se adjunta al contrato)."""
+    session_db = db()
+    try:
+        row = _rider_or_404(session_db, tid)
+        datos, nombre = _build_rider_pdf_bytes(session_db, row)
+    except LookupError as exc:
+        flash(str(exc), "warning")
+        return _rider_back(tid)
+    except Exception as exc:
+        app.logger.exception("rider_pdf")
+        flash(f"No se pudo generar el PDF: {exc}", "danger")
+        return _rider_back(tid)
+    finally:
+        session_db.close()
+    return _pdf_al_vuelo_response(datos, nombre)
+
+
+# ─────────────────────────────── RIDER · el enlace que se comparte ──────────────────────────────
+@app.get("/rider/<token>", endpoint="public_rider_view")
+def public_rider_view(token):
+    """El RIDER por enlace público: lo que ve el promotor (con su PDF y sus adjuntos)."""
+    with get_db() as session_db:
+        row = _rider_by_token(session_db, token)
+        if row is None:
+            abort(404)
+        data = _rider_load(row)
+        sujeto = _rider_subject(session_db, row)
+        og = ""
+        try:
+            og = _external_url_for("public_rider_og_image", token=(token or "").strip())
+        except Exception:
+            og = ""
+        return render_template(
+            "public_rider.html", rider=row, rider_data=data, sections=(data.get("sections") or []),
+            subject=sujeto, brand=_rider_brand(session_db),
+            provider_labels=RIDER_PROVIDER_LABELS, token=(token or "").strip(),
+            counts=dict(zip(("sections", "lines", "files"), _rider_totals(data))),
+            og_image_url=og)
+
+
+@app.get("/rider/<token>/pdf", endpoint="public_rider_pdf")
+def public_rider_pdf(token):
+    with get_db() as session_db:
+        row = _rider_by_token(session_db, token)
+        if row is None:
+            abort(404)
+        datos, nombre = _build_rider_pdf_bytes(session_db, row)
+    return _pdf_al_vuelo_response(datos, nombre)
+
+
+@app.get("/rider/<token>/adjunto/<fid>", endpoint="public_rider_file")
+def public_rider_file(token, fid):
+    """Un adjunto del rider, **por NUESTRO dominio**: la dirección de Storage no sale nunca a la
+    página, y el `download` de un `<a>` se ignora en otro dominio."""
+    with get_db() as session_db:
+        row = _rider_by_token(session_db, token)
+        if row is None:
+            abort(404)
+        data = _rider_load(row)
+        # ⚠️ El id viaja en la URL: se valida contra lo que ESE token puede enseñar.
+        fila = next((f for s in (data.get("sections") or []) for f in (s.get("files") or [])
+                     if f.get("id") == str(fid)), None)
+        if not fila:
+            abort(404)
+    try:
+        datos, ctype = _download_remote_content(fila.get("url") or "", timeout=25)
+    except Exception:
+        app.logger.exception("[rider] no se pudo leer el adjunto")
+        abort(404)
+    resp = send_file(BytesIO(datos), mimetype=(ctype or "application/octet-stream"),
+                     as_attachment=True,
+                     download_name=_safe_download_filename(fila.get("name") or "adjunto"))
+    return resp
+
+
+@app.get("/rider/<token>/og.jpg", endpoint="public_rider_og_image")
+def public_rider_og_image(token):
+    """La miniatura del enlace: la foto del sujeto y, si no tiene, el logo de la casa."""
+    with get_db() as session_db:
+        row = _rider_by_token(session_db, token)
+        if row is None:
+            abort(404)
+        sujeto = _rider_subject(session_db, row)
+        fuentes = [(sujeto.get("photo") or "").strip(),
+                   (_rider_brand(session_db).get("logo_url") or "").strip()]
+    return _share_og_image_response([x for x in fuentes if x])
 
 
 PRODUCTION_TABS = ("activas", "archivadas", "plantillas", "riders")
@@ -82764,7 +83765,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -83257,6 +84258,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     if endpoint in {"acciones_view", "action_detail_view"} or endpoint.startswith("action_") or endpoint.startswith("acciones_"):
         return "acciones"
     if endpoint == "produccion_view" or endpoint.startswith("production_template"):
+        return "produccion"
+    # Los RIDERS viven en Producción (montarlos es editar producción).
+    if endpoint.startswith("rider_"):
         return "produccion"
     if endpoint == "administracion_view":
         return "administracion"
@@ -84133,6 +85137,14 @@ def _resolve_request_resource_key() -> str | None:
                 if has_access_key(clave, include_descendants=True):
                     return clave
         return "promo"
+    # ⚠️⚠️ LAS PLANTILLAS DE PRODUCCIÓN Y LOS RIDERS van por PREFIJO, aquí arriba: puestos en el
+    # `mapping` de más abajo serían **CÓDIGO MUERTO** (ese dict vive dentro de un
+    # `if endpoint in {…}` que solo enumera las vistas de sección, así que a un endpoint que no esté
+    # en ese conjunto no se llega nunca y `_resolve_request_resource_key` devolvía **None** → el gate
+    # no comprobaba NADA en un GET y en un POST solo miraba `is_master()`). Es la misma trampa que ya
+    # documenta la resolución por pestaña de contabilidad.
+    if endpoint.startswith("rider_") or endpoint.startswith("production_template"):
+        return "produccion"
     if endpoint == "diseno_view" or endpoint.startswith("diseno_peticion"):
         return "diseno"
     if endpoint == "admin_ita_upload":
@@ -84156,9 +85168,6 @@ def _resolve_request_resource_key() -> str | None:
             "acciones_view": "acciones",
             "action_detail_view": "acciones",
             "produccion_view": "produccion",
-            # Las PLANTILLAS de producción (hoja de ruta, personal, rooming, gastos, riders).
-            "production_template_create": "produccion",
-            "production_template_personnel": "produccion",
             "contabilidad_view": "contabilidad",
             "personnel_view": "personal.usuarios",
             "personnel_bulk_access": "personal.usuarios.accesos",
@@ -86826,7 +87835,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -96612,6 +97621,21 @@ def produccion_view():
         tpl_ctx = {}
         if tab == "plantillas":
             tpl_ctx = _production_templates_context(session_db, request.args.get("tipo"))
+        # RIDERS: los mismos `ArtistTemplate` kind RIDER que la subpestaña «Plantillas → Riders»
+        # (punto único `_production_template_groups`), agrupados por su sujeto. Aquí es donde se
+        # trabajan: se pincha uno y se abre su editor por secciones.
+        elif tab == "riders":
+            tpl_ctx = {
+                "rider_groups": _production_template_groups(session_db, "RIDER"),
+                # El modal de «+ Rider» es el MISMO que el de «+ Plantilla», con el tipo fijado.
+                "tpl_kinds": PRODUCTION_TEMPLATE_KINDS,
+                "tpl_kind": "RIDER",
+                "tpl_ready": True,
+                "tpl_subjects": _subject_options(session_db),
+                "tpl_rider_catalog": [{"key": k, "label": l, "icon": i, "usual": d}
+                                      for k, l, i, d in RIDER_SECTION_CATALOG],
+                "tpl_can_edit": _production_can_edit(),
+            }
 
         # PETICIONES: el módulo de encima de la rejilla de Activas. Solo se cargan donde se pintan
         # (en la rejilla, no dentro de un artista ni en el archivo).
@@ -124901,7 +125925,7 @@ def _notice_email_project(session_db, project, *, title: str, subject: str, intr
                "kind_label": "Proyecto", "release_label": "—", "brand": {}}
     datos = []
     if (ctx.get("artist_name") or "").strip():
-        datos.append(("fa-user-music", "Artista", ctx["artist_name"]))
+        datos.append(("fa-guitar", "Artista", ctx["artist_name"]))
     if (ctx.get("release_label") or "").strip() not in ("", "—"):
         datos.append(("fa-calendar-day", "Lanzamiento", ctx["release_label"]))
     return {
@@ -124940,7 +125964,7 @@ def _notice_email_promotion(session_db, promotion, *, title: str, subject: str, 
         pass
     datos = []
     if artista:
-        datos.append(("fa-user-music", "Artista", artista))
+        datos.append(("fa-guitar", "Artista", artista))
     inicio = getattr(promotion, "starts_on", None) or getattr(promotion, "target_date", None)
     if inicio:
         datos.append(("fa-calendar-day", "Fecha", inicio.strftime("%d/%m/%Y")))
@@ -124976,7 +126000,7 @@ def _notice_email_bag(session_db, bag, *, title: str, subject: str, intro: str =
         pass
     datos = []
     if artista:
-        datos.append(("fa-user-music", "Artista", artista))
+        datos.append(("fa-guitar", "Artista", artista))
     tipo = dict(BAG_TYPES).get((getattr(bag, "bag_type", None) or "").upper(), "")
     if getattr(bag, "starts_on", None):
         datos.append(("fa-calendar-day", "Fecha", bag.starts_on.strftime("%d/%m/%Y")))

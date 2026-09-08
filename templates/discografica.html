@@ -65,6 +65,12 @@
       Proyectos
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if section=='previsiones' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='previsiones') }}">
+      Previsiones
+    </a>
+  </li>
 </ul>
 
 {% if section == 'lanzamientos' %}
@@ -1872,6 +1878,10 @@
     </div>
     {% include '_playlist_vote_wizard.html' %}
   {% endif %}
+
+{% elif section == 'previsiones' %}
+
+  {% include '_disco_forecast.html' %}
 
 {% elif section == 'proyectos' %}
   {# PROYECTOS DISCOGRÁFICOS · donde se prepara el material: álbumes, EPs, singles y videoclips.

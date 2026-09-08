@@ -1,0 +1,67 @@
+{# CUADRO DE MANDO DE PREVISIONES (Discográfica → Previsiones)
+   Todo en UNA pantalla: el calendario de lanzamientos de los artistas (con el focus, la
+   continuidad y lo que va a radio), qué suena ahora en radio, hace cuánto entró la última canción
+   de cada artista en cada emisora y las presentaciones a radio programadas.
+   ⚠️ Los datos vienen de donde viven (la canción, las tocadas, las presentaciones y la agenda):
+   aquí solo se miran juntos. El render y las acciones, en static/js/disco_forecast.js. #}
+<div class="fc" data-forecast
+     data-fc='{{ forecast | tojson | forceescape }}'
+     data-url-data="{{ url_for('discografica_view', section='previsiones') }}"
+     data-url-json="{{ url_for('forecast_data') }}"
+     data-url-kind="{{ url_for('forecast_song_kind', sid='SID') }}"
+     data-url-drop="{{ url_for('forecast_song_radio_drop', sid='SID') }}"
+     data-url-window="{{ url_for('forecast_window_save') }}"
+     data-url-window-del="{{ url_for('forecast_window_delete', wid='WID') }}"
+     data-url-radio="{{ url_for('forecast_song_radio_plan', sid='SID') }}"
+     data-can-edit="{{ '1' if CAN_EDIT_DISCOGRAFICA else '' }}">
+
+  {# ---------- cabecera: de quién, cuándo y qué se ve ---------- #}
+  <div class="fc-head">
+    <div>
+      <h5 class="m-0">Previsiones</h5>
+      <div class="text-muted small">El planteamiento de todos los artistas en una pantalla: lo que sale, lo que suena y lo que se va a promocionar.</div>
+    </div>
+    <div class="fc-head__tools" data-fc-tools></div>
+  </div>
+
+  {# ---------- los artistas (todos a la vez o uno) ---------- #}
+  <div class="fc-artists" data-fc-artists></div>
+
+  {# ---------- A · CALENDARIO DE LANZAMIENTOS ---------- #}
+  <div class="fc-card">
+    <div class="fc-card__head">
+      <div><i class="fa fa-calendar-days"></i> Calendario de lanzamientos</div>
+      <div class="fc-legend" data-fc-legend></div>
+    </div>
+    <div class="fc-cal" data-fc-cal></div>
+  </div>
+
+  {# ---------- B · QUÉ SUENA AHORA EN RADIO ---------- #}
+  <div class="fc-grid">
+    <div class="fc-card">
+      <div class="fc-card__head">
+        <div><i class="fa fa-radio"></i> Suena ahora en radio</div>
+        <div class="fc-weeknav" data-fc-weeknav></div>
+      </div>
+      <div class="fc-radio" data-fc-radio></div>
+    </div>
+
+    {# ---------- C · HACE CUÁNTO ENTRÓ LA ÚLTIMA EN CADA EMISORA ---------- #}
+    <div class="fc-card">
+      <div class="fc-card__head">
+        <div><i class="fa fa-clock-rotate-left"></i> La última que entró en cada emisora</div>
+      </div>
+      <div class="fc-last" data-fc-last></div>
+    </div>
+
+    {# ---------- D · CALENDARIO DE PRESENTACIONES A RADIO ---------- #}
+    <div class="fc-card">
+      <div class="fc-card__head">
+        <div><i class="fa fa-tower-broadcast"></i> Presentaciones a radio</div>
+        <div class="fc-pitch-modes" data-fc-pitchmodes></div>
+      </div>
+      <div class="fc-pitches" data-fc-pitches></div>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/disco_forecast.js') }}?v={{ ASSET_V }}"></script>

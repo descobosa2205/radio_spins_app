@@ -11175,3 +11175,74 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Prueba de regresión**: `python3 tools/check_press_render.py` (sección 6: los casos que
     fallaban). Comprobado además con la app real, midiendo bloque a bloque el editor y la vista
     previa: **el mismo x, y, ancho y alto en los dos**, con fondo y sin fondo.
+
+- ⚠️⚠️ **DISCOGRÁFICA · CUADRO DE MANDO DE PREVISIONES** (sep 2026, pestaña **«Previsiones»**,
+  `?section=previsiones`). **Una sola pantalla para PLANIFICAR**: el calendario de lanzamientos de
+  todos los artistas, qué suena ahora en radio, hace cuánto entró la última canción de cada artista
+  en cada emisora y las presentaciones a radio ya programadas, con la agenda de fondo.
+  ⚠️⚠️ **NO HAY DOS VERDADES**: el focus vive en la CANCIÓN, las tocadas en `Play`, las
+  presentaciones en `SongRadioPitch` y las actividades en la agenda de siempre — aquí solo se MIRAN
+  juntas y se DECIDE, y cada cosa se guarda donde vive.
+  · **QUÉ ES CADA LANZAMIENTO**: **FOCUS SINGLE** (lo que ya existía) o **CONTINUIDAD** —el que
+  mantiene la presencia entre focus— (`Song.is_continuity` + `_at`/`_by`, columnas nuevas). Punto
+  único **`_song_release_kind(song)`**: el **focus MANDA** y las dos son **`NULL` = sin decidir**,
+  que no es «no». Se marca pinchando el hito del calendario (`forecast_song_kind`), y marcar una
+  quita la otra: un tema no es las dos cosas.
+  · **EL CALENDARIO** es una fila por ARTISTA (con su foto y su color) y una columna por SEMANA
+  (8 · 16 · 26 · 52, con el mes y la semana de hoy marcados). En cada fila: los **hitos** de sus
+  lanzamientos con su **portada**, la marca de focus/continuidad, **cuántas emisoras** lo llevan y
+  el rayado si el lanzamiento es provisional; las **franjas de PERIODO DE PROMOCIÓN**; y, con el
+  interruptor «Agenda», lo que ya hay en su agenda como **referencia** (`_forecast_agenda`, que es
+  `_agenda_build`: si mañana se añade un tipo, sale aquí solo).
+  ⚠️ **Con 40 artistas no cabe en una pantalla**: se pintan **solo los que tienen algo** en el
+  periodo (con un artista elegido se ve siempre, que es donde se planifica) y se dice cuántos se han
+  quedado fuera. Cada módulo se **desliza por dentro** (topes de altura), que es lo que hace que un
+  cuadro de mando se lea de un vistazo en vez de ser una página infinita.
+  · **PERIODOS DE PROMOCIÓN** (`DiscoPromoWindow`, tabla nueva; `forecast_window_save` /
+  `_delete`): artista · desde/hasta · qué es (`DISCO_PROMO_WINDOW_KINDS`: promoción · gira de radio
+  · gira · otro, cada uno con su icono y su color) · y **el lanzamiento al que va atado**, y
+  entonces **el nombre se compone solo** («Gira de radio · Focus») y se ve a qué está vinculado.
+  **Doble clic en la fila de un artista** = franja desde ese día (el gesto del calendario de la
+  casa). Las fechas del revés **se ordenan solas**.
+  · **SUENA AHORA EN RADIO**: por artista, sus canciones con **portada**, **en qué emisoras** (con
+  su logo) y **cuántas tocadas**, más la flecha de si **sube o baja** respecto a la semana anterior.
+  ⚠️⚠️ **La semana por defecto es la ANTERIOR a la actual** (`_forecast_week_start`, el mismo
+  criterio que la pantalla de Tocadas): las tocadas se suben con una semana de retraso, así que la
+  actual estaría a cero y parecería que no suena nada. Se cambia de semana con las flechas.
+  · **DESCARTAR una canción de radio** (`Song.radio_dropped_at`/`_by`, `forecast_song_radio_drop`):
+  se deja de trabajar en radio, se ve atenuada con su etiqueta y **se deshace**. ⚠️ **No borra
+  ninguna tocada**: lo que sonó, sonó.
+  · **LA ÚLTIMA QUE ENTRÓ EN CADA EMISORA** («la última de Antoñito Molina en Dial fue el …»):
+  **`_forecast_last_entries`** busca, por artista y emisora, la **PRIMERA semana en la que sonó**
+  cada canción (que es cuando ENTRÓ) y se queda con la más reciente, con su **«hace…»**
+  (`_forecast_ago_label`, que no inventa precisión) y **en ámbar** a partir de
+  `FORECAST_STALE_DAYS` (180 días), que es la oportunidad.
+  ⚠️ Va en **UNA consulta agrupada** (subconsulta con `min(week_start)` por artista+emisora+canción):
+  recorrer las tocadas artista a artista sería inaceptable.
+  · **PRESENTACIONES A RADIO**: `SongRadioPitch` agrupado **por emisora o por artista** (el mismo
+  dato mirado desde los dos sitios), con la fecha de entrada en rotación y su estado. Y desde el
+  cuadro se puede decir **a qué emisoras va** un tema (`forecast_song_radio_plan`): es la MISMA
+  presentación del proyecto, así que sale en su ficha y en su plan de lanzamiento.
+  ⚠️⚠️ **Solo se puede QUITAR lo que la emisora todavía no ha contestado**: un «sí entra» o un «no»
+  es información y no se borra desde un cuadro de mando.
+  ⚠️⚠️ **HAY DOS CONCEPTOS DE EMISORA y no son el mismo**: **`RadioStation`** son las de las TOCADAS
+  (los Excel semanales de spins) y los **`MediaOutlet` de tipo Radio** son las de la PRESENTACIÓN.
+  Lo que suena y la última entrada salen de las primeras; las presentaciones, de las segundas.
+  · **TODO SIN RECARGAR**: al cambiar de artista, de semana o de periodo se vuelve a pedir el cuadro
+  entero por **`forecast_data`** (`/discografica/previsiones/datos`) y se repinta, así no se pierde
+  por dónde se iba. Motor **`_forecast_context`** (una sola pasada) + `static/js/disco_forecast.js`
+  + `templates/_disco_forecast.html`, estilos `.fc-*`.
+  ⚠️ **Es CARO** (lanzamientos, tocadas, agenda y presentaciones): se calcula **solo en su pestaña**,
+  como el cuadro de mando de dirección.
+  ⚠️ Recurso propio **`discografica.previsiones`** en CURATED y los endpoints `forecast_*` mapeados
+  en los **DOS** mapeos (no llevan ningún prefijo ya cubierto).
+  ⚠️ **`_resolve_song_cover_url(session_db, song)` NO devuelve la URL**: RECALCULA `Song.cover_url`.
+  Para pintar una portada se lee la columna y se cae a la de «sin portada» (`_forecast_cover`); y
+  **`DEFAULT_COVER_URL` es un global de PLANTILLA**, no una variable de módulo.
+  ⚠️ **`can_edit_discografica()` no es un global de plantilla**: en la plantilla es
+  **`CAN_EDIT_DISCOGRAFICA`** (un `{% if can_edit_discografica() %}` revienta la página).
+  Probado con la app real (71 comprobaciones) y en el navegador: el calendario con sus 16 semanas y
+  sus hitos, marcar focus/continuidad, crear una franja con doble clic, descartar de radio (sin
+  perder las tocadas), la última entrada por emisora, las presentaciones por emisora y por artista,
+  el filtro por artista y la semana anterior; y a 375 px, sin desbordes y con el calendario
+  deslizándose por dentro.

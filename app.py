@@ -51,7 +51,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError as _IntegrityError
 
 from werkzeug.security import check_password_hash, generate_password_hash
-from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.exceptions import RequestEntityTooLarge, HTTPException
 from markupsafe import Markup, escape
 import calendar as _cal
 from urllib.parse import quote, quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote, urlparse
@@ -173,6 +173,7 @@ from models import (
     SongMasterDeliveryLink,
     SongDemo,
     SongRadioPitch,
+    DiscoPromoWindow,
     DiscoApproval,
     DiscoApprovalVoter,
     SongDemoAuthor,
@@ -17182,7 +17183,7 @@ def discografica_view():
     # ⚠️ Una sección NUEVA hay que añadirla a esta lista blanca: si no, cae en «canciones» y la
     #    pestaña sale marcada pero se pinta otra cosa (bug real de la épica de demos).
     if section not in ("lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos",
-                       "isrc", "adelantos", "demos", "playlists", "proyectos"):
+                       "isrc", "adelantos", "demos", "playlists", "proyectos", "previsiones"):
         section = "canciones"
     if section == "registros":
         legacy_tab = (request.args.get("registros_tab") or request.args.get("tab") or "pendiente").strip().lower()
@@ -17214,6 +17215,17 @@ def discografica_view():
     # PROYECTOS discográficos: los artistas con proyectos activos y, al entrar, los suyos. El
     # asistente necesita además el repertorio y los proyectos en marcha (para un videoclip).
     projects_ctx = _disco_projects_context(session_db) if section == "proyectos" else None
+    # ⚠️ El cuadro de PREVISIONES recorre lanzamientos, tocadas y agenda: solo se calcula en su
+    # pestaña (como el cuadro de mando de dirección).
+    forecast = (_forecast_context(
+        session_db,
+        artist_id=(request.args.get("fa") or ""),
+        week=(request.args.get("fw") or ""),
+        desde=(request.args.get("fd") or ""),
+        semanas=_roadmap_int(request.args.get("fs"), FORECAST_WEEKS),
+        todos=_truthy(request.args.get("ftodos")),
+        show_agenda=(request.args.get("fagenda") != "0"),
+    ) if section == "previsiones" else None)
     project_wizard = _disco_project_wizard_context(session_db) if section == "proyectos" else None
     # El catálogo de GÉNEROS lo sugiere el paso obligatorio del asistente de proyectos y el editor
     # de la ficha de la canción (es una ayuda: el campo admite cualquiera y lo crea al vuelo).
@@ -18160,6 +18172,7 @@ def discografica_view():
         demos_ctx=demos_ctx,
         projects_ctx=projects_ctx,
         project_wizard=project_wizard,
+        forecast=forecast,
         song_genre_catalog=song_genre_catalog,
         # PLAYLIST: el listado (una debajo de otra), solo en su pestaña.
         playlist_rows=playlist_rows,
@@ -26261,6 +26274,730 @@ def _disco_radio_state(session_db, project, release_song=None) -> dict:
         # Terminado cuando se ha pedido y ya han contestado todas.
         "done": bool(filas and not pendientes),
     }
+
+
+# ---------------------------------------------------------------------------
+#  DISCOGRÁFICA · CUADRO DE MANDO DE PREVISIONES
+#  ------------------------------------------------------------------------
+#  Una sola pantalla para PLANIFICAR: el calendario de lanzamientos de todos los artistas (con el
+#  focus, la continuidad y lo que va a radio), qué suena AHORA en radio y en qué emisoras, hace
+#  cuánto entró la última canción de cada artista en cada emisora, y las presentaciones a radio ya
+#  programadas. Todo con la agenda de fondo como referencia.
+#  ⚠️ No hay dos verdades: el focus vive en la CANCIÓN, las tocadas en `Play`, las presentaciones en
+#  `SongRadioPitch` y las actividades en la agenda de siempre. Aquí solo se MIRAN juntas.
+# ---------------------------------------------------------------------------
+
+# Qué es cada lanzamiento en el planteamiento. ⚠️ El FOCUS manda: un tema no es las dos cosas.
+DISCO_RELEASE_KINDS = [
+    ("FOCUS", "Focus single", "fa-star", "#e33d48"),
+    ("CONTINUIDAD", "Continuidad", "fa-circle-dot", "#007ca2"),
+]
+DISCO_RELEASE_KIND_META = {k: {"label": l, "icon": i, "color": c} for k, l, i, c in DISCO_RELEASE_KINDS}
+
+# Las franjas de promoción que se dibujan en el calendario.
+DISCO_PROMO_WINDOW_KINDS = [
+    ("PROMO", "Promoción", "fa-bullhorn", "#f59e0b"),
+    ("RADIO", "Gira de radio", "fa-radio", "#0ea5e9"),
+    ("GIRA", "Gira", "fa-van-shuttle", "#8b5cf6"),
+    ("OTRO", "Otro", "fa-thumbtack", "#6b7280"),
+]
+DISCO_PROMO_WINDOW_META = {k: {"label": l, "icon": i, "color": c} for k, l, i, c in DISCO_PROMO_WINDOW_KINDS}
+
+# Cuántas semanas se ven de una vez en el calendario (y cuántas caben en pantalla sin apretar).
+FORECAST_WEEKS = 16
+# A partir de cuánto tiempo sin entrar en una emisora se marca en ámbar (es la oportunidad).
+FORECAST_STALE_DAYS = 180
+
+
+def _song_release_kind(song) -> str:
+    """Qué es este lanzamiento en el planteamiento: FOCUS · CONTINUIDAD · '' (sin decidir).
+
+    ⚠️ Punto único: el **focus MANDA** (si está marcado, es focus aunque quede la marca vieja de
+    continuidad), y las dos columnas son `NULL` = sin decidir, que no es «no».
+    """
+    if getattr(song, "focus_single", None):
+        return "FOCUS"
+    if getattr(song, "is_continuity", None):
+        return "CONTINUIDAD"
+    return ""
+
+
+def _forecast_cover(row) -> str:
+    """La portada de un lanzamiento y, si no tiene, la imagen de «sin portada» de la casa.
+
+    ⚠️ `DEFAULT_COVER_URL` es un global de PLANTILLA, no una variable de módulo; y
+    `_resolve_song_cover_url` **no devuelve** la URL: recalcula `Song.cover_url`.
+    """
+    url = (getattr(row, "cover_url", "") or "").strip()
+    if url:
+        return url
+    return _safe_url_for("static", filename="img/cover_placeholder.png") or ""
+
+
+def _forecast_week_start(value=None) -> date:
+    """El lunes de la semana que se está mirando. ⚠️ Por defecto la ANTERIOR a la actual, que es de
+    la que hay tocadas subidas (el mismo criterio que la pantalla de Tocadas)."""
+    if value:
+        try:
+            return monday_of(parse_date(str(value)[:10]))
+        except Exception:
+            pass
+    return monday_of(today_local()) - timedelta(days=7)
+
+
+def _forecast_artists(session_db, *, todos: bool = False) -> list[dict]:
+    """Los artistas del cuadro: los del SELLO (con contrato discográfico) y, si no se sabe, los que
+    tienen repertorio. Con su foto y su color, como en el calendario de la casa."""
+    filas = session_db.query(Artist).filter(Artist.event_id.is_(None)).order_by(Artist.name.asc()).all()
+    con_repertorio = set()
+    try:
+        for (aid,) in session_db.query(SongArtist.artist_id).distinct().all():
+            con_repertorio.add(str(aid))
+    except Exception:
+        app.logger.exception("[previsiones] no se pudo leer el repertorio")
+    out = []
+    for i, a in enumerate(filas):
+        aid = str(a.id)
+        sello = _artist_has_record_deal(session_db, a.id)
+        if not todos and not sello and aid not in con_repertorio:
+            continue
+        out.append({
+            "id": aid, "name": (a.name or ""), "photo_url": (a.photo_url or ""),
+            "color": _agenda_color_for(len(out)), "deal": bool(sello),
+        })
+    return out
+
+
+def _forecast_releases(session_db, artist_ids: list, desde: date, hasta: date) -> dict:
+    """Los LANZAMIENTOS de esos artistas en la ventana: canciones y álbumes con su fecha, su
+    portada, qué son (focus / continuidad) y si van a radio. Devuelve {artist_id: [filas]}.
+
+    ⚠️ En BLOQUE: una consulta para las canciones, una para los álbumes, una para las presentaciones
+    a radio y una para los proyectos. Con 40 artistas, una por artista sería inaceptable.
+    """
+    ids = [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))]
+    out = {str(x): [] for x in ids}
+    if not ids:
+        return out
+    # --- canciones ---
+    canciones = (session_db.query(Song, SongArtist.artist_id)
+                 .join(SongArtist, SongArtist.song_id == Song.id)
+                 .filter(SongArtist.artist_id.in_(ids))
+                 .filter(Song.release_date >= desde, Song.release_date <= hasta)
+                 .all())
+    song_ids = [s.id for s, _a in canciones]
+    # ¿a qué emisoras va cada tema? (las presentaciones a radio, agrupadas)
+    radio = {}
+    if song_ids:
+        for pitch, media in (session_db.query(SongRadioPitch, MediaOutlet)
+                             .outerjoin(MediaOutlet, MediaOutlet.id == SongRadioPitch.media_id)
+                             .filter(SongRadioPitch.song_id.in_(song_ids)).all()):
+            radio.setdefault(str(pitch.song_id), []).append({
+                "id": str(pitch.id), "media_id": str(pitch.media_id),
+                "name": (getattr(media, "name", "") or ""),
+                "logo_url": (getattr(media, "logo_url", "") or ""),
+                "status": (pitch.status or "PENDING"),
+                "start_date": (pitch.start_date.isoformat() if pitch.start_date else ""),
+            })
+    for s, aid in canciones:
+        emisoras = radio.get(str(s.id), [])
+        out.setdefault(str(aid), []).append({
+            "kind": "SONG", "id": str(s.id), "title": (s.title or ""),
+            "date": s.release_date.isoformat() if s.release_date else "",
+            "cover_url": _forecast_cover(s),
+            "release_kind": _song_release_kind(s),
+            "provisional": bool(getattr(s, "is_provisional", False)),
+            "radio": emisoras,
+            "radio_ok": len([x for x in emisoras if x["status"] == "ACCEPTED"]),
+            "radio_dropped": bool(getattr(s, "radio_dropped_at", None)),
+            "url": _safe_url_for("song_detail_view", sid=str(s.id)),
+        })
+    # --- álbumes ---
+    # ⚠️ Un álbum NO tiene tabla N:M: su artista es `Album.artist_id`.
+    albumes = (session_db.query(Album)
+               .filter(Album.artist_id.in_(ids))
+               .filter(Album.release_date >= desde, Album.release_date <= hasta)
+               .all())
+    for al in albumes:
+        aid = al.artist_id
+        out.setdefault(str(aid), []).append({
+            "kind": "ALBUM", "id": str(al.id), "title": (al.title or ""),
+            "date": al.release_date.isoformat() if al.release_date else "",
+            "cover_url": _forecast_cover(al),
+            "release_kind": "",
+            "provisional": bool(getattr(al, "is_provisional", False)),
+            "radio": [], "radio_ok": 0, "radio_dropped": False,
+            "url": _safe_url_for("album_detail_view", aid=str(al.id)),
+        })
+    for aid in out:
+        out[aid].sort(key=lambda r: (r["date"], r["title"]))
+    return out
+
+
+def _forecast_radio_now(session_db, artist_ids: list, week_start: date) -> dict:
+    """QUÉ SUENA EN RADIO la semana que se está mirando: por artista, sus canciones con las emisoras
+    en las que suenan y cuántas veces. Devuelve {artist_id: [filas]}.
+
+    ⚠️ La semana por defecto es **la anterior a la actual**: las tocadas se suben con una semana de
+    retraso, así que la actual estaría a cero y parecería que no suena nada.
+    """
+    ids = [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))]
+    out = {str(x): [] for x in ids}
+    if not ids:
+        return out
+    # song_id -> artistas (para repartir las tocadas)
+    por_cancion = {}
+    for sid, aid in (session_db.query(SongArtist.song_id, SongArtist.artist_id)
+                     .filter(SongArtist.artist_id.in_(ids)).all()):
+        por_cancion.setdefault(sid, []).append(str(aid))
+    if not por_cancion:
+        return out
+    filas = (session_db.query(Play, Song, RadioStation)
+             .join(Song, Song.id == Play.song_id)
+             .outerjoin(RadioStation, RadioStation.id == Play.station_id)
+             .filter(Play.week_start == week_start)
+             .filter(Play.song_id.in_(list(por_cancion.keys())))
+             .filter(Play.spins > 0)
+             .all())
+    # semana anterior, para decir si sube o baja
+    previa = {}
+    for p in (session_db.query(Play)
+              .filter(Play.week_start == (week_start - timedelta(days=7)))
+              .filter(Play.song_id.in_(list(por_cancion.keys()))).all()):
+        previa[(p.song_id, p.station_id)] = p.spins or 0
+    acc = {}
+    for play, song, station in filas:
+        for aid in por_cancion.get(play.song_id, []):
+            clave = (aid, str(song.id))
+            fila = acc.get(clave)
+            if fila is None:
+                fila = acc[clave] = {
+                    "song_id": str(song.id), "title": (song.title or ""),
+                    "cover_url": _forecast_cover(song),
+                    "release_kind": _song_release_kind(song),
+                    "date": song.release_date.isoformat() if song.release_date else "",
+                    "dropped": bool(getattr(song, "radio_dropped_at", None)),
+                    "spins": 0, "stations": [],
+                    "url": _safe_url_for("song_detail_view", sid=str(song.id)),
+                }
+            antes = previa.get((play.song_id, play.station_id), 0)
+            fila["spins"] += (play.spins or 0)
+            fila["stations"].append({
+                "id": str(play.station_id), "name": (getattr(station, "name", "") or ""),
+                "logo_url": (getattr(station, "logo_url", "") or ""),
+                "spins": (play.spins or 0), "position": play.position,
+                "delta": (play.spins or 0) - antes,
+            })
+    for (aid, _sid), fila in acc.items():
+        fila["stations"].sort(key=lambda x: (-(x["spins"] or 0), x["name"]))
+        out.setdefault(aid, []).append(fila)
+    for aid in out:
+        out[aid].sort(key=lambda r: (-(r["spins"] or 0), r["title"]))
+    return out
+
+
+def _forecast_last_entries(session_db, artist_ids: list, *, hasta: date) -> dict:
+    """HACE CUÁNTO ENTRÓ la última canción de cada artista en cada emisora.
+
+    «La última de Antoñito Molina en Dial fue el …»: se busca, por artista y emisora, la **primera
+    semana en la que sonó** cada canción (que es cuando ENTRÓ) y se coge la más reciente.
+    ⚠️ En UNA consulta agrupada: recorrer las tocadas artista a artista sería inaceptable.
+    """
+    ids = [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))]
+    out = {str(x): [] for x in ids}
+    if not ids:
+        return out
+    sub = (session_db.query(SongArtist.artist_id.label("aid"),
+                            Play.station_id.label("sid"),
+                            Play.song_id.label("song"),
+                            func.min(Play.week_start).label("entro"))
+           .join(Play, Play.song_id == SongArtist.song_id)
+           .filter(SongArtist.artist_id.in_(ids))
+           .filter(Play.spins > 0, Play.week_start <= hasta)
+           .group_by(SongArtist.artist_id, Play.station_id, Play.song_id)
+           .subquery())
+    filas = (session_db.query(sub.c.aid, sub.c.sid, sub.c.song, sub.c.entro,
+                              Song.title, RadioStation.name, RadioStation.logo_url)
+             .outerjoin(Song, Song.id == sub.c.song)
+             .outerjoin(RadioStation, RadioStation.id == sub.c.sid)
+             .all())
+    mejor = {}
+    for aid, sid, _song, entro, titulo, emisora, logo in filas:
+        clave = (str(aid), str(sid))
+        actual = mejor.get(clave)
+        if actual is None or (entro and entro > actual["entered"]):
+            mejor[clave] = {"station_id": str(sid), "station": (emisora or ""), "logo_url": (logo or ""),
+                            "title": (titulo or ""), "entered": entro}
+    hoy = today_local()
+    for (aid, _sid), fila in mejor.items():
+        dias = (hoy - fila["entered"]).days if fila["entered"] else None
+        out.setdefault(aid, []).append({
+            "station_id": fila["station_id"], "station": fila["station"], "logo_url": fila["logo_url"],
+            "title": fila["title"],
+            "entered": fila["entered"].isoformat() if fila["entered"] else "",
+            "entered_label": (fila["entered"].strftime("%d/%m/%Y") if fila["entered"] else ""),
+            "days": dias,
+            "ago": _forecast_ago_label(dias),
+            "stale": bool(dias is not None and dias >= FORECAST_STALE_DAYS),
+        })
+    for aid in out:
+        out[aid].sort(key=lambda r: (-(r["days"] or 0)))
+    return out
+
+
+def _forecast_ago_label(dias) -> str:
+    """«hace 3 semanas» · «hace 5 meses» · «hace más de un año». Sin inventar precisión."""
+    if dias is None:
+        return ""
+    if dias <= 0:
+        return "esta semana"
+    if dias < 14:
+        return "hace %d día%s" % (dias, "" if dias == 1 else "s")
+    if dias < 60:
+        semanas = dias // 7
+        return "hace %d semana%s" % (semanas, "" if semanas == 1 else "s")
+    if dias < 365:
+        meses = dias // 30
+        return "hace %d mes%s" % (meses, "" if meses == 1 else "es")
+    años = dias // 365
+    return "hace más de un año" if años == 1 else "hace más de %d años" % años
+
+
+def _forecast_promo_windows(session_db, artist_ids: list, desde: date, hasta: date) -> dict:
+    """Los PERIODOS DE PROMOCIÓN que pisan la ventana, por artista.
+
+    ⚠️ Lo que está vinculado a un lanzamiento o a un proyecto **sigue su fecha**: se dice a qué está
+    vinculado (`linked`) para poder verlo, y el nombre se compone si no se le puso ninguno.
+    """
+    ids = [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))]
+    out = {str(x): [] for x in ids}
+    if not ids:
+        return out
+    filas = (session_db.query(DiscoPromoWindow)
+             .filter(DiscoPromoWindow.artist_id.in_(ids))
+             .filter(DiscoPromoWindow.end_date >= desde, DiscoPromoWindow.start_date <= hasta)
+             .order_by(DiscoPromoWindow.start_date.asc()).all())
+    song_ids = [w.song_id for w in filas if w.song_id]
+    album_ids = [w.album_id for w in filas if w.album_id]
+    titulos = {}
+    if song_ids:
+        for s in session_db.query(Song).filter(Song.id.in_(song_ids)).all():
+            titulos[("SONG", str(s.id))] = (s.title or "")
+    if album_ids:
+        for a in session_db.query(Album).filter(Album.id.in_(album_ids)).all():
+            titulos[("ALBUM", str(a.id))] = (a.title or "")
+    for w in filas:
+        meta = DISCO_PROMO_WINDOW_META.get((w.kind or "PROMO"), DISCO_PROMO_WINDOW_META["PROMO"])
+        vinculo = ""
+        if w.song_id:
+            vinculo = titulos.get(("SONG", str(w.song_id)), "")
+        elif w.album_id:
+            vinculo = titulos.get(("ALBUM", str(w.album_id)), "")
+        out.setdefault(str(w.artist_id), []).append({
+            "id": str(w.id), "kind": (w.kind or "PROMO"), "label": meta["label"],
+            "icon": meta["icon"], "color": meta["color"],
+            # Sin nombre propio se compone con LO QUE ES y a qué está vinculado («Gira de radio ·
+            # Focus»), no siempre «Promoción de…»: el tipo se elige y tiene que verse.
+            "name": (w.name or "").strip() or (("%s · %s" % (meta["label"], vinculo)) if vinculo else meta["label"]),
+            "note": (w.note or ""),
+            "start_date": w.start_date.isoformat(), "end_date": w.end_date.isoformat(),
+            "linked": vinculo,
+            "song_id": (str(w.song_id) if w.song_id else ""),
+            "album_id": (str(w.album_id) if w.album_id else ""),
+            "project_id": (str(w.project_id) if w.project_id else ""),
+        })
+    return out
+
+
+def _forecast_agenda(session_db, artist_ids: list, desde: date, hasta: date) -> dict:
+    """Lo que ya hay en la AGENDA de esos artistas (conciertos, promociones, bloqueos…), como
+    REFERENCIA para planificar: no se toca nada, solo se mira.
+
+    ⚠️ Es la agenda de siempre (`_agenda_build`): si mañana se añade un tipo, sale aquí solo.
+    """
+    out = {str(x): [] for x in artist_ids}
+    try:
+        payload = _agenda_build(session_db,
+                                [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))],
+                                desde, hasta, today_local(),
+                                full_details=_user_sees_unconfirmed_activities())
+    except Exception:
+        app.logger.exception("[previsiones] no se pudo leer la agenda")
+        return out
+    for it in (payload.get("activities") or []):
+        aid = str(it.get("artist_id") or "")
+        if aid not in out:
+            continue
+        out[aid].append({
+            "kind": it.get("kind") or "", "label": it.get("kind_label") or "",
+            "icon": it.get("icon") or "fa-circle", "color": it.get("kind_color") or "#6b7280",
+            "title": it.get("title") or "", "subtitle": it.get("subtitle") or "",
+            "date": it.get("date") or "", "end_date": it.get("end_date") or it.get("date") or "",
+            "url": it.get("url") or "",
+        })
+    return out
+
+
+def _forecast_pitch_calendar(session_db, artist_ids: list, desde: date, hasta: date) -> list[dict]:
+    """CALENDARIO DE PRESENTACIONES A RADIO: a qué emisora va cada tema y cuándo entra en rotación.
+
+    Se puede leer por EMISORA o por ARTISTA (lo agrupa la pantalla); aquí van las filas planas con
+    todo lo que hace falta para las dos vistas.
+    """
+    ids = [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))]
+    if not ids:
+        return []
+    filas = (session_db.query(SongRadioPitch, Song, MediaOutlet, SongArtist.artist_id)
+             .join(Song, Song.id == SongRadioPitch.song_id)
+             .join(SongArtist, SongArtist.song_id == Song.id)
+             .outerjoin(MediaOutlet, MediaOutlet.id == SongRadioPitch.media_id)
+             .filter(SongArtist.artist_id.in_(ids))
+             .all())
+    out = []
+    for pitch, song, media, aid in filas:
+        # Sin fecha de entrada todavía: se enseña igual (es lo que está pendiente de decidir).
+        fecha = pitch.start_date
+        if fecha and not (desde <= fecha <= hasta):
+            continue
+        out.append({
+            "id": str(pitch.id), "artist_id": str(aid),
+            "song_id": str(song.id), "title": (song.title or ""),
+            "cover_url": _forecast_cover(song),
+            "media_id": str(pitch.media_id), "station": (getattr(media, "name", "") or ""),
+            "logo_url": (getattr(media, "logo_url", "") or ""),
+            "status": (pitch.status or "PENDING"),
+            "date": (fecha.isoformat() if fecha else ""),
+            "date_label": (fecha.strftime("%d/%m/%Y") if fecha else "Sin fecha"),
+            "note": (pitch.note or ""),
+        })
+    out.sort(key=lambda r: (r["date"] or "9999", r["station"], r["title"]))
+    return out
+
+
+def _forecast_weeks(desde: date, semanas: int) -> list[dict]:
+    """Las columnas del calendario: una por SEMANA, con su etiqueta y de qué mes es."""
+    MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    out = []
+    for i in range(semanas):
+        d = desde + timedelta(days=7 * i)
+        out.append({
+            "start": d.isoformat(), "end": (d + timedelta(days=6)).isoformat(),
+            "label": "%d" % d.day, "month": MESES[d.month - 1], "month_num": d.month,
+            "first_of_month": (i == 0 or (desde + timedelta(days=7 * (i - 1))).month != d.month),
+            "is_now": (monday_of(today_local()) == d),
+        })
+    return out
+
+
+def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
+                      desde: str = "", semanas: int = FORECAST_WEEKS,
+                      todos: bool = False, show_agenda: bool = True) -> dict:
+    """Todo lo que pinta el cuadro de mando de PREVISIONES, en una sola pasada."""
+    artistas = _forecast_artists(session_db, todos=todos)
+    elegido = str(artist_id or "").strip()
+    if elegido and not any(a["id"] == elegido for a in artistas):
+        # Un artista que no está en la lista (inactivo) se añade: si se pide, se mira.
+        a = session_db.get(Artist, to_uuid(elegido)) if to_uuid(elegido) else None
+        if a is not None:
+            artistas = artistas + [{"id": str(a.id), "name": (a.name or ""),
+                                    "photo_url": (a.photo_url or ""),
+                                    "color": _agenda_color_for(len(artistas)), "deal": False}]
+        else:
+            elegido = ""
+    week_start = _forecast_week_start(week)
+    try:
+        primera = monday_of(parse_date(desde)) if desde else None
+    except Exception:
+        primera = None
+    if primera is None:
+        # Se arranca dos semanas antes de hoy: lo que acaba de salir sigue a la vista.
+        primera = monday_of(today_local()) - timedelta(days=14)
+    semanas = max(4, min(52, int(semanas or FORECAST_WEEKS)))
+    ultima = primera + timedelta(days=7 * semanas - 1)
+    ids = [a["id"] for a in artistas] if not elegido else [elegido]
+    ids_vista = ids
+    return {
+        "artists": artistas,
+        "artist_id": elegido,
+        "week_start": week_start.isoformat(),
+        "week_label": week_label_range(week_start),
+        "week_prev": (week_start - timedelta(days=7)).isoformat(),
+        "week_next": (week_start + timedelta(days=7)).isoformat(),
+        "from": primera.isoformat(),
+        "to": ultima.isoformat(),
+        "prev_from": (primera - timedelta(days=7 * 4)).isoformat(),
+        "next_from": (primera + timedelta(days=7 * 4)).isoformat(),
+        "weeks": _forecast_weeks(primera, semanas),
+        "releases": _forecast_releases(session_db, ids_vista, primera, ultima),
+        "radio_now": _forecast_radio_now(session_db, ids_vista, week_start),
+        "last_entries": _forecast_last_entries(session_db, ids_vista, hasta=ultima),
+        "promo_windows": _forecast_promo_windows(session_db, ids_vista, primera, ultima),
+        "agenda": (_forecast_agenda(session_db, ids_vista, primera, ultima) if show_agenda else
+                   {str(x): [] for x in ids_vista}),
+        "pitches": _forecast_pitch_calendar(session_db, ids_vista, primera, ultima),
+        "release_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in DISCO_RELEASE_KINDS],
+        "window_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in DISCO_PROMO_WINDOW_KINDS],
+        "show_agenda": bool(show_agenda),
+        "todos": bool(todos),
+        "stale_days": FORECAST_STALE_DAYS,
+    }
+
+
+# --- Acciones del cuadro de mando de PREVISIONES -----------------------------
+# ⚠️ Cada cosa se guarda DONDE VIVE: el focus y la continuidad en la CANCIÓN, el descarte de radio
+# en la canción, y los periodos de promoción en su tabla. Aquí no se duplica ningún dato.
+
+def _forecast_song_or_404(session_db, sid):
+    song = session_db.get(Song, to_uuid(str(sid or ""))) if to_uuid(str(sid or "")) else None
+    if song is None:
+        abort(404)
+    return song
+
+
+@app.post("/discografica/previsiones/cancion/<sid>/planteamiento", endpoint="forecast_song_kind")
+@admin_required
+def forecast_song_kind(sid):
+    """Marca un lanzamiento como FOCUS SINGLE o de CONTINUIDAD (o lo deja sin decidir).
+
+    ⚠️ El focus vive en la canción y de él cuelgan las tareas del proyecto: se escribe ahí, no en el
+    cuadro. Marcar FOCUS quita la continuidad y al revés (un tema no es las dos cosas).
+    """
+    session_db = db()
+    try:
+        if not can_edit_discografica():
+            abort(403)
+        song = _forecast_song_or_404(session_db, sid)
+        estado = _current_user_state()
+        nick = estado.get("nick") or ""
+        pedido = ((request.get_json(silent=True) or {}).get("kind")
+                  or request.form.get("kind") or "").strip().upper()
+        if pedido not in ("FOCUS", "CONTINUIDAD", ""):
+            return jsonify({"ok": False, "error": "No se entiende qué se quiere marcar."}), 400
+        ahora = datetime.utcnow()
+        if pedido == "FOCUS":
+            song.focus_single = True
+            song.focus_single_at = ahora
+            song.focus_single_by = nick
+            song.is_continuity = None
+            song.is_continuity_at = None
+            song.is_continuity_by = None
+        elif pedido == "CONTINUIDAD":
+            song.is_continuity = True
+            song.is_continuity_at = ahora
+            song.is_continuity_by = nick
+            song.focus_single = False
+            song.focus_single_at = ahora
+            song.focus_single_by = nick
+        else:
+            song.focus_single = None
+            song.focus_single_at = None
+            song.focus_single_by = None
+            song.is_continuity = None
+            song.is_continuity_at = None
+            song.is_continuity_by = None
+        session_db.commit()
+        return jsonify({"ok": True, "kind": _song_release_kind(song)})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_song_kind")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/previsiones/cancion/<sid>/radio-descartar", endpoint="forecast_song_radio_drop")
+@admin_required
+def forecast_song_radio_drop(sid):
+    """DESCARTA una canción de radio (o lo deshace). No borra ninguna tocada: lo que sonó, sonó."""
+    session_db = db()
+    try:
+        if not can_edit_discografica():
+            abort(403)
+        song = _forecast_song_or_404(session_db, sid)
+        estado = _current_user_state()
+        if _flag_arg("undo"):
+            song.radio_dropped_at = None
+            song.radio_dropped_by = None
+        else:
+            song.radio_dropped_at = datetime.utcnow()
+            song.radio_dropped_by = estado.get("nick") or ""
+        session_db.commit()
+        return jsonify({"ok": True, "dropped": bool(song.radio_dropped_at)})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_song_radio_drop")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/previsiones/promocion", endpoint="forecast_window_save")
+@admin_required
+def forecast_window_save():
+    """Crea o cambia un PERIODO DE PROMOCIÓN (la franja del calendario).
+
+    Se puede **vincular a un lanzamiento** (una canción o un álbum) o a un **proyecto**: entonces el
+    nombre se compone solo y se ve a qué está atado.
+    """
+    session_db = db()
+    try:
+        if not can_edit_discografica():
+            abort(403)
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        wid = (data.get("id") or "").strip()
+        row = session_db.get(DiscoPromoWindow, to_uuid(wid)) if wid else None
+        if wid and row is None:
+            return jsonify({"ok": False, "error": "Ese periodo ya no existe."}), 404
+        artist_id = to_uuid(str(data.get("artist_id") or "")) if data.get("artist_id") else (
+            row.artist_id if row is not None else None)
+        if not artist_id:
+            return jsonify({"ok": False, "error": "Falta el artista."}), 400
+        desde = parse_optional_date(data.get("start_date")) or (row.start_date if row is not None else None)
+        hasta = parse_optional_date(data.get("end_date")) or (row.end_date if row is not None else None)
+        if not desde:
+            return jsonify({"ok": False, "error": "Falta la fecha de comienzo."}), 400
+        if not hasta:
+            hasta = desde
+        if hasta < desde:
+            desde, hasta = hasta, desde        # las fechas del revés se ordenan solas
+        kind = (data.get("kind") or (row.kind if row is not None else "PROMO") or "PROMO").strip().upper()
+        if kind not in DISCO_PROMO_WINDOW_META:
+            kind = "PROMO"
+        if row is None:
+            estado = _current_user_state()
+            row = DiscoPromoWindow(artist_id=artist_id, start_date=desde, end_date=hasta, kind=kind,
+                                   created_by_user_id=to_uuid(str(estado.get("user_id") or "")) or None,
+                                   created_by_nick=(estado.get("nick") or ""))
+            session_db.add(row)
+        else:
+            row.artist_id = artist_id
+            row.start_date = desde
+            row.end_date = hasta
+            row.kind = kind
+        # El vínculo solo se toca si llega en el formulario (un guardado parcial no lo borra).
+        if "song_id" in data:
+            row.song_id = to_uuid(str(data.get("song_id") or "")) or None
+        if "album_id" in data:
+            row.album_id = to_uuid(str(data.get("album_id") or "")) or None
+        if "project_id" in data:
+            row.project_id = to_uuid(str(data.get("project_id") or "")) or None
+        if "name" in data:
+            row.name = (data.get("name") or "").strip() or None
+        if "note" in data:
+            row.note = (data.get("note") or "").strip() or None
+        row.updated_at = datetime.utcnow()
+        session_db.commit()
+        return jsonify({"ok": True, "id": str(row.id)})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_window_save")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/previsiones/promocion/<wid>/eliminar", endpoint="forecast_window_delete")
+@admin_required
+def forecast_window_delete(wid):
+    session_db = db()
+    try:
+        if not can_edit_discografica():
+            abort(403)
+        row = session_db.get(DiscoPromoWindow, to_uuid(str(wid or ""))) if to_uuid(str(wid or "")) else None
+        if row is None:
+            return jsonify({"ok": False, "error": "Ese periodo ya no existe."}), 404
+        session_db.delete(row)
+        session_db.commit()
+        return jsonify({"ok": True})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_window_delete")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/previsiones/cancion/<sid>/radio", endpoint="forecast_song_radio_plan")
+@admin_required
+def forecast_song_radio_plan(sid):
+    """A QUÉ EMISORAS va este tema y cuándo entra: se planifica desde el propio cuadro.
+
+    ⚠️ Es la MISMA presentación a radio del proyecto (`SongRadioPitch`, una fila por emisora): lo
+    que se marque aquí sale en su proyecto, en la ficha de la canción y en el plan de lanzamiento.
+    Una emisora que ya está no se duplica (índice único canción+emisora).
+    """
+    session_db = db()
+    try:
+        if not can_edit_discografica():
+            abort(403)
+        song = _forecast_song_or_404(session_db, sid)
+        data = request.get_json(silent=True) or {}
+        pedidas = data.get("media_ids")
+        if not isinstance(pedidas, list):
+            pedidas = request.form.getlist("media_ids")
+        fecha = parse_optional_date(data.get("start_date") or request.form.get("start_date"))
+        estado = _current_user_state()
+        actuales = {str(p.media_id): p for p in (session_db.query(SongRadioPitch)
+                                                 .filter(SongRadioPitch.song_id == song.id).all())}
+        quiero = {str(x) for x in pedidas if str(x)}
+        nuevas, quitadas = 0, 0
+        for mid in quiero:
+            if mid in actuales:
+                if fecha and not actuales[mid].start_date:
+                    actuales[mid].start_date = fecha
+                continue
+            mu = to_uuid(mid)
+            if not mu:
+                continue
+            session_db.add(SongRadioPitch(
+                song_id=song.id, media_id=mu, status="PENDING", start_date=fecha,
+                requested_by_user_id=to_uuid(str(estado.get("user_id") or "")) or None,
+                requested_by_nick=(estado.get("nick") or "")))
+            nuevas += 1
+        # ⚠️ Solo se quita lo que TODAVÍA no ha contestado la emisora: un «sí entra» o un «no» es
+        # información que no se borra desde un cuadro de mando.
+        for mid, pitch in actuales.items():
+            if mid not in quiero and (pitch.status or "PENDING") == "PENDING":
+                session_db.delete(pitch)
+                quitadas += 1
+        session_db.commit()
+        return jsonify({"ok": True, "added": nuevas, "removed": quitadas})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_song_radio_plan")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/previsiones/datos", endpoint="forecast_data")
+@admin_required
+def forecast_data():
+    """El cuadro entero en JSON: lo pide la pantalla al cambiar de artista, de semana o de ventana
+    (así no se recarga la página y no se pierde por dónde se iba)."""
+    session_db = db()
+    try:
+        return jsonify({"ok": True, "forecast": _forecast_context(
+            session_db,
+            artist_id=(request.args.get("fa") or ""),
+            week=(request.args.get("fw") or ""),
+            desde=(request.args.get("fd") or ""),
+            semanas=_roadmap_int(request.args.get("fs"), FORECAST_WEEKS),
+            todos=_truthy(request.args.get("ftodos")),
+            show_agenda=(request.args.get("fagenda") != "0"),
+        )})
+    finally:
+        session_db.close()
 
 
 def _disco_radio_media_options(session_db) -> list[dict]:
@@ -81903,6 +82640,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "discografica.proyectos", "label": "Proyectos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 138, "description": "Pestaña «Proyectos»: donde se prepara el material discográfico (álbumes, EPs, singles y videoclips), con el calendario de cada proyecto, su información, sus materiales, su bolsa de gastos y su hoja de ruta (importes de la bolsa)."},
     {"key": "discografica.demos", "label": "Demos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 139, "description": "Pestaña «Demos» del sello: las maquetas que se están valorando (subirlas, escucharlas, pedir valoración al sello y pasarlas al repertorio). Incluye el enlace público para que nos manden demos."},
     {"key": "discografica.playlists", "label": "Playlists", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 140, "description": "Pestaña «Playlists»: listas de temas (canciones del repertorio y maquetas) para mandarlas fuera, con su enlace público y sus interruptores (descarga, letra, autores…)."},
+    {"key": "discografica.previsiones", "label": "Previsiones", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 141, "description": "Cuadro de mando de «Previsiones»: el calendario de lanzamientos de todos los artistas (focus single, continuidad y lo que va a radio), qué suena ahora en cada emisora, hace cuánto entró la última canción de cada artista en cada emisora, los periodos de promoción y el calendario de presentaciones a radio."},
     # ⚠️ La pestaña GASTOS de la ficha de una canción es su BOLSA (la del single, o la de su
     # proyecto discográfico si lo tiene): son IMPORTES, así que tiene su propio permiso en vez de
     # colgar de otro que no venía a cuento.
@@ -82535,6 +83273,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         # ⚠️ El PLAN DE LANZAMIENTO son endpoints `disco_plan_*`, fuera del prefijo `disco_project_`:
         # sin nombrarlos aquí, un POST suyo solo lo pasaría dirección.
         return "discografica.proyectos"
+    # Cuadro de mando de PREVISIONES (endpoints `forecast_*`, fuera de cualquier prefijo cubierto).
+    if endpoint.startswith("forecast_"):
+        return "discografica.previsiones"
     if endpoint.startswith("song_platform_id"):
         # Los IDs de plataforma son un módulo de los materiales de la CANCIÓN.
         return "discografica.canciones"
@@ -83244,6 +83985,9 @@ def _resolve_request_resource_key() -> str | None:
         # ⚠️ El PLAN DE LANZAMIENTO son endpoints `disco_plan_*`, fuera del prefijo `disco_project_`:
         # sin nombrarlos aquí, un POST suyo solo lo pasaría dirección.
         return "discografica.proyectos"
+    # Cuadro de mando de PREVISIONES (endpoints `forecast_*`, fuera de cualquier prefijo cubierto).
+    if endpoint.startswith("forecast_"):
+        return "discografica.previsiones"
     if endpoint.startswith("song_platform_id"):
         # Los IDs de plataforma son un módulo de los materiales de la CANCIÓN.
         return "discografica.canciones"

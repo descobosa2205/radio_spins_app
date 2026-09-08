@@ -684,6 +684,15 @@ class Song(Base):
     focus_single = Column(Boolean)
     focus_single_at = Column(DateTime(timezone=True))
     focus_single_by = Column(Text)
+    # ⚠️ Un lanzamiento es FOCUS o de CONTINUIDAD (el que mantiene la presencia entre focus), y las
+    # dos son `NULL` = sin decidir. El focus MANDA: punto único `_song_release_kind`.
+    is_continuity = Column(Boolean)
+    is_continuity_at = Column(DateTime(timezone=True))
+    is_continuity_by = Column(Text)
+    # DESCARTADA de radio: se deja de trabajar en radio (se ve en el cuadro de Previsiones y se
+    # puede deshacer). No borra ninguna tocada: lo que sonó, sonó.
+    radio_dropped_at = Column(DateTime(timezone=True))
+    radio_dropped_by = Column(Text)
     # PITCH DE LANZAMIENTO: el texto con el que se presenta el lanzamiento (a plataformas, medios,
     # playlists…). Es un campo más de la ficha, y se puede descargar en PDF o mandar.
     # El PITCH lleva su titular destacado (sale en grande antes del texto en el PDF y el correo).
@@ -1832,6 +1841,33 @@ class SongWeekInfo(Base):
     week_start = Column(Date, ForeignKey("weeks.week_start", ondelete="CASCADE"), nullable=False)
     national_rank = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DiscoPromoWindow(Base):
+    """UN PERIODO DE PROMOCIÓN de un artista (el cuadro de mando de PREVISIONES de Discográfica).
+
+    Es la franja en la que se va a promocionar algo: se dibuja en el calendario de lanzamientos y se
+    puede **vincular a un lanzamiento** (una canción o un álbum) o a un **proyecto discográfico**,
+    y entonces sigue a su fecha. Sin vínculo es una franja libre («gira de radio», «feria»).
+    """
+
+    __tablename__ = "disco_promo_windows"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    name = Column(Text)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    note = Column(Text)
+    kind = Column(Text, nullable=False, server_default=text("'PROMO'"))   # PROMO|RADIO|GIRA|OTRO
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="SET NULL"))
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="SET NULL"))
+    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="SET NULL"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class RadioStationAlias(Base):
@@ -13510,6 +13546,13 @@ def ensure_song_radio_schema():
     _exec_ddl_statements([
         # El focus single es de la CANCIÓN: `NULL` = sin decidir.
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS focus_single boolean;",
+        # ⚠️ Cada columna en SU sentencia: metida en un bloque con guarda, un ALTER que enumera
+        # varias no se ejecuta si alguna ya existe y la nueva NO se crea (bug real de TikTok).
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_continuity boolean;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_continuity_at timestamptz;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_continuity_by text;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS radio_dropped_at timestamptz;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS radio_dropped_by text;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS focus_single_at timestamptz;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS focus_single_by text;",
         """
@@ -13535,6 +13578,27 @@ def ensure_song_radio_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_song_radio_song ON song_radio_pitches(song_id);",
         "CREATE INDEX IF NOT EXISTS idx_song_radio_pending ON song_radio_pitches(status);",
+        # PERIODOS DE PROMOCIÓN del cuadro de mando de Previsiones.
+        """
+        CREATE TABLE IF NOT EXISTS disco_promo_windows (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            name text,
+            start_date date NOT NULL,
+            end_date date NOT NULL,
+            note text,
+            kind text NOT NULL DEFAULT 'PROMO',
+            song_id uuid REFERENCES songs(id) ON DELETE SET NULL,
+            album_id uuid REFERENCES albums(id) ON DELETE SET NULL,
+            project_id uuid REFERENCES disco_projects(id) ON DELETE SET NULL,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_promo_window_artist ON disco_promo_windows(artist_id);",
+        "CREATE INDEX IF NOT EXISTS idx_promo_window_days ON disco_promo_windows(start_date, end_date);",
     ], label="ensure_song_radio_schema")
 
 

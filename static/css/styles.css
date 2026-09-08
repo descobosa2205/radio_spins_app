@@ -6785,3 +6785,139 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .rmr-dec img{ width:28px; height:28px; border-radius:50%; object-fit:cover; }
 .rmr-dec__txt{ display:flex; flex-direction:column; min-width:0; }
 .rmr-dec__role{ font-size:.74rem; color:#6c757d; }
+
+/* ==========================================================================
+   DISCOGRÁFICA · CUADRO DE MANDO DE PREVISIONES (`_disco_forecast.html`)
+   Todo en una pantalla: el calendario de lanzamientos por artista, qué suena en radio, la última
+   entrada en cada emisora y las presentaciones programadas.
+   ========================================================================== */
+.fc{ position:relative; }
+.fc.is-loading{ opacity:.55; pointer-events:none; }
+.fc-head{ display:flex; justify-content:space-between; align-items:flex-end; gap:.8rem; flex-wrap:wrap; margin-bottom:.7rem; }
+.fc-head__tools{ display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+.fc-range{ display:inline-flex; align-items:center; gap:.3rem; }
+.fc-range__label{ font-weight:600; font-size:.85rem; min-width:7.5rem; text-align:center; }
+
+/* los artistas: se pincha uno y se ve solo lo suyo (el patrón de los filtros de la casa) */
+.fc-artists{ display:flex; gap:.4rem; flex-wrap:wrap; margin-bottom:.8rem; }
+.fc-artist{ display:inline-flex; align-items:center; gap:.4rem; border:1px solid rgba(0,0,0,.1);
+  background:#fff; border-radius:999px; padding:.2rem .6rem .2rem .2rem; font-size:.82rem; font-weight:600; color:#495057; }
+.fc-artist img,.fc-artist .noimg{ width:26px; height:26px; border-radius:50%; object-fit:cover; background:#e9ecef;
+  display:grid; place-items:center; color:#adb5bd; font-size:.7rem; flex:0 0 auto; }
+.fc-artist.is-on{ border-color:var(--c,#e33d48); box-shadow:inset 0 0 0 1px var(--c,#e33d48); color:#212529; }
+.fc-artist--more{ padding:.25rem .7rem; color:#6c757d; }
+
+.fc-card{ border:1px solid rgba(0,0,0,.08); border-radius:14px; background:#fff; padding:.8rem .9rem; margin-bottom:.9rem; }
+.fc-card__head{ display:flex; justify-content:space-between; align-items:center; gap:.6rem; flex-wrap:wrap;
+  font-weight:700; font-size:.9rem; margin-bottom:.6rem; }
+.fc-card__head i{ color:var(--brand-accent,#007ca2); margin-right:.35rem; }
+/* Los tres módulos de abajo, en una fila: el cuadro se lee de un vistazo (tres columnas en una
+   pantalla ancha, dos en una mediana y apilados en el móvil). */
+.fc-grid{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:.9rem; }
+@media (max-width: 1399.98px){ .fc-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+@media (max-width: 991.98px){ .fc-grid{ grid-template-columns:1fr; } }
+.fc-empty{ color:#6c757d; font-size:.85rem; padding:.6rem 0; }
+.fc-legend{ display:flex; gap:.7rem; flex-wrap:wrap; font-weight:500; font-size:.75rem; color:#6c757d; }
+.fc-leg{ display:inline-flex; align-items:center; gap:.25rem; }
+.fc-leg i{ margin:0; }
+.fc-leg__bar{ width:14px; height:6px; border-radius:3px; display:inline-block; }
+
+/* --- calendario de lanzamientos --- */
+.fc-cal{ overflow-x:auto; }
+.fc-cal__grid{ min-width:44rem; }
+.fc-cal__row{ display:flex; align-items:stretch; gap:.5rem; }
+.fc-cal__row--head .fc-cal__track{ height:1.6rem; }
+.fc-cal__who{ flex:0 0 9.5rem; display:flex; align-items:center; gap:.4rem; font-size:.8rem; font-weight:600;
+  min-width:0; padding:.25rem 0; }
+.fc-cal__who img,.fc-cal__who .noimg{ width:24px; height:24px; border-radius:50%; object-fit:cover; background:#e9ecef;
+  display:grid; place-items:center; color:#adb5bd; font-size:.65rem; flex:0 0 auto; }
+.fc-cal__who span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fc-cal__track{ position:relative; flex:1 1 auto; display:flex; height:3.1rem; }
+.fc-cal__w{ flex:1 1 0; text-align:center; font-size:.62rem; color:#adb5bd; border-left:1px solid rgba(0,0,0,.05); }
+.fc-cal__w.is-month{ border-left-color:rgba(0,0,0,.16); }
+.fc-cal__w b{ display:block; font-size:.62rem; color:#6c757d; text-transform:uppercase; }
+.fc-cal__w.is-now{ color:var(--brand-primary,#e33d48); font-weight:700; }
+.fc-cal__cell{ flex:1 1 0; border-left:1px solid rgba(0,0,0,.05); border-bottom:1px solid rgba(0,0,0,.05); }
+.fc-cal__cell.is-month{ border-left-color:rgba(0,0,0,.16); }
+.fc-cal__cell.is-now{ background:rgba(227,61,72,.05); }
+.fc-cal__layer{ position:absolute; inset:0; }
+.fc-win{ position:absolute; top:.15rem; height:1.15rem; border:0; border-radius:6px; padding:0 .3rem;
+  background:var(--c,#f59e0b); color:#fff; font-size:.65rem; font-weight:600; display:flex; align-items:center; gap:.25rem;
+  overflow:hidden; white-space:nowrap; opacity:.92; }
+.fc-win:hover{ opacity:1; }
+.fc-win span{ overflow:hidden; text-overflow:ellipsis; }
+.fc-ref{ position:absolute; bottom:.1rem; transform:translateX(-50%); font-size:.6rem; color:var(--c,#6b7280); opacity:.8; }
+.fc-hito{ position:absolute; top:1.45rem; transform:translateX(-50%); width:26px; height:26px; padding:0;
+  border:2px solid var(--c,#6b7280); border-radius:8px; background:#fff; overflow:visible; display:grid; place-items:center; }
+.fc-hito img{ width:100%; height:100%; object-fit:cover; border-radius:6px; }
+.fc-hito i{ font-size:.7rem; color:var(--c,#6b7280); }
+.fc-hito.is-prov{ border-style:dashed; }
+.fc-hito__k{ position:absolute; bottom:-5px; right:-5px; background:#fff; border-radius:50%; font-size:.5rem;
+  width:12px; height:12px; display:grid; place-items:center; box-shadow:0 0 0 1px rgba(0,0,0,.1); }
+.fc-hito__radio{ position:absolute; top:-6px; right:-6px; background:#0ea5e9; color:#fff; border-radius:999px;
+  font-size:.55rem; font-weight:700; min-width:13px; height:13px; display:grid; place-items:center; padding:0 .15rem; }
+
+/* --- suena ahora en radio --- */
+.fc-weeknav{ display:inline-flex; align-items:center; gap:.3rem; }
+.fc-week{ font-size:.78rem; font-weight:600; color:#495057; }
+.fc-rblock,.fc-lblock,.fc-pblock{ border-top:1px solid rgba(0,0,0,.06); padding-top:.5rem; margin-top:.5rem; }
+.fc-rblock:first-child,.fc-lblock:first-child,.fc-pblock:first-child{ border-top:0; padding-top:0; margin-top:0; }
+.fc-rblock__who{ display:flex; align-items:center; gap:.4rem; font-size:.8rem; font-weight:700; margin-bottom:.35rem; }
+.fc-rblock__who img,.fc-rblock__who .noimg,.fc-rblock__who .fc-st__logo{ width:22px; height:22px; border-radius:50%;
+  object-fit:cover; background:#e9ecef; display:grid; place-items:center; color:#adb5bd; font-size:.6rem; flex:0 0 auto; overflow:hidden; }
+.fc-rblock__n{ margin-left:auto; font-weight:600; color:#adb5bd; font-size:.72rem; }
+.fc-song,.fc-pitch{ display:flex; align-items:center; gap:.5rem; padding:.3rem 0; }
+.fc-song.is-dropped{ opacity:.5; }
+.fc-song__cover,.fc-st__logo{ width:34px; height:34px; border-radius:6px; overflow:hidden; background:#e9ecef;
+  display:grid; place-items:center; color:#adb5bd; flex:0 0 auto; }
+.fc-song__cover img{ width:100%; height:100%; object-fit:cover; }
+.fc-song__cover--lg{ width:64px; height:64px; border-radius:8px; }
+.fc-song__main,.fc-pitch__main{ flex:1 1 auto; min-width:0; }
+.fc-song__title{ font-size:.85rem; font-weight:600; }
+.fc-song__title a{ color:inherit; }
+.fc-sub{ font-size:.75rem; color:#6c757d; }
+.fc-song__side{ display:flex; flex-direction:column; align-items:flex-end; gap:.1rem; flex:0 0 auto; }
+.fc-spins{ font-weight:700; font-size:.9rem; }
+.fc-drop{ font-size:.72rem; }
+.fc-stations{ display:flex; gap:.3rem; flex-wrap:wrap; margin-top:.15rem; }
+.fc-st{ display:inline-flex; align-items:center; gap:.2rem; background:#f1f3f5; border-radius:999px; padding:.1rem .4rem;
+  font-size:.7rem; color:#495057; }
+.fc-st img{ width:16px; height:16px; border-radius:50%; object-fit:cover; }
+.fc-st b{ font-weight:700; }
+.fc-up{ color:#198754; font-size:.6rem; }
+.fc-down{ color:#dc3545; font-size:.6rem; }
+.fc-badge{ display:inline-flex; align-items:center; gap:.2rem; font-size:.68rem; font-weight:700; border-radius:999px;
+  padding:.05rem .4rem; color:var(--c,#6b7280); background:color-mix(in srgb, var(--c,#6b7280) 12%, #fff); }
+.fc-badge--off{ --c:#6c757d; }
+
+/* --- la última que entró en cada emisora --- */
+.fc-last__row{ display:flex; align-items:center; gap:.45rem; font-size:.8rem; padding:.2rem 0; }
+.fc-last__st{ font-weight:600; flex:0 0 6.5rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fc-last__song{ flex:1 1 auto; min-width:0; color:#6c757d; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fc-last__when{ flex:0 0 auto; font-weight:600; color:#495057; }
+.fc-last__row.is-stale .fc-last__when{ color:#7a4b00; background:rgba(255,193,7,.18); border-radius:6px; padding:0 .3rem; }
+
+/* --- presentaciones a radio --- */
+.fc-pitch__date{ flex:0 0 auto; font-size:.78rem; font-weight:600; color:#495057; }
+
+/* --- pop-ups --- */
+.fc-relhead{ display:flex; gap:.7rem; align-items:center; }
+.fc-relkind{ display:flex; gap:.4rem; flex-wrap:wrap; }
+.fc-pick{ border:1px solid rgba(0,0,0,.12); background:#fff; border-radius:10px; padding:.35rem .6rem; font-size:.8rem;
+  font-weight:600; color:#495057; display:inline-flex; align-items:center; gap:.35rem; }
+.fc-pick i{ color:var(--c,#6b7280); }
+.fc-pick.is-on{ border-color:var(--c,#e33d48); box-shadow:inset 0 0 0 1px var(--c,#e33d48); color:#212529; }
+
+@media (max-width: 767.98px){
+  .fc-cal__who{ flex-basis:6.5rem; }
+  .fc-last__st{ flex-basis:5rem; }
+}
+/* ⚠️ Con muchos artistas el calendario deja de caber en una pantalla: se desliza por dentro (el
+   cuadro de mando tiene que verse de un vistazo) y los que no tienen nada no se pintan. */
+.fc-cal{ max-height:22rem; overflow:auto; }
+.fc-cal__row--head{ position:sticky; top:0; z-index:2; background:#fff; }
+.fc-cal__rest{ font-size:.75rem; color:#adb5bd; padding:.35rem 0 0 9.5rem; }
+@media (max-width: 767.98px){ .fc-cal__rest{ padding-left:6.5rem; } }
+/* Cada módulo del cuadro se desliza POR DENTRO: así el cuadro entero se lee de un vistazo en vez de
+   convertirse en una página de scroll infinito (es la idea de un cuadro de mando). */
+.fc-radio,.fc-last,.fc-pitches{ max-height:16rem; overflow:auto; }

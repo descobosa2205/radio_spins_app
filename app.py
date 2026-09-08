@@ -94181,7 +94181,54 @@ def _production_request_row(session_db, req: ProductionRequest) -> dict:
         "search_blob": search_blob,
         "is_request": True,
         "request": req,
+        # Quién la ha pedido y de qué departamento: es lo que explica por qué la ves (y lo que
+        # dirección necesita para asignarla).
+        "requested_by": (getattr(req, "requested_by_nick", None) or "").strip(),
+        "requested_by_user_id": str(getattr(req, "requested_by_user_id", "") or ""),
+        "requested_dept": "",
     }
+
+
+def _production_request_dept_map(session_db, reqs) -> dict:
+    """{user_id (texto): [departamentos]} de quienes han pedido esas peticiones, en UNA consulta."""
+    ids = {getattr(r, "requested_by_user_id", None) for r in (reqs or [])}
+    ids = {x for x in ids if x}
+    if not ids:
+        return {}
+    out = {}
+    try:
+        for prof in session_db.query(UserProfile).filter(UserProfile.user_id.in_(list(ids))).all():
+            out[str(prof.user_id)] = _profile_departments(prof)
+    except Exception:
+        app.logger.exception("No se pudieron leer los departamentos de quien pide una producción")
+    return out
+
+
+def _production_requests_visible(session_db, reqs) -> list:
+    """Las peticiones de producción que ve QUIEN MIRA.
+
+    ⚠️⚠️ Una petición de producción la ve **el DEPARTAMENTO QUE LA HA PEDIDO** (si la pidió el
+    Sello, la ve el Sello; si Contratación, Contratación) y **DIRECCIÓN siempre**, que es quien la
+    asigna. **Producción no ve el buzón**: recibe lo que se le asigna (y en «Activas» ve solo eso).
+    ⚠️ Quien la pidió la ve SIEMPRE, aunque no tenga departamento puesto.
+    ⚠️ Y una petición de la que **no se sabe quién la pidió** la ven todos: esconder trabajo que
+    entonces nadie podría ver es peor que enseñarlo de más (la misma regla que «Pendientes de
+    asignar» o que una tarea de administración sin responsable)."""
+    estado = _current_user_state() or {}
+    if int(estado.get("role") or 0) == 10:          # dirección: siempre, que es quien asigna
+        return list(reqs or [])
+    uid = str(estado.get("user_id") or "")
+    mios = set(_profile_departments(estado.get("profile")))
+    deptos = _production_request_dept_map(session_db, reqs)
+    fuera = []
+    for r in (reqs or []):
+        quien = str(getattr(r, "requested_by_user_id", "") or "")
+        if not quien:                                # sin creador conocido: que la vea todo el mundo
+            fuera.append(r)
+            continue
+        if quien == uid or (mios & set(deptos.get(quien) or [])):
+            fuera.append(r)
+    return fuera
 
 
 def _search_normalize(value: str | None) -> str:
@@ -94298,8 +94345,17 @@ def produccion_view():
             )
             # Las solicitudes de actividades del HISTÓRICO (antes del corte) no se procesan: se
             # quedan fuera del listado de Producción, que es lo que hay por hacer.
-            request_rows = [_production_request_row(session_db, req) for req in request_rows_db
-                            if not _is_legacy_activity_date(req.activity_date)]
+            request_rows_db = [req for req in request_rows_db
+                               if not _is_legacy_activity_date(req.activity_date)]
+            # ⚠️ Cada petición la ve el DEPARTAMENTO QUE LA PIDIÓ (y dirección, que es quien la
+            # asigna): producción no ve el buzón, recibe lo asignado.
+            request_rows_db = _production_requests_visible(session_db, request_rows_db)
+            _deptos = _production_request_dept_map(session_db, request_rows_db)
+            request_rows = []
+            for req in request_rows_db:
+                fila = _production_request_row(session_db, req)
+                fila["requested_dept"] = ", ".join(_deptos.get(fila["requested_by_user_id"], []) or [])
+                request_rows.append(fila)
             request_rows = [row for row in request_rows
                             if _production_passes_filters(row, q=f_q, artist_id=f_artist, activity_type=f_type)]
             request_rows.sort(key=lambda row: (row.get("date") or date.max, row.get("title") or ""))

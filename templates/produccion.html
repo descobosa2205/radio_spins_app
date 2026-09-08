@@ -109,6 +109,13 @@
               {% if row.city or row.province %} · {{ row.city }}{% if row.city and row.province %}, {% endif %}{{ row.province }}{% endif %}
             </div>
             {% if row.subtitle %}<div class="small text-muted mt-1">{{ row.subtitle }}</div>{% endif %}
+            {# QUIÉN la ha pedido: es lo que explica por qué la ves (su departamento es el que la ve)
+               y lo que dirección necesita para asignarla. #}
+            {% if row.is_request and (row.requested_by or row.requested_dept) %}
+              <div class="small text-muted mt-1">
+                <i class="fa fa-user-pen me-1"></i>Pedida por {{ row.requested_by or 'alguien de la casa' }}{% if row.requested_dept %} · {{ row.requested_dept }}{% endif %}
+              </div>
+            {% endif %}
           </div>
         </div>
         {% if show_actions and row.is_request %}
@@ -136,7 +143,7 @@
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
           <h5 class="mb-0"><i class="fa fa-inbox me-2 text-danger"></i>Peticiones de producción
             <span class="badge text-bg-warning text-dark ms-1">{{ requests|length }}</span></h5>
-          <span class="small text-muted">De la más próxima a la más lejana</span>
+          <span class="small text-muted">Las pide un departamento y dirección las asigna</span>
         </div>
         {% for row in requests %}
           {{ activity_row(row, True, loop.last) }}

@@ -10669,6 +10669,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (el destacado no se habría ido nunca).
   · **La persona de PRODUCCIÓN solo ve las activas que tenga ASIGNADAS** (lo pidió Dani): eso ya
   era la intención, pero **no funcionaba** — ver la trampa de abajo.
+  ⚠️⚠️ **UNA PETICIÓN LA VE EL DEPARTAMENTO QUE LA HA PEDIDO, Y DIRECCIÓN SIEMPRE** (que es quien
+  la asigna): si la pidió el SELLO la ve el Sello, si CONTRATACIÓN la ve Contratación… y
+  **PRODUCCIÓN NO VE EL BUZÓN** — recibe lo que se le asigna, igual que en Activas. Punto único
+  **`_production_requests_visible`** (+ `_production_request_dept_map`, que lee los departamentos
+  de quien pidió cada una en UNA consulta).
+  ⚠️ Quien la pidió la ve SIEMPRE, aunque no tenga departamento puesto; y una petición de la que
+  **no se sabe quién la pidió** la ven todos (esconder trabajo que entonces nadie podría ver es
+  peor: la misma regla que «Pendientes de asignar»).
+  ⚠️ El departamento se compara ya normalizado (`_profile_departments`), así que «Sello» vale
+  escrito como sea. En la fila se dice **quién la ha pedido y de qué departamento**, que es lo que
+  explica por qué la ves y lo que dirección necesita para asignarla.
 
 - ⚠️⚠️⚠️ **`_snapshot_user_profile` DESTROZABA LOS DEPARTAMENTOS: `list("Producción")` SON LETRAS**
   (bug real y transversal, sep 2026). El snapshot del perfil hacía

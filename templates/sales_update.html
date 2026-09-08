@@ -285,7 +285,7 @@
 
                                   <tr>
                                     <td>{{ tt.name }}</td>
-                                    <td class="text-end">{{ "%.2f"|format(cfg_price or 0.0) }} €</td>
+                                    <td class="text-end">{{ (cfg_price or 0)|eur }}</td>
                                     {# Se escribe el TOTAL acumulado de esa categoría en ESTA
                                        ticketera; lo vendido en el día lo calcula la app (y se ve
                                        al lado según se escribe). #}
@@ -643,7 +643,7 @@
                             <div class="mt-2 small">
                               {% if ct.rebate_mode == 'FIXED' %}
                                 <span class="badge bg-light text-dark border">Fijo</span>
-                                <span class="ms-2">Importe por entrada (bruto): <strong>{{ "%.2f"|format(ct.rebate_fixed_gross or 0.0) }} €</strong></span>
+                                <span class="ms-2">Importe por entrada (bruto): <strong>{{ (ct.rebate_fixed_gross or 0)|eur }}</strong></span>
                               {% elif ct.rebate_mode == 'PERCENT' %}
                                 <span class="badge bg-light text-dark border">% Venta</span>
                                 <span class="ms-2">Porcentaje: <strong>{{ "%.2f"|format(ct.rebate_pct or 0.0) }}%</strong></span>

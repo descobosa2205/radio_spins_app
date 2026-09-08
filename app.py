@@ -1365,11 +1365,16 @@ def _exp_tpl_item_filter(item):
 
 @app.template_filter("eur")
 def format_eur(n):
-    """Formatea importes en EUR con separador español."""
+    """Un importe en euros TAL COMO SE ESCRIBE AQUÍ: «1.234.567,89 €» (punto de miles, coma decimal).
+
+    ⚠️ Es el punto único de presentación, y lee con `_money_value` (un DATO: el punto es decimal).
+    Antes hacía `float(n)` a pelo y un importe guardado como «1.234,56» reventaba y se enseñaba
+    **0,00 €**."""
     try:
-        v = float(n or 0)
+        v = _money_value(n)
         return f"{v:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
+        app.logger.exception("Importe que no se pudo formatear: %r", n)
         return "0,00 €"
     
 @app.template_filter("fecha_corta")

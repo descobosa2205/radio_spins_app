@@ -69,7 +69,7 @@
       </div>
     </div>
   {% elif tab == 'ingresos' %}
-    <div class="card"><div class="card-body"><h5>Ingresos</h5><p class="text-muted mb-2">Esta acción tiene caché o ingresos asociados.</p><div class="fw-semibold">{{ action.fee_payload.amount if action.fee_payload else '' }}</div><div>{{ action.fee_payload.notes if action.fee_payload else '' }}</div></div></div>
+    <div class="card"><div class="card-body"><h5>Ingresos</h5><p class="text-muted mb-2">Esta acción tiene caché o ingresos asociados.</p><div class="fw-semibold">{{ (action.fee_payload.amount if action.fee_payload else 0)|eur }}</div><div>{{ action.fee_payload.notes if action.fee_payload else '' }}</div></div></div>
   {% elif tab == 'bolsa' %}
     <div class="card"><div class="card-body">
       {% if bag %}

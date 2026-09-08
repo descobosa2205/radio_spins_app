@@ -165,7 +165,7 @@
                    title="{{ comp.name }}{% if s.pct %} · {{ s.pct }}%{% elif s.amount %} · {{ s.amount }}€{% endif %}" onclick="event.stopPropagation();">
                   {{ company_logo(comp, size=38, cls='station-logo') }}
                   {% if s.pct %}<span class="socio-chip__pct">{{ s.pct }}%</span>
-                  {% elif s.amount %}<span class="socio-chip__pct">{{ s.amount }}€</span>{% endif %}
+                  {% elif s.amount %}<span class="socio-chip__pct">{{ s.amount|eur }}</span>{% endif %}
                 </a>
               {% endif %}
             {% endfor %}
@@ -176,7 +176,7 @@
                    title="{{ prom.nick }}{% if s.pct %} · {{ s.pct }}%{% elif s.amount %} · {{ s.amount }}€{% endif %}" onclick="event.stopPropagation();">
                   <img src="{{ prom.logo_url or DEFAULT_AVATAR_URL }}" class="station-logo" alt="" data-avatar="1">
                   {% if s.pct %}<span class="socio-chip__pct socio-chip__pct--prom">{{ s.pct }}%</span>
-                  {% elif s.amount %}<span class="socio-chip__pct socio-chip__pct--prom">{{ s.amount }}€</span>{% endif %}
+                  {% elif s.amount %}<span class="socio-chip__pct socio-chip__pct--prom">{{ s.amount|eur }}</span>{% endif %}
                 </a>
               {% endif %}
             {% endfor %}

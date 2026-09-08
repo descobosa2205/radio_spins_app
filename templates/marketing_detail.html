@@ -62,7 +62,7 @@
       <div class="card h-100"><div class="card-body">
         <h5 class="mb-3">Resumen económico</h5>
         <div class="d-flex justify-content-between"><span>Inversión sin IVA</span><strong>{{ '%.2f'|format(action_totals_net|float) }} €</strong></div>
-        <div class="d-flex justify-content-between mt-2"><span>Inversión con IVA</span><strong>{{ '%.2f'|format(action_totals_gross|float) }} €</strong></div>
+        <div class="d-flex justify-content-between mt-2"><span>Inversión con IVA</span><strong>{{ action_totals_gross|eur }}</strong></div>
         <hr>
         {% if promotion.bag_id %}
           <a href="{{ url_for('bag_detail_view', bag_id=promotion.bag_id) }}" class="btn btn-outline-primary w-100">{{ 'Ver la bolsa de la actividad' if promotion.subject_type == 'CONCERT' else 'Ver bolsa de campaña' }}</a>
@@ -234,8 +234,8 @@
                     </div>
                   </div>
                   <div class="text-end">
-                    <div class="fw-semibold">{{ '%.2f'|format((row.amount_gross or 0)|float) }} €</div>
-                    <div class="small text-muted">sin IVA {{ '%.2f'|format((row.amount_net or 0)|float) }} €</div>
+                    <div class="fw-semibold">{{ (row.amount_gross or 0)|eur }}</div>
+                    <div class="small text-muted">sin IVA {{ (row.amount_net or 0)|eur }}</div>
                     {% if row.allocation_mode and row.allocation_mode != 'SOURCE' %}<span class="marketing-split-euro mt-2" title="Gasto dividido / asignación especial"><i class="fa fa-euro-sign"></i></span>{% endif %}
                   </div>
                   <div class="dropdown">
@@ -348,7 +348,7 @@
         </div>
       {% endfor %}
     </div>
-    <div class="card mt-4"><div class="card-body d-flex justify-content-end gap-4 flex-wrap"><div>Inversión sin IVA: <strong>{{ '%.2f'|format(action_totals_net|float) }} €</strong></div><div>Inversión con IVA: <strong>{{ '%.2f'|format(action_totals_gross|float) }} €</strong></div></div></div>
+    <div class="card mt-4"><div class="card-body d-flex justify-content-end gap-4 flex-wrap"><div>Inversión sin IVA: <strong>{{ '%.2f'|format(action_totals_net|float) }} €</strong></div><div>Inversión con IVA: <strong>{{ action_totals_gross|eur }}</strong></div></div></div>
   {% else %}
     <div class="alert alert-light border">Todavía no hay acciones creadas para esta campaña.</div>
   {% endif %}

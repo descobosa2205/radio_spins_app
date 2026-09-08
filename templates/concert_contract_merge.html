@@ -71,7 +71,7 @@
                   <tbody>
                     {% for t in g.tickets_ours %}
                       <tr><td>{{ t.get('name') }}</td><td class="text-end">{{ t.get('qty_for_sale') }}</td>
-                        <td class="text-end">{{ t.get('amount') }}</td>
+                        <td class="text-end">{{ t.get('amount')|eur if t.get('amount') else "" }}</td>
                         <td class="text-end">{{ (t.get('invites_total') or 0) + (t.get('invites_artist') or 0) }}</td></tr>
                     {% endfor %}
                   </tbody>
@@ -85,7 +85,7 @@
                 <tbody>
                   {% for t in g.tickets_theirs %}
                     <tr><td>{{ t.get('name') }}</td><td class="text-end">{{ t.get('qty_for_sale') }}</td>
-                      <td class="text-end">{{ t.get('amount') }}</td>
+                      <td class="text-end">{{ t.get('amount')|eur if t.get('amount') else "" }}</td>
                       <td class="text-end">{{ t.get('invites_total') }}</td>
                       <td class="text-end">{{ t.get('invites_artist') }}</td></tr>
                   {% endfor %}

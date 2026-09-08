@@ -566,7 +566,7 @@
                   <td data-col="capacity" class="num-cell">
                     {% if e.capacity_label == 'Sin aforo' %}<span class="text-muted">Sin aforo</span>{% else %}{{ e.capacity_label|k }}{% endif %}
                   </td>
-                  <td data-col="cache">{{ e.cache }}</td>
+                  <td data-col="cache">{{ e.cache|eur if e.cache else "" }}</td>
                   <td data-col="format">{% if e.show_format %}<span class="quad-fmt">{{ e.show_format }}</span>{% else %}—{% endif %}</td>
                   <td data-col="schedule">{{ e.schedule_label or '—' }}</td>
                   <td data-col="equipment">{% if e.has_equipment %}<i class="fa fa-circle-check text-success"></i>{% else %}<span class="text-muted">—</span>{% endif %}</td>

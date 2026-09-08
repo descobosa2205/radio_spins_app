@@ -260,23 +260,23 @@
                             {% for ch in c.caches %}
                               <li>
                                 {% if ch.kind == 'FIXED' %}
-                                  <strong>Fijo</strong>: {{ ch.amount }}€
+                                  <strong>Fijo</strong>: {{ ch.amount|eur }}
                                 {% elif ch.kind == 'VARIABLE' %}
                                   {% set cfg = ch.config or {} %}
                                   <strong>Variable</strong>:
                                   {% if cfg.get('mode') == 'FIXED' %}
                                     {% if cfg.get('option') == 'FIXED_PER_TICKET_FROM' %}
-                                      {{ ch.amount }}€ / entrada desde la entrada {{ cfg.get('from_ticket') }}
+                                      {{ ch.amount|eur }} / entrada desde la entrada {{ cfg.get('from_ticket') }}
                                     {% elif cfg.get('option') == 'FIXED_FROM_TICKETS' %}
-                                      {{ ch.amount }}€ a partir de {{ cfg.get('min_tickets') }} entradas
+                                      {{ ch.amount|eur }} a partir de {{ cfg.get('min_tickets')|k }} entradas
                                     {% elif cfg.get('option') == 'FIXED_FROM_REVENUE' %}
-                                      {{ ch.amount }}€ a partir de {{ cfg.get('min_revenue') }}€
+                                      {{ ch.amount|eur }} a partir de {{ cfg.get('min_revenue')|eur }}
                                     {% else %}
                                       {{ ch.amount }}€
                                     {% endif %}
                                   {% else %}
                                     {% if cfg.get('option') == 'PCT_FROM_REVENUE' %}
-                                      {{ cfg.get('pct') }}% ({{ 'Neto' if cfg.get('base')=='NET' else 'Bruto' }}) desde {{ cfg.get('min_revenue') }}€
+                                      {{ cfg.get('pct') }}% ({{ 'Neto' if cfg.get('base')=='NET' else 'Bruto' }}) desde {{ cfg.get('min_revenue')|eur }}
                                     {% elif cfg.get('option') == 'PCT_FROM_TICKETS' %}
                                       {{ cfg.get('pct') }}% ({{ 'Neto' if cfg.get('base')=='NET' else 'Bruto' }}) desde {{ cfg.get('min_tickets') }} entradas
                                     {% elif cfg.get('option') == 'PCT_TICKET_TYPE' %}
@@ -287,7 +287,7 @@
                                   {% endif %}
                                 {% else %}
                                   <strong>{{ ch.concept or 'Otros' }}</strong>
-                                  {% if ch.amount %} — {{ ch.amount }}€{% endif %}
+                                  {% if ch.amount %} — {{ ch.amount|eur }}{% endif %}
                                   {% if ch.pct %} — {{ ch.pct }}% ({{ 'Neto' if ch.pct_base=='NET' else 'Bruto' }}){% endif %}
                                 {% endif %}
                               </li>
@@ -323,7 +323,7 @@
                                 {% if s.pct %}
                                   <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
                                 {% elif s.amount %}
-                                  <span class="badge bg-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
+                                  <span class="badge bg-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount|eur }}</span>
                                 {% endif %}
                               </div>
                               <div>
@@ -342,7 +342,7 @@
                                 {% if s.pct %}
                                   <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
                                 {% elif s.amount %}
-                                  <span class="badge bg-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
+                                  <span class="badge bg-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount|eur }}</span>
                                 {% endif %}
                               </div>
                               <div>
@@ -369,7 +369,7 @@
                                 {% if z.commission_type == 'PERCENT' and z.commission_pct %}
                                   <span class="badge bg-warning text-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ z.commission_pct }}%</span>
                                 {% elif z.commission_amount %}
-                                  <span class="badge bg-warning text-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ z.commission_amount }}€</span>
+                                  <span class="badge bg-warning text-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ z.commission_amount|eur }}</span>
                                 {% endif %}
                               </div>
                               <div>

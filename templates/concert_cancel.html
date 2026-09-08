@@ -81,7 +81,7 @@
         <div class="small text-muted mb-2">
           Pactado:
           {% for r in cache.rows %}
-            <span class="badge text-bg-light border ms-1">{{ r.concept }}{% if r.amount %} · {{ r.amount }}{% endif %}{% if r.pct %} · {{ r.pct }}{% endif %}</span>
+            <span class="badge text-bg-light border ms-1">{{ r.concept }}{% if r.amount %} · {{ r.amount|eur }}{% endif %}{% if r.pct %} · {{ r.pct }}{% endif %}</span>
           {% endfor %}
           {% if cache.has_amount %}<span class="ms-1">(total {{ cache.total_label }})</span>{% endif %}
         </div>

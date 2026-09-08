@@ -1,0 +1,64 @@
+{# ============ APROBAR UNA PETICIÓN · lo único que se pregunta es CON QUÉ EMPRESA DEL GRUPO ============
+   Contratación da el visto bueno y de paso dice con qué empresa del grupo se hace: es el dato que
+   ella tiene y que quien lo pidió no siempre sabe. Nada más se pregunta aquí — el resto de la
+   configuración (fecha, recinto, entradas…) la termina quien lo pidió en el asistente, que se abre
+   YA CUMPLIMENTADO con lo de la petición y con esta empresa.
+   ⚠️ UN SOLO pop-up por página (la bandeja tiene muchas filas): el botón le pasa la URL de su
+   petición con `data-pa-open` y el JS la pone en el formulario. Con ids por fila habría ids
+   repetidos en el DOM.
+   ⚠️ Si solo hay UNA empresa del grupo no se pregunta nada: el botón aprueba directamente. #}
+<div class="modal fade" id="peticionApproveModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form method="post" data-pa-form>
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-check me-2 text-success"></i>Aprobar la petición</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-2" data-pa-what></p>
+          <div class="demo-card">
+            <div class="demo-card__t"><i class="fa fa-building me-1"></i>¿Con qué empresa del grupo se hace?</div>
+            <div class="row g-2">
+              {% for co in (companies or []) %}
+                <div class="col-12 col-md-6">
+                  <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                    <input class="form-check-input" type="radio" name="billing_company_id" value="{{ co.id }}" {% if loop.first %}checked{% endif %}>
+                    {{ company_logo(co, size=34) }}
+                    <span class="fw-semibold small">{{ co.name }}</span>
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+            <div class="form-text mt-2">
+              Lo demás lo completa quien la pidió: el asistente se le abre con lo que ya se sabe y
+              solo le pide lo que falta.
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-success"><i class="fa fa-check me-1"></i>Aprobar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  /* El pop-up es uno para toda la página: la URL de la petición se fija EN EL CLIC (con
+     `modal_stack.js` por medio, `shown.bs.modal` no siempre llega). */
+  (function () {
+    document.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-pa-open]');
+      if (!b) return;
+      var modalEl = document.getElementById('peticionApproveModal');
+      if (!modalEl || typeof bootstrap === 'undefined') return;
+      var form = modalEl.querySelector('[data-pa-form]');
+      if (form) form.setAttribute('action', b.getAttribute('data-pa-open'));
+      var que = modalEl.querySelector('[data-pa-what]');
+      if (que) que.textContent = b.getAttribute('data-pa-what') || '';
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    });
+  })();
+</script>

@@ -2004,6 +2004,14 @@
       if(step === 8){ updateSellerCards(); }
       if(step === 10){ renderTagSuggestions(); }
     }
+    /* La navegación, para quien la necesite desde fuera (hoy: una PETICIÓN aprobada que se
+       configura entra directamente en el primer paso que falta, en vez de empezar por el
+       principio con todo ya contestado). */
+    window.app33ConcertWizard = {
+      goStep: showStep,
+      sequence: stepSequence,
+      current: function () { return currentStep; },
+    };
 
     /* ---- DE QUIÉN ES: artistas y EVENTOS en el MISMO selector, varios a la vez ----
        Lo elegido se reparte en los campos que el servidor ya espera: los artistas en `artist_id`
@@ -3136,6 +3144,41 @@
           if (it.managed_by) setRadio('promoter_cost_managed_' + key, it.managed_by);
           if (it.max_amount) setVal('[name="promoter_cost_max_' + key + '"]', it.max_amount);
         });
+      }
+      // 7 · La EMPRESA DEL GRUPO que dijo contratación al aprobar la petición.
+      if (pre.company_id) setRadio('billing_company_id', pre.company_id);
+
+      // Se DICE que viene de una petición y que lo que ya se sabe está puesto: si no, uno no sabe
+      // si el asistente está relleno porque lo ha hecho la app o porque se quedó a medias.
+      var body = document.querySelector('#concertWizardModal .modal-body');
+      if (body && !body.querySelector('[data-wz-prefill-note]')) {
+        var av = document.createElement('div');
+        av.className = 'alert alert-info py-2 px-3 small';
+        av.setAttribute('data-wz-prefill-note', '1');
+        av.innerHTML = '<i class="fa fa-wand-magic-sparkles me-1"></i>Viene de la petición' +
+          (pre.subject ? ' <b>«' + String(pre.subject).replace(/[<>&]/g, '') + '»</b>' : '') +
+          ': lo que ya se sabe está puesto (y la empresa del grupo, la que dijo contratación). ' +
+          'Solo hay que completar lo que falta.';
+        body.insertBefore(av, body.firstChild);
+      }
+
+      /* ⚠️⚠️ NO SE EMPIEZA POR EL PRINCIPIO: se entra en el primer paso que la petición NO puede
+         haber contestado. Lo de antes obligaba a pasar por todos los pasos ya rellenos («te lo
+         vuelve a pedir todo de cero»). Los pasos anteriores siguen ahí: se puede volver atrás. */
+      var api = window.app33ConcertWizard;
+      if (api && api.sequence) {
+        try {
+          var seq = api.sequence(), faltan = pre.faltan || [], sabidos = pre.sabidos || [], i, ir = null;
+          for (i = 0; i < seq.length; i++) {
+            if (faltan.indexOf(seq[i]) >= 0) { ir = seq[i]; break; }
+          }
+          if (ir === null) {
+            for (i = 0; i < seq.length; i++) {
+              if (sabidos.indexOf(seq[i]) < 0) { ir = seq[i]; break; }
+            }
+          }
+          if (ir !== null && ir !== seq[0]) api.goStep(ir);
+        } catch (e) { /* si no se puede, se queda en el primer paso: no pasa nada */ }
       }
     }
 

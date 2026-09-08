@@ -209,33 +209,79 @@
       <div class="modal-header">
         <div>
           <h5 class="modal-title"><i class="fa fa-circle-check me-2 text-success"></i>Aceptar la petición</h5>
-          <div class="text-muted small">¿En qué se convierte? Se crea el borrador con lo que ya sabemos y se abre su ficha para seguir.</div>
+          <div class="text-muted small">Solo dos cosas: en qué se convierte y con qué empresa del grupo se hace. Lo demás lo completa quien la pidió.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
+      {# ⚠️ UN SOLO formulario: antes cada tarjeta de tipo era su propio formulario y así no se podía
+         preguntar nada más (unos radios fuera de él no viajan). El tipo elegido va a un oculto. #}
+      <form method="post" action="{{ url_for('booking_request_approve', rid=row.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="activity_type" value="{{ activity_type }}" data-pa-type>
       <div class="modal-body">
         {% if not row.artist_id %}
           <div class="alert alert-warning mb-0"><i class="fa fa-triangle-exclamation me-1"></i>
             Falta el artista: edita la petición antes de aceptarla.</div>
         {% else %}
-          <div class="promo-pick-grid promo-pick-grid--wide">
-            {% for key, label, icon in activity_choices %}
-              <form method="post" action="{{ url_for('booking_request_approve', rid=row.id) }}">
-                <input type="hidden" name="activity_type" value="{{ key }}">
-                <input type="hidden" name="next" value="{{ request.full_path }}">
-                <button class="promo-pick w-100" type="submit" title="Crear {{ label|lower }}">
-                  <span class="promo-pick__box{% if key == activity_type %} is-suggested{% endif %}">
+          <div class="demo-card">
+            <div class="demo-card__t"><i class="fa fa-shapes me-1"></i>¿En qué se convierte?</div>
+            <div class="promo-pick-grid promo-pick-grid--wide">
+              {% for key, label, icon in activity_choices %}
+                <button type="button" class="promo-pick w-100" data-pa-pick="{{ key }}" title="{{ label }}">
+                  <span class="promo-pick__box{% if key == activity_type %} is-on is-suggested{% endif %}">
                     <i class="fa {{ icon }}"></i>
                     <span class="promo-pick__name">{{ label }}</span>
                     {% if key == activity_type %}<span class="promo-pick__hint">lo que se pidió</span>{% endif %}
                   </span>
                 </button>
-              </form>
-            {% endfor %}
+              {% endfor %}
+            </div>
+            <div class="form-text mt-1">Lo que venía en la petición sale marcado; se puede cambiar si toca.</div>
           </div>
-          <div class="form-text mt-2">Lo que venía en la petición sale marcado; se puede crear otra cosa si toca.</div>
+          {% if companies and companies|length > 1 %}
+            <div class="demo-card">
+              <div class="demo-card__t"><i class="fa fa-building me-1"></i>¿Con qué empresa del grupo se hace?</div>
+              <div class="row g-2">
+                {% for co in companies %}
+                  <div class="col-12 col-md-6">
+                    <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                      <input class="form-check-input" type="radio" name="billing_company_id" value="{{ co.id }}"
+                             {% if peticion_company_id and co.id == peticion_company_id %}checked{% elif not peticion_company_id and loop.first %}checked{% endif %}>
+                      {{ company_logo(co, size=34) }}
+                      <span class="fw-semibold small">{{ co.name }}</span>
+                    </label>
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="form-text mt-2">Es el dato que tiene contratación: al configurarla ya sale puesta.</div>
+            </div>
+          {% elif companies %}
+            <input type="hidden" name="billing_company_id" value="{{ companies[0].id }}">
+          {% endif %}
         {% endif %}
       </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        {% if row.artist_id %}<button class="btn btn-success"><i class="fa fa-check me-1"></i>Aprobar</button>{% endif %}
+      </div>
+      </form>
+      <script>
+        /* Las tarjetas de «en qué se convierte» espejan su valor en el oculto (el patrón
+           `data-dp-mirror` de la casa): así el pop-up es UN formulario y puede preguntar la empresa. */
+        (function () {
+          var m = document.getElementById('peticionAcceptModal');
+          if (!m) return;
+          m.addEventListener('click', function (ev) {
+            var b = ev.target.closest('[data-pa-pick]');
+            if (!b) return;
+            var h = m.querySelector('[data-pa-type]');
+            if (h) h.value = b.getAttribute('data-pa-pick');
+            m.querySelectorAll('[data-pa-pick] .promo-pick__box').forEach(function (x) { x.classList.remove('is-on'); });
+            var box = b.querySelector('.promo-pick__box');
+            if (box) box.classList.add('is-on');
+          });
+        })();
+      </script>
     </div>
   </div>
 </div>

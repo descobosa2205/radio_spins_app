@@ -3652,6 +3652,33 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   quien puede entrar en ella.
   ⚠️ Lo que hay que HACER va primero en el módulo: comunicar un rechazo es una tarea, no seguimiento.
 
+- ⚠️⚠️ **APROBAR UNA PETICIÓN: CONTRATACIÓN SOLO DICE CON QUÉ EMPRESA DEL GRUPO SE HACE** (sep 2026).
+  Es el dato que ella tiene y que quien lo pidió no siempre sabe, así que se pregunta **ahí y solo
+  eso** (`billing_company_id` → `BookingRequest.payload['group_company_id']`); todo lo demás lo
+  termina quien la pidió.
+  · **El pop-up de aceptar es UN SOLO formulario**: las tarjetas de «¿en qué se convierte?» espejan
+  su valor en un oculto (`data-pa-type`, el patrón `data-dp-mirror` de la casa) y debajo van las
+  empresas con su logo. ⚠️ Antes **cada tarjeta era su propio `<form>`**, así que no se podía
+  preguntar nada más: unos radios fuera del formulario no viajan.
+  · En la **bandeja** (`peticiones.html`) el menú «Aprobar» abre el mismo pop-up
+  (`_peticion_approve_modal.html`, **uno por página**: la URL de cada petición se fija EN EL CLIC,
+  porque con un pop-up por fila habría ids repetidos).
+  ⚠️ **Con una sola empresa del grupo no se pregunta nada** (va en un oculto): la regla de la casa
+  es no ofrecer una elección que no elige nada.
+  · ⚠️⚠️ **Y AL VOLVER A QUIEN LA PIDIÓ NO SE LE PREGUNTA TODO OTRA VEZ**: el asistente se abre con
+  lo de la petición ya puesto (eso ya estaba, `_peticion_wizard_prefill`) **más la empresa**, y
+  **entra directamente en el primer paso que falta** en vez de empezar por el principio —
+  `_peticion_wizard_missing` dice qué pasos no puede haber contestado la petición y el asistente
+  salta ahí (`window.app33ConcertWizard.goStep`, que expone su navegación). Arriba se DICE que viene
+  de una petición y que lo que ya se sabe está puesto: si no, uno no sabe si el asistente está
+  relleno porque lo ha hecho la app o porque se quedó a medias.
+  ⚠️ Los pasos anteriores **siguen ahí**: se puede volver atrás a repasarlos.
+  ⚠️ Si no falta nada de lo que la petición sabe, se entra en el primero que ella **nunca** puede
+  contestar (las entradas, el estado…): `sabidos` en el payload del precumplimentado.
+  Probado con la app real: aprobar guarda la empresa, no crea ninguna actividad, el asistente sale
+  con artista, empresa, fecha, municipio, promotor, «¿tiene caché?» con su importe, los gastos que
+  cubre el promotor y la descripción, y `faltan` dice [2,3,4,5] en una petición vacía.
+
 - ⚠️⚠️ **APROBAR UNA PETICIÓN NO CREA NADA: la devuelve para CONFIGURARLA, y luego va POR FASES**
   (ago 2026). Cuando contratación aprueba (p. ej. un **evento promocional**), la petición vuelve a
   **QUIEN LA PIDIÓ** y a partir de ahí todo el trabajo es suyo. **`booking_request_approve` YA NO crea

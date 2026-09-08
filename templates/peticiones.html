@@ -82,7 +82,10 @@
               {% endif %}
               <li><hr class="dropdown-divider"></li>
               {% if r.status != 'CONVERTIDA' %}
-              <li><form method="post" action="{{ url_for('booking_request_approve', rid=r.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="dropdown-item text-success"><i class="fa fa-check fa-fw me-1"></i>Aprobar (crear borrador)</button></form></li>
+              {# Aprobar pregunta lo único que falta por decir aquí: la empresa del grupo. #}
+              <li><button type="button" class="dropdown-item text-success"
+                    data-pa-open="{{ url_for('booking_request_approve', rid=r.id) }}"
+                    data-pa-what="{{ (r.subject or 'Petición')|e }}"><i class="fa fa-check fa-fw me-1"></i>Aprobar</button></li>
               {% endif %}
               {% if r.status not in ['EN_TRAMITE','CONVERTIDA','DESCARTADA'] %}
               <li><form method="post" action="{{ url_for('booking_request_status', rid=r.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="status" value="EN_TRAMITE"><button class="dropdown-item"><i class="fa fa-comments fa-fw me-1"></i>Marcar en negociación</button></form></li>
@@ -237,3 +240,5 @@
 })();
 </script>
 {% endblock %}
+
+{% include '_peticion_approve_modal.html' %}

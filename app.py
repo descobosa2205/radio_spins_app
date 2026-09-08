@@ -49492,6 +49492,8 @@ def _render_booking_requests():
             booking_status_meta=BOOKING_STATUS_META,
             booking_source_choices=BOOKING_SOURCE_CHOICES,
             artists=artists,
+            # Al APROBAR se pregunta con qué empresa del grupo se hace: es lo único que se pide ahí.
+            companies=s.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
             CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:
@@ -49904,6 +49906,10 @@ def booking_request_detail_view(rid):
             # con el que se creó) y necesita la lista de artistas.
             artists=(session_db.query(Artist).filter(Artist.event_id.is_(None))
                      .order_by(Artist.name.asc()).all()),
+            # Al APROBAR se pregunta con qué empresa del grupo se hace (es lo único que se pide ahí:
+            # el dato que tiene contratación y que quien lo pidió no siempre sabe).
+            companies=(session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()),
+            peticion_company_id=str((r.payload or {}).get("group_company_id") or ""),
             back_url=safe_next_or(url_for("contracting_view", section="peticiones")),
         )
         if puede_configurar:
@@ -50930,6 +50936,14 @@ def booking_request_approve(rid):
         activity_type = (_wanted if _wanted in QUAD_ACTIVITY_LABELS
                          else (pay.get("activity_type") or "CONCIERTO").strip().upper())
         pay["activity_type"] = activity_type
+        # ⚠️ Lo ÚNICO que se le pide a contratación al aprobar: con qué empresa del grupo se hace.
+        # Es el dato que ella tiene y que quien lo pidió no siempre sabe, y con él el asistente ya
+        # sale con la empresa puesta (un paso menos de los que había que rellenar «de cero»).
+        _co = (request.form.get("billing_company_id") or "").strip()
+        if _co:
+            _co_obj = s.get(GroupCompany, to_uuid(_co)) if to_uuid(_co) else None
+            if _co_obj is not None:
+                pay["group_company_id"] = str(_co_obj.id)
         r.payload = pay
         st = _current_user_state()
         r.status = "CONVERTIDA"
@@ -51263,7 +51277,37 @@ def _peticion_wizard_prefill(session_db, r) -> dict:
         "fee_text": (r.fee_text or ""),
         "promoter_costs": (pay.get("promoter_costs") or {"enabled": False, "items": []}),
         "description": (pay.get("description") or r.notes or ""),
+        # La empresa del grupo que dijo contratación al aprobarla: así el paso de la empresa ya
+        # viene contestado y no se pregunta otra vez.
+        "company_id": str(pay.get("group_company_id") or ""),
+        # Lo que la petición NO sabe (y por tanto sigue habiendo que rellenar): sirve para llevar el
+        # asistente directamente al primer paso que falta en vez de empezar por el principio.
+        "faltan": _peticion_wizard_missing(r, pay),
+        # Los pasos que la petición SÍ puede contestar: si no falta ninguno, el asistente entra
+        # directamente en el primero que no está en esta lista (las entradas, el estado…).
+        "sabidos": [12, 1, 2, 3, 4, 5, 6],
+        "subject": (r.subject or ""),
     }
+
+
+# Pasos del asistente que la petición NO puede haber contestado, en el orden en que se recorren.
+# ⚠️ Es una LISTA de números de paso: `stepSequence()` del asistente decide qué pasos se ven según el
+# tipo de actividad, así que aquí solo se dice «este paso ya está» y allí se salta lo que no toca.
+def _peticion_wizard_missing(r, pay: dict) -> list:
+    faltan = []
+    if not r.artist_id:
+        faltan.append(12)                      # de quién es
+    if not pay.get("group_company_id"):
+        faltan.append(2)                       # la empresa del grupo
+    if not (r.requested_date or pay.get("range_start") or pay.get("month")):
+        faltan.append(3)                       # cuándo y dónde
+    elif not (r.venue_id or r.municipality or r.province):
+        faltan.append(3)
+    if not (pay.get("description") or r.notes):
+        faltan.append(4)                       # qué tiene que hacer el artista
+    if not r.promoter_id:
+        faltan.append(5)                       # quién promueve
+    return faltan
 
 
 def _peticion_apply_form(session_db, r, f, *, editing: bool = False) -> str:

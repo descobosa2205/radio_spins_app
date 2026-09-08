@@ -11,8 +11,13 @@
     <div class="text-muted">{{ subtitle }}</div>
   </div>
   {% if can_edit_promo %}
-    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#pressCreateModal">
-      <i class="fa fa-plus me-1"></i> Nota de prensa</button>
+    <div class="d-flex gap-2 align-items-start">
+      {# Las PLANTILLAS: al lado del botón de nota y SIN RELLENAR (se tocan de tarde en tarde). #}
+      <a class="btn btn-outline-primary" href="{{ url_for('promo_press_templates_view') }}">
+        <i class="fa fa-swatchbook me-1"></i> Plantillas</a>
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#pressCreateModal">
+        <i class="fa fa-plus me-1"></i> Nota de prensa</button>
+    </div>
   {% endif %}
 </div>
 

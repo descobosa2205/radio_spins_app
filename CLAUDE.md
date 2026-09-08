@@ -10779,3 +10779,43 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · El precumplimentado ya funcionaba (`_contract_sheet_prefill` + lo de `promoter_data` encima).
   Probado con la app real: el botón arriba, sin motivo no se rechaza, el correo con su motivo y su
   enlace, la página con los datos puestos, y al reenviarla vuelve a quedar pendiente de revisar.
+
+- **NOTAS DE PRENSA · LAS PLANTILLAS** (sep 2026). Botón **«Plantillas»** arriba a la derecha, **al
+  lado del de nota y SIN RELLENAR** (`/notas-de-prensa/plantillas`): la pantalla donde se **añaden,
+  se editan y se quitan**.
+  ⚠️⚠️ **UNA PLANTILLA NO ES UN FONDO**: puede ser **solo el fondo** o un fondo **CON MÓDULOS**, que
+  en la nota que se haga con ella **se precargan EN BLANCO** (con su sitio, su tamaño y su estilo; lo
+  que se vacía es el CONTENIDO, que es de cada nota). Antes solo se podía guardar la imagen de fondo
+  (`PressReleaseTemplate`).
+  · **Una plantilla ES una nota con `purpose='TEMPLATE'`**, así que **se edita con el editor de
+  siempre** (no hay un segundo editor que mantener) — el mismo patrón que el correo de un envío a
+  compradores (`CAMPAIGN`). Y como `_press_is_press_clause()` solo acepta NULL/PRESS, queda fuera de
+  la pestaña, del panel de las fichas, de «ya hay una nota sin enviar», de las estadísticas y del
+  barrido de programadas **sin tocar ninguna consulta**.
+  · **Sus módulos salen en blanco a propósito**: una plantilla no es de ningún artista ni de ninguna
+  actividad, así que lo que depende del sujeto se pinta como pendiente (`press_render.is_pending`).
+  El editor lo dice en su cabecera y su botón principal es **«Guardar plantilla»** (no «enviar»).
+  · Puntos únicos: **`_press_is_template`** · **`_press_templates`** / `_press_template_rows` ·
+  **`_press_template_blank_design`** (el diseño listo para una nota nueva) ·
+  `_press_template_source_rows` (las notas de las que se puede sacar una).
+  ⚠️ **En una plantilla, `title` es SU NOMBRE**: `promo_press_save` **no lo pisa** con el titular del
+  diseño (si no, la plantilla se quedaba sin nombre en cuanto se guardaba).
+  · **Se crea de dos formas**: **en blanco** o **copiando una nota** ya montada («guardar esto para
+  volver a usarlo»), y también desde el propio editor con «Guardar este diseño como plantilla», que
+  **guarda primero** y va por el MISMO endpoint (`promo_press_template_new`): no hay dos formas de
+  crear una plantilla.
+  · **Se usa** al crear la nota (el selector del asistente, que dice qué lleva cada una) y desde el
+  editor (menú «Plantillas» → `promo_press_template_apply`, que **reemplaza el diseño entero**, así
+  que el editor pregunta si ya había algo puesto).
+  ⚠️ La ruta JSON que lista las plantillas pasa a **`/notas-de-prensa/plantillas/lista`** para dejar
+  la ruta bonita a la pantalla (dos reglas iguales se pisan).
+  ⚠️ **Eliminar comprueba que es una PLANTILLA** (`_press_is_template`): con el id de una nota, ese
+  endpoint borraría la nota.
+  · **Los FONDOS que ya estaban guardados** pasan a ser plantillas una vez
+  (`_press_templates_migrate_once`, marca `press_templates_migrate_v1`), así que hay **un solo
+  concepto de plantilla**; es idempotente (no duplica) y `PressReleaseTemplate` se queda solo como
+  la tabla de origen de esa migración.
+  Probado con la app real: el botón, la migración sin duplicados, la pantalla, crear en blanco y
+  desde una nota, los módulos en blanco conservando estilo y opciones, crear la nota con la
+  plantilla, cargarla desde el editor, que no sale en la pestaña, renombrar (y que el nombre
+  sobrevive a guardar el diseño) y eliminar.

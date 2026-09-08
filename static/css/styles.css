@@ -6637,3 +6637,9 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .prcrop-foot{ display:flex; align-items:center; gap:.5rem; padding:.6rem .85rem; border-top:1px solid #e9ecef; }
 .prcrop-foot > span{ margin-right:auto; }
 @media (max-width: 575.98px){ .prcrop-tools{ font-size:.78rem; } }
+
+/* ── PLANTILLAS de notas de prensa: la miniatura de cada una ───────────────────────────────── */
+.prtpl-thumb{display:block;aspect-ratio:600/420;background:#f5f6f8;border-bottom:1px solid var(--bs-border-color);
+  border-radius:.5rem .5rem 0 0;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+.prtpl-thumb img{width:100%;height:100%;object-fit:cover;object-position:top;}
+.prtpl-thumb__empty{color:#adb5bd;font-size:2rem;}

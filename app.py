@@ -51830,8 +51830,140 @@ def _press_is_campaign(pr) -> bool:
 
 def _press_is_press_clause():
     """La condición de «es una NOTA DE PRENSA» para las consultas: los diseños de los envíos a
-    compradores viven en la misma tabla y no salen en ninguna lista de notas."""
+    compradores y las PLANTILLAS viven en la misma tabla y no salen en ninguna lista de notas."""
     return or_(PressRelease.purpose.is_(None), PressRelease.purpose == "PRESS")
+
+
+# ⚠️⚠️ UNA PLANTILLA ES UNA NOTA CON `purpose='TEMPLATE'`: así se edita con **el editor de siempre**
+# (su fondo y todos sus módulos) y no hay un segundo editor que mantener — el mismo patrón que el
+# correo de un envío a compradores (`CAMPAIGN`). Y como `_press_is_press_clause` solo acepta
+# NULL/PRESS, una plantilla queda fuera de la pestaña, del panel de las fichas, de «ya hay una nota
+# sin enviar», de las estadísticas y del barrido de programadas **sin tocar ninguna consulta**.
+# ⚠️ Sus módulos salen EN BLANCO a propósito: una plantilla no es de ningún artista ni de ninguna
+# actividad, así que lo que depende del sujeto se pinta como pendiente (`press_render.is_pending`) y
+# se rellena en la nota que se haga con ella.
+PRESS_TEMPLATE_PURPOSE = "TEMPLATE"
+
+
+def _press_is_template(pr) -> bool:
+    """¿Este diseño es una PLANTILLA (y no una nota de prensa ni el correo de un envío)?"""
+    return (getattr(pr, "purpose", "") or "").upper() == PRESS_TEMPLATE_PURPOSE
+
+
+def _press_templates(session_db, *, con_diseno=False) -> list:
+    """Las plantillas, de la más reciente a la más antigua."""
+    q = (session_db.query(PressRelease)
+         .filter(PressRelease.purpose == PRESS_TEMPLATE_PURPOSE)
+         .order_by(PressRelease.created_at.desc()))
+    return q.all()
+
+
+def _press_template_rows(session_db) -> list[dict]:
+    """Las plantillas para la pantalla y para los selectores: su nombre, su miniatura y qué lleva."""
+    filas = []
+    for tpl in _press_templates(session_db):
+        design = dict(getattr(tpl, "design", None) or {})
+        bloques = [b for b in (design.get("blocks") or []) if isinstance(b, dict)]
+        bg = (design.get("bg") or {}).get("url") or (getattr(tpl, "background_url", None) or "")
+        filas.append({
+            "id": str(tpl.id),
+            "name": (tpl.title or "").strip() or "Plantilla sin nombre",
+            "bg": bg,
+            "thumb": (getattr(tpl, "thumb_url", None) or "").strip() or bg,
+            "blocks": len(bloques),
+            # Lo que lleva, dicho como se lee: «solo el fondo» o «fondo + 4 módulos».
+            "what": ("Solo el fondo" if not bloques else
+                     ("%s + %d módulo%s" % (("Fondo" if bg else "Sin fondo"), len(bloques),
+                                            "" if len(bloques) == 1 else "s"))),
+            "by": (getattr(tpl, "created_by_nick", None) or "").strip(),
+            "at": getattr(tpl, "created_at", None),
+            "edit_url": url_for("promo_press_edit", release_id=tpl.id),
+        })
+    return filas
+
+
+def _press_templates_migrate_once():
+    """Arreglo PUNTUAL (sep 2026): los FONDOS que se habían guardado como plantilla
+    (`PressReleaseTemplate`) pasan a ser PLANTILLAS de verdad (una nota con `purpose='TEMPLATE'` y
+    solo su fondo), para que haya **un solo concepto de plantilla** — ahora una plantilla puede
+    llevar además módulos. Los fondos guardados no se pierden ni se duplican."""
+    marca = "press_templates_migrate_v1"
+    s = db()
+    try:
+        if (_get_app_setting(marca) or "").strip():
+            return
+        ya = {(t.title or "").strip().casefold() for t in _press_templates(s)}
+        n = 0
+        for old in s.query(PressReleaseTemplate).order_by(PressReleaseTemplate.created_at.asc()).all():
+            nombre = (old.name or "").strip() or "Plantilla"
+            if nombre.casefold() in ya:
+                continue
+            bg = {"url": (old.background_url or ""), "w": int(old.background_w or 0), "h": int(old.background_h or 0)}
+            s.add(PressRelease(
+                purpose=PRESS_TEMPLATE_PURPOSE, subject_kind="ARTIST", artist_ids=[], about_kind="SUBJECT",
+                title=nombre, status="DRAFT", public_token=_uuid_token(),
+                design={"width": press_render.WIDTH, "bg": bg, "blocks": []},
+                background_url=(old.background_url or None),
+                background_w=old.background_w, background_h=old.background_h,
+                created_by_nick=(old.created_by_nick or None),
+            ))
+            ya.add(nombre.casefold())
+            n += 1
+        s.commit()
+        _set_app_setting(marca, "ok")
+        if n:
+            app.logger.info("[notas de prensa] %d fondos guardados pasan a ser plantillas", n)
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudieron migrar los fondos a plantillas")
+    finally:
+        s.close()
+
+
+def _press_template_source_rows(session_db, limite: int = 40) -> list[dict]:
+    """Las notas de las que se puede sacar una plantilla (las que tienen diseño), de la más
+    reciente a la más antigua: «guardar esto que ya he montado para volver a usarlo»."""
+    filas = []
+    try:
+        for pr in (session_db.query(PressRelease)
+                   .filter(_press_is_press_clause())
+                   .order_by(PressRelease.created_at.desc()).limit(limite).all()):
+            bloques = [b for b in ((getattr(pr, "design", None) or {}).get("blocks") or []) if isinstance(b, dict)]
+            if not bloques and not (getattr(pr, "background_url", None) or ""):
+                continue
+            filas.append({"id": str(pr.id),
+                          "name": (pr.title or "").strip() or "Nota sin titular",
+                          "at": getattr(pr, "created_at", None),
+                          "blocks": len(bloques)})
+    except Exception:
+        app.logger.exception("[notas de prensa] no se pudieron leer las notas para plantilla")
+    return filas
+
+
+def _press_template_blank_design(design: dict) -> dict:
+    """El diseño de una plantilla listo para una nota NUEVA: **los módulos, en blanco**.
+
+    Se conservan el fondo, su paleta y CADA BLOQUE con su sitio, su tamaño y su estilo; lo que se
+    quita es el CONTENIDO concreto (el texto escrito, la imagen elegida, el audio de un
+    lanzamiento…), que es de la nota y no de la plantilla."""
+    salida = json.loads(json.dumps(dict(design or {}), default=_money_json_safe))
+    bloques = []
+    for b in (salida.get("blocks") or []):
+        if not isinstance(b, dict):
+            continue
+        nuevo = dict(b)
+        # El TEXTO se vacía (queda el hueco con su tipografía y su color); del resto se quita a QUÉ
+        # apuntaba (`ref`), que es lo que lo ata a un artista o a un lanzamiento concreto.
+        if (nuevo.get("type") or "") in ("title", "text"):
+            nuevo["html"] = ""
+        ref = nuevo.get("ref")
+        if isinstance(ref, dict):
+            # La imagen SUBIDA a la plantilla se conserva (un logo, una cabecera); lo que se resuelve
+            # contra el sujeto de la nota, no.
+            nuevo["ref"] = {k: v for k, v in ref.items() if k in ("url", "preset", "press", "name")}
+        bloques.append(nuevo)
+    salida["blocks"] = bloques
+    return salida
 
 
 def _press_edit_ok(pr) -> bool:
@@ -53951,14 +54083,16 @@ def promo_press_create():
             created_by_user_id=(to_uuid(estado.get("user_id")) if estado.get("user_id") else None),
             created_by_nick=(estado.get("nick") or "").strip() or None,
         )
-        # Una plantilla de fondo elegida al crear: se carga ya puesta.
+        # LA PLANTILLA elegida al crear: trae su fondo **y sus módulos, en blanco**.
         tpl_id = (datos.get("template_id") or "").strip()
         if tpl_id:
-            tpl = s.get(PressReleaseTemplate, to_uuid(tpl_id))
-            if tpl:
-                pr.background_url, pr.background_w, pr.background_h = tpl.background_url, tpl.background_w, tpl.background_h
-                pr.design = {"width": press_render.WIDTH, "blocks": [],
-                             "bg": {"url": tpl.background_url, "w": tpl.background_w, "h": tpl.background_h}}
+            tpl = _press_by_id(s, tpl_id)
+            if tpl is not None and _press_is_template(tpl):
+                pr.design = _press_template_blank_design(tpl.design)
+                bg = (pr.design.get("bg") or {})
+                pr.background_url = bg.get("url") or None
+                pr.background_w = int(_num_or(bg.get("w"), 0)) or None
+                pr.background_h = int(_num_or(bg.get("h"), 0)) or None
         s.add(pr)
         s.commit()
         return jsonify({"ok": True, "url": url_for("promo_press_edit", release_id=pr.id)})
@@ -54032,9 +54166,13 @@ def _press_editor_context(s, pr) -> dict:
         "press_contact": {"name": PRESS_CONTACT_NAME, "email": PRESS_CONTACT_EMAIL, "phone": PRESS_CONTACT_PHONE},
         # Si este diseño es el CORREO de un ENVÍO A COMPRADORES: de qué envío, y a dónde se vuelve.
         "campaign": _press_campaign_context(s, pr),
+        # ¿Es una PLANTILLA? Entonces no hay nada que enviar: se guarda y se vuelve a Plantillas.
+        "is_template": _press_is_template(pr),
     }
     if ctx["campaign"]:
         ctx["next_url"] = ctx["campaign"]["return_url"]
+    if ctx["is_template"]:
+        ctx["next_url"] = url_for("promo_press_templates_view")
     return ctx
 
 
@@ -54465,7 +54603,10 @@ def promo_press_save(release_id):
         if paleta:
             nuevo["bg"]["palette"] = paleta
         pr.design = nuevo
-        pr.title = (press_render.headline_of(nuevo) or "")[:300] or None
+        # ⚠️ En una PLANTILLA, `title` es SU NOMBRE (lo pone quien la crea) y no se pisa con el
+        # titular del diseño: si no, la plantilla se quedaría sin nombre en cuanto se guardara.
+        if not _press_is_template(pr):
+            pr.title = (press_render.headline_of(nuevo) or "")[:300] or None
         pr.updated_at = _now_madrid()
         # Los ADJUNTOS de un módulo que ya no está en el diseño se retiran (si no, quedarían huérfanos
         # al borrar el módulo); los de los bloques vivos se conservan.
@@ -54649,62 +54790,164 @@ def promo_press_background(release_id):
         s.close()
 
 
-@app.route("/notas-de-prensa/plantillas", methods=["GET", "POST"], endpoint="promo_press_templates")
+@app.get("/notas-de-prensa/plantillas", endpoint="promo_press_templates_view")
 @admin_required
-def promo_press_templates():
-    """Los fondos guardados como PLANTILLA (nombre + imagen). GET: la lista · POST: guardar uno."""
+def promo_press_templates_view():
+    """LAS PLANTILLAS: la pantalla donde se añaden, se editan y se quitan.
+
+    ⚠️ Una plantilla puede ser **solo un fondo** o un fondo **con módulos** (que se precargan en
+    blanco en la nota que se haga con ella), y se edita con **el editor de siempre**."""
     s = db()
     try:
-        if request.method == "POST":
-            if not can_edit_promo():
-                return jsonify({"ok": False, "error": "No tienes permiso."}), 403
-            nombre = (request.form.get("name") or "").strip()[:120]
-            if not nombre:
-                return jsonify({"ok": False, "error": "Ponle un nombre a la plantilla."}), 400
-            url = (request.form.get("background_url") or "").strip()
-            w = int(_num_or(request.form.get("w"), 0))
-            h = int(_num_or(request.form.get("h"), 0))
-            fs = request.files.get("file")
-            if fs and (fs.filename or "").strip():
-                datos = fs.read()
-                try:
-                    from PIL import Image
-                    w, h = Image.open(BytesIO(datos)).size
-                except Exception:
-                    return jsonify({"ok": False, "error": "No se pudo leer la imagen."}), 400
-                fs.stream.seek(0)
-                url = upload_image(fs, "press_releases") or ""
-            if not url:
-                return jsonify({"ok": False, "error": "Falta la imagen del fondo."}), 400
-            tpl = PressReleaseTemplate(name=nombre, background_url=url, background_w=w or None, background_h=h or None,
-                                       created_by_nick=((_current_user_state() or {}).get("nick") or "").strip() or None)
-            s.add(tpl)
-            s.commit()
-        filas = s.query(PressReleaseTemplate).order_by(PressReleaseTemplate.created_at.desc()).all()
-        return jsonify({"ok": True, "templates": [{"id": str(t.id), "name": t.name, "url": t.background_url,
-                                                   "w": t.background_w, "h": t.background_h} for t in filas]})
-    except Exception:
-        s.rollback()
-        app.logger.exception("[notas de prensa] plantillas")
-        return jsonify({"ok": False, "error": "No se pudo guardar la plantilla."}), 400
+        return render_template("press_templates.html",
+                               rows=_press_template_rows(s),
+                               can_edit=can_edit_promo(),
+                               notes=_press_template_source_rows(s))
     finally:
         s.close()
+
+
+@app.get("/notas-de-prensa/plantillas/lista", endpoint="promo_press_templates")
+@admin_required
+def promo_press_templates():
+    """Las plantillas en JSON (las pide el menú «Plantillas» del editor)."""
+    s = db()
+    try:
+        return jsonify({"ok": True, "templates": [
+            {"id": r["id"], "name": r["name"], "url": r["thumb"] or r["bg"],
+             "blocks": r["blocks"], "what": r["what"]} for r in _press_template_rows(s)]})
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/plantillas/nueva", endpoint="promo_press_template_new")
+@admin_required
+def promo_press_template_new():
+    """Crea una PLANTILLA y abre su editor. Puede nacer VACÍA o **copiando una nota** que ya existe
+    (que es como se guarda «esto que he montado» para volver a usarlo)."""
+    if not can_edit_promo():
+        flash("No tienes permiso para crear plantillas.", "warning")
+        return redirect(url_for("promo_press_templates_view"))
+    s = db()
+    try:
+        nombre = (request.form.get("name") or "").strip()[:120]
+        if not nombre:
+            _flash_form_error("Ponle un nombre a la plantilla.", campos=["name"], abrir="prTplNewModal")
+            return redirect(url_for("promo_press_templates_view"))
+        estado = _current_user_state() or {}
+        design = {"width": press_render.WIDTH, "bg": {}, "blocks": []}
+        desde = (request.form.get("from_release_id") or "").strip()
+        if desde:
+            origen = _press_by_id(s, desde)
+            if origen is None:
+                _flash_form_error("Esa nota ya no existe.", campos=["from_release_id"], abrir="prTplNewModal")
+                return redirect(url_for("promo_press_templates_view"))
+            # De una nota se copia el diseño ENTERO: la plantilla es lo que ya está montado, y al
+            # usarla se vacía el contenido (`_press_template_blank_design`).
+            design = json.loads(json.dumps(dict(origen.design or {}), default=_money_json_safe))
+        tpl = PressRelease(
+            purpose=PRESS_TEMPLATE_PURPOSE,
+            subject_kind="ARTIST", artist_ids=[], about_kind="SUBJECT",
+            title=nombre, design=design, status="DRAFT", public_token=_uuid_token(),
+            background_url=((design.get("bg") or {}).get("url") or None),
+            background_w=(int(_num_or((design.get("bg") or {}).get("w"), 0)) or None),
+            background_h=(int(_num_or((design.get("bg") or {}).get("h"), 0)) or None),
+            created_by_user_id=(to_uuid(estado.get("user_id")) if estado.get("user_id") else None),
+            created_by_nick=(estado.get("nick") or "").strip() or None,
+        )
+        s.add(tpl)
+        s.commit()
+        return redirect(url_for("promo_press_edit", release_id=tpl.id))
+    except Exception as exc:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo crear la plantilla")
+        flash("No se pudo crear la plantilla: %s" % exc, "danger")
+        return redirect(url_for("promo_press_templates_view"))
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/<release_id>/plantilla", endpoint="promo_press_template_apply")
+@admin_required
+def promo_press_template_apply(release_id):
+    """Carga una PLANTILLA en el diseño que se está editando: su fondo **y sus módulos, en blanco**.
+
+    ⚠️ Reemplaza el diseño entero (el editor pregunta antes si ya había algo puesto)."""
+    s = db()
+    try:
+        pr = _press_by_id(s, release_id)
+        if not pr:
+            return jsonify({"ok": False, "error": "No existe."}), 404
+        if not _press_edit_ok(pr) or not _press_can_edit(pr):
+            return jsonify({"ok": False, "error": "Este diseño no se puede editar."}), 403
+        tpl = _press_by_id(s, (request.form.get("template_id") or "").strip())
+        if tpl is None or not _press_is_template(tpl):
+            return jsonify({"ok": False, "error": "Esa plantilla ya no existe."}), 404
+        design = _press_template_blank_design(tpl.design)
+        design.setdefault("width", press_render.WIDTH)
+        design.setdefault("blocks", [])
+        pr.design = design
+        bg = design.get("bg") or {}
+        pr.background_url = bg.get("url") or None
+        pr.background_w = int(_num_or(bg.get("w"), 0)) or None
+        pr.background_h = int(_num_or(bg.get("h"), 0)) or None
+        pr.updated_at = _now_madrid()
+        s.commit()
+        _PRESS_THUMB_CACHE.clear()
+        return jsonify({"ok": True, "design": design})
+    except Exception:
+        s.rollback()
+        app.logger.exception("[notas de prensa] no se pudo cargar la plantilla")
+        return jsonify({"ok": False, "error": "No se pudo cargar la plantilla."}), 400
+    finally:
+        s.close()
+
+
+@app.post("/notas-de-prensa/plantillas/<template_id>/renombrar", endpoint="promo_press_template_rename")
+@admin_required
+def promo_press_template_rename(template_id):
+    if not can_edit_promo():
+        flash("No tienes permiso.", "warning")
+        return redirect(url_for("promo_press_templates_view"))
+    s = db()
+    try:
+        tpl = _press_by_id(s, template_id)
+        nombre = (request.form.get("name") or "").strip()[:120]
+        if tpl is None or not _press_is_template(tpl):
+            flash("Esa plantilla no existe.", "warning")
+        elif not nombre:
+            _flash_form_error("Ponle un nombre a la plantilla.", campos=["name"])
+        else:
+            tpl.title = nombre
+            tpl.updated_at = _now_madrid()
+            s.commit()
+            flash("Plantilla renombrada.", "success")
+    finally:
+        s.close()
+    return redirect(safe_next_or(url_for("promo_press_templates_view")))
 
 
 @app.post("/notas-de-prensa/plantillas/<template_id>/eliminar", endpoint="promo_press_template_delete")
 @admin_required
 def promo_press_template_delete(template_id):
     if not can_edit_promo():
-        return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        if _is_xhr_request():
+            return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+        flash("No tienes permiso.", "warning")
+        return redirect(url_for("promo_press_templates_view"))
     s = db()
     try:
-        tpl = s.get(PressReleaseTemplate, to_uuid(template_id))
-        if tpl:
+        tpl = _press_by_id(s, template_id)
+        # ⚠️ Solo se borra una PLANTILLA: con un id de nota este endpoint borraría la nota.
+        if tpl is not None and _press_is_template(tpl):
             s.delete(tpl)
             s.commit()
-        return jsonify({"ok": True})
+            flash("Plantilla eliminada.", "success")
+        if _is_xhr_request():
+            return jsonify({"ok": True})
     finally:
         s.close()
+    return redirect(url_for("promo_press_templates_view"))
 
 
 @app.get("/notas-de-prensa/<release_id>/previa", endpoint="promo_press_preview")
@@ -74480,6 +74723,9 @@ def _bootstrap_schema_bg():
                  "_peticion_stub_backfill_once")
     # Las pestañas nuevas de la ficha de personal, a quien ya podía abrirla (no se pierde acceso).
     _safe_ensure(lambda: globals()["_personnel_tabs_access_seed"](), "_personnel_tabs_access_seed")
+    # Una sola vez: los FONDOS guardados como plantilla pasan a ser plantillas de verdad (una
+    # plantilla puede llevar ya módulos, así que hay un solo concepto).
+    _safe_ensure(lambda: globals()["_press_templates_migrate_once"](), "_press_templates_migrate_once")
     # A partir de aquí la instancia SÍ puede recibir tráfico. Se marca pase lo que pase (si alguna
     # migración falló, ya se ha anotado en el log): quedarse sin marcar dejaría la instancia
     # inservible, que es peor que arrancar con un aviso.

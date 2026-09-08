@@ -1,0 +1,145 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ═══════════════ NOTAS DE PRENSA → PLANTILLAS ═══════════════
+   Una plantilla puede ser SOLO EL FONDO o un fondo CON MÓDULOS, que en la nota que se haga con ella
+   se precargan EN BLANCO. Se edita con el MISMO editor de las notas (no hay un segundo editor). #}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('promo_press_view') }}"
+     title="Volver a las notas de prensa" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h2 class="mb-1"><i class="fa fa-swatchbook me-2 text-danger"></i>Plantillas de notas de prensa</h2>
+    <div class="text-muted">Puede ser solo el fondo o llevar módulos, que se precargan en blanco.</div>
+  </div>
+  {% if can_edit %}
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#prTplNewModal">
+      <i class="fa fa-plus me-1"></i> Nueva plantilla</button>
+  {% endif %}
+</div>
+
+{% if rows %}
+  <div class="row g-3">
+    {% for r in rows %}
+      <div class="col-12 col-sm-6 col-lg-4 col-xxl-3">
+        <div class="card h-100">
+          <a href="{{ r.edit_url }}" class="text-decoration-none text-reset">
+            <div class="prtpl-thumb">
+              {% if r.thumb %}
+                <img src="{{ r.thumb }}" alt="{{ r.name }}" onerror="this.remove()">
+              {% else %}
+                <span class="prtpl-thumb__empty"><i class="fa fa-swatchbook"></i></span>
+              {% endif %}
+            </div>
+          </a>
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <div class="min-w-0">
+                <a href="{{ r.edit_url }}" class="fw-semibold text-decoration-none text-reset d-block text-truncate">{{ r.name }}</a>
+                <div class="small text-muted">{{ r.what }}</div>
+              </div>
+              {% if can_edit %}
+                <div class="dropdown flex-shrink-0">
+                  <button class="btn btn-sm btn-light border" data-bs-toggle="dropdown" aria-label="Acciones"><i class="fa fa-ellipsis"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="{{ r.edit_url }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</a></li>
+                    <li><button class="dropdown-item" type="button" data-prtpl-rename="{{ r.id }}" data-prtpl-name="{{ r.name }}">
+                      <i class="fa fa-i-cursor fa-fw me-1"></i>Renombrar</button></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                      <form method="post" action="{{ url_for('promo_press_template_delete', template_id=r.id) }}" class="m-0">
+                        <button class="dropdown-item text-danger" data-confirm="¿Eliminar la plantilla «{{ r.name }}»? Las notas que ya se hicieron con ella no se tocan.">
+                          <i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
+                      </form>
+                    </li>
+                  </ul>
+                </div>
+              {% endif %}
+            </div>
+            <div class="small text-muted mt-2">
+              {% if r.by %}<i class="fa fa-user-pen me-1"></i>{{ r.by }}{% endif %}
+              {% if r.at %} · {{ r.at.strftime('%d/%m/%Y') }}{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="alert alert-light border">
+    Todavía no hay plantillas. Con «Nueva plantilla» se monta una (solo el fondo, o con los módulos
+    que quieras) y a partir de ahí las notas se crean con ella.
+  </div>
+{% endif %}
+
+{% if can_edit %}
+  <div class="modal fade" id="prTplNewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post" autocomplete="off"
+            action="{{ url_for('promo_press_template_new') }}">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title"><i class="fa fa-swatchbook me-2 text-danger"></i>Nueva plantilla</h5>
+            <div class="small text-muted">Se abre el editor para montarla: el fondo y los módulos que quieras.</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label">Nombre de la plantilla *</label>
+          <input class="form-control mb-3" name="name" required maxlength="120" placeholder="Ej: Lanzamiento PIES 2026">
+          <label class="form-label">¿Desde cero o copiando una nota que ya está montada?</label>
+          <select class="form-select" name="from_release_id">
+            <option value="">En blanco (la monto ahora)</option>
+            {% for n in notes %}
+              <option value="{{ n.id }}">{{ n.name }}{% if n.at %} · {{ n.at.strftime('%d/%m/%Y') }}{% endif %}
+                {% if n.blocks %} · {{ n.blocks }} módulo{{ '' if n.blocks == 1 else 's' }}{% endif %}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Copiando una nota se queda su fondo y sus módulos; su contenido se
+            vacía al usar la plantilla.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-pen me-1"></i>Crear y editar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal fade" id="prTplRenameModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post" autocomplete="off" data-prtpl-rename-form>
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-i-cursor me-2 text-danger"></i>Renombrar la plantilla</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label">Nombre *</label>
+          <input class="form-control" name="name" required maxlength="120" data-prtpl-rename-input>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // El pop-up de renombrar se rellena EN EL CLIC (con modal_stack.js por medio, `shown.bs.modal`
+    // no siempre llega) y por DELEGACIÓN: los ⋯ los teletransporta al <body> el ayudante global.
+    document.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-prtpl-rename]');
+      if (!b) return;
+      var m = document.getElementById('prTplRenameModal');
+      if (!m) return;
+      m.querySelector('[data-prtpl-rename-form]').setAttribute(
+        'action', '{{ url_for('promo_press_template_rename', template_id='__ID__') }}'.replace('__ID__', b.getAttribute('data-prtpl-rename')));
+      m.querySelector('[data-prtpl-rename-input]').value = b.getAttribute('data-prtpl-name') || '';
+      if (window.app33AutoOpenModal) window.app33AutoOpenModal('prTplRenameModal');
+      else if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show();
+    });
+  </script>
+{% endif %}
+{% endblock %}

@@ -68,9 +68,11 @@
             <div class="fw-semibold small text-muted mb-1" data-prw-options-title>Elige cuál</div>
             <div class="prw-options" data-prw-options></div>
           </div>
+          {# Una PLANTILLA trae su fondo Y sus módulos (en blanco): así la nota no se monta de cero. #}
           <div class="mt-3 d-none" data-prw-template-wrap>
-            <label class="form-label small text-muted mb-1">Empezar con un fondo guardado <span class="fw-normal">(opcional)</span></label>
-            <select class="form-select form-select-sm" data-prw-template><option value="">Sin fondo (se sube en el editor)</option></select>
+            <label class="form-label small text-muted mb-1">Empezar con una plantilla <span class="fw-normal">(opcional)</span></label>
+            <select class="form-select form-select-sm" data-prw-template><option value="">En blanco (la monto en el editor)</option></select>
+            <div class="form-text">La plantilla trae su fondo y sus módulos ya colocados, en blanco.</div>
           </div>
           {# Ya hay una nota SIN ENVIAR sobre lo mismo: se sigue con esa o se crea otra. #}
           <div class="alert alert-warning d-none mt-3 mb-0" data-prw-existing>

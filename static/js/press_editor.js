@@ -657,10 +657,12 @@
     fetch(root.getAttribute('data-templates-url')).then(function (r) { return r.json(); }).then(function (js) {
       var tpls = (js && js.templates) || [];
       var html = tpls.map(function (t) {
-        return '<li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-pr-tpl="' + esc(t.id) + '"><img src="' + esc(t.url) + '" alt="" style="width:34px;height:24px;object-fit:cover;border-radius:4px;border:1px solid #e5e7eb">' + esc(t.name) + '</button></li>';
+        return '<li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-pr-tpl="' + esc(t.id) + '">' +
+          (t.url ? '<img src="' + esc(t.url) + '" alt="" style="width:34px;height:24px;object-fit:cover;border-radius:4px;border:1px solid #e5e7eb">' : '<i class="fa fa-swatchbook fa-fw"></i>') +
+          '<span><span class="d-block">' + esc(t.name) + '</span><small class="text-muted">' + esc(t.what || '') + '</small></span></button></li>';
       }).join('');
       html += (tpls.length ? '<li><hr class="dropdown-divider"></li>' : '') +
-        '<li><button type="button" class="dropdown-item" data-pr-tpl-save' + (design.bg && design.bg.url ? '' : ' disabled') + '><i class="fa fa-floppy-disk fa-fw me-1"></i>Guardar este fondo como plantilla</button></li>';
+        '<li><a class="dropdown-item" href="' + esc(root.getAttribute('data-templates-page') || '#') + '"><i class="fa fa-swatchbook fa-fw me-1"></i>Gestionar plantillas</a></li>';
       // Delante, el DISEÑO de la nota que subió Diseño al proyecto del lanzamiento (o su estado).
       var diseno = '';
       if (designAsset && designAsset.available && designAsset.is_image) {
@@ -676,16 +678,17 @@
   root.addEventListener('click', function (ev) {
     var t = ev.target.closest('[data-pr-tpl]');
     if (t) {
+      /* ⚠️ Una plantilla trae su FONDO **y sus MÓDULOS**: si ya hay algo puesto se pregunta, porque
+         reemplaza el diseño entero. */
+      var hayAlgo = (design.blocks || []).length > 0;
+      if (hayAlgo && !confirm('La plantilla reemplaza el diseño que tienes ahora. ¿Seguimos?')) return;
       var fd = new FormData(); fd.append('template_id', t.getAttribute('data-pr-tpl'));
-      fetch(root.getAttribute('data-bg-url'), { method: 'POST', body: fd }).then(function (r) { return r.json(); }).then(function (js) {
+      marca('Cargando la plantilla…');
+      fetch(root.getAttribute('data-tpl-apply-url'), { method: 'POST', body: fd }).then(function (r) { return r.json(); }).then(function (js) {
         if (!js || !js.ok) { alert((js && js.error) || 'No se pudo cargar la plantilla.'); return; }
-        design.bg = js.bg; pintaFondo(); marca('Fondo cambiado');
+        design = js.design || design; pintaFondo(); pintaTodo(); marca('Plantilla cargada');
       });
       return;
-    }
-    if (ev.target.closest('[data-pr-tpl-save]')) {
-      var m = document.getElementById('prTemplateModal');
-      if (m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show();
     }
     if (ev.target.closest('[data-pr-bg-design]')) {
       var fd2 = new FormData(); fd2.append('source', 'design');
@@ -1199,15 +1202,24 @@
       if (ev.target.matches('[data-pr-files-color-custom]')) { b.opts = b.opts || {}; b.opts.color = ev.target.value; marca(); refrescaModuloLuego(b); }
     });
   }
+  /* «Guardar este diseño como plantilla»: guarda primero (para que la plantilla lleve lo que hay
+     en pantalla) y crea la plantilla por el MISMO camino que la pantalla de Plantillas. */
   var btnTpl = document.querySelector('[data-pr-template-save]');
   if (btnTpl) btnTpl.addEventListener('click', function () {
-    var nombre = (document.querySelector('[data-pr-template-name]').value || '').trim();
-    if (!nombre) return alert('Ponle un nombre a la plantilla.');
-    var fd = new FormData(); fd.append('name', nombre); fd.append('background_url', design.bg.url || ''); fd.append('w', design.bg.w || 0); fd.append('h', design.bg.h || 0);
-    fetch(root.getAttribute('data-templates-url'), { method: 'POST', body: fd }).then(function (r) { return r.json(); }).then(function (js) {
-      if (!js || !js.ok) return alert((js && js.error) || 'No se pudo guardar.');
-      cargaPlantillas();
-      var m = document.getElementById('prTemplateModal'); if (m && window.bootstrap) bootstrap.Modal.getInstance(m).hide();
+    var campo = document.querySelector('[data-pr-template-name]');
+    var nombre = ((campo && campo.value) || '').trim();
+    if (!nombre) { alert('Ponle un nombre a la plantilla.'); return; }
+    btnTpl.disabled = true;
+    guarda().then(function (ok) {
+      if (!ok) { btnTpl.disabled = false; return; }   // `guarda` ya ha avisado del motivo
+      var f = document.createElement('form');
+      f.method = 'post';
+      f.action = root.getAttribute('data-tpl-new-url');
+      f.innerHTML = '<input name="name"><input name="from_release_id">';
+      f.querySelector('[name=name]').value = nombre;
+      f.querySelector('[name=from_release_id]').value = root.getAttribute('data-pr-id') || '';
+      document.body.appendChild(f);
+      f.submit();
     });
   });
 

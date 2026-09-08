@@ -208,7 +208,11 @@
       if (!sel || sel.dataset.loaded) return;
       fetch(root.getAttribute('data-url-templates')).then(function (r) { return r.json(); }).then(function (js) {
         sel.dataset.loaded = '1';
-        (js.templates || []).forEach(function (t) { var o = document.createElement('option'); o.value = t.id; o.textContent = t.name; sel.appendChild(o); });
+        (js.templates || []).forEach(function (t) {
+          var o = document.createElement('option'); o.value = t.id;
+          o.textContent = t.name + (t.what ? ' · ' + t.what : '');
+          sel.appendChild(o);
+        });
       }).catch(function () {});
     }
     function crea(force) {

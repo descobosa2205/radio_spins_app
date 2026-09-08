@@ -12,7 +12,10 @@
      data-templates-url="{{ templates_url }}" data-preview-url="{{ preview_url }}"
      data-block-url="{{ url_for('promo_press_block_html', release_id=pr.id) }}"
      data-detail-url="{{ url_for('promo_press_detail', release_id=pr.id) }}"
-     data-next-url="{{ next_url }}"
+     data-next-url="{{ next_url }}" data-pr-id="{{ pr.id }}"
+     data-templates-page="{{ url_for('promo_press_templates_view') }}"
+     data-tpl-apply-url="{{ url_for('promo_press_template_apply', release_id=pr.id) }}"
+     data-tpl-new-url="{{ url_for('promo_press_template_new') }}"
      data-files-url="{{ files_url }}" data-image-url="{{ image_url }}" data-image-crop-url="{{ image_crop_url }}" data-photos-url="{{ photos_url_tpl }}"
      data-staff-url="{{ url_for('promo_press_staff_search') }}" data-campaign="{{ '1' if campaign else '' }}"
      data-thumb-url="{{ thumb_save_url }}"
@@ -20,16 +23,26 @@
      data-can-edit="{{ '1' if can_edit else '' }}">
 
   <div class="pr-editor__top">
-    {% if campaign %}
+    {% if is_template %}
+      <a href="{{ url_for('promo_press_templates_view') }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a Plantillas (se guarda)" aria-label="Volver a Plantillas"><i class="fa fa-arrow-left"></i></a>
+    {% elif campaign %}
       <a href="{{ campaign.return_url }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver al envío (el correo se guarda)" aria-label="Volver al envío"><i class="fa fa-arrow-left"></i></a>
     {% else %}
       <a href="{{ url_for('promo_press_detail', release_id=pr.id) }}" class="btn btn-outline-secondary btn-volver" data-pr-back title="Volver a la nota (se guarda como borrador)" aria-label="Volver a la nota"><i class="fa fa-arrow-left"></i></a>
     {% endif %}
     <div class="pr-editor__who">
-      {% if campaign %}<span class="badge text-bg-danger"><i class="fa fa-envelope me-1"></i>Envío a compradores</span>{% endif %}
-      {% for s in subjects %}{{ press_subject_chip(s) }}{% endfor %}
-      <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
-      {% if not campaign %}<span class="badge text-bg-light border">{{ row.status_label }}</span>{% endif %}
+      {% if is_template %}
+        {# PLANTILLA: no es de nadie, así que lo que dependa de un artista o un lanzamiento sale en
+           blanco a propósito — se rellena en la nota que se haga con ella. #}
+        <span class="badge text-bg-danger"><i class="fa fa-swatchbook me-1"></i>Plantilla</span>
+        <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ pr.title or 'Sin nombre' }}</span>
+        <span class="small text-muted">Los módulos que pongas saldrán en blanco en cada nota.</span>
+      {% else %}
+        {% if campaign %}<span class="badge text-bg-danger"><i class="fa fa-envelope me-1"></i>Envío a compradores</span>{% endif %}
+        {% for s in subjects %}{{ press_subject_chip(s) }}{% endfor %}
+        <span class="badge text-bg-light border"><i class="fa fa-tag me-1"></i>{{ kind_label }}{% if about_name %} · {{ about_name }}{% endif %}</span>
+        {% if not campaign %}<span class="badge text-bg-light border">{{ row.status_label }}</span>{% endif %}
+      {% endif %}
     </div>
     <div class="pr-editor__actions">
       <span class="pr-editor__saved text-muted small" data-pr-saved></span>
@@ -48,14 +61,17 @@
         <input type="file" accept="image/*" class="d-none" data-pr-bg-file>
       </label>
       <div class="dropdown">
-        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Plantillas de fondo"><i class="fa fa-swatchbook me-1"></i>Plantillas</button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Cargar una plantilla (fondo y módulos) o gestionarlas"><i class="fa fa-swatchbook me-1"></i>Plantillas</button>
         <ul class="dropdown-menu dropdown-menu-end" data-pr-templates-menu>
           <li><span class="dropdown-item-text small text-muted">Cargando…</span></li>
         </ul>
       </div>
       <button class="btn btn-outline-secondary btn-sm" type="button" data-pr-preview><i class="fa fa-envelope-open-text me-1"></i>Vista previa</button>
       <button class="btn btn-outline-primary btn-sm" type="button" data-pr-save title="Guardar y seguir diseñando"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
-      {% if campaign %}
+      {% if is_template %}
+        {# Una PLANTILLA no se envía: se guarda y se vuelve a Plantillas. #}
+        <button class="btn btn-primary" type="button" data-pr-next title="Guardar la plantilla y volver a Plantillas"><i class="fa fa-floppy-disk me-1"></i>Guardar plantilla<i class="fa fa-arrow-right ms-2"></i></button>
+      {% elif campaign %}
         <button class="btn btn-primary" type="button" data-pr-next title="Guardar el correo y volver al envío (a quién y enviar)"><i class="fa fa-paper-plane me-1"></i>Siguiente: enviar<i class="fa fa-arrow-right ms-2"></i></button>
       {% else %}
         <button class="btn btn-primary" type="button" data-pr-next title="Guardar y pasar a enviar la nota"><i class="fa fa-paper-plane me-1"></i>Siguiente: enviar<i class="fa fa-arrow-right ms-2"></i></button>
@@ -286,14 +302,15 @@
   </div></div>
 </div>
 
-{# ---------- Guardar el fondo como plantilla ---------- #}
+{# ---------- Guardar este DISEÑO como plantilla (fondo + módulos) ---------- #}
 <div class="modal fade" id="prTemplateModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title"><i class="fa fa-swatchbook me-2 text-danger"></i>Guardar el fondo como plantilla</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-header"><h5 class="modal-title"><i class="fa fa-swatchbook me-2 text-danger"></i>Guardar este diseño como plantilla</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <label class="form-label">Nombre de la plantilla</label>
-      <input class="form-control" data-pr-template-name placeholder="Ej: Fondo PIES 2026">
-      <div class="form-text">Se guarda solo la imagen de fondo: después se carga en cualquier nota nueva desde «Plantillas».</div>
+      <input class="form-control" data-pr-template-name placeholder="Ej: Lanzamiento PIES 2026">
+      <div class="form-text">Se guarda el <b>fondo y los módulos</b> tal como están puestos. Al usarla en
+        una nota, los módulos salen <b>en blanco</b>: el contenido es de cada nota.</div>
     </div>
     <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-primary" data-pr-template-save>Guardar</button></div>
   </div></div>

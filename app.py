@@ -76208,6 +76208,23 @@ def _roadmap_export_header(kind, row) -> dict:
     return {"title": title, "date": "", "venue": "", "city": "", "logo_url": "", "artist_photo": ""}
 
 
+def _room_type_label(ocupantes: int, cama: str | None = None) -> str:
+    """Cómo se llama una habitación según quién duerme en ella.
+
+    ⚠️ CON DOS PERSONAS HAY QUE DECIR QUÉ CAMA ES: **Twin** son dos camas separadas y **Doble** una
+    sola cama para los dos. Antes las de dos se llamaban «Doble» a secas, que es justo lo que se
+    pide al hotel cuando se quiere UNA cama: se pedía mal. Por defecto es TWIN (lo que se venía
+    usando) y se cambia en el editor del rooming.
+    ⚠️ Paridad con `roomTypeLabel` de `static/js/roadmap.js`."""
+    if ocupantes == 1:
+        return "DUI"
+    if ocupantes == 2:
+        return "Doble" if str(cama or "").upper() == "DOBLE" else "Twin"
+    if ocupantes == 3:
+        return "Triple"
+    return f"{ocupantes} pers." if ocupantes else "Vacía"
+
+
 def _rooming_rows_for_pdf(session_db, payload: dict, hotel: dict) -> list[dict]:
     """Habitaciones agrupadas por rango de días, con la info completa de cada huésped."""
     people = {str(p.get("id")): p for p in (payload.get("personnel") or [])}
@@ -76223,7 +76240,7 @@ def _rooming_rows_for_pdf(session_db, payload: dict, hotel: dict) -> list[dict]:
             person = people.get(str(oid))
             if person:
                 occupants.append(_rooming_person_info(session_db, person))
-        rtype = {1: "DUI", 2: "Doble", 3: "Triple"}.get(len(occupants), f"{len(occupants)} pers." if occupants else "Vacía")
+        rtype = _room_type_label(len(occupants), r.get("bed"))
         groups.setdefault(key, []).append({
             "type": rtype,
             "breakfast": bool(r.get("breakfast")),

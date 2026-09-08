@@ -738,7 +738,17 @@
       });
       return out;
     }
-    function roomTypeLabel(n) { return n === 1 ? 'DUI' : (n === 2 ? 'Doble' : (n === 3 ? 'Triple' : (n ? n + ' pers.' : 'Vacía'))); }
+    /* ⚠️ CON DOS PERSONAS HAY QUE DECIR QUÉ CAMA ES: **Twin** son dos camas separadas y **Doble**
+       una sola cama para los dos. Antes las de dos se llamaban «Doble» a secas, que es justo lo que
+       se pide al hotel cuando quieres UNA cama: se pedía mal.
+       Por defecto es TWIN (lo que se venía usando), y se cambia en el editor del rooming.
+       ⚠️ Paridad con `_room_type_label` de app.py (el PDF y el Excel del rooming). */
+    function roomTypeLabel(n, bed) {
+      if (n === 1) return 'DUI';
+      if (n === 2) return String(bed || '').toUpperCase() === 'DOBLE' ? 'Doble' : 'Twin';
+      if (n === 3) return 'Triple';
+      return n ? n + ' pers.' : 'Vacía';
+    }
     function roomRangeLabel(r, ho) {
       // En una plantilla no hay fechas: es de UNA NOCHE y lo que se guarda es el reparto. Los días
       // se eligen al cargarla en la actividad (todos o los que se marquen).
@@ -757,7 +767,7 @@
         return '<span class="rm-occ" draggable="' + (RO ? 'false' : 'true') + '" data-occ="' + esc(id) + '" data-occ-hotel="' + esc(ho.id) + '" data-occ-room="' + esc(r.id) + '" title="' + esc(p.name) + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
       }).join('');
       return '<div class="rm-room" data-room="' + esc(r.id) + '" data-room-hotel="' + esc(ho.id) + '">'
-        + '<div class="rm-room__head"><span class="fw-semibold">' + roomTypeLabel((r.occupant_ids || []).length) + '</span>'
+        + '<div class="rm-room__head"><span class="fw-semibold">' + roomTypeLabel((r.occupant_ids || []).length, r.bed) + '</span>'
         + '<span class="rm-sub">' + (r.breakfast ? '<i class="fa fa-mug-saucer" title="Con desayuno"></i>' : '<i class="fa fa-mug-saucer" style="opacity:.25" title="Sin desayuno"></i>') + '</span></div>'
         + (occ || '<div class="rm-sub">Arrastra personas aquí</div>')
         + '</div>';
@@ -794,7 +804,7 @@
       var lines = ['Rooming list · ' + (ho.name || 'Hotel')];
       (ho.rooms || []).forEach(function (r, i) {
         var names = (r.occupant_ids || []).map(function (id) { var p = personById(id); return p ? p.name : ''; }).filter(Boolean).join(', ');
-        lines.push('Hab. ' + (i + 1) + ' (' + roomTypeLabel((r.occupant_ids || []).length) + (r.breakfast ? ', con desayuno' : ', sin desayuno') + ') ' + (roomRangeLabel(r, ho) || '') + ': ' + (names || 'vacía'));
+        lines.push('Hab. ' + (i + 1) + ' (' + roomTypeLabel((r.occupant_ids || []).length, r.bed) + (r.breakfast ? ', con desayuno' : ', sin desayuno') + ') ' + (roomRangeLabel(r, ho) || '') + ': ' + (names || 'vacía'));
       });
       return lines.join('\n');
     }
@@ -822,9 +832,16 @@
             var p = personById(id); if (!p) return '';
             return '<span class="rm-occ" draggable="true" data-eocc="' + esc(id) + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
           }).join('');
+          // Con DOS personas se elige la cama: Twin (dos camas) o Doble (una sola).
+          var esDoble = String(r.bed || '').toUpperCase() === 'DOBLE';
+          var camaBtn = ((r.occupant_ids || []).length === 2)
+            ? '<button type="button" class="btn btn-sm btn-link p-0 me-2 rm-sub" data-ebed="' + i + '"'
+              + ' title="' + (esDoble ? 'Una sola cama · pulsa para dos camas separadas' : 'Dos camas separadas · pulsa para una sola cama') + '">'
+              + '<i class="fa ' + (esDoble ? 'fa-bed' : 'fa-bed-pulse') + '"></i> ' + (esDoble ? 'una cama' : 'dos camas') + '</button>'
+            : '';
           left += '<div class="rm-room rm-room--edit" data-eroom="' + i + '">'
-            + '<div class="rm-room__head"><span class="fw-semibold">' + roomTypeLabel((r.occupant_ids || []).length) + '</span>'
-            + '<span><label class="rm-sub me-1" title="Desayuno"><input type="checkbox" data-ebrk="' + i + '"' + (r.breakfast ? ' checked' : '') + '> <i class="fa fa-mug-saucer"></i></label>'
+            + '<div class="rm-room__head"><span class="fw-semibold">' + roomTypeLabel((r.occupant_ids || []).length, r.bed) + '</span>'
+            + '<span>' + camaBtn + '<label class="rm-sub me-1" title="Desayuno"><input type="checkbox" data-ebrk="' + i + '"' + (r.breakfast ? ' checked' : '') + '> <i class="fa fa-mug-saucer"></i></label>'
             + '<button type="button" class="btn btn-sm btn-link text-danger p-0" data-edelroom="' + i + '"><i class="fa fa-trash"></i></button></span></div>'
             + (IS_TPL ? '' : '<div class="rm-sub mb-1">De <select class="form-select form-select-sm d-inline-block w-auto" data-efrom="' + i + '">' + dayOptions(r.day_from || hotelDays[0] || '') + '</select> a <select class="form-select form-select-sm d-inline-block w-auto" data-eto="' + i + '">' + dayOptions(r.day_to || hotelDays[hotelDays.length - 1] || '') + '</select></div>')
             + (occ || '<div class="rm-sub">Arrastra personas aquí</div>')
@@ -834,7 +851,7 @@
         var people = unassigned().map(function (p) {
           return '<span class="rm-occ" draggable="true" data-eocc="' + esc(p.id) + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
         }).join('') || '<div class="rm-sub">Todo el personal disponible ya tiene habitación.</div>';
-        var right = '<div class="fw-semibold mb-2">Personal sin habitación</div><div class="rm-room rm-room--pool" data-epool>' + people + '</div><div class="rm-sub mt-2">1 persona = DUI · 2 = Doble · 3 = Triple. Las personas alojadas en otro hotel no aparecen.</div>';
+        var right = '<div class="fw-semibold mb-2">Personal sin habitación</div><div class="rm-room rm-room--pool" data-epool>' + people + '</div><div class="rm-sub mt-2">1 persona = DUI · 2 = <b>Twin</b> (dos camas separadas) o <b>Doble</b> (una sola cama) · 3 = Triple. Las personas alojadas en otro hotel no aparecen.</div>';
         return '<div class="row g-3"><div class="col-md-7">' + left + '</div><div class="col-md-5">' + right + '</div></div>';
       }
       var m = openModal('rmRoomingModal', 'modal-xl', 'Rooming list · ' + (ho.name || 'Hotel'), html(), [
@@ -850,11 +867,18 @@
       function wire() {
         var body = m.querySelector('.modal-body');
         body.querySelector('[data-addroom]').addEventListener('click', function () {
-          draftRooms.push({ id: newRoomId(), breakfast: false, day_from: hotelDays[0] || '', day_to: hotelDays[hotelDays.length - 1] || '', occupant_ids: [] });
+          draftRooms.push({ id: newRoomId(), bed: 'TWIN', breakfast: false, day_from: hotelDays[0] || '', day_to: hotelDays[hotelDays.length - 1] || '', occupant_ids: [] });
           rerender();
         });
         body.querySelectorAll('[data-edelroom]').forEach(function (b) { b.addEventListener('click', function () { draftRooms.splice(parseInt(b.getAttribute('data-edelroom'), 10), 1); rerender(); }); });
         body.querySelectorAll('[data-ebrk]').forEach(function (c) { c.addEventListener('change', function () { draftRooms[parseInt(c.getAttribute('data-ebrk'), 10)].breakfast = c.checked; }); });
+        body.querySelectorAll('[data-ebed]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var r = draftRooms[parseInt(b.getAttribute('data-ebed'), 10)];
+            r.bed = String(r.bed || '').toUpperCase() === 'DOBLE' ? 'TWIN' : 'DOBLE';
+            rerender();
+          });
+        });
         body.querySelectorAll('[data-efrom]').forEach(function (s) { s.addEventListener('change', function () { draftRooms[parseInt(s.getAttribute('data-efrom'), 10)].day_from = s.value; }); });
         body.querySelectorAll('[data-eto]').forEach(function (s) { s.addEventListener('change', function () { draftRooms[parseInt(s.getAttribute('data-eto'), 10)].day_to = s.value; }); });
         body.querySelectorAll('[data-eocc]').forEach(function (chip) {

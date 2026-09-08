@@ -7766,6 +7766,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   actual** si el formulario no lo trae, la plantilla no ofrece el selector cuando `is_event`, y
   `ensure_activities_grouping_schema` **repara** con un UPDATE las filas ya degradadas
   (`event_id IS NOT NULL AND kind <> 'EVENTO'`, que por construcción solo pueden ser eso).
+- ⚠️⚠️ **UNA HABITACIÓN DE DOS: «TWIN» SON DOS CAMAS Y «DOBLE» ES UNA SOLA** (sep 2026). Lo que se
+  llamaba «Doble» era cualquier habitación de dos personas, y eso es justo lo que se le pide a un
+  hotel cuando se quiere UNA cama: se pedía mal. Ahora, con dos ocupantes se dice qué cama es
+  —**Twin** (camas separadas) o **Doble** (una para los dos)— y se elige en el editor del rooming
+  (`bed`: `TWIN` | `DOBLE`, con **TWIN por defecto**, que es lo que se venía usando).
+  · Punto único **`_room_type_label(ocupantes, cama)`** (app.py) y su espejo **`roomTypeLabel(n, bed)`**
+  (`roadmap.js`): de ellos salen la tarjeta de la habitación, el editor, el texto que se comparte, el
+  **PDF** y el **Excel** del rooming (los dos pasan por `_rooming_rows_for_pdf`). ⚠️ Si se toca uno,
+  se toca el otro.
+  ⚠️ 1 persona sigue siendo **DUI** y 3 **Triple**: ahí no hay ambigüedad.
+
 - **PLANTILLAS DE ARTISTA** (`ArtistTemplate`, kind PERSONNEL|ROOMING|ROADMAP): se crean en la ficha
   del artista (pestaña «Plantillas», `_templates_hub.html`) y se cargan en la hoja de ruta de cualquier
   actividad. ⚠️ **El editor de una plantilla ES la hoja de ruta**: la columna se llama

@@ -4771,7 +4771,7 @@ def _parse_promoter_costs_form(form) -> dict:
             managed = (form.get(f"promoter_cost_managed_{key}") or "").strip().upper()
             if managed not in ("US", "PROMOTER"):
                 managed = "PROMOTER"
-            max_amount = _parse_optional_decimal(form.get(f"promoter_cost_max_{key}"))
+            max_amount = _parse_optional_money(form.get(f"promoter_cost_max_{key}"))
             items.append({
                 "key": key,
                 "label": PROMOTER_COST_LABELS[key],
@@ -5083,7 +5083,7 @@ def _parse_payment_terms_rows(form) -> list[dict]:
     cache_refs = form.getlist('payment_cache_ref[]')
     for i, concept in enumerate(concepts or []):
         concept = (concept or '').strip()
-        amount = _parse_optional_decimal(amounts[i] if i < len(amounts) else None)
+        amount = _parse_optional_money(amounts[i] if i < len(amounts) else None)
         due_date = parse_optional_date(due_dates[i] if i < len(due_dates) else None)
         cache_ref = (cache_refs[i] if i < len(cache_refs) else '').strip() or None
         if not concept and not amount and not due_date:
@@ -5290,7 +5290,7 @@ def _parse_contract_sheet_form(form) -> dict:
         ticket_types.append({
             'name': name,
             'qty_for_sale': _parse_optional_positive_int((tt_qtys[i] if i < len(tt_qtys) else '') or '') or 0,
-            'amount': float(_parse_optional_decimal(tt_amounts[i] if i < len(tt_amounts) else None) or 0),
+            'amount': float(_parse_optional_money(tt_amounts[i] if i < len(tt_amounts) else None) or 0),
             'invites_total': _parse_optional_positive_int((invite_total[i] if i < len(invite_total) else '') or '') or 0,
             'invites_artist': _parse_optional_positive_int((invite_artist[i] if i < len(invite_artist) else '') or '') or 0,
         })
@@ -12577,7 +12577,9 @@ def _royalty_freeze(session_db, rec, beneficiary: dict, pdf_url: str = "", regen
     """Congela en la liquidación los datos con los que se ha generado."""
     if rec is None or not isinstance(beneficiary, dict):
         return
-    rec.snapshot = json.loads(json.dumps(beneficiary, default=str))
+    # ⚠️⚠️ `default=_money_json_safe`: un Decimal se guarda como NÚMERO. Con `default=str` el
+    # importe quedaba como texto («316.663») y al releerlo se leía como miles → x1000.
+    rec.snapshot = json.loads(json.dumps(beneficiary, default=_money_json_safe))
     rec.snapshot_signature = _royalty_data_signature(beneficiary)
     if pdf_url:
         rec.snapshot_pdf_url = pdf_url
@@ -15820,11 +15822,94 @@ def _mark_song_sgae_registered(session_db, song_id) -> SongStatus:
     return st
 
 
-def _parse_money_decimal(val: str | None) -> Decimal:
-    """Parse user/csv money-like strings to Decimal (robust for ES/EN formats)."""
-    if val is None:
+def _money_number(val) -> Decimal | None:
+    """Si el valor YA ES UN NÚMERO (Decimal, int, float), su importe. `None` si es texto.
+
+    ⚠️⚠️ **UN NÚMERO NO SE PARSEA**: un `Decimal("316.663")` de una columna `Numeric` pasado por
+    `str()` y leído con la regla del punto de MILES se convierte en **316663** (bug real de dinero,
+    sep 2026). Esta es la primera puerta de los dos parsers."""
+    if isinstance(val, bool):          # un booleano no es un importe (y `bool` es subclase de `int`)
         return Decimal("0")
-    s = str(val).strip()
+    if isinstance(val, Decimal):
+        return val if val.is_finite() else Decimal("0")
+    if isinstance(val, int):
+        return Decimal(val)
+    if isinstance(val, float):
+        try:
+            dec = Decimal(repr(val))   # `repr` da la forma corta: 316.663, no 316.66300000000001
+        except (InvalidOperation, ValueError):
+            return Decimal("0")
+        return dec if dec.is_finite() else Decimal("0")
+    return None
+
+
+def _money_value(val) -> Decimal:
+    """Un importe que YA ES UN DATO: una columna, un JSONB, un snapshot, un cálculo.
+
+    ⚠️⚠️ **AQUÍ EL PUNTO ES SIEMPRE DECIMAL**, porque lo escribe el PROGRAMA (`str(Decimal)`, el
+    `default=str` de un `json.dumps`, un float de un payload, un `value=` de una plantilla). Leer
+    «316.663» como TRESCIENTOS DIECISÉIS MIL multiplicaba el importe por mil: una liquidación de
+    royalties de 316,66 € salía como 316.663,00 € y a facturar 383.162,23 € (bug real con captura,
+    sep 2026). Las columnas son `Numeric` **sin escala**, así que un importe guardado conserva todos
+    sus decimales y esto pasaba en cualquier cálculo que no estuviera cuantizado.
+    ⚠️ Para lo que **ESCRIBE UNA PERSONA** está `_parse_money_decimal`, donde «40.000» son cuarenta
+    mil (el modelo de euros). Los dos parsers existen a propósito: **el formato lo decide el ORIGEN
+    del dato, no su forma** — por su forma, «316.663» es ambiguo y no hay manera de acertar.
+    """
+    num = _money_number(val)
+    if num is not None:
+        return num
+    s = str(val or "").strip()
+    if not s or s.lower() in ("nan", "none", "null", "na"):
+        return Decimal("0")
+    for ch in ("€", "$", "£", "\u00a0"):
+        s = s.replace(ch, "")
+    s = s.replace(" ", "")
+    if "," in s and "." in s:
+        # Con las dos, manda la ÚLTIMA: «1.234,56» es de aquí, «1,234.56» es de allí.
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif "," in s:
+        s = s.replace(",", "") if s.count(",") > 1 else s.replace(",", ".")
+    elif s.count(".") > 1:
+        # Varios puntos no los escribe el programa: es texto de miles («2.500.000»). El último grupo
+        # decide si el último punto era el decimal («1.234.56»).
+        trozos = s.split(".")
+        s = "".join(trozos) if len(trozos[-1]) == 3 else "".join(trozos[:-1]) + "." + trozos[-1]
+    try:
+        dec = Decimal(s)
+        return dec if dec.is_finite() else Decimal("0")
+    except (InvalidOperation, ValueError):
+        limpio = "".join(ch for ch in s if ch.isdigit() or ch in ".-")
+        try:
+            dec = Decimal(limpio or "0")
+        except (InvalidOperation, ValueError):
+            return Decimal("0")
+        return dec if dec.is_finite() else Decimal("0")
+
+
+def _money_json_safe(value):
+    """Lo que se guarda en un JSONB: un `Decimal` va como NÚMERO, no como texto.
+
+    ⚠️⚠️ `json.dumps(..., default=str)` convertía cada importe en una CADENA («316.663») y al
+    releerla se interpretaba como miles: x1000 (bug real de la liquidación de royalties). Un número
+    en JSON no tiene formato que adivinar."""
+    if isinstance(value, Decimal):
+        return float(value) if value.is_finite() else 0.0
+    return str(value)
+
+
+def _parse_money_decimal(val: str | None) -> Decimal:
+    """Un importe **ESCRITO POR UNA PERSONA** (un formulario, un CSV, un PDF) → Decimal.
+
+    ⚠️ Para un importe que ya es un DATO (una columna, un JSONB, un snapshot) está `_money_value`:
+    ahí el punto es SIEMPRE decimal. Ver el aviso de esa función."""
+    num = _money_number(val)
+    if num is not None:                # un número no se parsea (y así da igual quién llame)
+        return num
+    s = str(val or "").strip()
     if not s:
         return Decimal("0")
 
@@ -15843,8 +15928,9 @@ def _parse_money_decimal(val: str | None) -> Decimal:
     # servidor (`_money_or_zero`, `_bag_money`, `_parse_money`, `_inv_money`…):
     #   · COMA y punto → manda el ÚLTIMO: «1.234,56» es de aquí, «1,234.56» es de allí;
     #   · solo COMA → decimal (varias comas: son de miles);
-    #   · solo PUNTO → manda CUÁNTOS DÍGITOS lo siguen: 1 o 2 son DECIMALES (así se sigue leyendo
-    #     lo canónico que manda el navegador, «1234.56»), y 3 o más —o ninguno— son MILES.
+    #   · solo PUNTO → manda CUÁNTOS DÍGITOS lo siguen: un grupo de MILES tiene **EXACTAMENTE 3**
+    #     («40.000»), así que con 1 o 2 es DECIMAL («1234.56») y con 4 o más TAMBIÉN es decimal
+    #     («12.3456»): juntarlo multiplicaba el importe (bug real de dinero, sep 2026).
     # ⚠️ Los PORCENTAJES no se leen con este parser (un «33.333» sería 33333): para eso está
     # `_parse_pct_decimal`, donde el punto es siempre decimal.
     if "," in s and "." in s:
@@ -15856,8 +15942,11 @@ def _parse_money_decimal(val: str | None) -> Decimal:
         s = s.replace(",", "") if s.count(",") > 1 else s.replace(",", ".")
     elif "." in s:
         trozos = s.split(".")
-        if len(trozos) > 2 or len(trozos[-1]) not in (1, 2):
-            s = "".join(trozos)
+        if len(trozos) > 2:
+            # «2.500.000» → miles; «1.234.56» → los primeros de miles y el último decimal.
+            s = "".join(trozos) if len(trozos[-1]) == 3 else "".join(trozos[:-1]) + "." + trozos[-1]
+        elif len(trozos[-1]) == 3:
+            s = "".join(trozos)       # «40.000» son CUARENTA MIL (lo que se escribe aquí)
 
     # Any remaining thousands separators
     # (keep last dot as decimal)
@@ -25572,7 +25661,7 @@ def _disco_prod(project) -> dict:
 def _disco_prod_money(value) -> str:
     """Un importe del payload, tal como se enseña (o vacío)."""
     try:
-        d = _parse_optional_decimal(value)
+        d = _money_value_or_none(value)
     except Exception:
         d = None
     return (format_eur(d) if d is not None else "")
@@ -31596,7 +31685,7 @@ def disco_project_artwork_who(project_id):
         if quien == "THIRD":
             modo = (request.form.get("cost_mode") or "").strip().upper()
             fila.cost_mode = modo if modo in dict((k, 1) for k, _l, _i in DISCO_ARTWORK_COST_MODES) else None
-            fila.amount = (_parse_optional_decimal(request.form.get("amount"))
+            fila.amount = (_parse_optional_money(request.form.get("amount"))
                            if fila.cost_mode == "AMOUNT" else None)
             if fila.promoter_id is None:
                 flash("Elige (o crea) el tercero que la va a hacer.", "warning")
@@ -33854,7 +33943,7 @@ def disco_plan_action_save(project_id):
         fila.description = (f.get("description") or "").strip() or None
         modo = (f.get("cost_mode") or "NONE").strip().upper()
         fila.cost_mode = ("COST" if modo == "COST" else "NONE")
-        fila.amount = (_parse_optional_decimal(f.get("amount")) if fila.cost_mode == "COST" else None)
+        fila.amount = (_parse_optional_money(f.get("amount")) if fila.cost_mode == "COST" else None)
         kind = (f.get("date_kind") or "NONE").strip().upper()
         fila.date_kind = kind if kind in ("DATE", "RANGE", "NONE") else "NONE"
         fila.start_date = (parse_optional_date(f.get("start_date")) if fila.date_kind != "NONE" else None)
@@ -34934,7 +35023,7 @@ def disco_project_production_save(project_id):
             return _safe_uuid((f.get(campo) or "").strip())
 
         def _importe(campo):
-            d = _parse_optional_decimal(f.get(campo))
+            d = _parse_optional_money(f.get(campo))
             return (str(d) if d is not None else "")
 
         if seccion == "producer":
@@ -48405,16 +48494,38 @@ from collections import defaultdict
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 
-def _parse_optional_decimal(value: str | None) -> Decimal | None:
-    """Parsea números tipo '1234,56' o '1234.56'. Vacío -> None."""
-    s = (value or "").strip()
-    if not s:
+def _parse_optional_money(value) -> Decimal | None:
+    """Un IMPORTE escrito por una persona (un formulario), o **None** si el campo viene vacío.
+
+    ⚠️⚠️ Va por `_parse_money_decimal`, así que **«40.000» son CUARENTA MIL** y «1.234,56» son mil
+    doscientos treinta y cuatro con cincuenta y seis. Antes esto hacía `replace(",", ".")` a pelo:
+    un caché de «40.000» se guardaba como **40 €** y un «1.234,56» se PERDÍA (el Decimal reventaba
+    con «1.234.56» y devolvía None) — bug real de dinero, con captura.
+    ⚠️ Para un PORCENTAJE está `_parse_optional_pct`: ahí el punto es siempre decimal («33.333» es
+    treinta y tres, no treinta y tres mil)."""
+    if isinstance(value, (Decimal, int, float)) and not isinstance(value, bool):
+        return _money_number(value)
+    if not str(value or "").strip():
         return None
-    s = s.replace(" ", "").replace(",", ".")
-    try:
-        return Decimal(s)
-    except (InvalidOperation, ValueError):
+    return _parse_money_decimal(value)
+
+
+def _parse_optional_pct(value) -> Decimal | None:
+    """Un PORCENTAJE escrito por una persona, o None si viene vacío. El punto es SIEMPRE decimal."""
+    if isinstance(value, (Decimal, int, float)) and not isinstance(value, bool):
+        return _money_number(value)
+    if not str(value or "").strip():
         return None
+    return _parse_pct_decimal(value)
+
+
+def _money_value_or_none(value) -> Decimal | None:
+    """Un importe que ya es un DATO (un payload, una columna), o None si no hay nada guardado."""
+    if not str(value or "").strip() and not isinstance(value, (Decimal, int, float)):
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return _money_value(value)
 
 
 def _parse_optional_int(value: str | None, *, min_v: int | None = None, max_v: int | None = None) -> int | None:
@@ -48463,7 +48574,7 @@ def _parse_share_rows(ids, pct_list, pct_base_list, amount_list, amount_base_lis
             continue
 
         pct = _parse_optional_int(pct_list[i] if i < len(pct_list) else None, min_v=0, max_v=100)
-        amt = _parse_optional_decimal(amount_list[i] if i < len(amount_list) else None)
+        amt = _parse_optional_money(amount_list[i] if i < len(amount_list) else None)
 
         # descartamos filas vacías
         if (pct is None or pct == 0) and (amt is None or amt == 0):
@@ -48561,9 +48672,9 @@ def _parse_zone_rows(ids, mode_list, pct_list, base_list, amount_list, exempt_li
         if mode not in ("FIXED", "PERCENT"):
             mode = "PERCENT" if (pct_list and i < len(pct_list) and (pct_list[i] or "").strip()) else "FIXED"
 
-        pct = _parse_optional_decimal(pct_list[i] if i < len(pct_list) else None)
-        amt = _parse_optional_decimal(amount_list[i] if i < len(amount_list) else None)
-        exm = _parse_optional_decimal(exempt_list[i] if i < len(exempt_list) else None)
+        pct = _parse_optional_pct(pct_list[i] if i < len(pct_list) else None)
+        amt = _parse_optional_money(amount_list[i] if i < len(amount_list) else None)
+        exm = _parse_optional_money(exempt_list[i] if i < len(exempt_list) else None)
         concept = (concept_list[i] if i < len(concept_list) else "")
         concept = (concept or "").strip() or None
 
@@ -48644,8 +48755,8 @@ def _parse_cache_rows(kinds, concept_list, amount_list, var_mode_list, var_optio
         concept = (concept_list[i] if i < len(concept_list) else "")
         concept = (concept or "").strip() or None
 
-        amt = _parse_optional_decimal(amount_list[i] if i < len(amount_list) else None)
-        pct = _parse_optional_decimal(pct_list[i] if i < len(pct_list) else None)
+        amt = _parse_optional_money(amount_list[i] if i < len(amount_list) else None)
+        pct = _parse_optional_pct(pct_list[i] if i < len(pct_list) else None)
         pct_base = _norm_base(pct_base_list[i] if i < len(pct_base_list) else None)
 
         var_mode = (var_mode_list[i] if i < len(var_mode_list) else "")
@@ -48656,7 +48767,7 @@ def _parse_cache_rows(kinds, concept_list, amount_list, var_mode_list, var_optio
 
         from_ticket = _parse_optional_positive_int((from_ticket_list[i] if i < len(from_ticket_list) else "") or "")
         min_tickets = _parse_optional_positive_int((min_tickets_list[i] if i < len(min_tickets_list) else "") or "")
-        min_revenue = _parse_optional_decimal(min_revenue_list[i] if i < len(min_revenue_list) else None)
+        min_revenue = _parse_optional_money(min_revenue_list[i] if i < len(min_revenue_list) else None)
         ticket_type = (ticket_type_list[i] if i < len(ticket_type_list) else "")
         ticket_type = (ticket_type or "").strip() or None
 
@@ -49005,7 +49116,7 @@ def _upsert_equipment_from_request(session, concert_id):
     if covered_mode not in ("RIDER", "AMOUNT"):
         covered_mode = None
 
-    covered_amount = _parse_optional_decimal(request.form.get("equipment_covered_amount"))
+    covered_amount = _parse_optional_money(request.form.get("equipment_covered_amount"))
 
     # determinar si hay contenido
     has_any = bool(included) or bool(other) or covered
@@ -51124,7 +51235,7 @@ def _peticion_wizard_prefill(session_db, r) -> dict:
     # El importe orientativo es texto libre («3.000 € + IVA»): solo se vuelca si es un número.
     importe = ""
     try:
-        _d = _parse_optional_decimal(r.fee_text)
+        _d = _parse_optional_money(r.fee_text)
         if _d is not None and _d > 0:
             importe = format(_d.normalize(), "f")
     except Exception:
@@ -55586,7 +55697,7 @@ def _apply_group_create_economics(group, form):
     ADVANCE, exento, socios y comisionistas) en payload.general."""
     gen = dict((group.payload or {}).get("general") or {})
     if (form.get("fee_mode") or "").strip().upper() == "ADVANCE":
-        gen["advance"] = float(_money_or_zero(form.get("fee_amount")))
+        gen["advance"] = float(_parse_money_decimal(form.get("fee_amount")))
     _parse_group_economics(form, gen)
     p = dict(group.payload or {})
     p["general"] = gen
@@ -55604,7 +55715,7 @@ def _group_general_save(group, form):
         expenses.append({"concept": c, "amount": float(_money_or_zero(a))})
     p = dict(group.payload or {})
     gen = dict(p.get("general") or {})
-    gen["advance"] = float(_money_or_zero(form.get("advance")))
+    gen["advance"] = float(_parse_money_decimal(form.get("advance")))
     gen["expenses"] = expenses
     gen["notes"] = (form.get("notes") or "").strip()
     _parse_group_economics(form, gen)  # fee_mode, fee_exempt, partners, comisionistas
@@ -57623,19 +57734,19 @@ def expense_template_save(tid):
             if cat not in cats:
                 cat = "OTROS"
             concepto = (fila.get("concept") or "").strip()
-            importe = _money_or_zero(fila.get("amount_net"))
+            importe = _parse_money_decimal(fila.get("amount_net"))
             if not concepto and importe == 0 and not fila.get("is_variable"):
                 continue
             session_db.add(ExpenseTemplateItem(
                 template_id=tpl.id, category=cat, concept=concepto[:200],
                 amount_net=importe,
-                quantity=(_money_or_zero(fila.get("quantity")) or 1),
+                quantity=(_parse_money_decimal(fila.get("quantity")) or 1),
                 iva_pct=_parse_pct_decimal(fila.get("iva_pct") if fila.get("iva_pct") is not None else 21),
                 includes_iva=bool(fila.get("includes_iva")),
                 iva_exempt=bool(fila.get("iva_exempt")),
                 is_variable=bool(fila.get("is_variable")),
                 var_type=((fila.get("var_type") or "").strip().upper() or None),
-                var_value=_money_or_zero(fila.get("var_value")),
+                var_value=_parse_money_decimal(fila.get("var_value")),
             ))
             n += 1
         if hasattr(tpl, "updated_at"):
@@ -57718,7 +57829,7 @@ def _expense_template_replace_items(session_db, tpl) -> int:
     for i, concepto in enumerate(conceptos):
         concepto = (concepto or "").strip()
         cat = ((cats[i] if i < len(cats) else "") or "OTROS").strip().upper()
-        importe = _money_or_zero(importes[i] if i < len(importes) else 0)
+        importe = _parse_money_decimal(importes[i] if i < len(importes) else 0)
         if not concepto and importe == 0:
             continue
         if cat not in dict((k, l) for k, l, _i in SIM_EXPENSE_CATEGORIES):
@@ -57726,7 +57837,7 @@ def _expense_template_replace_items(session_db, tpl) -> int:
         session_db.add(ExpenseTemplateItem(
             template_id=tpl.id, category=cat, concept=concepto[:200],
             amount_net=importe,
-            quantity=(_money_or_zero(cantidades[i]) if i < len(cantidades) and (cantidades[i] or "").strip() else 1) or 1,
+            quantity=(_parse_money_decimal(cantidades[i]) if i < len(cantidades) and (cantidades[i] or "").strip() else 1) or 1,
             iva_pct=(_parse_pct_decimal(ivas[i]) if i < len(ivas) and (ivas[i] or "").strip() else 21),
         ))
         n += 1
@@ -58326,15 +58437,18 @@ def _sim_expense_cat(key):
 
 
 def _sim_d(v):
-    """Decimal seguro (acepta Decimal/num/str/None)."""
+    """Decimal seguro de una simulación o un presupuesto (acepta Decimal/num/str/None).
+
+    ⚠️⚠️ Va por `_money_value` (el punto es DECIMAL, que es lo que manda el navegador —canónico— y
+    lo que hay guardado). Antes hacía `Decimal(str(v))` a pelo y un «1.234,56» **reventaba y se
+    guardaba 0**: el importe se perdía sin decir nada (bug real de dinero).
+    ⚠️ Se usa también para PORCENTAJES (`iva_pct`, `pct`), así que aquí el punto NO puede ser de
+    miles: «33.333» son treinta y tres, no treinta y tres mil."""
     if isinstance(v, Decimal):
-        return v
+        return v if v.is_finite() else Decimal("0")
     if v is None or v == "":
         return Decimal("0")
-    try:
-        return Decimal(str(v))
-    except Exception:
-        return Decimal("0")
+    return _money_value(v)
 
 
 def _sim_int(v):
@@ -58902,7 +59016,7 @@ def _simulation_partners_from_form(form):
         kind = (kinds[i] if i < len(kinds) else "").strip().lower()
         ref = (refs[i] if i < len(refs) else "").strip()
         label = (labels[i] if i < len(labels) else "").strip()
-        pct = _money_or_zero(pcts[i] if i < len(pcts) else "0")
+        pct = _parse_pct_decimal(pcts[i] if i < len(pcts) else "0")
         no_loss = _truthy(no_losses[i]) if i < len(no_losses) else False
         company_id = promoter_id = None
         if kind == "company":
@@ -65554,8 +65668,8 @@ def sales_config_save(cid):
             flash("Concierto no encontrado.", "warning")
             return redirect(request.referrer or url_for("sales_update_view"))
 
-        vat = _parse_optional_decimal(request.form.get("vat_pct"))
-        sgae = _parse_optional_decimal(request.form.get("sgae_pct"))
+        vat = _parse_optional_pct(request.form.get("vat_pct"))
+        sgae = _parse_optional_pct(request.form.get("sgae_pct"))
         vat_f = float(vat or 0)
         sgae_f = float(sgae or 0)
 
@@ -65858,7 +65972,7 @@ def sales_ticketer_allocations_save(cid, tid):
             p_raw = request.form.get(f"alloc_price_{tt.id}")
 
             qty = _parse_optional_int(q_raw, min_v=0) or 0
-            price = _parse_optional_decimal(p_raw) or Decimal(0)
+            price = _parse_optional_money(p_raw) or Decimal(0)
 
             total_cap += int(qty)
 
@@ -65919,12 +66033,12 @@ def sales_ticketer_rebate_save(cid, tid):
 
         mode = (request.form.get("rebate_mode") or "").upper().strip()
         if mode == "FIXED":
-            fixed = _parse_optional_decimal(request.form.get("rebate_fixed_gross")) or Decimal(0)
+            fixed = _parse_optional_money(request.form.get("rebate_fixed_gross")) or Decimal(0)
             ct.rebate_mode = "FIXED"
             ct.rebate_fixed_gross = float(fixed)
             ct.rebate_pct = None
         elif mode == "PERCENT":
-            pct = _parse_optional_decimal(request.form.get("rebate_pct")) or Decimal(0)
+            pct = _parse_optional_pct(request.form.get("rebate_pct")) or Decimal(0)
             pct_f = float(pct)
             if pct_f < 0:
                 pct_f = 0.0
@@ -70100,7 +70214,7 @@ def _parse_wizard_ticket_types(form) -> list[dict]:
     seen = set()
     for i, raw_name in enumerate(names or []):
         name = (raw_name or '').strip()
-        price = _parse_optional_decimal(prices[i] if i < len(prices) else None)
+        price = _parse_optional_money(prices[i] if i < len(prices) else None)
         qty = _parse_optional_positive_int((qtys[i] if i < len(qtys) else '') or '')
         inv = _parse_optional_positive_int((invites[i] if i < len(invites) else '') or '')
         if not name and price is None and not qty and not inv:
@@ -70706,7 +70820,7 @@ def _parse_wizard_promoter_share_rows(form) -> list[dict]:
         raw_id = (raw_id or '').strip()
         if not raw_id:
             continue
-        pct = _parse_optional_decimal(pcts[i] if i < len(pcts) else None)
+        pct = _parse_optional_pct(pcts[i] if i < len(pcts) else None)
         if pct is None:
             continue
         kind = ((kinds[i] if i < len(kinds) else '') or 'promoter').strip().lower()
@@ -70765,7 +70879,7 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
         if mode not in {'PERCENT', 'FIXED'}:
             mode = 'PERCENT'
         if mode == 'FIXED':
-            amount = _parse_optional_decimal(amounts[i] if i < len(amounts) else None)
+            amount = _parse_optional_money(amounts[i] if i < len(amounts) else None)
             if amount is None:
                 continue
             rows.append({
@@ -70781,7 +70895,7 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
                 'apply_mode': _commission_apply_mode(applies[i] if i < len(applies) else None),
             })
         else:
-            pct = _parse_optional_decimal(pcts[i] if i < len(pcts) else None)
+            pct = _parse_optional_pct(pcts[i] if i < len(pcts) else None)
             if pct is None:
                 continue
             rows.append({
@@ -72206,7 +72320,7 @@ def api_company_billing_limit(company_id):
         year = int((request.args.get("year") or "").strip() or today_local().year)
     except Exception:
         year = today_local().year
-    extra = _money_or_zero(request.args.get("extra") or 0)
+    extra = _parse_money_decimal(request.args.get("extra") or 0)
     session_db = db()
     try:
         return jsonify(_company_billing_limit_state(session_db, to_uuid(company_id) if company_id else None, year, extra))
@@ -94554,18 +94668,17 @@ def _detect_embargo_order_type(text_value: str, filename: str | None = None) -> 
 
 
 def _embargo_parse_es_decimal(value: str | None) -> Decimal | None:
+    """Un importe de un PDF de embargo (lo escribe una administración: formato español).
+
+    ⚠️ Por el punto único `_parse_money_decimal`: antes quitaba TODOS los puntos, así que un
+    «1234.56» en formato inglés se leía como 123.456."""
     value = (value or "").strip()
     if not value:
         return None
     cleaned = re.sub(r"[^0-9,.-]", "", value)
     if not cleaned:
         return None
-    # Formato español habitual: 1.234,56
-    cleaned = cleaned.replace(".", "").replace(",", ".")
-    try:
-        return Decimal(cleaned)
-    except Exception:
-        return None
+    return _parse_money_decimal(cleaned)
 
 
 def _embargo_parse_es_date(value: str | None):
@@ -97649,14 +97762,14 @@ def _royalty_freeze_backfill(session_db=None) -> dict:
             enviado = getattr(rec, "last_sent_snapshot", None)
             datos, origen = None, ""
             if isinstance(enviado, dict) and ("total_amount" in enviado or enviado.get("items")):
-                datos, origen = json.loads(json.dumps(enviado, default=str)), "SENT"
+                datos, origen = json.loads(json.dumps(enviado, default=_money_json_safe)), "SENT"
             else:
                 try:
                     datos, _s, _e, _b = _get_royalty_liquidation_beneficiary_data(
                         session_db, rec.beneficiary_kind, str(rec.beneficiary_id),
                         rec.period_start.year, 1 if rec.period_start.month <= 6 else 2,
                         apply_frozen=False)
-                    datos = json.loads(json.dumps(datos, default=str))
+                    datos = json.loads(json.dumps(datos, default=_money_json_safe))
                     origen = "LIVE"
                 except Exception:
                     datos = None
@@ -103518,9 +103631,15 @@ def _json_loads_safe(value, default=None):
 
 
 def _money_or_zero(value):
+    """Un importe que ya es un DATO (columna, JSONB, snapshot, cálculo) → Decimal.
+
+    ⚠️⚠️ Va por **`_money_value`**, no por `_parse_money_decimal`: sus 260 usos son datos del
+    programa y ahí el punto es DECIMAL. Lo que escribe una persona (un `request.form.get`) se lee
+    con `_parse_money_decimal`."""
     try:
-        return _parse_money_decimal(value)
+        return _money_value(value)
     except Exception:
+        app.logger.exception("Importe que no se pudo leer: %r", value)
         return Decimal("0")
 
 
@@ -118701,7 +118820,7 @@ def public_invoice_upload():
                 if not marcados and _bag_expense_has_invoice(expense):
                     continue
                 gastos.append(expense)
-            total = _money_or_zero(request.form.get("amount_gross"))
+            total = _parse_money_decimal(request.form.get("amount_gross"))
             previstos = [_money_or_zero(e.amount_gross) for e in gastos]
             suma_prev = sum(previstos, Decimal("0"))
             group_key = uuid.uuid4().hex
@@ -119939,7 +120058,7 @@ def public_bag_invoice_upload_post(token):
         if not url:
             return jsonify({"ok": False, "error": "No se pudo guardar el archivo"}), 400
         inv_num = (request.form.get("invoice_number") or "").strip() or None
-        total = _money_or_zero(request.form.get("amount_gross") or 0)
+        total = _parse_money_decimal(request.form.get("amount_gross") or 0)
         previstos = [_money_or_zero(e.amount_gross) for e in expenses]
         suma_prev = sum(previstos, Decimal("0"))
         group_key = uuid.uuid4().hex
@@ -119995,7 +120114,7 @@ def concert_budget_item_create(cid):
         iva = Decimal('0') if iva_exempt else _sim_d(request.form.get('iva_pct') or 21)
         net = (unit * qty).quantize(Decimal('0.01'))
         gross_form = request.form.get('amount_gross')
-        gross = (_money_or_zero(gross_form) if (gross_form or '').strip()
+        gross = (_parse_money_decimal(gross_form) if (gross_form or '').strip()
                  else (net * (Decimal('1') + iva / Decimal('100'))).quantize(Decimal('0.01')))
         item = ConcertBudgetItem(
             concert_id=concert.id,
@@ -120373,7 +120492,7 @@ def acciones_view():
                 repertoire_payload={'notes': payload.get('repertoire_notes'), 'changes_by_action': bool(request.form.get('repertoire_changes_by_action'))},
                 formation_payload={'notes': payload.get('formation_notes'), 'mode': (request.form.get('formation_mode') or '').strip() or None},
                 has_fee=bool(request.form.get('has_fee')),
-                fee_payload={'notes': payload.get('cache_notes'), 'amount': str(_money_or_zero(request.form.get('fee_amount')))},
+                fee_payload={'notes': payload.get('cache_notes'), 'amount': float(_parse_money_decimal(request.form.get('fee_amount')))},
                 promoter_costs_payload={'notes': payload.get('promoter_costs_notes')},
                 announcement_payload={'notes': payload.get('announcement_notes')},
                 created_by_user_id=_safe_uuid(session.get('user_id')) if session.get('user_id') else None,

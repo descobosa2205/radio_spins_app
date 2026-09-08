@@ -10700,3 +10700,52 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Probado con la app real: con `departments = ["Producción musical"]` y con `"Producción"` guardado
   como TEXTO, cada una ve **solo su actividad** (contador 1) y sin «Pendientes de asignar»;
   dirección y quien no es de producción siguen viéndolo todo.
+
+- ⚠️⚠️⚠️ **EL DINERO NO SE ALTERA · HAY DOS PARSERS Y EL FORMATO LO DECIDE EL ORIGEN DEL DATO**
+  (bug GRAVE con capturas, sep 2026: una liquidación de royalties de **316,66 €** salía como
+  **316.663,00 €** y a facturar **383.162,23 €**). En España el **PUNTO** es de miles y de millón y
+  la **COMA** es la decimal, pero el **PROGRAMA escribe canónico** (punto decimal), así que un mismo
+  texto —«316.663»— significa una cosa u otra según **de dónde venga**, y por su forma NO hay manera
+  de acertar. Por eso hay DOS puntos únicos:
+  · **`_parse_money_decimal(v)`** ← lo que **ESCRIBE UNA PERSONA** (un formulario, un PDF, un
+    Excel): «40.000» son **CUARENTA MIL**. De él viven `_bag_money`, `_parse_money`, `_inv_money`,
+    **`_parse_optional_money`** y `_embargo_parse_es_decimal`.
+  · **`_money_value(v)`** ← lo que **YA ES UN DATO**: una columna `Numeric`, un JSONB, un snapshot,
+    un cálculo. Aquí el punto es **SIEMPRE decimal**. De él viven **`_money_or_zero`** (sus ~260
+    usos son datos) y **`_sim_d`**.
+  · **`_money_number(v)`** es la primera puerta de los dos: **un número NO se parsea**. Las columnas
+    son `Numeric` **sin escala**, así que un importe conserva todos sus decimales y `str(Decimal)`
+    daba «316.663» → con la regla de los miles, **x1000**.
+  ⚠️⚠️ **Un grupo de MILES tiene EXACTAMENTE 3 dígitos**: «40.000» son miles, pero «1234.56» y
+  «12.3456» son DECIMALES. La regla `not in (1, 2)` juntaba los de 4+ decimales y multiplicaba el
+  importe. Está espejada en **4 sitios** (`app.py`, `money_input.js`, `invoice_read.py`,
+  `buyer_import.py`): si se toca uno, se tocan los cuatro.
+  ⚠️⚠️ **En un JSONB un importe va como NÚMERO**: `json.dumps(..., default=str)` lo guardaba como
+  TEXTO y al releerlo se interpretaba como miles. Punto único **`_money_json_safe`** (el `default=`
+  de los `json.dumps` que GUARDAN; los de firma/hash siguen con `default=str` a propósito: cambiarlos
+  invalidaría las firmas guardadas y todas las liquidaciones dirían «los ingresos han cambiado»).
+  ⚠️⚠️ **En el NAVEGADOR pasa lo mismo** (`money_input.js`): **`toCanonical`** es lo que teclea una
+  persona (punto = miles) y **`fromServer`** el `value` que pinta el servidor (punto = decimal), que
+  es lo que usa `upgrade()` al abrir un formulario — sin eso, un `value="316.663333"` se enseñaba
+  como «316.663.333» y se enviaba así. Lo que se TECLEA se ve con su punto de miles («40.000») y
+  viaja canónico («40000»).
+  ⚠️ Los **PORCENTAJES** no son importes: van por **`_parse_pct_decimal`** / **`_parse_optional_pct`**
+  (el punto siempre decimal), porque «33.333» son treinta y tres, no treinta y tres mil.
+  ⚠️ **`_parse_optional_decimal` se ha RETIRADO** (hacía `replace(",", ".")` a pelo): un caché de
+  «40.000» se guardaba como **40 €** y un «1.234,56» se **PERDÍA** (el `Decimal` reventaba con
+  «1.234.56» y devolvía None). Sus 26 usos se repartieron entre `_parse_optional_money` (importes) y
+  `_parse_optional_pct` (porcentajes) — al añadir un campo nuevo, elegir el que toca.
+  ⚠️ En el JS, un DATO se lee con `parseFloat` (punto decimal) y un CAMPO con **`window.numv`**:
+  `parseFloat('40.000')` da 40.
+  · **PRUEBA DE REGRESIÓN: `python3 tools/check_money.py`** (los dos parsers, los números, el JSONB,
+  el caso de la captura, los otros motores y el espejo del JS). Si se toca un parser de importes,
+  tiene que seguir en verde. Y `tools/check_invoice_read.py` también.
+  · **AUDITORÍA con AST** para encontrar formularios leídos con el parser de datos: recorrer las
+  llamadas a `_money_or_zero`/`_money_value` y comprobar si su argumento deriva de `form`/
+  `request.form` (hoy quedan 12 y las 12 son falsos positivos verificados: dicts calculados y
+  `getattr` del ORM).
+  ⚠️⚠️ **VENTANA DEL FALLO: del 2 al 8 de septiembre de 2026** (el commit `c3c22a0` introdujo la
+  regla del punto de miles en el punto único). En ese periodo, cualquier importe con **3 o más
+  decimales** que pasara por texto (los snapshots de royalties, los payloads) se multiplicó por mil
+  **al enseñarlo y al guardarlo si alguien lo confirmó** — hay que revisar lo grabado esos días:
+  facturas subidas, gastos corregidos a mano y liquidaciones facturadas.

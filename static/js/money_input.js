@@ -69,16 +69,17 @@
 
   /* «1.234,56» / «1.234» / «1234.56» / «1234» → «1234.56» (canónico para el servidor).
 
-     ⚠️⚠️ AQUÍ EL PUNTO ES DE MILES, NO DECIMAL (modelo de euros, no el de Estados Unidos). Un
-     «40.000» son CUARENTA MIL. Bug real con captura: el asistente leía el caché con `parseFloat` y
-     un caché de 40.000 € salía como 4,00 € —el `4.0000` a medio formatear que deja el teclear—, y
-     el servidor guardaba 40 € de un «40.000». La regla, que es la MISMA en `_parse_money_decimal`
-     (app.py) y en `invoice_read.py`:
+     ⚠️⚠️ ESTO ES LO QUE **ESCRIBE UNA PERSONA**, y aquí el punto es de MILES, no decimal (modelo de
+     euros, no el de Estados Unidos): un «40.000» son CUARENTA MIL. Bug real con captura: el
+     asistente leía el caché con `parseFloat` y un caché de 40.000 € salía como 4,00 €, y el
+     servidor guardaba 40 € de un «40.000». La regla, la MISMA que `_parse_money_decimal` (app.py) y
+     `invoice_read.py`:
        · hay COMA y punto → manda el ÚLTIMO: «1.234,56» es de aquí, «1,234.56» es de allí;
        · solo COMA → decimal (varias comas: son de miles);
-       · solo PUNTO → manda CUÁNTOS DÍGITOS lo siguen: 1 o 2 son DECIMALES (así se sigue leyendo lo
-         canónico que viaja al servidor, «1234.56»), y 3 o más —o ninguno— son MILES («40.000» y el
-         «4.0000» de un importe a medio escribir). */
+       · solo PUNTO → un grupo de MILES tiene **EXACTAMENTE 3** dígitos («40.000»), así que con 1 o
+         2 es DECIMAL («1234.56») y con 4 o más TAMBIÉN («12.3456»): juntarlo multiplicaba el
+         importe (bug real de dinero, sep 2026).
+     ⚠️⚠️ Para el valor que pinta el SERVIDOR está `fromServer`: ahí el punto es SIEMPRE decimal. */
   function toCanonical(v) {
     v = String(v == null ? '' : v).trim();
     if (!v) return '';
@@ -94,10 +95,28 @@
       v = (v.split(',').length > 2) ? v.replace(/,/g, '') : v.replace(/,/g, '.');
     } else if (punto !== -1) {
       var t = v.split('.');
-      var dec = t[t.length - 1].length;
-      if (t.length > 2 || dec < 1 || dec > 2) v = t.join('');
+      if (t.length > 2) v = (t[t.length - 1].length === 3) ? t.join('') : t.slice(0, -1).join('') + '.' + t[t.length - 1];
+      else if (t[1].length === 3) v = t.join('');
     }
     v = v.replace(/[^\d.]/g, '');
+    return v ? (neg ? '-' : '') + v : '';
+  }
+
+  /* El valor que YA VIENE en el campo (lo pinta el SERVIDOR: un Decimal, `_money_edit_text`…).
+
+     ⚠️⚠️ AQUÍ EL PUNTO ES SIEMPRE DECIMAL, porque lo escribe el programa: un `value="316.663333"`
+     leído con la regla de los MILES se convertía en 316.663.333 en pantalla y se enviaba así (bug
+     real de dinero, sep 2026). Si trae COMA, manda la coma (viene ya formateado a la española). */
+  function fromServer(v) {
+    v = String(v == null ? '' : v).trim();
+    if (!v) return '';
+    if (v.indexOf(',') !== -1) return toCanonical(v);   // ya formateado: «1.234,56»
+    v = v.replace(/[€$£\s]/g, '');
+    var neg = v.charAt(0) === '-';
+    if (neg) v = v.slice(1);
+    v = v.replace(/[^\d.]/g, '');
+    var t = v.split('.');
+    if (t.length > 2) v = (t[t.length - 1].length === 3) ? t.join('') : t.slice(0, -1).join('') + '.' + t[t.length - 1];
     return v ? (neg ? '-' : '') + v : '';
   }
 
@@ -108,8 +127,10 @@
   }
 
   // Canónico/lo que sea → presentación es-ES con puntos de miles y coma decimal.
-  function display(v) {
-    var c = toCanonical(v);
+  // ⚠️ `desdeServidor` para el valor que pinta el servidor (punto = decimal), que es lo que se
+  // enseña al abrir un formulario.
+  function display(v, desdeServidor) {
+    var c = desdeServidor ? fromServer(v) : toCanonical(v);
     if (c === '') return '';
     var neg = c.charAt(0) === '-';
     if (neg) c = c.slice(1);
@@ -154,7 +175,9 @@
       try { el.type = 'text'; } catch (_) {}
     }
     el.setAttribute('inputmode', 'decimal');
-    if (el.value) el.value = display(el.value);
+    // ⚠️⚠️ El valor que ya está en el campo lo pinta el SERVIDOR (canónico: punto decimal), no lo
+    // ha escrito una persona: sin esto, un `value="316.663333"` se enseñaba como «316.663.333».
+    if (el.value) el.value = display(el.value, true);
   }
 
   function scan(root) {
@@ -216,7 +239,8 @@
     else scan(document);
   }
 
-  window.MoneyInput = { num: num, toCanonical: toCanonical, display: display, scan: scan };
+  window.MoneyInput = { num: num, toCanonical: toCanonical, fromServer: fromServer,
+                       display: display, scan: scan };
   // `numv` GLOBAL: el parser tolerante que usa el JS de las pantallas con importes. Antes cada
   // pantalla se lo definía por su cuenta y en algunas (la pestaña Gastos de una simulación) NO
   // existía: cualquier lectura de un importe petaba con ReferenceError y el guardado moría en

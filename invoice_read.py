@@ -37,7 +37,8 @@ from decimal import Decimal, InvalidOperation
 # `\d{1,3}(?:[.\s]\d{3})*(?:,\d{1,2})?`, que en «1140,97» casaba solo «114» (tres dígitos, y el grupo
 # de los miles y el de los decimales son opcionales): cualquier importe de cuatro cifras SIN punto de
 # miles se leía truncado. Aquí van primero los formatos completos y el entero suelto al final.
-AMOUNT = (r"(-?\s*\d{1,3}(?:[.  ]\d{3})+(?:,\d{1,2})?"      # 6.123,39 · 1.285,91 · 6.123
+AMOUNT = (r"(-?\s*\d+\.\d{4,}(?!\d)"                              # 12.3456 (4+ decimales: no puede ser un grupo de miles)
+          r"|-?\s*\d{1,3}(?:[.  ]\d{3})+(?:,\d{1,2})?"      # 6.123,39 · 1.285,91 · 6.123
           r"|-?\s*\d+,\d{1,2}"                                    # 1140,97 · 697,69
           r"|-?\s*\d+\.\d{1,2}(?!\d)"                             # 1140.97 (formato inglés)
           r"|-?\s*\d+)")                                          # 8 · 21

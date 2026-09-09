@@ -436,7 +436,6 @@
 {% if IS_ADMIN %}{% include '_quick_create_modals.html' %}{% endif %}
 <script src="{{ url_for('static', filename='js/csrf.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/scripts.js', v=ASSET_V) }}"></script>
-<script src="{{ url_for('static', filename='js/song_genres.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/refresh_on_close.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/back_fresh.js', v=ASSET_V) }}"></script>
 {# Importes con puntos de miles EN VIVO al teclear (inputs con € o data-money); al enviar
@@ -446,6 +445,9 @@
 <script src="{{ url_for('static', filename='js/home_order.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/float_list.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/typeahead.js', v=ASSET_V) }}"></script>
+{# GÉNEROS de una canción y ETIQUETAS de un medio: se eligen de lo que ya hay (va DESPUÉS de
+   float_list.js, que es quien saca su lista al <body> para que no la recorte un modal). #}
+<script src="{{ url_for('static', filename='js/song_genres.js', v=ASSET_V) }}"></script>
 {# EL REPERTORIO de una actividad: buscar escribiendo y ordenar arrastrando. GLOBAL porque su
    parcial se usa en el asistente y en la ficha (y esa zona se repinta por AJAX). #}
 <script src="{{ url_for('static', filename='js/performance_songs.js', v=ASSET_V) }}"></script>

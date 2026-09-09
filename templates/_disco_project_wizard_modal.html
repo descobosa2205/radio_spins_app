@@ -228,17 +228,23 @@
           <div class="sw-step__q"><i class="fa fa-tags me-2 text-danger"></i>¿De qué género es?</div>
           <div class="sw-step__h">Se puede poner más de uno. Es obligatorio: es con lo que se presenta
             el tema (a radio, a playlists y a sincronizaciones).</div>
-          <div id="dpGenreChips" class="d-flex flex-wrap"></div>
-          <div id="dpGenreHidden"></div>
-          <div class="input-group" style="max-width:520px;">
-            <input id="dpGenreInput" class="form-control" list="dpGenreCatalog"
-                   placeholder="Escribe un género y pulsa Enter (Pop, Flamenco…)" autocomplete="off">
-            <button type="button" class="btn btn-outline-secondary" id="dpGenreAdd"><i class="fa fa-plus"></i></button>
+          {# ⚠️⚠️ EL MISMO SELECTOR QUE LA FICHA DE LA CANCIÓN (`song_genres.js`, global): al escribir
+             salen las coincidencias del catálogo y se PINCHAN. Antes esto era un <datalist> nativo,
+             donde elegir una opción no añadía nada —había que escribir el género entero y pulsar
+             Enter—, así que el mismo género acababa escrito de varias formas y DUPLICADO. #}
+          <div class="position-relative" data-genre-picker data-genre-field="song_genres[]"
+               id="dpGenrePicker" style="max-width:520px;">
+            <div class="d-flex flex-wrap" data-genre-chips></div>
+            <div class="input-group">
+              <input class="form-control" data-genre-input autocomplete="off"
+                     placeholder="Escribe y elige de la lista (Pop, Flamenco…)">
+              <button type="button" class="btn btn-outline-secondary" data-genre-add
+                      title="Añadir el género que has escrito (para uno que todavía no existe)"><i class="fa fa-plus"></i></button>
+            </div>
+            {# El catálogo, para sugerir. Va como JSON (no se ejecuta). #}
+            <script type="application/json" data-genre-catalog>{{ (song_genre_catalog or [])|tojson }}</script>
           </div>
-          <datalist id="dpGenreCatalog">
-            {% for g in song_genre_catalog or [] %}<option value="{{ g }}"></option>{% endfor %}
-          </datalist>
-          <div class="form-text" id="dpGenreMsg"></div>
+          <div class="form-text" id="dpGenreMsg">Pincha uno de la lista para añadirlo. Si no está, escríbelo y pulsa <strong>+</strong>.</div>
 
           {# CONTENIDO EXPLÍCITO: hay que decirlo en TODAS las canciones, así que también aquí (el
              proyecto las crea). Se aplica a las del lanzamiento; el servidor lo vuelve a exigir. #}
@@ -274,30 +280,34 @@
    motor en su propio parcial (igual que los de promoción, giras y ciclos). #}
 <script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 <script>
-  // GÉNEROS del proyecto: el mismo gestor de chips de las etiquetas de una actividad.
+  /* GÉNEROS del proyecto: los pone `song_genres.js` (GLOBAL, el mismo de la ficha de la canción).
+     Aquí solo queda la compuerta de que es OBLIGATORIO. */
   (function () {
     document.addEventListener('DOMContentLoaded', function () {
-      if (!window.initConcertTagManager || !document.getElementById('dpGenreInput')) return;
-      var gm = window.initConcertTagManager({
-        inputId: 'dpGenreInput', chipsId: 'dpGenreChips', hiddenId: 'dpGenreHidden',
-        fieldName: 'song_genres[]', prefix: ''
-      });
-      var add = document.getElementById('dpGenreAdd');
-      if (add) add.addEventListener('click', function () { gm.addFromInput(); });
-      // ⚠️ Obligatorio: sin género no se envía (el servidor lo vuelve a comprobar).
-      var form = document.getElementById('dpGenreInput').closest('form');
-      if (form) form.addEventListener('submit', function (ev) {
+      var picker = document.getElementById('dpGenrePicker');
+      if (!picker) return;
+      var form = picker.closest('form');
+      if (!form) return;
+      form.addEventListener('submit', function (ev) {
         var paso = document.querySelector('.sw-step[data-step="9"]');
         var toca = paso && !paso.classList.contains('d-none') && !paso.hasAttribute('disabled');
         if (!toca) return;
-        if (gm.getTags().length) return;
+        var G = window.app33Genres;
+        if (!G) return;                              // sin el motor no se bloquea nada
+        if (G.puestos(picker).length) return;
         // Un género escrito y sin pulsar Enter cuenta igual: se añade al vuelo.
-        gm.addFromInput();
-        if (gm.getTags().length) return;
+        G.addFromInput(picker);
+        if (G.puestos(picker).length) return;
         ev.preventDefault();
-        var msg = document.getElementById('dpGenreMsg');
-        if (msg) { msg.className = 'form-text text-danger'; msg.textContent = 'Pon al menos un género.'; }
-        document.getElementById('dpGenreInput').focus();
+        // ⚠️ Lo que falta va en ROJO, como en el resto de la app (`form_check.js`).
+        var campo = picker.querySelector('[data-genre-input]');
+        if (window.app33FormCheck && window.app33FormCheck.fail) {
+          window.app33FormCheck.fail(paso, campo, 'Pon al menos un género.');
+        } else {
+          var msg = document.getElementById('dpGenreMsg');
+          if (msg) { msg.className = 'form-text text-danger'; msg.textContent = 'Pon al menos un género.'; }
+          if (campo) campo.focus();
+        }
       });
     });
   })();

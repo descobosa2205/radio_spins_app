@@ -753,7 +753,6 @@
                       <button type="button" class="btn btn-outline-secondary" data-genre-add
                               title="Añadir el género que has escrito (para uno que todavía no existe)"><i class="fa fa-plus"></i></button>
                     </div>
-                    <div class="ta-results" data-genre-results></div>
                     {# El catálogo, para sugerir. Va como JSON (no se ejecuta), así que se lee bien
                        aunque la zona se repinte. #}
                     <script type="application/json" data-genre-catalog>{{ (song_genre_catalog or [])|tojson }}</script>

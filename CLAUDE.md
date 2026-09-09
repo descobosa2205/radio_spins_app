@@ -6614,6 +6614,41 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **«+»** es para dar de alta uno que todavía no existe (también con Enter). Motor
   `static/js/song_genres.js`; las etiquetas y sus ocultos los sirve el servidor (ver arriba).
 
+- ⚠️⚠️ **UN GÉNERO SE ELIGE DE LO QUE YA HAY: SOLO SE CREA CUANDO DE VERDAD NO EXISTE** (sep 2026,
+  bug real: «al añadir el género de un single no se muestran los ya creados y se duplican»). El
+  mismo género escrito de dos formas son **dos géneros**, y con eso el repertorio deja de poder
+  filtrarse ni presentarse a radio, a una playlist o a una sincronización por género.
+  ⚠️⚠️ **La causa: el asistente de un PROYECTO discográfico —que es DONDE se crea el single— usaba
+  un `<datalist>` NATIVO** y su propio gestor de chips, en vez del selector de la casa. Con un
+  datalist, **elegir una opción no añade nada** (hay que escribir el género entero y pulsar Enter),
+  que es justo lo que hace que cada uno lo escriba a su manera. Ahora los DOS sitios que ponen
+  géneros —la ficha de la canción y el asistente— usan el MISMO `data-genre-picker`
+  (`static/js/song_genres.js`, global y por delegación), así que una mejora vale para los dos.
+  · **La búsqueda tolera la escritura**: `clave()` es el **espejo de `_norm_text_key`** (minúsculas,
+  sin acentos y la puntuación como un espacio) **y además compara SIN ESPACIOS**, así «hiphop»,
+  «hip-hop» y «HIP HOP» llevan todos a **«Hip Hop»**. Lo que EMPIEZA por lo escrito sale primero.
+  ⚠️ Si se toca `clave()`, se toca `_norm_text_key`: es lo que hace que la lista y el servidor
+  entiendan lo mismo por «el mismo género».
+  · **EL DEL CATÁLOGO MANDA** (`equivalente()`): al añadir algo que equivale a uno que ya existe se
+  pone **el del catálogo con su ortografía**, no lo escrito. Por eso «HIP-HOP» + «+» deja «Hip Hop»
+  y **no crea otra fila** (comprobado: el catálogo pasa de 44 a 45 al crear uno nuevo de verdad, y
+  «Hip Hop» sigue teniendo UNA sola).
+  · **Crear se DICE**: cuando lo escrito no existe de ninguna forma, la última fila de la lista es
+  **«Crear «X» · No está en la lista: se añade como género nuevo»**. Así se sabe cuándo se está
+  duplicando sin querer y cuándo se está creando a propósito.
+  ⚠️⚠️ **La lista es UNA SOLA para toda la página y cuelga del `<body>`** (`app33FloatList`): dentro
+  del modal del asistente cualquier `overflow` la recortaría, y `.ta-results` es `position:fixed`,
+  así que sin colocarla se quedaba QUIETA al mover el modal. Por eso el `<div data-genre-results>`
+  se retiró de las tres plantillas: lo crea el motor (si no, `ajax_inline` dejaría una caja
+  huérfana en el body por cada repintado — comprobado: sigue habiendo **una**).
+  ⚠️ `song_genres.js` se carga **después de `float_list.js`** en `layout.html`.
+  ⚠️ La compuerta de «es obligatorio» del asistente lee ahora **`window.app33Genres.puestos(picker)`**
+  y marca el campo en **ROJO** con `app33FormCheck.fail` (la regla de la casa), en vez de un texto
+  suelto debajo.
+  ⚠️ Las **ETIQUETAS DE UN MEDIO** usan el mismo motor, así que heredan todo esto.
+  ⚠️ Las etiquetas de una ACTIVIDAD son otra cosa (texto libre sin catálogo) y siguen con
+  `initConcertTagManager`.
+
 - ⚠️⚠️ **CHARTMETRIC · `obj` puede venir como ARRAY** (bug real, ago 2026). Su OpenAPI declara la
   respuesta de **`/api/track/{type}/{id}/get-ids`** con `obj` como **lista** (un elemento por ISRC),
   y `get_track_ids_from_isrc` solo aceptaba un dict: devolvía **`{}` SIEMPRE**, así que **«Vincular

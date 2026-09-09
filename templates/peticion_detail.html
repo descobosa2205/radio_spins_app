@@ -14,7 +14,8 @@
     <div class="ficha-hero__eyebrow">Petición · {{ activity_label }} · {{ 'Sin caché' if no_cache else 'Con caché' }}</div>
     <div class="d-flex flex-wrap align-items-center gap-2">
       <h1 class="ficha-hero__title"{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>{{ artist.name if artist else (row.subject or 'Petición') }}</h1>
-      <span class="badge {{ status_badge }}">{{ status_label }}</span>
+      {# EL ESTADO, dicho entero: de qué está pendiente ahora mismo (punto único `_peticion_state_label`). #}
+      <span class="badge {{ state.badge if state else status_badge }}">{{ state.label if state else status_label }}</span>
       {% if row.concert_id %}
         <a class="badge text-bg-success text-decoration-none" href="{{ url_for('concert_detail_view', cid=row.concert_id) }}"
            title="Ya es una actividad: ir a su ficha"><i class="fa fa-circle-check me-1"></i>Ya es una actividad</a>

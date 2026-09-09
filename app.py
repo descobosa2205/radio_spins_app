@@ -31459,7 +31459,7 @@ def _disco_project_owner_ids(session_db, project) -> list[str]:
     if creador:
         ids.append(creador)
     try:
-        for uid in _pitch_sello_user_ids(session_db, getattr(project, "artist_id", None)):
+        for uid in _artist_sello_user_ids(session_db, getattr(project, "artist_id", None)):
             if uid not in ids:
                 ids.append(uid)
     except Exception:
@@ -34258,7 +34258,7 @@ def public_song_platform_ids(token):
                 _proyecto = (session_db.get(DiscoProject, peticion.project_id)
                              if peticion.project_id else None)
                 _destino = (_disco_project_owner_ids(session_db, _proyecto) if _proyecto is not None
-                            else (_pitch_sello_user_ids(session_db, getattr(artista, "id", None))
+                            else (_artist_sello_user_ids(session_db, getattr(artista, "id", None))
                                   or _registros_user_ids(session_db)))
                 _notify_users(session_db, _destino, "DISCOGRAFICA",
                               "IDs subidos: %s" % (cancion.title or "canción"),
@@ -42047,7 +42047,7 @@ def _song_delivery_review_recipients(session_db, song) -> list[str]:
     try:
         artista = _song_primary_artist(session_db, song)
         if artista is not None:
-            quienes += list(_pitch_sello_user_ids(session_db, artista.id) or [])
+            quienes += list(_artist_sello_user_ids(session_db, artista.id) or [])
         else:
             quienes += list(_department_user_ids(session_db, "Sello") or [])
     except Exception:
@@ -50331,6 +50331,8 @@ def booking_request_create():
         r.created_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
         r.created_by_nick = st.get("nick") or None
         s.add(r)
+        s.flush()                                   # hace falta el id para el enlace del aviso
+        _peticion_notify(s, r)                      # contratación + el jefe de producto del artista
         s.commit()
         flash("Petición registrada en el buzón.", "success")
     except Exception as exc:
@@ -50624,6 +50626,10 @@ def _booking_request_detail(session_db, r) -> dict:
         "row": r,
         "status_label": label,
         "status_badge": badge,
+        # EN QUÉ PUNTO ESTÁ, dicho entero («Pendiente de aprobación de contratación», «Pendiente de
+        # la confirmación del artista»…): es lo MISMO que dice el aviso, así que la ficha y la
+        # campanita no pueden contar cosas distintas (punto único `_peticion_state_label`).
+        "state": _peticion_state_label(session_db, r, concierto),
         "is_open": (r.status or "NUEVA").upper() in BOOKING_OPEN_STATUSES,
         "departments": [dept_labels.get(d, d) for d in depts],
         "activity_type": act_type,
@@ -50665,12 +50671,7 @@ def booking_request_detail_view(rid):
         )
         if not r:
             abort(404)
-        # La ve quien lleva alguno de sus departamentos, dirección y —⚠️ esto faltaba— QUIEN LA
-        # PIDIÓ: es su petición, y al pinchar la suya en Inicio se comía un «es de otro
-        # departamento» y volvía a la portada.
-        depts = _current_user_peticion_departments()
-        _propia = str(r.created_by_user_id or "") == str((_current_user_state() or {}).get("user_id") or "")
-        if not is_master() and not _propia and not any(_booking_in_department(r, d) for d in depts):
+        if not _peticion_can_view(session_db, r):
             flash("Esta petición es de otro departamento.", "warning")
             return redirect(url_for("home"))
         detalle = _booking_request_detail(session_db, r)
@@ -51118,6 +51119,216 @@ def _concert_peticion_phases(session_db, concert) -> dict | None:
         "promotor": (tareas.get("promotor")
                      or hecho(r.acceptance_notified_at, r.acceptance_notified_by_nick)),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# UNA PETICIÓN NO SE QUEDA EN CONTRATACIÓN: le sale a QUIEN LE AFECTA
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# Una petición para un artista es trabajo de contratación (que da el ok), pero le importa a más
+# gente: al **JEFE DE PRODUCTO** —quien del SELLO lleva a ese artista—, a **quien la PRODUCE** en
+# cuanto se le asigna y a **quien VIAJA con el artista** en cuanto producción lo apunta en la hoja
+# de ruta. A todos les llega el MISMO aviso (con la FOTO del artista, para quién es, dónde y cuándo)
+# y al pincharlo ven su ficha y en qué punto está.
+#
+# ⚠️⚠️ **UN AVISO VA A QUIEN PUEDE ABRIRLO**: la ficha de una petición solo la abre su departamento,
+# dirección o quien la pidió (`_peticion_departments` manda TODAS las de actividad a Contratación),
+# así que el sello se comería un «esta petición es de otro departamento» **en su propio aviso**. Por
+# eso quien recibe el aviso y quien puede abrir la ficha salen del MISMO punto único
+# (`_peticion_watchers`): no se pueden desparejar.
+
+def _peticion_state_label(session_db, r, concert=None) -> dict:
+    """EN QUÉ PUNTO ESTÁ la petición, dicho para una persona: `{label, badge}`.
+
+    Es lo que se ve en su ficha y lo que dice el aviso, así que los dos cuentan lo mismo. Mientras
+    contratación no la aprueba está **pendiente de su ok**; después, lo que queda es la FASE por la
+    que va (`_peticion_accept_tasks`, el motor de siempre: configurar el evento → la confirmación
+    del artista → confirmar al promotor → producción)."""
+    estado = (getattr(r, "status", None) or "NUEVA").upper()
+    if estado == "DESCARTADA":
+        return {"label": "Cerrada", "badge": "text-bg-secondary"}
+    if estado != "CONVERTIDA":
+        return {"label": "Pendiente de aprobación de contratación", "badge": "text-bg-warning text-dark"}
+    try:
+        pendientes = _peticion_accept_tasks(session_db, r, concert)
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo mirar en qué fase va")
+        pendientes = []
+    if not pendientes:
+        return {"label": "Aprobada", "badge": "text-bg-success"}
+    fase = pendientes[0]
+    frases = {
+        "configurar": "Pendiente de configurar el evento",
+        "artista_ok": "Pendiente de la confirmación del artista",
+        "promotor":   "Pendiente de confirmar al promotor",
+        "produccion": "Pendiente de activar la producción",
+        "informar":   "Pendiente de informar al artista",
+    }
+    return {"label": frases.get(fase.get("key"), "Aprobada · %s" % (fase.get("label") or "")),
+            "badge": "text-bg-info text-dark"}
+
+
+def _peticion_notice_parts(session_db, r, concert=None) -> dict:
+    """El TEXTO del aviso de una petición y la cara con la que se ve.
+
+    · **La cara es la del ARTISTA** (`actor_photo`): es lo primero que se mira y lo que dice de quién
+      es la petición. `_notify_user` deja la guardada por delante de la de quien la provocó.
+    · El cuerpo dice **para quién** (el medio o el promotor que la pide), **dónde** y **cuándo**, y
+      termina con el ESTADO, que es lo que hay que saber sin abrir nada."""
+    pay = r.payload if isinstance(getattr(r, "payload", None), dict) else {}
+    act = (pay.get("activity_type") or "CONCIERTO").strip().upper()
+    tipo = (QUAD_ACTIVITY_LABELS.get(act, "actividad") or "actividad").lower()
+    artista = getattr(getattr(r, "artist", None), "name", "") or ""
+    foto = (getattr(getattr(r, "artist", None), "photo_url", "") or "").strip()
+    quien = ""
+    try:
+        quien = ((_peticion_requester_chip(session_db, r) or {}).get("name") or "").strip()
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo resolver quién la pide para el aviso")
+    venue = session_db.get(Venue, r.venue_id) if getattr(r, "venue_id", None) else None
+    lugar = _place_label(r.municipality or "", r.province or "", (pay.get("country") or ""),
+                         venue=(venue.name if venue is not None else ""))
+    if r.requested_date:
+        cuando = r.requested_date.strftime("%d/%m/%Y")
+    else:
+        cuando = (r.date_text or "").strip() or (
+            "entre %s y %s" % (pay.get("range_start"), pay.get("range_end") or "—")
+            if pay.get("range_start") else ("durante %s" % pay.get("month") if pay.get("month") else ""))
+    estado = _peticion_state_label(session_db, r, concert)
+    trozos = [x for x in [("para %s" % quien if quien else ""),
+                          ("en %s" % lugar if lugar else ""),
+                          ("el %s" % cuando if cuando else "")] if x]
+    cuerpo = ", ".join(trozos)
+    if cuerpo:
+        cuerpo = cuerpo[0].upper() + cuerpo[1:] + "."
+    return {
+        "title": "Petición de %s%s" % (tipo, (" de %s" % artista) if artista else ""),
+        "body": " ".join([x for x in [cuerpo, estado["label"] + "."] if x]),
+        "url": url_for("booking_request_detail_view", rid=str(r.id)),
+        "actor_name": artista,
+        "actor_photo": foto,
+        "state": estado,
+    }
+
+
+def _peticion_watchers(session_db, r, concert=None) -> list[str]:
+    """A QUIÉN le sale esta petición (y, por tanto, quién puede abrir su ficha). Punto ÚNICO.
+
+    · **Contratación**, que es quien tiene que dar el ok.
+    · El **JEFE DE PRODUCTO**: quien del SELLO lleva a ese artista (`_artist_sello_user_ids`).
+    · **Quien la pidió** (su petición es suya aunque no lleve ningún departamento).
+    · **Quien PRODUCE** la actividad que salió de ella y **quien VIAJA con el artista** (el personal
+      de su hoja de ruta), en cuanto producción los apunta.
+    ⚠️ Sin bloqueados ni eliminados: `_department_user_ids` y `_artist_sello_user_ids` ya los dejan
+    fuera, y el resto se filtra aquí con el mismo punto único."""
+    if r is None:
+        return []
+    ids = []
+    try:
+        ids += list(_department_user_ids(session_db, "Contratación") or [])
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo leer el departamento de contratación")
+    try:
+        if getattr(r, "artist_id", None):
+            ids += list(_artist_sello_user_ids(session_db, r.artist_id) or [])
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo resolver el jefe de producto")
+    if getattr(r, "created_by_user_id", None):
+        ids.append(str(r.created_by_user_id))
+    if concert is None and getattr(r, "concert_id", None):
+        concert = session_db.get(Concert, r.concert_id)
+    if concert is not None:
+        if getattr(concert, "production_owner_user_id", None):
+            ids.append(str(concert.production_owner_user_id))
+        ids += _roadmap_user_ids(concert)
+    fuera = {str(x) for x in (_inactive_user_ids(session_db) or set())}
+    salida, vistos = [], set()
+    for uid in ids:
+        clave = str(uid or "").strip()
+        if not clave or clave in vistos or clave in fuera:
+            continue
+        vistos.add(clave)
+        salida.append(clave)
+    return salida
+
+
+def _roadmap_user_ids(row) -> list[str]:
+    """QUIÉN VIAJA con el artista: el personal de la hoja de ruta que es de la casa (kind USER).
+    ⚠️ Es el mismo dato que lee MI CALENDARIO (`_agenda_my_items`): `roadmap_payload['personnel']`."""
+    try:
+        payload = getattr(row, "roadmap_payload", None) or {}
+        personas = payload.get("personnel") if isinstance(payload, dict) else None
+        return [str(p.get("ref_id")) for p in (personas or [])
+                if isinstance(p, dict) and str(p.get("kind") or "").upper() == "USER" and p.get("ref_id")]
+    except Exception:
+        return []
+
+
+def _peticion_can_view(session_db, r) -> bool:
+    """¿Puede esta persona abrir la ficha de esta petición?
+
+    ⚠️⚠️ Es el ESPEJO de `_peticion_watchers`: a quien se le avisa, se le deja entrar. Si no, el
+    jefe de producto (o quien la produce, o quien viaja con el artista) se comería un «esta petición
+    es de otro departamento» **al pinchar su propio aviso** — la regla de la casa: los avisos van a
+    quien puede abrirlos.
+    Además la ve quien lleva alguno de sus DEPARTAMENTOS y dirección."""
+    if r is None:
+        return False
+    if is_master():
+        return True
+    yo = str((_current_user_state() or {}).get("user_id") or "")
+    if yo and str(getattr(r, "created_by_user_id", "") or "") == yo:
+        return True
+    try:
+        if any(_booking_in_department(r, d) for d in _current_user_peticion_departments()):
+            return True
+    except Exception:
+        app.logger.exception("[peticiones] no se pudieron leer los departamentos de quien mira")
+    return bool(yo and yo in {str(x) for x in _peticion_watchers(session_db, r)})
+
+
+def _peticion_notify(session_db, r, user_ids=None, *, concert=None) -> int:
+    """Manda el aviso de una petición a quien le toca, SIN REPETÍRSELO a nadie.
+
+    ⚠️ A quién se le ha avisado ya se apunta en `payload['notified_user_ids']`, así que a la persona
+    de producción y a quien viaja se les avisa **cuando entran**, no otra vez en cada guardado (la
+    misma regla que `asked_for` en el contrato del productor).
+    ⚠️ El JSONB se marca con `flag_modified`: el patrón de leer-copiar-reasignar no escribe la
+    segunda vez en la misma petición y el aviso saldría una y otra vez."""
+    if r is None:
+        return 0
+    try:
+        destinos = list(user_ids if user_ids is not None else _peticion_watchers(session_db, r, concert))
+        pay = dict(r.payload or {}) if isinstance(getattr(r, "payload", None), dict) else {}
+        ya = {str(x) for x in (pay.get("notified_user_ids") or [])}
+        nuevos = [u for u in destinos if str(u) not in ya]
+        if not nuevos:
+            return 0
+        info = _peticion_notice_parts(session_db, r, concert)
+        n = _notify_users(session_db, nuevos, "PETICION", info["title"], info["body"], info["url"],
+                          ref_type="BOOKING_REQUEST", ref_id=str(r.id),
+                          actor_name=info["actor_name"], actor_photo=info["actor_photo"])
+        pay["notified_user_ids"] = sorted(ya | {str(u) for u in nuevos})
+        r.payload = pay
+        try:
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(r, "payload")
+        except Exception:
+            app.logger.exception("[peticiones] no se pudo marcar el payload del aviso")
+        return n
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo avisar de la petición")
+        return 0
+
+
+def _peticion_notify_for_concert(session_db, concert) -> int:
+    """El aviso de la petición de la que salió una actividad, para quien acaba de entrar en ella
+    (la persona de producción o quien viaja con el artista). Sin petición detrás no hace nada."""
+    try:
+        r = _peticion_of_concert(session_db, getattr(concert, "id", None))
+        return _peticion_notify(session_db, r, concert=concert) if r is not None else 0
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo avisar desde la actividad")
+        return 0
 
 
 class _CancelledActivity(Exception):
@@ -52515,6 +52726,10 @@ def peticion_wizard_create():
         r.created_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
         r.created_by_nick = st.get("nick") or st.get("email") or ""
         s.add(r)
+        s.flush()                                   # hace falta el id para el enlace del aviso
+        # ⚠️ Una petición no se queda en contratación: le sale también al JEFE DE PRODUCTO de ese
+        # artista (y, cuando entren, a quien la produce y a quien viaja con él).
+        _peticion_notify(s, r)
         s.commit()
         flash("Petición creada.", "success")
     except ValueError as exc:
@@ -63373,6 +63588,9 @@ def concert_production_owner_save(cid):
                              intro="Se te ha asignado la producción de esta actividad.",
                              button_label="Comenzar producción",
                              button_url=_external_url_for("concert_detail_view", cid=c.id, tab="produccion")))
+            # Y, si la actividad SALIÓ DE UNA PETICIÓN, también la petición: a partir de ahora es
+            # cosa suya y tiene que poder ver de dónde viene y en qué punto está.
+            _peticion_notify_for_concert(session_db, c)
         session_db.commit()
         nombre = _concert_production_owner_name(session_db, c)
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
@@ -72683,6 +72901,9 @@ def concert_wizard_create():
                                      button_label="Comenzar producción",
                                      button_url=_external_url_for("concert_detail_view",
                                                                   cid=concert.id, tab="produccion")))
+                    # Si la actividad viene de una PETICIÓN, también la petición: a partir de aquí
+                    # es cosa suya (mismo punto único que al asignarla desde la ficha).
+                    _peticion_notify_for_concert(session, concert)
                 except Exception:
                     app.logger.exception("[avisos] no se pudo avisar de la producción asignada")
 
@@ -81020,6 +81241,12 @@ def roadmap_personnel_save(entity_type, entity_id):
                         return jsonify({"ok": True, "payload": payload, "days": _roadmap_days(row, payload), "person_id": person["id"]})
             people.append(person)
         _roadmap_save(session_db, row, payload)
+        # ⚠️ QUIEN VIAJA CON EL ARTISTA también sigue la petición de la que salió la actividad: en
+        # cuanto producción lo apunta aquí, le llega su aviso (una sola vez: `_peticion_notify` se
+        # apunta a quién se le ha avisado ya).
+        if _kind == "concert":
+            _peticion_notify_for_concert(session_db, row)
+            session_db.commit()
         return jsonify({"ok": True, "payload": payload, "days": _roadmap_days(row, payload), "person_id": person["id"]})
     except Exception as exc:
         session_db.rollback()
@@ -125837,6 +126064,9 @@ NOTIFICATION_KIND_META = {
     "PRODUCCION": ("Nueva producción asignada", "fa-user-gear"),
     "DISENO": ("Nueva solicitud de diseño", "fa-palette"),
     "ADMIN_PETICION": ("Nueva petición para administración", "fa-inbox"),
+    # Una PETICIÓN de actividad: le sale a contratación (que da el ok), al jefe de producto de ese
+    # artista y, en cuanto entran, a quien la produce y a quien viaja con él.
+    "PETICION": ("Nueva petición de actividad", "fa-envelope-open-text"),
     "ADMIN_BOLSA": ("Nueva bolsa para liquidar", "fa-sack-dollar"),
     "REMESA": ("Remesa pendiente de aprobación", "fa-file-invoice-dollar"),
     "PITCH": ("Falta el pitch de un lanzamiento", "fa-bullhorn"),
@@ -125943,6 +126173,9 @@ NOTIFICATION_KIND_HELP = {
               "creatividades).",
     "ADMIN_BOLSA": "Cuando una bolsa se cierra y le entra a administración para liquidar.",
     "ADMIN_PETICION": "Cuando alguien pide un pago o algo que tiene que resolver administración.",
+    "PETICION": "Cuando se hace una petición para un artista: a contratación (que tiene que dar el "
+                "ok), al jefe de producto de ese artista y, en cuanto se les asigna, a quien la "
+                "produce y a quien viaja con el artista.",
     "VACACIONES": "Cuando alguien pide vacaciones (los días libres no mandan correo) y cuando se "
                   "aprueban o se deniegan.",
     "REMESA": "Cuando una remesa de pagos queda pendiente del visto bueno de dirección.",
@@ -125965,12 +126198,12 @@ NOTIFICATION_KIND_HELP = {
 # VALORES DE FÁBRICA. Por la app, todo. Por correo, solo lo que es «te acaban de asignar algo»
 # (que es la regla de arriba). Por SMS, nada: cada mensaje cuesta dinero y se enciende a mano.
 NOTICE_EMAIL_DEFAULT_KINDS = {"PRODUCCION", "DISENO", "VACACIONES", "ADMIN_BOLSA",
-                              "VENTAS_ACTUALIZAR"}
+                              "VENTAS_ACTUALIZAR", "PETICION"}
 
 
 def _notice_kind_catalog() -> list[dict]:
     """Todos los tipos de aviso internos de la app, en el orden en que se configuran."""
-    orden = ["PRODUCCION", "DISENO", "ADMIN_BOLSA", "ADMIN_PETICION", "REMESA", "VACACIONES",
+    orden = ["PRODUCCION", "DISENO", "PETICION", "ADMIN_BOLSA", "ADMIN_PETICION", "REMESA", "VACACIONES",
              "VENTA", "VENTAS_ACTUALIZAR", "CONTABILIDAD", "REGISTROS", "MATERIALES",
              "FECHA_LANZAMIENTO", "PITCH",
              "DEMO", "DISCOGRAFICA", "AGENDA", "TAREA"]
@@ -142316,10 +142549,13 @@ def cron_afavor():
     return jsonify({"ok": True, **_afavor_request_sweep()})
 
 
-def _pitch_sello_user_ids(session_db, artist_id) -> list[str]:
-    """Quién del SELLO lleva a ese artista (los que lo tienen asignado en la faceta sello).
+def _artist_sello_user_ids(session_db, artist_id) -> list[str]:
+    """EL JEFE DE PRODUCTO: quién del SELLO lleva a ese artista (lo tiene asignado en esa faceta).
+
+    Punto ÚNICO de «de quién es este artista en el sello»: lo usan el pitch de un lanzamiento, los
+    proyectos discográficos, las demos que nos mandan y el aviso de una PETICIÓN.
     ⚠️ Si nadie lo tiene asignado, se avisa a TODO el departamento Sello: mejor que se lo miren
-    varios que dejar el lanzamiento sin pitch porque no había nadie apuntado."""
+    varios que dejar el trabajo sin dueño porque no había nadie apuntado."""
     aid = str(artist_id or '')
     if not aid:
         return []
@@ -142348,7 +142584,7 @@ def _pitch_notify_new_release(session_db, kind, obj, artist_id) -> int:
                url_for('discografica_song_detail', song_id=obj.id, tab='informacion'))
         etiqueta = 'del disco' if kind == 'ALBUM' else 'del single'
         return _notify_users(
-            session_db, _pitch_sello_user_ids(session_db, artist_id), 'PITCH',
+            session_db, _artist_sello_user_ids(session_db, artist_id), 'PITCH',
             f"Falta el pitch {etiqueta} «{title}»",
             'Añade el pitch de lanzamiento en la ficha de información.',
             url, ref_type=('ALBUM' if kind == 'ALBUM' else 'SONG'), ref_id=str(obj.id),

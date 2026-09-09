@@ -11533,3 +11533,44 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   campos aparecen rellenos), y `api_create_venue` guarda las cinco piezas.
   Probado con la app real en los TRES caminos: al elegir «Calle Larga» queda `address='Calle Larga'`
   · `postal_code='11579'` · `Jerez de la Frontera` · `Cádiz` · `España`, y así se guarda.
+
+- ⚠️⚠️ **UNA PETICIÓN NO SE QUEDA EN CONTRATACIÓN: le sale a QUIEN LE AFECTA** (sep 2026). Una
+  petición la aprueba **contratación**, pero le importa a más gente. Al crearla —y según van
+  entrando— reciben el MISMO aviso (kind **`PETICION`**):
+  · **CONTRATACIÓN**, que es quien tiene que dar el ok;
+  · el **JEFE DE PRODUCTO**: quien del **SELLO** lleva a ese artista;
+  · **quien la PRODUCE**, en cuanto se le asigna la actividad que salió de ella;
+  · **quien VIAJA con el artista**, en cuanto producción lo apunta en el **personal de la hoja de
+    ruta** (`roadmap_payload['personnel']`, kind USER — el mismo dato que lee MI CALENDARIO).
+  · **EL AVISO** lleva la **FOTO DEL ARTISTA** (`actor_photo`, que en `_notification_rows` gana a la
+  de quien lo provocó), dice de **qué tipo de actividad** y de **qué artista** es, y en el cuerpo
+  **para quién** (el medio o el promotor que la pide), **dónde**, **cuándo** y **en qué punto está**.
+  Al pincharlo se abre su ficha. Punto único **`_peticion_notice_parts`**.
+  · **EL ESTADO se dice ENTERO** (`_peticion_state_label`, punto único): «Pendiente de aprobación de
+  contratación» · «Pendiente de configurar el evento» · «Pendiente de la confirmación del artista» ·
+  «Pendiente de confirmar al promotor» · «Pendiente de activar la producción» · «Aprobada» ·
+  «Cerrada». Sale del MOTOR DE FASES de siempre (`_peticion_accept_tasks`), así que la campanita y
+  la etiqueta de la ficha no pueden contar cosas distintas.
+  ⚠️⚠️ **EL AVISO VA A QUIEN PUEDE ABRIRLO**: la ficha solo la abría su departamento, dirección o
+  quien la pidió, y `_peticion_departments` manda TODAS las de actividad a Contratación — el sello se
+  habría comido un «esta petición es de otro departamento» **al pinchar su propio aviso**. Por eso
+  **`_peticion_can_view` es el ESPEJO de `_peticion_watchers`**: a quien se avisa, se le deja entrar.
+  ⚠️⚠️ **NO SE LE REPITE EL AVISO A NADIE**: a quién se le ha avisado ya se apunta en
+  `payload['notified_user_ids']`, así que a producción y a quien viaja se les avisa **cuando
+  entran**, no otra vez en cada guardado (la misma regla que `asked_for` en el contrato del
+  productor). El JSONB se marca con **`flag_modified`**: el patrón de leer-copiar-reasignar no
+  escribe la segunda vez en la misma petición y el aviso saldría una y otra vez.
+  · **Dónde está cableado**: el asistente (`peticion_wizard_create`), el alta clásica
+  (`booking_request_create`), **asignar producción** (`concert_production_owner_save` y la logística
+  del asistente de alta) y el **personal de la hoja de ruta** (`roadmap_personnel_save`, solo con
+  `_kind == "concert"`). Los tres últimos pasan por **`_peticion_notify_for_concert`**, que sin
+  petición detrás no hace nada.
+  ⚠️ **`_pitch_sello_user_ids` pasa a llamarse `_artist_sello_user_ids`**: es el punto único de «de
+  quién es este artista en el sello» (el JEFE DE PRODUCTO) y lo usan el pitch, los proyectos, las
+  demos y esto — el nombre viejo hacía pensar que solo valía para el pitch.
+  ⚠️ El aviso sale también **por correo** (`NOTICE_EMAIL_DEFAULT_KINDS`): es «te acaba de entrar
+  algo», que es la regla de la casa, y `_notice_email_already_sent` impide repetirlo.
+  Probado con la app real (28 comprobaciones): contratación y el jefe de producto reciben el aviso
+  con la foto, el sello de OTRO artista no recibe nada y no puede abrir la ficha, avisar otra vez no
+  duplica, al asignar producción le llega con el estado ya actualizado, quien viaja lo recibe y abre
+  su ficha, y el estado va cambiando de fase en fase.

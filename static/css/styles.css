@@ -303,12 +303,30 @@ button.song-status-item:focus {
    (Alta concierto + Editar concierto)
    ========================================================= */
 
+/* ⚠️⚠️ LA FOTO SE SALÍA DEL RECUADRO (bug real, con captura): la caja de Select2 en modo simple
+   mide 28 px de alto por defecto y la foto del artista 24, así que con su hueco de arriba acababa
+   1 px POR DEBAJO del borde y se veía pisándolo — y, de paso, el campo quedaba más bajo que el
+   botón «+» de al lado, que es un `.btn`. Se le da la MISMA altura que a un `.form-control` y se
+   centra su contenido: la foto cabe con holgura y el campo cuadra con lo que tiene al lado. */
+.select2-container--default .select2-selection--single{
+  height: calc(1.5em + .75rem + 2px);
+  display: flex;
+  align-items: center;
+}
+.select2-container--default .select2-selection--single .select2-selection__arrow{
+  height: 100%;
+  top: 0;
+}
 /* Evita desbordes del contenido renderizado en selección simple */
 .select2-container--default .select2-selection--single .select2-selection__rendered{
   display: flex;
   align-items: center;
   gap: 8px;
   overflow: hidden;          /* CLAVE: impide que la imagen se salga */
+  width: 100%;
+  height: 100%;
+  line-height: normal;       /* con el line-height de 28px el texto no se centraba en la caja nueva */
+  padding-right: 1.6rem;     /* el hueco de la flecha */
 }
 
 /* Tamaño fijo del avatar cuando Select2 está en modo single */
@@ -6499,7 +6517,9 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .pr-canvas--edit .pr-blk.is-ref{ border-color:rgba(227,61,72,.75); }
 /* un módulo al que le falta lo suyo (imagen sin elegir, adjuntos sin subir): se pincha para completarlo */
 .pr-canvas--edit .pr-blk.is-pending{ cursor:pointer; }
-.pr-canvas--edit .pr-blk--image, .pr-canvas--edit .pr-blk--files, .pr-canvas--edit .pr-blk--playlist{ cursor:grab; }
+.pr-canvas--edit .pr-blk--image, .pr-canvas--edit .pr-blk--files, .pr-canvas--edit .pr-blk--playlist,
+.pr-canvas--edit .pr-blk--audio, .pr-canvas--edit .pr-blk--album, .pr-canvas--edit .pr-blk--video,
+.pr-canvas--edit .pr-blk--links{ cursor:grab; }
 .pr-blk--image .pr-blk__mod img{ display:block; width:100%; }
 /* el selector de imagen y el gestor de adjuntos del editor */
 .pr-pick-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:.5rem; }
@@ -6587,6 +6607,18 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .pr-pal small{ color:#6b7280; font-size:.75rem; }
 .pr-pal__ico, .pr-pal__cover{ width:34px; height:34px; border-radius:8px; flex:0 0 auto; object-fit:cover; background:#f1f3f5;
   display:inline-flex; align-items:center; justify-content:center; color:#495057; }
+/* EL MÓDULO VACÍO de cada grupo: se arrastra y luego se elige qué lleva (y se pueden poner varios). */
+.pr-pal--empty{ border-style:dashed; border-color:#cbd5e1; background:#f8fafc; }
+.pr-pal--empty .pr-pal__ico{ background:#fff; border:1px dashed #cbd5e1; color:var(--brand-accent,#007CA2); }
+/* Lo que lleva el módulo, en su panel de opciones. */
+.pr-props__pick{ display:flex; align-items:center; gap:.6rem; border:1px solid #e9ecef; border-radius:10px;
+  padding:.4rem .55rem; background:#fbfcfe; }
+.pr-props__pick img, .pr-props__pick-ph{ width:38px; height:38px; border-radius:8px; object-fit:cover; flex:0 0 auto;
+  background:#f1f3f5; display:inline-flex; align-items:center; justify-content:center; color:#8b95a1; }
+.pr-props__pick > span{ display:flex; flex-direction:column; min-width:0; line-height:1.2; }
+.pr-props__pick small{ color:#6b7280; font-size:.75rem; }
+/* La opción que ya está puesta, en el selector. */
+.pr-pick.is-on{ border-color:var(--brand-primary,#E33D48); }
 .pr-editor__saved{ min-width:6rem; text-align:right; }
 @media (max-width: 991.98px){
   .pr-editor__body{ grid-template-columns:1fr; }

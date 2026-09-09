@@ -490,7 +490,12 @@ def module_html(b: dict, *, for_email: bool = False, editing: bool = False) -> s
         return _pending_card(*{
             "image": ("Imagen", "Pincha para elegir la foto: de nuestras fotos, de los materiales del lanzamiento, o súbela"),
             "files": ("Archivos adjuntos", "Pincha para subir los archivos (o carpetas) que se van a poder descargar"),
-            "playlist": ("Playlist", "Elige la playlist en el panel de la derecha"),
+            # Los que se arrastran vacíos y luego se elige QUÉ va dentro (se pueden poner varios).
+            "playlist": ("Playlist", "Pincha para elegir qué playlist"),
+            "audio": ("Single", "Pincha para elegir qué single"),
+            "album": ("Repertorio del disco", "Pincha para elegir qué disco"),
+            "video": ("Videoclip", "Pincha para elegir de qué single"),
+            "links": ("Enlaces de plataformas", "Pincha para elegir de qué single o disco"),
             "artwork": ("Cartelería", "Esta actividad todavía no tiene carteles aprobados"),
         }.get(tipo, ("Módulo", "Falta configurarlo")))
     if tipo == "image":

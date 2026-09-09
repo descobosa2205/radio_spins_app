@@ -215,11 +215,16 @@
     colocaToolbar();
     pintaProps(b);
   }
+  /* ⚠️⚠️ LA BARRA DE FORMATO VA POR ENCIMA DEL ASA DE ARRASTRAR. El asa (`.pr-blk__grip`) cuelga
+     18 px por encima del bloque, así que dejando solo 8 px la barra se le ponía justo encima y el
+     bloque no se podía coger para moverlo (bug real, con captura). Se separa el alto del asa más un
+     hueco. Debajo del bloque no hay asa, así que ahí se queda como estaba. */
+  var ALTO_ASA = 18;
   function colocaToolbar() {
     if (toolbar.classList.contains('d-none') || !sel) return;
     var el = elDe(sel); if (!el) return;
     var r = el.getBoundingClientRect(), s = stage.getBoundingClientRect();
-    var top = r.top - s.top + stage.scrollTop - toolbar.offsetHeight - 8;
+    var top = r.top - s.top + stage.scrollTop - toolbar.offsetHeight - ALTO_ASA - 6;
     if (top < 4) top = r.bottom - s.top + stage.scrollTop + 8;
     toolbar.style.top = Math.round(top) + 'px';
     toolbar.style.left = Math.round(Math.max(4, Math.min(r.left - s.left + stage.scrollLeft, stage.clientWidth - toolbar.offsetWidth - 4))) + 'px';
@@ -266,11 +271,17 @@
         '<div class="pr-colors mb-2">' + coloresHtml(o.color, 'data-pr-color-pick') + '</div>' +
         '<button type="button" class="btn btn-sm btn-outline-primary" data-pr-files-open><i class="fa fa-paperclip me-1"></i>Gestionar los archivos</button>';
     }
-    if (b.type === 'playlist') {
-      var pls = (assets && assets.playlists) || [], actual = (b.ref || {}).playlist_id || '';
-      html += '<label class="form-label small text-muted mb-1">Qué playlist</label>' +
-        '<select class="form-select form-select-sm" data-pr-playlist><option value="">Elige la playlist…</option>' +
-        pls.map(function (pl) { return '<option value="' + esc(pl.ref.playlist_id) + '"' + (pl.ref.playlist_id === actual ? ' selected' : '') + '>' + esc(pl.label) + ' · ' + esc(pl.sub || '') + '</option>'; }).join('') + '</select>';
+    /* QUÉ LLEVA el módulo (el single, el disco, el videoclip, los enlaces o la playlist): se elige
+       al colocarlo y se cambia aquí. Es el MISMO selector, así que se comporta igual en los cinco. */
+    if (PICK[b.type]) {
+      var elegido = (opcionesDe(b.type) || []).filter(function (it) { return mismoRef(it.ref, b.ref); })[0];
+      if (elegido) {
+        html += '<div class="pr-props__pick mb-2">' +
+          (elegido.cover ? '<img src="' + esc(elegido.cover) + '" alt="">' : '<span class="pr-props__pick-ph"><i class="fa fa-music"></i></span>') +
+          '<span><b>' + esc(elegido.label || '') + '</b><small>' + esc(elegido.sub || '') + '</small></span></div>';
+      }
+      html += '<button type="button" class="btn btn-sm btn-outline-' + (elegido ? 'secondary' : 'primary') + ' mb-3" data-pr-pick-open>' +
+        '<i class="fa fa-list-ul me-1"></i>' + (elegido ? 'Cambiar' : PICK[b.type].titulo) + '</button>';
     }
     if (b.type === 'audio' || b.type === 'album' || b.type === 'video' || b.type === 'photos' || b.type === 'artwork') {
       html += '<label class="form-check"><input type="checkbox" class="form-check-input" data-pr-opt="download"' + (o.download ? ' checked' : '') + '> Se puede <b>descargar</b>' +
@@ -288,8 +299,6 @@
   root.addEventListener('change', function (ev) {
     var opt = ev.target.closest('[data-pr-opt]');
     if (opt && sel) { var b = bloque(sel); b.opts = b.opts || {}; b.opts[opt.getAttribute('data-pr-opt')] = opt.checked; marca(); refrescaModulo(b); }
-    var pl = ev.target.closest('[data-pr-playlist]');
-    if (pl && sel) { var bp = bloque(sel); bp.ref = { playlist_id: pl.value }; delete bp.html_cache; marca(); refrescaModulo(bp); }
     var cc = ev.target.closest('[data-pr-color-pick-custom]');
     if (cc && sel) { var bc = bloque(sel); bc.opts = bc.opts || {}; bc.opts.color = cc.value; marca(); refrescaModulo(bc); pintaProps(bc); }
   });
@@ -705,6 +714,9 @@
     if (tipo === 'image' && !(b.ref && b.ref.url)) abreImagen(b);   // se elige la imagen en cuanto se coloca
     if (tipo === 'image' && b.ref && b.ref.url) { refrescaModulo(b); midePreset(b); }
     if (tipo === 'files') abreArchivos(b);          // y los archivos se suben en cuanto se coloca
+    // ⚠️ Un módulo que se arrastra VACÍO (single, disco, videoclip, enlaces, playlist) pregunta qué
+    // lleva en cuanto se coloca; se pueden poner todos los que hagan falta.
+    if (PICK[tipo] && !refPuesta(b)) abrePick(b);
     return b;
   }
   root.addEventListener('dragstart', function (ev) {
@@ -736,11 +748,25 @@
                     ['audios', 'Audio (escuchar / descargar)', 'fa-music'], ['albums', 'Repertorio del disco', 'fa-compact-disc'], ['videos', 'Videoclip', 'fa-film'],
                     ['links', 'Enlaces de plataformas', 'fa-link'], ['photos', 'Fotos', 'fa-images'], ['playlists', 'Playlists', 'fa-list-ul'],
                     ['contact', 'Contactos', 'fa-address-card']];
+      /* ⚠️⚠️ ARRIBA DE CADA GRUPO, EL MÓDULO VACÍO: se arrastra y luego se elige qué lleva (y se
+         pueden poner todos los que hagan falta). Debajo siguen los concretos, para arrastrar
+         directamente el que se quiere. */
+      // Qué grupo de la paleta lleva su módulo VACÍO arriba, y cómo se llama.
+      var GENERICO = { audios: 'audio', albums: 'album', videos: 'video', links: 'links', playlists: 'playlist' };
+      var VACIO_LABEL = { audio: 'Un single', album: 'Un disco', video: 'Un videoclip',
+                          links: 'Unos enlaces', playlist: 'Una playlist' };
       var html = '';
       grupos.forEach(function (g) {
         var items = assets[g[0]] || [];
-        if (!items.length) return;
-        html += '<div class="pr-pal-group"><div class="pr-pal-group__t"><i class="fa ' + g[2] + '"></i>' + esc(g[1]) + '</div>' + items.map(function (it) {
+        var gen = GENERICO[g[0]];
+        if (!items.length && !gen) return;
+        html += '<div class="pr-pal-group"><div class="pr-pal-group__t"><i class="fa ' + g[2] + '"></i>' + esc(g[1]) + '</div>';
+        if (gen) {
+          html += '<div class="pr-pal pr-pal--empty" draggable="true" data-pr-pal="' + esc(gen) + '" data-pr-ref="{}">' +
+            '<span class="pr-pal__ico"><i class="fa ' + g[2] + '"></i></span>' +
+            '<span><b>' + esc(VACIO_LABEL[gen] || 'Módulo') + '</b><small>Se elige al colocarlo</small></span></div>';
+        }
+        html += items.map(function (it) {
           return '<div class="pr-pal" draggable="true" data-pr-pal="' + esc(it.kind) + '" data-pr-ref="' + esc(JSON.stringify(it.ref || {})) + '">' +
             (it.cover ? '<img class="pr-pal__cover" src="' + esc(it.cover) + '" alt="">' : '<span class="pr-pal__ico"><i class="fa ' + g[2] + '"></i></span>') +
             '<span><b>' + esc(it.label) + '</b><small>' + esc(it.sub || '') + '</small></span></div>';
@@ -839,6 +865,87 @@
 
   /* ---------- la IMAGEN integrada: de las fotos, de los materiales o subida ---------- */
   var imgModal = document.getElementById('prImageModal'), imgTarget = null;
+  /* ══════════════════════════════════════════════════════════════════════════════════════════
+     QUÉ VA DENTRO de un módulo · el single, el disco, el videoclip, los enlaces o la playlist.
+     ⚠️⚠️ El módulo se arrastra VACÍO y aquí se elige lo que lleva, así que se pueden poner TODOS
+     los que hagan falta (cada arrastre es un módulo nuevo) y cambiarlo después desde su panel.
+     Antes había que arrastrar la entrada CONCRETA de la paleta y, salvo la playlist, no se podía
+     cambiar sin borrar el módulo.
+     ══════════════════════════════════════════════════════════════════════════════════════════ */
+  var pickModal = document.getElementById('prPickModal');
+  var pickTarget = null;
+  // De qué grupo de `assets` sale cada módulo y cómo se llama lo que se elige.
+  var PICK = {
+    audio:    { grupo: 'audios',    titulo: 'Elegir el single',   vacio: 'Este artista no tiene ningún single con máster subido.' },
+    album:    { grupo: 'albums',    titulo: 'Elegir el disco',    vacio: 'Este artista no tiene discos.' },
+    video:    { grupo: 'videos',    titulo: 'Elegir el videoclip', vacio: 'No hay ningún single con videoclip subido.' },
+    links:    { grupo: 'links',     titulo: 'Elegir los enlaces', vacio: 'Ningún single ni disco tiene enlaces de plataforma configurados.' },
+    playlist: { grupo: 'playlists', titulo: 'Elegir la playlist', vacio: 'Todavía no hay ninguna playlist.' },
+  };
+  function opcionesDe(tipo) {
+    var cfg = PICK[tipo]; if (!cfg) return [];
+    return (assets && assets[cfg.grupo]) || [];
+  }
+  function mismoRef(a, b) {
+    a = a || {}; b = b || {};
+    return ['song_id', 'album_id', 'playlist_id'].every(function (k) { return (a[k] || '') === (b[k] || ''); });
+  }
+  function pintaPick(filtro) {
+    if (!pickModal || !pickTarget) return;
+    var b = bloque(pickTarget); if (!b) return;
+    var cfg = PICK[b.type] || {};
+    var q = (filtro || '').toLowerCase().trim();
+    var items = opcionesDe(b.type).filter(function (it) {
+      if (!q) return true;
+      return ((it.label || '') + ' ' + (it.sub || '')).toLowerCase().indexOf(q) >= 0;
+    });
+    var grid = pickModal.querySelector('[data-pr-pick-grid]');
+    grid.innerHTML = items.length
+      ? items.map(function (it, i) {
+          var on = mismoRef(it.ref, b.ref) ? ' is-on' : '';
+          return '<button type="button" class="pr-pick' + on + '" data-pr-pick-item="' + i + '">' +
+            (it.cover ? '<img src="' + esc(it.cover) + '" alt="" loading="lazy">' : '<span class="pr-pick__ph"><i class="fa fa-music"></i></span>') +
+            '<span class="pr-pick__t">' + esc(it.label || '') + (it.sub ? '<small>' + esc(it.sub) + '</small>' : '') + '</span></button>';
+        }).join('')
+      : '<div class="text-muted small">' + esc(q ? 'Nada con ese nombre.' : (cfg.vacio || 'No hay nada que elegir.')) + '</div>';
+    grid.__items = items;
+  }
+  function abrePick(b) {
+    if (!pickModal || !window.bootstrap || !b || !PICK[b.type]) return;
+    pickTarget = b.id;
+    var tt = pickModal.querySelector('[data-pr-pick-title]');
+    if (tt) tt.textContent = PICK[b.type].titulo;
+    var q = pickModal.querySelector('[data-pr-pick-search]'); if (q) q.value = '';
+    pintaPick('');
+    bootstrap.Modal.getOrCreateInstance(pickModal).show();
+  }
+  if (pickModal) {
+    pickModal.addEventListener('click', function (ev) {
+      var it = ev.target.closest('[data-pr-pick-item]'); if (!it || !pickTarget) return;
+      var grid = pickModal.querySelector('[data-pr-pick-grid]');
+      var datos = (grid.__items || [])[parseInt(it.getAttribute('data-pr-pick-item'), 10)];
+      var b = bloque(pickTarget); if (!b || !datos) return;
+      b.ref = Object.assign({}, datos.ref || {});
+      delete b.html_cache;
+      marca(); refrescaModulo(b); pintaProps(b);
+      bootstrap.Modal.getOrCreateInstance(pickModal).hide();
+    });
+    pickModal.addEventListener('input', function (ev) {
+      if (ev.target.closest('[data-pr-pick-search]')) pintaPick(ev.target.value);
+    });
+  }
+  /* Pinchar un módulo VACÍO en el lienzo abre su selector: es justo lo que dice su hueco
+     («Pincha para elegir qué single»). En uno ya elegido se cambia desde su panel. */
+  canvas.addEventListener('click', function (ev) {
+    var el = ev.target.closest('.pr-blk'); if (!el) return;
+    var b = bloque(el.getAttribute('data-id'));
+    if (b && PICK[b.type] && !refPuesta(b)) abrePick(b);
+  });
+  function refPuesta(b) {
+    var r = (b && b.ref) || {};
+    return !!(r.song_id || r.album_id || r.playlist_id);
+  }
+
   function abreImagen(b) {
     if (!imgModal || !window.bootstrap || !b) return;
     imgTarget = b.id;
@@ -866,6 +973,8 @@
   }
   root.addEventListener('click', function (ev) {
     if (ev.target.closest('[data-pr-thumb-pick]')) abreMiniatura();
+    // «Elegir / Cambiar» del panel: el MISMO selector que al colocar el módulo.
+    if (ev.target.closest('[data-pr-pick-open]') && sel) { var bp = bloque(sel); if (bp) abrePick(bp); }
   });
   function pintaImgTab(t) {
     imgModal.querySelectorAll('[data-pr-img-tab]').forEach(function (x) { x.classList.toggle('active', x.getAttribute('data-pr-img-tab') === t); });

@@ -53441,10 +53441,20 @@ def _press_resolve_blocks(session_db, pr, design: dict, token: str) -> dict:
         ref = b.get("ref") if isinstance(b.get("ref"), dict) else {}
         data = {"icons": iconos}
         try:
-            if tipo == "audio" and ref.get("song_id"):
+            # ⚠️⚠️ ESTOS MÓDULOS SE ARRASTRAN VACÍOS Y LUEGO SE ELIGE QUÉ VA DENTRO (el single, el
+            # disco, el videoclip, los enlaces o la playlist), y se pueden poner todos los que
+            # hagan falta. Mientras no se elija, el módulo queda PENDIENTE: en el editor se ve como
+            # un hueco que invita a completarlo y en el correo, la página y el PDF **no se pinta**.
+            if tipo in ("audio", "video", "links") and not (ref.get("song_id") or ref.get("album_id")):
+                data["pending"] = True
+            elif tipo == "album" and not ref.get("album_id"):
+                data["pending"] = True
+            elif tipo == "audio" and ref.get("song_id"):
                 song = session_db.get(Song, to_uuid(ref["song_id"]))
                 if song:
                     data.update(_press_song_row(session_db, song, token))
+                else:
+                    data["pending"] = True
             elif tipo == "album" and ref.get("album_id"):
                 album = session_db.get(Album, to_uuid(ref["album_id"]))
                 if album:

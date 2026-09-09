@@ -11481,3 +11481,33 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️⚠️ La función que pinta a quien se ha elegido se llama **`pintaElegido`, no `pinta`**: en ese
   fichero ya hay una `pinta()` (la de las sugerencias de programa) y en JS la última definición
   PISA a la anterior — la trampa de siempre de los nombres repetidos.
+
+- ⚠️⚠️ **UN MÓDULO SE ARRASTRA VACÍO Y LUEGO SE ELIGE QUÉ LLEVA** (sep 2026, notas de prensa **y
+  comunicaciones a compradores**: es el MISMO editor, así que todo lo que se toque aquí vale para
+  los dos). El **single**, el **disco**, el **videoclip**, los **enlaces** y la **playlist** tienen
+  ya su módulo VACÍO al principio de su grupo en la paleta (`.pr-pal--empty`): se arrastra, se
+  elige qué lleva en el pop-up (`#prPickModal`, con su portada y su buscador) y **se pueden poner
+  todos los que hagan falta** — cada arrastre es un módulo nuevo. Debajo siguen los concretos, para
+  arrastrar directamente el que se quiere.
+  · Se cambia después desde su panel («Cambiar», `data-pr-pick-open`) y pinchando un módulo vacío
+  del lienzo. El `<select>` que solo tenía la playlist se retiró: ahora es el MISMO selector para
+  los cinco.
+  ⚠️ Un módulo **sin elegir queda PENDIENTE** (`_press_resolve_blocks` le pone `pending`): en el
+  editor se ve como un hueco que invita a completarlo y en el correo, la página y el PDF **no se
+  pinta** — así una nota no sale nunca con un módulo vacío.
+  ⚠️ `PICK` (en `press_editor.js`) es el punto único de «qué módulos se eligen y de qué grupo de
+  `assets` salen»: al añadir otro, va ahí y en `_pending_card` de `press_render.py`.
+
+- ⚠️⚠️ **LA BARRA DE FORMATO NO PUEDE TAPAR EL ASA DE ARRASTRAR** (bug real con captura, sep 2026):
+  el asa (`.pr-blk__grip`) cuelga **18 px** por encima del bloque y `colocaToolbar` dejaba solo 8,
+  así que la barra se ponía justo encima y el bloque **no se podía coger para moverlo**. Ahora se
+  resta también el alto del asa (`ALTO_ASA`) más un hueco. Debajo del bloque no hay asa, así que
+  cuando la barra no cabe arriba se queda como estaba.
+
+- ⚠️⚠️ **LA FOTO DE UN SELECT2 SE SALÍA DEL RECUADRO** (bug real con captura, sep 2026): la caja de
+  Select2 en modo simple mide **28 px** y la foto **24**, así que con su hueco de arriba acababa
+  1 px POR DEBAJO del borde y se veía pisándolo — y de paso el campo quedaba más bajo que el botón
+  «+» de al lado, que es un `.btn`. Ahora la selección tiene la **misma altura que un
+  `.form-control`** (`calc(1.5em + .75rem + 2px)`) y centra su contenido: la foto cabe con holgura
+  y el campo cuadra con lo que tiene al lado. Vale para TODOS los selectores con foto de la app
+  (artistas, terceros, recintos, medios…), que son el mismo componente.

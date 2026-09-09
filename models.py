@@ -13776,6 +13776,21 @@ class SyncSubmission(Base):
     notes = Column(Text)
     payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
+    # ── SEGUIMIENTO: ¿lo ha ABIERTO, lo ha ESCUCHADO y lo ha REENVIADO? ────────────────────────
+    # ⚠️ Hace falta un TOKEN POR ENVÍO (no el de la canción, que es uno para todos): es lo único
+    # que permite saber QUIÉN ha abierto. El enlace del correo y su píxel llevan este token.
+    token = Column(Text, unique=True)
+    opened_at = Column(DateTime(timezone=True))
+    open_count = Column(Integer, nullable=False, server_default=text("0"))
+    opens = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    forwarded = Column(Boolean, nullable=False, server_default=text("false"))
+    forwarded_at = Column(DateTime(timezone=True))          # desde cuándo se sospecha el reenvío
+    # ⚠️ Los segundos REPRODUCIDOS, no la posición de la barra: arrastrarla al final no es haber
+    # escuchado. Con más de un minuto (`SYNC_LISTEN_SECONDS`) cuenta como escuchado.
+    listen_seconds = Column(Integer, nullable=False, server_default=text("0"))
+    listened_at = Column(DateTime(timezone=True))           # la primera vez que pasó del minuto
+    listen_started_at = Column(DateTime(timezone=True))     # la primera vez que le dio al play
+
 
 def ensure_syncros_schema():
     """Syncros: la ficha de sincronizaciones de un tercero y lo que se le ha enviado."""
@@ -13820,6 +13835,19 @@ def ensure_syncros_schema():
         # Un envío a un correo suelto no tiene supervisor ni tercero.
         "ALTER TABLE IF EXISTS sync_submissions ALTER COLUMN supervisor_id DROP NOT NULL;",
         "ALTER TABLE IF EXISTS sync_submissions ALTER COLUMN promoter_id DROP NOT NULL;",
+        # ⚠️ SEGUIMIENTO del envío: cada columna en SU sentencia (una columna metida dentro de un
+        # bloque que ya estaba aplicado no se crea nunca y el ORM revienta al leer la tabla).
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS token text;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_submissions_token ON sync_submissions(token);",
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS opened_at timestamptz;",
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS open_count integer NOT NULL DEFAULT 0;",
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS opens jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS forwarded boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS forwarded_at timestamptz;",
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS listen_seconds integer NOT NULL DEFAULT 0;",
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS listened_at timestamptz;",
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS listen_started_at timestamptz;",
+        "CREATE INDEX IF NOT EXISTS idx_sync_submissions_song ON sync_submissions(song_id, sent_at DESC);",
     ], "syncros_schema")
 
 

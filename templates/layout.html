@@ -448,6 +448,9 @@
 {# GÉNEROS de una canción y ETIQUETAS de un medio: se eligen de lo que ya hay (va DESPUÉS de
    float_list.js, que es quien saca su lista al <body> para que no la recorte un modal). #}
 <script src="{{ url_for('static', filename='js/song_genres.js', v=ASSET_V) }}"></script>
+{# SYNCRO · quién ha recibido un tema y qué ha hecho con él (se abre al pinchar el número
+   de envíos). No-op sin `[data-sync-rcp]`. #}
+<script src="{{ url_for('static', filename='js/sync_recipients.js', v=ASSET_V) }}"></script>
 {# EL REPERTORIO de una actividad: buscar escribiendo y ordenar arrastrando. GLOBAL porque su
    parcial se usa en el asistente y en la ficha (y esa zona se repinta por AJAX). #}
 <script src="{{ url_for('static', filename='js/performance_songs.js', v=ASSET_V) }}"></script>

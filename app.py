@@ -474,7 +474,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_activity_notice_respond", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_activity_notice_respond", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", 
     "concert_artwork_public_upload",
     # LA BAJA DE PUBLICIDAD de un comprador: el POST llega del propio cliente de correo (un clic).
     "public_buyer_unsubscribe",
@@ -903,7 +903,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -22307,12 +22307,15 @@ def discografica_song_detail(song_id):
     sync_enabled = bool(getattr(s, "sync_enabled", False))
     sync_in_repertoire = bool(sync_enabled or one_stop.get("ok"))
     sync_share_url, sync_sent, sync_sent_count, sync_sent_tooltip = "", False, 0, ""
+    sync_sent_opened, sync_sent_listened = 0, 0
     if sync_in_repertoire:
         sync_share_url = _sync_song_share_url(session_db, s)
         _env = (_sync_sent_state(session_db, [s.id]) or {}).get(str(s.id)) or {}
         sync_sent = bool(_env)
         sync_sent_count = int(_env.get("count") or 0)
         sync_sent_tooltip = _env.get("tooltip") or ""
+        sync_sent_opened = int(_env.get("opened") or 0)
+        sync_sent_listened = int(_env.get("listened") or 0)
 
     # ISRCs
     isrc_codes = (
@@ -22781,6 +22784,8 @@ def discografica_song_detail(song_id):
         sync_sent=sync_sent,
         sync_sent_count=sync_sent_count,
         sync_sent_tooltip=sync_sent_tooltip,
+        sync_sent_opened=sync_sent_opened,
+        sync_sent_listened=sync_sent_listened,
         sync_enabled=sync_enabled,
         sync_in_repertoire=sync_in_repertoire,
         # LA BOLSA de gastos del single (la del proyecto si lo tiene; si no, la suya).
@@ -84107,7 +84112,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -88177,7 +88182,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -153450,6 +153455,11 @@ def _sync_song_rows(session_db, canciones, *, one_stop_map=None) -> list[dict]:
             "sent": bool(env),
             "sent_count": int(env.get("count") or 0),
             "sent_tooltip": env.get("tooltip") or "",
+            # Cuántos lo han abierto, escuchado y (posiblemente) reenviado: es lo que se ve en la
+            # propia etiqueta y, al pincharla, en el listado de quién lo ha recibido.
+            "sent_opened": int(env.get("opened") or 0),
+            "sent_listened": int(env.get("listened") or 0),
+            "sent_forwarded": int(env.get("forwarded") or 0),
         })
     return filas
 
@@ -153613,6 +153623,230 @@ def _sync_song_share_url(session_db, song, *, lang: str = "ES") -> str:
     return _external_url_for("public_sync_song", **args)
 
 
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+#  SYNCRO · ¿LO HAN ABIERTO, LO HAN ESCUCHADO, LO HAN REENVIADO?
+#  Presentar un tema a un supervisor sin saber si lo ha llegado a escuchar es trabajar a ciegas: es
+#  lo que dice si hay que insistir, si el correo no llega o si el tema no engancha.
+#  ⚠️⚠️ Para saber QUIÉN, cada envío lleva su PROPIO token (`SyncSubmission.token`): el de la
+#  canción (`Song.sync_share_token`) es UNO para todos y no distingue a nadie. Mismo patrón que los
+#  destinatarios de una nota de prensa.
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+
+# ⚠️ Lo pidió Dani: NO hace falta escucharla entera. Con más de un minuto cuenta como escuchada.
+SYNC_LISTEN_SECONDS = 60
+
+# El token de cada envío viaja en el cuerpo como este MARCADOR y se sustituye por destinatario: así
+# el correo se compone UNA vez por idioma y aun así cada uno lleva SU enlace y SU píxel.
+SYNC_TOKEN_MARK = "__SYNC_TOKEN__"
+
+
+def _sync_open_pixel() -> str:
+    """El píxel que dice que ese supervisor ha abierto el correo (con su token como marcador).
+
+    ⚠️ `_external_url_for` puede reventar fuera de una petición (un cron, un hilo): si no se puede
+    componer, el correo sale igual y lo único que se pierde es saber si lo han abierto."""
+    try:
+        url = _external_url_for("public_sync_open", token=SYNC_TOKEN_MARK)
+    except Exception:
+        return ""
+    return ('<img src="%s" width="1" height="1" alt="" '
+            'style="display:block;width:1px;height:1px;border:0;">' % url)
+
+
+def _sync_submission_token(session_db, sub) -> str:
+    """El token de ESE envío (opaco), creándolo si no lo tiene.
+
+    ⚠️ Se crea CON COMMIT: con un flush sin commit se perdería al cerrar la sesión y un enlace ya
+    mandado dejaría de valer (el bug que ya pasó con las demos)."""
+    if sub is None:
+        return ""
+    token = (getattr(sub, "token", None) or "").strip()
+    if token:
+        return token
+    token = _uuid_token()
+    sub.token = token
+    try:
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        return (getattr(sub, "token", None) or "").strip()
+    return token
+
+
+def _sync_submission_by_token(session_db, token):
+    """El envío de ese token (o None). Es lo que convierte un enlace en «quién lo está mirando»."""
+    t = (token or "").strip()
+    if not t:
+        return None
+    try:
+        return session_db.query(SyncSubmission).filter(SyncSubmission.token == t).first()
+    except Exception:
+        app.logger.exception("[syncro] no se pudo leer el envío por su token")
+        return None
+
+
+def _sync_track_open(session_db, sub, via: str):
+    """Apunta una APERTURA (el píxel del correo o la página del tema).
+
+    «Reenviado» es una SOSPECHA razonable —aperturas desde otro dispositivo Y otra red que la
+    primera—, y se dice así, «posiblemente reenviado», nunca como certeza. Mismo criterio que las
+    notas de prensa."""
+    if sub is None:
+        return None
+    try:
+        ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "")[:64]
+        ua = (request.headers.get("User-Agent") or "")[:200]
+    except Exception:
+        ip, ua = "", ""
+    ahora = _now_madrid()
+    aperturas = list(getattr(sub, "opens", None) or [])
+    aperturas.append({"at": ahora.isoformat(), "ip": ip, "ua": ua, "via": via})
+    sub.opens = aperturas[-100:]
+    sub.open_count = int(getattr(sub, "open_count", 0) or 0) + 1
+    if not getattr(sub, "opened_at", None):
+        sub.opened_at = ahora
+    # ⚠️ El proxy de imágenes de Gmail no dice nada del dispositivo de nadie: no cuenta para la
+    # sospecha de reenvío (si contara, cualquier correo abierto en Gmail parecería reenviado).
+    reales = [(a.get("ip") or "", (a.get("ua") or "")[:60]) for a in (sub.opens or [])
+              if "GoogleImageProxy" not in (a.get("ua") or "") and a.get("ip")]
+    if len({x[0].rsplit(".", 1)[0] for x in reales}) >= 2 and len({x[1] for x in reales}) >= 2:
+        if not getattr(sub, "forwarded", False):
+            sub.forwarded_at = ahora
+        sub.forwarded = True
+    try:
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+    return sub
+
+
+def _sync_track_listen(session_db, sub, seconds) -> dict:
+    """Apunta los segundos ESCUCHADOS de ese envío (lo manda el reproductor de la página).
+
+    ⚠️ Son segundos REPRODUCIDOS, no la posición de la barra: arrastrarla al final no es haberla
+    escuchado. Y solo se SUBE (`max`): si alguien recarga la página, lo ya escuchado no se pierde ni
+    se cuenta dos veces."""
+    if sub is None:
+        return {"ok": False}
+    try:
+        segs = int(float(seconds or 0))
+    except Exception:
+        segs = 0
+    segs = max(0, min(segs, 24 * 3600))          # una cifra absurda no entra en la base
+    ahora = _now_madrid()
+    if not getattr(sub, "listen_started_at", None):
+        sub.listen_started_at = ahora
+    if segs > int(getattr(sub, "listen_seconds", 0) or 0):
+        sub.listen_seconds = segs
+    if segs >= SYNC_LISTEN_SECONDS and not getattr(sub, "listened_at", None):
+        sub.listened_at = ahora
+    try:
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        return {"ok": False}
+    return {"ok": True, "seconds": int(sub.listen_seconds or 0),
+            "listened": bool(getattr(sub, "listened_at", None))}
+
+
+def _sync_seconds_label(segs) -> str:
+    """«1 min 20 s» / «45 s»: cuánto se ha escuchado, dicho como se dice."""
+    try:
+        n = int(segs or 0)
+    except Exception:
+        n = 0
+    if n <= 0:
+        return ""
+    if n < 60:
+        return "%d s" % n
+    m, r = divmod(n, 60)
+    return "%d min" % m if not r else "%d min %d s" % (m, r)
+
+
+def _sync_submission_state(sub) -> dict:
+    """LO QUE SE ENSEÑA de un envío: si lo ha abierto, si lo ha escuchado y si lo ha reenviado.
+
+    Punto ÚNICO: lo pintan igual el pop-up del listado de Syncros, la ficha de la canción y la
+    pestaña Syncro del supervisor, así que no pueden decir cosas distintas."""
+    if sub is None:
+        return {"opened": False, "listened": False, "forwarded": False, "seconds": 0,
+                "opened_label": "", "listened_label": "", "forwarded_label": "",
+                "open_count": 0, "seconds_label": ""}
+    def _lbl(dt):
+        try:
+            return dt.strftime("%d/%m/%Y %H:%M") if dt else ""
+        except Exception:
+            return ""
+    abierto = bool(getattr(sub, "opened_at", None))
+    segs = int(getattr(sub, "listen_seconds", 0) or 0)
+    escuchado = bool(getattr(sub, "listened_at", None))
+    n = int(getattr(sub, "open_count", 0) or 0)
+    return {
+        "opened": abierto,
+        "open_count": n,
+        "opened_label": ("Lo abrió el %s%s" % (_lbl(sub.opened_at), (" · %d veces" % n) if n > 1 else "")
+                         if abierto else "Todavía no lo ha abierto"),
+        "listened": escuchado,
+        "seconds": segs,
+        "seconds_label": _sync_seconds_label(segs),
+        # ⚠️ Se dice CUÁNTO ha escuchado también cuando no llega al minuto: «empezó y lo dejó a los
+        # 12 s» es información, no un «no».
+        "listened_label": ("Escuchó %s (el %s)" % (_sync_seconds_label(segs), _lbl(sub.listened_at))
+                           if escuchado else
+                           ("Le dio al play pero solo escuchó %s" % _sync_seconds_label(segs) if segs > 0
+                            else "Todavía no lo ha escuchado")),
+        "forwarded": bool(getattr(sub, "forwarded", False)),
+        "forwarded_label": ("Posiblemente reenviado (se abrió desde otro dispositivo y otra red%s)"
+                            % ((", desde el %s" % _lbl(sub.forwarded_at)) if getattr(sub, "forwarded_at", None) else "")
+                            if bool(getattr(sub, "forwarded", False)) else ""),
+    }
+
+
+def _sync_song_recipients(session_db, song_id) -> list[dict]:
+    """QUIÉNES han recibido ese tema, con su foto y su estado (para el pop-up del listado)."""
+    sid = to_uuid(str(song_id or ""))
+    if not sid:
+        return []
+    try:
+        filas = (session_db.query(SyncSubmission)
+                 .filter(SyncSubmission.song_id == sid)
+                 .order_by(SyncSubmission.sent_at.desc()).all())
+    except Exception:
+        app.logger.exception("[syncro] no se pudieron leer los destinatarios del tema")
+        return []
+    # ⚠️ `SyncSubmission` NO tiene relación `promoter`: los terceros se leen EN BLOQUE (con un
+    # joinedload esto reventaba dentro del try y no aparecía nada).
+    pids = [f.promoter_id for f in filas if getattr(f, "promoter_id", None)]
+    terceros = {}
+    if pids:
+        try:
+            for p in session_db.query(Promoter).filter(Promoter.id.in_(pids)).all():
+                terceros[str(p.id)] = p
+        except Exception:
+            app.logger.exception("[syncro] no se pudieron leer los terceros")
+    salida = []
+    for f in filas:
+        p = terceros.get(str(getattr(f, "promoter_id", "") or ""))
+        st = _sync_submission_state(f)
+        st.update({
+            "id": str(f.id),
+            "name": (_promoter_display_name(p) if p is not None
+                     else ((getattr(f, "payload", None) or {}).get("name")
+                           or (getattr(f, "notes", "") or "").strip() or "—")),
+            "photo": (getattr(p, "logo_url", "") or "") if p is not None else "",
+            "promoter_id": str(f.promoter_id) if getattr(f, "promoter_id", None) else "",
+            "is_supervisor": bool(getattr(f, "supervisor_id", None)),
+            "email": ((getattr(f, "payload", None) or {}).get("email") or "").strip(),
+            "language": (getattr(f, "language", "") or "").upper(),
+            "sent_at_label": (f.sent_at.strftime("%d/%m/%Y %H:%M") if getattr(f, "sent_at", None) else ""),
+            "sent_by_nick": (getattr(f, "sent_by_nick", "") or ""),
+            "url": (url_for("promoter_detail_view", pid=f.promoter_id, tab="syncro")
+                    if getattr(f, "promoter_id", None) else ""),
+        })
+        salida.append(st)
+    return salida
+
+
 def _sync_sent_state(session_db, song_ids) -> dict[str, dict]:
     """¿A qué supervisores se les ha mandado ya cada tema, y cuándo? (UNA consulta para el listado).
 
@@ -153646,7 +153880,7 @@ def _sync_sent_state(session_db, song_ids) -> dict[str, dict]:
     for f in filas:
         sid = str(f.song_id)
         d = salida.setdefault(sid, {"count": 0, "last": None, "last_label": "", "names": [],
-                                    "channels": set()})
+                                    "channels": set(), "opened": 0, "listened": 0, "forwarded": 0})
         d["count"] += 1
         if d["last"] is None and getattr(f, "sent_at", None):
             d["last"] = f.sent_at
@@ -153655,12 +153889,25 @@ def _sync_sent_state(session_db, song_ids) -> dict[str, dict]:
         if nombre and nombre not in d["names"]:
             d["names"].append(nombre)
         d["channels"].add((getattr(f, "channel", "") or "EMAIL").upper())
+        # ¿Lo han abierto, escuchado y reenviado? Es lo que se dice al pasar el ratón por el número.
+        if getattr(f, "opened_at", None):
+            d["opened"] += 1
+        if getattr(f, "listened_at", None):
+            d["listened"] += 1
+        if getattr(f, "forwarded", False):
+            d["forwarded"] += 1
     for d in salida.values():
         d["channels"] = sorted(d["channels"])
         muchos = len(d["names"]) > 8
-        d["tooltip"] = "Enviada el %s a %s%s" % (
-            d["last_label"] or "—", ", ".join(d["names"][:8]) or "—",
-            " y %d más" % (len(d["names"]) - 8) if muchos else "")
+        d["pending"] = max(0, d["count"] - d["opened"])
+        # ⚠️ El tooltip DICE lo que ha pasado, no solo a quién se mandó: quién lo ha abierto, quién
+        # lo ha escuchado y quién no. El listado entero se ve pinchando el número.
+        partes = ["Enviada el %s a %s%s" % (d["last_label"] or "—", ", ".join(d["names"][:8]) or "—",
+                                            " y %d más" % (len(d["names"]) - 8) if muchos else "")]
+        partes.append("%d de %d lo han abierto · %d lo han escuchado%s"
+                      % (d["opened"], d["count"], d["listened"],
+                         (" · %d posiblemente reenviado" % d["forwarded"]) if d["forwarded"] else ""))
+        d["tooltip"] = " — ".join(partes)
     return salida
 
 
@@ -153788,11 +154035,23 @@ def _sync_supervisors_context(session_db) -> dict:
 
 # ══ TEMA PARA SINCRONIZACIÓN · página pública, audio y miniatura ══════════════════════════════
 def _sync_song_by_token(session_db, token: str):
-    """La canción de un enlace público de sincronización (token opaco). None si no vale."""
+    """La canción de un enlace público de sincronización (token opaco). None si no vale.
+
+    ⚠️⚠️ HAY DOS TIPOS DE TOKEN y los dos abren la MISMA página: el de la CANCIÓN
+    (`Song.sync_share_token`, uno para todos: el que se comparte por WhatsApp o se copia) y el de un
+    ENVÍO (`SyncSubmission.token`, uno POR SUPERVISOR: el que va en su correo). Con el segundo se
+    sabe QUIÉN está mirando, así que se apunta la apertura y lo que escuche.
+    Este es el punto único: lo usan la página, el audio, la descarga y la miniatura."""
     t = (token or "").strip()
     if not t:
         return None
-    return session_db.query(Song).filter(Song.sync_share_token == t).first()
+    song = session_db.query(Song).filter(Song.sync_share_token == t).first()
+    if song is not None:
+        return song
+    sub = _sync_submission_by_token(session_db, t)
+    if sub is None or not getattr(sub, "song_id", None):
+        return None
+    return session_db.get(Song, sub.song_id)
 
 
 @app.get("/syncros/destinatarios", endpoint="sync_send_targets")
@@ -153925,10 +154184,14 @@ def sync_song_send(song_id):
             return redirect(request.referrer or url_for("syncros_view"))
 
         # El cuerpo se compone UNA vez por idioma (son dos), no uno por destinatario.
+        # ⚠️⚠️ Con el TOKEN COMO MARCADOR: cada supervisor recibe el mismo cuerpo pero con SU
+        # enlace y SU píxel, que es lo único que permite saber quién lo abre y quién lo escucha
+        # (mismo patrón que los destinatarios de una nota de prensa).
         cuerpos, asuntos = {}, {}
         for lang in {d["lang"] for d in destinos}:
             ctx = _sync_song_context(session_db, song, lang=lang)
-            enlace = _sync_song_share_url(session_db, song, lang=lang)
+            enlace = _external_url_for("public_sync_song", token=SYNC_TOKEN_MARK,
+                                       **({"lang": "en"} if _sync_lang(lang) == "EN" else {}))
             fila = (_sync_song_rows(session_db, [song]) or [{}])[0]
             cuerpos[lang] = _sync_pitch_html(
                 ctx, with_intro=True, email=True, play_url=_sync_url_with(enlace, play=1),
@@ -153936,7 +154199,7 @@ def sync_song_send(song_id):
                 lyrics_url=(_sync_url_with(enlace, letra=1) if ctx["has_lyrics"] else ""),
                 repertoire_url=_external_url_for("public_sync_repertoire",
                                                  **({"lang": "en"} if lang == "EN" else {})),
-                one_stop=bool(fila.get("one_stop")))
+                one_stop=bool(fila.get("one_stop"))) + _sync_open_pixel()
             asuntos[lang] = _sync_subject(ctx["t"], ctx.get("title") or "",
                                           one_stop=bool(fila.get("one_stop")),
                                           artista=ctx.get("artist_name") or "")
@@ -153944,26 +154207,43 @@ def sync_song_send(song_id):
         enviados, fallidos = 0, []
         nota = (request.form.get("note") or "").strip()
         for d in destinos:
-            cuerpo = cuerpos[d["lang"]]
+            # ⚠️ La fila del envío se crea ANTES de mandar: su token tiene que estar guardado para
+            # poder ir dentro del correo. Si el correo no sale, la fila se retira (la marca de
+            # «enviada a Supervisors» solo cuenta lo que se ha mandado de verdad).
+            sub = SyncSubmission(
+                supervisor_id=(getattr(d["sup"], "id", None) if d["sup"] is not None else None),
+                promoter_id=(getattr(d["sup"], "promoter_id", None) if d["sup"] is not None else None),
+                title=(song.title or "").strip() or "—", song_id=song.id,
+                language=d["lang"],
+                # ⚠️ El CANAL distingue lo que va a un SUPERVISOR de un correo suelto: la marca de
+                # «enviada a Supervisors» solo cuenta lo primero (mandárselo a un tercero por correo,
+                # WhatsApp o SMS no es haberlo presentado a los supervisores).
+                channel=("SUPERVISOR" if d["sup"] is not None else "EMAIL"),
+                sent_by_nick=nick,
+                notes=(None if d["sup"] is not None else d["email"]),
+                token=_uuid_token(),
+                payload={"email": d["email"], "name": d["name"]})
+            session_db.add(sub)
+            try:
+                session_db.commit()
+            except Exception:
+                session_db.rollback()
+                fallidos.append(d["name"] or d["email"])
+                continue
+            cuerpo = cuerpos[d["lang"]].replace(SYNC_TOKEN_MARK, sub.token)
             if nota:
                 cuerpo = ('<div style="max-width:680px;margin:0 auto;padding:0 22px;font-size:14px;'
                           'color:#374151;">%s</div>' % escape(nota)) + cuerpo
             ok, _err = _send_optional_email(d["email"], asuntos[d["lang"]], cuerpo)
             if not ok:
                 fallidos.append(d["name"] or d["email"])
+                try:
+                    session_db.delete(sub)
+                    session_db.commit()
+                except Exception:
+                    session_db.rollback()
                 continue
             enviados += 1
-            # ⚠️ El CANAL distingue lo que va a un SUPERVISOR de un correo suelto: la marca de
-            # «enviada a Supervisors» solo cuenta lo primero (mandárselo a un tercero por correo,
-            # WhatsApp o SMS no es haberlo presentado a los supervisores).
-            session_db.add(SyncSubmission(
-                supervisor_id=(getattr(d["sup"], "id", None) if d["sup"] is not None else None),
-                promoter_id=(getattr(d["sup"], "promoter_id", None) if d["sup"] is not None else None),
-                title=(song.title or "").strip() or "—", song_id=song.id,
-                language=d["lang"], channel=("SUPERVISOR" if d["sup"] is not None else "EMAIL"),
-                sent_by_nick=nick,
-                notes=(None if d["sup"] is not None else d["email"]),
-                payload={"email": d["email"], "name": d["name"]}))
         session_db.commit()
         if enviados:
             flash("Tema enviado a %d supervisor(es)." % enviados, "success")
@@ -154030,12 +154310,20 @@ def public_sync_song():
     enlace en inglés."""
     session_db = db()
     try:
-        song = _sync_song_by_token(session_db, request.args.get("token"))
+        pedido = (request.args.get("token") or "").strip()
+        song = _sync_song_by_token(session_db, pedido)
         if song is None:
             abort(404)
         lang = _sync_lang("EN" if (request.args.get("lang") or "").strip().lower() in ("en", "eng") else "ES")
         ctx = _sync_song_context(session_db, song, lang=lang)
-        token = (song.sync_share_token or "").strip()
+        # ⚠️ Si el enlace es el de UN SUPERVISOR (su envío), se apunta que lo ha ABIERTO y se le
+        # pasa su token al reproductor, que es lo que permite saber si lo llega a escuchar.
+        envio = _sync_submission_by_token(session_db, pedido)
+        if envio is not None:
+            _sync_track_open(session_db, envio, "page")
+        # El token con el que se sirven el audio, la descarga y la miniatura: el MISMO con el que se
+        # ha entrado (si es el de un envío, así se sigue sabiendo de quién es cada escucha).
+        token = pedido or (song.sync_share_token or "").strip()
         # El REPRODUCTOR de verdad: la MISMA fila que las demos y las playlists, empotrada debajo
         # de los datos (`player_html`). Así se escucha igual en toda la app.
         fila = (_sync_song_rows(session_db, [song]) or [{}])[0]
@@ -154058,6 +154346,9 @@ def public_sync_song():
             "public_sync_song.html", ctx=ctx, body_html=cuerpo,
             # Anterior/siguiente DEL REPERTORIO (solo si se ha llegado desde él).
             sync_nav=_sync_public_nav(session_db, song),
+            # Con el enlace de un supervisor se apunta lo que ESCUCHA (más de un minuto = escuchado).
+            listen_token=((envio.token or "") if envio is not None else ""),
+            listen_seconds=SYNC_LISTEN_SECONDS,
             og_title=_sync_og_title(ctx),
             og_description=_sync_og_description(ctx, one_stop=bool(fila.get("one_stop"))),
             og_image_url=_external_url_for("public_sync_song_og_image", token=token))
@@ -154161,6 +154452,76 @@ def public_sync_repertoire():
             total=len(filas), n_one_stop=n_one_stop,
             og_title=t["repertoire_title"],
             og_image_url=_external_url_for("og_default_image"))
+    finally:
+        session_db.close()
+
+
+@app.get("/syncro/a.gif", endpoint="public_sync_open")
+def public_sync_open():
+    """El PÍXEL del correo: dice que ese supervisor lo ha abierto.
+
+    ⚠️ Devuelve SIEMPRE el gif, exista o no el token: un correo con una imagen rota es peor que no
+    saber si lo han abierto."""
+    session_db = db()
+    try:
+        sub = _sync_submission_by_token(session_db, request.args.get("token"))
+        if sub is not None:
+            _sync_track_open(session_db, sub, "pixel")
+    except Exception:
+        app.logger.exception("[syncro] no se pudo apuntar la apertura")
+    finally:
+        session_db.close()
+    gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+    resp = make_response(gif)
+    resp.headers["Content-Type"] = "image/gif"
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+@app.post("/syncro/escucha", endpoint="public_sync_listen")
+def public_sync_listen():
+    """Cuántos segundos lleva ESCUCHADOS quien abrió el enlace (lo manda su reproductor).
+
+    ⚠️ Son segundos REPRODUCIDOS, no la posición de la barra. Con más de un minuto
+    (`SYNC_LISTEN_SECONDS`) el tema cuenta como escuchado."""
+    session_db = db()
+    try:
+        datos = request.get_json(silent=True) or request.form or {}
+        sub = _sync_submission_by_token(session_db, datos.get("token"))
+        if sub is None:
+            return jsonify({"ok": False}), 404
+        return jsonify(_sync_track_listen(session_db, sub, datos.get("seconds")))
+    except Exception:
+        app.logger.exception("[syncro] no se pudo apuntar la escucha")
+        return jsonify({"ok": False}), 200
+    finally:
+        session_db.close()
+
+
+@app.get("/syncros/<song_id>/destinatarios", endpoint="sync_song_recipients")
+@admin_required
+def sync_song_recipients(song_id):
+    """QUIÉNES han recibido ese tema y qué han hecho con él (el pop-up del número de envíos)."""
+    if not (has_access_key("syncros", include_descendants=True) or can_edit_syncros()):
+        return jsonify({"ok": False, "error": "Sin permiso."}), 403
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if song is None:
+            return jsonify({"ok": False, "error": "Canción no encontrada."}), 404
+        filas = _sync_song_recipients(session_db, song.id)
+        return jsonify({
+            "ok": True,
+            "title": (song.title or "").strip(),
+            "rows": filas,
+            "counts": {
+                "total": len(filas),
+                "opened": sum(1 for f in filas if f["opened"]),
+                "listened": sum(1 for f in filas if f["listened"]),
+                "forwarded": sum(1 for f in filas if f["forwarded"]),
+            },
+        })
     finally:
         session_db.close()
 
@@ -154599,7 +154960,7 @@ def _sync_submissions_rows(session_db, promoter_id) -> list[dict]:
     out = []
     for f in filas:
         cancion = canciones.get(str(f.song_id)) if f.song_id else None
-        out.append({
+        fila = {
             "id": str(f.id),
             "title": (f.title or "").strip(),
             "song_title": (getattr(cancion, "title", "") or "").strip(),
@@ -154610,7 +154971,10 @@ def _sync_submissions_rows(session_db, promoter_id) -> list[dict]:
             "sent_at_label": f.sent_at.strftime("%d/%m/%Y %H:%M") if f.sent_at else "",
             "sent_by_nick": (f.sent_by_nick or "").strip(),
             "notes": (f.notes or "").strip(),
-        })
+        }
+        # ¿Lo abrió, lo escuchó, lo reenvió? El MISMO estado que el listado de Syncros.
+        fila["track"] = _sync_submission_state(f)
+        out.append(fila)
     return out
 
 

@@ -4,6 +4,8 @@
    Contexto: `_sync_promoter_tab_context`.
    ============================================================================ #}
 
+{% import '_sync_track_icons.html' as st with context %}
+
 {% if not sync_row %}
   <div class="alert alert-light border">
     <i class="fa fa-circle-info me-1"></i>Este tercero <strong>no está en Syncros</strong>.
@@ -113,13 +115,21 @@
         <div class="table-responsive">
           <table class="table table-sm align-middle">
             <thead><tr>
-              <th>Sincronización</th><th>Tema</th><th>Idioma</th><th>Enviada</th><th>Por</th>
+              <th>Sincronización</th><th>Tema</th>
+              {# ¿La abrió? ¿La escuchó? ¿La reenvió? Los MISMOS iconos que en el listado de Syncros. #}
+              <th class="text-nowrap" title="¿La ha abierto, la ha escuchado y la ha reenviado?">Qué ha hecho</th>
+              <th>Idioma</th><th>Enviada</th><th>Por</th>
             </tr></thead>
             <tbody>
               {% for r in sync_submissions %}
                 <tr>
                   <td class="fw-semibold">{{ r.title }}{% if r.notes %}<div class="small text-muted fw-normal">{{ r.notes }}</div>{% endif %}</td>
                   <td>{% if r.song_id %}<a href="{{ url_for('discografica_song_detail', song_id=r.song_id) }}">{{ r.song_title or 'Ver el tema' }}</a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                  <td class="text-nowrap">{{ st.sync_icons(r.track) }}
+                    {% if r.track.seconds and not r.track.listened %}
+                      <span class="small text-muted ms-1">{{ r.track.seconds_label }}</span>
+                    {% endif %}
+                  </td>
                   <td>{{ r.language or '—' }}</td>
                   <td class="text-nowrap">{{ r.sent_at_label }}</td>
                   <td>{{ r.sent_by_nick or '—' }}</td>

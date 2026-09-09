@@ -1,0 +1,19 @@
+{# ============================================================================================
+   LOS TRES ICONOS DE UN ENVÍO DE SYNCRO: ¿lo ha ABIERTO?, ¿lo ha ESCUCHADO?, ¿lo ha REENVIADO?
+   ⚠️ Punto ÚNICO: los pintan igual el pop-up del listado de Syncros, la ficha de la canción y la
+   pestaña Syncro del supervisor, así que no pueden decir cosas distintas.
+   `st` es lo que devuelve `_sync_submission_state` (app.py).
+   ============================================================================================ #}
+{% macro sync_icons(st, size='') %}
+  <span class="sync-track {{ size }}">
+    <i class="fa-solid fa-envelope-open sync-track__i{{ ' is-on' if st.opened else '' }}"
+       title="{{ st.opened_label }}"></i>
+    {# ⚠️ Si le dio al play pero no llegó al minuto, el icono va a MEDIAS (ámbar): «lo empezó» no
+       es «lo ha escuchado», pero tampoco es «no lo ha abierto». #}
+    <i class="fa-solid fa-headphones sync-track__i{{ ' is-on' if st.listened else (' is-half' if st.seconds else '') }}"
+       title="{{ st.listened_label }}"></i>
+    {% if st.forwarded %}
+      <i class="fa-solid fa-share-from-square sync-track__i is-fwd" title="{{ st.forwarded_label }}"></i>
+    {% endif %}
+  </span>
+{% endmacro %}

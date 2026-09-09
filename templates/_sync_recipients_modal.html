@@ -1,0 +1,29 @@
+{# ============================================================================================
+   QUIÉN HA RECIBIDO ESE TEMA, y qué ha hecho con él. Se abre al PINCHAR el número de envíos.
+   Lo llena `sync_recipients.js` desde `sync_song_recipients` (JSON): con decenas de supervisores,
+   meter el listado de cada tema en el HTML de la pantalla la haría pesadísima.
+   ============================================================================================ #}
+<div class="modal fade" id="syncRcpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="fa-solid fa-paper-plane text-danger me-2"></i>
+          <span data-sync-rcp-title>Enviada a</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex flex-wrap gap-2 mb-3" data-sync-rcp-counts></div>
+        <div data-sync-rcp-list>
+          <div class="text-muted small py-3"><i class="fa fa-spinner fa-spin me-2"></i>Cargando…</div>
+        </div>
+        <div class="form-text mt-3">
+          <i class="fa-solid fa-circle-info me-1"></i>Cuenta como <strong>escuchado</strong> a partir
+          de un minuto. «Posiblemente reenviado» es una sospecha: el tema se ha abierto desde otro
+          dispositivo y otra red.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

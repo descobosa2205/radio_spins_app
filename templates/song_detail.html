@@ -115,8 +115,17 @@
           <li><button class="dropdown-item" type="button" data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}">
             <i class="fa-solid {{ 'fa-paper-plane' if sync_sent else 'fa-share-from-square' }} fa-fw me-1"></i>
             {{ 'Enviada a Supervisors · volver a enviar' if sync_sent else 'Enviar a Supervisors' }}</button></li>
-          <li><hr class="dropdown-divider"></li>
         {% endif %}
+        {# QUIÉN lo ha recibido y qué ha hecho con él: se abre el mismo pop-up que en Syncros. #}
+        {% if sync_sent %}
+          <li><button class="dropdown-item" type="button" data-sync-rcp="{{ song.id }}"
+                      data-sync-rcp-title="{{ song.title|e }}">
+            <i class="fa-solid fa-list-check fa-fw me-1"></i>Ver quién lo ha recibido
+            <span class="badge text-bg-light border ms-1">{{ sync_sent_opened }}
+              <i class="fa-solid fa-envelope-open"></i> · {{ sync_sent_listened }}
+              <i class="fa-solid fa-headphones"></i></span></button></li>
+        {% endif %}
+        {% if CAN_EDIT_SYNCROS or sync_sent %}<li><hr class="dropdown-divider"></li>{% endif %}
         {% if CAN_EDIT_SYNCROS %}
           <li><button class="dropdown-item" type="button" data-sync-mode="email" data-sync-send="{{ song.id }}" data-sync-title="{{ song.title|e }}"><i class="fa-solid fa-envelope fa-fw me-1"></i>Por correo</button></li>
         {% else %}
@@ -3567,6 +3576,7 @@
    ⚠️⚠️ TIENEN que ir DENTRO de `{% block content %}`: fuera, Jinja los emite antes del `<!doctype>`
    y el navegador pinta esa parte SIN ESTILOS hasta que llega el CSS (bug real). #}
 {% if sync_in_repertoire and CAN_EDIT_SYNCROS %}{% include '_sync_send_modal.html' %}{% endif %}
+{% if sync_sent %}{% include '_sync_recipients_modal.html' %}{% endif %}
 {% if CAN_EDIT_DISCOGRAFICA %}
 <script>
   // ⚠️ CAMBIO DE EDITORIAL: antes de guardar se pregunta el alcance (solo esta canción o de aquí en

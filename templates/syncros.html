@@ -120,6 +120,8 @@
 
   {% include '_lyrics_modal.html' %}
   {% if can_edit %}{% include '_sync_send_modal.html' %}{% endif %}
+  {# QUIÉN ha recibido cada tema: se abre al pinchar el número de envíos. #}
+  {% include '_sync_recipients_modal.html' %}
   {# ⚠️ Sin `playlist.js` las líneas se ven pero NO suenan (mismo motor que las demos). #}
   <script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
 

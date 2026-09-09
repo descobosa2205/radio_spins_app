@@ -6649,6 +6649,51 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Las etiquetas de una ACTIVIDAD son otra cosa (texto libre sin catálogo) y siguen con
   `initConcertTagManager`.
 
+- ⚠️⚠️ **SYNCRO · ¿LO HAN ABIERTO, LO HAN ESCUCHADO Y LO HAN REENVIADO?** (sep 2026). Presentar un
+  tema a un supervisor sin saber si lo ha llegado a escuchar es trabajar a ciegas: es lo que dice si
+  hay que insistir, si el correo no llega o si el tema no engancha.
+  ⚠️⚠️ **Para saber QUIÉN hace falta un TOKEN POR ENVÍO** (`SyncSubmission.token`): el de la canción
+  (`Song.sync_share_token`) es UNO para todos y no distingue a nadie. El correo se compone **una vez
+  por idioma** con el marcador **`SYNC_TOKEN_MARK`** y se sustituye por destinatario (el patrón de
+  los destinatarios de una nota de prensa), así cada supervisor recibe SU enlace y SU píxel.
+  · **ABIERTO** — el **píxel** del correo (`public_sync_open`, `/syncro/a.gif`) y **abrir la página**
+  del tema. Los dos pasan por **`_sync_track_open`**, que apunta cada apertura con su IP y su
+  navegador (`opens`, las últimas 100).
+  · **ESCUCHADO** — ⚠️⚠️ **con MÁS DE UN MINUTO basta** (`SYNC_LISTEN_SECONDS`, lo pidió Dani: no
+  hace falta oírla entera). Son **segundos REPRODUCIDOS, no la posición de la barra**: el medidor de
+  `public_sync_song.html` suma los saltos pequeños de `timeupdate` (~0,25 s) y **descarta cualquier
+  salto de más de 2 s**, que es justo lo que hace un arrastre. Avisa al cruzar el minuto y luego cada
+  30 s (y con `sendBeacon` al cerrar la pestaña) a **`public_sync_listen`** (`/syncro/escucha`), que
+  solo SUBE la cifra (`max`): recargar la página no borra ni duplica lo escuchado.
+  ⚠️ El `<audio>` lo crea `playlist.js` al darle al play, así que todavía no existe: el `play` se
+  coge **EN CAPTURA sobre `document`** (los eventos de media no burbujean, pero sí se capturan).
+  · **REENVIADO** — es una **SOSPECHA** y se dice así («posiblemente reenviado»): aperturas desde
+  otro dispositivo **y** otra red que la primera. El proxy de imágenes de Gmail no cuenta (si no,
+  todo correo abierto en Gmail parecería reenviado).
+  · **DÓNDE SE VE**: la **etiqueta del número de envíos** de una fila del repertorio dice ya
+  «2 ✉ · 1 🎧 · 1 ↗», al pasar el ratón lo cuenta con palabras y **al PINCHARLA** sale el listado de
+  quién lo ha recibido con su foto y sus iconos (`#syncRcpModal` + `static/js/sync_recipients.js`,
+  global y por delegación; el listado se pide al abrirlo, no viaja en el HTML de la pantalla). Lo
+  mismo desde la ficha de la canción («Ver quién lo ha recibido») y, en la **pestaña Syncro del
+  supervisor**, una columna «Qué ha hecho» con los mismos iconos.
+  ⚠️ Los iconos son un **punto único**: `templates/_sync_track_icons.html` (macro `sync_icons`) sobre
+  **`_sync_submission_state`**, así que los tres sitios no pueden decir cosas distintas. El de la
+  escucha va **a medias (ámbar)** cuando le dieron al play sin llegar al minuto: «lo empezó y lo dejó
+  a los 12 s» es información, no un «no».
+  ⚠️ **El enlace de la CANCIÓN sigue valiendo** y no le apunta nada a nadie (es el que se comparte
+  por WhatsApp o se copia): `_sync_song_by_token` acepta los DOS tokens y es el punto único que usan
+  la página, el audio, la descarga y la miniatura.
+  ⚠️ La fila del envío **se crea ANTES de mandar** (su token tiene que ir dentro del correo) y **se
+  retira si el correo no sale**: la marca de «enviada a Supervisors» sigue contando solo lo que se ha
+  mandado de verdad.
+  ⚠️ El píxel devuelve **siempre** el gif, exista o no el token: un correo con una imagen rota es
+  peor que no saber si lo han abierto.
+  ⚠️ Los envíos ANTERIORES a esto no tienen token: sus iconos salen apagados, que es la verdad.
+  Probado con la app real (44 comprobaciones) y en el navegador: dos supervisores con enlaces
+  distintos, la apertura por página y por píxel, 20 s que no cuentan y 75 que sí, un arrastre de 4
+  minutos que no suma, la sospecha de reenvío, el pop-up, la ficha del supervisor y que pinchar la
+  etiqueta **no arranca el audio** (la regla de los controles de una fila).
+
 - ⚠️⚠️ **CHARTMETRIC · `obj` puede venir como ARRAY** (bug real, ago 2026). Su OpenAPI declara la
   respuesta de **`/api/track/{type}/{id}/get-ids`** con `obj` como **lista** (un elemento por ISRC),
   y `get_track_ids_from_isrc` solo aceptaba un dict: devolvía **`{}` SIEMPRE**, así que **«Vincular

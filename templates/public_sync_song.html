@@ -251,5 +251,74 @@
       }
     })();
   </script>
+
+  {# ══════════════════════════════════════════════════════════════════════════════════════════
+     ¿HA ESCUCHADO EL TEMA? Solo cuando el enlace es el de UN supervisor (su envío trae token).
+     ⚠️⚠️ Se cuentan los segundos REPRODUCIDOS, no la posición de la barra: arrastrarla al final
+     no es haber escuchado nada. Se suman los saltos pequeños de `timeupdate` (~250 ms) y se
+     descarta cualquier salto grande, que es justo lo que hace un arrastre.
+     ⚠️ Lo pidió Dani: NO hace falta escucharla entera, con más de un minuto cuenta.
+     ══════════════════════════════════════════════════════════════════════════════════════════ #}
+  {% if listen_token %}
+  <script>
+    (function () {
+      var TOKEN = {{ listen_token|tojson }};
+      var MINIMO = {{ listen_seconds|default(60)|int }};
+      var URL_ESCUCHA = {{ url_for('public_sync_listen')|tojson }};
+      var oidos = 0, ultima = null, mandados = -1, pendiente = false;
+
+      function manda(conBeacon) {
+        // Se avisa cuando cruza el minuto y, a partir de ahí, cada 30 s: ni un aviso por segundo
+        // ni perder el dato si cierra la pestaña.
+        var n = Math.floor(oidos);
+        if (n <= mandados) return;
+        if (n < MINIMO && !conBeacon) return;
+        if (mandados >= MINIMO && n - mandados < 30 && !conBeacon) return;
+        mandados = n;
+        var cuerpo = JSON.stringify({ token: TOKEN, seconds: n });
+        try {
+          if (conBeacon && navigator.sendBeacon) {
+            navigator.sendBeacon(URL_ESCUCHA, new Blob([cuerpo], { type: 'application/json' }));
+            return;
+          }
+        } catch (e) {}
+        if (pendiente) return;
+        pendiente = true;
+        fetch(URL_ESCUCHA, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                             body: cuerpo, keepalive: true })
+          .catch(function () {})
+          .then(function () { pendiente = false; });
+      }
+
+      function vigila(a) {
+        if (!a || a.__syncListen) return;
+        a.__syncListen = true;
+        a.addEventListener('timeupdate', function () {
+          var t = a.currentTime || 0;
+          if (ultima !== null) {
+            var d = t - ultima;
+            // ⚠️ Un salto de más de 2 s es un ARRASTRE de la barra (o un adelanto), no escucha.
+            if (d > 0 && d <= 2) oidos += d;
+          }
+          ultima = t;
+          manda(false);
+        });
+        a.addEventListener('seeking', function () { ultima = null; });
+        a.addEventListener('pause', function () { ultima = null; manda(false); });
+        a.addEventListener('ended', function () { ultima = null; manda(true); });
+      }
+
+      // ⚠️ El <audio> lo crea `playlist.js` al darle al play, así que no existe todavía: se coge
+      // el evento `play` EN CAPTURA (los eventos de media no burbujean, pero sí se capturan).
+      document.addEventListener('play', function (ev) {
+        if (ev.target && ev.target.tagName === 'AUDIO') vigila(ev.target);
+      }, true);
+      window.addEventListener('pagehide', function () { manda(true); });
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') manda(true);
+      });
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>

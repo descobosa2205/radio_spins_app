@@ -16,7 +16,12 @@
   {% set badges %}
     {% if row.one_stop %}{{ one_stop_badge('ms-1') }}{% endif %}
     {% if row.is_new %}<span class="badge sync-new ms-1" title="Publicada hace menos de 15 días">Novedad</span>{% endif %}
-    {% if sent and row.sent %}<span class="badge text-bg-success ms-1" title="{{ row.sent_tooltip }}"><i class="fa-solid fa-paper-plane me-1"></i>{{ row.sent_count }}</span>{% endif %}
+    {# ⚠️ EL NÚMERO DE ENVÍOS SE PINCHA: al pasar el ratón se dice cuántos lo han abierto y
+       escuchado, y al pincharlo sale el LISTADO de quién lo ha recibido con sus iconos
+       (`sync_recipients.js`, que abre `#syncRcpModal`). #}
+    {% if sent and row.sent %}<button type="button" class="badge text-bg-success ms-1 sync-sent-badge"
+        title="{{ row.sent_tooltip }}" data-sync-rcp="{{ row.id }}"
+        data-sync-rcp-title="{{ row.title }}"><i class="fa-solid fa-paper-plane me-1"></i>{{ row.sent_count }}{% if row.sent_opened is defined and row.sent_count %}<span class="sync-sent-badge__x">·</span>{{ row.sent_opened }} <i class="fa-solid fa-envelope-open"></i><span class="sync-sent-badge__x">·</span>{{ row.sent_listened }} <i class="fa-solid fa-headphones"></i>{% if row.sent_forwarded %}<span class="sync-sent-badge__x">·</span>{{ row.sent_forwarded }} <i class="fa-solid fa-share-from-square"></i>{% endif %}{% endif %}</button>{% endif %}
     {# Los GÉNEROS y, DETRÁS de ellos, el aviso de contenido EXPLÍCITO (de otro color, para que no
        parezca un género más). Si no es explícita, no se pinta nada. #}
     {% if row.genres or row.explicit %}

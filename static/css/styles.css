@@ -7040,3 +7040,28 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .rd-file__a:hover{ text-decoration:underline; }
 .rd-drop{ border:1px dashed var(--bs-border-color); border-radius:12px; padding:1rem;
   text-align:center; color:#6c757d; font-size:.9rem; }
+
+
+/* ── SYNCRO · ¿lo han abierto, escuchado y reenviado? ────────────────────────────────────────
+   Los tres iconos de un envío. Apagados = todavía no; encendidos = sí; el de la escucha a MEDIAS
+   (ámbar) cuando le dieron al play pero no llegaron al minuto. */
+.sync-track{ display:inline-flex; align-items:center; gap:.4rem; white-space:nowrap; }
+.sync-track__i{ color:#c7ccd4; font-size:.95rem; cursor:help; }
+.sync-track__i.is-on{ color:#1a9e5c; }
+.sync-track__i.is-half{ color:#e0a800; }
+.sync-track__i.is-fwd{ color:var(--brand-accent, #007CA2); }
+.sync-track--sm .sync-track__i{ font-size:.85rem; }
+
+/* La etiqueta del listado con el número de envíos: se PINCHA para ver quién lo ha recibido. */
+.sync-sent-badge{ border:0; cursor:pointer; }
+.sync-sent-badge:hover{ filter:brightness(1.08); }
+/* El separador entre el nº de envíos, los que lo han abierto y los que lo han escuchado. */
+.sync-sent-badge__x{ opacity:.55; margin:0 .3rem; }
+
+/* El listado de quién ha recibido un tema. */
+.sync-rcp{ display:flex; align-items:center; gap:.7rem; padding:.5rem .25rem; border-bottom:1px solid #eef0f3; }
+.sync-rcp:last-child{ border-bottom:0; }
+.sync-rcp__img{ width:38px; height:38px; border-radius:50%; object-fit:cover; flex:0 0 auto; background:#f1f3f6; }
+.sync-rcp__main{ min-width:0; flex:1 1 auto; }
+.sync-rcp__name{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sync-rcp__sub{ font-size:.8rem; color:#6b7280; }

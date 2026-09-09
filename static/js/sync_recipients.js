@@ -31,6 +31,11 @@
     var nombre = r.url
       ? '<a class="text-reset text-decoration-none" href="' + esc(r.url) + '">' + esc(r.name) + '</a>'
       : esc(r.name);
+    // ⚠️ Un correo suelto NO es un supervisor (y por eso no cuenta en el número de la etiqueta):
+    // se dice, o parecería que las cuentas no cuadran.
+    if (!r.is_supervisor) {
+      nombre += ' <span class="badge text-bg-light border fw-normal ms-1">por correo</span>';
+    }
     return '<div class="sync-rcp">' + foto +
       '<div class="sync-rcp__main"><div class="sync-rcp__name">' + nombre + '</div>' +
       '<div class="sync-rcp__sub">' + sub.join(' · ') + '</div></div>' +
@@ -69,6 +74,10 @@
           var c = d.counts || {};
           cuentas.innerHTML =
             galleta('fa-paper-plane', c.total || 0, (c.total === 1 ? 'envío' : 'envíos'), 'text-bg-secondary') +
+            // ⚠️ Solo si el dato VIENE y además difiere del total: con `|| 0` una respuesta que no
+            // lo trajera pintaría «0 a supervisors», que es mentira.
+            ((c.supervisors != null && c.supervisors !== c.total)
+              ? galleta('fa-user-tie', c.supervisors, 'a supervisors', 'text-bg-light border') : '') +
             galleta('fa-envelope-open', c.opened || 0, 'lo han abierto', 'text-bg-light border') +
             galleta('fa-headphones', c.listened || 0, 'lo han escuchado', 'text-bg-light border') +
             ((c.forwarded || 0) ? galleta('fa-share-from-square', c.forwarded,

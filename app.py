@@ -154511,6 +154511,10 @@ def sync_song_recipients(song_id):
             "rows": filas,
             "counts": {
                 "total": len(filas),
+                # ⚠️ La etiqueta del listado cuenta SOLO los envíos a SUPERVISORES, así que aquí se
+                # dice cuántos son: si no, el número de fuera (2) y las filas de dentro (3, con un
+                # correo suelto) parecerían no cuadrar.
+                "supervisors": sum(1 for f in filas if f["is_supervisor"]),
                 "opened": sum(1 for f in filas if f["opened"]),
                 "listened": sum(1 for f in filas if f["listened"]),
                 "forwarded": sum(1 for f in filas if f["forwarded"]),

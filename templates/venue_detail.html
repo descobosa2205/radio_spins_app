@@ -53,21 +53,36 @@
         <label class="form-label">Nombre</label>
         <input class="form-control" name="name" value="{{ venue.name or '' }}" required>
       </div>
-      <div class="col-md-4">
-        <label class="form-label">Dirección</label>
-        <span data-address-autocomplete class="d-block position-relative"><input class="form-control" name="address" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…" value="{{ venue.address or '' }}"></span>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label">Municipio</label>
-        <input class="form-control" name="municipality" value="{{ venue.municipality or '' }}">
-      </div>
-      <div class="col-md-1">
-        <label class="form-label">Provincia</label>
-        <input class="form-control" name="province" value="{{ venue.province or '' }}">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label">País</label>
-        <input class="form-control" name="country" value="{{ venue.country or 'España' }}">
+      {# ⚠️⚠️ LA DIRECCIÓN VA EN PIEZAS Y TODO DENTRO DEL MISMO BLOQUE `data-address-autocomplete`:
+         al elegir una sugerencia se rellenan solos el código postal, el municipio, la provincia y
+         el país, y en «Dirección» se queda SOLO LA CALLE. Antes el bloque envolvía únicamente el
+         campo de la dirección (`data-addr="full"`), así que ahí se escribía la dirección ENTERA
+         («Calle, CP Municipio, Provincia, País») y los demás campos se quedaban vacíos (bug real).
+         La regla vale para TODOS los sitios: si al lado hay campos sueltos, el modo es EN PIEZAS. #}
+      <div class="col-12" data-address-autocomplete>
+        <div class="row g-3">
+          <div class="col-md-5">
+            <label class="form-label">Dirección</label>
+            <input class="form-control" name="address" data-addr="address" autocomplete="off"
+                   placeholder="Empieza a escribir la calle…" value="{{ venue.address or '' }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">C. postal</label>
+            <input class="form-control" name="postal_code" data-addr="postal_code" value="{{ venue.postal_code or '' }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Municipio</label>
+            <input class="form-control" name="municipality" data-addr="city" value="{{ venue.municipality or '' }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Provincia</label>
+            <input class="form-control" name="province" data-addr="province" value="{{ venue.province or '' }}">
+          </div>
+          <div class="col-md-1">
+            <label class="form-label">País</label>
+            <input class="form-control" name="country" data-addr="country" value="{{ venue.country or 'España' }}">
+          </div>
+        </div>
       </div>
       <div class="col-md-4">
         <label class="form-label">Foto</label>

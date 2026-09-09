@@ -48514,7 +48514,9 @@ def venues_view():
             photo = request.files.get("photo")
             photo_url = upload_image(photo, "venues") if photo and getattr(photo, "filename", "") else None
             v = Venue(name=name, covered=covered, allows_bars=allows_bars, address=address,
-                      municipality=municipality, province=province, country=country, photo_url=photo_url)
+                      municipality=municipality, province=province, country=country, photo_url=photo_url,
+                      # El CP lo trae el buscador de direcciones con el resto (y de él sale la provincia).
+                      postal_code=(request.form.get("postal_code") or "").strip() or None)
             session.add(v)
             session.commit()
             flash("Recinto creado.", "success")
@@ -48555,6 +48557,9 @@ def venue_update(vid):
     v.covered = (request.form.get("covered") == "on")
     v.allows_bars = (request.form.get("allows_bars") == "on")
     v.address = (request.form.get("address") or "").strip()
+    # El CÓDIGO POSTAL lo rellena el buscador de direcciones con el resto (y de él sale la provincia).
+    if "postal_code" in request.form:
+        v.postal_code = (request.form.get("postal_code") or "").strip() or None
     v.municipality = (request.form.get("municipality") or "").strip()
     v.province = (request.form.get("province") or "").strip()
     v.country = (request.form.get("country") or "").strip() or (v.country or "España")

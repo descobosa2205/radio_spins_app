@@ -11511,3 +11511,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `.form-control`** (`calc(1.5em + .75rem + 2px)`) y centra su contenido: la foto cabe con holgura
   y el campo cuadra con lo que tiene al lado. Vale para TODOS los selectores con foto de la app
   (artistas, terceros, recintos, medios…), que son el mismo componente.
+
+- ⚠️⚠️ **UN BLOQUE DE DIRECCIÓN CON CAMPOS SUELTOS AL LADO VA SIEMPRE EN PIEZAS** (bug real, sep
+  2026: «al crear un recinto pones la dirección y no se rellenan solos el municipio, la provincia,
+  el país y el código postal, y en el cuadro dirección se queda todo junto»). En la ficha del
+  recinto —y en el alta desde el listado— el `data-address-autocomplete` envolvía **solo el campo
+  de la dirección**, con `data-addr="full"`, y el municipio, la provincia y el país estaban
+  **FUERA** del bloque: al elegir una sugerencia se escribía la dirección ENTERA («Calle Larga,
+  11579 Jerez de la Frontera, Cádiz») en ese campo y los demás se quedaban vacíos — que es
+  exactamente lo que hace el modo `full` (así se comporta un DOMICILIO, donde ese campo es la
+  dirección completa y no hay ningún otro).
+  ⚠️ **La regla es del SITIO, no del motor**: si al lado hay campos de municipio/provincia/CP/país,
+  el bloque los envuelve a TODOS y el modo es **en piezas**
+  (`data-addr="address|postal_code|city|province|country"`); si la dirección va en un solo cuadro,
+  `full`. `elegir()` ya rellenaba cada pieza por su cuenta y la **provincia siempre del CP**.
+  · **`Venue.postal_code` se guarda** en los tres caminos (`venue_update`, el alta desde el listado
+  y el alta al vuelo `api_create_venue`): es lo que trae el buscador con el resto y de él sale la
+  provincia. En `venue_update` va con guarda (`if "postal_code" in request.form`), para que un POST
+  de otra pantalla no lo borre.
+  · **Crear un recinto SOBRE LA MARCHA** ya usa `data-addr-reveal` (solo la barra y, al elegir, los
+  campos aparecen rellenos), y `api_create_venue` guarda las cinco piezas.
+  Probado con la app real en los TRES caminos: al elegir «Calle Larga» queda `address='Calle Larga'`
+  · `postal_code='11579'` · `Jerez de la Frontera` · `Cádiz` · `España`, y así se guarda.

@@ -124,7 +124,8 @@
                 data-mc-role="{{ contact.role or '' }}"
                 data-mc-phone="{{ contact.phone or '' }}"
                 data-mc-email="{{ contact.email or '' }}"
-                data-mc-press="{{ '1' if contact.press_releases else '' }}">
+                data-mc-press="{{ '1' if contact.press_releases else '' }}"
+                data-mc-promoter-id="{{ contact.promoter_id or '' }}">
             <i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
           {% if contact.email %}<li><a class="dropdown-item" href="mailto:{{ contact.email }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por Mail</a></li>{% endif %}
           {% if contact.phone %}<li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ share_text|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>{% endif %}
@@ -170,11 +171,48 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <div class="demo-cards">
+            {# ⚠️⚠️ PRIMERO SE BUSCA ENTRE LOS TERCEROS QUE YA TENEMOS (con su foto): una persona de un
+               medio ES un tercero, y darla de alta otra vez rompe el cruce por DNI de facturación y
+               el reparto editorial. Solo si no está se crea una nueva — y entonces se le crea también
+               su ficha de tercero. Los campos aparecen al elegir a alguien o al crear uno nuevo. #}
+            <div data-mc-view="search">
+              <div class="demo-card">
+                <div class="demo-card__head"><i class="fa fa-magnifying-glass"></i>¿Quién es?</div>
+                <div class="demo-card__body">
+                  <label class="form-label">Busca a la persona entre los terceros</label>
+                  <input class="form-control" data-mc-search autocomplete="off"
+                         placeholder="Nombre, correo, teléfono, CIF…">
+                  <div class="form-text">Se busca por cualquier dato. Si ya está, se usa su ficha y
+                    solo se te piden los datos que falten.</div>
+                  <div class="mc-results" data-mc-results></div>
+                  <button type="button" class="btn btn-outline-secondary mt-3" data-mc-create>
+                    <i class="fa fa-user-plus me-1"></i>No está: crear una persona nueva
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="demo-cards" data-mc-view="form">
+
+              {# A quién se ha elegido (o que es nueva), con su foto. #}
+              <div class="mc-picked d-none" data-mc-picked>
+                <img class="mc-picked__ava" data-mc-picked-img src="" alt="" data-avatar="1">
+                <div class="mc-picked__body">
+                  <div class="mc-picked__name" data-mc-picked-name></div>
+                  <div class="mc-picked__meta" data-mc-picked-meta></div>
+                </div>
+                <button type="button" class="btn btn-sm btn-link text-danger" data-mc-unpick title="Elegir a otra persona">
+                  <i class="fa fa-xmark"></i></button>
+              </div>
+              <input type="hidden" name="promoter_id" value="" data-mc-f="promoter_id">
 
               <div class="demo-card">
                 <div class="demo-card__head"><i class="fa fa-user"></i>¿Quién es?</div>
                 <div class="demo-card__body">
+                  <div class="form-text mb-2 d-none" data-mc-inherited>
+                    <i class="fa fa-circle-info me-1"></i>Lo que ya está viene de su ficha: completa
+                    solo lo que falte (el cargo y el programa en este medio).
+                  </div>
                   <div class="row g-2">
                     <div class="col-12 col-md-5">
                       <label class="form-label">Nick <span class="text-muted small fw-normal">(como le llamamos)</span></label>
@@ -192,7 +230,7 @@
                       <div class="form-text">Si no está, se crea con lo que escribas.</div>
                     </div>
                     <div class="col-12 col-md-5">
-                      <label class="form-label">Cargo</label>
+                      <label class="form-label">Cargo <span class="text-muted small fw-normal">(en este medio)</span></label>
                       <input class="form-control" name="role" data-mc-f="role" autocomplete="off"
                              placeholder="Redactor, director…">
                     </div>
@@ -233,6 +271,8 @@
             </div>
           </div>
           <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary d-none" data-mc-back>
+              <i class="fa fa-arrow-left me-1"></i>Volver a buscar</button>
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
             <button class="btn btn-primary" data-mc-submit>Añadir contacto</button>
           </div>

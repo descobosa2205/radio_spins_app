@@ -242,6 +242,18 @@
       if (c) c.innerHTML = '';
       if (root) renumera(root);
     },
+    /* Poner lo YA ELEGIDO, en su orden (editar algo que ya tenía repertorio). Reemplaza lo que
+       hubiera: se llama con la lista completa, no una a una. */
+    setChosen: function (root, songs) {
+      if (!root) return;
+      var c = root.querySelector('[data-perf-rows]');
+      if (c) c.innerHTML = '';
+      (songs || []).forEach(function (x) {
+        if (!x) return;
+        añade(root, String(x.id != null ? x.id : (x.song_id || '')), x.title || '', x.cover_url || '');
+      });
+      renumera(root);
+    },
     /* Los ids elegidos, EN SU ORDEN (por si alguna pantalla los necesita). */
     ids: function (root) {
       return filas(root).map(function (f) { return f.getAttribute('data-perf-row'); });

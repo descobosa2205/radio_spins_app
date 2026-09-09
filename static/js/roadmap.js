@@ -292,17 +292,54 @@
       });
       return map;
     }
+    /* ⚠️ QUÉ DÍAS SE VEN. Con varios días la hoja es UNA línea de tiempo continua, y a veces solo
+       interesa mirar un día: los chips de arriba lo filtran. Vacío = se ven todos. */
+    var diasVistos = null;
+    function diasVisibles() {
+      if (!diasVistos || !diasVistos.length) return DAYS;
+      return DAYS.filter(function (d) { return diasVistos.indexOf(d.date) >= 0; });
+    }
+    function dayFilter() {
+      if ((DAYS || []).length < 2) return '';
+      var todos = !diasVistos || !diasVistos.length;
+      var chips = '<button type="button" class="filter-chip' + (todos ? ' is-on' : '') + '" data-rmday="">'
+        + '<i class="fa fa-layer-group"></i>Todos los días</button>';
+      DAYS.forEach(function (d) {
+        var on = !todos && diasVistos.indexOf(d.date) >= 0;
+        chips += '<button type="button" class="filter-chip' + (on ? ' is-on' : '') + '" data-rmday="' + esc(d.date) + '">'
+          + '<i class="fa fa-calendar-day"></i>' + esc(d.label || (d.weekday + ' ' + d.day)) + '</button>';
+      });
+      return '<div class="rm-dayfilter">' + chips + '</div>';
+    }
+
     function renderAgenda() {
       var map = agendaByDay();
       var tools = RO ? '' : '<div class="ms-auto d-flex gap-1">' + tplBtn('ROADMAP') + '<button class="btn btn-sm btn-outline-secondary" data-share title="Compartir (solo lectura)"><i class="fa fa-share-nodes"></i></button><button class="btn btn-sm btn-outline-secondary" data-cfg title="Configurar días"><i class="fa fa-gear"></i></button></div>';
-      var html = '<div class="rm-toolbar"><div class="text-muted small">Calendario de la actividad</div>' + tools + '</div><div class="rm-agenda">';
-      DAYS.forEach(function (d) { html += dayBlock(d, map[d.date] || []); });
+      var vistos = diasVisibles();
+      var html = '<div class="rm-toolbar"><div class="text-muted small">Calendario de la actividad</div>' + tools + '</div>'
+        + dayFilter()
+        + '<div class="rm-agenda' + ((DAYS || []).length < 2 ? ' rm-agenda--single' : '') + '">';
+      vistos.forEach(function (d) { html += dayBlock(d, map[d.date] || []); });
       html += '</div>';
       view.innerHTML = html;
       if (!RO) {
         var shareBtn = view.querySelector('[data-share]'); if (shareBtn) shareBtn.addEventListener('click', openShareModal);
         var cfgBtn = view.querySelector('[data-cfg]'); if (cfgBtn) cfgBtn.addEventListener('click', openDaysConfig);
       }
+      view.querySelectorAll('[data-rmday]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var d = b.getAttribute('data-rmday');
+          // «Todos» limpia el filtro; un día se pone o se quita (se pueden ver varios a la vez).
+          if (!d) { diasVistos = null; }
+          else {
+            diasVistos = diasVistos ? diasVistos.slice() : [];
+            var i = diasVistos.indexOf(d);
+            if (i >= 0) diasVistos.splice(i, 1); else diasVistos.push(d);
+            if (!diasVistos.length) diasVistos = null;
+          }
+          renderAgenda();
+        });
+      });
       bindAgenda();
     }
     function dayBlock(d, items) {

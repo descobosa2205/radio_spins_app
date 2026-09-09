@@ -44,12 +44,122 @@
     m.querySelectorAll('.is-check-missing, .is-check-bad').forEach(function (el) {
       el.classList.remove('is-check-missing', 'is-check-bad');
     });
+    /* ⚠️ AL AÑADIR se empieza BUSCANDO entre los terceros (una persona de un medio ES un tercero);
+       al EDITAR se va directo a sus datos. */
+    pon('promoter_id', d.promoter_id || '');
+    pintaElegido(d.promoter_id ? d : null);
+    vista(editando ? 'form' : 'search');
+    var buscador = m.querySelector('[data-mc-search]');
+    if (buscador) { buscador.value = ''; }
+    var res = m.querySelector('[data-mc-results]');
+    if (res) res.innerHTML = '';
     if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(m).show();
+    if (!editando && buscador) setTimeout(function () { buscador.focus(); }, 250);
+  }
+
+  /* Lo que YA viene de la ficha del tercero se marca (y se desmarca en cuanto se toca). */
+  function marcaHeredados(activar) {
+    var m = modal();
+    if (!m) return;
+    ['nick', 'full', 'email', 'phone'].forEach(function (k) {
+      var el = campo(k);
+      if (!el) return;
+      el.classList.toggle('is-from-promoter', !!(activar && (el.value || '').trim()));
+    });
+    var aviso = m.querySelector('[data-mc-inherited]');
+    if (aviso) aviso.classList.toggle('d-none', !activar);
+  }
+  document.addEventListener('input', function (ev) {
+    if (ev.target.matches('[data-mc-f]')) ev.target.classList.remove('is-from-promoter');
+  });
+
+  /* ---------- Buscar / crear: las dos caras del pop-up ---------- */
+  function vista(cual) {
+    var m = modal();
+    if (!m) return;
+    m.querySelectorAll('[data-mc-view]').forEach(function (z) {
+      z.classList.toggle('d-none', z.getAttribute('data-mc-view') !== cual);
+    });
+    var enviar = m.querySelector('[data-mc-submit]');
+    if (enviar) enviar.classList.toggle('d-none', cual !== 'form');
+    var atras = m.querySelector('[data-mc-back]');
+    var editando = !!((m.querySelector('[data-mc-contact-id]') || {}).value || '');
+    if (atras) atras.classList.toggle('d-none', cual !== 'form' || editando);
+  }
+
+  /* A quién se ha elegido, con su foto (o el muñequito gris de la casa).
+     ⚠️ `pintaElegido`, NO `pinta`: ya hay una `pinta()` (la de las sugerencias de programa) y en JS
+     la última definición PISA a la anterior (la trampa de siempre de los nombres repetidos). */
+  function pintaElegido(p) {
+    var m = modal();
+    var caja = m ? m.querySelector('[data-mc-picked]') : null;
+    if (!caja) return;
+    if (!p) { caja.classList.add('d-none'); return; }
+    var img = caja.querySelector('[data-mc-picked-img]');
+    var def = document.body.getAttribute('data-default-avatar-url') || '';
+    if (img) img.src = (p.logo_url || p.photo || def || '');
+    var n = caja.querySelector('[data-mc-picked-name]');
+    if (n) n.textContent = p.label || p.nick || p.full || 'Persona nueva';
+    var meta = caja.querySelector('[data-mc-picked-meta]');
+    if (meta) {
+      meta.textContent = [p.contact_email || p.email || '', p.contact_phone || p.phone || '']
+        .filter(Boolean).join(' · ') || (p.promoter_id ? 'Ficha de tercero' : 'Se le creará su ficha de tercero');
+    }
+    caja.classList.remove('d-none');
   }
 
   document.addEventListener('click', function (ev) {
     var nuevo = ev.target.closest('[data-mc-new]');
     if (nuevo) { ev.preventDefault(); abrir(null); return; }
+
+    // «No está: crear una persona nueva» → los campos, en blanco. Se le creará su ficha de tercero.
+    if (ev.target.closest('[data-mc-create]')) {
+      ev.preventDefault();
+      var mc = modal();
+      ['nick', 'full', 'program', 'role', 'phone', 'email'].forEach(function (k) {
+        var el = campo(k); if (el) el.value = '';
+      });
+      var hid = campo('promoter_id'); if (hid) hid.value = '';
+      pintaElegido({ label: 'Persona nueva' });
+      marcaHeredados(false);
+      vista('form');
+      var primero = campo('nick'); if (primero) setTimeout(function () { primero.focus(); }, 120);
+      return;
+    }
+    if (ev.target.closest('[data-mc-back]')) { ev.preventDefault(); vista('search'); return; }
+    if (ev.target.closest('[data-mc-unpick]')) {
+      ev.preventDefault();
+      var h = campo('promoter_id'); if (h) h.value = '';
+      pintaElegido(null);
+      vista('search');
+      return;
+    }
+
+    // Un resultado de la búsqueda: se usa SU ficha y solo se piden los datos que falten.
+    var pick = ev.target.closest('[data-mc-promoter]');
+    if (pick) {
+      ev.preventDefault();
+      var p = {};
+      try { p = JSON.parse(pick.getAttribute('data-mc-promoter')) || {}; } catch (e) { p = {}; }
+      var hidp = campo('promoter_id'); if (hidp) hidp.value = p.id || '';
+      var full = [p.first_name || '', p.last_name || ''].filter(Boolean).join(' ');
+      var pon2 = function (k, v) { var el = campo(k); if (el) el.value = v || ''; };
+      pon2('nick', p.nick || '');
+      pon2('full', full);
+      pon2('email', p.contact_email || '');
+      pon2('phone', p.contact_phone || '');
+      pon2('role', '');
+      pintaElegido(Object.assign({ promoter_id: p.id }, p));
+      vista('form');
+      /* ⚠️ SOLO SE PIDE LO QUE FALTA: lo que ya está en su ficha viene puesto y se marca como tal
+         (fondo suave), y el foco va al primer hueco vacío —el cargo, casi siempre—. */
+      marcaHeredados(true);
+      var falta = ['role', 'program', 'email', 'phone', 'full'].filter(function (k) {
+        var el = campo(k); return el && !(el.value || '').trim();
+      })[0] || 'role';
+      var el0 = campo(falta); if (el0) setTimeout(function () { el0.focus(); }, 120);
+      return;
+    }
 
     var editar = ev.target.closest('[data-mc-edit]');
     if (editar) {
@@ -62,7 +172,8 @@
         role: editar.getAttribute('data-mc-role') || '',
         phone: editar.getAttribute('data-mc-phone') || '',
         email: editar.getAttribute('data-mc-email') || '',
-        press: !!(editar.getAttribute('data-mc-press') || '')
+        press: !!(editar.getAttribute('data-mc-press') || ''),
+        promoter_id: editar.getAttribute('data-mc-promoter-id') || ''
       });
       return;
     }
@@ -78,6 +189,35 @@
         setTimeout(function () { copiar.innerHTML = antes; }, 1200);
       } catch (e) {}
     }
+  });
+
+  /* ---------- EL BUSCADOR de terceros (con su foto) ---------- */
+  var espera = null;
+  document.addEventListener('input', function (ev) {
+    if (!ev.target.matches('[data-mc-search]')) return;
+    var input = ev.target;
+    var caja = modal() ? modal().querySelector('[data-mc-results]') : null;
+    if (!caja) return;
+    clearTimeout(espera);
+    var q = (input.value || '').trim();
+    if (q.length < 2) { caja.innerHTML = ''; return; }
+    espera = setTimeout(function () {
+      fetch('/api/search/promoters?q=' + encodeURIComponent(q), { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var filas = Array.isArray(d) ? d : ((d && (d.results || d.items)) || []);
+          var def = document.body.getAttribute('data-default-avatar-url') || '';
+          caja.innerHTML = filas.slice(0, 12).map(function (p) {
+            var meta = [p.contact_email, p.contact_phone, p.link_summary_text].filter(Boolean).join(' · ');
+            return '<button type="button" class="mc-opt" data-mc-promoter=\'' + esc(JSON.stringify(p)) + '\'>' +
+              '<img class="mc-opt__ava" src="' + esc(p.logo_url || def) + '" alt="" data-avatar="1">' +
+              '<span class="mc-opt__body"><span class="mc-opt__name">' + esc(p.label || p.nick || '') + '</span>' +
+              (meta ? '<span class="mc-opt__meta">' + esc(meta) + '</span>' : '') + '</span>' +
+              '<i class="fa fa-plus ms-auto text-muted"></i></button>';
+          }).join('') || '<div class="text-muted small mt-2">Nadie con ese dato. Créala con el botón de abajo.</div>';
+        })
+        .catch(function () { caja.innerHTML = ''; });
+    }, 280);
   });
 
   /* ---------- El interruptor de NOTAS DE PRENSA ---------- */

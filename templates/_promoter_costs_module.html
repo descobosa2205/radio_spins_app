@@ -43,8 +43,10 @@
       <div class="fw-semibold mb-2"><i class="fa {{ icon }} me-1 text-danger"></i>{{ label }}</div>
       <div class="row g-2 align-items-end">
         <div class="col-lg-5">
-          <label class="form-label">¿Qué cubre? <span class="text-muted">(nota)</span></label>
-          <input class="form-control" name="promoter_cost_note_{{ key }}" placeholder="Detalle de lo que cubre">
+          {# ⚠️ En «Otros» la NOTA es lo importante: es donde se describe el gasto que cubre. #}
+          <label class="form-label">{% if key == 'OTROS' %}¿Qué otros gastos cubre?{% else %}¿Qué cubre? <span class="text-muted">(nota)</span>{% endif %}</label>
+          <input class="form-control" name="promoter_cost_note_{{ key }}"
+                 placeholder="{% if key == 'OTROS' %}Describe el gasto que cubre{% else %}Detalle de lo que cubre{% endif %}">
         </div>
         <div class="col-lg-5">
           <label class="form-label d-block">¿Quién lo gestiona?</label>

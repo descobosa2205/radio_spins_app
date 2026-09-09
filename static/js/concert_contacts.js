@@ -97,7 +97,7 @@
         if (p.promoter_name) meta.push(esc(p.promoter_name));
         else if (!p.promoter_id) meta.push('sin tercero');
         return '<div class="cc-card" data-cc-chosen-row="' + esc(id) + '">' +
-          '<div class="cc-card__avatar"><i class="fa fa-user"></i></div>' +
+          avatar(p, 'cc-card__avatar') +
           '<div style="min-width:0;flex:1 1 auto;">' +
             '<div class="cc-card__name">' + esc(p.name) + (p.title ? ' <span class="text-muted fw-normal">· ' + esc(p.title) + '</span>' : '') + '</div>' +
             (meta.length ? '<div class="cc-card__meta">' + meta.join(' · ') + '</div>' : '') +
@@ -110,6 +110,16 @@
       pintaInputs();
     }
 
+    /* LA FOTO de quien se pone de contacto: la de su tercero (una persona de contacto no tiene una
+       propia). Sin foto, el muñequito gris de la casa — el hueco se conserva para que las filas
+       midan lo mismo. */
+    function avatar(p, clase) {
+      var src = (p && p.photo) || '';
+      var def = document.body.getAttribute('data-default-avatar-url') || '';
+      if (!src && !def) return '<span class="' + clase + '"><i class="fa fa-user"></i></span>';
+      return '<img class="' + clase + '" src="' + esc(src || def) + '" alt="" data-avatar="1">';
+    }
+
     function tarjetaDisponible(p) {
       var meta = [];
       if (p.title) meta.push(esc(p.title));
@@ -118,9 +128,10 @@
       if (p.promoter_name) meta.push(esc(p.promoter_name));
       var datos = ' data-cc-add=\'' + esc(JSON.stringify(p)) + '\'';
       return '<button type="button" class="cc-opt"' + datos + '>' +
-        '<i class="fa fa-plus"></i>' +
+        avatar(p, 'cc-opt__avatar') +
         '<span class="cc-opt__body"><span class="cc-opt__name">' + esc(p.name) + '</span>' +
-        (meta.length ? '<span class="cc-opt__meta">' + meta.join(' · ') + '</span>' : '') + '</span></button>';
+        (meta.length ? '<span class="cc-opt__meta">' + meta.join(' · ') + '</span>' : '') + '</span>' +
+        '<i class="fa fa-plus ms-auto text-muted"></i></button>';
     }
 
     function pintaDisponibles() {
@@ -284,9 +295,11 @@
         if (err) { err.textContent = 'Indica al menos el nombre.'; err.classList.remove('d-none'); }
         return;
       }
+      /* ⚠️ SE PREGUNTA si la persona se queda en la ficha del tercero (SIEMPRE) o solo en esta
+         actividad: apuntar a alguien aquí no significa que tenga que quedarse como contacto suyo. */
       var vincular = true;
-      var chk = root.querySelector('[data-cc-link]');
-      if (promotorId() && chk) vincular = !!chk.checked;
+      var op = root.querySelector('[data-cc-link-mode]:checked');
+      if (promotorId() && op) vincular = (op.value === 'ALWAYS');
       pedir(root.getAttribute('data-create-url'), {
         method: 'POST',
         body: JSON.stringify({
@@ -331,10 +344,23 @@
         espera = setTimeout(function () {
           pedir(root.getAttribute('data-search-url') + '?q=' + encodeURIComponent(q)).then(function (d) {
             var libres = ((d && d.results) || []).filter(function (p) { return !elegidos[p.id]; });
-            cajaResultados.innerHTML = libres.length
-              ? '<div class="cc-group"><div class="cc-group__head">Resultados</div>' +
-                libres.map(tarjetaDisponible).join('') + '</div>'
-              : '<div class="cc-empty small text-muted">Nadie con ese nombre. Créala con el botón de abajo.</div>';
+            // Los TERCEROS que casan (por cualquier campo): se añaden como «el propio X».
+            var terceros = ((d && d.promoters) || []).filter(function (p) {
+              return !Object.keys(elegidos).some(function (id) {
+                return elegidos[id] && elegidos[id].promoter_id === p.promoter_id;
+              });
+            });
+            var html = '';
+            if (libres.length) {
+              html += '<div class="cc-group"><div class="cc-group__head">Personas</div>' +
+                      libres.map(tarjetaDisponible).join('') + '</div>';
+            }
+            if (terceros.length) {
+              html += '<div class="cc-group"><div class="cc-group__head">Terceros</div>' +
+                      terceros.map(tarjetaDisponible).join('') + '</div>';
+            }
+            cajaResultados.innerHTML = html ||
+              '<div class="cc-empty small text-muted">Nadie con ese nombre. Créala con el botón de abajo.</div>';
           });
         }, 300);
       });
@@ -350,12 +376,33 @@
       }
     }
 
+    /* API por bloque: poner de golpe las personas YA ELEGIDAS ({id: [funciones]}). La usa el
+       precumplimentado del asistente cuando la actividad viene de una PETICIÓN que ya los puso.
+       Los datos de cada persona (nombre, foto, correo) se rellenan desde los grupos que devuelve el
+       servidor, igual que con los que ya tenía la actividad. */
+    root.__ccApi = {
+      preselect: function (sel) {
+        yaTenia = sel || {};
+        elegidos = {};
+        return cargaOpciones(false);
+      },
+    };
+
     cargaOpciones(false);
   }
 
   function init() {
     document.querySelectorAll('[data-concert-contacts]').forEach(setup);
   }
+  /* Punto único para las pantallas: `app33ConcertContacts.preselect('#idDelBloque', {id:[roles]})`. */
+  window.app33ConcertContacts = {
+    preselect: function (sel, elegidos) {
+      var root = (typeof sel === 'string') ? document.querySelector(sel) : sel;
+      if (!root) return;
+      if (!root.__ccReady) setup(root);
+      if (root.__ccApi) root.__ccApi.preselect(elegidos || {});
+    },
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
   // La ficha reemplaza zonas por AJAX: al repintarse hay que volver a cablear el selector.

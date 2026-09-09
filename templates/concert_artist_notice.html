@@ -11,7 +11,7 @@
 
 <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
   <div>
-    <h4 class="m-0">Avisar al artista</h4>
+    <h4 class="m-0">{{ 'Pedirle la confirmación al artista' if notice_asks else 'Avisar al artista' }}</h4>
     <div class="text-muted small">
       {{ notice_kinds.get(notice_kind, 'Aviso') }} ·
       va a los contactos de <strong>{{ channel_label }}</strong>
@@ -97,11 +97,33 @@
       </div>
     </div>
 
+    {# ⚠️ CÓMO VA la confirmación: se le ha pedido, la ha confirmado o la ha rechazado (con motivo). #}
+    {% if notice_asks and confirmation and confirmation.asked %}
+      <div class="alert {{ 'alert-success' if confirmation.ok else ('alert-danger' if confirmation.answered else 'alert-warning') }} py-2 px-3 small">
+        {% if confirmation.answered and confirmation.ok %}
+          <i class="fa fa-circle-check me-1"></i>El artista la <strong>confirmó</strong> el {{ confirmation.at_label }}.
+        {% elif confirmation.answered %}
+          <i class="fa fa-circle-xmark me-1"></i>El artista la <strong>rechazó</strong> el {{ confirmation.at_label }}.
+          {% if confirmation.note %}<div class="mt-1">«{{ confirmation.note }}»</div>{% endif %}
+        {% else %}
+          <i class="fa fa-hourglass-half me-1"></i>Se le pidió el {{ confirmation.asked_label }} y todavía no ha contestado.
+        {% endif %}
+        {% if confirmation.url %}
+          <div class="mt-1"><a href="{{ confirmation.url }}" target="_blank" rel="noopener">Ver lo que se le mandó</a></div>
+        {% endif %}
+      </div>
+    {% endif %}
+
     <div class="d-grid gap-2">
       <button class="btn btn-primary" type="button" data-an-send>
-        <i class="fa fa-paper-plane me-1"></i>Enviar el aviso
-        {% if confirm_after %}<span class="badge text-bg-light text-dark ms-1">y confirmar</span>{% endif %}
+        <i class="fa fa-paper-plane me-1"></i>{{ 'Pedirle la confirmación' if notice_asks else 'Enviar el aviso' }}
+        {% if confirm_after and not notice_asks %}<span class="badge text-bg-light text-dark ms-1">y confirmar</span>{% endif %}
       </button>
+      {% if notice_asks %}
+        <div class="small text-muted">Le llegan los botones <strong>Confirmar</strong> y
+          <strong>Rechazar</strong> en el propio correo (y en la página que se abre desde WhatsApp o
+          SMS). Lo que conteste queda guardado con su fecha.</div>
+      {% endif %}
       {# NO HACE FALTA MANDAR NADA: la actividad ya ha pasado (un aviso de algo que ya ocurrió no
          tiene sentido) o se creó antes de que la app comunicara al artista. Los textos los da
          `_artist_notice_ack_texts` según el motivo, y el servidor lo vuelve a comprobar. #}

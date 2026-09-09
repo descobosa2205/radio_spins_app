@@ -474,7 +474,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_activity_notice_respond", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", 
     "concert_artwork_public_upload",
     # LA BAJA DE PUBLICIDAD de un comprador: el POST llega del propio cliente de correo (un clic).
     "public_buyer_unsubscribe",
@@ -903,7 +903,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -4755,6 +4755,11 @@ PROMOTER_COST_ITEMS = [
     ("TRASLADOS", "Traslados", "fa-van-shuttle"),
     ("VIATICOS", "Viáticos", "fa-utensils"),
     ("SUELDOS", "Sueldos", "fa-money-bill-wave"),
+    ("MUSICOS", "Sueldos músicos", "fa-guitar"),
+    ("BACKLINE", "Backline", "fa-drum"),
+    # ⚠️ «Otros» es para DESCRIBIR un gasto que no está en la lista: lo que cubre se escribe en su
+    # nota (por eso su rótulo pregunta otra cosa en el módulo).
+    ("OTROS", "Otros", "fa-ellipsis"),
     ("TODOS", "Cubre todos los gastos", "fa-circle-check"),
 ]
 PROMOTER_COST_LABELS = {key: label for key, label, _icon in PROMOTER_COST_ITEMS}
@@ -42296,6 +42301,9 @@ def _promoter_contact_payload(contact, promoter=None) -> dict:
         "phone": (getattr(contact, "phone", None) or getattr(contact, "mobile", None) or "").strip(),
         "promoter_id": (str(contact.promoter_id) if contact.promoter_id else ""),
         "promoter_name": ((getattr(promoter, "nick", None) or "").strip() if promoter is not None else ""),
+        # ⚠️ Una persona de contacto no tiene foto propia: la que se enseña es la de SU TERCERO, que
+        # es lo que permite reconocerla de un vistazo en la lista.
+        "photo": ((getattr(promoter, "logo_url", None) or "").strip() if promoter is not None else ""),
     }
 
 
@@ -42465,7 +42473,8 @@ def _promoter_self_contact_option(promoter) -> dict | None:
             "name": _promoter_display_name(promoter) or (promoter.nick or ""),
             "title": "Contacto de la ficha", "email": correo, "phone": telefono,
             "promoter_id": str(promoter.id),
-            "promoter_name": (promoter.nick or ""), "kind": "self"}
+            "promoter_name": (promoter.nick or ""), "kind": "self",
+            "photo": (getattr(promoter, "logo_url", None) or "").strip()}
 
 
 def _concert_contact_options(session_db, concert) -> list[dict]:
@@ -42684,10 +42693,15 @@ def api_promoter_default_contacts():
 @app.get("/api/contactos/buscar", endpoint="api_contact_search")
 @admin_required
 def api_contact_search():
-    """Busca una persona de contacto en TODOS los terceros (un medio, una sala, cualquiera).
+    """Busca a quién poner de contacto en TODA la base, CON SU FOTO.
 
-    Es lo que resuelve «o si es un medio o algo similar»: la persona puede estar ya dada de alta
-    colgando de otra ficha y lo que interesa es reutilizarla, no duplicarla."""
+    Dos cosas, en este orden:
+      · las PERSONAS de contacto que ya existen (colgando de cualquier ficha: un medio, una sala…),
+        que es lo que interesa reutilizar en vez de duplicar;
+      · y los TERCEROS por **cualquier campo** (`_promoter_search_clause`: nick, nombre, correo,
+        teléfono, CIF, sus sociedades y sus vinculaciones), que se añaden como «el propio X» — la
+        fila de contacto la crea `api_promoter_self_contact`, que es un get-or-create.
+    ⚠️ Un tercero que ya está entre las personas encontradas no se repite."""
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return jsonify({"ok": True, "results": []})
@@ -42702,7 +42716,29 @@ def api_contact_search():
                      func.lower(func.coalesce(PromoterContact.email, "")).like(patron),
                      func.lower(func.coalesce(PromoterContact.title, "")).like(patron),
                  )).order_by(PromoterContact.first_name.asc()).limit(20).all())
-        return jsonify({"ok": True, "results": [_promoter_contact_payload(c) for c in filas]})
+        personas = [_promoter_contact_payload(c) for c in filas]
+        # Los TERCEROS: se ofrecen como «el propio X» (con su logo), salvo los que ya salen arriba.
+        terceros = []
+        try:
+            clausula = _promoter_search_clause(session_db, q)
+            if clausula is not None:
+                ya = {p.get("promoter_id") for p in personas if p.get("promoter_id")}
+                for p in (session_db.query(Promoter).filter(clausula)
+                          .order_by(Promoter.nick.asc()).limit(20).all()):
+                    if str(p.id) in ya:
+                        continue
+                    correo, telefono = _promoter_email_phone(p)
+                    terceros.append({
+                        "id": "", "self_promoter_id": str(p.id),
+                        "name": _promoter_display_name(p) or (p.nick or ""),
+                        "title": "Contacto de la ficha",
+                        "email": correo, "phone": telefono,
+                        "promoter_id": str(p.id), "promoter_name": (p.nick or ""),
+                        "kind": "self", "photo": (p.logo_url or "").strip(),
+                    })
+        except Exception:
+            app.logger.exception("[contactos] no se pudieron buscar terceros")
+        return jsonify({"ok": True, "results": personas, "promoters": terceros})
     finally:
         session_db.close()
 
@@ -50985,10 +51021,23 @@ def _peticion_accept_tasks(session_db, r, concert=None, *, for_user=None) -> lis
         return filas          # hasta que no esté configurada, no hay nada más que hacer
 
     # ---- 2 · CONFIRMAR CON EL ARTISTA (la fecha y que lo quiere hacer).
+    # ⚠️⚠️ SE LE PIDE AL ARTISTA con el aviso de siempre (vista previa, nota y canal) pero de tipo
+    # CONFIRMAR: el correo —y la landing, que es el mismo contenido— llevan los botones «Confirmar»
+    # y «Rechazar», y lo que conteste queda guardado con su fecha. Marcarlo a mano sigue estando
+    # (una conversación por teléfono también vale), pero como acción secundaria.
     falta_artista_ok = not getattr(r, "artist_agreed_at", None)
     if falta_artista_ok:
+        conf = _artist_confirmation_state(session_db, concert)
         añade("artista_ok",
-              hint="La fecha y que lo quiere hacer",
+              hint=("Se le ha pedido el %s · esperando su respuesta" % conf["asked_label"]
+                    if (conf["asked"] and not conf["answered"]) else "La fecha y que lo quiere hacer"),
+              ask_url=url_for("concert_artist_notice_view", cid=concert.id, kind="CONFIRMAR"),
+              asked=conf["asked"],
+              asked_label=conf["asked_label"],
+              waiting=bool(conf["asked"] and not conf["answered"]),
+              rejected=bool(conf["answered"] and not conf["ok"]),
+              reject_note=(conf["note"] if (conf["answered"] and not conf["ok"]) else ""),
+              notice_url=conf["url"],
               done_url=url_for("booking_request_artist_agreed", rid=str(r.id)))
     # ---- 3 · CONFIRMAR AL PROMOTOR. ⚠️ Bloqueada hasta que el artista haya dicho que sí.
     falta_promotor = not getattr(r, "acceptance_notified_at", None)
@@ -51890,6 +51939,9 @@ def _peticion_edit_payload(session_db, r) -> dict:
         "promoter_costs": (pay.get("promoter_costs") or {"enabled": False, "items": []}),
         "fee_text": (r.fee_text or ""),
         "description": (pay.get("description") or r.notes or ""),
+        "festival_name": (pay.get("festival_name") or ""),
+        "performance": (pay.get("performance") or {}),
+        "contacts": (pay.get("contacts") or {}),
     }
 
 
@@ -52053,6 +52105,12 @@ def _peticion_wizard_prefill(session_db, r) -> dict:
         "fee_text": (r.fee_text or ""),
         "promoter_costs": (pay.get("promoter_costs") or {"enabled": False, "items": []}),
         "description": (pay.get("description") or r.notes or ""),
+        # El NOMBRE del evento y lo que se preguntó de la actuación: se piden ya en la petición, así
+        # que el asistente no vuelve a preguntarlos.
+        "festival_name": (pay.get("festival_name") or ""),
+        "performance": (pay.get("performance") or {}),
+        # Las personas de contacto que se pusieron al pedirlo.
+        "contacts": (pay.get("contacts") or {}),
         # La empresa del grupo que dijo contratación al aprobarla: así el paso de la empresa ya
         # viene contestado y no se pregunta otra vez.
         "company_id": str(pay.get("group_company_id") or ""),
@@ -52079,7 +52137,8 @@ def _peticion_wizard_missing(r, pay: dict) -> list:
         faltan.append(3)                       # cuándo y dónde
     elif not (r.venue_id or r.municipality or r.province):
         faltan.append(3)
-    if not (pay.get("description") or r.notes):
+    perf = pay.get("performance") if isinstance(pay.get("performance"), dict) else {}
+    if not (pay.get("description") or r.notes) and perf.get("sings") is None:
         faltan.append(4)                       # qué tiene que hacer el artista
     if not r.promoter_id:
         faltan.append(5)                       # quién promueve
@@ -52163,8 +52222,41 @@ def _peticion_apply_form(session_db, r, f, *, editing: bool = False) -> str:
     # caché», así que ese caso —que es el normal en lo promocional— no se podía configurar.
     gastos = (_parse_promoter_costs_form(f) if hasattr(f, "getlist")
               else {"enabled": False, "items": []})
+
+    # EL NOMBRE del evento (obligatorio en un evento promocional: es como se identifica luego la
+    # actividad). En un CONCIERTO no se pregunta, así que no se guarda nada.
+    festival = (f.get("festival_name") or "").strip()
+    if activity_type == "CONCIERTO":
+        festival = ""
+    if activity_type == "EVENTO_PROMOCIONAL" and not festival:
+        raise ValueError("Ponle nombre al evento.")
+
+    # ¿EN QUÉ CONSISTE? · si el artista canta y, si canta, su repertorio y la formación.
+    # ⚠️ Es el MISMO parser que el asistente de actividad (`_wizard_performance_payload`), así que lo
+    # que se pide en la petición se vuelca tal cual al configurar el evento.
+    es_promo = activity_type in PROMO_LIKE_ACTIVITY_TYPES
+    perf = (_wizard_performance_payload(session_db, f, es_promo) if hasattr(f, "getlist")
+            else {"sings": None, "songs_count": None, "songs": [],
+                  "formation_kind": None, "formation_text": ""})
+
+    # LAS PERSONAS DE CONTACTO que se hayan puesto (el mismo selector y los mismos campos que en la
+    # actividad): se guardan aquí y se vuelcan a la actividad al configurarla.
+    # ⚠️ Con CENTINELA (`cc_present`): si el formulario no trae el módulo no se toca nada — un
+    # guardado parcial no puede llevarse por delante los contactos (la regla de la casa).
+    contactos = None
+    if _truthy(f.get("cc_present")) and hasattr(f, "getlist"):
+        try:
+            contactos = _parse_concert_contacts_form(f)
+        except Exception:
+            app.logger.exception("[peticiones] no se pudieron leer los contactos")
+            contactos = None
+    if contactos is not None:
+        pay["contacts"] = {str(k): list(v or []) for k, v in (contactos or {}).items()}
+
     pay.update({
         "activity_type": activity_type,
+        "festival_name": festival,
+        "performance": perf,
         "country": country,
         "no_cache": no_cache,
         "promoter_costs": gastos,
@@ -52200,6 +52292,9 @@ def peticion_wizard_update(rid):
         r.updated_at = func.now()
         s.commit()
         flash("Petición actualizada.", "success")
+    except ValueError as exc:
+        s.rollback()
+        _flash_form_error(str(exc), campos=["festival_name"], abrir="peticionWizardModal")
     except Exception as exc:
         s.rollback()
         flash(f"No se pudo guardar la petición: {exc}", "danger")
@@ -52417,6 +52512,11 @@ def peticion_wizard_create():
         s.add(r)
         s.commit()
         flash("Petición creada.", "success")
+    except ValueError as exc:
+        # Lo que rechaza el propio formulario (falta el nombre del evento…): se dice en español, se
+        # marca el campo y NO se pierde lo tecleado (`form_autosave.js` lo repone).
+        s.rollback()
+        _flash_form_error(str(exc), campos=["festival_name"], abrir="peticionWizardModal")
     except Exception as exc:
         s.rollback()
         flash(f"No se pudo crear la petición: {exc}", "danger")
@@ -83765,7 +83865,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -87835,7 +87935,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -101936,17 +102036,110 @@ def _media_contact_groups(contacts) -> list:
     return salida
 
 
+def _media_contact_link_outlet(session_db, outlet_id, promoter, role: str = "") -> None:
+    """Deja el TERCERO vinculado con el MEDIO (una vinculación de la casa, con su cargo)."""
+    if promoter is None or not outlet_id:
+        return
+    existe = (session_db.query(ThirdPartyLink).filter(or_(
+        and_(ThirdPartyLink.source_type == "promoter", ThirdPartyLink.source_id == promoter.id,
+             ThirdPartyLink.target_type == "media", ThirdPartyLink.target_id == outlet_id),
+        and_(ThirdPartyLink.source_type == "media", ThirdPartyLink.source_id == outlet_id,
+             ThirdPartyLink.target_type == "promoter", ThirdPartyLink.target_id == promoter.id))).first())
+    if existe is not None:
+        return
+    session_db.add(ThirdPartyLink(
+        source_type="promoter", source_id=promoter.id, target_type="media", target_id=outlet_id,
+        relation_title=((role or "").strip() or "Contacto del medio")[:120], is_active=True,
+        created_by_nick=(((_current_user_state() or {}).get("nick") or "")[:120] or None)))
+    session_db.flush()
+
+
+def _media_contact_promoter(session_db, contact, form, media_id):
+    """EL TERCERO de una persona de un medio. Punto único.
+
+    ⚠️⚠️ Una persona de un medio ES un tercero: al añadirla se busca primero entre los que ya
+    tenemos (`promoter_id` del buscador) y, si se crea nueva, **se le crea también su ficha de
+    tercero**. Así no acaba habiendo dos fichas de la misma persona —que es lo que rompe el cruce
+    por DNI de facturación y el reparto editorial— y desde su ficha se ve en qué medios está.
+
+    Lo que ya está escrito en la ficha del tercero **no se pisa**: solo se rellena lo que tenga
+    vacío (el mismo criterio que la importación de terceros)."""
+    pid = to_uuid((form.get("promoter_id") or "").strip() or None)
+    promoter = session_db.get(Promoter, pid) if pid else None
+    nick = (form.get("nick") or "").strip()
+    nombre, apellidos = _split_full_name(form.get("full_name") or "")
+    correo = (form.get("email") or "").strip()
+    telefono = (form.get("phone") or "").strip()
+
+    if promoter is None and getattr(contact, "promoter_id", None):
+        promoter = session_db.get(Promoter, contact.promoter_id)
+    if promoter is None and correo:
+        # ⚠️ Antes de crear otra ficha se busca POR SU CORREO: la misma persona puede estar ya dada
+        # de alta colgando de otra ficha, y duplicarla es lo que rompe el cruce por DNI.
+        promoter = (session_db.query(Promoter)
+                    .filter(func.lower(func.coalesce(Promoter.contact_email, "")) == correo.lower())
+                    .first())
+        if promoter is None:
+            fila = (session_db.query(PromoterEmail)
+                    .filter(func.lower(PromoterEmail.email) == correo.lower()).first())
+            promoter = session_db.get(Promoter, fila.promoter_id) if fila is not None else None
+    if promoter is None:
+        # No se ha elegido ninguno: se crea su ficha con lo que se ha escrito.
+        if not (nick or nombre or correo or telefono):
+            return None
+        promoter = Promoter(
+            nick=_intake_unique_nick(session_db, nick or " ".join([x for x in [nombre, apellidos] if x])
+                                     or correo or telefono or "Contacto"),
+            first_name=(nombre or None), last_name=(apellidos or None),
+            contact_email=(correo or None), contact_phone=(telefono or None))
+        session_db.add(promoter)
+        session_db.flush()
+    else:
+        # Ya existe: solo se COMPLETA lo que le falte (nunca se pisa lo que ya está escrito).
+        if nombre and not (promoter.first_name or "").strip():
+            promoter.first_name = nombre
+        if apellidos and not (promoter.last_name or "").strip():
+            promoter.last_name = apellidos
+        if correo and not (promoter.contact_email or "").strip():
+            promoter.contact_email = correo
+        if telefono and not (promoter.contact_phone or "").strip():
+            promoter.contact_phone = telefono
+    _media_contact_link_outlet(session_db, media_id, promoter, form.get("role") or "")
+    return promoter
+
+
 def _media_contact_apply_form(session_db, contact, form, media_id) -> None:
     """Lo que llega del pop-up de un contacto (alta y edición: el MISMO formulario, así que se
-    guarda igual desde los dos sitios)."""
+    guarda igual desde los dos sitios).
+
+    ⚠️ La persona ES un tercero: se elige de la base o se crea, y su ficha queda vinculada al medio."""
+    try:
+        promoter = _media_contact_promoter(session_db, contact, form, media_id)
+    except Exception:
+        app.logger.exception("[medios] no se pudo resolver el tercero del contacto")
+        promoter = None
+    if promoter is not None:
+        contact.promoter_id = promoter.id
+
     contact.nick = (form.get("nick") or "").strip() or None
     nombre, apellidos = _split_full_name(form.get("full_name") or "")
     contact.first_name = nombre or None
     contact.last_name = apellidos or None
+    # Lo que no se haya escrito se coge de la ficha del tercero: al añadir a alguien que ya está,
+    # solo se piden los datos que FALTAN, y aquí se completa con lo suyo.
+    if promoter is not None:
+        if not contact.first_name and (promoter.first_name or "").strip():
+            contact.first_name = (promoter.first_name or "").strip()
+        if not contact.last_name and (promoter.last_name or "").strip():
+            contact.last_name = (promoter.last_name or "").strip()
+        if not contact.nick and (promoter.nick or "").strip():
+            contact.nick = (promoter.nick or "").strip()
     contact.program = _media_program_snap(session_db, media_id, form.get("program"))
     contact.role = (form.get("role") or "").strip() or None
-    contact.phone = (form.get("phone") or "").strip() or None
-    contact.email = (form.get("email") or "").strip() or None
+    contact.phone = ((form.get("phone") or "").strip()
+                     or ((promoter.contact_phone or "").strip() if promoter is not None else "")) or None
+    contact.email = ((form.get("email") or "").strip()
+                     or ((promoter.contact_email or "").strip() if promoter is not None else "")) or None
     contact.press_releases = _truthy(form.get("press_releases"))
 
 
@@ -108796,10 +108989,16 @@ def _contract_sheet_reject_email_html(session_db, concert, public_url: str, reas
 
 ACTIVITY_NOTICE_KINDS = {
     "CONFIRMACION": "Confirmación nueva actividad",
+    # ⚠️⚠️ CONFIRMAR **PIDE RESPUESTA**: el correo (y la landing, que es el mismo contenido) llevan
+    # dos botones —Confirmar / Rechazar— y lo que conteste el artista se guarda con su fecha. Es la
+    # fase 2 de una petición aprobada («Confirmar con el artista»), que hasta ahora se marcaba a mano.
+    "CONFIRMAR": "Confirmación de la actividad",
     "CAMBIOS": "Cambios en la actividad",
     "CANCELACION": "Actividad cancelada",
     "APLAZAMIENTO": "Actividad aplazada",
 }
+# Los tipos de aviso que ESPERAN una respuesta del artista.
+ACTIVITY_NOTICE_ASK_KINDS = {"CONFIRMAR"}
 ACTIVITY_NOTICE_CHANNELS = [
     ("EMAIL", "Correo", "fa-envelope"),
     ("WHATSAPP", "WhatsApp", "fa-brands fa-whatsapp"),
@@ -109799,7 +109998,25 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
         "conditions": _activity_notice_conditions(session_db, concert),
         "has_cache": _concert_has_cache(session_db, concert),
         "channel_key": _activity_notification_channel(session_db, concert),
+        # ¿Este aviso PIDE respuesta? (los botones Confirmar / Rechazar del correo y de la landing).
+        # Los enlaces se rellenan al enviarlo, cuando ya existe el token (`_activity_notice_ask_urls`).
+        "ask": (kind in ACTIVITY_NOTICE_ASK_KINDS),
+        "ask_confirm_url": "",
+        "ask_reject_url": "",
     }
+
+
+def _activity_notice_ask_urls(token: str) -> dict:
+    """Los enlaces de los DOS botones del aviso que pide respuesta.
+
+    ⚠️⚠️ Son enlaces a la LANDING (un GET que solo PINTA), nunca la acción en sí: un cliente de correo
+    puede PREFETCHEAR los enlaces, y con un GET que confirmara, la actividad quedaría confirmada sin
+    que nadie la hubiera pulsado. La respuesta de verdad la manda la landing por POST."""
+    if not token:
+        return {"ask_confirm_url": "", "ask_reject_url": ""}
+    base = _external_url_for("public_activity_notice_view", token=token)
+    sep = "&" if "?" in base else "?"
+    return {"ask_confirm_url": f"{base}{sep}r=si", "ask_reject_url": f"{base}{sep}r=no"}
 
 
 def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = False) -> str:
@@ -109891,6 +110108,43 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
         + f'<table role="presentation" style="border-collapse:collapse;">{datos}</table>'
         + '</td></tr></table></div>'
     )
+
+    # ---- ¿CONFIRMAS LA ACTIVIDAD? Los dos botones, en el propio cuerpo del aviso ----
+    # ⚠️ Va ARRIBA, justo debajo de la cabecera de la actividad: es lo que se le pide al artista.
+    # En la VISTA PREVIA los botones se pintan igual pero sin enlace (todavía no hay token).
+    if ctx.get("ask"):
+        _ok = ctx.get("ask_confirm_url") or ""
+        _no = ctx.get("ask_reject_url") or ""
+        _resp = ctx.get("answer") or ""          # ya contestado: se dice, y no se ofrecen botones
+        if _resp:
+            _txt = ("Confirmada por el artista" if _resp == "OK" else "El artista la ha rechazado")
+            _col = ("#0f7b3f" if _resp == "OK" else "#b42318")
+            _fondo = ("#eaf7ef" if _resp == "OK" else "#fdeceb")
+            partes.append(
+                f'<div style="margin:14px 0 4px;padding:12px 14px;border-radius:12px;background:{_fondo};'
+                f'border:1px solid {_col}33;color:{_col};font-size:15px;font-weight:700;">{esc(_txt)}'
+                + (f'<div style="font-weight:400;font-size:13px;margin-top:4px;">{esc(ctx.get("answer_at") or "")}</div>'
+                   if (ctx.get("answer_at") or "") else "")
+                + (f'<div style="font-weight:400;font-size:13px;margin-top:6px;white-space:pre-line;">{esc(ctx.get("answer_note") or "")}</div>'
+                   if (ctx.get("answer_note") or "") else "")
+                + '</div>')
+        else:
+            partes.append(
+                '<div style="margin:16px 0 4px;text-align:center;">'
+                '<div style="font-size:15px;color:#374151;margin-bottom:10px;">'
+                '¿Confirmas esta actividad?</div>'
+                + (f'<a href="{esc(_ok)}" style="display:inline-block;padding:12px 22px;background:#0f7b3f;'
+                   'color:#fff;text-decoration:none;border-radius:9px;font-weight:800;font-size:15px;margin:0 6px 8px;">'
+                   'Confirmar</a>' if _ok else
+                   '<span style="display:inline-block;padding:12px 22px;background:#0f7b3f;color:#fff;'
+                   'border-radius:9px;font-weight:800;font-size:15px;margin:0 6px 8px;">Confirmar</span>')
+                + (f'<a href="{esc(_no)}" style="display:inline-block;padding:12px 22px;background:#fff;'
+                   'color:#b42318;text-decoration:none;border:1px solid #b42318;border-radius:9px;'
+                   'font-weight:800;font-size:15px;margin:0 6px 8px;">Rechazar</a>' if _no else
+                   '<span style="display:inline-block;padding:12px 22px;background:#fff;color:#b42318;'
+                   'border:1px solid #b42318;border-radius:9px;font-weight:800;font-size:15px;margin:0 6px 8px;">'
+                   'Rechazar</span>')
+                + '</div>')
 
     # ---- BARRA DE BOTONES (de momento solo la hoja de ruta; los futuros van a su derecha) ----
     # ⚠️ Se puede dejar fuera con su OJO, como cualquier otro módulo: si se le manda la hoja de ruta
@@ -110040,9 +110294,14 @@ def concert_artist_notice_view(cid):
             # y quien avisa no tiene que volver a escribirlo (se puede retocar).
             default_note=_cancel_notice_note(session_db, concert, kind),
             confirm_after=bool((request.args.get("confirmar") or "").strip()),
+            # ⚠️ ¿Este aviso PIDE respuesta? (kind CONFIRMAR). Entonces el botón dice otra cosa, no se
+            # ofrece «ya fue informado» (que es el aviso FORMAL de la actividad, otra fase) y se
+            # enseña cómo va la confirmación.
+            notice_asks=(kind in ACTIVITY_NOTICE_ASK_KINDS),
+            confirmation=_artist_confirmation_state(session_db, concert),
             # NO hace falta mandar nada (ya ha pasado, o se creó antes del corte): botón propio con
             # los textos de su motivo (`_artist_notice_ack_texts`).
-            can_ack=_concert_notice_can_ack(concert),
+            can_ack=(_concert_notice_can_ack(concert) and kind not in ACTIVITY_NOTICE_ASK_KINDS),
             ack_texts=_artist_notice_ack_texts(_concert_notice_ack_reason(concert)),
             ack_url=url_for("concert_artist_notice_ack", cid=concert.id),
             artist_config_url=(url_for("artist_detail_view", artist_id=concert.artist_id, tab="datos")
@@ -110172,7 +110431,6 @@ def concert_artist_notice_send(cid):
         confirmar = _truthy(datos.get("confirm_after"))
 
         ctx = _activity_notice_context(session_db, concert, kind=kind)
-        cuerpo = _activity_notice_html(ctx, note=nota, hidden=ocultos)
 
         # A quién: lo configurado en el canal que toca, o lo que se haya escrito a mano.
         manual_correos = [x.strip() for x in re.split(r"[;,\n]+", str(datos.get("emails") or "")) if x.strip()]
@@ -110197,7 +110455,7 @@ def concert_artist_notice_send(cid):
             recipients=[({"email": d} if canal == "EMAIL" else {"phone": d}) for d in destinos],
             note=nota or None,
             hidden_modules=ocultos,
-            snapshot={"context": dict(ctx), "html": cuerpo},
+            snapshot={},
             signature=_concert_notice_signature(session_db, concert),
             sent_by_user_id=to_uuid((_current_user_state() or {}).get("user_id") or "") or None,
             sent_by_nick=((_current_user_state() or {}).get("nick") or None),
@@ -110206,6 +110464,11 @@ def concert_artist_notice_send(cid):
         session_db.flush()
         aviso.public_token = _activity_notice_token()
         enlace = _external_url_for("public_activity_notice_view", token=aviso.public_token)
+        # ⚠️⚠️ EL CUERPO SE COMPONE CON EL TOKEN YA PUESTO: los botones de «Confirmar» y «Rechazar»
+        # llevan al enlace de ESTE aviso, así que el HTML no se puede componer antes de crearlo.
+        ctx.update(_activity_notice_ask_urls(aviso.public_token))
+        cuerpo = _activity_notice_html(ctx, note=nota, hidden=ocultos)
+        aviso.snapshot = {"context": dict(ctx), "html": cuerpo}
 
         error = None
         if canal == "EMAIL":
@@ -110216,6 +110479,20 @@ def concert_artist_notice_send(cid):
                 msg = f"No se pudo enviar el correo: {error or 'error desconocido'}"
                 return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
                     flash(msg, "danger") or redirect(url_for("concert_artist_notice_view", cid=cid)))
+
+        # ⚠️⚠️ PEDIR LA CONFIRMACIÓN **NO ES** EL AVISO FORMAL DE LA ACTIVIDAD: son dos
+        # comunicaciones distintas (la fase 2 de la petición y la 4). Si CONFIRMAR marcara
+        # «avisado», la fase «Informar al artista» desaparecería sola sin haberse hecho y la
+        # compuerta de CONFIRMADO se daría por satisfecha sin haberle comunicado la actividad.
+        if kind in ACTIVITY_NOTICE_ASK_KINDS:
+            session_db.commit()
+            texto = _activity_notice_share_text(ctx)
+            if es_json:
+                return jsonify({"ok": True, "channel": canal, "url": enlace, "share_text": texto,
+                                "recipients": destinos, "confirmed": False, "asked": True})
+            flash("Se le ha pedido la confirmación al artista." if canal == "EMAIL"
+                  else "Petición de confirmación registrada.", "success")
+            return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
 
         # Queda apuntado en la actividad: es lo que enseña la etiqueta y lo que mira la compuerta.
         ahora = _now_madrid()
@@ -110515,10 +110792,32 @@ def public_activity_notice_view(token):
             cuerpo = _activity_notice_html(ctx, note=(aviso.note or ""),
                                            hidden=(aviso.hidden_modules or []))
             rehecho = True
+        # ⚠️ ¿ESTE AVISO PIDE RESPUESTA? Entonces el cuerpo se REHACE aquí: los botones del correo son
+        # enlaces (traen aquí) y los de la página son de verdad (POST). Sin contestar se quita el
+        # bloque del cuerpo para no pintar dos veces lo mismo; contestada, se enseña QUÉ contestó.
+        pide = (aviso.kind or "").upper() in ACTIVITY_NOTICE_ASK_KINDS
+        respuesta = (aviso.response or "").upper()
+        if pide and ctx:
+            ctx2 = dict(ctx)
+            ctx2["ask_confirm_url"] = ""
+            ctx2["ask_reject_url"] = ""
+            if respuesta:
+                ctx2["answer"] = respuesta
+                ctx2["answer_at"] = (aviso.responded_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                                     if aviso.responded_at else "")
+                ctx2["answer_note"] = (aviso.response_note or "")
+            else:
+                ctx2["ask"] = False          # los botones los pinta la página (POST)
+            cuerpo = _activity_notice_html(ctx2, note=(aviso.note or ""),
+                                           hidden=(aviso.hidden_modules or []))
         return render_template(
             "public_activity_notice.html",
             body_html=Markup(cuerpo),
             rebuilt=rehecho,
+            ask=pide,
+            answer=respuesta,
+            preset=((request.args.get("r") or "").strip().lower() if pide else ""),
+            respond_url=url_for("public_activity_notice_respond", token=token),
             sent_at_label=(aviso.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if aviso.sent_at else ""),
             title=(ctx.get("title") or "Actividad"),
             subject_name=(ctx.get("subject_name") or ""),
@@ -110528,6 +110827,115 @@ def public_activity_notice_view(token):
                 next((r.get("value") for r in (ctx.get("hero_rows") or []) if (r.get("label") or "").lower() == "fecha"), ""),
             ] if x]),
         )
+
+
+def _artist_confirmation_apply(session_db, aviso, concert, respuesta: str, nota: str = "") -> None:
+    """Apunta lo que ha contestado el artista y lo propaga a donde se estaba esperando.
+
+    ⚠️ EL DATO DE VERDAD es la propia respuesta (`ConcertArtistNotification.response`): de ahí sale
+    el «confirmada el …» de la tarea y de la ficha, así que no hay dos verdades. Lo único que se
+    propaga es la fase 2 de la PETICIÓN (`artist_agreed_at`), que es lo que la desbloquea."""
+    ahora = _now_madrid()
+    aviso.response = respuesta
+    aviso.responded_at = ahora
+    aviso.response_note = (nota or "").strip() or None
+
+    peticion = _peticion_of_concert(session_db, getattr(concert, "id", None))
+    if respuesta == "OK" and peticion is not None and not getattr(peticion, "artist_agreed_at", None):
+        peticion.artist_agreed_at = ahora
+        peticion.artist_agreed_by_nick = "el artista"
+
+    # Se le dice a QUIEN LO ESTABA ESPERANDO (quien pidió la actividad y, si no consta, quien mandó
+    # el aviso): es su tarea pendiente y sin esto no se entera hasta que entra a mirar.
+    destinos = []
+    for uid in (getattr(peticion, "created_by_user_id", None), getattr(aviso, "sent_by_user_id", None)):
+        if uid and str(uid) not in [str(x) for x in destinos]:
+            destinos.append(uid)
+    if destinos:
+        artista = (getattr(getattr(concert, "artist", None), "name", "") or "el artista").strip()
+        titulo = ("%s ha confirmado la actividad" % artista) if respuesta == "OK" else \
+                 ("%s ha rechazado la actividad" % artista)
+        cuerpo = _concert_title_for_notice(concert)
+        cuerpo = " · ".join([x for x in [cuerpo, (nota or "").strip()] if x])
+        try:
+            _notify_users(session_db, destinos, "TAREA", titulo, cuerpo,
+                          url_for("concert_detail_view", cid=concert.id, tab="general"),
+                          ref_type="CONCERT_ARTIST_CONFIRM", ref_id=str(concert.id))
+        except Exception:
+            app.logger.exception("[aviso artista] no se pudo avisar de la respuesta")
+
+
+@app.post("/actividad/<token>/responder", endpoint="public_activity_notice_respond")
+def public_activity_notice_respond(token):
+    """Lo que contesta el ARTISTA desde la landing: confirma o rechaza (con su motivo).
+
+    ⚠️ Es un POST a propósito: los botones del correo solo TRAEN a la landing, porque un cliente de
+    correo puede prefetchear un enlace y con un GET la actividad quedaría confirmada sin que nadie
+    la hubiera pulsado."""
+    token = (token or "").strip()
+    if not token:
+        abort(404)
+    respuesta = (request.form.get("answer") or "").strip().upper()
+    if respuesta not in ("OK", "NO"):
+        return redirect(url_for("public_activity_notice_view", token=token))
+    nota = (request.form.get("note") or "").strip()
+    session_db = db()
+    try:
+        aviso = (session_db.query(ConcertArtistNotification)
+                 .filter(ConcertArtistNotification.public_token == token).first())
+        if not aviso:
+            abort(404)
+        # Un aviso que no pide respuesta no la acepta, y lo ya contestado no se pisa: si el artista
+        # quiere cambiar de opinión, se le vuelve a pedir (queda constancia de las dos veces).
+        if (aviso.kind or "").upper() not in ACTIVITY_NOTICE_ASK_KINDS or (aviso.response or ""):
+            return redirect(url_for("public_activity_notice_view", token=token))
+        concert = session_db.get(Concert, aviso.concert_id)
+        if concert is None:
+            abort(404)
+        _artist_confirmation_apply(session_db, aviso, concert, respuesta, nota)
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[aviso artista] no se pudo guardar la respuesta")
+    finally:
+        session_db.close()
+    return redirect(url_for("public_activity_notice_view", token=token))
+
+
+def _artist_confirmation_state(session_db, concert) -> dict:
+    """CÓMO VA la confirmación del artista de esta actividad. Punto ÚNICO.
+
+    Se mira el ÚLTIMO aviso de tipo CONFIRMAR (el dato de verdad), no una marca aparte:
+      · `asked`    → se le ha pedido (y cuándo)
+      · `answered` → ha contestado · `ok` → dijo que sí · `note` → el motivo si dijo que no
+      · `url`      → el enlace de lo que se le mandó, para poder verlo"""
+    vacio = {"asked": False, "asked_at": None, "asked_label": "", "answered": False, "ok": False,
+             "at": None, "at_label": "", "note": "", "url": "", "channel": ""}
+    if concert is None:
+        return vacio
+    try:
+        aviso = (session_db.query(ConcertArtistNotification)
+                 .filter(ConcertArtistNotification.concert_id == concert.id,
+                         func.upper(func.coalesce(ConcertArtistNotification.kind, "")) == "CONFIRMAR")
+                 .order_by(ConcertArtistNotification.sent_at.desc()).first())
+    except Exception:
+        app.logger.exception("[aviso artista] no se pudo leer la confirmación")
+        return vacio
+    if aviso is None:
+        return vacio
+    resp = (aviso.response or "").upper()
+    return {
+        "asked": True,
+        "asked_at": aviso.sent_at,
+        "asked_label": (aviso.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if aviso.sent_at else ""),
+        "answered": bool(resp),
+        "ok": (resp == "OK"),
+        "at": aviso.responded_at,
+        "at_label": (aviso.responded_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if aviso.responded_at else ""),
+        "note": (aviso.response_note or ""),
+        "url": (url_for("public_activity_notice_view", token=aviso.public_token) if aviso.public_token else ""),
+        "channel": (aviso.channel or ""),
+    }
 
 
 # Miniaturas og:image de los avisos ya procesadas, por token: {token: (src, bytes)}.

@@ -60,15 +60,24 @@
           </div>
         </div>
 
-        {# ── 2 · Artista ───────────────────────────────────────────────────────────── #}
+        {# ── 2 · Artista (y el NOMBRE del evento) ──────────────────────────────────── #}
         <div class="pw-step d-none" data-pstep="2">
-          <h6 class="mb-3">2. ¿De qué artista?</h6>
+          <h6 class="mb-3" data-pw-step2-title>2. ¿De qué artista?</h6>
           <div class="input-group">
             <select class="form-select select-artists" name="artist_id" id="pwArtist" data-no-loader>
               <option value="">Sin artista concreto</option>
               {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or DEFAULT_AVATAR_URL }}">{{ a.name }}</option>{% endfor %}
             </select>
             <button class="btn btn-outline-secondary" type="button" data-quick-create="artist" data-target="pwArtist" title="Crear artista"><i class="fa fa-plus"></i></button>
+          </div>
+          {# ⚠️ EL NOMBRE DEL EVENTO se pide aquí, en los primeros pasos: es como se identifica la
+             petición (y luego la actividad) en todos los listados. Obligatorio en un EVENTO
+             PROMOCIONAL; en el resto de tipos con nombre propio, opcional. En un CONCIERTO no se
+             pregunta. Lo sincroniza `syncFestivalName()`. #}
+          <div class="mt-3 d-none" id="pwFestivalWrap">
+            <label class="form-label" data-pw-festival-label>Nombre del festival / evento</label>
+            <input type="text" class="form-control" name="festival_name" id="pwFestivalName"
+                   placeholder="Festival / nombre interno">
           </div>
         </div>
 
@@ -192,11 +201,80 @@
             <div class="col-md-6"><input class="form-control" name="requester_email" id="pwReqEmail" placeholder="Email de contacto (opcional)"></div>
             <div class="col-md-6"><input class="form-control" name="requester_phone" id="pwReqPhone" placeholder="Teléfono (opcional)"></div>
           </div>
+
+          {# ⚠️ LAS PERSONAS DE CONTACTO, con el MISMO selector que la actividad: al elegir quién lo
+             pide se cargan SUS personas; si no tiene ninguna, se busca en toda la base (con su foto)
+             o se crea la persona, y entonces se pregunta si se vincula a ese tercero SIEMPRE o solo
+             para esta actividad. Lo que se ponga aquí se vuelca a la actividad al configurarla. #}
+          <div class="mt-3">
+            <label class="form-label small mb-1"><i class="fa fa-user-group me-1 text-muted"></i>Personas de contacto</label>
+            {% with cc_id='pwContacts', cc_concert_id='nuevo', cc_promoter_input='#pwReqId' %}
+              {% include '_concert_contacts_picker.html' %}
+            {% endwith %}
+          </div>
         </div>
 
-        {# ── 5 · Economía y descripción ────────────────────────────────────────────── #}
+        {# ── 5 · ¿En qué consiste? (y si canta) ─────────────────────────────────────
+           El MISMO paso que al crear la actividad: en qué consiste, si el artista canta y —si
+           canta— su repertorio y la formación. En un concierto o un festival se canta siempre, así
+           que ahí solo se pregunta la descripción. #}
         <div class="pw-step d-none" data-pstep="5">
-          <h6 class="mb-3">5. Propuesta económica y descripción</h6>
+          <h6 class="mb-3" data-pw-step5-title>5. ¿En qué consiste?</h6>
+          <label class="form-label">Descripción de la actividad</label>
+          <textarea class="form-control" name="description" id="pwDescription" rows="3"
+                    placeholder="Detalles de lo que se pide: qué es, dónde encaja, qué se espera del artista…"></textarea>
+
+          <div class="d-none mt-3" id="pwSingsWrap">
+            <label class="form-label">¿El artista canta?</label>
+            <div class="promo-pick-grid promo-pick-grid--wide mb-2">
+              <label class="promo-pick">
+                <input class="form-check-input visually-hidden" type="radio" name="artist_sings" value="1" data-pw-sings>
+                <span class="promo-pick__box"><i class="fa fa-microphone"></i><span class="promo-pick__name">Sí, canta</span></span>
+              </label>
+              <label class="promo-pick">
+                <input class="form-check-input visually-hidden" type="radio" name="artist_sings" value="0" data-pw-sings>
+                <span class="promo-pick__box"><i class="fa fa-microphone-slash"></i><span class="promo-pick__name">No canta</span></span>
+              </label>
+            </div>
+
+            {# Si canta: nº de canciones, repertorio y FORMACIÓN (igual que al crear la actividad). #}
+            <div class="d-none border rounded p-3" id="pwSingsPanel">
+              <div class="row g-2">
+                <div class="col-lg-3 col-6">
+                  <label class="form-label mb-1 small">Nº de canciones</label>
+                  <input type="number" min="1" class="form-control" name="performance_songs_count" id="pwSongsCount" placeholder="3">
+                </div>
+                <div class="col-lg-9">
+                  <label class="form-label mb-1 small">Repertorio <span class="text-muted">(opcional)</span></label>
+                  {# El MISMO parcial del asistente de actividad y de la ficha: se busca escribiendo
+                     y se ordena arrastrando. El catálogo se carga al elegir el artista. #}
+                  {% with ps_songs=[], ps_chosen=[], ps_count='pwSongsCount' %}
+                    {% include '_performance_songs.html' %}
+                  {% endwith %}
+                </div>
+              </div>
+              <label class="form-label mt-3 mb-1">Formación</label>
+              <div class="promo-pick-grid promo-pick-grid--wide">
+                <label class="promo-pick">
+                  <input class="form-check-input visually-hidden" type="radio" name="formation_kind" value="SOLO" data-pw-formation>
+                  <span class="promo-pick__box"><i class="fa fa-user"></i><span class="promo-pick__name">Solo artista</span></span>
+                </label>
+                <label class="promo-pick">
+                  <input class="form-check-input visually-hidden" type="radio" name="formation_kind" value="PLUS" data-pw-formation>
+                  <span class="promo-pick__box"><i class="fa fa-users"></i><span class="promo-pick__name">Artista +</span></span>
+                </label>
+              </div>
+              <div class="d-none mt-2" id="pwFormationPlus">
+                <label class="form-label mb-1 small">Artista + …</label>
+                <input class="form-control" name="formation_text" id="pwFormationText" placeholder="pianista, banda completa, coros…">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {# ── 6 · Economía ──────────────────────────────────────────────────────────── #}
+        <div class="pw-step d-none" data-pstep="6">
+          <h6 class="mb-3">6. Propuesta económica</h6>
           {# ¿CON CACHÉ O SIN CACHÉ? Con tarjetas e iconos, como el resto de la app. `no_cache` es
              lo que sigue guardando el servidor: aquí solo se elige con la tarjeta. #}
           <input type="hidden" name="no_cache" id="pwNoCache" value="">
@@ -229,8 +307,6 @@
              de [data-pw-fee] desaparecía al marcar «Sin caché» y no había forma de configurarlo.
              Es el MISMO módulo del asistente de actividad (mismos nombres de campo, mismo parser). #}
           <div class="mt-3">{{ pcm.promoter_costs() }}</div>
-          <label class="form-label mt-3">Descripción de la actividad</label>
-          <textarea class="form-control" name="description" id="pwDescription" rows="3" placeholder="Detalles de lo que se pide…"></textarea>
 
           {# El aviso, con las DOS opciones: hacerla igualmente o no hacerla. #}
           <div class="alert alert-warning mt-3 d-none" data-pw-conflict-final>
@@ -262,7 +338,9 @@
   var modal = document.getElementById('peticionWizardModal');
   if(!modal) return;
   var form = document.getElementById('peticionWizardForm');
-  var STEPS = 5, cur = 1;
+  var STEPS = 6, cur = 1;
+  // Los tipos que NO son un concierto: ahí se pregunta si el artista canta (igual que al crearla).
+  var PROMO_TYPES = ['EVENTO_PROMOCIONAL', 'TV', 'MARCA', 'OTROS'];
   var prevBtn = modal.querySelector('#pwPrev'), nextBtn = modal.querySelector('#pwNext'), submitBtn = modal.querySelector('#pwSubmit');
   var stepLabel = modal.querySelector('#pwStepLabel');
   var URL_CREATE = form.getAttribute('action');
@@ -277,7 +355,59 @@
     submitBtn.classList.toggle('d-none', cur !== STEPS);
     if(stepLabel) stepLabel.textContent = '· paso ' + cur + ' de ' + STEPS;
   }
+  function tipo(){ return (modal.querySelector('[name="activity_type"]:checked')||{}).value || ''; }
+  function esPromo(){ return PROMO_TYPES.indexOf(tipo()) >= 0; }
+  function canta(){ var r = modal.querySelector('[data-pw-sings]:checked'); return r ? r.value === '1' : null; }
+
+  /* El NOMBRE del evento: se pide en los primeros pasos y es OBLIGATORIO en un evento promocional
+     (es como se identifica luego la actividad); en un concierto no se pregunta. */
+  function syncFestivalName(){
+    var t = tipo();
+    var wrap = modal.querySelector('#pwFestivalWrap');
+    var campo = modal.querySelector('#pwFestivalName');
+    var lab = modal.querySelector('[data-pw-festival-label]');
+    var obligatorio = (t === 'EVENTO_PROMOCIONAL');
+    if(wrap) wrap.classList.toggle('d-none', t === 'CONCIERTO');
+    if(lab) lab.textContent = obligatorio ? 'Nombre del evento' : 'Nombre del festival / evento';
+    if(campo){
+      campo.placeholder = obligatorio ? 'Cómo se llama el evento' : 'Festival / nombre interno';
+      campo.required = obligatorio && !(wrap && wrap.classList.contains('d-none'));
+    }
+    var t2 = modal.querySelector('[data-pw-step2-title]');
+    if(t2) t2.textContent = (t === 'CONCIERTO') ? '2. ¿De qué artista?' : '2. Artista y nombre del evento';
+  }
+
+  /* ¿EN QUÉ CONSISTE? En un concierto o un festival se canta siempre, así que solo se pregunta la
+     descripción; en lo promocional se pregunta además si canta y, si canta, la formación. */
+  function syncSings(){
+    var promo = esPromo();
+    var wrap = modal.querySelector('#pwSingsWrap');
+    if(wrap) wrap.classList.toggle('d-none', !promo);
+    var panel = modal.querySelector('#pwSingsPanel');
+    if(panel) panel.classList.toggle('d-none', !(promo && canta() === true));
+    var plus = modal.querySelector('#pwFormationPlus');
+    var f = modal.querySelector('[data-pw-formation]:checked');
+    if(plus) plus.classList.toggle('d-none', !(f && f.value === 'PLUS'));
+    var t5 = modal.querySelector('[data-pw-step5-title]');
+    if(t5) t5.textContent = promo ? '5. ¿En qué consiste y canta?' : '5. ¿En qué consiste?';
+  }
+  modal.addEventListener('change', function(ev){
+    if(ev.target.matches('[data-pw-sings]') || ev.target.matches('[data-pw-formation]')) syncSings();
+  });
+
   function validate(n){
+    if(n === 2){
+      var campo = modal.querySelector('#pwFestivalName');
+      if(tipo() === 'EVENTO_PROMOCIONAL' && campo && !(campo.value||'').trim()){
+        if(window.app33FormCheck) return window.app33FormCheck.fail(modal.querySelector('[data-pstep="2"]'), campo, 'Ponle nombre al evento.');
+        alert('Ponle nombre al evento.'); campo.focus(); return false;
+      }
+    }
+    if(n === 5 && esPromo() && canta() === null){
+      var radio = modal.querySelector('[data-pw-sings]');
+      if(window.app33FormCheck) return window.app33FormCheck.fail(modal.querySelector('[data-pstep="5"]'), radio, 'Indica si el artista canta o no.');
+      alert('Indica si el artista canta o no.'); return false;
+    }
     if(n === 3){
       var kind = (modal.querySelector('[name="place_kind"]:checked')||{}).value || 'NONE';
       if(kind === 'CITY' && !(modal.querySelector('#pwMuni').value||'').trim()){
@@ -298,7 +428,10 @@
   prevBtn.addEventListener('click', function(){ show(cur - 1); });
 
   // Paso 1: al elegir el tipo, avanzar solo.
-  modal.querySelectorAll('[name="activity_type"]').forEach(function(x){ x.addEventListener('change', function(){ if(cur === 1) show(2); }); });
+  modal.querySelectorAll('[name="activity_type"]').forEach(function(x){ x.addEventListener('change', function(){
+    syncFestivalName(); syncSings();
+    if(cur === 1) show(2);
+  }); });
 
   /* ---- ¿Se sabe dónde?: no todavía / el recinto / la ciudad ---- */
   var vId = modal.querySelector('#pwVenueId'), vSearch = modal.querySelector('#pwVenueSearch');
@@ -438,8 +571,13 @@
       + '<button type="button" class="pw-picked__x" data-pw-req-clear title="Quitar"><i class="fa fa-xmark"></i></button>';
     reqPicked.classList.remove('d-none');
   }
+  /* ⚠️ `#pwReqId` es un HIDDEN que se rellena por JS: cambiarlo con `.value` NO dispara `change`, y
+     el selector de contactos escucha ese evento para cargar las personas del tercero elegido. */
+  function avisaPromotor(){
+    try { reqId.dispatchEvent(new Event('change', {bubbles:true})); } catch(e){}
+  }
   modal.addEventListener('click', function(ev){
-    if(ev.target.closest('[data-pw-req-clear]')){ reqId.value=''; reqName.value=''; reqSearch.value=''; pintaReq(null); }
+    if(ev.target.closest('[data-pw-req-clear]')){ reqId.value=''; reqName.value=''; reqSearch.value=''; pintaReq(null); avisaPromotor(); }
   });
   var reqTimer = null;
   function runReqSearch(){
@@ -465,6 +603,7 @@
     reqId.value = b.getAttribute('data-rid'); reqName.value = b.getAttribute('data-rname');
     pintaReq({name: reqName.value, sub: b.getAttribute('data-rsub'), logo_url: b.getAttribute('data-rlogo')});
     reqResults.innerHTML=''; reqSearch.value = reqName.value;
+    avisaPromotor();
   });
   modal.querySelector('#pwReqCreateToggle').addEventListener('click', function(){
     var panel = modal.querySelector('#pwReqCreatePanel');
@@ -485,6 +624,7 @@
         var nm = d.nick || d.name || d.label || name;
         if(id){ reqId.value=id; reqName.value=nm; pintaReq({name:nm, sub:'creado ahora', logo_url:(d.logo_url||'')});
           modal.querySelector('#pwReqCreatePanel').classList.add('d-none'); reqSearch.value=nm;
+          avisaPromotor();
         } else { alert(d.error||'No se pudo crear.'); } })
       .catch(function(){ alert('No se pudo crear.'); });
   });
@@ -590,6 +730,33 @@
     }
   });
 
+  /* EL REPERTORIO del artista para el paso «¿en qué consiste?»: el mismo parcial y el mismo motor
+     que el asistente de actividad (`window.app33PerfSongs`). Se pide al elegir artista y, si se
+     CAMBIA de artista, lo elegido antes era de otro repertorio y se limpia. */
+  var ultimoArtista = '';
+  function bloqueSongs(){ return modal.querySelector('#pwSingsPanel [data-perf-songs]'); }
+  function cargaRepertorio(){
+    var sel = modal.querySelector('#pwArtist');
+    var aid = sel ? (sel.value || '') : '';
+    var bloque = bloqueSongs();
+    if(!bloque || !window.app33PerfSongs) return;
+    if(!aid){ window.app33PerfSongs.setCatalog(bloque, []); ultimoArtista = ''; return; }
+    if(aid === ultimoArtista) return;
+    var cambio = !!ultimoArtista && ultimoArtista !== aid;
+    ultimoArtista = aid;
+    fetch('{{ url_for("api_artist_wizard_meta", aid="__AID__") }}'.replace('__AID__', encodeURIComponent(aid)), {headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if(!d) return;
+        if(cambio) window.app33PerfSongs.clear(bloque);
+        window.app33PerfSongs.setCatalog(bloque, d.songs || []);
+      }).catch(function(){ /* sin red: se puede indicar solo el número */ });
+  }
+  // El artista es un Select2: avisa con jQuery, así que el listener nativo no se entera.
+  if(window.jQuery){ try { jQuery('#pwArtist').on('change', cargaRepertorio); } catch(e){} }
+  var selArtista = modal.querySelector('#pwArtist');
+  if(selArtista) selArtista.addEventListener('change', cargaRepertorio);
+
   // Sin caché → oculta importe.
   // Con caché / sin caché: la tarjeta escribe `no_cache` (lo que guarda el servidor) y enseña u
   // oculta el importe y el módulo de «¿cubren gastos?».
@@ -625,6 +792,11 @@
       .forEach(function(el){ el.classList.add('d-none'); });
     conflictos = []; conflictoAceptado = false; conflictoClave = '';
     modal.querySelectorAll('[data-pw-conflict], [data-pw-conflict-final]').forEach(function(c){ c.classList.add('d-none'); });
+    // El nombre del evento y el paso de «¿en qué consiste?» (el `form.reset()` ya vacía los campos).
+    ultimoArtista = '';
+    var bs = bloqueSongs();
+    if(bs && window.app33PerfSongs){ window.app33PerfSongs.clear(bs); window.app33PerfSongs.setCatalog(bs, []); }
+    syncFestivalName(); syncSings();
     if(window.jQuery){ try { jQuery('#pwArtist').val('').trigger('change'); } catch(e){} }
     show(1);
   }
@@ -699,6 +871,24 @@
     }
     modal.querySelector('#pwFee').value = d.fee_text || '';
     modal.querySelector('#pwDescription').value = d.description || '';
+    // El nombre del evento y lo del paso «¿en qué consiste?».
+    modal.querySelector('#pwFestivalName').value = d.festival_name || '';
+    syncFestivalName();
+    var perf = d.performance || {};
+    if(perf.sings === true || perf.sings === false){
+      var rs = modal.querySelector('[data-pw-sings][value="' + (perf.sings ? '1' : '0') + '"]');
+      if(rs) rs.checked = true;
+    }
+    modal.querySelector('#pwSongsCount').value = (perf.songs_count == null ? '' : perf.songs_count);
+    if(perf.formation_kind){
+      var rf = modal.querySelector('[data-pw-formation][value="' + perf.formation_kind + '"]');
+      if(rf) rf.checked = true;
+    }
+    modal.querySelector('#pwFormationText').value = perf.formation_text || '';
+    var bs2 = bloqueSongs();
+    if(bs2 && window.app33PerfSongs) window.app33PerfSongs.setChosen(bs2, perf.songs || []);
+    syncSings();
+    cargaRepertorio();
     show(1);
   }
 

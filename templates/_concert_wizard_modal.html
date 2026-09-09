@@ -212,9 +212,12 @@
                   <label class="form-label">¿Hasta qué día? <span class="text-muted small">(si dura varios)</span></label>
                   <input type="date" class="form-control" name="end_date" id="wizard_end_date">
                 </div>
+                {# ⚠️ EN UN EVENTO PROMOCIONAL EL NOMBRE ES OBLIGATORIO: es como se identifica la
+                   actividad en todas las pantallas (sin él, en los listados sale solo el lugar). El
+                   rótulo y el `required` los pone `syncFestivalName()` según el tipo. #}
                 <div class="col-lg-8" id="wizardFestivalNameWrap">
-                  <label class="form-label">Nombre del festival / evento</label>
-                  <input type="text" class="form-control" name="festival_name" placeholder="Festival / nombre interno">
+                  <label class="form-label" data-wz-festival-label>Nombre del festival / evento</label>
+                  <input type="text" class="form-control" name="festival_name" id="wizard_festival_name" placeholder="Festival / nombre interno">
                 </div>
                 <div class="col-lg-3 col-6 direct-only" data-mode="direct">
                   <label class="form-label">Hora del show</label>
@@ -2814,9 +2817,20 @@
       const tipo = (t && t.value) || '';
       const wrap = document.getElementById('wizardFestivalNameWrap');
       if(wrap) wrap.classList.toggle('d-none', tipo === 'CONCIERTO');
-      // El rótulo dice lo que se está pidiendo: el nombre del ciclo o el del festival.
-      const lab = wrap ? wrap.querySelector('label') : null;
-      if(lab){ lab.textContent = (tipo === 'CICLO') ? 'Nombre del ciclo' : 'Nombre del festival / evento'; }
+      // El rótulo dice lo que se está pidiendo: el nombre del ciclo, el del festival o el del evento.
+      const lab = wrap ? wrap.querySelector('[data-wz-festival-label]') : null;
+      const campo = document.getElementById('wizard_festival_name');
+      // ⚠️ En un EVENTO PROMOCIONAL el nombre es OBLIGATORIO (es lo que lo identifica); en el resto
+      // sigue siendo opcional, como hasta ahora.
+      const obligatorio = (tipo === 'EVENTO_PROMOCIONAL');
+      if(lab){
+        lab.textContent = (tipo === 'CICLO') ? 'Nombre del ciclo'
+                        : (obligatorio ? 'Nombre del evento' : 'Nombre del festival / evento');
+      }
+      if(campo){
+        campo.required = obligatorio;
+        campo.placeholder = obligatorio ? 'Cómo se llama el evento' : 'Festival / nombre interno';
+      }
     }
     function filterTourCards(){
       const sel = document.getElementById('wizard_artist_id');
@@ -2870,6 +2884,12 @@
       if(step === 3){
         const fecha = document.getElementById('wizard_date');
         if(!fecha.value) return falla(fecha, 'Indica la fecha de la actividad.');
+        // ⚠️ El NOMBRE del evento promocional se pide aquí (uno de los primeros pasos): sin él la
+        // actividad no se identifica en ningún listado.
+        const nom = document.getElementById('wizard_festival_name');
+        if(activityType() === 'EVENTO_PROMOCIONAL' && nom && !(nom.value || '').trim()){
+          return falla(nom, 'Ponle nombre al evento.');
+        }
         if(!document.getElementById('wizard_venue_id').value && !wzQ('input[name="manual_municipality"]').value.trim() && !wzQ('input[name="manual_province"]').value.trim()){
           // Sin recinto hace falta al menos el sitio: se marca la barra de búsqueda, que es por
           // donde se rellena (los campos sueltos aparecen al elegir una sugerencia).
@@ -3139,8 +3159,24 @@
         setVal('#wizard_manual_municipality', pre.municipality);
         setVal('#wizard_manual_province', pre.province);
       }
-      // 3 · Qué es (la descripción que se escribió al pedirlo).
+      // 3 · Qué es: el NOMBRE del evento y la descripción que se escribieron al pedirlo.
+      setVal('#wizard_festival_name', pre.festival_name);
       setVal('#wizard_activity_description', pre.description);
+      /* Y lo de la ACTUACIÓN, si la petición ya lo preguntó (¿canta?, nº de canciones, repertorio y
+         formación): así no se vuelve a preguntar lo que ya se sabe. */
+      var perf = pre.performance || {};
+      if (perf.sings === true || perf.sings === false) {
+        setRadio('artist_sings', perf.sings ? '1' : '0');
+        if (perf.sings) {
+          if (perf.songs_count) setVal('#wizard_songs_count', perf.songs_count);
+          if (perf.formation_kind) setRadio('formation_kind', perf.formation_kind);
+          if (perf.formation_text) setVal('[name="formation_text"]', perf.formation_text);
+          var bloqueP = document.querySelector('#wizardSingsPanel [data-perf-songs]');
+          if (bloqueP && window.app33PerfSongs && (perf.songs || []).length) {
+            try { window.app33PerfSongs.setChosen(bloqueP, perf.songs); } catch (e) {}
+          }
+        }
+      }
       // 4 · Promotor: quien lo pidió (se pinta con su foto o su logo, como si se hubiera buscado).
       if (pre.promoter_id) {
         // El promotor ya no es un select: es la barra de búsqueda (input + su oculto).
@@ -3192,6 +3228,13 @@
       }
       // 7 · La EMPRESA DEL GRUPO que dijo contratación al aprobar la petición.
       if (pre.company_id) setRadio('billing_company_id', pre.company_id);
+
+      // 8 · Las PERSONAS DE CONTACTO que se pusieron al pedirlo: se ponen ya elegidas (con sus
+      //     funciones), así no hay que volver a buscarlas.
+      var cts = pre.contacts || {};
+      if (Object.keys(cts).length && window.app33ConcertContacts) {
+        try { window.app33ConcertContacts.preselect('#wizardContacts', cts); } catch (e) {}
+      }
 
       // Se DICE que viene de una petición y que lo que ya se sabe está puesto: si no, uno no sabe
       // si el asistente está relleno porque lo ha hecho la app o porque se quedó a medias.

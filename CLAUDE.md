@@ -11372,3 +11372,112 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   perder las tocadas), la última entrada por emisora, las presentaciones por emisora y por artista,
   el filtro por artista y la semana anterior; y a 375 px, sin desbordes y con el calendario
   deslizándose por dentro.
+
+- **EL PROMOTOR CUBRE… · SUELDOS MÚSICOS, BACKLINE y OTROS** (sep 2026): tres opciones más en
+  `PROMOTER_COST_ITEMS`, así que salen solas en los DOS sitios que usan el módulo
+  (`_promoter_costs_module.html`): el asistente de actividad y el de PETICIONES.
+  ⚠️ En **«Otros»** lo importante es la NOTA (es donde se describe el gasto), así que su rótulo
+  pregunta otra cosa: «¿Qué otros gastos cubre?».
+
+- ⚠️⚠️ **UN EVENTO PROMOCIONAL TIENE NOMBRE, Y SE PIDE EN LOS PRIMEROS PASOS** (sep 2026). Sin él la
+  actividad no se identifica en ningún listado (sale solo el lugar). El campo es el `festival_name`
+  de siempre y se pide en el **paso 3** del asistente de actividad y en el **paso 2** del de
+  PETICIONES (junto al artista), con su rótulo «Nombre del evento».
+  ⚠️ Es **OBLIGATORIO solo en EVENTO_PROMOCIONAL**; en el resto de tipos con nombre propio sigue
+  siendo opcional y en un CONCIERTO no se pregunta. Lo comprueban el navegador
+  (`syncFestivalName()` pone el `required`, y el motor de la casa lo marca en rojo) **y el
+  SERVIDOR** (`_peticion_apply_form` levanta un `ValueError` que sale por `_flash_form_error`, así
+  que se dice el motivo, se marca el campo y no se pierde lo tecleado).
+
+- **PETICIONES · el paso «¿EN QUÉ CONSISTE Y CANTA?»** (sep 2026): el asistente de peticiones pasa a
+  **6 pasos** y gana el paso 5, que es el MISMO que al crear la actividad — la descripción, **¿el
+  artista canta?** y, si canta, el **nº de canciones**, el **repertorio** (el parcial único
+  `_performance_songs.html`, con su catálogo cargado de `api_artist_wizard_meta` al elegir artista)
+  y la **FORMACIÓN**. En un concierto o un festival se canta siempre, así que ahí solo se pregunta
+  la descripción (el bloque de «¿canta?» no se pinta).
+  ⚠️ Se guarda con el **MISMO parser** que la actividad (`_wizard_performance_payload` →
+  `payload['performance']`), así que al aprobar la petición el asistente sale **ya cumplimentado**
+  y no vuelve a preguntar lo que ya se sabe (`_peticion_wizard_prefill` lo lleva, y el paso 4 deja
+  de estar en `_peticion_wizard_missing`).
+  ⚠️ **La DESCRIPCIÓN se movió** del paso económico al nuevo: no puede haber dos campos con el
+  mismo `name` en el formulario (al leerlos se pisan y el servidor se queda con el primero).
+  ⚠️ `app33PerfSongs` gana **`setChosen(root, songs)`** para reponer lo ya elegido al EDITAR.
+
+- **PETICIONES · LAS PERSONAS DE CONTACTO, con el selector de la actividad** (sep 2026): el paso 4
+  («quién hace la petición») incluye el MISMO `_concert_contacts_picker.html` que la actividad, así
+  que al elegir quién lo pide se cargan SUS personas y lo que se ponga se **vuelca a la actividad**
+  al configurarla (`payload['contacts']` → el prefill llama a
+  `window.app33ConcertContacts.preselect('#wizardContacts', {...})`, API nueva del motor).
+  ⚠️ **`#pwReqId` es un HIDDEN que rellena el JS**: cambiarlo con `.value` NO dispara `change`, y el
+  selector escucha ese evento para cargar las personas del tercero (se avisa a mano, `avisaPromotor`).
+  ⚠️ Con **CENTINELA `cc_present`** (lo emite el parcial): sin él no se distingue «no hay nadie» de
+  «este formulario no pregunta por los contactos» y un guardado parcial los borraría.
+
+- **CONTACTOS · SE BUSCA EN TODA LA BASE Y SE VE LA FOTO** (sep 2026): `api_contact_search` devuelve
+  ya, además de las personas de contacto, los **TERCEROS por CUALQUIER campo**
+  (`_promoter_search_clause`: nick, nombre, correo, teléfono, CIF, sus sociedades y sus
+  vinculaciones), que se añaden como «el propio X» —la fila la crea `api_promoter_self_contact`, que
+  es un get-or-create—. Y `_promoter_contact_payload` lleva **`photo`** (el logo de SU tercero: una
+  persona de contacto no tiene foto propia), que pintan las dos listas y las tarjetas ya elegidas.
+  ⚠️⚠️ **VINCULARLA AL PROMOTOR SE PREGUNTA CON LAS DOS OPCIONES**: **«Siempre»** (queda en su ficha
+  y saldrá en sus próximas actividades) o **«Solo para esta actividad»** (queda colgada de la
+  actividad). Antes era una casilla marcada, que no explicaba la alternativa.
+
+- ⚠️⚠️ **LA CONFIRMACIÓN DEL ARTISTA SE PIDE, Y ÉL LA DA DESDE EL CORREO O LA LANDING** (sep 2026).
+  La fase 2 de una petición aprobada («Confirmar con el artista») se marcaba **a mano**. Ahora se le
+  pide con el aviso de siempre —vista previa, nota, canal y los ojos por módulo— pero de tipo
+  **`CONFIRMAR`** (`ACTIVITY_NOTICE_KINDS`, y `ACTIVITY_NOTICE_ASK_KINDS` es el punto único de «este
+  aviso espera respuesta»): el cuerpo lleva **dos botones, Confirmar y Rechazar**, y la landing
+  (`public_activity_notice_view`) enseña **el mismo contenido con las mismas opciones**.
+  · Lo que conteste se guarda en el propio aviso (`ConcertArtistNotification.response` ·
+  `responded_at` · `response_note`), que es **el dato de verdad**: de ahí sale el «confirmada el …»
+  (punto único **`_artist_confirmation_state`**) y de ahí se propaga la fase 2 de la petición
+  (`artist_agreed_at`, con `artist_agreed_by_nick = "el artista"`).
+  · Al contestar se **avisa a quien lo estaba esperando** (quien pidió la actividad y quien mandó el
+  aviso), y un **RECHAZO no confirma nada**: la fase 3 sigue bloqueada y la tarea sale en rojo con
+  el motivo.
+  ⚠️⚠️ **LOS BOTONES DEL CORREO SON ENLACES A LA LANDING, NUNCA LA ACCIÓN**: un cliente de correo
+  puede PREFETCHEAR un enlace, y con un GET que confirmara la actividad quedaría confirmada sin que
+  nadie la hubiera pulsado. La respuesta va por **POST** desde la landing
+  (`public_activity_notice_respond`, en las tres listas de públicos y exento de CSRF), y con `?r=si`
+  la landing **destaca** el botón pero **no lo pulsa sola**.
+  ⚠️⚠️ **EL CUERPO SE COMPONE DESPUÉS DE CREAR EL AVISO**: los botones llevan SU token, así que en
+  `concert_artist_notice_send` hay que crear la fila, hacer flush, asignar `public_token` y ENTONCES
+  llamar a `_activity_notice_html` (antes se componía primero). En la vista previa los botones se
+  pintan igual pero sin enlace: todavía no hay token.
+  ⚠️⚠️ **PEDIR LA CONFIRMACIÓN NO ES EL AVISO FORMAL** de la actividad (la fase 4, «Informar al
+  artista»): `CONFIRMAR` **no toca `artist_notified_at`**. Si lo tocara, esa fase desaparecería sola
+  sin haberse hecho y la compuerta de CONFIRMADO se daría por satisfecha.
+  ⚠️ La landing REHACE el bloque de respuesta sobre el contexto congelado (sin contestar lo quita
+  del cuerpo para no pintarlo dos veces; contestada, enseña qué se contestó). Lo ya contestado **no
+  se pisa**: si el artista cambia de opinión, se le vuelve a pedir y quedan las dos veces.
+  · Marcarlo **a mano** sigue estando (`booking_request_artist_agreed`) como acción secundaria: una
+  conversación por teléfono también vale.
+
+- **HOJA DE RUTA · UNA SOLA LÍNEA DE TIEMPO, con filtro por días** (sep 2026). Con varios días eran
+  tarjetas sueltas, una por día. Ahora es **una línea continua** de arriba abajo (`.rm-agenda::before`)
+  y cada día se marca con **su hoja de calendario** sobre ella (`.rm-cal`, con `z-index` y sombra);
+  los puntos cuelgan de esa misma línea (`.rm-dayitems` con el hueco a la izquierda). Se lee de un
+  tirón, que es lo que pasa de verdad: el día siguiente empieza donde acaba el anterior.
+  · **Filtro por días** (`dayFilter()` en `roadmap.js`, los `.filter-chip` de la casa): «Todos los
+  días» y un chip por día, y se pueden ver **varios a la vez**. Solo se pinta con **más de un día**
+  (con uno no filtra nada), y entonces la agenda va con `rm-agenda--single`: sin línea ni hueco.
+  ⚠️ El filtro es del NAVEGADOR (`diasVistos`): no se guarda ni se manda al servidor.
+
+- ⚠️⚠️ **UNA PERSONA DE UN MEDIO ES UN TERCERO** (sep 2026). «Añadir contacto» en la ficha de un
+  medio abre el pop-up **en modo BUSCAR**: se busca entre los terceros por cualquier campo
+  (`api_search_promoters`) **con su foto**, y al elegir uno se pasa a sus datos **ya puestos** —solo
+  se pide lo que falta, y el foco va al primer hueco vacío (el **cargo**, casi siempre)—. Los que
+  vienen de su ficha se marcan (`.is-from-promoter`) y se desmarcan al tocarlos.
+  · **«No está: crear una persona nueva»** enseña los campos en blanco y, al guardar, **le crea
+  también su ficha de TERCERO**. En los dos casos el tercero queda **VINCULADO al medio**
+  (`ThirdPartyLink` con su cargo, `_media_contact_link_outlet`).
+  · Columna nueva **`MediaContact.promoter_id`** y punto único **`_media_contact_promoter`**.
+  ⚠️ Lo que ya está escrito en la ficha del tercero **NO se pisa**: solo se rellena lo que tenga
+  vacío (el criterio de la importación de terceros). Y al revés: lo que no se escriba en el pop-up
+  se coge de su ficha.
+  ⚠️ Un contacto ANTIGUO (sin `promoter_id`) **no crea otra ficha a lo tonto**: primero se busca por
+  su CORREO (en `Promoter.contact_email` y en `PromoterEmail`), como hace la importación.
+  ⚠️⚠️ La función que pinta a quien se ha elegido se llama **`pintaElegido`, no `pinta`**: en ese
+  fichero ya hay una `pinta()` (la de las sugerencias de programa) y en JS la última definición
+  PISA a la anterior — la trampa de siempre de los nombres repetidos.

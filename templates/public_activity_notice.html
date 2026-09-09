@@ -30,6 +30,21 @@
     .sheet{ background:#fff; border:1px solid #e6e8eb; border-radius:20px;
             box-shadow:0 18px 42px rgba(15,23,42,.08); padding:24px 22px 30px; }
     @media(max-width:640px){ .sheet{ padding:18px 14px 22px; } }
+    .d-none{ display:none !important; }
+    .an-ask{ margin:18px auto 0; max-width:660px; text-align:center;
+             font-family:Arial,Helvetica,sans-serif; }
+    .an-ask__title{ font-size:16px; font-weight:800; color:#374151; margin-bottom:12px; }
+    .an-ask__btns{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+    .an-btn{ display:inline-flex; align-items:center; gap:8px; border:0; cursor:pointer;
+             padding:13px 24px; border-radius:10px; font-weight:800; font-size:15px; }
+    .an-btn--ok{ background:#0f7b3f; color:#fff; }
+    .an-btn--no{ background:#fff; color:#b42318; border:1px solid #b42318; }
+    /* La opción que se pulsó en el correo, destacada: falta un clic para que quede confirmada. */
+    .an-btn.is-pre{ box-shadow:0 0 0 4px rgba(15,123,63,.22); transform:scale(1.04); }
+    .an-ask__note{ margin-top:14px; text-align:left; }
+    .an-ask__note label{ display:block; font-size:13px; font-weight:700; color:#374151; margin-bottom:6px; }
+    .an-ask__note textarea{ width:100%; border:1px solid #e6e8eb; border-radius:10px; padding:10px;
+                            font:inherit; font-size:14px; }
   </style>
 </head>
 <body>
@@ -43,7 +58,71 @@
         lo que ves está montado con los datos de hoy.
       </div>
     {% endif %}
-    <article class="sheet">{{ body_html }}</article>
+    <article class="sheet">{{ body_html }}
+
+      {# ⚠️⚠️ LAS MISMAS OPCIONES QUE EL CORREO, pero aquí son de VERDAD (POST): los botones del
+         correo solo traen a esta página — un cliente de correo puede prefetchear un enlace y con un
+         GET que confirmara, la actividad quedaría confirmada sin que nadie la hubiera pulsado. #}
+      {% if ask and not answer %}
+        <form method="post" action="{{ respond_url }}" class="an-ask" id="anAskForm">
+          <input type="hidden" name="answer" id="anAnswer" value="">
+          <div class="an-ask__title">¿Confirmas esta actividad?</div>
+          <div class="an-ask__btns">
+            <button type="button" class="an-btn an-btn--ok" data-an-answer="OK">
+              <i class="fa fa-circle-check"></i>Confirmar
+            </button>
+            <button type="button" class="an-btn an-btn--no" data-an-answer="NO">
+              <i class="fa fa-circle-xmark"></i>Rechazar
+            </button>
+          </div>
+          <div class="an-ask__note d-none" id="anNoteWrap">
+            <label for="anNote">¿Por qué no puede ser? <span style="color:#8b95a1;">(se lo decimos a quien lo ha pedido)</span></label>
+            <textarea name="note" id="anNote" rows="3" placeholder="El motivo…"></textarea>
+            <button type="submit" class="an-btn an-btn--no" style="margin-top:10px;">
+              <i class="fa fa-paper-plane"></i>Enviar el rechazo
+            </button>
+          </div>
+        </form>
+      {% endif %}
+    </article>
   </main>
+
+  {% if ask and not answer %}
+  <script>
+    (function () {
+      var form = document.getElementById('anAskForm');
+      if (!form) return;
+      var campo = document.getElementById('anAnswer');
+      var nota = document.getElementById('anNoteWrap');
+      form.addEventListener('click', function (ev) {
+        var b = ev.target.closest('[data-an-answer]');
+        if (!b) return;
+        var v = b.getAttribute('data-an-answer');
+        campo.value = v;
+        if (v === 'NO') {                    // rechazar: se pide el motivo antes de mandarlo
+          nota.classList.remove('d-none');
+          document.getElementById('anNote').focus();
+          return;
+        }
+        form.submit();
+      });
+      /* Si se llega desde el botón del correo (`?r=si|no`) se lleva al sitio y se destaca la
+         opción, pero NO se envía solo: confirmar una actividad es una decisión, y un enlace que se
+         abre solo (un prefetch, un escáner de correo) no puede darla por tomada. */
+      var pre = {{ (preset or '')|tojson }};
+      if (pre) {
+        form.scrollIntoView({ block: 'center' });
+        if (pre === 'no') {
+          campo.value = 'NO';
+          nota.classList.remove('d-none');
+          document.getElementById('anNote').focus();
+        } else {
+          var ok = form.querySelector('[data-an-answer="OK"]');
+          if (ok) { ok.classList.add('is-pre'); ok.focus(); }
+        }
+      }
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>

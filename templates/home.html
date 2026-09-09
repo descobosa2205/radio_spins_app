@@ -818,15 +818,22 @@ document.addEventListener('click', function (ev) {
                   <i class="fa fa-sliders me-1"></i>{{ t.action_label }}</a>
               </span>
             {% elif t.key == 'artista_ok' %}
-              {# FASE 2: hablarlo con el artista. Es una conversación: se marca a mano. #}
+              {# FASE 2: se le PIDE al artista con el aviso de siempre (kind CONFIRMAR), que lleva los
+                 botones de Confirmar/Rechazar en el correo y en la landing. Lo que conteste se
+                 guarda con su fecha. Marcarlo a mano queda como acción secundaria. #}
               <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.phase }}. {{ t.label }}</span>
-              {% if t.hint %}<span class="badge text-bg-light border">{{ t.hint }}</span>{% endif %}
+              {% if t.rejected %}
+                <span class="badge text-bg-danger" title="{{ t.reject_note }}">
+                  <i class="fa fa-circle-xmark me-1"></i>La ha rechazado</span>
+              {% elif t.hint %}<span class="badge text-bg-light border">{{ t.hint }}</span>{% endif %}
               <span class="ctask__actions d-inline-flex gap-2 ms-1">
+                <a class="btn btn-sm btn-warning" href="{{ t.ask_url }}">
+                  <i class="fa fa-user-check me-1"></i>{{ 'Volver a pedírsela' if t.asked else 'Pedirle la confirmación' }}</a>
                 <form method="post" action="{{ t.done_url }}" class="d-inline">
                   <input type="hidden" name="next" value="{{ request.full_path }}">
-                  <button class="btn btn-sm btn-warning"
+                  <button class="btn btn-sm btn-outline-warning" title="Ya me lo ha confirmado"
                           data-confirm="¿El artista ha confirmado la fecha y que lo quiere hacer?">
-                    <i class="fa fa-check me-1"></i>El artista lo confirma</button>
+                    <i class="fa fa-check"></i></button>
                 </form>
               </span>
             {% elif t.key == 'promotor' %}

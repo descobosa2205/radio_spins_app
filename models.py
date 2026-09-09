@@ -334,6 +334,13 @@ class ConcertArtistNotification(Base):
     sent_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     sent_by_nick = Column(Text)
 
+    # ⚠️ LO QUE CONTESTA EL ARTISTA cuando el aviso le PIDE confirmar (kind CONFIRMAR): los botones
+    # del correo y de la landing escriben aquí. `OK` = lo confirma · `NO` = lo rechaza (con motivo).
+    # Es el dato de verdad: de aquí sale el «confirmado el …» que se enseña en la tarea y en la ficha.
+    response = Column(Text)
+    responded_at = Column(DateTime(timezone=True))
+    response_note = Column(Text)
+
     __table_args__ = (
         Index("idx_concert_artist_notif_concert", "concert_id"),
     )
@@ -495,6 +502,15 @@ def ensure_artist_notifications_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_concert_artist_notif_concert ON concert_artist_notifications(concert_id);",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_concert_artist_notif_token ON concert_artist_notifications(public_token) WHERE public_token IS NOT NULL AND public_token <> '';",
+        # ⚠️ Una columna nueva va en su PROPIA sentencia (nunca dentro de un `DO $$ … IF NOT EXISTS`
+        # con guarda enumerada): si la guarda ya se cumplía, el ALTER no se ejecuta nunca y la app
+        # revienta al pedir esa columna (bug real de las columnas de TikTok).
+        """
+        ALTER TABLE concert_artist_notifications
+            ADD COLUMN IF NOT EXISTS response text,
+            ADD COLUMN IF NOT EXISTS responded_at timestamptz,
+            ADD COLUMN IF NOT EXISTS response_note text;
+        """,
     ]
     _exec_ddl_statements(stmts, "artist_notifications")
 
@@ -4399,6 +4415,11 @@ class MediaContact(Base):
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"), nullable=False)
+    # ⚠️⚠️ UNA PERSONA DE UN MEDIO **ES UN TERCERO**: sus datos viven en su ficha (`Promoter`) y aquí
+    # solo se dice que trabaja en este medio y con qué cargo. Al añadir un contacto se busca primero
+    # entre los terceros que ya tenemos (para no duplicar a nadie) y, si se crea nuevo, se le crea
+    # también su ficha de tercero. Es el mismo criterio que los integrantes de un artista.
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
     program = Column(Text)
     role = Column(Text)
     nick = Column(Text)
@@ -10484,6 +10505,9 @@ def ensure_promocion_prensa_schema():
         # resto tampoco se aplica y la app revienta al consultar la tabla.
         'ALTER TABLE IF EXISTS media_contacts ADD COLUMN IF NOT EXISTS nick text;',
         'ALTER TABLE IF EXISTS media_contacts ADD COLUMN IF NOT EXISTS press_releases boolean NOT NULL DEFAULT false;',
+        # Una persona de un medio ES un tercero: aquí solo se dice en qué medio trabaja y con qué cargo.
+        'ALTER TABLE IF EXISTS media_contacts ADD COLUMN IF NOT EXISTS promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;',
+        'CREATE INDEX IF NOT EXISTS idx_media_contacts_promoter ON media_contacts(promoter_id);',
         'CREATE INDEX IF NOT EXISTS idx_media_contacts_press ON media_contacts(media_id) WHERE press_releases;',
         # SUBIDA DE CONTACTOS DESDE UN FICHERO: se guarda porque el reparto (arrastrar cada uno a
         # su medio) se puede dejar a medias y se retoma desde el aviso de Medios.

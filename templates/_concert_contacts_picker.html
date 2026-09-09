@@ -74,12 +74,22 @@
           <input type="text" class="form-control form-control-sm" data-cc-new-phone placeholder="Teléfono">
         </div>
       </div>
-      {# ⚠️ Vincularla al promotor SE PREGUNTA: apuntar a alguien en una actividad no siempre significa
-         que tenga que quedarse en la ficha del tercero. #}
-      <label class="d-inline-flex align-items-center gap-2 small mt-2 d-none" data-cc-link-wrap>
-        <input type="checkbox" class="form-check-input m-0" data-cc-link checked>
-        <span>Vincularla también al promotor <strong data-cc-link-name></strong> como persona de contacto suya</span>
-      </label>
+      {# ⚠️⚠️ SE PREGUNTA CON LAS DOS OPCIONES: apuntar a alguien en una actividad no significa que
+         tenga que quedarse en la ficha del tercero. «Siempre» la deja como persona de contacto suya
+         (y saldrá en sus próximas actividades); «solo para esta» la deja colgada de la actividad. #}
+      <div class="mt-2 d-none" data-cc-link-wrap>
+        <div class="small fw-semibold mb-1">¿La vinculamos a <strong data-cc-link-name></strong>?</div>
+        <div class="d-flex flex-wrap gap-2">
+          <label class="cc-linkopt">
+            <input type="radio" name="cc_link_mode_{{ _ccid }}" value="ALWAYS" checked data-cc-link-mode>
+            <span><i class="fa fa-link"></i>Siempre <span class="text-muted">· queda en su ficha</span></span>
+          </label>
+          <label class="cc-linkopt">
+            <input type="radio" name="cc_link_mode_{{ _ccid }}" value="ONCE" data-cc-link-mode>
+            <span><i class="fa fa-calendar-day"></i>Solo para esta actividad</span>
+          </label>
+        </div>
+      </div>
       <div class="cc-dups d-none" data-cc-dups></div>
       <div class="d-flex gap-2 mt-2">
         <button type="button" class="btn btn-sm btn-primary" data-cc-new-save><i class="fa fa-check me-1"></i>Añadir</button>
@@ -89,6 +99,9 @@
     </div>
   </div>
 
-  {# Los campos que lee `_parse_concert_contacts_form`: las personas y, por cada una, sus funciones. #}
+  {# Los campos que lee `_parse_concert_contacts_form`: las personas y, por cada una, sus funciones.
+     ⚠️ El CENTINELA dice que el formulario TRAE este módulo: sin él no se distingue «no hay nadie»
+     de «este formulario no pregunta por los contactos», y un guardado parcial los borraría. #}
+  <input type="hidden" name="cc_present" value="1">
   <div data-cc-inputs></div>
 </div>

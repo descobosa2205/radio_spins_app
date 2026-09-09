@@ -119,11 +119,28 @@
         <i class="fa fa-user-check me-1"></i>Artista confirmado
       </span>
     {% elif pf.artist_ok.mine %}
+      {# ⚠️ Se le PIDE al artista con el aviso de siempre (kind CONFIRMAR): el correo y la landing
+         llevan los botones de Confirmar/Rechazar y lo que conteste queda guardado con su fecha.
+         Marcarlo a mano sigue estando (si lo dice por teléfono), como acción secundaria. #}
+      {% if pf.artist_ok.rejected %}
+        <span class="badge text-bg-danger align-self-center" data-bs-toggle="tooltip"
+              title="{{ pf.artist_ok.reject_note or 'El artista ha rechazado la actividad' }}">
+          <i class="fa fa-circle-xmark me-1"></i>El artista la ha rechazado
+        </span>
+      {% elif pf.artist_ok.waiting %}
+        <span class="badge text-bg-warning text-dark align-self-center" data-bs-toggle="tooltip"
+              title="Se le pidió el {{ pf.artist_ok.asked_label }}">
+          <i class="fa fa-hourglass-half me-1"></i>Esperando la confirmación del artista
+        </span>
+      {% endif %}
+      <a class="btn btn-outline-warning btn-sm" href="{{ pf.artist_ok.ask_url }}">
+        <i class="fa fa-user-check me-1"></i>{{ 'Volver a pedir la confirmación' if pf.artist_ok.asked else 'Pedir confirmación al artista' }}
+      </a>
       <form method="post" action="{{ pf.artist_ok.done_url }}" class="d-inline">
         <input type="hidden" name="next" value="{{ request.full_path }}">
-        <button class="btn btn-outline-warning btn-sm"
+        <button class="btn btn-outline-secondary btn-sm" title="Ya me lo ha confirmado"
                 data-confirm="¿El artista ha confirmado la fecha y que lo quiere hacer?">
-          <i class="fa fa-user-check me-1"></i>El artista lo confirma
+          <i class="fa fa-check"></i>
         </button>
       </form>
     {% else %}
@@ -318,10 +335,15 @@
                 {% if t.key == 'configurar' %}
                   <a class="btn btn-sm btn-danger" href="{{ t.url }}"><i class="fa fa-sliders me-1"></i>Configurar evento</a>
                 {% elif t.key == 'artista_ok' %}
+                  {# Se le PIDE con el aviso (kind CONFIRMAR): los botones van en el correo y en la
+                     landing, y lo que conteste queda guardado. Marcarlo a mano, como secundario. #}
+                  <a class="btn btn-sm btn-warning" href="{{ t.ask_url }}">
+                    <i class="fa fa-user-check me-1"></i>{{ 'Volver a pedírsela' if t.asked else 'Pedirle la confirmación' }}</a>
                   <form method="post" action="{{ t.done_url }}" class="d-inline">
                     <input type="hidden" name="next" value="{{ request.full_path }}">
-                    <button class="btn btn-sm btn-warning" data-confirm="¿El artista ha confirmado la fecha y que lo quiere hacer?">
-                      <i class="fa fa-check me-1"></i>El artista lo confirma</button>
+                    <button class="btn btn-sm btn-outline-warning" title="Ya me lo ha confirmado"
+                            data-confirm="¿El artista ha confirmado la fecha y que lo quiere hacer?">
+                      <i class="fa fa-check"></i></button>
                   </form>
                 {% elif t.key == 'promotor' %}
                   {% if t.send_url %}

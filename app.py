@@ -143241,12 +143241,6 @@ def _home_invitation_requests_for_current_user(limit: int = 12) -> list[dict]:
 
 
 
-# Aplicar las exenciones de CSRF una vez registradas todas las rutas (las view functions ya existen en
-# app.view_functions). Si algún endpoint no existiera, se ignora sin romper el arranque.
-for _csrf_ep in _CSRF_EXEMPT_ENDPOINTS:
-    _csrf_vf = app.view_functions.get(_csrf_ep)
-    if _csrf_vf is not None:
-        csrf.exempt(_csrf_vf)
 
 
 # ---------------------------------------------------------------------------
@@ -154993,6 +154987,27 @@ def _sync_promoter_tab_context(session_db, promoter) -> dict:
         "sync_can_edit": can_edit_syncros(),
     }
 
+
+
+# ⚠️⚠️ LAS EXENCIONES DE CSRF VAN AL FINAL DEL FICHERO, cuando ya están registradas TODAS las
+# rutas: se aplican buscando la view function en `app.view_functions`, así que un endpoint definido
+# MÁS ABAJO que este bucle **no se eximía** y su POST público moría en un 302 a /home con el flash
+# de «sesión caducada» —sin ningún error en el log— (bug real: la baja de publicidad de un
+# comprador y el aviso de escucha de un tema de Syncro). Estaba a mitad del fichero.
+# Si un endpoint de la lista no existe, se ignora sin romper el arranque.
+for _csrf_ep in _CSRF_EXEMPT_ENDPOINTS:
+    _csrf_vf = app.view_functions.get(_csrf_ep)
+    if _csrf_vf is not None:
+        csrf.exempt(_csrf_vf)
+
+# Red de seguridad: si alguno se queda sin eximir (se ha escrito mal el nombre, o la ruta ya no
+# existe), se DICE en el log en vez de descubrirlo cuando alguien no puede enviar su formulario.
+try:
+    _csrf_sin = sorted(ep for ep in _CSRF_EXEMPT_ENDPOINTS if ep not in app.view_functions)
+    if _csrf_sin:
+        app.logger.warning("[csrf] endpoints exentos que no existen: %s", ", ".join(_csrf_sin))
+except Exception:
+    pass
 
 
 if __name__ == "__main__":

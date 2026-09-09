@@ -6649,6 +6649,22 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Las etiquetas de una ACTIVIDAD son otra cosa (texto libre sin catálogo) y siguen con
   `initConcertTagManager`.
 
+- ⚠️⚠️⚠️ **UN POST PÚBLICO DEFINIDO DEBAJO DEL BUCLE DE EXENCIONES NO SE EXIMÍA DEL CSRF** (bug
+  real, sep 2026). Las exenciones se aplican recorriendo `_CSRF_EXEMPT_ENDPOINTS` y buscando cada
+  view function en `app.view_functions`… y ese bucle estaba **a mitad del fichero**, así que un
+  endpoint definido MÁS ABAJO no llegaba a eximirse: su POST moría en un **302 a `/home`** con el
+  flash de «sesión caducada», **sin ningún error en el log** — el mismo síntoma que ya documenta la
+  guía para las pruebas sin `WTF_CSRF_ENABLED=False`.
+  · Estaban rotos **la BAJA de publicidad de un comprador** (el «one-click» del cliente de correo,
+  que además es lo que Gmail y el iPhone usan para ofrecerla) y el aviso de escucha de Syncro.
+  · El bucle va ya **al FINAL de `app.py`**, cuando están registradas todas las rutas, con una **red
+  de seguridad** que avisa en el log si un endpoint de la lista no existe.
+  ⚠️ Comprobación (con el CSRF **activado**, que es como está en producción):
+  `[ep for ep in _CSRF_EXEMPT_ENDPOINTS if "%s.%s" % (vf.__module__, vf.__name__) not in csrf._exempt_views]`
+  tiene que salir **vacío** — hoy: 109 en la lista, 0 sin eximir.
+  ⚠️ `PUBLIC_ENDPOINTS_EXTRA` y las listas `allowed` **no** tienen este problema: se miran en tiempo
+  de ejecución, no al arrancar.
+
 - ⚠️⚠️ **SYNCRO · ¿LO HAN ABIERTO, LO HAN ESCUCHADO Y LO HAN REENVIADO?** (sep 2026). Presentar un
   tema a un supervisor sin saber si lo ha llegado a escuchar es trabajar a ciegas: es lo que dice si
   hay que insistir, si el correo no llega o si el tema no engancha.

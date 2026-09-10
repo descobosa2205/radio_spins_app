@@ -1,5 +1,12 @@
 {# Los DESTINATARIOS del envío (filtros + lista). Se carga AL ABRIR el pop-up (`sync_send_targets`):
    pintarlo dentro de la página hacía que pesara muchísimo con cientos de supervisores. #}
+              {% if send_opted_out %}
+                <div class="small text-muted mb-2">
+                  <i class="fa-solid fa-bell-slash me-1"></i>{{ send_opted_out }} supervisor{{ 'es' if send_opted_out != 1 }}
+                  pidi{{ 'eron' if send_opted_out != 1 else 'ó' }} no recibir más temas: no se ofrece{{ 'n' if send_opted_out != 1 }} aquí.
+                </div>
+              {% endif %}
+
               <div class="d-flex flex-column gap-2 mb-2" data-sync-filters>
                 {% if send_types %}
                   <div class="d-flex align-items-center gap-1 flex-wrap">

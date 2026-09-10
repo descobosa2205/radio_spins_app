@@ -474,7 +474,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_activity_notice_respond", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_activity_notice_respond", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
     "concert_artwork_public_upload",
     # LA BAJA DE PUBLICIDAD de un comprador: el POST llega del propio cliente de correo (un clic).
     "public_buyer_unsubscribe",
@@ -903,7 +903,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -1595,6 +1595,10 @@ def inject_globals():
         OG_DEFAULT_IMAGE=_external_url_for("og_default_image"),
         # El icono de un tipo de proyecto discográfico («Single + Videoclip» son dos iconos y un +).
         disco_kind_icon=_disco_kind_icon_html,
+        # SYNCROS: desde qué buzón salen los temas que se mandan a los supervisores. Es una
+        # FUNCIÓN (no un valor) a propósito: así solo se consulta la cuenta en la pantalla que lo
+        # pinta, y ahí queda cacheada en `g`.
+        sync_sender=_sync_sender,
         # CARTELERÍA: de qué es un cartel (IMAGE | VIDEO | PDF), para pintarlo como toca.
         artwork_kind=_artwork_kind_of,
         artwork_category=_artwork_asset_category,
@@ -3703,6 +3707,36 @@ def _smtp_sender_rejected(exc) -> bool:
 # dirección (que es justo lo que rechazaba) y el correo va alineado con el dominio que lo firma.
 # `_send_optional_email` lo resuelve SOLO: si el From pedido es el de una cuenta activa, sale por ella.
 # ═════════════════════════════════════════════════════════════════════════════
+
+# ══ Las cuentas de envío que la app ESPERA ═══════════════════════════════════════════════════
+# ⚠️ Punto ÚNICO: de aquí salen el aviso de «esta todavía no está dada de alta», el alta ya rellena
+# y el «para qué se usa» de cada fila. Una cuenta nueva se añade AQUÍ y aparece sola en la pantalla.
+# ⚠️ La clave (`key`) no se usa para nada más que agrupar: lo que identifica una cuenta es su
+# DIRECCIÓN (`MailAccount.from_email` es única).
+MAIL_EXPECTED_ACCOUNTS = [
+    {"key": "PROMO33", "email": "promocion@33producciones.es", "name": "Promoción | 33 Producciones",
+     "label": "Promoción", "icon": "fa-microphone-lines",
+     "uses": "Notas de prensa · se elige como remitente al enviar",
+     "why": "Las notas de prensa salen desde este buzón, no con el remitente de la app."},
+    {"key": "SYNCRO", "email": "syncro@piesrecords.com", "name": "Syncros PIES Compañía Discográfica",
+     "label": "Syncros", "icon": "fa-clapperboard",
+     "uses": "Syncros · los temas que se mandan a los supervisores",
+     "why": ("Los temas para sincronización salen SIEMPRE desde este buzón: quien los recibe es un "
+             "supervisor de fuera, y un correo de una casa de discos que sale desde otro dominio "
+             "acaba en spam.")},
+]
+
+
+def _mail_expected_for(email: str) -> dict | None:
+    """La cuenta ESPERADA que corresponde a esa dirección (o None)."""
+    correo = (email or "").strip().lower()
+    if not correo:
+        return None
+    for e in MAIL_EXPECTED_ACCOUNTS:
+        if e["email"].lower() == correo:
+            return e
+    return None
+
 
 MAIL_SECURITY_KINDS = [
     ("SSL", "SSL/TLS", "puerto 465 (lo habitual)"),
@@ -84112,7 +84146,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -84534,6 +84568,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         # Los temas ONE-STOP y su envío a supervisores: la sección Syncros.
         "sync_song_send": "syncros", "sync_song_preview_html": "syncros",
         "sync_song_enable": "syncros", "sync_send_targets": "syncros",
+        "sync_supervisor_optout": "syncros",
         "syncros_import_analyze": "syncros.supervisors", "syncros_import_apply": "syncros.supervisors",
         "integrations_view": "integraciones",
         # Pleo se configura por empresa desde Integraciones (los endpoints exigen además dirección).
@@ -88182,7 +88217,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -118094,6 +118129,7 @@ def _mail_account_row(acc) -> dict:
     usuario = (acc.smtp_username or "").strip()
     seguridad = (acc.smtp_security or "SSL").upper()
     es_promo = email.lower() == PRESS_SENDER_PROMO_EMAIL.lower()
+    esperada = _mail_expected_for(email)
     return {
         "id": str(acc.id), "label": acc.label or "", "from_name": acc.from_name or "", "from_email": email,
         "reply_to": acc.reply_to or "", "smtp_host": acc.smtp_host or "",
@@ -118110,8 +118146,11 @@ def _mail_account_row(acc) -> dict:
         "last_test_at": (acc.last_test_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if acc.last_test_at else ""),
         "last_test_ok": acc.last_test_ok, "last_test_info": acc.last_test_info or "",
         "is_promo": es_promo,
-        "uses": (["Notas de prensa · remitente «%s»" % PRESS_SENDER_PROMO_NAME] if es_promo
-                 else ["Notas de prensa · se ofrece como remitente al enviar"]),
+        # PARA QUÉ se usa: lo dice el catálogo de cuentas esperadas (una cuenta cualquiera se puede
+        # elegir además como remitente de una nota de prensa).
+        "expected_key": (esperada or {}).get("key", ""),
+        "icon": (esperada or {}).get("icon", "fa-at"),
+        "uses": ([esperada["uses"]] if esperada else ["Notas de prensa · se ofrece como remitente al enviar"]),
     }
 
 
@@ -118123,10 +118162,17 @@ def _mail_accounts_context(session_db) -> dict:
                   session_db.query(CycleFestival).filter(CycleFestival.event_id.is_(None)).order_by(CycleFestival.name.asc()).limit(200).all()]
     except Exception:
         empresas, ciclos = [], []
+    dadas = {(f["from_email"] or "").lower() for f in filas}
+    esperadas = [dict(e, missing=(e["email"].lower() not in dadas)) for e in MAIL_EXPECTED_ACCOUNTS]
     return {"rows": filas, "companies": empresas, "cycles": ciclos,
             "security_kinds": MAIL_SECURITY_KINDS, "ports": MAIL_SECURITY_PORTS,
             "promo_email": PRESS_SENDER_PROMO_EMAIL, "promo_name": PRESS_SENDER_PROMO_NAME,
             "promo_missing": not any(f["is_promo"] for f in filas),
+            "sync_email": SYNC_SENDER_EMAIL, "sync_name": SYNC_SENDER_NAME,
+            # Las que la app espera, con las que faltan marcadas (de aquí salen el aviso y el alta
+            # ya rellena de cada una: ver `MAIL_EXPECTED_ACCOUNTS`).
+            "expected": esperadas,
+            "expected_missing": [e for e in esperadas if e["missing"]],
             "active_count": sum(1 for f in filas if f["is_active"])}
 
 
@@ -152692,6 +152738,12 @@ def _sync_supervisor_row(sup, promoter=None, submissions: int = 0) -> dict:
         "comm_lang": ("EN" if (getattr(sup, "comm_lang", "") or "ES").strip().upper() == "EN" else "ES"),
         "notes": (getattr(sup, "notes", "") or "").strip(),
         "submissions": int(submissions or 0),
+        # ⚠️ BAJA: pidió no recibir más temas (desde el pie de su correo o a mano). Quien está de
+        # baja no se ofrece en el envío y el envío lo vuelve a comprobar.
+        "opted_out": getattr(sup, "opted_out_at", None) is not None,
+        "opted_out_at": (sup.opted_out_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
+                         if getattr(sup, "opted_out_at", None) else ""),
+        "opted_out_note": (getattr(sup, "opted_out_note", "") or "").strip(),
         "url": url_for("promoter_detail_view", pid=str(sup.promoter_id), tab="syncro"),
     }
 
@@ -152900,6 +152952,29 @@ def brand_icon_png(nombre):
 
 
 # Contacto de sincronizaciones que va en TODOS los envíos (correo y enlace público).
+# ══ QUIÉN MANDA los correos de Syncros ═══════════════════════════════════════════════════════
+# ⚠️⚠️ Un tema para sincronización NO puede salir con el remitente de la app: quien lo recibe es un
+# supervisor de fuera, y un correo que dice venir de una casa de discos desde otro dominio es,
+# para Gmail y Outlook, indistinguible de uno falsificado (y encima queda burdo). Sale desde el
+# BUZÓN de sincronizaciones, con sus propias credenciales (`MailAccount`, Integraciones → Correo):
+# así va alineado con su dominio (SPF/DKIM de piesrecords.com) y no hay que pedirle al servidor de
+# la app «mandar como» otra dirección, que es justo lo que rechaza.
+# Mientras la cuenta no esté dada de alta se pide igual mandar «como» ella y, si el servidor no lo
+# admite, sale con el remitente de la app y Reply-To aquí — y se DICE (no se calla).
+SYNC_SENDER_NAME = "Syncros PIES Compañía Discográfica"
+SYNC_SENDER_EMAIL = "syncro@piesrecords.com"
+# El RITMO de un envío grande cuando NO hay cuenta propia (con ella mandan los suyos): un respiro
+# entre correos y una conexión nueva cada N. Mandar 60 de golpe por un hosting es lo que hace que
+# corten la conexión o que el envío se marque como masivo.
+SYNC_SEND_PACE_MS = 900
+SYNC_SEND_RECONNECT_EVERY = 25
+# Lo que cabe en UNA petición: al agotarse se dice cuántos quedan y se pulsa otra vez (la regla de
+# la casa para las acciones «para todos»). A los ya enviados no se les repite.
+SYNC_SEND_BUDGET_SECONDS = 45.0
+# Al reanudar, a quién no se le vuelve a mandar: los que ya recibieron ESTE tema hace menos de esto.
+# Es una ventana corta a propósito: reenviar el mismo tema dentro de unos días sigue siendo posible.
+SYNC_SEND_RESUME_MINUTES = 45
+
 SYNC_CONTACT_NAME = "Daniel Martínez"
 SYNC_CONTACT_ROLE_ES = "Responsable de Sincronizaciones"
 SYNC_CONTACT_ROLE_EN = "Head of Sync Licensing"
@@ -152926,6 +153001,15 @@ SYNC_TEXTS = {
         "back": "Volver", "prev": "Anterior", "next": "Siguiente",
         "one_stop_help": "Máster y edición al 100% en nuestras manos: se licencia con una sola parte.",
         "subject": "Syncro", "subject_lead": "Nuevo tema para Syncro",
+        # El pie de la BAJA (solo en el correo): quien no quiera recibir más, con un clic.
+        "unsub_intro": "Recibes este correo porque trabajas con sincronizaciones musicales.",
+        "unsub_link": "No quiero recibir más temas",
+        "unsub_title": "Dejar de recibir temas para sincronización",
+        "unsub_lead": "Si no quieres que te sigamos enviando temas para sincronización, pulsa el botón y no volveremos a escribirte.",
+        "unsub_btn": "Confirmar la baja",
+        "unsub_done": "Hecho: no volveremos a enviarte temas para sincronización.",
+        "unsub_already": "Ya estabas dado de baja: no te enviamos temas para sincronización.",
+        "unsub_bad": "Este enlace no vale. Escríbenos y lo hacemos nosotros.",
         "roles": {"AUTHOR": "Autor (letra)", "COMPOSER": "Compositor (música)",
                   "AUTHOR_COMPOSER": "Autor y compositor"},
     },
@@ -152946,6 +153030,14 @@ SYNC_TEXTS = {
         "back": "Back", "prev": "Previous", "next": "Next",
         "one_stop_help": "Master and publishing 100% controlled by us: cleared with a single party.",
         "subject": "Sync", "subject_lead": "New track for Sync",
+        "unsub_intro": "You are receiving this email because you work with music for sync licensing.",
+        "unsub_link": "Unsubscribe from sync pitches",
+        "unsub_title": "Stop receiving tracks for sync licensing",
+        "unsub_lead": "If you would rather not receive tracks for sync licensing, click the button and we will not write to you again.",
+        "unsub_btn": "Confirm unsubscribe",
+        "unsub_done": "Done: we will not send you any more tracks for sync licensing.",
+        "unsub_already": "You were already unsubscribed: we are not sending you tracks for sync licensing.",
+        "unsub_bad": "This link is not valid. Just reply to us and we will do it for you.",
         "roles": {"AUTHOR": "Lyricist", "COMPOSER": "Composer",
                   "AUTHOR_COMPOSER": "Writer / Composer"},
     },
@@ -153634,6 +153726,109 @@ SYNC_LISTEN_SECONDS = 60
 SYNC_TOKEN_MARK = "__SYNC_TOKEN__"
 
 
+def _sync_sender() -> dict:
+    """DESDE QUÉ CORREO sale un tema para sincronización. Punto ÚNICO (hermano de
+    `_press_sender_for`): lo usan el envío, la vista previa y el pop-up.
+
+    Sale desde el BUZÓN de sincronizaciones con SUS credenciales si la cuenta está dada de alta
+    (Integraciones → Correo → Cuentas de envío). Si todavía no lo está, se pide al SMTP de la app
+    mandar «como» esa dirección y, si el servidor no lo admite, `_send_optional_email` cae al
+    remitente de la app con Reply-To aquí y **lo dice** (nunca se calla).
+    · `ok` = sale por su propio buzón · `hint` = qué falta para que lo haga."""
+    acc = _mail_account_for_email(SYNC_SENDER_EMAIL)
+    if acc is not None:
+        return {"from_name": ((acc.from_name or "").strip() or SYNC_SENDER_NAME),
+                "from_email": acc.from_email, "reply_to": ((acc.reply_to or "").strip() or None),
+                "account": acc, "ok": True,
+                "hint": ("" if acc.last_test_ok else
+                         "Esa cuenta todavía no ha pasado la prueba de conexión (Integraciones → Correo).")}
+    return {"from_name": SYNC_SENDER_NAME, "from_email": SYNC_SENDER_EMAIL,
+            "reply_to": SYNC_SENDER_EMAIL, "account": None, "ok": False,
+            "hint": ("Sin cuenta propia: se intentará mandar como %s y, si el servidor no lo admite, "
+                     "saldrá con el remitente de la app y las respuestas irán a esa dirección. Para que "
+                     "salga desde su buzón, dala de alta en Integraciones → Correo → Cuentas de envío."
+                     % SYNC_SENDER_EMAIL)}
+
+
+def _sync_sender_label() -> str:
+    """El remitente tal como se enseña («Nombre <correo>»)."""
+    r = _sync_sender()
+    return "%s <%s>" % (r["from_name"], r["from_email"])
+
+
+def _sync_unsub_url(token: str = "") -> str:
+    """El enlace de BAJA de ESE envío (con su token). Vacío si no se puede componer."""
+    try:
+        return _external_url_for("public_sync_unsubscribe", token=(token or SYNC_TOKEN_MARK))
+    except Exception:
+        return ""
+
+
+def _sync_unsub_footer(t: dict, *, preview: bool = False) -> str:
+    """El pie de la BAJA del correo (solo del correo: en la página del enlace no viene a cuento).
+
+    ⚠️⚠️ Un envío a decenas de supervisores SIN forma de darse de baja es lo que hace que alguien
+    marque «spam», y con eso cae la reputación del dominio para TODO lo que se manda desde él. El
+    enlace va con el token de ESE envío, así que la baja se apunta sin pedirle nada a nadie.
+    ⚠️ En la VISTA PREVIA va sin enlace: ahí todavía no hay envío, así que el token es el marcador y
+    pinchándolo se llegaría a un 404 (se ve el pie, que es de lo que se trata, pero no se pincha)."""
+    esc = lambda v: escape(str(v or ""))
+    url = "" if preview else _sync_unsub_url()
+    if not preview and not url:
+        return ""
+    enlace = (('<a href="%s" style="color:#9aa4ae;text-decoration:underline;">%s</a>'
+               % (esc(url), esc(t.get("unsub_link")))) if url else
+              ('<span style="text-decoration:underline;">%s</span>' % esc(t.get("unsub_link"))))
+    return ('<div style="max-width:680px;margin:0 auto;padding:4px 22px 22px;font-family:-apple-system,'
+            'BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;">'
+            '<div style="border-top:1px solid #eef1f4;padding-top:12px;font-size:11.5px;'
+            'color:#9aa4ae;line-height:1.5;text-align:center;">%s %s.</div></div>'
+            % (esc(t.get("unsub_intro")), enlace))
+
+
+def _sync_supervisor_by_email(session_db, email: str):
+    """El supervisor cuyo tercero tiene ESE correo (o None). Para que una baja pedida desde un
+    correo suelto proteja también a su ficha de supervisor: si no, se le volvería a escribir.
+
+    ⚠️ El correo no es una columna de esta tabla (lo compone `_promoter_email_phone` del tercero),
+    así que se casa en Python. El índice se hace UNA vez por petición (`g`): en un envío se pregunta
+    por cada correo suelto y con cientos de supervisores serían varias pasadas iguales."""
+    correo = (email or "").strip().lower()
+    if not correo or "@" not in correo:
+        return None
+    try:
+        indice = g.get("_sync_sup_by_email")
+    except Exception:
+        indice = None
+    if indice is None:
+        indice = {}
+        try:
+            for sup in (session_db.query(SyncSupervisor)
+                        .options(joinedload(SyncSupervisor.promoter)).all()):
+                suyo, _tel = _promoter_email_phone(getattr(sup, "promoter", None))
+                clave = (suyo or "").strip().lower()
+                if clave:
+                    indice.setdefault(clave, sup)
+        except Exception:
+            app.logger.exception("[syncro] no se pudo indexar los supervisores por su correo")
+            return None
+        try:
+            g._sync_sup_by_email = indice
+        except Exception:
+            pass
+    return indice.get(correo)
+
+
+def _sync_opted_out_ids(session_db) -> set:
+    """Los supervisores DADOS DE BAJA (ids en texto). Una consulta, para el listado y el envío."""
+    try:
+        return {str(i) for (i,) in (session_db.query(SyncSupervisor.id)
+                                    .filter(SyncSupervisor.opted_out_at.isnot(None)).all())}
+    except Exception:
+        app.logger.exception("[syncro] no se pudieron leer las bajas")
+        return set()
+
+
 def _sync_open_pixel() -> str:
     """El píxel que dice que ese supervisor ha abierto el correo (con su token como marcador).
 
@@ -153910,10 +154105,15 @@ def _sync_send_targets_context(session_db) -> dict:
 
     ⚠️ En el envío los filtros nacen **todos activados** y al desactivar uno se quitan del envío
     (justo al revés que en el listado, donde no filtrar es ver todo)."""
-    filas = []
+    filas, bajas = [], 0
     for sup in (session_db.query(SyncSupervisor)
                 .options(joinedload(SyncSupervisor.promoter))
                 .filter(SyncSupervisor.is_archived.is_(False)).all()):
+        # ⚠️ Quien pidió NO recibir más temas no se ofrece (y el envío lo vuelve a comprobar): se
+        # dice cuántos son, para que no parezca que han desaparecido de la base.
+        if getattr(sup, "opted_out_at", None) is not None:
+            bajas += 1
+            continue
         fila = _sync_supervisor_row(sup)
         correo, _tel = _promoter_email_phone(getattr(sup, "promoter", None))
         fila["email"] = (correo or "").strip()
@@ -153928,6 +154128,10 @@ def _sync_send_targets_context(session_db) -> dict:
         "send_rows": filas,
         "send_total": len([f for f in filas if f["email"]]),
         "send_no_email": len([f for f in filas if not f["email"]]),
+        # Los que pidieron no recibir más: no se ofrecen, pero se dice cuántos son (si no, parecería
+        # que han desaparecido de la base). Desde qué buzón sale lo pinta el propio pop-up con
+        # `sync_sender()`, que vale también en el modo «Por correo».
+        "send_opted_out": bajas,
         "send_types": [(k, l, SYNC_TYPE_ICONS.get(k, "fa-user-tie")) for k, l in SYNC_SUPERVISOR_TYPES
                        if k in tipos],
         "send_regions": [(k, l, SYNC_REGION_ICONS.get(k, "fa-flag")) for k, l in SYNC_REGION_KINDS
@@ -154091,6 +154295,10 @@ def sync_song_preview_html(song_id):
             repertoire_url=_external_url_for("public_sync_repertoire",
                                              **({"lang": "en"} if lang == "EN" else {})),
             one_stop=bool(fila.get("one_stop")))
+        # ⚠️ La vista previa ES el correo: lleva también el PIE DE BAJA, que es lo que de verdad se
+        # manda (si no, lo que se ve y lo que sale no dirían lo mismo). El píxel no se pinta: no se
+        # ve, y aquí no hay envío al que apuntarle una apertura.
+        cuerpo += _sync_unsub_footer(ctx["t"], preview=True)
         return jsonify({"ok": True, "html": cuerpo, "subject": ctx["subject"], "lang": lang})
     finally:
         session_db.close()
@@ -154138,6 +154346,17 @@ def sync_song_send(song_id):
     `_sync_pitch_html` que la vista previa y que el enlace público.
     ⚠️ Un envío queda registrado en `SyncSubmission` (a quién, cuándo, por qué canal), que es de
     donde sale la marca de «enviada a Supervisors» del listado y de la ficha.
+
+    ⚠️⚠️ SALE DESDE EL BUZÓN DE SINCRONIZACIONES (`_sync_sender`), no con el remitente de la app, y
+    con todo lo que hace que un correo así LLEGUE en vez de acabar en spam:
+      · **un correo por persona** (nunca uno con todos en el «Para»),
+      · **no es un aviso de una máquina** (`auto_submitted=False`: se puede contestar),
+      · **enlace de BAJA** en el pie y las cabeceras `List-Unsubscribe` + `…-Post` que el iPhone y
+        Gmail usan para ofrecer «darse de baja» en un clic — y quien la pide **deja de recibir**,
+      · **al ritmo de una persona** (respiro entre correos y conexión nueva cada N; con cuenta
+        propia mandan los suyos) y respetando su **tope por hora**,
+      · con **presupuesto de tiempo**: lo que no cabe en una petición se dice y se sigue pulsando
+        otra vez, sin repetirle a nadie.
     """
     if not can_edit_syncros():
         return forbid("No tienes permiso para mandar temas a Syncros.")
@@ -154160,10 +154379,17 @@ def sync_song_send(song_id):
         nick = (estado.get("nick") or "").strip() or None
 
         destinos = []
+        bajas = 0                     # ⚠️ a quien pidió no recibir más NO se le manda (ver abajo)
         if ids:
             for sup in (session_db.query(SyncSupervisor)
                         .options(joinedload(SyncSupervisor.promoter))
                         .filter(SyncSupervisor.id.in_([to_uuid(i) for i in ids if to_uuid(i)])).all()):
+                # ⚠️⚠️ La BAJA se respeta AQUÍ, no solo escondiéndolo en la pantalla: mandarle otro
+                # tema a quien ha pedido no recibir más es lo que hace que marque «spam» y que el
+                # dominio deje de llegar a nadie.
+                if getattr(sup, "opted_out_at", None) is not None:
+                    bajas += 1
+                    continue
                 correo, _t = _promoter_email_phone(getattr(sup, "promoter", None))
                 if not (correo or "").strip():
                     continue
@@ -154171,11 +154397,68 @@ def sync_song_send(song_id):
                                  "name": _promoter_display_name(getattr(sup, "promoter", None)),
                                  "lang": _sync_lang(getattr(sup, "comm_lang", "ES"))})
         for correo in extras:
+            # Un correo suelto puede ser el de un supervisor de baja: se comprueba igual.
+            sup_baja = _sync_supervisor_by_email(session_db, correo)
+            if sup_baja is not None and getattr(sup_baja, "opted_out_at", None) is not None:
+                bajas += 1
+                continue
             destinos.append({"sup": None, "email": correo, "name": correo,
                              "lang": _sync_lang(request.form.get("extra_lang"))})
         if not destinos:
-            flash("Elige al menos un supervisor (o escribe un correo).", "warning")
+            if bajas:
+                flash("No se ha enviado a nadie: %d de los elegidos pidieron no recibir más temas."
+                      % bajas, "warning")
+            else:
+                flash("Elige al menos un supervisor (o escribe un correo).", "warning")
             return redirect(request.referrer or url_for("syncros_view"))
+
+        # ⚠️ AL REANUDAR no se le repite a nadie: si el envío anterior se quedó a medias por tiempo,
+        # a quien ya recibió ESTE tema hace un momento se le salta (ventana corta a propósito:
+        # reenviarlo dentro de unos días sigue siendo posible).
+        ya, repetidos = set(), 0
+        try:
+            desde = _now_madrid() - timedelta(minutes=SYNC_SEND_RESUME_MINUTES)
+            for (correo_prev,) in (session_db.query(SyncSubmission.payload["email"].astext)
+                                   .filter(SyncSubmission.song_id == song.id,
+                                           SyncSubmission.sent_at >= desde).all()):
+                if (correo_prev or "").strip():
+                    ya.add(correo_prev.strip().lower())
+        except Exception:
+            app.logger.exception("[syncro] no se pudo leer a quién ya se le había mandado")
+        if ya:
+            antes = len(destinos)
+            destinos = [d for d in destinos if d["email"].strip().lower() not in ya]
+            repetidos = antes - len(destinos)
+        if not destinos:
+            flash("Ya se le había mandado este tema a todos los elegidos hace un momento.", "info")
+            return redirect(request.referrer or url_for("syncros_view"))
+
+        # ── DESDE QUÉ BUZÓN sale (y con qué ritmo) ──
+        remitente = _sync_sender()
+        cuenta = remitente.get("account")
+        pace = int(getattr(cuenta, "pause_ms", 0) or 0) if cuenta is not None else SYNC_SEND_PACE_MS
+        reconectar = (int(getattr(cuenta, "reconnect_every", 0) or 0) if cuenta is not None
+                      else SYNC_SEND_RECONNECT_EVERY)
+        # ⚠️ El TOPE POR HORA del hosting se respeta: se manda lo que cabe y se dice cuántos quedan
+        # (marcar a alguien como «no le llegó» por un tope nuestro sería mentir).
+        tope = int(getattr(cuenta, "hourly_cap", 0) or 0) if cuenta is not None else 0
+        topados = 0
+        if tope > 0:
+            hace_una_hora = _now_madrid() - timedelta(hours=1)
+            try:
+                hechos = int(session_db.query(func.count(SyncSubmission.id))
+                             .filter(SyncSubmission.sent_at >= hace_una_hora).scalar() or 0)
+            except Exception:
+                hechos = 0
+            margen = max(0, tope - hechos)
+            if len(destinos) > margen:
+                topados = len(destinos) - margen
+                destinos = destinos[:margen]
+            if not destinos:
+                flash("La cuenta %s tiene un tope de %d correos por hora y ya se ha llegado: vuelve a "
+                      "pulsar cuando pase la hora (quedan %d)." % (remitente["from_email"], tope, topados),
+                      "warning")
+                return redirect(request.referrer or url_for("syncros_view"))
 
         # El cuerpo se compone UNA vez por idioma (son dos), no uno por destinatario.
         # ⚠️⚠️ Con el TOKEN COMO MARCADOR: cada supervisor recibe el mismo cuerpo pero con SU
@@ -154193,14 +154476,23 @@ def sync_song_send(song_id):
                 lyrics_url=(_sync_url_with(enlace, letra=1) if ctx["has_lyrics"] else ""),
                 repertoire_url=_external_url_for("public_sync_repertoire",
                                                  **({"lang": "en"} if lang == "EN" else {})),
-                one_stop=bool(fila.get("one_stop"))) + _sync_open_pixel()
+                one_stop=bool(fila.get("one_stop"))) + _sync_unsub_footer(ctx["t"]) + _sync_open_pixel()
             asuntos[lang] = _sync_subject(ctx["t"], ctx.get("title") or "",
                                           one_stop=bool(fila.get("one_stop")),
                                           artista=ctx.get("artist_name") or "")
 
         enviados, fallidos = 0, []
         nota = (request.form.get("note") or "").strip()
-        for d in destinos:
+        aviso_remitente = ""
+        t0 = time.monotonic()
+        quedan = 0
+        for n, d in enumerate(destinos):
+            # ⚠️ PRESUPUESTO DE TIEMPO: un envío a cientos de supervisores no cabe en una petición
+            # (el servidor la corta y el envío quedaría a medias sin decir nada). Se manda lo que
+            # cabe y se dice cuántos faltan; al volver a pulsar, a los ya enviados no se les repite.
+            if n and (time.monotonic() - t0) > SYNC_SEND_BUDGET_SECONDS:
+                quedan = len(destinos) - n
+                break
             # ⚠️ La fila del envío se crea ANTES de mandar: su token tiene que estar guardado para
             # poder ir dentro del correo. Si el correo no sale, la fila se retira (la marca de
             # «enviada a Supervisors» solo cuenta lo que se ha mandado de verdad).
@@ -154228,7 +154520,23 @@ def sync_song_send(song_id):
             if nota:
                 cuerpo = ('<div style="max-width:680px;margin:0 auto;padding:0 22px;font-size:14px;'
                           'color:#374151;">%s</div>' % escape(nota)) + cuerpo
-            ok, _err = _send_optional_email(d["email"], asuntos[d["lang"]], cuerpo)
+            # ⚠️ Las cabeceras de la BAJA EN UN CLIC: es lo que el iPhone y Gmail usan para ofrecerla
+            # arriba del correo, y lo que más cuenta para que un envío así no se marque como spam.
+            cabeceras = {}
+            url_baja = _sync_unsub_url(sub.token)
+            if url_baja:
+                cabeceras = {"List-Unsubscribe": "<%s>, <mailto:%s?subject=unsubscribe>"
+                                                 % (url_baja, remitente["from_email"]),
+                             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
+            ok, _err = _send_optional_email(
+                d["email"], asuntos[d["lang"]], cuerpo,
+                from_name=remitente["from_name"], from_email=remitente["from_email"],
+                reply_to=remitente["reply_to"], account=remitente["account"],
+                # No es el aviso de una máquina: lo escribe una persona y se le puede contestar.
+                auto_submitted=False,
+                pace_ms=pace, reconnect_every=reconectar, extra_headers=cabeceras)
+            if ok and _err and not aviso_remitente:
+                aviso_remitente = _err          # p. ej. «el servidor no admite mandar como syncro@…»
             if not ok:
                 fallidos.append(d["name"] or d["email"])
                 try:
@@ -154240,10 +154548,27 @@ def sync_song_send(song_id):
             enviados += 1
         session_db.commit()
         if enviados:
-            flash("Tema enviado a %d supervisor(es)." % enviados, "success")
+            flash("Tema enviado a %d supervisor(es) desde %s." % (enviados, remitente["from_email"]),
+                  "success")
         # ⚠️ Lo que NO ha salido se dice: un envío que falla no puede ser invisible.
         if fallidos:
             flash("No se pudo enviar a: %s." % ", ".join(fallidos[:8]), "warning")
+        if quedan:
+            flash("Quedan %d por enviar (no cabían en una sola vez): vuelve a pulsar «Enviar» y sigue "
+                  "por ahí — a los que ya han recibido el tema no se les repite." % quedan, "info")
+        if topados:
+            flash("La cuenta %s tiene un tope de %d correos por hora: quedan %d, que salen cuando pase "
+                  "la hora." % (remitente["from_email"], tope, topados), "warning")
+        if bajas:
+            flash("%d de los elegidos pidieron no recibir más temas: a esos no se les ha enviado."
+                  % bajas, "info")
+        if repetidos:
+            flash("A %d ya se les había mandado este tema hace un momento: no se les ha repetido."
+                  % repetidos, "info")
+        # ⚠️ Si el servidor NO ha admitido mandar como el buzón de Syncros, el correo ha salido con el
+        # remitente de la app: se DICE (si no, se creería que sale desde syncro@ y no es verdad).
+        if aviso_remitente:
+            flash(aviso_remitente, "warning")
         return redirect(request.referrer or url_for("syncros_view"))
     except Exception as exc:
         session_db.rollback()
@@ -154491,6 +154816,93 @@ def public_sync_listen():
         return jsonify({"ok": False}), 200
     finally:
         session_db.close()
+
+
+@app.route("/syncro/baja/<token>", methods=["GET", "POST"], endpoint="public_sync_unsubscribe")
+def public_sync_unsubscribe(token):
+    """NO RECIBIR MÁS TEMAS: el enlace del pie del correo y la «baja en un clic» del iPhone y de
+    Gmail (que hacen un POST aquí con `List-Unsubscribe=One-Click`).
+
+    ⚠️⚠️ Esto es lo que evita que alguien marque el correo como SPAM: una baja fácil cuesta un
+    supervisor y una marca de spam cuesta que el dominio deje de llegarle a NADIE. El token es el
+    del ENVÍO, así que la baja se apunta sin pedirle ni un dato a quien la pide.
+    ⚠️ La baja se apunta en el envío Y en su ficha de SUPERVISOR (que es donde la mira el envío);
+    si el correo era suelto, se busca su supervisor por la dirección para que tampoco le llegue por
+    ahí.
+    ⚠️ GET solo PREGUNTA (un cliente de correo puede precargar un enlace: con un GET que diera de
+    baja, cualquiera quedaría fuera sin haber pulsado nada). La baja la hace el POST."""
+    token = (token or "").strip()
+    session_db = db()
+    try:
+        sub = _sync_submission_by_token(session_db, token) if token else None
+        idioma = _sync_lang(getattr(sub, "language", "ES") if sub is not None else "ES")
+        t = SYNC_TEXTS[idioma]
+        un_clic = ("List-Unsubscribe" in (request.form or {})
+                   or "one-click" in (request.headers.get("Content-Type") or "").lower())
+        ya = bool(sub is not None and getattr(sub, "opted_out_at", None) is not None)
+        hecho = False
+        if request.method == "POST" and sub is not None:
+            ahora = _now_madrid()
+            sub.opted_out_at = sub.opted_out_at or ahora
+            sup = None
+            if getattr(sub, "supervisor_id", None):
+                sup = session_db.get(SyncSupervisor, sub.supervisor_id)
+            if sup is None:
+                # Correo suelto: su supervisor se busca por la dirección (si la tiene).
+                sup = _sync_supervisor_by_email(session_db, (sub.payload or {}).get("email") or sub.notes or "")
+            if sup is not None and getattr(sup, "opted_out_at", None) is None:
+                sup.opted_out_at = ahora
+                sup.opted_out_note = "Pedida desde el correo de «%s»." % ((sub.title or "").strip() or "un tema")
+            session_db.commit()
+            hecho, ya = True, False
+            if un_clic:
+                # La baja en un clic no enseña ninguna página: el cliente de correo solo quiere un OK.
+                return Response("OK", mimetype="text/plain")
+        nombre = ""
+        if sub is not None:
+            nombre = ((sub.payload or {}).get("name") or "").strip()
+        return render_template("public_sync_unsubscribe.html",
+                               t=t, lang=idioma, valido=(sub is not None), ya=ya, hecho=hecho,
+                               nombre=nombre, brand_logos=_sync_brand_logos(session_db),
+                               contact_email=SYNC_CONTACT_EMAIL), (200 if sub is not None else 404)
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[syncro] no se pudo apuntar la baja")
+        return Response("No se pudo procesar la baja. Escríbenos a %s y lo hacemos nosotros."
+                        % SYNC_CONTACT_EMAIL, mimetype="text/plain"), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/syncros/supervisor/<sup_id>/baja", endpoint="sync_supervisor_optout")
+@admin_required
+def sync_supervisor_optout(sup_id):
+    """Dar de baja (o volver a activar) a un supervisor DESDE DENTRO: lo que pide por teléfono o lo
+    que hay que deshacer si se dio de baja sin querer."""
+    if not can_edit_syncros():
+        return forbid("No tienes permiso para gestionar Syncros.")
+    session_db = db()
+    try:
+        sup = session_db.get(SyncSupervisor, to_uuid(sup_id))
+        if sup is None:
+            flash("Supervisor no encontrado.", "warning")
+            return redirect(request.referrer or url_for("syncros_view"))
+        if _truthy(request.form.get("undo")):
+            sup.opted_out_at, sup.opted_out_note = None, None
+            flash("Vuelve a recibir temas para sincronización.", "success")
+        else:
+            sup.opted_out_at = sup.opted_out_at or _now_madrid()
+            nick = (_current_user_state().get("nick") or "").strip()
+            sup.opted_out_note = ((request.form.get("note") or "").strip()
+                                  or ("Dado de baja a mano%s." % ((" por " + nick) if nick else "")))
+            flash("Ya no se le mandarán más temas.", "success")
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        flash("No se pudo cambiar la baja.", "danger")
+    finally:
+        session_db.close()
+    return redirect(request.referrer or url_for("syncros_view"))
 
 
 @app.get("/syncros/<song_id>/destinatarios", endpoint="sync_song_recipients")

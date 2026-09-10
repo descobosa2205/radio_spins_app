@@ -31,6 +31,32 @@
           {% for l in sync_row.language_labels %}<span class="badge text-bg-light border">{{ l }}</span>{% endfor %}
         </div>
         {% if sync_row.notes %}<div class="small text-muted">{{ sync_row.notes }}</div>{% endif %}
+
+        {# ---- BAJA: pidió no recibir más temas ---- #}
+        {% if sync_row.opted_out %}
+          <div class="alert alert-warning small py-2 px-3 mt-2 mb-0 d-flex flex-wrap align-items-center gap-2">
+            <span>
+              <i class="fa-solid fa-bell-slash me-1"></i><strong>No quiere recibir más temas</strong>
+              {% if sync_row.opted_out_at %} · desde el {{ sync_row.opted_out_at }}{% endif %}
+              {% if sync_row.opted_out_note %} · {{ sync_row.opted_out_note }}{% endif %}.
+              No se le ofrece al enviar y no se le manda nada.
+            </span>
+            {% if sync_can_edit %}
+              <form method="post" action="{{ url_for('sync_supervisor_optout', sup_id=sync_row.id) }}" class="ms-auto"
+                    data-confirm="¿Volver a mandarle temas para sincronización?">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="undo" value="1">
+                <button class="btn btn-sm btn-outline-secondary"><i class="fa fa-rotate-left me-1"></i>Volver a mandarle temas</button>
+              </form>
+            {% endif %}
+          </div>
+        {% elif sync_can_edit %}
+          <form method="post" action="{{ url_for('sync_supervisor_optout', sup_id=sync_row.id) }}" class="mt-2"
+                data-confirm="¿Dejar de mandarle temas para sincronización? Puedes deshacerlo cuando quieras.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-danger"><i class="fa fa-bell-slash me-1"></i>No mandarle más temas</button>
+          </form>
+        {% endif %}
       </div>
 
       {# ---- Edición inline (los mismos campos que al añadirlo) ---- #}

@@ -1565,23 +1565,32 @@
           <span class="badge text-bg-{{ 'success' if mail.active_count else 'secondary' }}">{{ mail.active_count }} activa{{ 's' if mail.active_count != 1 }}</span>
         </div>
         <p class="text-muted small mb-2">
-          Lo de arriba manda los <strong>avisos</strong>. Esto es para lo que tiene que salir <strong>desde otro buzón</strong> —hoy,
-          las <strong>notas de prensa</strong> desde <code>{{ mail.promo_email }}</code>— con la <strong>contraseña de ese buzón</strong>:
-          el correo sale por su propio servidor y con su propio dominio, y no hay que pedirle al servidor de la app que «mande
-          como» otra dirección (que es justo lo que rechazaba). Se elige al enviar cada nota.
+          Lo de arriba manda los <strong>avisos</strong>. Esto es para lo que tiene que salir <strong>desde otro buzón</strong>
+          —las <strong>notas de prensa</strong> y los <strong>temas para sincronización</strong>— con la
+          <strong>contraseña de ese buzón</strong>: el correo sale por su propio servidor y con su propio dominio, y no hay que
+          pedirle al servidor de la app que «mande como» otra dirección (que es justo lo que rechazaba).
         </p>
-        {% if mail.promo_missing %}
+
+        {# Las cuentas que la app ESPERA (catálogo `MAIL_EXPECTED_ACCOUNTS`): el aviso de la que falta
+           y su alta ya rellena. Una cuenta nueva se añade al catálogo y aparece aquí sola. #}
+        {% for e in mail.expected if e.missing %}
           <div class="alert alert-warning small">
-            <i class="fa fa-triangle-exclamation me-1"></i><strong>{{ mail.promo_email }} todavía no está dada de alta.</strong>
-            Hasta entonces, una nota de prensa que se mande como «{{ mail.promo_name }}» sale con el remitente de la app y con
-            Reply-To a esa dirección. Abajo tienes el alta ya rellena: solo faltan el servidor de salida y la contraseña del buzón.
+            <i class="fa {{ e.icon }} me-1"></i><strong>{{ e.email }} todavía no está dada de alta.</strong>
+            {{ e.why }}
+            {% if e.key == 'SYNCRO' %}
+              Hasta que lo esté, se intenta mandar «como» esa dirección y, si el servidor de la app no lo admite, el tema sale
+              con el remitente de la app y las respuestas van a <code>{{ e.email }}</code> —y se dice en pantalla—.
+            {% else %}
+              Hasta entonces sale con el remitente de la app y con Reply-To a esa dirección.
+            {% endif %}
+            <strong>Abajo tienes su alta ya rellena</strong>: solo faltan el servidor de salida y la contraseña del buzón.
           </div>
-        {% endif %}
+        {% endfor %}
 
         {% for a in mail.rows %}
           <div class="mail-acc border rounded-3 p-3 mb-3{% if not a.is_active %} mail-acc--off{% endif %}" data-mail-acc="{{ a.id }}">
             <div class="d-flex align-items-start gap-3 flex-wrap">
-              <span class="mail-acc__ico"><i class="fa {{ 'fa-microphone-lines' if a.is_promo else 'fa-at' }}"></i></span>
+              <span class="mail-acc__ico"><i class="fa {{ a.icon or 'fa-at' }}"></i></span>
               <div class="flex-grow-1" style="min-width:16rem;">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <b>{{ a.from_name or a.label or a.from_email }}</b>
@@ -1602,7 +1611,7 @@
                   {% if a.reply_to %} · <i class="fa fa-reply fa-fw me-1"></i>responde a {{ a.reply_to }}{% endif %}
                   · <i class="fa fa-gauge fa-fw me-1"></i>{{ a.pause_ms }} ms entre correos, conexión nueva cada {{ a.reconnect_every or '∞' }}{% if a.hourly_cap %}, máximo {{ a.hourly_cap }}/hora{% endif %}
                 </div>
-                <div class="small mt-1">{% for u in a.uses %}<span class="badge text-bg-light border me-1"><i class="fa fa-newspaper me-1"></i>{{ u }}</span>{% endfor %}</div>
+                <div class="small mt-1">{% for u in a.uses %}<span class="badge text-bg-light border me-1"><i class="fa {{ a.icon or 'fa-newspaper' }} me-1"></i>{{ u }}</span>{% endfor %}</div>
                 {% if a.last_test_ok is sameas false and a.last_test_info %}<div class="small text-danger mt-1"><i class="fa fa-circle-exclamation me-1"></i>{{ a.last_test_info }}</div>{% endif %}
                 {% if not a.aligned %}
                   <div class="small text-warning-emphasis mt-1"><i class="fa fa-triangle-exclamation me-1"></i>El usuario ({{ a.smtp_username }}) no es del dominio del remitente ({{ a.domain }}): el correo puede salir como falsificado. Lo normal es que el usuario sea la propia dirección.</div>
@@ -1631,10 +1640,17 @@
           </div>
         {% endfor %}
 
-        <details class="mail-acc-add"{% if not mail.rows %} open{% endif %}>
-          <summary class="btn btn-sm btn-outline-primary"><i class="fa fa-plus me-1"></i>Añadir una cuenta de envío</summary>
-          {% set prefill = ({'label': 'Promoción', 'from_name': mail.promo_name, 'from_email': mail.promo_email} if mail.promo_missing else {'label': '', 'from_name': '', 'from_email': ''}) %}
-          {{ mail_form(none, prefill) }}
+        {# Un alta YA RELLENA por cada cuenta que la app espera y todavía no está: solo faltan el
+           servidor y la contraseña. Abierta la primera, para no tener que buscar nada. #}
+        {% for e in mail.expected if e.missing %}
+          <details class="mail-acc-add mb-2"{% if loop.first %} open{% endif %}>
+            <summary class="btn btn-sm btn-outline-primary"><i class="fa {{ e.icon }} me-1"></i>Dar de alta {{ e.email }}</summary>
+            {{ mail_form(none, {'label': e.label, 'from_name': e.name, 'from_email': e.email}) }}
+          </details>
+        {% endfor %}
+        <details class="mail-acc-add"{% if not mail.rows and not mail.expected_missing %} open{% endif %}>
+          <summary class="btn btn-sm btn-outline-secondary"><i class="fa fa-plus me-1"></i>Añadir otra cuenta de envío</summary>
+          {{ mail_form(none, {'label': '', 'from_name': '', 'from_email': ''}) }}
         </details>
       </div>
     </div>
@@ -1642,7 +1658,12 @@
     {# ---------- La guía para promocion@ en el hosting ---------- #}
     <div class="card mb-3">
       <div class="card-body">
-        <h3 class="h6"><i class="fa fa-list-ol me-1 text-danger"></i>Cómo dejar {{ mail.promo_email }} mandando desde su buzón (webmail.es u otro hosting)</h3>
+        <h3 class="h6"><i class="fa fa-list-ol me-1 text-danger"></i>Cómo dejar un buzón mandando desde su propio servidor (webmail.es u otro hosting)</h3>
+        <p class="text-muted small mb-2">
+          Vale igual para <code>{{ mail.promo_email }}</code> (notas de prensa) y para
+          <code>{{ mail.sync_email }}</code> (los temas que se mandan a los supervisores de Syncros): cada uno con
+          <strong>su</strong> servidor y <strong>su</strong> contraseña.
+        </p>
         <ol class="small mb-2">
           <li><strong>Entra en el panel del hosting</strong> (donde está el webmail) y abre la configuración de <em>clientes de correo</em> de ese
             buzón: ahí salen el <strong>servidor de salida (SMTP)</strong>, el <strong>puerto</strong> y el <strong>cifrado</strong>. Lo habitual es
@@ -1652,12 +1673,13 @@
           <li><strong>Pulsa «Probar conexión»</strong>: dice si el servidor acepta el usuario y la contraseña, sin mandar nada. Si falla por
             el cifrado, prueba el otro par (465 SSL/TLS ↔ 587 STARTTLS).</li>
           <li><strong>«Enviar prueba desde aquí»</strong> a un Gmail y a un Outlook: tiene que entrar en la <strong>bandeja</strong>, no en spam,
-            y verse como «{{ mail.promo_name }}».</li>
+            y verse con el nombre que se le ha puesto a la cuenta.</li>
           <li><strong>Pulsa «Comprobar los DNS»</strong>: dice si el dominio autoriza a ese servidor (SPF), si hay DMARC y —si pones el
             selector— si DKIM está publicado. Lo que falte se pone <strong>una vez</strong> en el panel del hosting (Correo → Autenticación /
             DKIM, y la zona DNS del dominio) o se le pide al proveedor con estas mismas palabras.</li>
-          <li>Después, en cada nota de prensa, elige <strong>«{{ mail.promo_name }}»</strong> como remitente: saldrá desde su buzón, un correo
-            por persona y al ritmo que marque la cuenta.</li>
+          <li>Y ya está: las <strong>notas de prensa</strong> se mandan eligiendo «{{ mail.promo_name }}» como remitente, y los
+            <strong>temas de Syncros</strong> salen solos desde <code>{{ mail.sync_email }}</code> en cuanto su cuenta está dada de
+            alta (no hay que elegir nada). Siempre un correo por persona y al ritmo que marque la cuenta.</li>
         </ol>
         <div class="small text-muted">
           <i class="fa fa-circle-info me-1"></i>Si el hosting pone un tope de correos por hora (los compartidos suelen: 100–500), escríbelo en

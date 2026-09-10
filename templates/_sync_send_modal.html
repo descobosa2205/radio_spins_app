@@ -17,6 +17,20 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+          {# ⚠️ DESDE QUÉ BUZÓN sale, y qué falta para que salga desde el suyo. Va en el MODAL (no en
+             el parcial de destinatarios) porque el pop-up tiene DOS modos y en «Por correo» esa
+             lista no se carga: quien lo manda tiene que saber siempre con qué remitente lo va a
+             recibir el otro. #}
+          {% set sync_from = sync_sender() %}
+          <div class="alert {{ 'alert-light border' if sync_from.ok else 'alert-warning' }} small py-2 px-3">
+            <i class="fa-solid fa-paper-plane me-1"></i>Sale desde
+            <strong>{{ sync_from.from_name }}</strong> &lt;{{ sync_from.from_email }}&gt;
+            {% if sync_from.hint %}
+              <div class="mt-1">{{ sync_from.hint }}
+                {% if not sync_from.ok %}<a href="{{ url_for('integrations_view') }}#tab-correo" target="_blank" rel="noopener">Dar de alta la cuenta</a>.{% endif %}
+              </div>
+            {% endif %}
+          </div>
           <div class="row g-3">
             {# ---- A QUIÉN ---- #}
             <div class="col-12 col-lg-5">

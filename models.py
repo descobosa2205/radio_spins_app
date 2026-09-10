@@ -13743,6 +13743,13 @@ class SyncSupervisor(Base):
     comm_lang = Column(Text, nullable=False, server_default=text("'ES'"))
     notes = Column(Text)
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
+    # ⚠️⚠️ NO RECIBIR MÁS TEMAS: la baja que pide el propio supervisor desde el pie de su correo (o
+    # con el «darse de baja» de un clic del iPhone / Gmail). Quien está de baja NO se ofrece en el
+    # envío y se descarta aunque llegue en el formulario: mandarle otro tema después de que lo haya
+    # pedido es la forma más rápida de que marque el dominio como spam y de que deje de llegarle a
+    # todo el mundo. Se puede deshacer desde su ficha de Syncro.
+    opted_out_at = Column(DateTime(timezone=True))
+    opted_out_note = Column(Text)
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -13785,6 +13792,8 @@ class SyncSubmission(Base):
     opens = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     forwarded = Column(Boolean, nullable=False, server_default=text("false"))
     forwarded_at = Column(DateTime(timezone=True))          # desde cuándo se sospecha el reenvío
+    # Se dio de baja DESDE este correo (vale también para un correo suelto, que no tiene supervisor).
+    opted_out_at = Column(DateTime(timezone=True))
     # ⚠️ Los segundos REPRODUCIDOS, no la posición de la barra: arrastrarla al final no es haber
     # escuchado. Con más de un minuto (`SYNC_LISTEN_SECONDS`) cuenta como escuchado.
     listen_seconds = Column(Integer, nullable=False, server_default=text("0"))
@@ -13848,6 +13857,10 @@ def ensure_syncros_schema():
         "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS listened_at timestamptz;",
         "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS listen_started_at timestamptz;",
         "CREATE INDEX IF NOT EXISTS idx_sync_submissions_song ON sync_submissions(song_id, sent_at DESC);",
+        # ⚠️ BAJA del supervisor (el pie de su correo). Cada columna en SU sentencia.
+        "ALTER TABLE IF EXISTS sync_supervisors ADD COLUMN IF NOT EXISTS opted_out_at timestamptz;",
+        "ALTER TABLE IF EXISTS sync_supervisors ADD COLUMN IF NOT EXISTS opted_out_note text;",
+        "ALTER TABLE IF EXISTS sync_submissions ADD COLUMN IF NOT EXISTS opted_out_at timestamptz;",
     ], "syncros_schema")
 
 

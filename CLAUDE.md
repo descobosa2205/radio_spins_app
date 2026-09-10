@@ -11630,6 +11630,67 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Probado con la app real en los TRES caminos: al elegir «Calle Larga» queda `address='Calle Larga'`
   · `postal_code='11579'` · `Jerez de la Frontera` · `Cádiz` · `España`, y así se guarda.
 
+- ⚠️⚠️ **SYNCROS · LOS TEMAS SALEN DESDE EL BUZÓN DE SINCRONIZACIONES, Y CON TODO LO QUE HACE QUE
+  LLEGUEN** (sep 2026). Un tema para sincronización se lo manda una casa de discos a un
+  **supervisor de fuera**, así que no puede salir con el remitente de la app: para Gmail y Outlook,
+  un correo que dice venir de un sello desde otro dominio es indistinguible de uno falsificado (y
+  encima queda burdo).
+  · **Punto único `_sync_sender()`** (hermano de `_press_sender_for`): **`SYNC_SENDER_EMAIL` =
+  `syncro@piesrecords.com`** y **`SYNC_SENDER_NAME` = «Syncros PIES Compañía Discográfica»**. Sale
+  con las credenciales de ESE buzón (`MailAccount`, Integraciones → Correo), así que va alineado con
+  su dominio (SPF/DKIM de piesrecords.com) y no hay que pedirle al servidor de la app «mandar como»
+  otra dirección, que es justo lo que rechaza. Lo usan el envío, la vista previa y el pop-up
+  (global de plantilla **`sync_sender()`**, una FUNCIÓN para que solo se consulte donde se pinta).
+  ⚠️ **Mientras la cuenta no esté dada de alta** se pide igual mandar «como» ella y, si el servidor
+  no lo admite, `_send_optional_email` cae al remitente de la app con Reply-To ahí **y lo DICE** (el
+  flash sale en pantalla): nunca se cree que sale desde syncro@ sin que sea verdad.
+  ⚠️ **`SYNC_CONTACT_EMAIL` (`sync@piesrecords.com`, SIN la «o») es OTRA cosa**: el contacto que se
+  PINTA dentro del correo. El remitente es `syncro@`. Son dos constantes a propósito.
+  · **LO QUE HACE QUE NO SEA SPAM** (todo en `sync_song_send`, que es el punto único de envío —lo
+  usan los dos modos del pop-up, «Supervisors» y «Por correo»):
+    · **un correo por persona** (nunca uno con todos en el «Para»),
+    · **`auto_submitted=False`**: lo escribe una persona, no es el aviso de una máquina,
+    · **enlace de BAJA** en el pie + **`List-Unsubscribe` y `List-Unsubscribe-Post`**, que es lo que
+      el iPhone y Gmail usan para ofrecer «darse de baja» arriba del correo — y lo que más cuenta
+      para que un envío así no se marque como spam,
+    · **al ritmo de una persona** (`SYNC_SEND_PACE_MS` / `SYNC_SEND_RECONNECT_EVERY`; con cuenta
+      propia mandan los suyos) y respetando su **tope por hora** (`MailAccount.hourly_cap`),
+    · **presupuesto de tiempo** (`SYNC_SEND_BUDGET_SECONDS`): lo que no cabe en una petición se dice
+      y se sigue pulsando otra vez.
+  ⚠️⚠️ **LA BAJA SE RESPETA DE VERDAD**: `SyncSupervisor.opted_out_at` (+ `opted_out_note`, y
+  `SyncSubmission.opted_out_at` para un correo suelto). Quien está de baja **no se ofrece** en el
+  pop-up **y el envío lo descarta aunque llegue en el formulario** (esconderlo en la pantalla no
+  basta): mandarle otro tema a quien ha pedido no recibir más es lo que hace que marque «spam», y
+  con eso el dominio deja de llegarle a NADIE. Se ve y se deshace en la pestaña **Syncro** de su
+  ficha (`sync_supervisor_optout`, que también sirve para darlo de baja a mano).
+  ⚠️ **Una baja pedida desde un correo SUELTO protege también a su ficha** de supervisor
+  (`_sync_supervisor_by_email`, que indexa por correo UNA vez por petición en `g`: el correo no es
+  una columna de esa tabla, lo compone `_promoter_email_phone` del tercero).
+  · **La página de baja** es `public_sync_unsubscribe` (`/syncro/baja/<token>`, el token del ENVÍO),
+  **bilingüe** (en el idioma con el que se le escribió) y en las TRES listas de públicos + exenta
+  de CSRF.
+  ⚠️⚠️ **El GET solo PREGUNTA**: un cliente de correo puede PRECARGAR un enlace, y con un GET que
+  diera de baja cualquiera quedaría fuera sin haber pulsado nada. La baja la hace el POST — que es
+  el mismo que hacen el iPhone y Gmail «en un clic» (y a ese se le responde solo «OK», sin página).
+  ⚠️ **AL REANUDAR no se le repite a nadie**: a quien recibió ESE tema hace menos de
+  `SYNC_SEND_RESUME_MINUTES` (45) se le salta. Ventana corta a propósito: reenviar el mismo tema
+  dentro de unos días sigue siendo posible.
+  ⚠️ La **VISTA PREVIA es el correo**, así que lleva el pie de baja — pero **sin enlace**
+  (`_sync_unsub_footer(..., preview=True)`): ahí todavía no hay envío y el token es el marcador, así
+  que pinchándolo se llegaría a un 404.
+  ⚠️ La versión de **TEXTO** del correo (la que leen los filtros) sale del propio HTML y **no empieza
+  con el CSS** del `<style>`: comprobado, porque un correo cuya parte de texto es basura puntúa como
+  spam.
+
+- **CUENTAS DE ENVÍO · el catálogo de las que la app ESPERA** (sep 2026,
+  **`MAIL_EXPECTED_ACCOUNTS`**): promocion@33producciones.es (notas de prensa) y
+  syncro@piesrecords.com (Syncros), cada una con su nombre, su icono, para qué se usa y por qué.
+  Es el punto único del que salen el **aviso** de «esta todavía no está dada de alta», el **alta ya
+  rellena** (solo faltan el servidor y la contraseña) y el «para qué» de cada fila de Integraciones
+  → Correo. **Una cuenta nueva se añade AHÍ y aparece sola en la pantalla.**
+  ⚠️ Lo que identifica una cuenta es su **DIRECCIÓN** (`MailAccount.from_email` es única), no su
+  clave: la clave solo agrupa.
+
 - ⚠️⚠️ **UNA PETICIÓN NO SE QUEDA EN CONTRATACIÓN: le sale a QUIEN LE AFECTA** (sep 2026). Una
   petición la aprueba **contratación**, pero le importa a más gente. Al crearla —y según van
   entrando— reciben el MISMO aviso (kind **`PETICION`**):

@@ -1,0 +1,61 @@
+<!doctype html>
+{# ============================================================================
+   NO RECIBIR MÁS TEMAS PARA SINCRONIZACIÓN: la página del enlace del pie del correo de Syncros.
+   Standalone (aquí no hay sesión) y BILINGÜE: el idioma es el del envío (`t` = SYNC_TEXTS[lang]),
+   el mismo con el que se le escribió a esa persona.
+   ⚠️ El GET solo PREGUNTA. La baja la hace el POST del botón —y ese mismo POST es el que hacen el
+   iPhone y Gmail con su «darse de baja» en un clic (List-Unsubscribe-Post).
+   ============================================================================ #}
+<html lang="{{ 'en' if lang == 'EN' else 'es' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ t.unsub_title }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
+</head>
+<body class="bg-light">
+<div class="container py-4" style="max-width:560px">
+  <div class="card shadow-sm">
+    <div class="card-body p-4 text-center">
+      {# Los DOS logos del grupo, arriba a la derecha, como en el correo y en la landing. #}
+      {% if brand_logos %}
+        <div class="text-end mb-3">
+          {% for url, nombre in brand_logos %}
+            {% if url %}<img src="{{ url }}" alt="{{ nombre }}" class="ms-3" style="height:30px;width:auto;object-fit:contain">{% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if not valido %}
+        <i class="fa-solid fa-link-slash fa-2x text-muted mb-3"></i>
+        <h1 class="h5">{{ t.unsub_title }}</h1>
+        <p class="text-muted mb-0">{{ t.unsub_bad }}
+          <a href="mailto:{{ contact_email }}">{{ contact_email }}</a></p>
+      {% elif hecho or ya %}
+        <i class="fa-solid fa-circle-check fa-2x text-success mb-3"></i>
+        <h1 class="h5">{{ t.unsub_done if hecho else t.unsub_already }}</h1>
+        <p class="text-muted mb-0">
+          {%- if lang == 'EN' -%}
+            If you change your mind, just write to <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.
+          {%- else -%}
+            Si cambias de opinión, escríbenos a <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.
+          {%- endif -%}
+        </p>
+      {% else %}
+        <i class="fa-solid fa-bell-slash fa-2x text-muted mb-3"></i>
+        <h1 class="h5">{{ t.unsub_title }}</h1>
+        <p class="text-muted">{{ t.unsub_lead }}</p>
+        <form method="post">
+          <button class="btn btn-danger btn-lg px-4"><i class="fa-solid fa-bell-slash me-2"></i>{{ t.unsub_btn }}</button>
+        </form>
+        {% if nombre %}<div class="small text-muted mt-3">{{ nombre }}</div>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+</body>
+</html>

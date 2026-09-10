@@ -26578,7 +26578,7 @@ def _forecast_releases(session_db, artist_ids: list, desde: date, hasta: date) -
             "radio": emisoras,
             "radio_ok": len([x for x in emisoras if x["status"] == "ACCEPTED"]),
             "radio_dropped": bool(getattr(s, "radio_dropped_at", None)),
-            "url": _safe_url_for("song_detail_view", sid=str(s.id)),
+            "url": _safe_url_for("discografica_song_detail", song_id=str(s.id)),
         })
     # --- álbumes ---
     # ⚠️ Un álbum NO tiene tabla N:M: su artista es `Album.artist_id`.
@@ -26595,7 +26595,7 @@ def _forecast_releases(session_db, artist_ids: list, desde: date, hasta: date) -
             "release_kind": "",
             "provisional": bool(getattr(al, "is_provisional", False)),
             "radio": [], "radio_ok": 0, "radio_dropped": False,
-            "url": _safe_url_for("album_detail_view", aid=str(al.id)),
+            "url": _safe_url_for("discografica_album_detail", album_id=str(al.id)),
         })
     for aid in out:
         out[aid].sort(key=lambda r: (r["date"], r["title"]))
@@ -26646,7 +26646,7 @@ def _forecast_radio_now(session_db, artist_ids: list, week_start: date) -> dict:
                     "date": song.release_date.isoformat() if song.release_date else "",
                     "dropped": bool(getattr(song, "radio_dropped_at", None)),
                     "spins": 0, "stations": [],
-                    "url": _safe_url_for("song_detail_view", sid=str(song.id)),
+                    "url": _safe_url_for("discografica_song_detail", song_id=str(song.id)),
                 }
             antes = previa.get((play.song_id, play.station_id), 0)
             fila["spins"] += (play.spins or 0)
@@ -27019,6 +27019,101 @@ def _forecast_bands(session_db, artist_ids: list, desde: date, hasta: date) -> d
     return periodos
 
 
+FORECAST_MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+                   "septiembre", "octubre", "noviembre", "diciembre"]
+FORECAST_WEEKDAYS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
+def _forecast_detail(datos: dict) -> dict:
+    """EL DETALLE POR ARTISTA: los hitos que se están viendo, **por mes y por semana**, con su día.
+
+    Es el cuadro de mando de debajo del calendario y **lo mismo que lleva el informe**: se calcula
+    UNA vez aquí, sobre los datos que ya se han cargado (no hay más consultas), así la pantalla, el
+    PDF y el enlace que se comparte no pueden decir cosas distintas.
+    Cada hito lleva **qué es** (con su icono) y, debajo, **el nombre** de lo que sea o el municipio.
+    """
+    semanas = datos.get("weeks") or []
+    def _semana_de(iso):
+        for i, w in enumerate(semanas):
+            if w["start"] <= iso <= w["end"]:
+                return w
+        return None
+
+    out = {}
+    nombres = {a["id"]: (a.get("name") or "") for a in (datos.get("artists") or [])}
+    for aid in [a["id"] for a in (datos.get("artists") or [])]:
+        filas = []
+        for r in ((datos.get("releases") or {}).get(aid) or []):
+            if r.get("hidden") or not r.get("date"):
+                continue
+            que = ("Álbum" if r.get("kind") == "ALBUM" else "Single")
+            meta = next((k for k in (datos.get("release_kinds") or [])
+                         if k["key"] == (r.get("release_kind") or "")), None)
+            filas.append({"date": r["date"], "icon": (meta or {}).get("icon") or "fa-music",
+                          "type_label": que + ((" · " + meta["label"]) if meta else ""),
+                          "title": r.get("title") or "", "sub": "", "cover_url": r.get("cover_url") or "",
+                          "color": (meta or {}).get("color") or "#6b7280",
+                          "url": r.get("url") or "", "key": r.get("key") or ""})
+        for w in ((datos.get("promo_windows") or {}).get(aid) or []):
+            if w.get("hidden"):
+                continue
+            filas.append({"date": w.get("start_date") or "", "icon": w.get("icon") or "fa-bullhorn",
+                          "type_label": w.get("label") or "Promoción",
+                          "title": w.get("name") or "", "color": w.get("color") or "#f59e0b",
+                          "sub": ("hasta el %s" % _es_date(w.get("end_date"))) if w.get("end_date") else "",
+                          "cover_url": "", "url": w.get("url") or "", "key": w.get("key") or ""})
+        for it in ((datos.get("agenda") or {}).get(aid) or []):
+            if it.get("hidden") or not it.get("date"):
+                continue
+            filas.append({"date": it["date"], "icon": it.get("icon") or "fa-calendar-day",
+                          "type_label": it.get("label") or "Agenda",
+                          "title": it.get("title") or "", "sub": it.get("subtitle") or "",
+                          "color": it.get("color") or "#6b7280", "cover_url": "",
+                          "url": it.get("url") or "", "key": it.get("key") or ""})
+        # ⚠️ En la columna de un artista, repetir su nombre no dice nada: cuando lo que la agenda
+        # sabe de una actividad es solo eso (ni festival ni municipio), manda **el sitio**.
+        suyo = _norm_text_key(nombres.get(aid) or "")
+        for fila in filas:
+            if suyo and _norm_text_key(fila.get("title") or "") == suyo and fila.get("sub"):
+                fila["title"], fila["sub"] = fila["sub"], ""
+        filas.sort(key=lambda x: (x.get("date") or ""))
+        # Agrupado por MES y, dentro, por SEMANA (con el día concreto de cada cosa).
+        meses = []
+        for fila in filas:
+            try:
+                d = parse_date(fila["date"])
+            except Exception:
+                continue
+            sem = _semana_de(fila["date"])
+            fila["day"] = d.day
+            fila["month_short"] = FORECAST_MONTHS[d.month - 1][:3]
+            fila["weekday"] = FORECAST_WEEKDAYS[d.weekday()]
+            fila["date_label"] = d.strftime("%d/%m/%Y")
+            clave_mes = "%04d-%02d" % (d.year, d.month)
+            if not meses or meses[-1]["key"] != clave_mes:
+                meses.append({"key": clave_mes,
+                              "label": "%s %d" % (FORECAST_MONTHS[d.month - 1].capitalize(), d.year),
+                              "weeks": []})
+            sem_key = (sem or {}).get("start") or fila["date"]
+            bloque = meses[-1]["weeks"]
+            if not bloque or bloque[-1]["key"] != sem_key:
+                bloque.append({"key": sem_key,
+                               "label": ("Semana del %s" % _es_date(sem_key)) if sem_key else "",
+                               "items": []})
+            bloque[-1]["items"].append(fila)
+        if meses:
+            out[aid] = meses
+    return out
+
+
+def _es_date(iso: str) -> str:
+    """Una fecha ISO como se escribe aquí (dd/mm/aaaa). Vacío si no hay."""
+    try:
+        return parse_date(str(iso)[:10]).strftime("%d/%m/%Y")
+    except Exception:
+        return ""
+
+
 def _forecast_weeks(desde: date, semanas: int) -> list[dict]:
     """Las columnas del calendario: una por SEMANA, con su etiqueta y de qué mes es."""
     MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
@@ -27190,6 +27285,8 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
         "ver_ocultos": bool(ver_ocultos),
     }
     datos["hidden_count"] = _forecast_apply_hidden(datos, ocultos, ver_ocultos=ver_ocultos)
+    # ⚠️ DESPUÉS de quitar lo oculto: el detalle enseña lo mismo que el calendario.
+    datos["detail"] = _forecast_detail(datos)
     return datos
 
 

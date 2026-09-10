@@ -6997,6 +6997,23 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 /* «Todos» / «Ninguno» de los artistas: los chips grises del resto de la app, algo más pequeños. */
 .fc-all{ align-self:center; }
 
+/* --- EL DETALLE POR ARTISTA: cada uno en su columna, por meses y semanas --- */
+.fc-det{ display:flex; gap:1rem; overflow-x:auto; padding-bottom:.3rem; align-items:flex-start; }
+.fc-det__col{ flex:0 0 17rem; min-width:0; border-left:3px solid var(--c,#e33d48); padding-left:.6rem; }
+.fc-det__who{ display:flex; align-items:center; gap:.4rem; font-weight:700; font-size:.85rem; margin-bottom:.4rem; }
+.fc-det__who img,.fc-det__who .noimg{ width:26px; height:26px; border-radius:50%; object-fit:cover; background:#e9ecef;
+  display:grid; place-items:center; color:#adb5bd; font-size:.7rem; }
+.fc-det__month{ font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+  color:#495057; border-bottom:1px solid rgba(0,0,0,.1); margin:.6rem 0 .3rem; }
+.fc-det__week{ font-size:.68rem; color:#adb5bd; font-weight:600; margin:.35rem 0 .2rem; }
+.fc-det__item{ display:flex; align-items:flex-start; gap:.5rem; padding:.25rem 0; }
+.fc-det__main{ display:flex; flex-direction:column; min-width:0; padding-top:.1rem; }
+.fc-det__what{ font-size:.7rem; font-weight:700; color:var(--c,#6b7280); text-transform:uppercase; letter-spacing:.02em; }
+.fc-det__what i{ margin-right:.25rem; }
+.fc-det__name{ font-size:.82rem; font-weight:600; color:#212529; overflow:hidden; text-overflow:ellipsis; }
+.fc-det__name a{ color:inherit; }
+@media (max-width: 767.98px){ .fc-det__col{ flex-basis:14rem; } }
+
 /* --- las EMISORAS de las rayas de radio --- */
 .fc-stations-filter{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; margin:-.4rem 0 .6rem; }
 .fc-station{ display:inline-flex; align-items:center; gap:.3rem; border:1px solid rgba(0,0,0,.1);

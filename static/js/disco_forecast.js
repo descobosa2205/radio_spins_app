@@ -727,6 +727,46 @@
       });
     }
 
+    // ------------------------------------------------------------ A2 · el detalle por artista
+    /* ⚠️ LOS HITOS QUE SE ESTÁN VIENDO, por artista y **por mes y semana**, con el día en la hoja
+       de calendario de las hojas de ruta. Es un cuadro de mando: cada artista en su columna, para
+       poder compararlos de un vistazo. Lo monta el SERVIDOR (`_forecast_detail`), que es lo mismo
+       que lleva el informe: así la pantalla y lo que se comparte no pueden desparejarse. */
+    function renderDetalle() {
+      var z = root.querySelector('[data-fc-detail]');
+      if (!z) return;
+      var arts = visibles().filter(function (a) { return ((D.detail || {})[a.id] || []).length; });
+      if (!arts.length) {
+        z.innerHTML = '<div class="fc-empty">No hay nada que detallar en este periodo.</div>';
+        return;
+      }
+      z.innerHTML = '<div class="fc-det">' + arts.map(function (a) {
+        var meses = (D.detail || {})[a.id] || [];
+        return '<div class="fc-det__col" style="--c:' + esc(a.color) + '">'
+          + '<div class="fc-det__who">' + avatar(a.photo_url, 'fa-guitar') + '<span>' + esc(a.name) + '</span></div>'
+          + meses.map(function (mes) {
+              return '<div class="fc-det__month">' + esc(mes.label) + '</div>'
+                + mes.weeks.map(function (sem) {
+                    return '<div class="fc-det__week">' + esc(sem.label) + '</div>'
+                      + sem.items.map(function (it) {
+                          return '<div class="fc-det__item" style="--c:' + esc(it.color) + '">'
+                            + '<span class="rm-cal"><span class="wd">' + esc(it.weekday) + '</span>'
+                            + '<span class="num">' + esc(it.day) + '</span>'
+                            + '<span class="mo">' + esc(it.month_short) + '</span></span>'
+                            + '<span class="fc-det__main">'
+                            + '<span class="fc-det__what"><i class="fa ' + esc(it.icon) + '"></i>' + esc(it.type_label) + '</span>'
+                            + '<span class="fc-det__name">'
+                            + (it.url ? ('<a href="' + esc(it.url) + '">' + esc(it.title) + '</a>') : esc(it.title))
+                            + '</span>'
+                            + (it.sub ? ('<span class="fc-sub">' + esc(it.sub) + '</span>') : '')
+                            + '</span></div>';
+                        }).join('');
+                  }).join('');
+            }).join('')
+          + '</div>';
+      }).join('') + '</div>';
+    }
+
     // ------------------------------------------------------------ B · radio ahora
     function renderWeekNav() {
       var z = root.querySelector('[data-fc-weeknav]');
@@ -982,7 +1022,7 @@
 
     function render() {
       renderTools(); renderArtists(); renderStations(); renderPalette(); renderLegend();
-      renderCal(); renderWeekNav(); renderRadio(); renderLast();
+      renderCal(); renderDetalle(); renderWeekNav(); renderRadio(); renderLast();
       renderPitchModes(); renderPitches();
     }
     render();

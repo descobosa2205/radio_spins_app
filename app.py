@@ -3718,13 +3718,20 @@ MAIL_EXPECTED_ACCOUNTS = [
      "label": "Promoción", "icon": "fa-microphone-lines",
      "uses": "Notas de prensa · se elige como remitente al enviar",
      "why": "Las notas de prensa salen desde este buzón, no con el remitente de la app."},
-    {"key": "SYNCRO", "email": "syncro@piesrecords.com", "name": "Syncros PIES Compañía Discográfica",
+    {"key": "SYNCRO", "email": "sync@piesrecords.com", "name": "Syncros PIES Compañía Discográfica",
      "label": "Syncros", "icon": "fa-clapperboard",
      "uses": "Syncros · los temas que se mandan a los supervisores",
      "why": ("Los temas para sincronización salen SIEMPRE desde este buzón: quien los recibe es un "
              "supervisor de fuera, y un correo de una casa de discos que sale desde otro dominio "
              "acaba en spam.")},
 ]
+
+
+# ⚠️ Por CLAVE, para que las constantes de cada sección (el remitente de Syncros, el de prensa) se
+# DERIVEN de aquí en vez de repetir la dirección: una dirección escrita en dos sitios se despareja
+# el día que se cambia en uno. Si la clave desapareciera, la app revienta al arrancar (a la vista),
+# que es justo lo que se quiere.
+MAIL_EXPECTED_BY_KEY = {e["key"]: e for e in MAIL_EXPECTED_ACCOUNTS}
 
 
 def _mail_expected_for(email: str) -> dict | None:
@@ -152961,8 +152968,10 @@ def brand_icon_png(nombre):
 # la app «mandar como» otra dirección, que es justo lo que rechaza.
 # Mientras la cuenta no esté dada de alta se pide igual mandar «como» ella y, si el servidor no lo
 # admite, sale con el remitente de la app y Reply-To aquí — y se DICE (no se calla).
-SYNC_SENDER_NAME = "Syncros PIES Compañía Discográfica"
-SYNC_SENDER_EMAIL = "syncro@piesrecords.com"
+# ⚠️ Salen del CATÁLOGO de cuentas de envío (`MAIL_EXPECTED_ACCOUNTS`), que es donde la pantalla de
+# Integraciones ofrece darla de alta: así la dirección está escrita en UN sitio.
+SYNC_SENDER_NAME = MAIL_EXPECTED_BY_KEY["SYNCRO"]["name"]
+SYNC_SENDER_EMAIL = MAIL_EXPECTED_BY_KEY["SYNCRO"]["email"]
 # El RITMO de un envío grande cuando NO hay cuenta propia (con ella mandan los suyos): un respiro
 # entre correos y una conexión nueva cada N. Mandar 60 de golpe por un hosting es lo que hace que
 # corten la conexión o que el envío se marque como masivo.
@@ -152978,7 +152987,10 @@ SYNC_SEND_RESUME_MINUTES = 45
 SYNC_CONTACT_NAME = "Daniel Martínez"
 SYNC_CONTACT_ROLE_ES = "Responsable de Sincronizaciones"
 SYNC_CONTACT_ROLE_EN = "Head of Sync Licensing"
-SYNC_CONTACT_EMAIL = "sync@piesrecords.com"
+# ⚠️⚠️ EL BUZÓN QUE MANDA ES EL QUE CONTESTA: el contacto que se pinta dentro del correo es la
+# MISMA dirección desde la que sale (sep 2026, lo confirmó Dani). Se deriva a propósito, para que no
+# puedan desparejarse; si algún día el contacto tuviera que ser otro buzón, se separa AQUÍ.
+SYNC_CONTACT_EMAIL = SYNC_SENDER_EMAIL
 SYNC_CONTACT_PHONE = "+34915001883"
 
 # Los textos del envío, en los DOS idiomas. ⚠️ Se traduce TODO menos el nombre de la canción y del
@@ -154536,7 +154548,7 @@ def sync_song_send(song_id):
                 auto_submitted=False,
                 pace_ms=pace, reconnect_every=reconectar, extra_headers=cabeceras)
             if ok and _err and not aviso_remitente:
-                aviso_remitente = _err          # p. ej. «el servidor no admite mandar como syncro@…»
+                aviso_remitente = _err          # p. ej. «el servidor no admite mandar como sync@…»
             if not ok:
                 fallidos.append(d["name"] or d["email"])
                 try:
@@ -154566,7 +154578,7 @@ def sync_song_send(song_id):
             flash("A %d ya se les había mandado este tema hace un momento: no se les ha repetido."
                   % repetidos, "info")
         # ⚠️ Si el servidor NO ha admitido mandar como el buzón de Syncros, el correo ha salido con el
-        # remitente de la app: se DICE (si no, se creería que sale desde syncro@ y no es verdad).
+        # remitente de la app: se DICE (si no, se creería que sale desde ese buzón y no es verdad).
         if aviso_remitente:
             flash(aviso_remitente, "warning")
         return redirect(request.referrer or url_for("syncros_view"))

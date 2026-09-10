@@ -11636,16 +11636,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   un correo que dice venir de un sello desde otro dominio es indistinguible de uno falsificado (y
   encima queda burdo).
   · **Punto único `_sync_sender()`** (hermano de `_press_sender_for`): **`SYNC_SENDER_EMAIL` =
-  `syncro@piesrecords.com`** y **`SYNC_SENDER_NAME` = «Syncros PIES Compañía Discográfica»**. Sale
+  `sync@piesrecords.com`** y **`SYNC_SENDER_NAME` = «Syncros PIES Compañía Discográfica»**. Sale
   con las credenciales de ESE buzón (`MailAccount`, Integraciones → Correo), así que va alineado con
   su dominio (SPF/DKIM de piesrecords.com) y no hay que pedirle al servidor de la app «mandar como»
   otra dirección, que es justo lo que rechaza. Lo usan el envío, la vista previa y el pop-up
   (global de plantilla **`sync_sender()`**, una FUNCIÓN para que solo se consulte donde se pinta).
   ⚠️ **Mientras la cuenta no esté dada de alta** se pide igual mandar «como» ella y, si el servidor
   no lo admite, `_send_optional_email` cae al remitente de la app con Reply-To ahí **y lo DICE** (el
-  flash sale en pantalla): nunca se cree que sale desde syncro@ sin que sea verdad.
-  ⚠️ **`SYNC_CONTACT_EMAIL` (`sync@piesrecords.com`, SIN la «o») es OTRA cosa**: el contacto que se
-  PINTA dentro del correo. El remitente es `syncro@`. Son dos constantes a propósito.
+  flash sale en pantalla): nunca se cree que sale desde ese buzón sin que sea verdad.
+  ⚠️⚠️ **LA DIRECCIÓN ESTÁ ESCRITA EN UN SOLO SITIO**: el catálogo `MAIL_EXPECTED_ACCOUNTS`
+  (indexado en `MAIL_EXPECTED_BY_KEY`), de donde se DERIVAN `SYNC_SENDER_EMAIL`/`_NAME`. Y
+  **`SYNC_CONTACT_EMAIL` —el contacto que se PINTA dentro del correo— ES `SYNC_SENDER_EMAIL`**: el
+  buzón que manda es el que contesta. Una dirección escrita en dos sitios se despareja el día que se
+  cambia en uno (pasó: se implementó con `syncro@` y el contacto era `sync@`). Si algún día el
+  contacto tuviera que ser otro buzón, se separa AHÍ.
   · **LO QUE HACE QUE NO SEA SPAM** (todo en `sync_song_send`, que es el punto único de envío —lo
   usan los dos modos del pop-up, «Supervisors» y «Por correo»):
     · **un correo por persona** (nunca uno con todos en el «Para»),
@@ -11684,7 +11688,7 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 
 - **CUENTAS DE ENVÍO · el catálogo de las que la app ESPERA** (sep 2026,
   **`MAIL_EXPECTED_ACCOUNTS`**): promocion@33producciones.es (notas de prensa) y
-  syncro@piesrecords.com (Syncros), cada una con su nombre, su icono, para qué se usa y por qué.
+  sync@piesrecords.com (Syncros), cada una con su nombre, su icono, para qué se usa y por qué.
   Es el punto único del que salen el **aviso** de «esta todavía no está dada de alta», el **alta ya
   rellena** (solo faltan el servidor y la contraseña) y el «para qué» de cada fila de Integraciones
   → Correo. **Una cuenta nueva se añade AHÍ y aparece sola en la pantalla.**

@@ -26,6 +26,7 @@
     var RO = (root.getAttribute('data-readonly') === '1');   // modo solo lectura (enlace público)
     var BASE_DAYS = CTX.base_days || [];                      // días del evento (no se pueden quitar)
     var IS_TEMPLATE = !!CTX.is_template;
+    var DOORS = CTX.doors_time || '';   // la hora de apertura de puertas que ya dice la ficha
     // PERSONAL: qué datos se pueden ver, los que se ven ahora y las funciones que se sugieren.
     var PERSON_FIELDS = CTX.person_fields || [];
     var PERSON_COLS = CTX.person_cols || ['role', 'phone', 'email'];
@@ -455,6 +456,9 @@
     }
     function newDraft(kind, day) {
       var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, attachments: [], sheets: { GENERAL: true, TECNICA: true } };
+      // La ficha ya dice a qué hora abren las puertas: se precumplimenta (se puede cambiar, y se
+      // pueden añadir varias aperturas en la misma actividad).
+      if (kind === 'APERTURA_PUERTAS' && DOORS) d.start_time = DOORS;
       if (kind === 'ENTREVISTA') d.interview = { type: '', media_id: '', media_name: '', sings: false, live: false, songs: [] };
       if (kindInfo(kind).transport) d.transport = { mode: kind, company: '', logo_url: '', number: '', origin: '', destination: '', duration: '', ends_next_day: false, same_locator: false, locator_all: '', passengers: [] };
       return d;
@@ -508,7 +512,7 @@
         h += '<div class="col-md-6"><label class="form-label">Logo compañía (URL)</label><input class="form-control" data-t="logo_url" value="' + esc(t.logo_url) + '"></div>';
         h += '<div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-t="ends_next_day" id="rmPlus1"' + (t.ends_next_day ? ' checked' : '') + '><label class="form-check-label" for="rmPlus1">Termina al día siguiente (+1)</label></div></div>';
         h += '<div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-t="same_locator" id="rmSameLoc"' + (t.same_locator ? ' checked' : '') + '><label class="form-check-label" for="rmSameLoc">Mismo localizador para todos</label></div><input class="form-control mt-1' + (t.same_locator ? '' : ' d-none') + '" data-t="locator_all" value="' + esc(t.locator_all) + '" placeholder="Localizador común"></div>';
-        h += '<div class="col-12"><label class="form-label">Pasajeros</label><div data-pass></div><button type="button" class="rm-add sm" data-addpass><i class="fa fa-plus"></i> Añadir pasajero</button></div>';
+        h += '<div class="col-12"><label class="form-label">Pasajeros</label><div data-pass></div><button type="button" class="rm-add sm" data-addpass><i class="fa fa-plus"></i> Añadir pasajeros</button></div>';
         h += '</div>';
       }
 
@@ -648,21 +652,78 @@
       });
       if (!draft.id && draft.transport.passengers.length) wrap.appendChild(el('<div class="text-muted small">Guarda el traslado para adjuntar billetes.</div>'));
     }
+    // ⚠️⚠️ En un mismo traslado va casi siempre medio equipo, así que se marcan VARIAS personas y
+    // se añaden DE GOLPE (de una en una era un trabajo tonto). Quien ya va sale como «ya va» y no
+    // se puede elegir dos veces; un tercero nuevo o alguien a mano se AÑADEN A LA SELECCIÓN sin
+    // cerrar el pop-up, para poder juntarlos con los demás en el mismo viaje.
     function openPassengerPicker(draft, done) {
-      var existing = P.personnel.map(function (p) { return '<div class="rm-result" data-pid="' + esc(p.id) + '">' + avatar(p.photo_url) + '<div><div>' + esc(p.name) + '</div>' + (p.role ? '<div class="rm-sub">' + esc(p.role) + '</div>' : '') + '</div></div>'; }).join('') || '<div class="text-muted small">Aún no hay personal.</div>';
-      var h = '<div class="text-muted small mb-1">Personal ya en la hoja de ruta</div>' + existing
-        + '<hr><div class="text-muted small mb-1">Añadir tercero nuevo</div><input class="form-control" placeholder="Buscar tercero…" data-newsearch><div class="list-group position-absolute d-none" style="z-index:5" data-newresults>'
-        + '</div><div class="mt-2"><input class="form-control form-control-sm mb-1" data-mname placeholder="…o nombre manual"><input class="form-control form-control-sm mb-1" data-mrole placeholder="Función"><button type="button" class="btn btn-outline-primary btn-sm" data-maddmanual>Añadir manual</button></div>';
-      var m2 = openModal('rmPassModal', 'modal-md', 'Añadir pasajero', h, []);
-      function addPassenger(personId) { draft.transport.passengers.push({ personnel_id: personId, locator: '', ticket_url: '', ticket_name: '' }); var i = bs('rmPassModal'); if (i) i.hide(); done(); }
-      m2.querySelectorAll('[data-pid]').forEach(function (n) { n.addEventListener('click', function () { addPassenger(n.getAttribute('data-pid')); }); });
+      var yaVan = {};
+      (draft.transport.passengers || []).forEach(function (p) { if (p.personnel_id) yaVan[String(p.personnel_id)] = true; });
+      var sel = {};
+
+      var h = '<div class="d-flex align-items-center gap-2 mb-1">'
+        + '<div class="text-muted small flex-grow-1">Personal de la hoja de ruta</div>'
+        + '<div class="filter-chips m-0" data-passbulk></div></div>'
+        + '<div data-passlist></div>'
+        + '<hr><div class="text-muted small mb-1">Añadir tercero nuevo</div><input class="form-control" placeholder="Buscar tercero…" data-newsearch><div class="list-group position-absolute d-none" style="z-index:5" data-newresults></div>'
+        + '<div class="mt-2"><input class="form-control form-control-sm mb-1" data-mname placeholder="…o nombre manual"><input class="form-control form-control-sm mb-1" data-mrole placeholder="Función"><button type="button" class="btn btn-outline-primary btn-sm" data-maddmanual>Añadir manual</button></div>';
+
+      var bAdd = btn('Añadir', 'btn-primary', function () { addSeleccionados(); });
+      var m2 = openModal('rmPassModal', 'modal-md', 'Añadir pasajeros', h, [bAdd]);
+
+      function libres() { return P.personnel.filter(function (p) { return !yaVan[String(p.id)]; }); }
+      function marcados() { return libres().filter(function (p) { return sel[String(p.id)]; }); }
+      function chip(label, fn) { var b = el('<button type="button" class="filter-chip">' + label + '</button>'); b.addEventListener('click', fn); return b; }
+
+      function pinta() {
+        var wrap = m2.querySelector('[data-passlist]');
+        wrap.innerHTML = '';
+        if (!P.personnel.length) wrap.appendChild(el('<div class="text-muted small">Aún no hay personal en la hoja de ruta.</div>'));
+        P.personnel.forEach(function (p) {
+          var id = String(p.id), ya = !!yaVan[id], on = !!sel[id];
+          var row = el('<div class="rm-result' + (ya ? ' is-done' : (on ? ' is-on' : '')) + '">'
+            + '<span class="rm-check">' + (ya ? '<i class="fa fa-circle-check"></i>' : (on ? '<i class="fa fa-square-check"></i>' : '<i class="fa-regular fa-square"></i>')) + '</span>'
+            + avatar(p.photo_url)
+            + '<div class="flex-grow-1"><div>' + esc(p.name) + '</div>' + (p.role ? '<div class="rm-sub">' + esc(p.role) + '</div>' : '') + '</div>'
+            + (ya ? '<span class="rm-sub">ya va</span>' : '') + '</div>');
+          if (!ya) row.addEventListener('click', function () { sel[id] = !sel[id]; pinta(); });
+          wrap.appendChild(row);
+        });
+        // «Todos» / «Ninguno» solo cuando hacen algo (y no con una sola persona que elegir).
+        var bulk = m2.querySelector('[data-passbulk]');
+        bulk.innerHTML = '';
+        var lib = libres(), n = marcados().length;
+        if (lib.length > 1) {
+          if (n < lib.length) bulk.appendChild(chip('Todos', function () { lib.forEach(function (p) { sel[String(p.id)] = true; }); pinta(); }));
+          if (n > 0) bulk.appendChild(chip('Ninguno', function () { sel = {}; pinta(); }));
+        }
+        bAdd.textContent = n ? ('Añadir (' + n + ')') : 'Añadir';
+      }
+
+      function addSeleccionados() {
+        var elegidos = marcados();
+        if (!elegidos.length) { alert('Marca a las personas que van en este traslado.'); return; }
+        elegidos.forEach(function (p) { draft.transport.passengers.push({ personnel_id: String(p.id), locator: '', ticket_url: '', ticket_name: '' }); });
+        var i = bs('rmPassModal'); if (i) i.hide();
+        done();
+      }
+
+      function marcaNueva(pid) {
+        if (!pid) return;
+        if (yaVan[String(pid)]) { alert('Esa persona ya va en este traslado.'); return; }
+        sel[String(pid)] = true; pinta();
+      }
       attachSearch(m2.querySelector('[data-newsearch]'), m2.querySelector('[data-newresults]'), searchPromoters, function (r) {
-        savePerson({ kind: 'PROMOTER', ref_id: r.id, name: r.label, phone: r.phone || '', email: r.email || '', photo_url: r.logo_url || '' }).then(function (pid) { if (pid) addPassenger(pid); });
-      }, { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) savePerson({ kind: 'PROMOTER', ref_id: r.id, name: r.label || q }).then(function (pid) { if (pid) addPassenger(pid); }); }); } });
+        savePerson({ kind: 'PROMOTER', ref_id: r.id, name: r.label, phone: r.phone || '', email: r.email || '', photo_url: r.logo_url || '' }).then(marcaNueva);
+      }, { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) savePerson({ kind: 'PROMOTER', ref_id: r.id, name: r.label || q }).then(marcaNueva); }); } });
       m2.querySelector('[data-maddmanual]').addEventListener('click', function () {
         var nm = m2.querySelector('[data-mname]').value.trim(); if (!nm) return;
-        savePerson({ kind: 'MANUAL', name: nm, role: m2.querySelector('[data-mrole]').value.trim() }).then(function (pid) { if (pid) addPassenger(pid); });
+        savePerson({ kind: 'MANUAL', name: nm, role: m2.querySelector('[data-mrole]').value.trim() }).then(function (pid) {
+          m2.querySelector('[data-mname]').value = ''; m2.querySelector('[data-mrole]').value = '';
+          marcaNueva(pid);
+        });
       });
+      pinta();
     }
     // Guarda una persona en el payload y devuelve su id (sin re-render global aquí).
     function savePerson(data) {

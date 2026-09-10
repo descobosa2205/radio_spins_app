@@ -76307,6 +76307,9 @@ ROADMAP_ACTIVITY_TYPES = [
     ("ENTREVISTA", "Entrevista", "fa-microphone-lines", "#8e44ad"),
     ("ACTUACION", "Actuación", "fa-guitar", "#e33d48"),
     ("PRUEBA_SONIDO", "Prueba de sonido", "fa-sliders", "#16a085"),
+    # Puede haber VARIAS en una actividad (puertas de pista, de grada, de invitados…): es un punto
+    # de agenda más, así que cada una es su propia fila con su hora.
+    ("APERTURA_PUERTAS", "Apertura de puertas", "fa-door-open", "#f39c12"),
     ("MG", "Meet & Greet", "fa-handshake", "#d63384"),
     ("SESION_FOTOS", "Sesión de fotos", "fa-camera", "#6f42c1"),
     ("COMIDA", "Comida", "fa-utensils", "#e67e22"),
@@ -76751,6 +76754,10 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "activity_picker": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in ROADMAP_ACTIVITY_TYPES],
         "transport_picker": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_TRANSPORT_MODES],
         "interview_types": ROADMAP_INTERVIEW_TYPES,
+        # La ficha de la actividad ya dice a qué hora abren las puertas: el punto de agenda de
+        # «Apertura de puertas» nace con ESA hora (editable, y se puede añadir más de uno), para no
+        # tener que escribirla otra vez. `_roadmap_clean_time` descarta lo que no sea «HH:MM».
+        "doors_time": _roadmap_clean_time(getattr(row, "doors_time", "") or ""),
         # PERSONAL: qué datos se ven (se guarda con la actividad o con la plantilla) y las funciones
         # que se sugieren al escribir (las que ya se usan aquí primero).
         "person_fields": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_PERSON_FIELDS],

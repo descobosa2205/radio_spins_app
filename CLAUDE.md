@@ -11560,6 +11560,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (con uno no filtra nada), y entonces la agenda va con `rm-agenda--single`: sin línea ni hueco.
   ⚠️ El filtro es del NAVEGADOR (`diasVistos`): no se guarda ni se manda al servidor.
 
+- **HOJA DE RUTA · APERTURA DE PUERTAS** (sep 2026): un concepto más del catálogo
+  (`ROADMAP_ACTIVITY_TYPES` → `APERTURA_PUERTAS`, icono **`fa-door-open`** en ámbar), así que sale
+  solo en el selector del «+», en la agenda, en el detalle, en la hoja de ruta **pública** y en las
+  plantillas: el catálogo es el punto único (`_roadmap_kind_catalog`) y no hay que tocar ninguna
+  pantalla.
+  ⚠️ **Puede haber VARIAS en la misma actividad** (puertas de pista, de grada, de invitados…): cada
+  una es su propio punto de agenda con **su hora**, como cualquier otro — no hay nada que limite un
+  ítem por tipo.
+  · **La hora sale de la FICHA**: la actividad ya dice a qué hora abren (`Concert.doors_time`), así
+  que el punto nace con ESA hora (`"doors_time"` del contexto → `DOORS` en `roadmap.js`, aplicado en
+  `newDraft`) y se puede cambiar. No se escribe el mismo dato dos veces.
+  ⚠️ Se pasa por **`_roadmap_clean_time`**: ese campo es texto libre y un «una hora antes» no es una
+  hora — lo que no sea «HH:MM» no se precumplimenta. Y en una promoción, un proyecto o una plantilla
+  (que no tienen ese campo) llega vacío, no revienta.
+
+- ⚠️⚠️ **UN TRASLADO SE LLENA CON VARIAS PERSONAS DE GOLPE** (sep 2026): en un transfer va casi
+  siempre medio equipo, así que el pop-up de pasajeros (`openPassengerPicker`) es de **selección
+  múltiple** — casillas con la foto y la función, «Todos» / «Ninguno» y el botón dice cuántos
+  («Añadir (3)»)—; de una en una era un trabajo tonto.
+  ⚠️ **Quien ya va sale como «ya va»** (`.rm-result.is-done`) y **no se puede elegir dos veces**;
+  sin marcar a nadie el botón **avisa** en vez de no hacer nada, y el pop-up **no se cierra**.
+  ⚠️ «Todos» / «Ninguno» solo se pintan **cuando hacen algo** (y no con una sola persona que
+  elegir): la regla de la casa de los filtros del calendario.
+  ⚠️ Un **tercero nuevo** (o alguien a mano) se añade **A LA SELECCIÓN sin cerrar** el pop-up, para
+  poder juntarlo con los demás del mismo viaje: `savePerson` dedupe por `kind`+`ref_id`
+  (`roadmap_personnel_save`), así que un tercero que ya está en el personal devuelve su id.
+  ⚠️ El cuadrado SIN marcar va en **`fa-regular fa-square`**: en la familia SOLID `fa-square` es un
+  cuadrado MACIZO y parece ya marcado.
+
 - ⚠️⚠️ **UNA PERSONA DE UN MEDIO ES UN TERCERO** (sep 2026). «Añadir contacto» en la ficha de un
   medio abre el pop-up **en modo BUSCAR**: se busca entre los terceros por cualquier campo
   (`api_search_promoters`) **con su foto**, y al elegir uno se pasa a sus datos **ya puestos** —solo

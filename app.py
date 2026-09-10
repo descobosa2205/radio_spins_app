@@ -144716,6 +144716,21 @@ def _caldav_options_resp():
     return r
 
 
+# ⚠️⚠️ SIN ESTO EL MAC (y a veces el iPhone) PONE EL CALENDARIO DE SOLO LECTURA y no deja crear
+# nada: los clientes de Apple preguntan por los privilegios antes de ofrecer el «+». Los anunciamos
+# a nivel de calendario; el control fino de lo que se puede tocar lo hace el propio servidor (una
+# ACTIVIDAD no está en `ArtistAgendaItem`, así que su DELETE responde 403).
+CALDAV_PRIVILEGE_SET = ('<D:current-user-privilege-set>'
+                        '<D:privilege><D:read/></D:privilege>'
+                        '<D:privilege><D:write/></D:privilege>'
+                        '<D:privilege><D:write-content/></D:privilege>'
+                        '<D:privilege><D:write-properties/></D:privilege>'
+                        '<D:privilege><D:bind/></D:privilege>'
+                        '<D:privilege><D:unbind/></D:privilege>'
+                        '<D:privilege><D:read-current-user-privilege-set/></D:privilege>'
+                        '</D:current-user-privilege-set>')
+
+
 def _caldav_calendar_response_xml(artist, ctag=""):
     href = f"/caldav/calendars/{artist.id}/"
     name = _xml_escape("Calendario · " + (artist.name or ""))
@@ -144724,6 +144739,8 @@ def _caldav_calendar_response_xml(artist, ctag=""):
             '<C:supported-calendar-component-set><C:comp name="VEVENT"/></C:supported-calendar-component-set>'
             '<ICAL:calendar-color>#E33D48FF</ICAL:calendar-color>'
             '<D:current-user-principal><D:href>/caldav/principal/</D:href></D:current-user-principal>'
+            '<D:owner><D:href>/caldav/principal/</D:href></D:owner>'
+            + CALDAV_PRIVILEGE_SET +
             f'<CS:getctag>{_xml_escape(ctag or "0")}</CS:getctag>')
     return (f'<D:response><D:href>{href}</D:href>'
             f'<D:propstat><D:prop>{prop}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
@@ -144745,15 +144762,21 @@ def _ics_parse_date(value):
 
 
 def _ics_parse_vevent(text):
-    """Extrae UID/SUMMARY/DESCRIPTION/DTSTART/DTEND del primer VEVENT (texto iCal del cliente)."""
-    unfolded = re.sub(r'\r?\n[ \t]', '', text or "")
+    """UID/SUMMARY/DESCRIPTION/DTSTART/DTEND **con su HORA** del primer VEVENT (lo que manda el
+    iPhone al crear un evento).
+
+    ⚠️ La fecha y la hora las lee **`ics_import.parse_dt`**, que es el punto único de la casa: con
+    `TZID` se respeta la hora escrita y **solo lo que viene en UTC (`Z`) se pasa a la hora de
+    España**. Antes se leía solo la fecha, así que un evento creado con hora en el iPhone entraba
+    como de DÍA COMPLETO y la hora se perdía.
+    ⚠️ En iCal el `DTEND` de un evento de día completo es **EXCLUSIVO** (el último día real es el
+    anterior); con hora, es el final de verdad."""
     out = {}
-    for line in unfolded.splitlines():
+    dur = None
+    for line in re.sub(r'\r?\n[ \t]', '', text or "").splitlines():
         if ":" not in line:
             continue
-        name, _, value = line.partition(":")
-        key = name.split(";")[0].strip().upper()
-        value = value.strip()
+        key, params, value = ics_import.parse_line(line)
         if key == "UID":
             out["uid"] = value
         elif key == "SUMMARY":
@@ -144761,11 +144784,24 @@ def _ics_parse_vevent(text):
         elif key == "DESCRIPTION":
             out["description"] = _ics_unescape(value)
         elif key == "DTSTART":
-            out["start"] = _ics_parse_date(value)
+            out["start"], out["start_time"] = ics_import.parse_dt(value, params)
         elif key == "DTEND":
-            d = _ics_parse_date(value)
-            # DTEND de día completo es exclusiva -> el último día real es el anterior.
-            out["end"] = (d - timedelta(days=1)) if (d and len(value) == 8) else d
+            d, h = ics_import.parse_dt(value, params)
+            out["end"] = (d - timedelta(days=1)) if (d and h is None) else d
+            out["end_time"] = h
+        elif key == "DURATION":
+            dur = ics_import.parse_duration(value)
+    # Algunos clientes mandan DURATION en vez de DTEND.
+    if out.get("start") and not out.get("end") and dur is not None:
+        base = datetime.combine(out["start"], datetime.min.time())
+        if out.get("start_time"):
+            hh, _, mm = out["start_time"].partition(":")
+            base = base.replace(hour=int(hh or 0), minute=int(mm or 0))
+        fin = base + dur
+        if out.get("start_time"):
+            out["end"], out["end_time"] = fin.date(), "%02d:%02d" % (fin.hour, fin.minute)
+        else:
+            out["end"] = (fin.date() - timedelta(days=1)) if fin.time() == datetime.min.time() else fin.date()
     return out
 
 
@@ -144875,6 +144911,83 @@ def public_caldav_calendar(artist_id):
         session_db.close()
 
 
+def _caldav_snapshot(item) -> dict:
+    """Lo que importa de una nota, para saber si de verdad ha cambiado algo.
+
+    ⚠️ El iPhone manda un `PUT` también al RESINCRONIZAR, así que sin comparar el antes con el
+    ahora el aviso sería una metralleta."""
+    return {
+        "title": (item.title or "").strip(),
+        "note": (item.note or "").strip(),
+        "start_date": item.start_date.isoformat() if item.start_date else "",
+        "end_date": (item.end_date or item.start_date).isoformat() if (item.end_date or item.start_date) else "",
+        "start_time": _agenda_clean_time(getattr(item, "start_time", None)) or "",
+        "end_time": _agenda_clean_time(getattr(item, "end_time", None)) or "",
+    }
+
+
+def _caldav_when_label(snap: dict) -> str:
+    """«10/09/2026» · «10/09/2026 → 12/09/2026», con la hora detrás si la tiene."""
+    def dia(iso):
+        try:
+            return date.fromisoformat(iso).strftime("%d/%m/%Y")
+        except (ValueError, TypeError):
+            return iso or ""
+    d1, d2 = dia(snap.get("start_date")), dia(snap.get("end_date"))
+    cuando = d1 if (not d2 or d1 == d2) else "%s → %s" % (d1, d2)
+    hora = _agenda_time_label(snap.get("start_time") or None, snap.get("end_time") or None)
+    return " · ".join([x for x in (cuando, hora) if x])
+
+
+def _caldav_notify(session_db, item, user, accion: str, antes: dict = None, snap: dict = None):
+    """Avisa a los IMPLICADOS de que alguien ha añadido, movido o quitado algo **desde la app de
+    Calendario** (iPhone, iPad o Mac): quien lleva a ese artista y quien apuntó la nota.
+
+    ⚠️⚠️ **A quien lo hace NO se le avisa**, y hay que decirle quién es a mano
+    (`actor_user_id=user.id`): en CalDAV **no hay sesión de Flask**, así que `_notify_user` no
+    podría saber quién actúa y le avisaría también al autor.
+    ⚠️ Es *best-effort*: la nota ya está guardada, y un fallo del aviso no puede dejar al iPhone
+    sin su respuesta (se quedaría reintentando)."""
+    try:
+        ahora = snap or _caldav_snapshot(item)
+        if accion == "edit":
+            if not antes or antes == ahora:
+                return 0            # el iPhone ha reenviado lo mismo: no hay nada que decir
+            if (antes.get("start_date"), antes.get("end_date"),
+                    antes.get("start_time"), antes.get("end_time")) != (
+                    ahora.get("start_date"), ahora.get("end_date"),
+                    ahora.get("start_time"), ahora.get("end_time")):
+                titulo, detalle = "Cambio de fecha en la agenda", _agenda_change_label(antes, ahora)
+            else:
+                titulo, detalle = "Cambio en la agenda", _caldav_when_label(ahora)
+        elif accion == "delete":
+            titulo, detalle = "Quitado de la agenda", _caldav_when_label(ahora)
+        else:
+            titulo, detalle = "Nuevo en la agenda", _caldav_when_label(ahora)
+        artista = session_db.get(Artist, item.artist_id) if item.artist_id else None
+        que = ahora.get("title") or ("Bloqueo" if (item.kind or "").upper() == "BLOCK" else "Nota")
+        cuerpo = " · ".join([x for x in [(getattr(artista, "name", "") or "").strip(), que, detalle,
+                                         "desde la app de Calendario"] if x])
+        destinos = [x for x in _agenda_item_involved(session_db, item) if str(x) != str(user.id)]
+        url = (url_for("artist_detail_view", artist_id=item.artist_id, tab="agenda")
+               if item.artist_id else url_for("home"))
+        # Un aviso de algo que ya no está no puede quedarse esperando a nadie (regla de la casa).
+        if accion == "delete":
+            _notify_resolve(session_db, "agenda_item", str(item.id))
+        n = _notify_users(session_db, destinos, "AGENDA", titulo, cuerpo, url,
+                          ref_type="agenda_item", ref_id=str(item.id),
+                          actor_user_id=user.id, email=None)
+        session_db.commit()
+        return n
+    except Exception:
+        app.logger.exception("[caldav] no se pudo avisar del cambio en la agenda")
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+        return 0
+
+
 def public_caldav_resource(artist_id, resource):
     if request.method == "OPTIONS":
         return _caldav_options_resp()
@@ -144909,6 +145022,7 @@ def public_caldav_resource(artist_id, resource):
                 return Response("Invalid event", status=400)
             item = _caldav_find_item(session_db, artist, resource, parsed.get("uid"))
             is_new = item is None
+            antes = None if is_new else _caldav_snapshot(item)
             if item is None:
                 item = ArtistAgendaItem(artist_id=artist.id, kind="NOTE")
                 session_db.add(item)
@@ -144918,6 +145032,9 @@ def public_caldav_resource(artist_id, resource):
             item.end_date = parsed.get("end") or parsed["start"]
             if item.end_date < item.start_date:
                 item.end_date = item.start_date
+            # La HORA que traiga el evento (sin ella es de día completo, como antes).
+            item.start_time = _agenda_clean_time(parsed.get("start_time"))
+            item.end_time = _agenda_clean_time(parsed.get("end_time"))
             item.caldav_uid = parsed.get("uid") or item.caldav_uid
             item.caldav_href = resource
             item.created_by_user_id = item.created_by_user_id or user.id
@@ -144927,12 +145044,18 @@ def public_caldav_resource(artist_id, resource):
             r = Response("", status=201 if is_new else 204)
             if ev:
                 r.headers["ETag"] = ev["etag"]
+            _caldav_notify(session_db, item, user, "new" if is_new else "edit", antes)
             return r
         if request.method == "DELETE":
             item = _caldav_find_item(session_db, artist, resource, None)
             if item is not None:
-                session_db.delete(item)
-                session_db.commit()
+                # Se avisa ANTES de borrarla: después ya no se sabría de qué era.
+                snap, aid, iid = _caldav_snapshot(item), item.artist_id, str(item.id)
+                _caldav_notify(session_db, item, user, "delete", snap=snap)
+                item = session_db.get(ArtistAgendaItem, to_uuid(iid))
+                if item is not None:
+                    session_db.delete(item)
+                    session_db.commit()
                 return Response("", status=204)
             return Response("Forbidden", status=403)  # actividad (solo lectura) o inexistente
         return Response("", status=405)

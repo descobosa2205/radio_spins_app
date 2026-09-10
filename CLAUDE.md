@@ -7701,6 +7701,54 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   regla de la casa), así que da igual cuántas veces se repinte. Comprobado en el navegador
   reemplazando `#concert-general-zone` a mano: el botón sigue copiando.
 
+- ⚠️⚠️ **CALENDARIO POR ARTISTA EN EL IPHONE (CalDAV): SE AÑADE Y SE BORRA, Y SE AVISA** (sep 2026).
+  Cada persona pone en su iPhone, iPad o Mac una **cuenta CalDAV** con su correo y su contraseña de
+  la app y le aparece **un calendario por cada artista que lleva** (dirección, todos). Lo que se
+  **apunta desde la app de Calendario** entra en la agenda de ese artista y **los demás que lo
+  llevan reciben el aviso**.
+  · **QUÉ SE PUEDE TOCAR**: las **notas libres** («otros») y los **bloqueos** se crean, se editan y
+  **se borran** desde el iPhone (son `ArtistAgendaItem`); lo que **crea la app** —conciertos,
+  promociones, lanzamientos, cumpleaños— es **SOLO LECTURA** y su borrado responde **403**. Lo decide
+  `_caldav_find_item`, que solo busca en `ArtistAgendaItem`: una actividad no está ahí, así que no
+  hay forma de borrarla por error desde el móvil.
+  ⚠️⚠️ **SIN `current-user-privilege-set` EL MAC PONE EL CALENDARIO DE SOLO LECTURA** y no ofrece el
+  «+» (los clientes de Apple preguntan por los privilegios antes de dejar crear nada). Se anuncian
+  en `CALDAV_PRIVILEGE_SET` (`read` · `write` · `write-content` · `write-properties` · `bind` ·
+  `unbind`), junto con `<D:owner>`. El control fino lo hace el servidor, no el cliente.
+  · **LA HORA**: `_ics_parse_vevent` lee la fecha **y la hora** con **`ics_import.parse_dt`** (el
+  punto único: con `TZID` se respeta la hora escrita y **solo lo que viene en UTC (`Z`) se pasa a la
+  hora de España**), y el `PUT` la guarda en `start_time`/`end_time`. Antes solo leía la fecha, así
+  que un evento creado con hora en el iPhone entraba como de **día completo** y la hora se perdía.
+  Se admite también `DURATION` (algunos clientes no mandan `DTEND`).
+  ⚠️ En iCal el `DTEND` de un evento de **día completo es EXCLUSIVO**: el último día real es el
+  anterior. Comprobado ida y vuelta (1→4 oct entra como 1–3 oct y se devuelve como 1→4).
+  · **EL AVISO** (`_caldav_notify`, kind **`AGENDA`**): «Nuevo en la agenda» · «Cambio de fecha en la
+  agenda» (con `_agenda_change_label`) · «Quitado de la agenda», con el artista, el título, cuándo y
+  «desde la app de Calendario». Va a **los IMPLICADOS** (`_agenda_item_involved`: quien lleva a ese
+  artista y quien lo apuntó).
+  ⚠️⚠️ **A quien lo hace NO se le avisa, y hay que decirle quién es A MANO** (`actor_user_id=user.id`):
+  en CalDAV **no hay sesión de Flask**, así que `_notify_user` no puede saber quién actúa y le
+  avisaría también al autor.
+  ⚠️⚠️ **EL IPHONE MANDA UN `PUT` TAMBIÉN AL RESINCRONIZAR**: sin comparar el antes con el ahora
+  (`_caldav_snapshot`) esto sería una **metralleta de avisos**. Solo se avisa de lo que CAMBIA
+  (comprobado: reenviar el mismo evento no genera ninguno).
+  ⚠️ Al borrar se avisa **ANTES** (después no se sabría de qué era) y se **resuelve** el aviso
+  anterior de esa nota (`_notify_resolve`): un aviso de algo que ya no está no puede quedarse
+  esperando. Por correo **no sale de fábrica** (el kind `AGENDA` no está en
+  `NOTICE_EMAIL_DEFAULT_KINDS`): dirección lo enciende en «Configurar notificaciones».
+  ⚠️ El aviso es *best-effort* y va **después** de responder al `PUT`: si falla, la nota ya está
+  guardada y el iPhone no puede quedarse reintentando.
+  · **CADA UNO SOLO VE LO SUYO** (`_caldav_user_artists` / `_caldav_can_access`, por
+  `assigned_artist_ids`): el calendario de un artista que no llevas da **404**. **Mi calendario** y
+  el **Calendario general de oficina** NO salen por CalDAV a propósito (no son artistas, y sus datos
+  son personales de la oficina).
+  ⚠️⚠️⚠️ **PERO EN RENDER NO SE PUEDE USAR: Cloudflare corta `PROPFIND` con un 405** (verificado otra
+  vez en sep 2026) y iOS verifica la cuenta con un `PROPFIND` → «no se puede verificar la cuenta».
+  El servidor está bien; es la infraestructura. Hay que desplegar el MISMO código en un host sin
+  Cloudflare con **`CALDAV_ONLY=1`** — los pasos exactos están en **`DEPLOY_CALDAV.md`** (Fly.io,
+  `Dockerfile.caldav`, `fly.toml`, y `CALDAV_PUBLIC_HOST` en Render para que la guía de `/caldav/guia`
+  diga el host bueno). **Prueba de fuego**: `PROPFIND /caldav/` tiene que dar **207**, no 405.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

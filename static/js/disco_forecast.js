@@ -59,14 +59,28 @@
       if (D.artist_id) { var a = artistById(D.artist_id); return a ? [a] : []; }
       return (D.artists || []);
     }
-    /* La posición de un día dentro de la ventana, en % (para las franjas y los hitos). */
-    function pos(iso) {
+    /* ⚠️ EL CALENDARIO VA POR SEMANAS: cada cosa cae DENTRO de la semana que le toca (no se
+       posiciona por día). Estos dos son el punto único de «en qué columna va esto».
+       Las fechas se comparan EN ISO tal cual (texto): así no entra ningún huso horario por medio. */
+    function semanaDe(iso) {
+      var w = D.weeks || [], d = String(iso || '').slice(0, 10);
+      if (!d) return null;
+      for (var i = 0; i < w.length; i++) if (d >= w[i].start && d <= w[i].end) return i;
+      return null;
+    }
+    /* Las semanas que ocupa algo que dura varios días, RECORTADO a la ventana: [i0, i1] o null. */
+    function tramoSemanas(desde, hasta) {
       var w = D.weeks || [];
       if (!w.length) return null;
-      var t0 = Date.parse(w[0].start), t1 = Date.parse(w[w.length - 1].end) + 864e5;
-      var t = Date.parse(String(iso || '').slice(0, 10));
-      if (isNaN(t)) return null;
-      return Math.max(0, Math.min(100, ((t - t0) / (t1 - t0)) * 100));
+      var d0 = String(desde || '').slice(0, 10);
+      var d1 = String(hasta || desde || '').slice(0, 10) || d0;
+      if (!d0) return null;
+      if (d1 < d0) { var x = d0; d0 = d1; d1 = x; }
+      if (d1 < w[0].start || d0 > w[w.length - 1].end) return null;   // se queda fuera de la ventana
+      var i0 = 0, i1 = w.length - 1;
+      for (var i = 0; i < w.length; i++) if (w[i].end >= d0) { i0 = i; break; }
+      for (var j = w.length - 1; j >= 0; j--) if (w[j].start <= d1) { i1 = j; break; }
+      return [i0, Math.max(i0, i1)];
     }
 
     // ------------------------------------------------------------ recarga
@@ -158,6 +172,9 @@
     }
 
     // ------------------------------------------------------------ A · calendario
+    /* UNA COLUMNA POR SEMANA. En la celda de cada semana va lo que ese artista tiene ESA semana
+       (sus lanzamientos y, como referencia, lo que ya hay en su agenda); un PERIODO DE PROMOCIÓN es
+       una barra que ocupa las columnas de las semanas que dura, en su carril para que no se pisen. */
     function renderCal() {
       var z = root.querySelector('[data-fc-cal]');
       var weeks = D.weeks || [];
@@ -174,54 +191,98 @@
           + ' y el ' + esc(fechaEs(D.to)) + '. Prueba a mover el periodo o a abrirlo más.</div>';
         return;
       }
-      var head = '<div class="fc-cal__row fc-cal__row--head"><div class="fc-cal__who"></div><div class="fc-cal__track">'
+      function clases(w) { return (w.is_now ? ' is-now' : '') + (w.first_of_month ? ' is-month' : ''); }
+
+      var head = '<div class="fc-cal__row fc-cal__row--head"><div class="fc-cal__who"></div>'
+        + '<div class="fc-cal__weeks">'
         + weeks.map(function (w) {
-            return '<div class="fc-cal__w' + (w.is_now ? ' is-now' : '') + (w.first_of_month ? ' is-month' : '') + '">'
+            return '<div class="fc-cal__w' + clases(w) + '" title="Semana del ' + esc(fechaEs(w.start))
+              + ' al ' + esc(fechaEs(w.end)) + '">'
               + (w.first_of_month ? '<b>' + esc(w.month) + '</b>' : '') + '<span>' + esc(w.label) + '</span></div>';
           }).join('')
         + '</div></div>';
+
       var body = arts.map(function (a) {
         var rel = (D.releases || {})[a.id] || [];
         var win = (D.promo_windows || {})[a.id] || [];
-        var ag = (D.agenda || {})[a.id] || [];
-        var hitos = rel.map(function (r) {
-          var p = pos(r.date);
-          if (p === null) return '';
-          var meta = kindMeta(r.release_kind);
-          var icono = meta ? meta.icon : (r.kind === 'ALBUM' ? 'fa-compact-disc' : 'fa-music');
-          var color = meta ? meta.color : '#6b7280';
-          var titulo = r.title + ' · ' + fechaEs(r.date) + (meta ? (' · ' + meta.label) : '')
-            + (r.radio_ok ? (' · en ' + r.radio_ok + ' emisora' + (r.radio_ok === 1 ? '' : 's')) : '');
-          return '<button type="button" class="fc-hito' + (r.provisional ? ' is-prov' : '') + '" style="left:' + p + '%;--c:' + esc(color) + '"'
-            + ' data-fc-rel="' + esc(r.kind + ':' + r.id) + '" title="' + esc(titulo) + '">'
-            + (r.cover_url ? '<img src="' + esc(r.cover_url) + '" alt="">' : '<i class="fa ' + esc(icono) + '"></i>')
-            + (meta ? '<i class="fa ' + esc(meta.icon) + ' fc-hito__k"></i>' : '')
-            + ((r.radio || []).length ? '<span class="fc-hito__radio">' + (r.radio || []).length + '</span>' : '')
-            + '</button>';
-        }).join('');
+        var ag = (D.show_agenda ? ((D.agenda || {})[a.id] || []) : []);
+
+        // --- qué cae en cada semana
+        var porSemana = weeks.map(function () { return { rel: [], ref: [] }; });
+        rel.forEach(function (r) {
+          var i = semanaDe(r.date);
+          if (i !== null) porSemana[i].rel.push(r);
+        });
+        ag.forEach(function (it) {
+          // Lo que dura varios días se marca en TODAS las semanas que ocupa: dice que esos días
+          // el artista ya está cogido, que es para lo que se mira.
+          var t = tramoSemanas(it.date, it.end_date);
+          if (!t) return;
+          for (var i = t[0]; i <= t[1]; i++) porSemana[i].ref.push(it);
+        });
+
+        // --- los periodos de promoción, en carriles para que dos que se solapan no se pisen
+        var carriles = [];
         var franjas = win.map(function (w) {
-          var a1 = pos(w.start_date), a2 = pos(w.end_date);
-          if (a1 === null || a2 === null) return '';
-          var ancho = Math.max(1.2, a2 - a1);
-          return '<button type="button" class="fc-win" style="left:' + a1 + '%;width:' + ancho + '%;--c:' + esc(w.color) + '"'
-            + ' data-fc-win="' + esc(w.id) + '" title="' + esc(w.name + ' · ' + fechaEs(w.start_date) + ' – ' + fechaEs(w.end_date) + (w.note ? (' · ' + w.note) : '')) + '">'
+          var t = tramoSemanas(w.start_date, w.end_date);
+          if (!t) return '';
+          var fila = 0;
+          while (carriles[fila] !== undefined && carriles[fila] >= t[0]) fila++;
+          carriles[fila] = t[1];
+          return '<button type="button" class="fc-win" data-fc-win="' + esc(w.id) + '"'
+            + ' style="grid-column:' + (t[0] + 1) + ' / span ' + (t[1] - t[0] + 1) + ';grid-row:' + (fila + 1) + ';--c:' + esc(w.color) + '"'
+            + ' title="' + esc(w.name + ' · ' + fechaEs(w.start_date) + ' – ' + fechaEs(w.end_date) + (w.note ? (' · ' + w.note) : '')) + '">'
             + '<i class="fa ' + esc(w.icon) + '"></i><span>' + esc(w.name) + '</span></button>';
         }).join('');
-        var refs = (D.show_agenda ? ag : []).map(function (it) {
-          var p = pos(it.date);
-          if (p === null) return '';
-          return '<span class="fc-ref" style="left:' + p + '%;--c:' + esc(it.color) + '"'
-            + ' title="' + esc((it.label ? it.label + ' · ' : '') + it.title + ' · ' + fechaEs(it.date)) + '">'
-            + '<i class="fa ' + esc(it.icon) + '"></i></span>';
+        var filaCeldas = carriles.length + 1;
+
+        var celdas = weeks.map(function (w, i) {
+          var c = porSemana[i];
+          var hitos = c.rel.map(function (r) {
+            var meta = kindMeta(r.release_kind);
+            var icono = meta ? meta.icon : (r.kind === 'ALBUM' ? 'fa-compact-disc' : 'fa-music');
+            var color = meta ? meta.color : '#6b7280';
+            var titulo = r.title + ' · ' + fechaEs(r.date) + (meta ? (' · ' + meta.label) : '')
+              + (r.radio_ok ? (' · en ' + r.radio_ok + ' emisora' + (r.radio_ok === 1 ? '' : 's')) : '');
+            return '<span class="fc-rel">'
+              + '<button type="button" class="fc-hito' + (r.provisional ? ' is-prov' : '') + '" style="--c:' + esc(color) + '"'
+              + ' data-fc-rel="' + esc(r.kind + ':' + r.id) + '" title="' + esc(titulo) + '">'
+              + (r.cover_url ? '<img src="' + esc(r.cover_url) + '" alt="">' : '<i class="fa ' + esc(icono) + '"></i>')
+              + (meta ? '<i class="fa ' + esc(meta.icon) + ' fc-hito__k"></i>' : '')
+              + ((r.radio || []).length ? '<span class="fc-hito__radio">' + (r.radio || []).length + '</span>' : '')
+              + '</button>'
+              + '<span class="fc-wkcell__t">' + esc(r.title) + '</span></span>';
+          }).join('');
+          var refs = '';
+          if (c.ref.length) {
+            var TOPE = 4;
+            refs = '<div class="fc-wkcell__refs">'
+              + c.ref.slice(0, TOPE).map(function (it) {
+                  return '<span class="fc-ref" style="--c:' + esc(it.color) + '"'
+                    + ' title="' + esc((it.label ? it.label + ' · ' : '') + it.title + ' · ' + fechaEs(it.date)) + '">'
+                    + '<i class="fa ' + esc(it.icon) + '"></i></span>';
+                }).join('')
+              + (c.ref.length > TOPE
+                  ? '<span class="fc-ref fc-ref--n" title="' + esc(c.ref.slice(TOPE).map(function (x) { return x.title; }).join(' · ')) + '">+'
+                    + (c.ref.length - TOPE) + '</span>'
+                  : '')
+              + '</div>';
+          }
+          return '<div class="fc-wkcell' + clases(w) + (CAN ? ' is-add' : '') + '"'
+            + ' style="grid-column:' + (i + 1) + ';grid-row:' + filaCeldas + '" data-fc-wk="' + i + '"'
+            + (CAN ? ' title="Doble clic: periodo de promoción la semana del ' + esc(fechaEs(w.start)) + '"' : '') + '>'
+            + (hitos ? '<div class="fc-wkcell__items">' + hitos + '</div>' : '')
+            + refs + '</div>';
         }).join('');
+
         return '<div class="fc-cal__row" data-fc-artistrow="' + esc(a.id) + '" style="--c:' + esc(a.color) + '">'
           + '<div class="fc-cal__who">' + avatar(a.photo_url, 'fa-guitar') + '<span>' + esc(a.name) + '</span></div>'
-          + '<div class="fc-cal__track" data-fc-track="' + esc(a.id) + '">'
-          + weeks.map(function (w) { return '<div class="fc-cal__cell' + (w.is_now ? ' is-now' : '') + (w.first_of_month ? ' is-month' : '') + '"></div>'; }).join('')
-          + '<div class="fc-cal__layer">' + franjas + refs + hitos + '</div>'
-          + '</div></div>';
+          + '<div class="fc-cal__weeks" data-fc-track="' + esc(a.id) + '">' + franjas + celdas + '</div>'
+          + '</div>';
       }).join('');
-      z.innerHTML = '<div class="fc-cal__grid">' + head + body + '</div>'
+
+      z.innerHTML = '<div class="fc-cal__grid' + (weeks.length <= 8 ? ' is-wide' : '') + '" style="--n:' + weeks.length + '">'
+        + head + body + '</div>'
         + (fuera ? ('<div class="fc-cal__rest">' + fuera + ' artista' + (fuera === 1 ? '' : 's')
                     + ' sin nada en este periodo</div>') : '');
       z.querySelectorAll('[data-fc-rel]').forEach(function (b) {
@@ -231,17 +292,15 @@
         b.addEventListener('click', function () { openWindow(b.getAttribute('data-fc-win')); });
       });
       if (!CAN) return;
-      // Doble clic en la fila de un artista = periodo de promoción DESDE ESE DÍA (como el calendario
-      // de la casa, donde el doble clic en un hueco añade algo ese día).
-      z.querySelectorAll('[data-fc-track]').forEach(function (t) {
-        t.addEventListener('dblclick', function (ev) {
-          var r = t.getBoundingClientRect();
-          var frac = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
-          var w = D.weeks || [];
-          if (!w.length) return;
-          var t0 = Date.parse(w[0].start), t1 = Date.parse(w[w.length - 1].end) + 864e5;
-          var d = new Date(t0 + frac * (t1 - t0));
-          openWindow(null, { artist_id: t.getAttribute('data-fc-track'), start: d.toISOString().slice(0, 10) });
+      // Doble clic en la celda de una semana = periodo de promoción ESA SEMANA (el gesto del
+      // calendario de la casa, aquí encajado a la semana: este cuadro no va por días).
+      z.querySelectorAll('[data-fc-track]').forEach(function (pista) {
+        var aid = pista.getAttribute('data-fc-track');
+        pista.querySelectorAll('[data-fc-wk]').forEach(function (celda) {
+          celda.addEventListener('dblclick', function () {
+            var w = weeks[parseInt(celda.getAttribute('data-fc-wk'), 10)];
+            if (w) openWindow(null, { artist_id: aid, start: w.start, end: w.end });
+          });
         });
       });
     }
@@ -442,7 +501,7 @@
       pre = pre || {};
       var artista = (fila && fila.artist_id) || pre.artist_id || D.artist_id || ((D.artists || [])[0] || {}).id || '';
       var desde = (fila && fila.start_date) || pre.start || D.week_start || '';
-      var hasta = (fila && fila.end_date) || pre.start || desde;
+      var hasta = (fila && fila.end_date) || pre.end || pre.start || desde;
       var cuerpo = '<div class="row g-2">'
         + '<div class="col-12"><label class="form-label">Artista</label><select class="form-select" data-w="artist_id">'
         + (D.artists || []).map(function (a) {

@@ -26740,6 +26740,10 @@ def _forecast_agenda(session_db, artist_ids: list, desde: date, hasta: date) -> 
         aid = str(it.get("artist_id") or "")
         if aid not in out:
             continue
+        # ⚠️ Los LANZAMIENTOS no se repiten: ya se pintan como el hito de su semana (con su portada).
+        # Aquí lo que interesa es lo DEMÁS que el artista tiene esos días.
+        if (it.get("kind") or "") == "lanzamiento":
+            continue
         out[aid].append({
             "kind": it.get("kind") or "", "label": it.get("kind_label") or "",
             "icon": it.get("icon") or "fa-circle", "color": it.get("kind_color") or "#6b7280",

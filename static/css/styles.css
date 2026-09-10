@@ -6928,32 +6928,51 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .fc-leg i{ margin:0; }
 .fc-leg__bar{ width:14px; height:6px; border-radius:3px; display:inline-block; }
 
-/* --- calendario de lanzamientos --- */
+/* --- calendario de lanzamientos ---
+   ⚠️ UNA COLUMNA POR SEMANA (rejilla de `--n` columnas): lo que un artista tiene esa semana va
+   DENTRO de su celda, y un periodo de promoción es una barra que ocupa las columnas que dura
+   (`grid-column: inicio / span N`). Nada se posiciona por día. */
 .fc-cal{ overflow-x:auto; }
-.fc-cal__grid{ min-width:44rem; }
+/* Con muchas semanas el calendario se DESLIZA en vez de estrujar las columnas; con pocas, se
+   estiran para llenar el hueco (min-width es un mínimo, no un ancho). */
+.fc-cal__grid{ min-width:max(44rem, calc(10rem + var(--n,8) * 2.1rem)); }
 .fc-cal__row{ display:flex; align-items:stretch; gap:.5rem; }
-.fc-cal__row--head .fc-cal__track{ height:1.6rem; }
+/* Dónde empieza y acaba cada artista: su fila entera, con la banda de franjas incluida. */
+.fc-cal__row + .fc-cal__row{ border-top:1px solid rgba(0,0,0,.08); }
+.fc-cal__row:nth-of-type(odd):not(.fc-cal__row--head){ background:rgba(0,0,0,.018); }
 .fc-cal__who{ flex:0 0 9.5rem; display:flex; align-items:center; gap:.4rem; font-size:.8rem; font-weight:600;
   min-width:0; padding:.25rem 0; }
 .fc-cal__who img,.fc-cal__who .noimg{ width:24px; height:24px; border-radius:50%; object-fit:cover; background:#e9ecef;
   display:grid; place-items:center; color:#adb5bd; font-size:.65rem; flex:0 0 auto; }
 .fc-cal__who span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fc-cal__track{ position:relative; flex:1 1 auto; display:flex; height:3.1rem; }
-.fc-cal__w{ flex:1 1 0; text-align:center; font-size:.62rem; color:#adb5bd; border-left:1px solid rgba(0,0,0,.05); }
+.fc-cal__weeks{ flex:1 1 auto; min-width:0; display:grid; align-content:end;
+  grid-template-columns:repeat(var(--n,8), minmax(0,1fr)); }
+.fc-cal__row--head .fc-cal__weeks{ align-items:end; }
+.fc-cal__w{ text-align:center; font-size:.62rem; color:#adb5bd; border-left:1px solid rgba(0,0,0,.05);
+  padding-bottom:.15rem; overflow:hidden; }
 .fc-cal__w.is-month{ border-left-color:rgba(0,0,0,.16); }
 .fc-cal__w b{ display:block; font-size:.62rem; color:#6c757d; text-transform:uppercase; }
 .fc-cal__w.is-now{ color:var(--brand-primary,#e33d48); font-weight:700; }
-.fc-cal__cell{ flex:1 1 0; border-left:1px solid rgba(0,0,0,.05); border-bottom:1px solid rgba(0,0,0,.05); }
-.fc-cal__cell.is-month{ border-left-color:rgba(0,0,0,.16); }
-.fc-cal__cell.is-now{ background:rgba(227,61,72,.05); }
-.fc-cal__layer{ position:absolute; inset:0; }
-.fc-win{ position:absolute; top:.15rem; height:1.15rem; border:0; border-radius:6px; padding:0 .3rem;
-  background:var(--c,#f59e0b); color:#fff; font-size:.65rem; font-weight:600; display:flex; align-items:center; gap:.25rem;
-  overflow:hidden; white-space:nowrap; opacity:.92; }
+/* La celda de UNA semana: dentro va lo que hay esa semana (si hay varias cosas, se apilan). */
+.fc-wkcell{ min-height:2.7rem; border-left:1px solid rgba(0,0,0,.05); border-bottom:1px solid rgba(0,0,0,.05);
+  padding:.2rem .1rem; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.15rem; }
+.fc-wkcell.is-month{ border-left-color:rgba(0,0,0,.16); }
+.fc-wkcell.is-now{ background:rgba(227,61,72,.05); }
+.fc-wkcell.is-add{ cursor:cell; }
+.fc-wkcell__items,.fc-wkcell__refs{ display:flex; flex-wrap:wrap; gap:.15rem; justify-content:center; align-items:flex-start; }
+.fc-rel{ display:flex; flex-direction:column; align-items:center; gap:.1rem; max-width:100%; }
+/* El nombre del lanzamiento solo cuando la columna da para leerlo (pocas semanas a la vista). */
+.fc-wkcell__t{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  font-size:.6rem; line-height:1.1; font-weight:600; color:#495057; text-align:center; max-width:100%; }
+.fc-cal__grid:not(.is-wide) .fc-wkcell__t{ display:none; }
+.fc-win{ border:0; border-radius:6px; padding:0 .3rem; margin:.12rem .1rem .18rem; min-width:0;
+  background:var(--c,#f59e0b); color:#fff; font-size:.65rem; font-weight:600; height:1.15rem;
+  display:flex; align-items:center; gap:.25rem; overflow:hidden; white-space:nowrap; opacity:.92; }
 .fc-win:hover{ opacity:1; }
 .fc-win span{ overflow:hidden; text-overflow:ellipsis; }
-.fc-ref{ position:absolute; bottom:.1rem; transform:translateX(-50%); font-size:.6rem; color:var(--c,#6b7280); opacity:.8; }
-.fc-hito{ position:absolute; top:1.45rem; transform:translateX(-50%); width:26px; height:26px; padding:0;
+.fc-ref{ font-size:.62rem; line-height:1; color:var(--c,#6b7280); opacity:.85; }
+.fc-ref--n{ font-weight:700; font-size:.58rem; color:#6c757d; }
+.fc-hito{ position:relative; width:26px; height:26px; padding:0; flex:0 0 auto;
   border:2px solid var(--c,#6b7280); border-radius:8px; background:#fff; overflow:visible; display:grid; place-items:center; }
 .fc-hito img{ width:100%; height:100%; object-fit:cover; border-radius:6px; }
 .fc-hito i{ font-size:.7rem; color:var(--c,#6b7280); }
@@ -7020,7 +7039,7 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 }
 /* ⚠️ Con muchos artistas el calendario deja de caber en una pantalla: se desliza por dentro (el
    cuadro de mando tiene que verse de un vistazo) y los que no tienen nada no se pintan. */
-.fc-cal{ max-height:22rem; overflow:auto; }
+.fc-cal{ max-height:30rem; overflow:auto; }
 .fc-cal__row--head{ position:sticky; top:0; z-index:2; background:#fff; }
 .fc-cal__rest{ font-size:.75rem; color:#adb5bd; padding:.35rem 0 0 9.5rem; }
 @media (max-width: 767.98px){ .fc-cal__rest{ padding-left:6.5rem; } }

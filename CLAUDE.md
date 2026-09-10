@@ -11457,16 +11457,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   único **`_song_release_kind(song)`**: el **focus MANDA** y las dos son **`NULL` = sin decidir**,
   que no es «no». Se marca pinchando el hito del calendario (`forecast_song_kind`), y marcar una
   quita la otra: un tema no es las dos cosas.
-  · **EL CALENDARIO** es una fila por ARTISTA (con su foto y su color) y una columna por SEMANA
-  (8 · 16 · 26 · 52, con el mes y la semana de hoy marcados). En cada fila: los **hitos** de sus
-  lanzamientos con su **portada**, la marca de focus/continuidad, **cuántas emisoras** lo llevan y
-  el rayado si el lanzamiento es provisional; las **franjas de PERIODO DE PROMOCIÓN**; y, con el
-  interruptor «Agenda», lo que ya hay en su agenda como **referencia** (`_forecast_agenda`, que es
-  `_agenda_build`: si mañana se añade un tipo, sale aquí solo).
+  · ⚠️⚠️ **EL CALENDARIO VA POR SEMANAS, NO POR DÍAS** (rediseño sep 2026): una fila por ARTISTA
+  (con su foto y su color) y **UNA COLUMNA POR SEMANA** (8 · 16 · 26 · 52, con el mes y la semana de
+  hoy marcados), y **en la celda de cada semana va LO QUE ESE ARTISTA TIENE ESA SEMANA**: sus
+  **lanzamientos** (portada, la marca de focus/continuidad, cuántas emisoras lo llevan y el rayado
+  si es provisional) y, con el interruptor «Agenda», lo que ya hay en su agenda como **referencia**
+  (`_forecast_agenda`, que es `_agenda_build`: si mañana se añade un tipo, sale aquí solo).
+  Un **PERIODO DE PROMOCIÓN** es una **barra que ocupa las columnas de las semanas que dura**
+  (`grid-column: inicio / span N`), en su **carril** para que dos que se solapan no se pisen.
+  ⚠️⚠️ Antes la rejilla era semanal pero el contenido se posicionaba **por día** en una capa
+  absoluta (`left:%`): con dos lanzamientos en la misma semana los hitos **se pisaban** y las
+  franjas los tapaban. Los DOS puntos únicos de «en qué columna va esto» son **`semanaDe(iso)`** y
+  **`tramoSemanas(desde, hasta)`** (que recorta a la ventana), y comparan las fechas **en ISO como
+  TEXTO**: así no entra ningún huso horario por medio.
+  ⚠️ **Los LANZAMIENTOS no se repiten como referencia de agenda** (`_forecast_agenda` se salta el
+  kind `lanzamiento`): ya se pintan como el hito de su semana, y verlos dos veces en la misma celda
+  es ruido.
+  ⚠️ El **nombre del lanzamiento** solo se pinta cuando la columna da para leerlo (`.is-wide`, con
+  **8 semanas o menos**); en las demás vistas lo dice el tooltip.
+  ⚠️ **Doble clic en una celda = periodo de promoción ESA SEMANA** (de lunes a domingo), no del día
+  por el que se pinchó: este cuadro no va por días.
   ⚠️ **Con 40 artistas no cabe en una pantalla**: se pintan **solo los que tienen algo** en el
   periodo (con un artista elegido se ve siempre, que es donde se planifica) y se dice cuántos se han
-  quedado fuera. Cada módulo se **desliza por dentro** (topes de altura), que es lo que hace que un
-  cuadro de mando se lea de un vistazo en vez de ser una página infinita.
+  quedado fuera; cada artista se distingue por su **franja alterna**, que abarca sus periodos y sus
+  celdas. Cada módulo se **desliza por dentro** (topes de altura), que es lo que hace que un cuadro
+  de mando se lea de un vistazo en vez de ser una página infinita.
+  ⚠️ Con muchas semanas el calendario **se desliza** en vez de estrujar las columnas
+  (`min-width: max(44rem, calc(10rem + var(--n) * 2.1rem))`, con `--n` = cuántas semanas hay); con
+  pocas, se estiran para llenar el hueco. Comprobado a 375 px: la PÁGINA no se desliza.
   · **PERIODOS DE PROMOCIÓN** (`DiscoPromoWindow`, tabla nueva; `forecast_window_save` /
   `_delete`): artista · desde/hasta · qué es (`DISCO_PROMO_WINDOW_KINDS`: promoción · gira de radio
   · gira · otro, cada uno con su icono y su color) · y **el lanzamiento al que va atado**, y

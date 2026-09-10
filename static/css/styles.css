@@ -6970,6 +6970,10 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
   display:flex; align-items:center; gap:.25rem; overflow:hidden; white-space:nowrap; opacity:.92; }
 .fc-win:hover{ opacity:1; }
 .fc-win span{ overflow:hidden; text-overflow:ellipsis; }
+/* Una PROMOCIÓN de verdad (la de la sección Promoción) se distingue de un periodo suelto; y
+   mientras está EN BORRADOR se ve rayada: está planificada pero sin concretar. */
+.fc-win.is-promo{ border:1px solid rgba(0,0,0,.15); }
+.fc-win.is-draft{ background-image:repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 4px, transparent 4px 8px); }
 .fc-ref{ font-size:.62rem; line-height:1; color:var(--c,#6b7280); opacity:.85; }
 .fc-ref--n{ font-weight:700; font-size:.58rem; color:#6c757d; }
 .fc-hito{ position:relative; width:26px; height:26px; padding:0; flex:0 0 auto;

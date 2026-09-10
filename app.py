@@ -26777,6 +26777,86 @@ def _forecast_promo_windows(session_db, artist_ids: list, desde: date, hasta: da
     return out
 
 
+def _disco_project_promotions(session_db, project) -> list[dict]:
+    """Las PROMOCIONES vinculadas al lanzamiento de este proyecto (su canción o su disco).
+
+    ⚠️ El vínculo no se duplica: una promoción se ata al LANZAMIENTO (`subject_type`/`subject_id`),
+    y de ahí sale que se vea en su ficha **y** aquí, como pendiente de ejecutar.
+    """
+    out = []
+    try:
+        pares = []
+        if getattr(project, "release_song_id", None):
+            pares.append(("SONG", project.release_song_id))
+        if getattr(project, "album_id", None):
+            pares.append(("ALBUM", project.album_id))
+        if not pares:
+            return out
+        filas = (session_db.query(Promotion)
+                 .filter(func.upper(func.coalesce(Promotion.kind, "MARKETING")) == PROMO_KIND,
+                         func.upper(func.coalesce(Promotion.status, "ACTIVE")) == "ACTIVE",
+                         or_(*[and_(Promotion.subject_type == t, Promotion.subject_id == i)
+                               for t, i in pares]))
+                 .order_by(Promotion.starts_on.asc().nullslast()).all())
+        etiquetas = {"BORRADOR": "Por preparar", "HABLADO": "Hablada", "RESERVADO": "Reservada",
+                     "CONFIRMADO": "Confirmada", "CANCELADO": "Cancelada"}
+        for pr in filas:
+            estado = (getattr(pr, "promo_status", "") or "BORRADOR").upper()
+            if estado == "CANCELADO":
+                continue
+            cuando = (pr.starts_on.strftime("%d/%m/%Y") if pr.starts_on else "sin fecha")
+            if pr.ends_on and pr.starts_on and pr.ends_on != pr.starts_on:
+                cuando += " – %s" % pr.ends_on.strftime("%d/%m/%Y")
+            out.append({"id": str(pr.id), "name": (pr.name or "Promoción"), "when": cuando,
+                        "draft": estado == "BORRADOR", "status_label": etiquetas.get(estado, estado),
+                        "url": _safe_url_for("promo_detail_view", promotion_id=pr.id) or ""})
+    except Exception:
+        app.logger.exception("[proyecto] no se pudieron leer sus promociones")
+    return out
+
+
+def _forecast_promotions(session_db, artist_ids: list, desde: date, hasta: date) -> dict:
+    """Las PROMOCIONES (las de la sección Promoción) que pisan la ventana, por artista.
+
+    Se pintan como una franja más del calendario, al lado de los periodos de promoción: lo que se
+    planifica aquí es una promoción DE VERDAD, y desde su franja se abre su ficha.
+    """
+    ids = [str(x) for x in artist_ids if str(x or "").strip()]
+    out = {x: [] for x in ids}
+    if not ids:
+        return out
+    filas = (session_db.query(Promotion)
+             .filter(func.upper(func.coalesce(Promotion.kind, "MARKETING")) == PROMO_KIND,
+                     func.upper(func.coalesce(Promotion.status, "ACTIVE")) == "ACTIVE",
+                     Promotion.starts_on.isnot(None),
+                     Promotion.starts_on <= hasta,
+                     func.coalesce(Promotion.ends_on, Promotion.starts_on) >= desde)
+             .order_by(Promotion.starts_on.asc()).limit(400).all())
+    estados = {"BORRADOR": "Por preparar", "HABLADO": "Hablada",
+               "RESERVADO": "Reservada", "CONFIRMADO": "Confirmada", "CANCELADO": "Cancelada"}
+    for pr in filas:
+        estado = (getattr(pr, "promo_status", "") or "BORRADOR").upper()
+        if estado == "CANCELADO":
+            continue
+        nombre = (pr.name or "").strip() or "Promoción"
+        for aid in [str(x) for x in (pr.artist_ids or [])]:
+            if aid not in out:
+                continue
+            out[aid].append({
+                "id": str(pr.id), "key": _forecast_key("PROMOTION", pr.id),
+                "kind": "PROMOCION", "label": "Promoción", "icon": "fa-bullhorn", "color": "#f59e0b",
+                "name": nombre,
+                "note": estados.get(estado, estado),
+                "start_date": pr.starts_on.isoformat(),
+                "end_date": (pr.ends_on or pr.starts_on).isoformat(),
+                "linked": ((pr.snapshot or {}).get("title") or ""),
+                "url": _safe_url_for("promo_detail_view", promotion_id=pr.id) or "",
+                "is_promotion": True,
+                "draft": estado == "BORRADOR",
+            })
+    return out
+
+
 def _forecast_agenda(session_db, artist_ids: list, desde: date, hasta: date) -> dict:
     """Lo que ya hay en la AGENDA de esos artistas (conciertos, promociones, bloqueos…), como
     REFERENCIA para planificar: no se toca nada, solo se mira.
@@ -26848,6 +26928,21 @@ def _forecast_pitch_calendar(session_db, artist_ids: list, desde: date, hasta: d
         })
     out.sort(key=lambda r: (r["date"] or "9999", r["station"], r["title"]))
     return out
+
+
+def _forecast_bands(session_db, artist_ids: list, desde: date, hasta: date) -> dict:
+    """Las FRANJAS del calendario: los periodos de promoción y las promociones de verdad.
+
+    Van juntas a propósito: en el calendario son lo mismo (algo que dura varias semanas), y así la
+    pantalla las pinta, las mueve y las quita con el mismo código.
+    """
+    periodos = _forecast_promo_windows(session_db, artist_ids, desde, hasta)
+    promos = _forecast_promotions(session_db, artist_ids, desde, hasta)
+    for aid, filas in promos.items():
+        periodos.setdefault(aid, []).extend(filas)
+    for aid in periodos:
+        periodos[aid].sort(key=lambda w: (w.get("start_date") or "", w.get("name") or ""))
+    return periodos
 
 
 def _forecast_weeks(desde: date, semanas: int) -> list[dict]:
@@ -26987,7 +27082,8 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
         "releases": _forecast_releases(session_db, ids_vista, primera, ultima),
         "radio_now": _forecast_radio_now(session_db, ids_vista, week_start),
         "last_entries": _forecast_last_entries(session_db, ids_vista, hasta=ultima),
-        "promo_windows": _forecast_promo_windows(session_db, ids_vista, primera, ultima),
+        # Los periodos de promoción Y las PROMOCIONES de verdad, en la misma banda del calendario.
+        "promo_windows": _forecast_bands(session_db, ids_vista, primera, ultima),
         "agenda": (_forecast_agenda(session_db, ids_vista, primera, ultima) if show_agenda else
                    {str(x): [] for x in ids_vista}),
         "pitches": _forecast_pitch_calendar(session_db, ids_vista, primera, ultima),
@@ -27352,6 +27448,179 @@ def _forecast_add_options(session_db, tipo: str, artist_id: str, subtipo: str = 
     return out
 
 
+# ⚠️⚠️ UNA PROMOCIÓN DEL CALENDARIO **SE VINCULA A ALGO** (una gira, un single, un disco, un
+# proyecto o una actividad): sin vínculo no se sabe qué se está promocionando, y es lo que hace que
+# salga también en la ficha de ESO (y en el proyecto, como pendiente de ejecutar).
+FORECAST_PROMO_TARGETS = ("SONG", "ALBUM", "GIRA", "CICLO", "CONCERT", "ARTIST")
+
+
+def _forecast_promo_targets(session_db, artist_id: str) -> list[dict]:
+    """A qué se puede vincular una promoción de ese artista, agrupado por tipo."""
+    aid = to_uuid(str(artist_id or ""))
+    out = []
+    if not aid:
+        return out
+    hoy = today_local()
+    artista = session_db.get(Artist, aid)
+    if artista is not None:
+        out.append({"type": "ARTIST", "id": str(aid), "title": (artista.name or ""),
+                    "sub": "El artista", "icon": "fa-guitar"})
+    # ⚠️ Un PROYECTO se vincula por SU LANZAMIENTO (la canción o el disco que prepara): así la
+    # promoción sale en la ficha del lanzamiento Y en el proyecto, sin duplicar el vínculo.
+    for p in (session_db.query(DiscoProject)
+              .filter(DiscoProject.artist_id == aid, DiscoProject.status != "ARCHIVADO")
+              .order_by(DiscoProject.release_date.asc().nullslast()).limit(30).all()):
+        if p.release_song_id:
+            out.append({"type": "SONG", "id": str(p.release_song_id), "title": (p.title or "Proyecto"),
+                        "sub": "Proyecto discográfico", "icon": "fa-compact-disc"})
+        elif p.album_id:
+            out.append({"type": "ALBUM", "id": str(p.album_id), "title": (p.title or "Proyecto"),
+                        "sub": "Proyecto discográfico", "icon": "fa-compact-disc"})
+    vistos = {(x["type"], x["id"]) for x in out}
+    for sg, _a in (session_db.query(Song, SongArtist.artist_id)
+                   .join(SongArtist, SongArtist.song_id == Song.id)
+                   .filter(SongArtist.artist_id == aid)
+                   .order_by(Song.release_date.desc().nullslast()).limit(30).all()):
+        if ("SONG", str(sg.id)) in vistos:
+            continue
+        out.append({"type": "SONG", "id": str(sg.id), "title": (sg.title or ""), "sub": "Canción",
+                    "icon": "fa-music", "cover_url": _forecast_cover(sg)})
+    for al in (session_db.query(Album).filter(Album.artist_id == aid)
+               .order_by(Album.release_date.desc().nullslast()).limit(20).all()):
+        if ("ALBUM", str(al.id)) in vistos:
+            continue
+        out.append({"type": "ALBUM", "id": str(al.id), "title": (al.title or ""), "sub": "Disco",
+                    "icon": "fa-record-vinyl", "cover_url": _forecast_cover(al)})
+    for t in (session_db.query(PurchasedTour).filter(PurchasedTour.artist_id == aid)
+              .order_by(PurchasedTour.created_at.desc()).limit(20).all()):
+        out.append({"type": "GIRA", "id": str(t.id), "title": (t.name or "Gira"), "sub": "Gira comprada",
+                    "icon": "fa-route"})
+    # ⚠️ Un CICLO/FESTIVAL no tiene artista (es un contenedor de la casa): los suyos son los de las
+    # fechas que cuelgan de él.
+    ciclos_ids = [x for (x,) in session_db.query(Concert.cycle_festival_id)
+                  .filter(Concert.artist_id == aid, Concert.cycle_festival_id.isnot(None))
+                  .distinct().limit(30).all()]
+    for cf in ((session_db.query(CycleFestival).filter(CycleFestival.id.in_(ciclos_ids))
+                .order_by(CycleFestival.created_at.desc()).limit(20).all()) if ciclos_ids else []):
+        out.append({"type": "CICLO", "id": str(cf.id), "title": (cf.name or "Ciclo"),
+                    "sub": (getattr(cf, "kind", "") or "Ciclo").capitalize(), "icon": "fa-star"})
+    for c in (session_db.query(Concert).filter(Concert.artist_id == aid, Concert.date >= hoy)
+              .order_by(Concert.date.asc()).limit(20).all()):
+        out.append({"type": "CONCERT", "id": str(c.id),
+                    "title": ((c.festival_name or "").strip()
+                              or _place_label(_concert_city(c), _concert_province_value(c))
+                              or _activity_kind_label(c.activity_type)),
+                    "sub": "Actividad · " + (c.date.strftime("%d/%m/%Y") if c.date else ""),
+                    "icon": QUAD_ACTIVITY_ICONS.get((c.activity_type or "CONCIERTO").upper(), "fa-calendar-day")})
+    return out
+
+
+@app.get("/discografica/previsiones/promocion/opciones", endpoint="forecast_promo_targets_json")
+@admin_required
+def forecast_promo_targets_json():
+    """A qué se puede vincular una promoción nueva de ese artista."""
+    session_db = db()
+    try:
+        return jsonify({"ok": True, "items": _forecast_promo_targets(
+            session_db, request.args.get("artist_id") or "")})
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/previsiones/promocion/crear", endpoint="forecast_promo_create")
+@admin_required
+def forecast_promo_create():
+    """Crea una PROMOCIÓN desde el calendario de previsiones (planificándola).
+
+    ⚠️⚠️ Es una promoción DE VERDAD (la de la sección Promoción, `Promotion` de prensa): nace en
+    **BORRADOR**, se le avisa a PROMOCIÓN —que es quien la trabaja— y **tiene que ir vinculada a
+    algo** (una gira, un single, un disco, un proyecto o una actividad). Con eso sale también en la
+    ficha de ESO y, si el vínculo es el lanzamiento de un proyecto, en el proyecto como pendiente.
+    ⚠️ Las fechas son APROXIMADAS: la semana en la que se suelte (de lunes a domingo), o varias
+    semanas si se arrastra a lo ancho. Promoción las concreta después con sus entrevistas.
+    """
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "No tienes permisos para planificar promociones."}), 403
+    datos = request.get_json(silent=True) or {}
+    artist_id = to_uuid(str(datos.get("artist_id") or ""))
+    tipo = str(datos.get("subject_type") or "").strip().upper()
+    subject_id = str(datos.get("subject_id") or "").strip()
+    if not artist_id:
+        return jsonify({"ok": False, "error": "Falta de qué artista es."}), 400
+    if tipo not in FORECAST_PROMO_TARGETS:
+        return jsonify({"ok": False, "error": "Hay que decir qué se promociona."}), 400
+    try:
+        desde = monday_of(parse_date(str(datos.get("week") or "")[:10]))
+    except Exception:
+        return jsonify({"ok": False, "error": "No se entiende la semana."}), 400
+    semanas = max(1, min(26, int(datos.get("weeks") or 1)))
+    hasta = desde + timedelta(days=7 * semanas - 1)
+    session_db = db()
+    try:
+        snapshot = _promotion_request_snapshot_from_source(
+            session_db, tipo, subject_id, manual_artist_ids=[str(artist_id)]) or {}
+        estado = _current_user_state()
+        promo = Promotion(
+            kind=PROMO_KIND,
+            name=(str(datos.get("name") or "").strip() or None),
+            promo_status="BORRADOR",
+            subject_type=tipo,
+            subject_id=to_uuid(subject_id) if subject_id else None,
+            artist_ids=[str(artist_id)],
+            snapshot=snapshot,
+            request_kind="PLAN",              # se planifica por semanas, no es una entrevista suelta
+            action_types=[], budget_mode="REQUEST_BUDGET", budget_by_action={},
+            starts_on=desde, ends_on=hasta, target_date=desde,
+            status="ACTIVE",
+            objectives_notes=(str(datos.get("notes") or "").strip() or None),
+            created_by_user_id=to_uuid(estado.get("user_id")) if estado.get("user_id") else None,
+            created_by_nick=(estado.get("nick") or estado.get("email") or "").strip() or None,
+        )
+        if not promo.name:
+            promo.name = ("Promoción %s" % (snapshot.get("title") or "")).strip()
+        session_db.add(promo)
+        session_db.flush()
+        _ensure_promo_bag(session_db, promo)
+        session_db.commit()
+        _forecast_promo_notify(session_db, promo)
+        return jsonify({"ok": True, "id": str(promo.id), "name": promo.name,
+                        "url": _safe_url_for("promo_detail_view", promotion_id=promo.id) or ""})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_promo_create")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+def _forecast_promo_notify(session_db, promo) -> None:
+    """Le dice a PROMOCIÓN que tiene una promoción nueva que ejecutar (planificada desde el cuadro).
+
+    ⚠️ Es *best-effort*: si el aviso falla, la promoción ya está creada y se ve igual en su bandeja.
+    """
+    try:
+        destinos = _department_user_ids(session_db, "Promoción") or []
+        if not destinos:
+            return
+        cuando = (promo.starts_on.strftime("%d/%m/%Y") if promo.starts_on else "")
+        hasta = (promo.ends_on.strftime("%d/%m/%Y") if promo.ends_on else "")
+        cuerpo = "Se ha planificado desde Previsiones%s%s. Está en borrador: concrétala." % (
+            (" para la semana del %s" % cuando) if cuando else "",
+            (" al %s" % hasta) if (hasta and hasta != cuando) else "")
+        _notify_users(session_db, destinos,
+                      kind="PROMOCION",
+                      title="Promoción por preparar: %s" % (promo.name or ""),
+                      body=cuerpo,
+                      url=_safe_url_for("promo_detail_view", promotion_id=promo.id) or "",
+                      ref_type="PROMOTION", ref_id=str(promo.id))
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[previsiones] no se pudo avisar a promoción")
+
+
 @app.get("/discografica/previsiones/opciones", endpoint="forecast_add_options_json")
 @admin_required
 def forecast_add_options_json():
@@ -27426,6 +27695,17 @@ def forecast_move():
             else:
                 album.release_date = destino
             nombre = album.title or "el disco"
+        elif tipo == "PROMOTION":
+            promo = session_db.get(Promotion, to_uuid(ident)) if to_uuid(ident) else None
+            if promo is None:
+                return jsonify({"ok": False, "error": "Esa promoción ya no existe."}), 404
+            dias = ((promo.ends_on - promo.starts_on).days
+                    if (promo.starts_on and promo.ends_on) else 0)
+            destino = _nueva(promo.starts_on)
+            promo.starts_on = destino
+            promo.ends_on = destino + timedelta(days=max(0, dias))
+            promo.target_date = destino
+            nombre = promo.name or "la promoción"
         elif tipo == "WIN":
             win = session_db.get(DiscoPromoWindow, to_uuid(ident)) if to_uuid(ident) else None
             if win is None:
@@ -29989,6 +30269,18 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
             tarea("plan_promo", "Solicitar el plan de promoción", "", "fa-bullhorn",
                   hint="Se lo prepara promoción con tus indicaciones y objetivos",
                   action_label="Pedírselo a promoción", modal="#dpPlanPromoModal")
+        # ⚠️ LAS PROMOCIONES PLANIFICADAS DESDE PREVISIONES salen aquí como **pendientes de
+        # ejecutar**: se planifican en el cuadro, las trabaja promoción y este proyecto tiene que
+        # saber que están ahí. Cada una desaparece sola en cuanto deja de estar en borrador.
+        for _pr in _disco_project_promotions(session_db, project):
+            if _pr["draft"]:
+                tarea("promo_plan_%s" % _pr["id"], "Promoción pendiente de ejecutar", _pr["url"],
+                      "fa-bullhorn", True,
+                      hint="%s · %s · la prepara Promoción" % (_pr["name"], _pr["when"]),
+                      action_label="Ver la promoción")
+            else:
+                tarea("promo_plan_%s" % _pr["id"], "Promoción", _pr["url"], "fa-bullhorn",
+                      state="done", value="%s · %s" % (_pr["name"], _pr["status_label"]))
         if not plan_st["exists"] or not (plan_st["strategy_text"] or plan_st["actions"]
                                         or plan_st["contents"]):
             tarea("plan", "Plan de lanzamiento", url_plan, "fa-rocket", True,

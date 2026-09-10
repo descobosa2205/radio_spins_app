@@ -128,8 +128,29 @@ def enlaces(html):
     return out
 
 
+def rutas_repetidas():
+    """⚠️ DOS REGLAS CON LA MISMA RUTA Y MÉTODO SE PISAN: gana la primera y la segunda no se
+    ejecuta nunca (sin dar ningún error). Ha pasado dos veces, así que se comprueba."""
+    vistas = {}
+    choques = []
+    for rule in A.app.url_map.iter_rules():
+        for metodo in (rule.methods or set()) - {"HEAD", "OPTIONS"}:
+            clave = (metodo, str(rule.rule))
+            if clave in vistas and vistas[clave] != rule.endpoint:
+                choques.append((metodo, rule.rule, vistas[clave], rule.endpoint))
+            else:
+                vistas.setdefault(clave, rule.endpoint)
+    return choques
+
+
 def main():
     filtro = [a.strip().lower() for a in sys.argv[1:]]
+    choques = rutas_repetidas()
+    if choques:
+        print("⚠️  RUTAS REPETIDAS (la segunda no se ejecuta nunca):")
+        for metodo, ruta, a, b in choques:
+            print("  %-6s %-46s %s  ←pisa→  %s" % (metodo, ruta, a, b))
+        print()
     s = M.SessionLocal()
     with A.app.app_context():
         A._bootstrap_access_and_personnel()
@@ -183,9 +204,13 @@ def main():
                 if gate_deniega(accion):
                     fallos.append((clave, entrada, "POST " + accion))
     print("pantallas revisadas: %d" % revisadas)
-    if not fallos:
+    if choques:
+        print("⚠️  hay %d ruta(s) repetida(s): míralas arriba" % len(choques))
+    if not fallos and not choques:
         print("OK · ninguna pantalla enseña un enlace que dé 403 a quien la está mirando")
         return 0
+    if not fallos:
+        return 1
     print("\n⚠️  ENLACES QUE DAN 403 A QUIEN LOS VE: %d" % len(fallos))
     ancho = max(len(x[0]) for x in fallos)
     for clave, entrada, href in fallos:

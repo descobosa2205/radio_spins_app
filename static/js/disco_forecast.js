@@ -100,6 +100,14 @@
     function sueltaNuevo(tipo, artistId, semana) {
       abreAnadir({ tipo: tipo, artist_id: artistId, week: semana });
     }
+    /* La semana en la que estamos hoy (para lo que se añade sin arrastrar a una semana concreta). */
+    function semanaDeHoy() {
+      var hoy = new Date();
+      var iso = new Date(hoy.getTime() - hoy.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      var w = D.weeks || [];
+      for (var i = 0; i < w.length; i++) if (iso >= w[i].start && iso <= w[i].end) return w[i].start;
+      return (w[0] || {}).start || iso;
+    }
     function selecciona(el, clave) {
       var raiz = root.querySelector('[data-fc-cal]');
       if (raiz) {
@@ -385,16 +393,59 @@
           else alert((r && r.error) || 'No se pudo poner en el calendario.');
         });
       }
+      /* ⚠️ UNA PROMOCIÓN NUEVA **se vincula a algo** (obligatorio): sin decir qué se promociona no
+         se sabe de qué va, y es lo que hace que salga también en la ficha de ESO y en el proyecto
+         como pendiente de ejecutar. Las fechas son APROXIMADAS: la semana donde se suelte (y se
+         puede decir cuántas semanas dura). */
+      function pasoPromo() {
+        pinta('<div class="fc-add__q">Cargando…</div>');
+        fetch((root.getAttribute('data-url-promo-targets') || '') + '?artist_id=' + encodeURIComponent(estado.artist_id),
+              { headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.json(); })
+          .then(function (resp) {
+            var items = (resp && resp.items) || [];
+            pinta('<div class="fc-add__q">¿Qué se promociona?</div>'
+              + '<div class="form-text mb-2">Hay que vincularla a algo: así se ve también en su ficha y, si es un proyecto, en su lista de tareas.</div>'
+              + '<div class="fc-add__list">' + items.map(function (it) {
+                  return '<button type="button" class="fc-add__row" data-t="' + esc(it.type) + '" data-id="' + esc(it.id) + '">'
+                    + (it.cover_url ? ('<img src="' + esc(it.cover_url) + '" alt="">')
+                                    : ('<span class="noimg"><i class="fa ' + esc(it.icon || 'fa-circle') + '"></i></span>'))
+                    + '<span class="fc-add__row-main"><b>' + esc(it.title) + '</b><span class="fc-sub">' + esc(it.sub || '') + '</span></span></button>';
+                }).join('') + '</div>'
+              + '<div class="row g-2 mt-2 align-items-end">'
+              + '<div class="col-auto"><label class="form-label mb-0 small">¿Cuántas semanas?</label>'
+              + '<input class="form-control form-control-sm" type="number" min="1" max="26" value="1" data-semanas style="width:6rem"></div>'
+              + '<div class="col"><label class="form-label mb-0 small">Nombre <span class="text-muted">(si se deja vacío se compone solo)</span></label>'
+              + '<input class="form-control form-control-sm" data-nombre></div></div>');
+            cuerpo.querySelectorAll('[data-t]').forEach(function (b) {
+              b.addEventListener('click', function () {
+                var semanas = parseInt((cuerpo.querySelector('[data-semanas]') || {}).value, 10) || 1;
+                var nombre = ((cuerpo.querySelector('[data-nombre]') || {}).value || '').trim();
+                b.disabled = true;
+                post(root.getAttribute('data-url-promo-create'), {
+                  artist_id: estado.artist_id, subject_type: b.getAttribute('data-t'),
+                  subject_id: b.getAttribute('data-id'), week: estado.week || semanaDeHoy(),
+                  weeks: semanas, name: nombre,
+                }).then(function (r) {
+                  b.disabled = false;
+                  if (r && r.ok) { m.hide(); recarga({}); }
+                  else alert((r && r.error) || 'No se pudo crear la promoción.');
+                });
+              });
+            });
+          })
+          .catch(function () { pinta('<div class="fc-empty">No se pudo cargar.</div>'); });
+      }
       function crear() {
-        // Cada cosa se crea DONDE SE CREA (no se inventa aquí otro sitio para lo mismo).
+        // Cada cosa se crea DONDE SE CREA (no se inventa aquí otro sitio para lo mismo); la
+        // PROMOCIÓN sí se crea desde aquí, porque es planificarla.
+        if (estado.tipo === 'PROMO') return pasoPromo();
         var destinos = {
           PROJECT: '/discografica?section=proyectos&open_wizard=1',
           ALBUM: '/discografica?section=lanzamientos',
           AGENDA: '/actividades?open_wizard=1' + (estado.artist_id ? ('&wizard_artist=' + estado.artist_id) : '')
                   + (estado.week ? ('&wizard_date=' + estado.week) : ''),
-          PROMO: '',
         };
-        if (estado.tipo === 'PROMO') { m.hide(); openWindow(null, { artist_id: estado.artist_id, start: estado.week }); return; }
         window.location.href = destinos[estado.tipo] || '/discografica?section=previsiones';
       }
       function siguiente() {
@@ -463,10 +514,15 @@
           var fila = 0;
           while (carriles[fila] !== undefined && carriles[fila] >= t[0]) fila++;
           carriles[fila] = t[1];
-          return '<button type="button" class="fc-win' + (w.hidden ? ' is-hidden' : '') + '"'
-            + ' data-fc-win="' + esc(w.id) + '" data-fc-key="' + esc(w.key || '') + '"'
+          return '<button type="button" class="fc-win' + (w.hidden ? ' is-hidden' : '')
+            + (w.is_promotion ? ' is-promo' : '') + (w.draft ? ' is-draft' : '') + '"'
+            + (w.is_promotion ? (' data-fc-promo="' + esc(w.url || '') + '"') : (' data-fc-win="' + esc(w.id) + '"'))
+            + ' data-fc-key="' + esc(w.key || '') + '"'
+            + (CAN && !w.hidden ? ' draggable="true"' : '')
             + ' style="grid-column:' + (t[0] + 1) + ' / span ' + (t[1] - t[0] + 1) + ';grid-row:' + (fila + 1) + ';--c:' + esc(w.color) + '"'
-            + ' title="' + esc(w.name + ' · ' + fechaEs(w.start_date) + ' – ' + fechaEs(w.end_date) + (w.note ? (' · ' + w.note) : '')) + '">'
+            + ' title="' + esc((w.label ? (w.label + ' · ') : '') + w.name + ' · ' + fechaEs(w.start_date)
+                                 + ' – ' + fechaEs(w.end_date) + (w.note ? (' · ' + w.note) : '')
+                                 + (w.linked ? (' · ' + w.linked) : '')) + '">'
             + '<i class="fa ' + esc(w.icon) + '"></i><span>' + esc(w.name) + '</span></button>';
         }).join('');
         var filaCeldas = carriles.length + 1;
@@ -546,6 +602,7 @@
         el.addEventListener('dblclick', function (ev) {
           ev.preventDefault(); ev.stopPropagation();
           if (el.hasAttribute('data-fc-rel')) openRelease(el.getAttribute('data-fc-rel'));
+          else if (el.getAttribute('data-fc-promo')) window.location.href = el.getAttribute('data-fc-promo');
           else if (el.hasAttribute('data-fc-win')) openWindow(el.getAttribute('data-fc-win'));
           else if (el.getAttribute('data-fc-url')) window.location.href = el.getAttribute('data-fc-url');
         });

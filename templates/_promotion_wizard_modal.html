@@ -81,7 +81,9 @@
           <div id="marketingSubjectEmpty" class="alert alert-light border mt-2 mb-0">No hay nada que elegir con esos artistas. Puedes volver atrás y cambiarlos.</div>
           <div class="form-text d-none" id="marketingEventHint">
             Los eventos salen todos: no dependen del artista. Se dan de alta en
+            {% if has_access_key('databases.events', include_descendants=True) %}
             <a href="{{ url_for('events_view') }}" target="_blank" rel="noopener">Bases de datos → Eventos</a>.
+            {% else %}Bases de datos → Eventos.{% endif %}
           </div>
         </section>
 

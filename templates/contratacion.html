@@ -145,5 +145,5 @@
   </div>
 {% endif %}
 
-{% include "_concert_wizard_modal.html" %}
+{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}
 {% endblock %}

@@ -113,4 +113,42 @@
     {% endif %}
   </div>
 </div>
+
+{# ============================================================================
+   ÚLTIMOS ERRORES DE PERMISOS (403). Un 403 no deja rastro en ningún sitio, así que «me da error
+   de permisos» era imposible de diagnosticar. Aquí se ve QUIÉN, DÓNDE, qué permiso hacía falta y
+   qué tiene esa persona de esa sección: con eso se arregla en un minuto (o se le concede).
+   ============================================================================ #}
+<div class="card mt-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="fa fa-lock text-warning"></i>
+    <strong>Errores de permisos</strong>
+    <span class="small text-muted">a quién se le ha cerrado una puerta y qué le faltaba</span>
+  </div>
+  <div class="card-body">
+    {% if last_forbidden %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr>
+            <th>Cuándo</th><th>Quién</th><th>Dónde</th><th>Le hacía falta</th><th>Tiene</th>
+          </tr></thead>
+          <tbody>
+          {% for f in last_forbidden %}
+            <tr>
+              <td class="text-nowrap small">{{ f.when.strftime('%d/%m %H:%M') }}</td>
+              <td class="small">{{ f.user or '—' }}</td>
+              <td class="small"><span class="text-muted">{{ f.method }}</span> {{ f.path }}
+                {%- if f.endpoint %}<div class="text-muted">{{ f.endpoint }}</div>{% endif %}</td>
+              <td class="small"><code>{{ f.needed or '—' }}</code></td>
+              <td class="small text-muted">{{ f.has }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted small">No se le ha cerrado ninguna puerta a nadie desde el último arranque.</div>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}

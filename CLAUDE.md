@@ -11445,6 +11445,58 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
     fallaban). Comprobado además con la app real, midiendo bloque a bloque el editor y la vista
     previa: **el mismo x, y, ancho y alto en los dos**, con fondo y sin fondo.
 
+- ⚠️⚠️⚠️ **NADIE SE COME UN 403 EN UNA FUNCIÓN QUE TIENE ASIGNADA** (sep 2026, regla de la casa).
+  Era el error más molesto de la app y salía «todo el rato»: **las barras de pestañas se pintaban
+  ENTERAS** aunque cada pestaña tenga su propio permiso, así que se veía «Peticiones» en
+  Contratación, se pinchaba y te echaba de la pantalla. Medido con la herramienta de abajo:
+  **380 enlaces llevaban a un 403**. Hoy: **cero**.
+  · **LA REGLA, en dos capas**:
+    **1) Lo que no se puede abrir NO SE PINTA** (ni pestaña, ni botón, ni enlace a otra sección).
+    **2) Y si aun así se llega (una URL guardada, un enlace de un correo), NO se deniega: se lleva a
+    lo que SÍ puede ver de esa sección.** Punto único **`_access_fallback_url`** en el gate: quita
+    de la URL el parámetro de pestaña (**`TAB_ARGS`**) y la vista elige la primera visible; solo si
+    no tiene NADA de esa sección se deniega. La marca **`_acc=1`** evita el bucle (si tras volver
+    tampoco puede, se deniega de verdad).
+  ⚠️ El control fino SIGUE: con solo «Datos» de una ficha de personal no se ve «Accesos» (te lleva a
+  Datos), y sin nada de la sección el 403 se mantiene. Comprobado.
+  · **CONTRATACIÓN**: sus pestañas viven en **`CONTRACTING_TAB_DEFS`** (clave · permiso · icono ·
+  rótulo) + `_contracting_tab_url` + `_contracting_visible_tabs` + `_contracting_tabs_ui`, que es lo
+  que pinta `_contracting_tabs.html`. **La barra ofrece EXACTAMENTE lo que el gate deja pasar**
+  (`has_access_key(res, include_descendants=True)`, el mismo criterio), y `contracting_view` cae en
+  la primera visible. Una pestaña nueva se añade SOLO ahí.
+  ⚠️⚠️ **UN PERMISO DE PESTAÑA VALE TAMBIÉN DESDE SU PADRE** (`_personnel_tab_grant` usa ya
+  `_state_has_access`, o sea la clave **y sus ANCESTROS**): antes se exigía el permiso EXACTO y
+  quien tenía **«Personal»** o **«Usuarios»** **no podía abrir NINGUNA ficha** — veía el listado y
+  al pinchar una persona, 403. Lo que no vale es una pestaña HERMANA, así que se sigue pudiendo dar
+  solo «Datos».
+  ⚠️ Si no puede ver **ninguna** pestaña de una ficha **no se le da un 403**: se le dice por qué y
+  se le devuelve al listado (el caso típico: solo tiene «Accesos», que es de dirección y por eso su
+  descripción en el catálogo lo avisa).
+  · **QUIÉN ENTRA EN LO QUE SE ABRE DESDE VARIAS SECCIONES**: `ACTIVITY_READ_ACCESS_KEYS` gana
+  **`ventas`**, **`promo`** y **`discografica`** (quien lleva las ventas de una actividad tiene que
+  poder abrirla desde su reporte) y **`BAG_ACCESS_KEYS`** gana **`administracion`** y
+  **`contabilidad`** (quien liquida y paga entra en la bolsa sin que le concedan además «Bolsas»).
+  · **EL ASISTENTE «+ Actividad» solo se ofrece a quien puede GUARDARLO**
+  (`contratacion.conciertos` con edición, el MISMO permiso que pide `concert_wizard_create`): desde
+  otra pestaña de Contratación se rellenaba entero para comerse un 403 al terminarlo.
+  ⚠️⚠️ Pero el CONTEXTO del asistente se monta **siempre** (`_with_concert_wizard`): hay plantillas
+  que incluían el modal sin mirar `wizard_available` y se caían con un **500** (`promoters_payload`
+  Undefined). Ya lo miran las 14; una pantalla nueva que lo incluya, también.
+  · **INVITACIONES**: «Pedir invitaciones» es `invitaciones.pedir` y «Generar enlace» es
+  `invitaciones.gestionar` — cada asistente (y su botón) solo a quien puede usarlo.
+  · ⚠️⚠️ **LOS 403 DEJAN RASTRO** (`_remember_forbidden` en el punto único `forbid()`): quién,
+  dónde, **qué permiso hacía falta** y **qué tiene esa persona de esa sección**. Dirección lo ve en
+  **«Configurar notificaciones»**, debajo de los últimos errores. Sin esto, «me da error de
+  permisos» no se puede diagnosticar sin ir adivinando (es lo que pasó aquí). Vive en MEMORIA del
+  proceso, como los 500.
+  · ⚠️⚠️ **LA COMPROBACIÓN: `python3 tools/check_permisos.py`** (con la BD de prueba). Por cada
+  recurso del catálogo crea un usuario con SOLO ese recurso, abre sus pantallas y **sigue todos los
+  enlaces y todos los formularios** que pintan: si alguno da 403, lo canta. **Tiene que estar en
+  cero**; pásala al tocar barras de pestañas, botones o permisos. Los POST se comprueban ejecutando
+  **solo el gate** (no la vista), así que no guarda, borra ni manda nada.
+  ⚠️ `forbid()` **LANZA** (`abort(403)`), no devuelve: al simular el gate hay que capturar
+  `werkzeug.exceptions.Forbidden` o no se detecta ni uno (la herramienta daba 0 falsos).
+
 - ⚠️⚠️ **DISCOGRÁFICA · CUADRO DE MANDO DE PREVISIONES** (sep 2026, pestaña **«Previsiones»**,
   `?section=previsiones`). **Una sola pantalla para PLANIFICAR**: el calendario de lanzamientos de
   todos los artistas, qué suena ahora en radio, hace cuánto entró la última canción de cada artista

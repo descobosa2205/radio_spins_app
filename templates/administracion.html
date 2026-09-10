@@ -88,7 +88,10 @@
   <div>
     <h3 class="m-0">Administración</h3>
   </div>
+  {# Solo a quien puede abrir el listado: un botón que lleva a un 403 no se pinta. #}
+  {% if has_access_key('databases.bags', include_descendants=True) %}
   <a class="btn btn-outline-secondary" href="{{ url_for('bags_view') }}"><i class="fa fa-folder-open me-1"></i>Bolsas</a>
+  {% endif %}
 </div>
 
 <ul class="nav nav-tabs mb-4">

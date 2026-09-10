@@ -1222,7 +1222,59 @@ def current_role() -> int:
 def is_master() -> bool:
     return current_role() == 10
 
+LAST_FORBIDDEN = []
+LAST_FORBIDDEN_MAX = 30
+
+
+def _forbidden_user_label() -> str:
+    """Quién es, dicho como se le llama en la casa (su nick), para el registro de 403."""
+    try:
+        estado = _current_user_state() or {}
+        perfil = estado.get("profile")
+        return (getattr(perfil, "nick", "") or estado.get("email") or session.get("email") or "").strip()
+    except Exception:
+        return ""
+
+
+def _remember_forbidden(message: str):
+    """Apunta un 403 con lo justo para arreglarlo: quién, dónde y QUÉ PERMISO se le pidió.
+
+    ⚠️ Un 403 no deja rastro en ningún sitio, así que «me da error de permisos» era imposible de
+    diagnosticar sin ir adivinando. Aquí queda quién era, qué endpoint, qué recurso hacía falta y
+    lo que esa persona tiene de esa sección; dirección lo ve en «Configurar notificaciones».
+    Vive en MEMORIA del proceso (como los 500): esto no puede depender de la BD.
+    """
+    try:
+        clave = ""
+        try:
+            clave = _resolve_request_resource_key() or _infer_group_key_from_path(request.path) or ""
+        except Exception:
+            clave = ""
+        suyos = []
+        try:
+            raiz = (clave or "").split(".")[0]
+            for k, g in ((_current_user_state() or {}).get("grants") or {}).items():
+                if raiz and (k == raiz or k.startswith(raiz + ".")) and (g or {}).get("can_view_basic"):
+                    suyos.append(k + ("+edit" if (g or {}).get("can_edit") else ""))
+        except Exception:
+            suyos = []
+        LAST_FORBIDDEN.insert(0, {
+            "when": datetime.now(TZ_MADRID),
+            "path": (request.full_path or request.path or "").rstrip("?"),
+            "endpoint": (request.endpoint or ""),
+            "method": request.method,
+            "user": (_forbidden_user_label() or session.get("user_id") or ""),
+            "needed": clave,
+            "has": ", ".join(sorted(suyos)) or "nada de esa sección",
+            "message": (message or "")[:200],
+        })
+        del LAST_FORBIDDEN[LAST_FORBIDDEN_MAX:]
+    except Exception:
+        pass
+
+
 def forbid(message: str = "No tienes permisos para realizar esta acción."):
+    _remember_forbidden(message)
     flash(message, "danger")
     return abort(403)
 
@@ -1821,7 +1873,10 @@ def notification_settings_view():
                                values=canales, sms_ready=sms_listo,
                                # Los últimos 500 de este worker: es lo que permite arreglar una
                                # pantalla que «sale como cerrada por mantenimiento».
-                               last_errors=list(LAST_ERRORS[:5]))
+                               last_errors=list(LAST_ERRORS[:5]),
+                               # Y los últimos 403: quién, dónde y qué permiso le faltó. Sin esto,
+                               # «me da error de permisos» no se puede diagnosticar.
+                               last_forbidden=list(LAST_FORBIDDEN[:10]))
     finally:
         session_db.close()
 
@@ -50362,6 +50417,12 @@ def _add_equipment_notes_from_request(session, concert_id):
 @admin_required
 def contracting_view():
     section = (request.args.get("section") or "conciertos").strip().lower()
+    # ⚠️ Cada pestaña tiene su PERMISO: si se pide una que esta persona no tiene, se le lleva a la
+    # PRIMERA que sí puede ver en vez de echarle con un 403 (la regla de la casa, como en
+    # contabilidad y en la ficha de personal).
+    visibles = _contracting_visible_tabs()
+    if visibles and section not in visibles:
+        return redirect(_contracting_tab_url(visibles[0]))
     if section == "conciertos":
         return redirect(url_for("concerts_view", tab="vista"))
     if section == "facturacion":
@@ -57768,7 +57829,10 @@ def _with_concert_wizard(session_db, ctx: dict) -> dict:
     asistente es el MISMO en todas (el «+» del calendario, «+ Actividad» de Actividades, el de
     Contratación, la vista de conciertos, la ficha de una gira, un evento, la de un artista y la de
     una petición) y una mejora vale para todas a la vez.
-    Es *best-effort*: si algo falla, la pantalla se pinta igual y el botón cae a `/conciertos`."""
+    Es *best-effort*: si algo falla, la pantalla se pinta igual y el botón cae a `/conciertos`.
+    ⚠️⚠️ **Solo se ofrece a quien puede CREAR una actividad** (`can_edit_concerts()`): el asistente
+    se incluye en pantallas de otras pestañas de Contratación (peticiones, simulaciones…) y quien no
+    tuviera «Conciertos» lo rellenaba entero para comerse un 403 al guardarlo (bug real)."""
     datos = {}
     try:
         datos = _concert_wizard_context(session_db)
@@ -57776,7 +57840,12 @@ def _with_concert_wizard(session_db, ctx: dict) -> dict:
         app.logger.exception("[asistente] no se pudo montar el contexto del asistente de actividad")
     for clave, valor in (datos or {}).items():
         ctx.setdefault(clave, valor)
-    ctx.setdefault("wizard_available", bool(datos))
+    # ⚠️⚠️ El contexto se monta SIEMPRE (hay plantillas que incluyen el modal sin mirar la bandera y
+    # se caerían con un 500), pero solo se OFRECE a quien puede guardarlo: el MISMO permiso que pide
+    # `concert_wizard_create` (contratacion.conciertos con edición), para que el botón y el guardado
+    # no digan cosas distintas. Sin esto, quien tenía otra pestaña de Contratación (peticiones,
+    # simulaciones…) rellenaba el asistente entero y se comía un 403 al terminarlo.
+    ctx.setdefault("wizard_available", bool(datos) and has_access_key("contratacion.conciertos", edit=True))
     return ctx
 
 
@@ -84572,7 +84641,7 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "personal", "label": "Personal de la Oficina", "section_key": "personal", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 250, "description": "Personal de la oficina y permisos de la aplicación."},
     {"key": "personal.usuarios", "label": "Usuarios", "section_key": "personal", "parent_key": "personal", "level": "TAB", "economic_capable": False, "sort_order": 251, "description": "Listado y ficha de usuarios del Back Office."},
-    {"key": "personal.usuarios.accesos", "label": "Accesos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 252, "description": "Pestaña «Accesos» de la ficha: los permisos de cada persona. ⚠️ Editable SOLO por dirección (aunque se conceda, guardar exige role 10)."},
+    {"key": "personal.usuarios.accesos", "label": "Accesos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 252, "description": "Pestaña «Accesos» de la ficha: los permisos de cada persona. ⚠️ Es SOLO de dirección: concederla no sirve de nada (ni se ve ni se guarda sin role 10)."},
     {"key": "personal.usuarios.datos", "label": "Datos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 253, "description": "Pestaña «Datos» de la ficha: nombre, DNI, teléfonos, departamentos y necesidades de viaje."},
     {"key": "personal.usuarios.documentos", "label": "Documentos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 254, "description": "Pestaña «Documentos» de la ficha: DNI, pasaporte, carnet, tarjetas de fidelización y matrículas."},
     {"key": "personal.usuarios.prl", "label": "PRL", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 255, "description": "Pestaña «PRL» de la ficha: altas, formación e información de riesgos laborales."},
@@ -85739,8 +85808,12 @@ def _infer_group_key_from_path(path: str) -> str | None:
 # administración la bolsa, promoción su marketing, registros lo que se declara… Todas ellas tienen que
 # poder ABRIR la actividad aunque no tengan la pestaña «Conciertos» de Contratación. Para MODIFICARLA
 # sigue haciendo falta el permiso de edición de su sección (esto solo afecta a la lectura).
+# ⚠️ La ficha de una ACTIVIDAD se abre desde muchas secciones (producción monta la hoja de ruta,
+# administración la bolsa, VENTAS su reporte…): tener CUALQUIERA de estas basta para MIRARLA.
+# Modificar sigue exigiendo edición en contratación (el helper solo actúa en GET).
 ACTIVITY_READ_ACCESS_KEYS = ("contratacion", "produccion", "administracion", "promocion",
-                             "registros", "contabilidad", "acciones", "invitaciones")
+                             "registros", "contabilidad", "acciones", "invitaciones",
+                             "ventas", "promo", "discografica")
 
 
 def _activity_read_resource_key(default_key: str) -> str:
@@ -85773,7 +85846,10 @@ INVOICE_EDIT_ACCESS_KEYS = ("databases.invoices", "contabilidad")
 ACCOUNTING_ACTION_ACCESS_KEYS = ("contabilidad.pendiente", "contabilidad.contabilizado")
 # Las BOLSAS se abren y se trabajan desde «Bolsas» (Bases de datos) y desde PRODUCCIÓN, que es de quien
 # es ese trabajo: la primera de estas claves que tenga el usuario (ver el mapeo de `bag_*`).
-BAG_ACCESS_KEYS = ("databases.bags", "produccion")
+# ⚠️ Quien LIQUIDA y PAGA es administración, y quien la monta, producción: los tres entran en
+# una bolsa sin tener que concederles además «Bolsas» (bug real: 403 al abrirla desde su
+# propia pantalla). El listado de Bases de datos → Bolsas sigue siendo de «Bolsas».
+BAG_ACCESS_KEYS = ("databases.bags", "produccion", "administracion", "contabilidad")
 
 
 def _first_access_key(claves, default_key: str, *, edit: bool = False) -> str:
@@ -87018,6 +87094,59 @@ CONTRACTING_COUNT_TABS = ("peticiones", "conciertos", "giras-compradas", "festiv
 CONTRACTING_TAB_ENDPOINTS = {"contracting_view", "concerts_view", "quadrantes_view", "tour_detail_view"}
 
 # Catálogo de tareas: etiqueta · icono · color de la pastilla · orden de urgencia.
+# ⚠️⚠️ LAS PESTAÑAS DE CONTRATACIÓN, EN UN SOLO SITIO: su clave, el PERMISO que hace falta para
+# abrirlas, su icono, su rótulo y a dónde llevan. De aquí salen la barra (que **solo pinta lo que
+# esa persona puede abrir**) y la caída a la primera visible cuando se pide una que no se tiene.
+# La regla: **la barra ofrece exactamente lo que el gate deja pasar**; si no, se pinta una pestaña
+# que al pincharla echa de la pantalla, que es el 403 más molesto que había.
+CONTRACTING_TAB_DEFS = (
+    ("peticiones",        "contratacion.peticiones",   "fa-inbox",                 "Peticiones"),
+    ("conciertos",        "contratacion.conciertos",   "fa-guitar",                "Conciertos"),
+    ("giras-compradas",   "contratacion.giras",        "fa-route",                 "Giras compradas"),
+    ("festivales-ciclos", "contratacion.festivales",   "fa-star",                  "Festivales / Ciclos"),
+    ("eventos",           "contratacion.eventos",      "fa-masks-theater",         "Eventos"),
+    ("otras-actividades", "contratacion.otras",        "fa-shapes",                "Otras actividades"),
+    ("cuadrantes",        "contratacion.cuadrantes",   "fa-table-cells",           "Cuadrantes"),
+    ("facturacion",       "contratacion.facturacion",  "fa-file-invoice-dollar",   "Facturación"),
+    ("simulaciones",      "contratacion.simulaciones", "fa-calculator",            "Simulaciones"),
+)
+
+
+def _contracting_tab_url(clave: str) -> str:
+    """A dónde lleva cada pestaña de Contratación (tres viven en su propia pantalla)."""
+    if clave == "conciertos":
+        return url_for("concerts_view", tab="vista")
+    if clave == "facturacion":
+        return url_for("concerts_view", tab="facturacion")
+    if clave == "cuadrantes":
+        return url_for("quadrantes_view")
+    return url_for("contracting_view", section=clave)
+
+
+def _contracting_visible_tabs() -> list[str]:
+    """Las pestañas de Contratación que esta persona puede ABRIR (las mismas que se le pintan).
+
+    ⚠️ Con `include_descendants=True`, que es lo que mira el gate: tener una subpestaña
+    (p. ej. la one-sheet de una gira) abre su pestaña.
+    """
+    return [k for k, res, _i, _l in CONTRACTING_TAB_DEFS
+            if has_access_key(res, include_descendants=True)]
+
+
+def _contracting_tabs_ui() -> list[dict]:
+    """Lo que pinta la barra: solo las pestañas que se pueden abrir, con su URL."""
+    out = []
+    for clave, res, icono, etiqueta in CONTRACTING_TAB_DEFS:
+        if not has_access_key(res, include_descendants=True):
+            continue
+        try:
+            url = _contracting_tab_url(clave)
+        except Exception:
+            continue
+        out.append({"key": clave, "url": url, "icon": icono, "label": etiqueta})
+    return out
+
+
 CONTRACTING_TASK_META = {
     "REQUEST":    ("Petición sin tramitar", "fa-inbox", "text-bg-danger", 0),
     "CONFIRM":    ("Pendiente de confirmar", "fa-circle-question", "text-bg-warning text-dark", 1),
@@ -88565,6 +88694,10 @@ def inject_personnel_globals():
         "CONTRACTING_TASKS": (_contracting_tasks_data().get("tasks") or {}
                               if request.endpoint in CONTRACTING_TAB_ENDPOINTS
                               and session.get("user_id") else {}),
+        # Las pestañas de Contratación que esta persona PUEDE ABRIR (la barra no ofrece otras).
+        "CONTRACTING_TABS": (_contracting_tabs_ui()
+                             if request.endpoint in CONTRACTING_TAB_ENDPOINTS
+                             and session.get("user_id") else []),
         # Inicio de CONTRATACIÓN: sus tareas y la compuerta que esconde los módulos de los demás
         # departamentos. ⚠️ Las tareas son CARAS (recorren las actividades vivas): solo en Inicio y
         # solo a quien tenga contratación.
@@ -89020,18 +89153,19 @@ PERSONNEL_TAB_RESOURCES = {
 
 
 def _personnel_tab_grant(resource_key: str, *, edit: bool = False) -> bool:
-    """¿Tiene el permiso EXACTO de esa pestaña de personal?
+    """¿Puede esta persona ver (o editar) esa pestaña de la ficha de personal?
 
-    ⚠️ A propósito NO se usa `has_access_key`: ese acepta los ANCESTROS, así que conceder «Usuarios»
-    daría de golpe todas las pestañas y no se podría dejar a alguien solo con Datos (que es justo lo
-    que se pide). Mismo criterio que la recaudación de ventas."""
+    Vale su permiso o el de un ANCESTRO (`personal.usuarios`, `personal`): quien tiene la sección
+    entera tiene sus pestañas. Lo que NO vale es una pestaña HERMANA, así que se sigue pudiendo
+    dejar a alguien solo con «Datos» — basta con concederle solo esa.
+    ⚠️⚠️ Antes se exigía el permiso EXACTO y quien tenía «Personal» (o «Usuarios») **no podía abrir
+    ninguna ficha**: veía el listado y al pinchar una persona se comía un 403 (bug real, y de los
+    que más molestaban). La regla de la casa: quien tiene la función asignada puede ejecutarla.
+    """
     estado = _current_user_state()
     if int(estado.get("role") or 0) == 10:
         return True
-    grant = (estado.get("grants") or {}).get(resource_key)
-    if not grant:
-        return False
-    return bool(grant.get("can_edit")) if edit else bool(grant.get("can_view_basic") or grant.get("can_edit"))
+    return _state_has_access(estado, resource_key, edit=edit)
 
 
 def _personnel_tab_resource_key():
@@ -89199,6 +89333,39 @@ def _audit_access_coverage() -> dict:
     return {"count": len(offenders), "offenders": offenders}
 
 
+# ⚠️⚠️ LOS PARÁMETROS QUE ELIGEN PESTAÑA. Quitándolos se vuelve a la sección, que es donde la
+# vista decide la PRIMERA pestaña que esta persona puede ver.
+TAB_ARGS = ("section", "tab", "subtab", "roy_tab", "liq_tab", "isrc_tab", "config_subtab",
+            "pv_tab", "proj_tab", "bag_tab")
+# Marca del redirect: si tras volver a la sección tampoco puede, se deniega de verdad (sin bucle).
+ACCESS_FALLBACK_ARG = "_acc"
+
+
+def _access_fallback_url(key: str) -> str | None:
+    """A dónde llevar a quien pide una PESTAÑA que no tiene pero cuya SECCIÓN sí lleva.
+
+    La regla de la casa: **quien tiene una función asignada tiene que poder trabajar**, así que
+    pinchar una pestaña que no le han dado no puede echarle de la pantalla con un 403; se le lleva a
+    la parte de esa sección que sí puede ver (la propia vista elige la primera visible).
+    Devuelve None cuando no hay a dónde ir (no tiene nada de la sección) o cuando ya se ha
+    redirigido una vez: entonces sí se deniega.
+    """
+    try:
+        if not key or "." not in key:
+            return None                      # es la sección entera: no hay a dónde caer
+        if request.args.get(ACCESS_FALLBACK_ARG):
+            return None                      # ya se ha intentado: no se entra en bucle
+        seccion = key.split(".")[0]
+        if not has_access_key(seccion, include_descendants=True):
+            return None                      # no lleva nada de esta sección
+        args = {k: v for k, v in request.args.items(multi=False) if k not in TAB_ARGS}
+        args[ACCESS_FALLBACK_ARG] = "1"
+        return url_for(request.endpoint, **(request.view_args or {}), **args)
+    except Exception:
+        app.logger.exception("[accesos] no se pudo resolver a dónde llevar a quien no tiene la pestaña")
+        return None
+
+
 def _enforce_role_permissions_v2():
     # Ficheros estáticos (CSS/JS/IMG): fuera del enforcement. Sin esto, CADA estático con sesión
     # ejecutaba _current_user_state() (bootstrap de accesos + sync de perfil + commit) y, si el
@@ -89251,6 +89418,12 @@ def _enforce_role_permissions_v2():
             return forbid("Tu usuario no tiene permisos para modificar datos en esta sección.")
     else:
         if key and key != "home" and not has_access_key(key, include_descendants=True):
+            # ⚠️⚠️ SI TIENE LA SECCIÓN, NO SE LE DA UN 403: se le lleva a lo que SÍ puede ver de
+            # ella. Un 403 al pinchar una pestaña de la sección en la que estás trabajando no lo
+            # entiende nadie (y es el 403 que más salía: las barras de pestañas se pintaban enteras).
+            destino = _access_fallback_url(key)
+            if destino:
+                return redirect(destino)
             # Se dice QUÉ acceso falta: si no, un 403 es imposible de diagnosticar sin mirar el código.
             etiqueta = (_ACCESS_RESOURCE_MAP.get(key, {}) or {}).get("label") if isinstance(_ACCESS_RESOURCE_MAP.get(key), dict) else None
             if not etiqueta:
@@ -102524,7 +102697,12 @@ def personnel_detail_view(user_id):
             tab = visibles[0] if visibles else "accesos"
         if not tab_access.get(tab):
             if not visibles:
-                return forbid("No tienes permisos para ver la ficha de esta persona.")
+                # ⚠️ Nunca un 403 seco: se dice qué pasa y se vuelve a donde se estaba. (El caso
+                # típico: solo tiene la pestaña «Accesos», que es de dirección.)
+                flash("No hay ninguna pestaña de la ficha que puedas ver con tus permisos. "
+                      "Pídeselo a dirección (Personal → Accesos).", "warning")
+                return redirect(url_for("personnel_view") if has_access_key("personal", include_descendants=True)
+                                else url_for("home"))
             tab = visibles[0]
 
         if request.method == "POST":

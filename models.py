@@ -2694,6 +2694,21 @@ class Concert(Base):
     # Cuándo se ACTIVÓ la producción (se asignó a alguien). Sin responsable, la actividad le sale
     # como tarea pendiente a quien la creó: nadie está produciéndola.
     production_activated_at = Column(DateTime(timezone=True))
+    # ── QUIÉN VA CON EL ARTISTA (eventos promocionales, TV, marca, otros) ──────────────────
+    # Lo asigna LA PERSONA DE PRODUCCIÓN que hace el evento: alguien de la empresa (`USER`), un
+    # TERCERO (`PROMOTER`) o nadie (`NONE`, que también es una decisión). Mismos campos y mismos
+    # valores que `Promotion.escort_*`, para que el punto único valga para las dos cosas.
+    escort_kind = Column(Text, nullable=False, server_default=text("'NONE'"))
+    escort_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    escort_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    escort_note = Column(Text)
+    # ⚠️ DOS sellos, y no es lo mismo: `decided` = ya se ha dicho quién va (o que no va nadie) y
+    # `notified` = se le ha avisado. La tarea no está hecha hasta que se le ha dicho a quien va —
+    # salvo que no vaya nadie, que entonces no hay a quién avisar.
+    escort_decided_at = Column(DateTime(timezone=True))
+    escort_decided_by_nick = Column(Text)
+    escort_notified_at = Column(DateTime(timezone=True))
+    escort_notified_by_nick = Column(Text)
     # QUIÉN creó la actividad: es a quien le toca activar la producción.
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
@@ -5227,6 +5242,11 @@ class Promotion(Base):
     escort_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     escort_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
     escort_note = Column(Text)
+    # Ver `Concert.escort_decided_at`: decidir quién va y avisarle son dos cosas distintas.
+    escort_decided_at = Column(DateTime(timezone=True))
+    escort_decided_by_nick = Column(Text)
+    escort_notified_at = Column(DateTime(timezone=True))
+    escort_notified_by_nick = Column(Text)
     # Logística / producción: a quién de producción le toca montarlo.
     production_needed = Column(Boolean, nullable=False, server_default=text("false"))
     production_owner_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
@@ -8095,6 +8115,17 @@ def ensure_artist_feature_schema():
         "CREATE INDEX IF NOT EXISTS ix_concerts_production_owner ON concerts (production_owner_user_id);",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS end_date date;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_activated_at timestamptz;",
+        # ── QUIÉN VA CON EL ARTISTA (ver `Concert.escort_kind`) ─────────────────────────────
+        # ⚠️ Cada columna en SU sentencia: una columna metida dentro de un bloque `DO $$ … IF NOT
+        # EXISTS` ya aplicado NO se crea nunca y el ORM revienta al leer la tabla (bug real).
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS escort_kind text NOT NULL DEFAULT 'NONE';",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS escort_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS escort_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS escort_note text;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS escort_decided_at timestamptz;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS escort_decided_by_nick text;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS escort_notified_at timestamptz;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS escort_notified_by_nick text;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS created_by_nick text;",
         "CREATE INDEX IF NOT EXISTS ix_concerts_created_by ON concerts (created_by_user_id);",
@@ -10649,6 +10680,12 @@ def ensure_promocion_prensa_schema():
             ADD COLUMN IF NOT EXISTS production_owner_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
             ADD COLUMN IF NOT EXISTS production_request_id uuid REFERENCES production_requests(id) ON DELETE SET NULL;
         """,
+        # ⚠️ QUIÉN VA CON EL ARTISTA: los sellos de «ya se ha decidido» y «ya se le ha avisado», cada
+        # uno en SU sentencia (una columna dentro de un bloque ya aplicado no se crea nunca).
+        "ALTER TABLE IF EXISTS promotions ADD COLUMN IF NOT EXISTS escort_decided_at timestamptz;",
+        "ALTER TABLE IF EXISTS promotions ADD COLUMN IF NOT EXISTS escort_decided_by_nick text;",
+        "ALTER TABLE IF EXISTS promotions ADD COLUMN IF NOT EXISTS escort_notified_at timestamptz;",
+        "ALTER TABLE IF EXISTS promotions ADD COLUMN IF NOT EXISTS escort_notified_by_nick text;",
         'CREATE INDEX IF NOT EXISTS idx_promotions_kind_status ON promotions(kind, status, target_date);',
         """
         ALTER TABLE IF EXISTS promotion_activities

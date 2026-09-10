@@ -1303,6 +1303,55 @@ document.addEventListener('click', function (ev) {
 {# BOLSAS DE DOBLE CIERRE que SOLO TE ESPERAN A TI: la de un proyecto discográfico (sello y, si hubo
    logística, producción) y la de una promoción (promoción y producción). Hasta que cierran los dos
    NO pasa a administración, así que la fila dice quién ha cerrado ya y a quién falta. #}
+{# ── QUIÉN VA CON EL ARTISTA · lo que le espera a quien lleva la producción ──────────────────
+   ⚠️ Es LO SUYO (se le pide por su nombre), así que va en este bloque y no cuelga de ningún
+   permiso de sección. Se resuelve en la ficha, que es donde está el pop-up. #}
+{% if HOME_ESCORT_PENDING %}
+<div class="card mb-4 border-warning" data-home-module="acompanante">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-user-group text-danger me-2"></i>Confirma quién va con el artista
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_ESCORT_PENDING|length }}</span>
+    </span>
+    <span class="text-muted small">Alguien de la empresa o un tercero, y se le avisa.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for r in HOME_ESCORT_PENDING %}
+      <div class="ctask">
+        <div class="ctask__head">
+          {% if r.artist_photo or r.artist_name %}
+            {{ artist_avatar(r.artist_photo, r.artist_name) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-user-group text-muted"></i></span>
+          {% endif %}
+          <a class="ctask__subject text-truncate text-reset text-decoration-none" href="{{ r.url }}"
+             title="Abrirlo">{{ r.artist_name or r.title or r.what }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ r.what }}</span>
+            {% if r.title %}<span class="ctask__fact"><i class="fa fa-tag"></i>{{ r.title }}</span>{% endif %}
+            <span class="ctask__fact"><i class="fa fa-clock"></i>{{ r.date_label }}</span>
+          </span>
+          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+            <a class="btn btn-sm btn-outline-danger" href="{{ r.url }}">
+              <i class="fa fa-user-group me-1"></i>{{ 'Avisarle' if r.state.decided else 'Confirmarlo' }}</a>
+          </span>
+        </div>
+        <div class="ctask__tasks">
+          {% if r.state.decided %}
+            {# Ya se ha dicho quién va: lo que falta es DECÍRSELO. #}
+            <span class="badge text-bg-warning text-dark">
+              <i class="fa fa-bell me-1"></i>Va {{ r.state.name }} · todavía no lo sabe</span>
+          {% else %}
+            <span class="badge text-bg-warning text-dark">
+              <i class="fa fa-hourglass-half me-1"></i>Sin decidir quién va</span>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if HOME_BAG_CLOSE %}
 <div class="card mb-4 border-warning">
   <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">

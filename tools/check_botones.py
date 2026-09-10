@@ -144,6 +144,28 @@ def revisa(fichero: Path, js_global: str, ids_del_proyecto: set[str]) -> list[st
         if m.group(1) not in HREF_IGNORAR:
             _destino("href", m.group(1))
 
+    # ---- 1b) `data-edit-toggle` SIN VALOR fuera de su sección -----------------------------
+    # ⚠️⚠️ Un `data-edit-toggle` vacío abre el `[data-section-form]` de SU `.ficha-section`
+    # (`ficha_inline.js`). Si el botón está FUERA de una sección con formulario —en la CABECERA de
+    # la ficha, por ejemplo— no hay nada que encontrar y el clic **no hace nada**, sin ningún error:
+    # es lo que le pasaba al lápiz «Editar los datos» de la ficha del artista. Ese caso no lo cazaba
+    # la regla de arriba porque el atributo no apunta a ningún id.
+    # ⚠️ «ficha-section» hay que buscarla como la CLASE del contenedor, no como cualquier aparición:
+    # `ficha-section__head` / `__body` / `__title` la contienen, y con un `find` a secas el detector
+    # daba un falso positivo en cada sección de la ficha de una actividad (que van en una línea).
+    APERTURA = re.compile(r'ficha-section(?![-_\w])')
+    for m in re.finditer(r'<(?:button|a|span|li)[^>]*\sdata-edit-toggle(?=[\s>])(?![-=])[^>]*>', texto):
+        # El formulario va DESPUÉS del botón (el patrón es: cabecera, vista, formulario) y antes de
+        # que empiece la sección siguiente.
+        j = texto.find("data-section-form", m.end())
+        sig = APERTURA.search(texto, m.end())
+        fin = sig.start() if sig else -1
+        dentro = (j >= 0 and (fin < 0 or j < fin))
+        if not dentro:
+            fallos.append("data-edit-toggle SIN valor y sin [data-section-form] en su sección: "
+                          "el clic no hace nada (usa data-edit-toggle=\"#idDelForm\" o un enlace "
+                          "con ?editar=<id>)")
+
     # ---- 2) handlers que no sobreviven a un repintado -------------------------------------
     for zona_ini, zona_fin in zonas_inline(texto):
         dentro = texto[zona_ini:zona_fin]

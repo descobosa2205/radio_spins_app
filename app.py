@@ -51661,7 +51661,8 @@ def _concert_task_board(session_db, concert) -> dict:
     extra = []
 
     def suelta(key, n, label, icon, url="", modal="", action_label="", hint="", do="",
-               perm="concerts", area=CONCERT_TASK_AREA_CONTRATACION, ver_siempre=False):
+               perm="concerts", area=CONCERT_TASK_AREA_CONTRATACION, ver_siempre=False,
+               blocked=False, blocked_reason=""):
         """Una tarea DEL DEPARTAMENTO (no es de nadie en concreto).
 
         ⚠️⚠️ **TODAS SE PUEDEN HACER DESDE AQUÍ**: cada una lleva cómo se resuelve —un `url` a donde
@@ -51677,8 +51678,10 @@ def _concert_task_board(session_db, concert) -> dict:
             return
         if not (ver_siempre or _concert_task_area_ok(area)):
             return
-        extra.append({"key": key, "phase": n, "label": label, "icon": icon, "state": "todo",
-                      "mine": False, "blocked": False, "blocked_reason": "", "owner_nick": "",
+        extra.append({"key": key, "phase": n, "label": label, "icon": icon,
+                      "state": ("blocked" if blocked else "todo"),
+                      "mine": False, "blocked": bool(blocked),
+                      "blocked_reason": (blocked_reason or ""), "owner_nick": "",
                       "owner_user_id": "", "nudge_url": "", "url": url, "modal": modal,
                       "action_label": action_label, "hint": hint, "generic": True,
                       "do": do, "perm": perm})
@@ -51722,6 +51725,22 @@ def _concert_task_board(session_db, concert) -> dict:
             # ⚠️ Salta SIEMPRE que no se haya configurado, aunque el promotor tenga correo en su
             # ficha (que es el respaldo, no una decisión). No bloquea nada: sin configurarlo, las
             # comunicaciones se le siguen mandando por la cascada de siempre.
+            # QUIÉN VA CON EL ARTISTA: lo asigna la persona de PRODUCCIÓN que hace el evento.
+            # ⚠️ Sale BLOQUEADA mientras no haya responsable de producción: es esa persona quien lo
+            # decide (antes está la tarea de «Activar producción»).
+            if _escort_applies(concert):
+                _esc = _escort_state(session_db, concert)
+                if not _esc["done"]:
+                    _sin_prod = not getattr(concert, "production_owner_user_id", None)
+                    suelta("acompanante", 9, "Confirmar quién va con el artista", "fa-user-group",
+                           modal=("" if _sin_prod else "#escortModal"),
+                           area=CONCERT_TASK_AREA_PRODUCCION, perm="escort",
+                           action_label="Confirmarlo",
+                           blocked=_sin_prod,
+                           blocked_reason=("Antes hay que decir quién de producción se encarga"
+                                           if _sin_prod else ""),
+                           hint=(("Falta avisar a %s de que va" % _esc["name"]) if _esc["decided"]
+                                 else "Alguien de la empresa o un tercero, y se le avisa"))
             if _concert_ticketing_contact_unset(session_db, concert):
                 _hay_correo = bool((_concert_ticketing_contact(session_db, concert) or {}).get("email"))
                 suelta("contacto_ticketing", 9, "Configurar el responsable de ticketing",
@@ -62963,6 +62982,14 @@ def concert_detail_view(cid):
             # PESTAÑA «INICIO»: las tareas de la actividad paso a paso (solo se calcula en su
             # pestaña; recorre el estado de la actividad y de su petición).
             task_board=(_concert_task_board(session, c) if tab == "inicio" else None),
+            # QUIÉN VA CON EL ARTISTA (solo en su pestaña: son un par de consultas y el pop-up con
+            # todo el personal de la oficina no hace falta en las demás).
+            escort=(_escort_state(session, c) if tab == "inicio" else None),
+            escort_applies=_escort_applies(c),
+            escort_can_edit=(_escort_can_edit(session, c) if tab == "inicio" else False),
+            escort_kinds=ESCORT_KINDS,
+            escort_office_people=(_office_people(session) if tab == "inicio" else []),
+            escort_save_url=url_for("concert_escort_save", cid=c.id),
             # SALIDA A LA VENTA: activar la venta (contratación) y comunicarla (ticketing) son dos
             # funciones distintas de la producción, cada una con su botón.
             sale_state=_concert_sale_state(session, c),
@@ -63596,6 +63623,109 @@ def _artwork_group_context(session_db, kind: str, gid) -> dict:
         "gk_brand_share_url": (_group_artwork_share_url(session_db, kind, gid, category="LOGO")
                                if _por("LOGO", "APPROVED") else ""),
     }
+
+
+def _escort_can_edit(session_db, obj) -> bool:
+    """QUIÉN LO ASIGNA: la persona de PRODUCCIÓN que hace el evento.
+
+    ⚠️ Se le deja también a quien pueda editar producción (su departamento) y a dirección, que es
+    quien reparte; y en una PROMOCIÓN sin producción, a promoción, que es quien la gestiona. Si no,
+    una promoción que no lleva producción no tendría quién dijera con quién va el artista."""
+    yo = str((_current_user_state() or {}).get("user_id") or "")
+    if not yo:
+        return False
+    if has_access_key("produccion", edit=True, include_descendants=True):
+        return True
+    if str(getattr(obj, "production_owner_user_id", "") or "") == yo:
+        return True
+    if isinstance(obj, Promotion) and not bool(getattr(obj, "production_needed", False)):
+        return bool(can_edit_promo())
+    return False
+
+
+def _escort_save_and_notify(session_db, obj, form) -> dict:
+    """Guarda quién va con el artista y —salvo que se pida lo contrario— se lo dice.
+
+    Punto ÚNICO de los dos endpoints (actividad y promoción), así que se comporta igual en los dos.
+    · `avisar` (por defecto sí): con `avisar=0` se guarda y se marca como avisado a mano («ya se lo
+      he dicho»), que es lo que hace falta cuando se ha hablado por teléfono.
+    Devuelve `{ok, message, level, state}`."""
+    res = _escort_apply_form(session_db, obj, form)
+    est = _escort_state(session_db, obj)
+    # ⚠️ `_flag_arg` es el punto único de la casa y lee de `request` (vale por formulario o por URL).
+    quiere_avisar = not _flag_arg("no_notify")
+    mensaje, nivel = "", "success"
+    if est["kind"] == "NONE":
+        mensaje = "Apuntado: no acompaña nadie al artista."
+    elif not quiere_avisar:
+        # «Ya se lo he dicho»: se marca sin mandar nada (mismo patrón que confirmar al promotor).
+        obj.escort_notified_at = obj.escort_notified_at or _now_madrid()
+        obj.escort_notified_by_nick = ((_current_user_state().get("nick") or "").strip() or None)
+        mensaje = "Apuntado: va %s y ya se lo has dicho." % est["name"]
+    elif est["notified"] and not res["changed"]:
+        mensaje = "Ya estaba avisado: va %s." % est["name"]
+    else:
+        salio, motivo = _escort_notify(session_db, obj)
+        if salio:
+            mensaje = "Va %s y ya se le ha avisado." % est["name"]
+        else:
+            # ⚠️ No se dice que se ha avisado si no ha salido: la tarea sigue pendiente a propósito.
+            nivel = "warning"
+            mensaje = ("Guardado: va %s, pero NO se le ha podido avisar. %s"
+                       % (est["name"], motivo))
+    session_db.commit()
+    return {"ok": True, "message": mensaje, "level": nivel,
+            "state": _escort_state(session_db, obj)}
+
+
+@app.post("/conciertos/<cid>/acompanante", endpoint="concert_escort_save")
+@admin_required
+def concert_escort_save(cid):
+    """QUIÉN VA CON EL ARTISTA a esta actividad (y se le avisa). Lo asigna producción."""
+    session_db = db()
+    try:
+        c = session_db.get(Concert, to_uuid(cid))
+        if c is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(url_for("activities_view"))
+        if not _escort_can_edit(session_db, c):
+            return forbid("Esto lo asigna quien lleva la producción de la actividad.")
+        res = _escort_save_and_notify(session_db, c, request.form)
+        flash(res["message"], res["level"])
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[acompanante] no se pudo guardar quién va con el artista")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next")
+                    or request.referrer
+                    or url_for("concert_detail_view", cid=cid, tab="inicio"))
+
+
+@app.post("/promocion-prensa/<promotion_id>/acompanante", endpoint="promo_escort_save")
+@admin_required
+def promo_escort_save(promotion_id):
+    """QUIÉN VA CON EL ARTISTA en esta promoción (y se le avisa)."""
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        if not promotion:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        if not _escort_can_edit(session_db, promotion):
+            return forbid("Esto lo asigna quien lleva la producción de la promoción.")
+        res = _escort_save_and_notify(session_db, promotion, request.form)
+        flash(res["message"], res["level"])
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[acompanante] no se pudo guardar quién va con el artista")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next")
+                    or request.referrer
+                    or url_for("promo_detail_view", promotion_id=promotion_id))
 
 
 @app.post('/conciertos/<cid>/responsable-produccion', endpoint='concert_production_owner_save')
@@ -88056,6 +88186,10 @@ def inject_personnel_globals():
         # logística, una promoción con producción). Es suyo, así que va con lo SUYO.
         "HOME_BAG_CLOSE": (_home_bag_close_pending()
                            if _home and "_home_bag_close_pending" in globals() else []),
+        # QUIÉN VA CON EL ARTISTA: se le pide a la persona de producción por su NOMBRE, así que va
+        # en el bloque de «lo suyo» y no depende de ningún permiso de sección.
+        "HOME_ESCORT_PENDING": (_home_escort_pending()
+                                if _home and "_home_escort_pending" in globals() else []),
         # NOTAS DE PRENSA pendientes: a promoción (redactarla y enviarla) y a diseño (el gráfico).
         "HOME_PRESS_TASKS": (_home_press_tasks()
                              if _home and "_home_press_tasks" in globals() else []),
@@ -88308,6 +88442,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     # CARTEL DE SOLD OUT: se pide solo al 90%, y a mano lo puede pedir (o retirar) contratación,
     # ticketing o el propio diseño. El permiso fino lo comprueba el endpoint.
     "concert_soldout_request",
+
     # LEER la factura o el ticket que se arrastra al formulario de un gasto: es una herramienta del
     # propio formulario (lo hace quien apunta el gasto, que puede no tener la sección de bolsas).
     "api_bag_document_detect",
@@ -88506,6 +88641,13 @@ REQUEST_ANY_ENDPOINTS = {
     "afavor_review_save",
     "afavor_invoice_mark_sent",
     "marketing_peticion_create",
+    # ⚠️⚠️ QUIÉN VA CON EL ARTISTA lo asigna LA PERSONA DE PRODUCCIÓN a la que se le ha encargado el
+    # evento, y a esa persona se le pide por su NOMBRE: puede no poder editar NINGUNA sección, así
+    # que `SUPPORT_ACTION_ENDPOINTS` (que exige ser «actor») le daba un 403 en su propia tarea —
+    # comprobado—. Y la ruta `/conciertos/…` resuelve a `contratacion.conciertos` con edición, que
+    # producción tampoco tiene. La puerta fina la pone `_escort_can_edit` DENTRO del endpoint: solo
+    # pasa quien lleva esa producción (o quien puede editar producción, o dirección).
+    "concert_escort_save", "promo_escort_save",
     # Editar la petición que has hecho: la comprobación fina (que sea TUYA, o que gestiones esa
     # bandeja) la hace el propio endpoint.
     "peticion_wizard_update",
@@ -91994,23 +92136,190 @@ def _promo_single_media_label(session_db, activities) -> str:
     return (getattr(medio, "name", None) or "").strip()
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# QUIÉN VA CON EL ARTISTA (el ACOMPAÑANTE)
+# En un EVENTO PROMOCIONAL (o de TV, de marca, «otros») y en una PROMOCIÓN de prensa hay que decir
+# quién va con el artista, y decírselo a esa persona. **Lo asigna LA PERSONA DE PRODUCCIÓN** que
+# hace el evento (o, en una promoción sin producción, promoción misma).
+# ⚠️ Punto ÚNICO para las DOS cosas: `Concert` y `Promotion` tienen los MISMOS campos
+# (`escort_kind` / `escort_user_id` / `escort_promoter_id` / `escort_note` + sus sellos), así que
+# todo lo de aquí funciona con cualquiera de los dos y no hay dos versiones que se desparejen.
+# ⚠️⚠️ DECIDIR y AVISAR son dos cosas: la tarea no está hecha hasta que se le ha dicho a quien va.
+# Si no va NADIE (`NONE`) también es una decisión tomada y no hay a quién avisar: hecha.
+# ═════════════════════════════════════════════════════════════════════════════
+
+ESCORT_KINDS = [
+    ("NONE", "No acompaña nadie", "fa-user-slash"),
+    ("USER", "Alguien de la empresa", "fa-user-tie"),
+    ("PROMOTER", "Un tercero", "fa-user"),
+]
+ESCORT_KIND_LABELS = {k: l for k, l, _i in ESCORT_KINDS}
+ESCORT_KIND_ICONS = {k: i for k, _l, i in ESCORT_KINDS}
+# En qué ACTIVIDADES se pregunta. En un concierto quien va con el artista es el personal de la hoja
+# de ruta (varios), así que ahí no se reclama; si mañana hiciera falta en los ensayos o en las
+# discográficas, se añade AQUÍ y sale solo.
+ESCORT_ACTIVITY_TYPES = set(PROMO_LIKE_ACTIVITY_TYPES)
+
+
+def _escort_state(session_db, obj) -> dict:
+    """QUIÉN VA CON EL ARTISTA de una actividad o de una promoción, y en qué punto está.
+
+    · `kind` / `name` / `photo_url` / `icon` / `note`: quién es (o que no va nadie).
+    · `decided`: ya se ha dicho quién va (o que no va nadie) · `notified`: ya se le ha avisado.
+    · `done`: la tarea está hecha (nadie va, o ya se le ha dicho a quien va).
+    · `can_notify`: hay a quién avisar y con qué (correo o su usuario).
+    ⚠️ Vale para `Concert` y para `Promotion`: los dos tienen los mismos campos."""
+    kind = (getattr(obj, "escort_kind", None) or "NONE").strip().upper()
+    if kind not in ESCORT_KIND_LABELS:
+        kind = "NONE"
+    note = (getattr(obj, "escort_note", None) or "").strip()
+    decidido = getattr(obj, "escort_decided_at", None)
+    avisado = getattr(obj, "escort_notified_at", None)
+    fila = {"kind": kind, "note": note, "name": "", "photo_url": "", "icon": ESCORT_KIND_ICONS[kind],
+            "email": "", "user_id": "", "promoter_id": "",
+            "decided": decidido is not None, "decided_at": decidido,
+            "decided_by": (getattr(obj, "escort_decided_by_nick", None) or "").strip(),
+            "notified": avisado is not None, "notified_at": avisado,
+            "notified_by": (getattr(obj, "escort_notified_by_nick", None) or "").strip(),
+            "done": False, "can_notify": False, "kind_label": ESCORT_KIND_LABELS[kind]}
+    if kind == "USER" and getattr(obj, "escort_user_id", None):
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == obj.escort_user_id).first()
+        user = session_db.get(User, obj.escort_user_id)
+        fila["name"] = ((getattr(prof, "nick", None) or getattr(user, "email", None) or "").strip()
+                        or "Alguien de la empresa")
+        fila["photo_url"] = (getattr(prof, "photo_url", None) or "").strip()
+        fila["email"] = (getattr(user, "email", None) or "").strip()
+        fila["user_id"] = str(obj.escort_user_id)
+        fila["can_notify"] = True                 # de la casa: le llega por la campanita
+    elif kind == "PROMOTER" and getattr(obj, "escort_promoter_id", None):
+        pr = session_db.get(Promoter, obj.escort_promoter_id)
+        fila["name"] = _promoter_display_name(pr) if pr is not None else "Tercero"
+        fila["photo_url"] = (getattr(pr, "logo_url", None) or "").strip()
+        correo, _tel = _promoter_email_phone(pr)
+        fila["email"] = (correo or "").strip()
+        fila["promoter_id"] = str(obj.escort_promoter_id)
+        # ⚠️ Un tercero solo se puede avisar por CORREO: sin correo, hay que decírselo a mano.
+        fila["can_notify"] = bool(fila["email"])
+    else:
+        fila["kind"] = kind = "NONE"
+        fila["name"] = "No acompaña nadie"
+        fila["icon"] = ESCORT_KIND_ICONS["NONE"]
+        fila["kind_label"] = ESCORT_KIND_LABELS["NONE"]
+    # Nadie va = decisión tomada y nada que avisar. Con alguien, hasta que se le dice no está hecha.
+    fila["done"] = bool(fila["decided"] and (kind == "NONE" or fila["notified"]))
+    return fila
+
+
+def _escort_notify(session_db, obj) -> tuple[bool, str]:
+    """Le dice a QUIEN VA CON EL ARTISTA que va: por la campanita y por correo si es de la casa, y
+    por correo si es un TERCERO. Devuelve `(salió, motivo)`.
+
+    ⚠️ Con eso la tarea queda HECHA (`escort_notified_at`): decidir quién va y decírselo son dos
+    cosas, y lo que cierra la tarea es lo segundo.
+    ⚠️ Si el aviso NO sale, **no se marca**: una tarea que dice «avisado» sin que nadie se haya
+    enterado es peor que una pendiente."""
+    est = _escort_state(session_db, obj)
+    if est["kind"] == "NONE":
+        return False, "No va nadie con el artista: no hay a quién avisar."
+    if not est["can_notify"]:
+        return False, ("%s no tiene correo en su ficha: díselo tú y márcalo como avisado."
+                       % (est["name"] or "Esa persona"))
+    suj = _escort_subject(session_db, obj)
+    titulo = "Vas con el artista"
+    que = " · ".join([x for x in (suj["what"], suj["artist"]) if x])
+    donde = suj["place"] or suj["title"]
+    cuerpo = ("Vas con %s%s%s." % (suj["artist"] or "el artista",
+                                   (" a %s" % suj["what"].lower()) if suj["what"] else "",
+                                   (" el %s" % suj["when_label"]) if suj["when"] else ""))
+    if donde:
+        cuerpo += " %s." % donde
+    if est["note"]:
+        cuerpo += " %s" % est["note"]
+
+    # ── EL CORREO: el de la casa, con la cabecera de la actividad (o de la promoción) ──
+    try:
+        if suj["kind"] == "concert":
+            email = _notice_email_activity(
+                obj, title=titulo,
+                subject="Vas con %s · %s" % (suj["artist"] or "el artista", suj["when_label"]),
+                intro=cuerpo, button_label="Ver la actividad", button_url=_external_url_for(
+                    "concert_detail_view", cid=obj.id, tab="inicio"),
+                note=est["note"])
+        else:
+            email = _notice_email_promotion(
+                session_db, obj, title=titulo,
+                subject="Vas con %s · %s" % (suj["artist"] or "el artista", suj["when_label"]),
+                intro=cuerpo, button_label="Ver la promoción", button_url=_external_url_for(
+                    "promo_detail_view", promotion_id=obj.id),
+                note=est["note"])
+    except Exception:
+        app.logger.exception("[acompanante] no se pudo componer el correo del aviso")
+        email = None
+
+    salio, motivo = False, ""
+    if est["kind"] == "USER":
+        # De la CASA: la campanita (y el correo, que este kind lo lleva encendido de fábrica).
+        try:
+            salio = _notify_user(session_db, est["user_id"], "ACOMPANANTE", titulo, cuerpo,
+                                 url=suj["url"], ref_type="ESCORT_%s" % suj["kind"].upper(),
+                                 ref_id=str(obj.id), actor_name=suj["artist"],
+                                 actor_photo=suj["artist_photo"], email=email)
+        except Exception:
+            app.logger.exception("[acompanante] no se pudo avisar a la persona de la casa")
+            salio = False
+        if not salio:
+            # ⚠️ `_notify_user` NO avisa a uno mismo. Si quien lo decide ES quien va, la tarea está
+            # hecha igual: ya lo sabe. Cualquier otro False sí es un fallo.
+            yo = str((_current_user_state() or {}).get("user_id") or "")
+            if yo and yo == str(est["user_id"]):
+                salio, motivo = True, ""
+            else:
+                motivo = "No se pudo dejar el aviso."
+    else:
+        # Un TERCERO no tiene usuario: solo correo. ⚠️ El dict de `_notice_email_*` NO trae el HTML
+        # hecho (son los datos de la cabecera): lo compone `_notice_email_html`, el punto único.
+        datos = dict(email or {})
+        asunto = (datos.pop("subject", "") or titulo).strip()
+        datos.pop("html", None)
+        datos.pop("text", None)
+        try:
+            html = _notice_email_html(**datos) if datos else ("<p>%s</p>" % escape(cuerpo))
+        except Exception:
+            app.logger.exception("[acompanante] no se pudo pintar el correo del tercero")
+            html = "<p>%s</p>" % escape(cuerpo)
+        ok, err = _send_optional_email(est["email"], asunto, html)
+        salio = bool(ok)
+        motivo = "" if ok else (err or "No se pudo enviar el correo.")
+
+    if salio:
+        obj.escort_notified_at = _now_madrid()
+        obj.escort_notified_by_nick = (_current_user_state().get("nick") or "").strip() or None
+    return salio, motivo
+
+
+def _escort_applies(concert) -> bool:
+    """¿A esta ACTIVIDAD se le pide decir quién va con el artista?
+
+    Solo las promocionales (`ESCORT_ACTIVITY_TYPES`): en un concierto quien va es el personal de la
+    hoja de ruta (varios), no una persona. Nunca en lo cancelado ni en el histórico, y no se reclama
+    de algo que ya ha pasado (si no se dijo entonces, ya no sirve de nada)."""
+    if concert is None:
+        return False
+    if _activity_kind_key(getattr(concert, "activity_type", None)) not in ESCORT_ACTIVITY_TYPES:
+        return False
+    if (getattr(concert, "status", None) or "").strip().upper() in CONCERT_PROCESS_STATUSES:
+        return False
+    if _concert_is_legacy(concert):
+        return False
+    fin = getattr(concert, "end_date", None) or getattr(concert, "date", None)
+    return not (fin and fin < today_local())
+
+
 def _promo_escort_label(session_db, promotion) -> dict:
-    """Quién acompaña al artista: nadie, alguien de la oficina o un tercero."""
-    kind = (getattr(promotion, "escort_kind", None) or "NONE").strip().upper()
-    note = (getattr(promotion, "escort_note", None) or "").strip()
-    if kind == "USER" and getattr(promotion, "escort_user_id", None):
-        prof = session_db.query(UserProfile).filter(UserProfile.user_id == promotion.escort_user_id).first()
-        user = session_db.get(User, promotion.escort_user_id)
-        name = (getattr(prof, "nick", None) or getattr(user, "email", None) or "").strip()
-        return {"kind": kind, "name": name or "Alguien de la oficina", "note": note,
-                "photo_url": (getattr(prof, "photo_url", None) or "").strip(), "icon": "fa-user-tie"}
-    if kind == "PROMOTER" and getattr(promotion, "escort_promoter_id", None):
-        pr = session_db.get(Promoter, promotion.escort_promoter_id)
-        name = (getattr(pr, "nick", None) or "").strip() or " ".join(
-            filter(None, [getattr(pr, "first_name", None), getattr(pr, "last_name", None)])).strip()
-        return {"kind": kind, "name": name or "Tercero", "note": note,
-                "photo_url": (getattr(pr, "logo_url", None) or "").strip(), "icon": "fa-user"}
-    return {"kind": "NONE", "name": "No acompaña nadie", "note": note, "photo_url": "", "icon": "fa-user-slash"}
+    """Quién acompaña al artista de una PROMOCIÓN (alias del punto único `_escort_state`).
+
+    Se conserva el nombre porque es lo que lee la ficha de la promoción (`escort` en su contexto)."""
+    return _escort_state(session_db, promotion)
 
 
 def _promo_activity_row(activity, *, song_title_map=None, media=None) -> dict:
@@ -92651,21 +92960,91 @@ def promo_create():
         session_db.close()
 
 
-def _promo_apply_escort_form(session_db, promotion, form) -> None:
-    """Quién acompaña al artista: nadie, alguien de la oficina o un tercero."""
+def _escort_apply_form(session_db, obj, form) -> dict:
+    """Guarda QUIÉN VA CON EL ARTISTA (vale para una actividad y para una promoción).
+
+    Devuelve `{"changed": bool}`: si CAMBIA de persona, el aviso anterior deja de valer y hay que
+    volver a decírselo (es otra persona la que va).
+    ⚠️ Sella `escort_decided_at`: decir «no acompaña nadie» también es una decisión, y sin ese sello
+    la tarea seguiría pendiente para siempre."""
     kind = (form.get("escort_kind") or "NONE").strip().upper()
-    if kind not in {"NONE", "USER", "PROMOTER"}:
+    if kind not in ESCORT_KIND_LABELS:
         kind = "NONE"
-    promotion.escort_kind = kind
+    antes = (str(getattr(obj, "escort_kind", "") or ""),
+             str(getattr(obj, "escort_user_id", "") or ""),
+             str(getattr(obj, "escort_promoter_id", "") or ""))
+    obj.escort_kind = kind
     user_raw = (form.get("escort_user_id") or "").strip()
     promoter_raw = (form.get("escort_promoter_id") or "").strip()
-    promotion.escort_user_id = to_uuid(user_raw) if (kind == "USER" and user_raw) else None
-    promotion.escort_promoter_id = to_uuid(promoter_raw) if (kind == "PROMOTER" and promoter_raw) else None
-    promotion.escort_note = (form.get("escort_note") or "").strip() or None
-    if kind == "USER" and not promotion.escort_user_id:
-        promotion.escort_kind = "NONE"
-    if kind == "PROMOTER" and not promotion.escort_promoter_id:
-        promotion.escort_kind = "NONE"
+    obj.escort_user_id = to_uuid(user_raw) if (kind == "USER" and user_raw) else None
+    obj.escort_promoter_id = to_uuid(promoter_raw) if (kind == "PROMOTER" and promoter_raw) else None
+    obj.escort_note = (form.get("escort_note") or "").strip() or None
+    # Se ha elegido «alguien» pero no se ha dicho quién: no vale como decisión.
+    if kind == "USER" and not obj.escort_user_id:
+        obj.escort_kind = "NONE"
+    if kind == "PROMOTER" and not obj.escort_promoter_id:
+        obj.escort_kind = "NONE"
+    ahora = (str(obj.escort_kind or ""), str(obj.escort_user_id or ""), str(obj.escort_promoter_id or ""))
+    cambio = antes != ahora
+    if cambio or getattr(obj, "escort_decided_at", None) is None:
+        obj.escort_decided_at = _now_madrid()
+        obj.escort_decided_by_nick = (_current_user_state().get("nick") or "").strip() or None
+    if cambio:
+        # ⚠️ Va OTRA persona: el aviso que se mandó ya no vale.
+        obj.escort_notified_at = None
+        obj.escort_notified_by_nick = None
+    return {"changed": cambio}
+
+
+def _promo_apply_escort_form(session_db, promotion, form) -> None:
+    """Alias del punto único (lo llama el guardado de «Datos» de la ficha de la promoción)."""
+    _escort_apply_form(session_db, promotion, form)
+
+
+def _escort_subject(session_db, obj) -> dict:
+    """De QUÉ se le avisa: el artista, qué es, cuándo y dónde, y su foto. Vale para los dos tipos.
+
+    Punto único de «cómo se llama esto» para el aviso, el correo y las tareas: así la campanita, el
+    correo y el módulo de Inicio dicen lo MISMO.
+    ⚠️ El lugar va en el formato ÚNICO de la casa (`_place_label`: «Recinto · Municipio, Provincia»).
+    ⚠️ `url` se compone con `url_for`, que revienta fuera de una petición (un cron, un hilo): va
+    protegido, porque el aviso se manda también desde un barrido."""
+    def _url(endpoint, **kw):
+        try:
+            return url_for(endpoint, **kw)
+        except Exception:
+            return ""
+
+    if isinstance(obj, Concert):
+        art = getattr(obj, "artist", None)
+        if art is None and getattr(obj, "artist_id", None):
+            art = session_db.get(Artist, obj.artist_id)
+        cuando = getattr(obj, "date", None)
+        return {
+            "kind": "concert", "id": str(obj.id),
+            "artist": (getattr(art, "name", "") or "").strip(),
+            "artist_photo": (getattr(art, "photo_url", "") or "").strip(),
+            "what": _activity_kind_label(_activity_kind_key(getattr(obj, "activity_type", None))),
+            "title": (getattr(obj, "festival_name", None) or "").strip(),
+            "when": cuando,
+            "when_label": (cuando.strftime("%d/%m/%Y") if cuando else "Sin fecha"),
+            "place": _place_label(_concert_city(obj) or "", _concert_province_value(obj) or "",
+                                  venue=(_concert_venue_name(obj) or "")),
+            "url": _url("concert_detail_view", cid=obj.id, tab="inicio"),
+        }
+    artistas = _artists_from_ids(session_db, _promotion_normalized_artist_ids(
+        getattr(obj, "artist_ids", None) or []))
+    cuando = getattr(obj, "starts_on", None) or getattr(obj, "target_date", None)
+    return {
+        "kind": "promotion", "id": str(obj.id),
+        "artist": _artist_label_from_rows(artistas),
+        "artist_photo": ((getattr(artistas[0], "photo_url", None) or "") if artistas else ""),
+        "what": "Promoción", "title": _promo_title(obj),
+        "when": cuando,
+        "when_label": (cuando.strftime("%d/%m/%Y") if cuando else "Sin fecha"),
+        "place": "",
+        "url": _url("promo_detail_view", promotion_id=obj.id),
+    }
 
 
 @app.get("/promocion-prensa/<promotion_id>", endpoint="promo_detail_view")
@@ -92724,6 +93103,12 @@ def promo_detail_view(promotion_id):
             plan_days=_promo_plan_days(promotion, activities),
             artist_rows=artist_rows,
             escort=_promo_escort_label(session_db, promotion),
+            # QUIÉN VA CON EL ARTISTA: lo asigna quien lleva la producción de la promoción (o
+            # promoción misma si no lleva producción). El pop-up es el MISMO de una actividad.
+            escort_can_edit=_escort_can_edit(session_db, promotion),
+            escort_kinds=ESCORT_KINDS,
+            escort_office_people=_office_people(session_db),
+            escort_save_url=url_for("promo_escort_save", promotion_id=promotion.id),
             song_options=song_options,
             invoices=invoices,
             media_outlets=session_db.query(MediaOutlet).order_by(MediaOutlet.media_type.asc(), MediaOutlet.name.asc()).all(),
@@ -92750,8 +93135,10 @@ def promo_detail_view(promotion_id):
         session_db.close()
 
 
-def _promo_office_people(session_db) -> list[dict]:
-    """Personal ACTUAL de la oficina, para elegir quién acompaña al artista."""
+def _office_people(session_db) -> list[dict]:
+    """Personal ACTUAL de la oficina (para elegir quién acompaña al artista, aquí y en la ficha de
+    una actividad). ⚠️ Solo el personal de VERDAD: `_inactive_user_ids` deja fuera a los bloqueados
+    y a los eliminados (y a los usuarios espejo de un productor externo)."""
     fuera = _inactive_user_ids(session_db)
     rows = (session_db.query(User, UserProfile)
             .join(UserProfile, UserProfile.user_id == User.id)
@@ -92759,6 +93146,11 @@ def _promo_office_people(session_db) -> list[dict]:
     return [{"id": str(u.id), "name": (prof.nick or u.email or "").strip(),
              "photo_url": (getattr(prof, "photo_url", "") or "")}
             for u, prof in rows if u.id not in fuera]
+
+
+def _promo_office_people(session_db) -> list[dict]:
+    """Alias del punto único (lo llaman la ficha de la promoción y su asistente)."""
+    return _office_people(session_db)
 
 
 @app.post("/promocion-prensa/<promotion_id>/datos", endpoint="promo_update")
@@ -126175,6 +126567,8 @@ def push_test():
 NOTIFICATION_KIND_META = {
     "TAREA": ("Nueva tarea pendiente", "fa-list-check"),
     "PRODUCCION": ("Nueva producción asignada", "fa-user-gear"),
+    # ⚠️ Distinto de PRODUCCION: ese es «te encargas de producirlo» y este «vas TÚ con el artista».
+    "ACOMPANANTE": ("Vas con el artista", "fa-user-group"),
     "DISENO": ("Nueva solicitud de diseño", "fa-palette"),
     "ADMIN_PETICION": ("Nueva petición para administración", "fa-inbox"),
     # Una PETICIÓN de actividad: le sale a contratación (que da el ok), al jefe de producto de ese
@@ -126280,6 +126674,8 @@ NOTICE_CHANNELS_SETTING = "notification_channels_v1"
 # Cuándo salta cada aviso (se explica en la pantalla de configuración: un interruptor sin saber qué
 # apaga no se toca nunca).
 NOTIFICATION_KIND_HELP = {
+    "ACOMPANANTE": ("Cuando producción decide quién va con el artista a un evento promocional o a "
+                    "una promoción, se le avisa a esa persona."),
     "PRODUCCION": "Cuando a alguien se le asigna la producción de un concierto, una actividad, "
                   "una promoción o un proyecto discográfico.",
     "DISENO": "Cuando se le encarga algo al departamento de Diseño (cartelería, portadas, "
@@ -126311,12 +126707,16 @@ NOTIFICATION_KIND_HELP = {
 # VALORES DE FÁBRICA. Por la app, todo. Por correo, solo lo que es «te acaban de asignar algo»
 # (que es la regla de arriba). Por SMS, nada: cada mensaje cuesta dinero y se enciende a mano.
 NOTICE_EMAIL_DEFAULT_KINDS = {"PRODUCCION", "DISENO", "VACACIONES", "ADMIN_BOLSA",
+                              # «Vas TÚ con el artista» es de las cosas que hay que saber sin
+                              # entrar en la app: es la regla de la casa (por correo, lo que te
+                              # ENTRA por primera vez).
+                              "ACOMPANANTE",
                               "VENTAS_ACTUALIZAR", "PETICION"}
 
 
 def _notice_kind_catalog() -> list[dict]:
     """Todos los tipos de aviso internos de la app, en el orden en que se configuran."""
-    orden = ["PRODUCCION", "DISENO", "PETICION", "ADMIN_BOLSA", "ADMIN_PETICION", "REMESA", "VACACIONES",
+    orden = ["PRODUCCION", "ACOMPANANTE", "DISENO", "PETICION", "ADMIN_BOLSA", "ADMIN_PETICION", "REMESA", "VACACIONES",
              "VENTA", "VENTAS_ACTUALIZAR", "CONTABILIDAD", "REGISTROS", "MATERIALES",
              "FECHA_LANZAMIENTO", "PITCH",
              "DEMO", "DISCOGRAFICA", "AGENDA", "TAREA"]
@@ -143213,6 +143613,91 @@ def _home_disco_logistics(limit: int = 12) -> list[dict]:
         return []
     finally:
         session_db.close()
+
+
+def _home_escort_pending(limit: int = 12) -> list[dict]:
+    """«CONFIRMA QUIÉN VA CON EL ARTISTA» · lo que le espera a QUIEN LLEVA LA PRODUCCIÓN.
+
+    Le sale a la persona de producción del evento (y a dirección / a quien pueda editar producción,
+    que es quien reparte): las actividades PROMOCIONALES y las promociones suyas en las que todavía
+    no se ha dicho quién va con el artista —o se ha dicho y falta avisarle—.
+    ⚠️ Se le pide por su NOMBRE, así que va en el bloque de LO SUYO de Inicio: no depende de ningún
+    permiso de sección.
+    ⚠️ Una actividad SIN responsable de producción no sale: antes está la tarea de activarla, y esto
+    lo decide esa persona. Una PROMOCIÓN sin producción tampoco (no hay a quién reclamárselo por su
+    nombre): se ve y se decide en su ficha, que es donde la gestiona promoción.
+    ⚠️⚠️ SOLO LO ASIGNADO: **dirección** lo ve todo (es quien reparte), pero a quien es de producción
+    se le enseña LO SUYO, no el trabajo de todo el departamento — con `has_access_key('produccion')`
+    su módulo de Inicio se llenaba de las actividades de los demás (la misma regla que
+    `_home_produccion_pending`)."""
+    uid = session.get("user_id")
+    if not uid:
+        return []
+    s = db()
+    try:
+        yo = to_uuid(uid)
+        # ⚠️ El rol lo manda la BD (`_current_user_state`), no la sesión.
+        todo = (_current_user_state() or {}).get("role") == 10
+        out = []
+
+        # ── ACTIVIDADES promocionales ──
+        q = (s.query(Concert)
+             .options(joinedload(Concert.artist), joinedload(Concert.venue))
+             .filter(func.upper(func.coalesce(Concert.activity_type, "")).in_(
+                 [t.upper() for t in ESCORT_ACTIVITY_TYPES]))
+             .filter(Concert.production_owner_user_id.isnot(None))
+             .filter(or_(Concert.date.is_(None), Concert.date >= today_local())))
+        if not todo:
+            q = q.filter(Concert.production_owner_user_id == yo)
+        for c in q.order_by(Concert.date.asc().nullslast()).limit(80).all():
+            if not _escort_applies(c):
+                continue
+            est = _escort_state(s, c)
+            if est["done"]:
+                continue
+            suj = _escort_subject(s, c)
+            out.append({
+                "id": str(c.id), "kind": "concert",
+                "artist_name": suj["artist"], "artist_photo": suj["artist_photo"],
+                "what": suj["what"], "title": suj["title"] or suj["place"],
+                "date_label": suj["when_label"], "place": suj["place"],
+                "state": est, "url": suj["url"],
+            })
+            if len(out) >= limit:
+                return out
+
+        # ── PROMOCIONES de prensa ──
+        pq = (s.query(Promotion)
+              .filter(func.upper(func.coalesce(Promotion.kind, "MARKETING")) == PROMO_KIND)
+              .filter(func.upper(func.coalesce(Promotion.status, "ACTIVE")) == "ACTIVE"))
+        if not todo:
+            pq = pq.filter(Promotion.production_owner_user_id == yo)
+        else:
+            # Dirección: las que tienen a alguien produciéndolas (las demás no son de nadie todavía).
+            pq = pq.filter(Promotion.production_owner_user_id.isnot(None))
+        for promo in pq.order_by(Promotion.starts_on.asc().nullslast()).limit(60).all():
+            fin = _promo_last_day(promo)
+            if fin and fin < today_local():
+                continue                      # ya pasó: avisar a alguien de que va no sirve de nada
+            est = _escort_state(s, promo)
+            if est["done"]:
+                continue
+            suj = _escort_subject(s, promo)
+            out.append({
+                "id": str(promo.id), "kind": "promotion",
+                "artist_name": suj["artist"], "artist_photo": suj["artist_photo"],
+                "what": suj["what"], "title": suj["title"],
+                "date_label": suj["when_label"], "place": "",
+                "state": est, "url": suj["url"],
+            })
+            if len(out) >= limit:
+                break
+        return out
+    except Exception:
+        app.logger.exception("[acompanante] no se pudo montar el módulo de Inicio")
+        return []
+    finally:
+        s.close()
 
 
 def _home_bag_close_pending(limit: int = 12) -> list[dict]:

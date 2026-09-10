@@ -372,7 +372,8 @@
                  tiene nadie asignada (la hace quien llegue), así que su control no cuelga de
                  `t.mine`. Según lo que sea: su pop-up, un enlace a donde se hace, o el MISMO control
                  que la cabecera (la etiqueta de estado, la del anuncio, activar la venta). #}
-              {% set _t_puede = (CAN_SET_ONSALE if t.perm == 'onsale' else CAN_EDIT_CONCERTS) %}
+              {% set _t_puede = (CAN_SET_ONSALE if t.perm == 'onsale'
+                                 else (escort_can_edit if t.perm == 'escort' else CAN_EDIT_CONCERTS)) %}
               {% if t.state != 'done' and _t_puede %}
                 {% if t.modal %}
                   <button class="btn btn-sm btn-warning" type="button"
@@ -472,6 +473,10 @@
         {% endfor %}
       </div>
     </div>
+
+    {# QUIÉN VA CON EL ARTISTA: el módulo (se ve siempre, hecha o no la tarea) y su pop-up. Solo en
+       las actividades donde se pregunta (`_escort_applies`: las promocionales). #}
+    {% if escort_applies %}{% include '_escort_modal.html' %}{% endif %}
 
     {% include '_ticketing_contact_modal.html' %}
 

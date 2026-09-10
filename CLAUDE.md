@@ -11630,6 +11630,71 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Probado con la app real en los TRES caminos: al elegir «Calle Larga» queda `address='Calle Larga'`
   · `postal_code='11579'` · `Jerez de la Frontera` · `Cádiz` · `España`, y así se guarda.
 
+- ⚠️⚠️ **QUIÉN VA CON EL ARTISTA · en un EVENTO PROMOCIONAL y en una PROMOCIÓN** (sep 2026). Hay
+  que decir quién acompaña al artista **y decírselo a esa persona**, y **lo asigna LA PERSONA DE
+  PRODUCCIÓN** que hace el evento (en una promoción sin producción, promoción misma).
+  · **PUNTO ÚNICO para las dos cosas**: `Concert` y `Promotion` tienen los MISMOS campos
+  (`escort_kind` NONE|USER|PROMOTER · `escort_user_id` · `escort_promoter_id` · `escort_note` + sus
+  sellos), así que **`_escort_state`** · **`_escort_apply_form`** · **`_escort_notify`** ·
+  **`_escort_subject`** · **`_escort_can_edit`** funcionan con cualquiera de los dos y el pop-up es
+  el MISMO parcial (`_escort_modal.html`). `_promo_escort_label` / `_promo_apply_escort_form` se
+  conservan como alias (es lo que lee la ficha de la promoción).
+  ⚠️⚠️ **DECIDIR y AVISAR son DOS cosas**: `escort_decided_at` (ya se ha dicho quién va) y
+  `escort_notified_at` (ya se le ha dicho A ÉL). **La tarea no está hecha hasta lo segundo** — salvo
+  que **no vaya NADIE** (`NONE`), que también es una decisión tomada y no hay a quién avisar. Sin el
+  sello de «decidido», «no acompaña nadie» no se distinguiría de «nadie lo ha tocado» y la tarea
+  quedaría pendiente para siempre.
+  ⚠️ **Si el aviso NO sale, NO se marca**: una tarea que dice «avisado» sin que nadie se haya
+  enterado es peor que una pendiente. Un TERCERO **sin correo** en su ficha se dice y se ofrece
+  **«Guardar · ya se lo he dicho»** (se ha hablado por teléfono), que es el patrón de la casa.
+  ⚠️ **Cambiar de persona invalida el aviso** (`_escort_apply_form` devuelve `changed`): va otra
+  persona, así que hay que volver a decírselo.
+  · **A QUIÉN se avisa y cómo**: de la casa → la **campanita** y el correo (kind nuevo
+  **`ACOMPANANTE`**, «Vas con el artista», que nace ENCENDIDO por correo en
+  `NOTICE_EMAIL_DEFAULT_KINDS`); un TERCERO → **solo correo** (no tiene usuario), con el mismo
+  esqueleto de la casa (`_notice_email_activity` / `_notice_email_promotion`).
+  ⚠️ **`_notify_user` NO avisa a uno mismo**: si quien lo decide ES quien va, la tarea queda hecha
+  igual (ya lo sabe); cualquier otro False sí es un fallo. Y el dict de `_notice_email_*` **no trae
+  el HTML hecho** (son los datos de la cabecera): lo pinta `_notice_email_html`.
+  · **DÓNDE SE VE**: la tarea en la pestaña **«Inicio»** de la actividad (área PRODUCCIÓN, con su
+  pop-up) · el **módulo** que dice quién va (se ve siempre, hecha o no) en esa pestaña y en la ficha
+  de la promoción · y el módulo de Inicio **`HOME_ESCORT_PENDING`** (`_home_escort_pending`), en el
+  bloque de **LO SUYO** (se le pide por su nombre).
+  ⚠️⚠️ **SOLO LO ASIGNADO**: en ese módulo, quien es de producción ve LO SUYO y **dirección** lo ve
+  todo. Con `has_access_key('produccion')` su Inicio se llenaba del trabajo de los demás (la misma
+  regla que `_home_produccion_pending`), y **el rol lo manda la BD**, no la sesión.
+  ⚠️ **A QUÉ ACTIVIDADES se pregunta**: `ESCORT_ACTIVITY_TYPES` = las PROMOCIONALES
+  (`PROMO_LIKE_ACTIVITY_TYPES`). En un CONCIERTO quien va con el artista es el **personal de la hoja
+  de ruta** (varios), así que ahí no se reclama; y nunca en lo cancelado, en el histórico ni en algo
+  que ya ha pasado (avisar de que vas a algo que fue no sirve de nada). Si mañana hace falta en los
+  ensayos o en las discográficas, se añade AHÍ y sale solo.
+  ⚠️ Sale **BLOQUEADA** mientras la actividad no tenga responsable de producción: es esa persona
+  quien lo decide (antes está la tarea de «Activar producción»). Para eso `suelta(...)` acepta ya
+  `blocked`/`blocked_reason`.
+  ⚠️⚠️ **`concert_escort_save` y `promo_escort_save` van en `REQUEST_ANY_ENDPOINTS`**, no en
+  `SUPPORT_ACTION_ENDPOINTS`: ese exige ser «actor» (poder editar alguna sección) y a la persona de
+  producción se le **comía un 403 en su propia tarea** (comprobado); y la ruta `/conciertos/…`
+  resuelve a `contratacion.conciertos` con edición, que producción tampoco tiene. La puerta fina la
+  pone **`_escort_can_edit`** DENTRO.
+  ⚠️ **`_office_people`** es el punto único del personal de la oficina para elegir acompañante
+  (antes se llamaba `_promo_office_people`, que hacía pensar que era solo de promoción).
+
+- ⚠️⚠️ **UN `data-edit-toggle` SIN VALOR SOLO ABRE EL FORMULARIO DE SU `.ficha-section`** (bug real,
+  sep 2026): el lápiz **«Editar los datos» de la ficha del ARTISTA no hacía nada**. Estaba en la
+  CABECERA (`ficha-hero__actions`), fuera de cualquier sección, así que `closest('.ficha-section')`
+  daba null y no había formulario que abrir — y, además, ese formulario vive en la pestaña «Datos» y
+  desde otra pestaña **ni existe en el DOM**.
+  · La solución es el patrón nuevo **`?editar=<id del formulario>`**: el botón de una cabecera es un
+  **ENLACE** a su pestaña con ese parámetro y `ficha_inline.js` abre el formulario al cargar. Es
+  genérico (sirve para cualquier ficha), como el `?open=` que abre un modal.
+  ⚠️ **El detector lo caza**: `tools/check_botones.py` avisa de un `data-edit-toggle` vacío sin
+  `[data-section-form]` en su sección (comprobado con el bug original puesto otra vez). Ojo al
+  escribir esa regla: «ficha-section» casa también con `ficha-section__head` / `__body` / `__title`,
+  así que hay que buscar la CLASE (`ficha-section(?![-_\w])`) o salen falsos positivos en cada
+  sección de la ficha de una actividad.
+  · Y al cambiar la FOTO se ve **la que hay ahora**: cambiarla a ciegas es lo que hace dudar de si
+  se ha cambiado.
+
 - ⚠️⚠️ **SYNCROS · LOS TEMAS SALEN DESDE EL BUZÓN DE SINCRONIZACIONES, Y CON TODO LO QUE HACE QUE
   LLEGUEN** (sep 2026). Un tema para sincronización se lo manda una casa de discos a un
   **supervisor de fuera**, así que no puede salir con el remitente de la app: para Gmail y Outlook,

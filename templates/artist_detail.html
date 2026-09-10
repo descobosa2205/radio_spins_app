@@ -43,8 +43,13 @@
           <i class="fa fa-pen"></i>
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
-          <li><button class="dropdown-item" type="button" data-edit-toggle data-view="[data-section-view]">
-            <i class="fa fa-id-card fa-fw me-2"></i>Editar los datos</button></li>
+          {# ⚠️ Es un ENLACE a la pestaña «Datos» con el formulario ya abierto (`?editar=`), no un
+             `data-edit-toggle`: este botón está en la CABECERA, fuera de la `.ficha-section`, así que
+             el toggle no encontraba ningún formulario que abrir —y desde otra pestaña ese formulario
+             ni existe en el DOM—. El resultado era que «Editar los datos» no hacía nada. #}
+          <li><a class="dropdown-item"
+                 href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos', editar='artistDatosForm') }}">
+            <i class="fa fa-id-card fa-fw me-2"></i>Editar los datos</a></li>
           <li><hr class="dropdown-divider"></li>
           <li>
             <form method="post" action="{{ url_for('artist_delete', artist_id=artist.id) }}"
@@ -233,7 +238,7 @@
           </div>
         </div>
         {% if CAN_EDIT_ARTISTS_STATIONS %}
-        <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('artist_update', artist_id=artist.id) }}" enctype="multipart/form-data" data-inline data-inline-target="#artist-datos-zone">
+        <form id="artistDatosForm" class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('artist_update', artist_id=artist.id) }}" enctype="multipart/form-data" data-inline data-inline-target="#artist-datos-zone">
           <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
           <div class="row g-2">
             <div class="col-12">
@@ -268,7 +273,12 @@
             </div>
             <div class="col-12">
               <label class="form-label">Foto</label>
-              <input type="file" name="photo" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.heic,.heif" class="form-control">
+              <div class="d-flex align-items-center gap-2">
+                {# La foto que hay AHORA: cambiarla a ciegas es lo que hace dudar de si se cambió. #}
+                <img src="{{ artist.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1"
+                     style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
+                <input type="file" name="photo" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.heic,.heif" class="form-control">
+              </div>
             </div>
           </div>
           <div class="d-flex justify-content-end gap-2 mt-3">

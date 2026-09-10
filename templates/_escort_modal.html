@@ -1,0 +1,120 @@
+{# ============================================================================
+   QUIÉN VA CON EL ARTISTA · el pop-up y el módulo que lo enseña.
+   Vale para una ACTIVIDAD y para una PROMOCIÓN: lo único que cambia es `escort_save_url`, así que
+   no hay dos versiones que se desparejen.
+   ⚠️ Lo asigna LA PERSONA DE PRODUCCIÓN que hace el evento (`escort_can_edit`).
+   ⚠️⚠️ Decidir quién va y AVISARLE son dos cosas: el botón principal guarda **y se lo dice**; el
+   secundario («ya se lo he dicho») lo marca sin mandar nada, para cuando se ha hablado por
+   teléfono. La tarea no está hecha hasta una de las dos.
+   Se espera en el contexto: `escort` (de `_escort_state`), `escort_kinds`, `escort_office_people`,
+   `escort_can_edit`, `escort_save_url` y `third_parties`.
+   ============================================================================ #}
+{% if escort %}
+<div class="card mt-3" data-escort-card>
+  <div class="card-header bg-white d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <strong><i class="fa fa-user-group me-2 text-muted"></i>Quién va con el artista</strong>
+    {% if escort.done %}
+      <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Confirmado</span>
+    {% elif escort.decided %}
+      <span class="badge text-bg-warning text-dark">Falta avisarle</span>
+    {% else %}
+      <span class="badge text-bg-warning text-dark">Sin confirmar</span>
+    {% endif %}
+  </div>
+  <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+    <span class="ficha-hero__media" style="flex:0 0 auto;">
+      {% if escort.photo_url %}
+        <img src="{{ escort.photo_url }}" alt="" data-avatar="1"
+             style="width:48px;height:48px;border-radius:50%;object-fit:cover;">
+      {% else %}
+        <span class="oa-row__icon"><i class="fa {{ escort.icon }} fa-lg text-muted"></i></span>
+      {% endif %}
+    </span>
+    <span class="flex-grow-1" style="min-width:12rem;">
+      <span class="fw-semibold">{{ escort.name }}</span>
+      <span class="d-block small text-muted">
+        {{ escort.kind_label }}{% if escort.note %} · {{ escort.note }}{% endif %}
+        {%- if escort.notified %} · avisado{% if escort.notified_by %} por {{ escort.notified_by }}{% endif %}
+        {%- elif escort.decided and escort.kind != 'NONE' %} · <span class="text-warning-emphasis">todavía no lo sabe</span>
+        {%- elif not escort.decided %} · lo decide quien lleva la producción{% endif %}
+      </span>
+    </span>
+    {% if escort_can_edit %}
+      <button class="btn btn-sm {{ 'btn-outline-secondary' if escort.done else 'btn-warning' }}" type="button"
+              data-bs-toggle="modal" data-bs-target="#escortModal">
+        <i class="fa fa-user-group me-1"></i>{{ 'Cambiarlo' if escort.decided else 'Confirmarlo' }}</button>
+    {% endif %}
+  </div>
+</div>
+
+{% if escort_can_edit %}
+<div class="modal fade" id="escortModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{{ escort_save_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-user-group me-2"></i>¿Quién va con el artista?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for value, label, icon in escort_kinds %}
+              <label class="promo-pick visual-choice-card">
+                <input type="radio" name="escort_kind" value="{{ value }}" data-escort-kind
+                       {% if escort.kind == value %}checked{% endif %}>
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+
+          {# Alguien de la EMPRESA #}
+          <div class="mt-3 {% if escort.kind != 'USER' %}d-none{% endif %}" data-escort-panel="USER">
+            <label class="form-label small mb-1">¿Quién?</label>
+            <select class="form-select" name="escort_user_id">
+              <option value="">Elige a la persona…</option>
+              {% for p in escort_office_people %}
+                <option value="{{ p.id }}" {% if escort.user_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Le llega el aviso en la app y por correo.</div>
+          </div>
+
+          {# Un TERCERO (con su logo y el «+» para crearlo al vuelo) #}
+          <div class="mt-3 {% if escort.kind != 'PROMOTER' %}d-none{% endif %}" data-escort-panel="PROMOTER">
+            <label class="form-label small mb-1">¿Quién?</label>
+            <div class="d-flex gap-2 align-items-start">
+              <select class="form-select select-providers" name="escort_promoter_id" id="escortPromoter">
+                <option value="">Elige el tercero…</option>
+                {% for p in (third_parties or []) %}
+                  <option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}"
+                          {% if escort.promoter_id == p.id|string %}selected{% endif %}>{{ p.nick or p.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter"
+                      data-target="escortPromoter" title="Crear el tercero"><i class="fa fa-plus"></i></button>
+            </div>
+            <div class="form-text">Se le avisa por correo. Si no tiene correo en su ficha, se dice y lo marcas a mano.</div>
+          </div>
+
+          <div class="mt-3">
+            <label class="form-label small mb-1">Nota (opcional)</label>
+            <input class="form-control" name="escort_note" value="{{ escort.note or '' }}"
+                   placeholder="Va y vuelve el mismo día, recoge al artista en el hotel…">
+          </div>
+        </div>
+        <div class="modal-footer flex-wrap">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          {# Secundario: se ha hablado por teléfono y no hay que mandar nada. #}
+          <button class="btn btn-outline-warning" name="no_notify" value="1">
+            <i class="fa fa-check me-1"></i>Guardar · ya se lo he dicho</button>
+          <button class="btn btn-primary">
+            <i class="fa fa-paper-plane me-1"></i>Guardar y avisarle</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endif %}

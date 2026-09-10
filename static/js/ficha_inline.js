@@ -82,6 +82,25 @@
     setEditOnly(form, false);
   }
 
+  // ⚠️⚠️ ABRIR UN FORMULARIO AL LLEGAR (`?editar=<id del form>`): un botón de la CABECERA de una
+  // ficha no puede abrir el formulario de una sección con `data-edit-toggle` a secas —está FUERA de
+  // su `.ficha-section`, así que no hay nada que encontrar— y, además, esa sección puede vivir en
+  // OTRA pestaña y no estar todavía en el DOM (el lápiz de la ficha del artista: no hacía nada).
+  // Con esto el botón es un ENLACE a su pestaña y el formulario se abre solo al cargar.
+  function abrePorUrl() {
+    var id = '';
+    try { id = (new URLSearchParams(window.location.search)).get('editar') || ''; } catch (e) { return; }
+    id = (id || '').trim();
+    if (!id) return;
+    var form = document.getElementById(id) || document.querySelector(id);
+    if (form) show(form);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', abrePorUrl);
+  } else {
+    abrePorUrl();
+  }
+
   document.addEventListener('click', function (e) {
     var t = e.target.closest('[data-edit-toggle]');
     if (t) {

@@ -135,8 +135,12 @@
           {% if promo_media_label %}<div><dt class="psum-k">Medio</dt><dd class="psum-v"><i class="fa fa-tower-broadcast me-1 text-muted"></i>{{ promo_media_label }}</dd></div>{% endif %}
           <div><dt class="psum-k">Empresa que factura</dt><dd class="psum-v"><i class="fa fa-building me-1 text-muted"></i>{{ promotion_display.company_label or 'Sin empresa específica' }}</dd></div>
           <div><dt class="psum-k">Acompaña al artista</dt><dd class="psum-v">
-            {% if escort.photo_url %}<img src="{{ escort.photo_url }}" class="artist-avatar-inline me-1" alt="">{% endif %}
+            {% if escort.photo_url %}<img src="{{ escort.photo_url }}" class="artist-avatar-inline me-1" alt="" data-avatar="1">{% endif %}
             {{ escort.name }}{% if escort.note %} · {{ escort.note }}{% endif %}
+            {%- if escort.kind != 'NONE' %}
+              {% if escort.notified %}<span class="badge text-bg-success ms-1"><i class="fa fa-check me-1"></i>Avisado</span>
+              {% else %}<span class="badge text-bg-warning text-dark ms-1">Falta avisarle</span>{% endif %}
+            {%- endif %}
           </dd></div>
           {% if promotion.production_needed %}<div><dt class="psum-k">Producción</dt><dd class="psum-v"><i class="fa fa-user-gear me-1 text-muted"></i>{{ promo_production_owner_name or 'Necesita producción' }}</dd></div>{% endif %}
           {% if promotion.objectives_notes %}<div><dt class="psum-k">Objetivos</dt><dd class="psum-v">{{ promotion.objectives_notes }}</dd></div>{% endif %}
@@ -245,6 +249,11 @@
       </div></div>
     </div>
   </div>
+
+  {# QUIÉN VA CON EL ARTISTA: el MISMO módulo y el MISMO pop-up que en la ficha de una actividad
+     (`_escort_modal.html`), así que se hace igual en los dos sitios. Lo asigna quien lleva la
+     producción de la promoción (o promoción misma, si no lleva producción). #}
+  {% include '_escort_modal.html' %}
 
 {% elif tab == 'promociones' %}
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">

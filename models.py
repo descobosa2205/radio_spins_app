@@ -1893,6 +1893,33 @@ class DiscoPromoWindow(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class DiscoForecastReport(Base):
+    """UN INFORME DE PREVISIONES que se ha compartido (el cuadro de mando de Discográfica).
+
+    ⚠️⚠️ **NO es una copia congelada: es una VERSIÓN EN VIVO.** Lo único que se guarda es la
+    CONFIGURACIÓN con la que se compartió (qué artistas, desde cuándo y cuántas semanas); los datos
+    —los lanzamientos, la agenda, lo que se ha quitado del calendario— se vuelven a calcular en cada
+    visita, así que el enlace enseña siempre lo que hay ahora.
+    ⚠️ El token es **OPACO** (no firmado): un enlace compartido hace dos años tiene que seguir
+    valiendo (un token firmado a un año ya dio un bug real).
+    ⚠️ Y la configuración vive AQUÍ, no en la URL: la página es pública, así que con los artistas en
+    la query string cualquiera podría cambiarlos y ver los de otro.
+    """
+
+    __tablename__ = "disco_forecast_reports"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    token = Column(Text, nullable=False, unique=True)
+    # `signature` es la huella de la configuración: así, compartir dos veces lo MISMO reutiliza el
+    # enlace en vez de crear uno nuevo cada vez.
+    signature = Column(Text, index=True)
+    settings = Column(JSONB, server_default=text("'{}'::jsonb"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class RadioStationAlias(Base):
     """Nombre de emisora tal cual aparece en los Excel de tocadas (columna 'channel') vinculado a
     una RadioStation. Permite que un enlace manual se recuerde y auto-aplique en importaciones
@@ -13680,6 +13707,20 @@ def ensure_song_radio_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_promo_window_artist ON disco_promo_windows(artist_id);",
         "CREATE INDEX IF NOT EXISTS idx_promo_window_days ON disco_promo_windows(start_date, end_date);",
+        # LOS INFORMES DE PREVISIONES que se comparten (solo la CONFIGURACIÓN: los datos van en vivo).
+        """
+        CREATE TABLE IF NOT EXISTS disco_forecast_reports (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            token text NOT NULL UNIQUE,
+            signature text,
+            settings jsonb DEFAULT '{}'::jsonb,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_forecast_report_sig ON disco_forecast_reports(signature);",
     ], label="ensure_song_radio_schema")
 
 

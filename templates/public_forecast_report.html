@@ -1,0 +1,62 @@
+{# LA PÁGINA DEL INFORME DE PREVISIONES (el enlace que se comparte).
+   ⚠️ EL CONTENIDO ES UNO SOLO (`_forecast_report_html`): esta página, el correo y la vista previa
+   enseñan EXACTAMENTE lo mismo. Si hay que cambiar algo del informe, se cambia ahí.
+   ⚠️ Y NO es una copia congelada: se compone en cada visita con lo que hay AHORA. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ og_title or 'Previsiones' }}</title>
+  {# La previsualización al compartir (WhatsApp, SMS, correo).
+     ⚠️ El og:image:type/width/height NO es decorativo: sin ellos WhatsApp descarta la foto. #}
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="{{ og_title or 'Previsiones' }}">
+  {% if og_description %}<meta property="og:description" content="{{ og_description }}">{% endif %}
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+  {% endif %}
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ og_title or 'Previsiones' }}">
+  {% if og_description %}<meta name="twitter:description" content="{{ og_description }}">{% endif %}
+  {% if og_image_url %}<meta name="twitter:image" content="{{ og_image_url }}">{% endif %}
+  <style>
+    body{margin:0;background:#f5f7fb;color:#111827;font-family:Arial,Helvetica,sans-serif;}
+    .page{max-width:1240px;margin:26px auto;padding:0 14px;}
+    .actions{display:flex;gap:8px;justify-content:flex-end;margin-bottom:12px;flex-wrap:wrap;}
+    .btn{display:inline-block;padding:10px 15px;border-radius:12px;text-decoration:none;font-weight:700;
+         background:#E33D48;color:#fff;border:0;cursor:pointer;font-size:14px;font-family:inherit;}
+    .btn--ghost{background:#fff;color:#374151;border:1px solid #e5e7eb;}
+    .sheet{background:#fff;border:1px solid #e5e7eb;border-radius:22px;box-shadow:0 18px 42px rgba(15,23,42,.08);
+           padding:10px;overflow-x:auto;}
+    @media(max-width:720px){ .sheet{padding:4px;border-radius:14px} }
+    /* Al IMPRIMIR: solo el informe (sin botones, sin sombras y sin fondo). */
+    @media print{
+      body{background:#fff}
+      .page{max-width:none;margin:0;padding:0}
+      .actions{display:none!important}
+      .sheet{border:0;box-shadow:none;border-radius:0;padding:0;overflow:visible}
+      @page{size:landscape;margin:10mm}
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="actions">
+      <button class="btn btn--ghost" type="button" onclick="window.print()">Imprimir</button>
+      <a class="btn" href="{{ pdf_url }}" download>Descargar en PDF</a>
+    </div>
+    <article class="sheet">{{ report_html|safe }}</article>
+  </main>
+  {# «Imprimir» desde la app abre esta página con `?print=1`: así se imprime SOLO el informe y no
+     el back office entero. #}
+  <script>
+    if (location.search.indexOf('print=1') >= 0) {
+      window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 500); });
+    }
+  </script>
+</body>
+</html>

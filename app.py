@@ -174,6 +174,7 @@ from models import (
     SongDemo,
     SongRadioPitch,
     DiscoPromoWindow,
+    DiscoForecastReport,
     DiscoApproval,
     DiscoApprovalVoter,
     SongDemoAuthor,
@@ -474,7 +475,7 @@ if CALDAV_ONLY:
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
 # el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
-_CSRF_EXEMPT_ENDPOINTS = {"public_activity_notice_respond", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
+_CSRF_EXEMPT_ENDPOINTS = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_activity_notice_respond", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_artwork_dims", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", 
     "concert_artwork_public_upload",
     # LA BAJA DE PUBLICIDAD de un comprador: el POST llega del propio cliente de correo (un clic).
     "public_buyer_unsubscribe",
@@ -903,7 +904,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -27024,6 +27025,20 @@ FORECAST_MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio
 FORECAST_WEEKDAYS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
 
+def _forecast_item_name(artista: str, title: str, sub: str = "") -> str:
+    """CÓMO SE LLAMA un hito en la fila de SU artista.
+
+    ⚠️ Repetir ahí el nombre del artista no dice nada: cuando lo único que la agenda sabe de una
+    actividad es eso (ni festival ni municipio, que es el último recurso de `_agenda_build`), manda
+    **el sitio**; y si tampoco hay, se deja vacío y habla la etiqueta de QUÉ es.
+    Punto único: lo usan el detalle por artista y el cronograma del informe.
+    """
+    t = (title or "").strip()
+    if t and _norm_text_key(t) != _norm_text_key(artista or ""):
+        return t
+    return (sub or "").strip()
+
+
 def _forecast_detail(datos: dict) -> dict:
     """EL DETALLE POR ARTISTA: los hitos que se están viendo, **por mes y por semana**, con su día.
 
@@ -27070,12 +27085,13 @@ def _forecast_detail(datos: dict) -> dict:
                           "title": it.get("title") or "", "sub": it.get("subtitle") or "",
                           "color": it.get("color") or "#6b7280", "cover_url": "",
                           "url": it.get("url") or "", "key": it.get("key") or ""})
-        # ⚠️ En la columna de un artista, repetir su nombre no dice nada: cuando lo que la agenda
-        # sabe de una actividad es solo eso (ni festival ni municipio), manda **el sitio**.
-        suyo = _norm_text_key(nombres.get(aid) or "")
+        # ⚠️ En la columna de un artista, repetir su nombre no dice nada (punto único).
         for fila in filas:
-            if suyo and _norm_text_key(fila.get("title") or "") == suyo and fila.get("sub"):
-                fila["title"], fila["sub"] = fila["sub"], ""
+            nombre = _forecast_item_name(nombres.get(aid) or "", fila.get("title") or "", fila.get("sub") or "")
+            if nombre != (fila.get("title") or ""):
+                fila["title"] = nombre
+                if nombre and nombre == (fila.get("sub") or ""):
+                    fila["sub"] = ""
         filas.sort(key=lambda x: (x.get("date") or ""))
         # Agrupado por MES y, dentro, por SEMANA (con el día concreto de cada cosa).
         meses = []
@@ -27220,8 +27236,14 @@ def _forecast_apply_hidden(datos: dict, ocultos: set, *, ver_ocultos: bool) -> i
 def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
                       desde: str = "", semanas: int = FORECAST_WEEKS,
                       todos: bool = False, show_agenda: bool = True,
-                      ver_ocultos: bool = False) -> dict:
-    """Todo lo que pinta el cuadro de mando de PREVISIONES, en una sola pasada."""
+                      ver_ocultos: bool = False, only_ids: list | None = None,
+                      solo_calendario: bool = False) -> dict:
+    """Todo lo que pinta el cuadro de mando de PREVISIONES, en una sola pasada.
+
+    `only_ids` deja **solo esos artistas** (es lo que usa el INFORME que se comparte: los que
+    estaban a la vista al compartirlo) y `solo_calendario` se salta lo que el informe no lleva
+    (las tocadas, la última entrada en cada emisora y las presentaciones), que son varias consultas.
+    """
     artistas = _forecast_artists(session_db, todos=todos)
     elegido = str(artist_id or "").strip()
     if elegido and not any(a["id"] == elegido for a in artistas):
@@ -27233,6 +27255,20 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
                                     "color": _agenda_color_for(len(artistas)), "deal": False}]
         else:
             elegido = ""
+    if only_ids is not None:
+        # ⚠️ Se respeta el ORDEN y el COLOR del cuadro, no el del enlace; y un artista que ya no
+        # esté en la lista activa se busca igualmente (si no, desaparecería del informe).
+        quiere = [str(x) for x in only_ids if str(x or "").strip()]
+        vistos = {a["id"] for a in artistas}
+        for x in quiere:
+            if x in vistos or not to_uuid(x):
+                continue
+            a = session_db.get(Artist, to_uuid(x))
+            if a is not None:
+                artistas = artistas + [{"id": str(a.id), "name": (a.name or ""),
+                                        "photo_url": (a.photo_url or ""),
+                                        "color": _agenda_color_for(len(artistas)), "deal": False}]
+        artistas = [a for a in artistas if a["id"] in set(quiere)]
     week_start = _forecast_week_start(week)
     try:
         primera = monday_of(parse_date(desde)) if desde else None
@@ -27259,15 +27295,15 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
         "next_from": (primera + timedelta(days=7 * 4)).isoformat(),
         "weeks": _forecast_weeks(primera, semanas),
         "releases": _forecast_releases(session_db, ids_vista, primera, ultima),
-        "radio_now": _forecast_radio_now(session_db, ids_vista, week_start),
-        "last_entries": _forecast_last_entries(session_db, ids_vista, hasta=ultima),
+        "radio_now": ({} if solo_calendario else _forecast_radio_now(session_db, ids_vista, week_start)),
+        "last_entries": ({} if solo_calendario else _forecast_last_entries(session_db, ids_vista, hasta=ultima)),
         # LA RAYA DE RADIO: por emisora, la última canción que entró y cuánto aguantó.
-        "radio_runs": _forecast_radio_runs(session_db, ids_vista, primera, ultima),
+        "radio_runs": ({} if solo_calendario else _forecast_radio_runs(session_db, ids_vista, primera, ultima)),
         # Los periodos de promoción Y las PROMOCIONES de verdad, en la misma banda del calendario.
         "promo_windows": _forecast_bands(session_db, ids_vista, primera, ultima),
         "agenda": (_forecast_agenda(session_db, ids_vista, primera, ultima) if show_agenda else
                    {str(x): [] for x in ids_vista}),
-        "pitches": _forecast_pitch_calendar(session_db, ids_vista, primera, ultima),
+        "pitches": ([] if solo_calendario else _forecast_pitch_calendar(session_db, ids_vista, primera, ultima)),
         "release_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in DISCO_RELEASE_KINDS],
         # Lo que se puede ARRASTRAR al calendario (sustituye al botón «+ Periodo de promoción»).
         "add_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in FORECAST_ADD_KINDS],
@@ -27288,6 +27324,577 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
     # ⚠️ DESPUÉS de quitar lo oculto: el detalle enseña lo mismo que el calendario.
     datos["detail"] = _forecast_detail(datos)
     return datos
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# EL INFORME DE PREVISIONES (lo que se descarga, se imprime y se comparte)
+# ⚠️⚠️ EL CONTENIDO ES UNO SOLO (`_forecast_report_html`): el correo, la página del enlace y la
+# vista previa enseñan EXACTAMENTE lo mismo. Si hay que cambiar algo del informe, se cambia ahí.
+# ⚠️⚠️ Y NO ES UNA COPIA CONGELADA: el enlace guarda solo la CONFIGURACIÓN (qué artistas, desde
+# cuándo y cuántas semanas) y los datos se vuelven a calcular en cada visita, así que enseña
+# siempre lo que hay ahora — que es lo que pidió Dani («una versión en vivo»).
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+FORECAST_REPORT_TITLE = "Previsiones"
+# En el detalle, los artistas van en COLUMNAS una al lado de otra; de cuatro en cuatro, que con
+# siete en la misma fila cada columna se queda en 160 px y no se lee.
+FORECAST_REPORT_DETAIL_COLS = 4
+
+
+def _forecast_period_label(desde: str, hasta: str) -> str:
+    """El PERIODO tal como se dice aquí: «del 24 de agosto de 2026 al 13 de diciembre de 2026».
+
+    Punto único: de él salen el título del informe, el asunto del correo y el nombre del PDF.
+    """
+    def _largo(iso):
+        try:
+            d = parse_date(str(iso)[:10])
+        except Exception:
+            return ""
+        return "%d de %s de %d" % (d.day, FORECAST_MONTHS[d.month - 1], d.year)
+    a, b = _largo(desde), _largo(hasta)
+    if a and b:
+        return "del %s al %s" % (a, b)
+    return a or b or ""
+
+
+def _forecast_report_title(datos: dict) -> str:
+    """«Previsiones del xx de mes de año al xx de mes de año» (el título que pidió Dani)."""
+    periodo = _forecast_period_label(datos.get("from") or "", datos.get("to") or "")
+    return (FORECAST_REPORT_TITLE + " " + periodo).strip()
+
+
+def _forecast_report_lanes(filas: list, weeks: list) -> list:
+    """Las FRANJAS de un artista repartidas en CARRILES (las que no se pisan comparten carril).
+
+    Devuelve una lista de carriles y, en cada uno, sus tramos con la primera y la última semana
+    (`i0`/`i1`) ya recortados a la ventana que se está mirando. Es lo mismo que hace la pantalla,
+    pero aquí sirve para poner el `colspan` de cada franja en la tabla del informe.
+    """
+    if not weeks:
+        return []
+    n = len(weeks)
+    tramos = []
+    for f in filas:
+        ini, fin = (f.get("start_date") or ""), (f.get("end_date") or f.get("start_date") or "")
+        if not ini:
+            continue
+        if fin < weeks[0]["start"] or ini > weeks[-1]["end"]:
+            continue
+        i0 = next((i for i, w in enumerate(weeks) if w["end"] >= ini), 0)
+        i1 = next((i for i in range(n - 1, -1, -1) if weeks[i]["start"] <= fin), n - 1)
+        tramos.append((max(0, i0), min(n - 1, max(i0, i1)), f))
+    tramos.sort(key=lambda t: (t[0], t[1]))
+    carriles = []
+    for i0, i1, f in tramos:
+        for carril in carriles:
+            if carril[-1]["i1"] < i0:
+                carril.append({"i0": i0, "i1": i1, "row": f})
+                break
+        else:
+            carriles.append([{"i0": i0, "i1": i1, "row": f}])
+    return carriles
+
+
+def _forecast_report_rows(datos: dict) -> list:
+    """Lo que pinta el CRONOGRAMA del informe: por artista, sus franjas por carriles y lo que cae
+    en cada semana (los lanzamientos y lo que ya tiene en la agenda)."""
+    weeks = datos.get("weeks") or []
+    def _semana(iso):
+        for i, w in enumerate(weeks):
+            if w["start"] <= iso <= w["end"]:
+                return i
+        return None
+    out = []
+    for a in (datos.get("artists") or []):
+        aid = a["id"]
+        celdas = [[] for _ in weeks]
+        for r in ((datos.get("releases") or {}).get(aid) or []):
+            i = _semana(r.get("date") or "")
+            if i is None:
+                continue
+            meta = next((k for k in (datos.get("release_kinds") or [])
+                         if k["key"] == (r.get("release_kind") or "")), None)
+            celdas[i].append({"title": r.get("title") or "", "cover_url": r.get("cover_url") or "",
+                              "color": (meta or {}).get("color") or "#111827",
+                              "icon": (meta or {}).get("icon") or "fa-music",
+                              "tag": (meta or {}).get("label") or ""})
+        for it in ((datos.get("agenda") or {}).get(aid) or []):
+            i = _semana(it.get("date") or "")
+            if i is None:
+                continue
+            nombre = _forecast_item_name(a.get("name") or "", it.get("title") or "",
+                                         it.get("subtitle") or "")
+            celdas[i].append({"title": nombre or (it.get("label") or ""), "cover_url": "",
+                              "color": it.get("color") or "#6b7280", "icon": it.get("icon") or "",
+                              "tag": it.get("label") or ""})
+        carriles = _forecast_report_lanes((datos.get("promo_windows") or {}).get(aid) or [], weeks)
+        if not carriles and not any(celdas):
+            continue
+        out.append({"artist": a, "lanes": carriles, "cells": celdas})
+    return out
+
+
+def _forecast_report_context(session_db, datos: dict, *, public_url: str = "",
+                             pdf_url: str = "") -> dict:
+    """Todo lo que necesita el informe (el correo, la página y la vista previa)."""
+    co = _pies_group_company(session_db)
+    return {
+        "datos": datos,
+        "title": FORECAST_REPORT_TITLE,
+        "period": _forecast_period_label(datos.get("from") or "", datos.get("to") or ""),
+        "full_title": _forecast_report_title(datos),
+        "brand": {"logo_url": (getattr(co, "logo_url", "") or ""),
+                  "name": (getattr(co, "name", "") or "PIES")},
+        "rows": _forecast_report_rows(datos),
+        "detail": datos.get("detail") or {},
+        "public_url": public_url,
+        "pdf_url": pdf_url,
+    }
+
+
+def _forecast_report_html(ctx: dict, *, note: str = "", with_button: bool = True) -> str:
+    """EL CONTENIDO del informe, con estilos en línea: sirve igual para el correo y para el enlace.
+
+    ⚠️ Va con `<table>` y estilos en línea porque **esto se manda por correo**: ahí no hay hojas
+    externas, ni rejillas CSS, ni `position`.
+    Orden: el logo de PIES arriba a la DERECHA · «Previsiones» y el periodo centrados · el
+    CRONOGRAMA de los artistas seleccionados con lo que se ve · y debajo el DETALLE por artista,
+    cada uno en su columna.
+    """
+    esc = lambda v: html.escape("" if v is None else str(v))
+    datos = ctx.get("datos") or {}
+    weeks = datos.get("weeks") or []
+    brand = ctx.get("brand") or {}
+
+    logo = ""
+    if brand.get("logo_url"):
+        logo = ('<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+                'style="border-collapse:collapse;"><tr><td align="right">'
+                f'<img src="{esc(_absolute_media_url(brand.get("logo_url") or ""))}" '
+                f'alt="{esc(brand.get("name") or "PIES")}" '
+                'style="display:inline-block;max-width:170px;max-height:56px;object-fit:contain;">'
+                '</td></tr></table>')
+
+    cab = (f'{logo}'
+           '<div style="text-align:center;margin:6px 0 18px;">'
+           f'<div style="font-size:26px;font-weight:800;color:#111827;letter-spacing:.01em;">{esc(ctx.get("title") or "")}</div>'
+           + (f'<div style="font-size:15px;color:#4b5563;margin-top:2px;">{esc(ctx.get("period") or "")}</div>'
+              if ctx.get("period") else '')
+           + '</div>')
+
+    nota = ''
+    if (note or "").strip():
+        nota = ('<div style="margin:0 0 16px;padding:12px 14px;background:#f8fafc;border:1px solid #e5e7eb;'
+                'border-radius:12px;font-size:14px;color:#374151;line-height:1.5;text-align:justify;">'
+                + esc(note).replace("\n", "<br>") + '</div>')
+
+    def _titulo(txt):
+        return ('<div style="font-size:13px;font-weight:800;color:#111827;text-transform:uppercase;'
+                'letter-spacing:.06em;margin:22px 0 8px;border-bottom:2px solid #e5e7eb;padding-bottom:5px;">'
+                + esc(txt) + '</div>')
+
+    # ---------------------------------------------------------------- el CRONOGRAMA
+    ancho_sem = max(34, min(64, int(760 / max(1, len(weeks))))) if weeks else 40
+    cronograma = ''
+    if weeks and (ctx.get("rows") or []):
+        # cabecera: los MESES (agrupados) y, debajo, el día en que empieza cada semana
+        meses, i = [], 0
+        while i < len(weeks):
+            j = i
+            while j + 1 < len(weeks) and weeks[j + 1]["month"] == weeks[i]["month"]:
+                j += 1
+            meses.append((weeks[i]["month"], j - i + 1))
+            i = j + 1
+        th = ('<tr><td style="width:130px;"></td>'
+              + ''.join('<td colspan="%d" style="font-size:10px;font-weight:800;color:#6b7280;'
+                        'text-transform:uppercase;letter-spacing:.06em;padding:0 0 2px;text-align:center;'
+                        'border-left:1px solid #eef0f4;">%s</td>' % (n, esc(m)) for m, n in meses)
+              + '</tr>'
+              + '<tr><td></td>'
+              + ''.join('<td style="font-size:10px;color:#98a2b3;text-align:center;padding:0 0 5px;'
+                        'border-left:1px solid #eef0f4;">%s</td>' % esc(w["label"]) for w in weeks)
+              + '</tr>')
+        filas = []
+        for r in (ctx.get("rows") or []):
+            a = r["artist"]
+            color = a.get("color") or "#e33d48"
+            foto = ''
+            if a.get("photo_url"):
+                foto = (f'<img src="{esc(_absolute_media_url(a.get("photo_url") or ""))}" alt="" '
+                        'style="width:22px;height:22px;border-radius:50%;object-fit:cover;'
+                        'vertical-align:middle;margin-right:6px;">')
+            filas.append('<tr><td colspan="%d" style="padding:10px 0 3px;border-top:1px solid #eef0f4;">'
+                         '<span style="display:inline-block;border-left:3px solid %s;padding-left:7px;'
+                         'font-size:13px;font-weight:700;color:#111827;">%s%s</span></td></tr>'
+                         % (len(weeks) + 1, esc(color), foto, esc(a.get("name") or "")))
+            for carril in r["lanes"]:
+                celdas, pos = [], 0
+                for t in carril:
+                    if t["i0"] > pos:
+                        celdas.append('<td colspan="%d"></td>' % (t["i0"] - pos))
+                    f = t["row"]
+                    # ⚠️ `nowrap` + `overflow:hidden`: una franja de UNA semana es una columna de
+                    # 40 px y, sin esto, el texto se parte LETRA A LETRA en vertical.
+                    celdas.append('<td colspan="%d" style="padding:1px 2px;">'
+                                  '<div style="background:%s;color:#ffffff;border-radius:7px;font-size:9px;'
+                                  'font-weight:700;padding:2px 6px;line-height:1.3;overflow:hidden;'
+                                  'white-space:nowrap;text-overflow:ellipsis;">%s</div></td>'
+                                  % (t["i1"] - t["i0"] + 1, esc(f.get("color") or "#f59e0b"),
+                                     esc(f.get("name") or f.get("label") or "")))
+                    pos = t["i1"] + 1
+                if pos < len(weeks):
+                    celdas.append('<td colspan="%d"></td>' % (len(weeks) - pos))
+                filas.append('<tr><td></td>' + ''.join(celdas) + '</tr>')
+            celdas = []
+            for i, items in enumerate(r["cells"]):
+                dentro = ''
+                for it in items:
+                    img = ''
+                    if it.get("cover_url"):
+                        img = (f'<img src="{esc(_absolute_media_url(it.get("cover_url") or ""))}" alt="" '
+                               'style="width:16px;height:16px;border-radius:3px;object-fit:cover;'
+                               'vertical-align:middle;margin-right:3px;">')
+                    dentro += ('<div style="margin:2px 0;padding:2px 4px;background:#f8fafc;'
+                               'border-left:3px solid %s;border-radius:5px;font-size:9px;line-height:1.25;'
+                               'color:#111827;">%s%s</div>'
+                               % (esc(it.get("color") or "#6b7280"), img, esc(it.get("title") or "")))
+                celdas.append('<td valign="top" style="border-left:1px solid #eef0f4;padding:1px 2px;">'
+                              '%s</td>' % dentro)
+            filas.append('<tr><td></td>' + ''.join(celdas) + '</tr>')
+        # ⚠️ El ancho mínimo va en la TABLA, no en las celdas: con `table-layout:fixed` el
+        # `min-width` de una celda NO se respeta (las columnas se reparten el ancho de la tabla),
+        # así que con 52 semanas se quedarían en 12 px. Así se desliza y se sigue leyendo.
+        cronograma = (_titulo("Cronograma")
+                      + '<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" '
+                        'style="border-collapse:collapse;table-layout:fixed;min-width:%dpx;">'
+                        % (130 + ancho_sem * len(weeks))
+                      + th + ''.join(filas) + '</table>')
+
+    # ---------------------------------------------------------------- el DETALLE por artista
+    def _hoja(it):
+        return ('<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;'
+                'width:42px;border:1px solid #e5e7eb;border-radius:9px;overflow:hidden;background:#ffffff;">'
+                '<tr><td style="background:#e33d48;color:#ffffff;font-size:8px;font-weight:700;'
+                'text-align:center;padding:1px 0;text-transform:uppercase;">%s</td></tr>'
+                '<tr><td style="font-size:16px;font-weight:800;text-align:center;line-height:1.1;'
+                'color:#111827;">%s</td></tr>'
+                '<tr><td style="font-size:8px;font-weight:700;color:#6b7280;text-align:center;'
+                'padding-bottom:2px;text-transform:uppercase;">%s</td></tr></table>'
+                % (esc(it.get("weekday") or ""), esc(it.get("day") or ""), esc(it.get("month_short") or "")))
+
+    def _columna(a):
+        meses = (ctx.get("detail") or {}).get(a["id"]) or []
+        if not meses:
+            return ''
+        foto = ''
+        if a.get("photo_url"):
+            foto = (f'<img src="{esc(_absolute_media_url(a.get("photo_url") or ""))}" alt="" '
+                    'style="width:26px;height:26px;border-radius:50%;object-fit:cover;'
+                    'vertical-align:middle;margin-right:6px;">')
+        h = ('<div style="font-size:14px;font-weight:800;color:#111827;margin-bottom:6px;">'
+             + foto + esc(a.get("name") or "") + '</div>')
+        for mes in meses:
+            h += ('<div style="font-size:10px;font-weight:800;color:#495057;text-transform:uppercase;'
+                  'letter-spacing:.05em;border-bottom:1px solid #e9ecef;margin:10px 0 4px;padding-bottom:2px;">'
+                  + esc(mes.get("label") or "") + '</div>')
+            for sem in (mes.get("weeks") or []):
+                h += ('<div style="font-size:10px;color:#98a2b3;font-weight:700;margin:5px 0 3px;">'
+                      + esc(sem.get("label") or "") + '</div>')
+                for it in (sem.get("items") or []):
+                    h += ('<table role="presentation" cellspacing="0" cellpadding="0" '
+                          'style="border-collapse:collapse;margin:3px 0;"><tr>'
+                          '<td valign="top" width="48" style="padding-right:8px;">' + _hoja(it) + '</td>'
+                          '<td valign="top">'
+                          '<div style="font-size:10px;font-weight:700;color:%s;text-transform:uppercase;'
+                          'letter-spacing:.02em;">%s</div>'
+                          % (esc(it.get("color") or "#6b7280"), esc(it.get("type_label") or ""))
+                          + (('<div style="font-size:12px;font-weight:600;color:#111827;">%s</div>'
+                              % esc(it.get("title") or "")) if it.get("title") else '')
+                          + (('<div style="font-size:10px;color:#6b7280;">%s</div>' % esc(it.get("sub") or ""))
+                             if it.get("sub") else '')
+                          + '</td></tr></table>')
+        return ('<td valign="top" style="padding:0 10px 14px 8px;border-left:3px solid %s;">%s</td>'
+                % (esc(a.get("color") or "#e33d48"), h))
+
+    conartista = [a for a in (datos.get("artists") or []) if ((ctx.get("detail") or {}).get(a["id"]))]
+    detalle = ''
+    if conartista:
+        bloques = ''
+        for i in range(0, len(conartista), FORECAST_REPORT_DETAIL_COLS):
+            trozo = conartista[i:i + FORECAST_REPORT_DETAIL_COLS]
+            ancho = int(100 / max(1, len(trozo)))
+            cols = ''.join(_columna(a).replace('<td valign="top"', '<td width="%d%%" valign="top"' % ancho, 1)
+                           for a in trozo)
+            bloques += ('<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+                        'style="border-collapse:collapse;margin-bottom:6px;"><tr>' + cols + '</tr></table>')
+        detalle = _titulo("Detalle por artista") + bloques
+
+    boton = ''
+    if with_button and ctx.get("public_url"):
+        boton = ('<div style="text-align:right;margin:22px 0 0;">'
+                 f'<a href="{esc(ctx.get("public_url"))}" '
+                 'style="display:inline-block;background:#e33d48;color:#ffffff;text-decoration:none;'
+                 'font-weight:700;font-size:14px;padding:11px 18px;border-radius:12px;">Ver las previsiones</a>'
+                 '</div>')
+
+    return ('<div style="max-width:1180px;margin:0 auto;font-family:Arial,Helvetica,sans-serif;'
+            'color:#111827;background:#ffffff;padding:18px;">'
+            + cab + nota + cronograma + detalle + boton + '</div>')
+
+
+def _build_forecast_report_pdf_bytes(session_db, datos: dict) -> bytes:
+    """EL INFORME DE PREVISIONES en PDF: estilo de casa (logo de PIES arriba a la derecha en todas
+    las páginas, el título centrado con el periodo y las páginas x/x abajo a la derecha).
+
+    Lleva lo mismo que la página y el correo: el CRONOGRAMA y el detalle por artista con el día de
+    cada cosa.
+    ⚠️ Va **apaisado** (el cronograma es ancho) y el detalle va **un artista debajo de otro**: en
+    una hoja, siete columnas de 3,5 cm no se leen — las columnas una al lado de otra son de la
+    página y del correo, donde hay ancho de sobra y se puede deslizar.
+    """
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError("ReportLab no está disponible.")
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors as rlcolors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+                                    Image as RLImage, KeepTogether)
+
+    ctx = _forecast_report_context(session_db, datos)
+    weeks = datos.get("weeks") or []
+    logo_url = (ctx["brand"].get("logo_url") or "").strip() or url_for("static", filename="img/logo.png")
+
+    page_w, page_h = landscape(A4)
+    margin = 12 * mm
+    usable_w = page_w - 2 * margin
+    GRIS_T = rlcolors.HexColor("#6b7683")
+    _cache: dict = {}
+
+    def _bytes_de(url):
+        clave = str(url or "")
+        if clave in _cache:
+            return _cache[clave]
+        datos_img = None
+        try:
+            if clave.lower().startswith("http"):
+                datos_img = urlopen(Request(clave, headers={"User-Agent": "Mozilla/5.0"}), timeout=6).read()
+            elif clave.startswith("/static/"):
+                with open(os.path.join(app.static_folder, clave[len("/static/"):]), "rb") as fh:
+                    datos_img = fh.read()
+        except Exception:
+            datos_img = None
+        _cache[clave] = datos_img
+        return datos_img
+
+    def _img(url, lado_mm):
+        d = _bytes_de(url)
+        if not d:
+            return None
+        try:
+            return RLImage(BytesIO(d), width=lado_mm * mm, height=lado_mm * mm)
+        except Exception:
+            return None
+
+    est_titulo = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=18, leading=22, alignment=1,
+                                textColor=rlcolors.HexColor("#111827"))
+    est_periodo = ParagraphStyle("p", fontName="Helvetica", fontSize=10.5, leading=14, alignment=1,
+                                 textColor=GRIS_T)
+    est_sec = ParagraphStyle("s", fontName="Helvetica-Bold", fontSize=10, leading=13,
+                             textColor=rlcolors.HexColor("#111827"))
+    est_art = ParagraphStyle("a", fontName="Helvetica-Bold", fontSize=11, leading=14)
+    est_mes = ParagraphStyle("m", fontName="Helvetica-Bold", fontSize=8, leading=11, textColor=GRIS_T)
+    est_sem = ParagraphStyle("w", fontName="Helvetica", fontSize=7.4, leading=9.5,
+                             textColor=rlcolors.HexColor("#98a2b3"))
+    est_que = ParagraphStyle("q", fontName="Helvetica-Bold", fontSize=7.4, leading=9.5)
+    est_nom = ParagraphStyle("n", fontName="Helvetica-Bold", fontSize=9, leading=11.5)
+    est_sub = ParagraphStyle("sb", fontName="Helvetica", fontSize=7.4, leading=9.5, textColor=GRIS_T)
+    est_cel = ParagraphStyle("c", fontName="Helvetica", fontSize=6.2, leading=7.6)
+    est_th = ParagraphStyle("th", fontName="Helvetica-Bold", fontSize=6.4, leading=8, alignment=1,
+                            textColor=GRIS_T)
+    est_band = ParagraphStyle("bd", fontName="Helvetica-Bold", fontSize=6.2, leading=7.6,
+                              textColor=rlcolors.white)
+
+    story = [Spacer(1, 1 * mm), Paragraph(html.escape(ctx["title"]), est_titulo)]
+    if ctx.get("period"):
+        story.append(Paragraph(html.escape(ctx["period"]), est_periodo))
+    story.append(Spacer(1, 6 * mm))
+
+    # ---------------------------------------------------------------- el CRONOGRAMA
+    filas_cro = ctx.get("rows") or []
+    if weeks and filas_cro:
+        col_art = 30 * mm
+        ancho_sem = (usable_w - col_art) / float(len(weeks))
+        # Con muchas semanas no cabe el texto: se pintan solo las manchas de color (el detalle de
+        # abajo dice qué es cada cosa). Mejor un cronograma que se lee de un vistazo que uno con
+        # letra de 3 puntos.
+        con_texto = ancho_sem >= (9 * mm)
+        anchos = [col_art] + [ancho_sem] * len(weeks)
+        cuerpo, estilos = [], [
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 1.5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 1.5),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ("LINEBEFORE", (1, 0), (-1, -1), 0.25, rlcolors.HexColor("#eef0f4")),
+        ]
+        cuerpo.append([""] + [Paragraph("%s<br/>%s" % (html.escape(w["month"]).upper(),
+                                                       html.escape(w["label"])), est_th)
+                              for w in weeks])
+        estilos.append(("LINEBELOW", (0, 0), (-1, 0), 0.5, rlcolors.HexColor("#e5e7eb")))
+        fila = 1
+        for r in filas_cro:
+            a = r["artist"]
+            foto = _img(a.get("photo_url") or "", 5.5)
+            nombre = Paragraph(html.escape(a.get("name") or ""), est_art)
+            cab = Table([[foto if foto is not None else "", nombre]], colWidths=[7 * mm, col_art - 8 * mm])
+            cab.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                     ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                     ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                     ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                     ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+            # las FRANJAS, un carril por fila (con su `SPAN`)
+            for carril in r["lanes"]:
+                linea = [""] * (len(weeks) + 1)
+                for t in carril:
+                    linea[1 + t["i0"]] = Paragraph(
+                        html.escape((t["row"].get("name") or t["row"].get("label") or "")) if con_texto else " ",
+                        est_band)
+                    estilos.append(("SPAN", (1 + t["i0"], fila), (1 + t["i1"], fila)))
+                    estilos.append(("BACKGROUND", (1 + t["i0"], fila), (1 + t["i1"], fila),
+                                    rlcolors.HexColor(t["row"].get("color") or "#f59e0b")))
+                cuerpo.append(linea)
+                fila += 1
+            # y la fila de las SEMANAS con lo que cae en cada una
+            linea = [cab]
+            for items in r["cells"]:
+                if not items:
+                    linea.append("")
+                    continue
+                if con_texto:
+                    linea.append([Paragraph('<font color="%s">■</font> %s'
+                                            % (it.get("color") or "#6b7280",
+                                               html.escape(it.get("title") or "")), est_cel)
+                                  for it in items])
+                else:
+                    linea.append(Paragraph(" ".join('<font color="%s">■</font>' % (it.get("color") or "#6b7280")
+                                                    for it in items), est_cel))
+            cuerpo.append(linea)
+            estilos.append(("LINEBELOW", (0, fila), (-1, fila), 0.25, rlcolors.HexColor("#eef0f4")))
+            fila += 1
+        tabla = Table(cuerpo, colWidths=anchos, repeatRows=1)
+        tabla.setStyle(TableStyle(estilos))
+        story.append(Paragraph("CRONOGRAMA", est_sec))
+        story.append(Spacer(1, 2 * mm))
+        story.append(tabla)
+        story.append(Spacer(1, 7 * mm))
+
+    # ---------------------------------------------------------------- el DETALLE por artista
+    def _hoja(it):
+        t = Table([[Paragraph('<font color="#ffffff"><b>%s</b></font>' % html.escape(str(it.get("weekday") or "")).upper(),
+                              ParagraphStyle("hw", fontName="Helvetica-Bold", fontSize=5.6, leading=7, alignment=1))],
+                   [Paragraph("<b>%s</b>" % html.escape(str(it.get("day") or "")),
+                              ParagraphStyle("hd", fontName="Helvetica-Bold", fontSize=11, leading=12, alignment=1))],
+                   [Paragraph(html.escape(str(it.get("month_short") or "")).upper(),
+                              ParagraphStyle("hm", fontName="Helvetica-Bold", fontSize=5.6, leading=7,
+                                             alignment=1, textColor=GRIS_T))]],
+                  colWidths=[12 * mm], rowHeights=[3.6 * mm, 5.2 * mm, 3.4 * mm])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (0, 0), rlcolors.HexColor("#e33d48")),
+            ("BOX", (0, 0), (-1, -1), 0.4, rlcolors.HexColor("#e5e7eb")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        return t
+
+    detalle = ctx.get("detail") or {}
+    hay_detalle = [a for a in (datos.get("artists") or []) if detalle.get(a["id"])]
+    if hay_detalle:
+        story.append(Paragraph("DETALLE POR ARTISTA", est_sec))
+        story.append(Spacer(1, 2 * mm))
+    for a in hay_detalle:
+        foto = _img(a.get("photo_url") or "", 7)
+        cab = Table([[foto if foto is not None else "", Paragraph(html.escape(a.get("name") or ""), est_art)]],
+                    colWidths=[9 * mm, usable_w - 9 * mm])
+        cab.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                 ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                                 ("LINEBELOW", (0, 0), (-1, -1), 0.6, rlcolors.HexColor(a.get("color") or "#e33d48"))]))
+        story.append(cab)
+        story.append(Spacer(1, 2 * mm))
+        for mes in detalle.get(a["id"]) or []:
+            bloque = [Paragraph(html.escape(mes.get("label") or "").upper(), est_mes), Spacer(1, 1 * mm)]
+            for sem in (mes.get("weeks") or []):
+                bloque.append(Paragraph(html.escape(sem.get("label") or ""), est_sem))
+                for it in (sem.get("items") or []):
+                    derecha = [Paragraph('<font color="%s">%s</font>'
+                                         % (it.get("color") or "#6b7280",
+                                            html.escape(it.get("type_label") or "").upper()), est_que)]
+                    if it.get("title"):
+                        derecha.append(Paragraph(html.escape(it.get("title") or ""), est_nom))
+                    if it.get("sub"):
+                        derecha.append(Paragraph(html.escape(it.get("sub") or ""), est_sub))
+                    f = Table([[_hoja(it), derecha]], colWidths=[15 * mm, usable_w - 15 * mm])
+                    f.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                           ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                           ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+                                           ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5)]))
+                    bloque.append(f)
+            story.append(KeepTogether(bloque))
+            story.append(Spacer(1, 2 * mm))
+        story.append(Spacer(1, 4 * mm))
+
+    if not filas_cro and not hay_detalle:
+        story.append(Paragraph("No hay nada previsto en este periodo.", est_sub))
+
+    class _Numerada(rl_canvas.Canvas):
+        """Numera las páginas x/x abajo a la derecha (hay que saber el total: dos pasadas)."""
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self._paginas = []
+
+        def showPage(self):
+            self._paginas.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._paginas)
+            for estado in self._paginas:
+                self.__dict__.update(estado)
+                self.setFont("Helvetica", 7)
+                self.setFillColor(GRIS_T)
+                self.drawRightString(page_w - margin, 8 * mm, "%d/%d" % (self._pageNumber, total))
+                super().showPage()
+            super().save()
+
+    def _logo(canv, doc):
+        d = _bytes_de(logo_url) or _bytes_de(url_for("static", filename="img/logo.png"))
+        if not d:
+            return
+        try:
+            img = ImageReader(BytesIO(d))
+            iw, ih = img.getSize()
+            alto = 13 * mm
+            ancho = alto * (iw / float(ih or 1))
+            if ancho > 45 * mm:
+                ancho = 45 * mm
+                alto = ancho * (ih / float(iw or 1))
+            canv.drawImage(img, page_w - margin - ancho, page_h - margin - alto,
+                           width=ancho, height=alto, mask="auto")
+        except Exception:
+            pass
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=margin, rightMargin=margin,
+                            topMargin=margin + 15 * mm, bottomMargin=margin + 4 * mm,
+                            title=_forecast_report_title(datos))
+    doc.build(story, onFirstPage=_logo, onLaterPages=_logo, canvasmaker=_Numerada)
+    return buf.getvalue()
 
 
 # --- Acciones del cuadro de mando de PREVISIONES -----------------------------
@@ -27956,6 +28563,198 @@ def forecast_data():
         )})
     finally:
         session_db.close()
+
+
+# ---------------------------------------------------------------------------
+# EL INFORME DE PREVISIONES: el enlace en vivo, el PDF, la vista previa y el correo.
+# ⚠️ El enlace guarda la CONFIGURACIÓN (qué artistas y qué periodo), nunca los datos: cada visita
+# los vuelve a calcular, así que enseña lo que hay ahora.
+
+def _forecast_report_settings(data: dict) -> dict:
+    """La configuración con la que se comparte: qué artistas, desde cuándo y cuántas semanas."""
+    artistas = [str(x).strip() for x in (data.get("artists") or []) if str(x or "").strip()]
+    try:
+        desde = monday_of(parse_date(str(data.get("desde") or "")[:10])).isoformat()
+    except Exception:
+        desde = monday_of(today_local()).isoformat()
+    return {
+        "desde": desde,
+        "semanas": max(4, min(52, _roadmap_int(data.get("semanas"), FORECAST_WEEKS))),
+        "artists": artistas,
+        "agenda": bool(data.get("agenda", True)),
+    }
+
+
+def _forecast_report_signature(settings: dict) -> str:
+    """La HUELLA de una configuración: compartir dos veces lo mismo reutiliza el enlace."""
+    return json.dumps({"d": settings.get("desde"), "s": settings.get("semanas"),
+                       "a": sorted(settings.get("artists") or []),
+                       "g": bool(settings.get("agenda"))}, sort_keys=True)
+
+
+def _forecast_report_get_or_create(session_db, settings: dict):
+    """El informe de ESA configuración: si ya se compartió, el MISMO enlace; si no, uno nuevo.
+
+    ⚠️ El token se crea **con COMMIT**: con un flush sin commit se perdería al cerrar la sesión y
+    un enlace ya compartido dejaría de valer (bug real de las demos).
+    """
+    firma = _forecast_report_signature(settings)
+    rep = (session_db.query(DiscoForecastReport)
+           .filter(DiscoForecastReport.signature == firma)
+           .order_by(DiscoForecastReport.created_at.desc()).first())
+    if rep is None:
+        estado = _current_user_state() or {}
+        rep = DiscoForecastReport(token=_uuid_token(), signature=firma, settings=settings,
+                                  created_by_user_id=to_uuid(str(estado.get("user_id") or "")) or None,
+                                  created_by_nick=(estado.get("nick") or ""))
+        session_db.add(rep)
+    else:
+        rep.settings = settings
+        rep.updated_at = datetime.now(TZ_MADRID)
+    session_db.commit()
+    return rep
+
+
+def _forecast_report_or_404(session_db, token: str):
+    rep = (session_db.query(DiscoForecastReport)
+           .filter(DiscoForecastReport.token == (token or "").strip()).first())
+    if rep is None:
+        abort(404)
+    return rep
+
+
+def _forecast_report_data(session_db, settings: dict) -> dict:
+    """Los datos del informe, **calculados ahora** con la configuración que se compartió."""
+    s = dict(settings or {})
+    return _forecast_context(session_db, todos=True, desde=(s.get("desde") or ""),
+                             semanas=_roadmap_int(s.get("semanas"), FORECAST_WEEKS),
+                             show_agenda=bool(s.get("agenda", True)),
+                             only_ids=(s.get("artists") or []),
+                             solo_calendario=True)
+
+
+def _forecast_report_url(rep) -> str:
+    return _external_url_for("public_forecast_report", token=rep.token)
+
+
+def _forecast_report_pdf_url(rep) -> str:
+    return _external_url_for("public_forecast_report_pdf", token=rep.token)
+
+
+def _forecast_report_filename(datos: dict) -> str:
+    return _safe_download_filename("%s.pdf" % _forecast_report_title(datos))
+
+
+@app.post("/discografica/previsiones/informe", endpoint="forecast_report_link")
+@admin_required
+def forecast_report_link():
+    """Crea (o reutiliza) el ENLACE EN VIVO del informe con lo que se está viendo."""
+    session_db = db()
+    try:
+        settings = _forecast_report_settings(request.get_json(silent=True) or {})
+        rep = _forecast_report_get_or_create(session_db, settings)
+        datos = _forecast_report_data(session_db, settings)
+        return jsonify({"ok": True, "url": _forecast_report_url(rep),
+                        "pdf_url": _forecast_report_pdf_url(rep),
+                        "title": _forecast_report_title(datos),
+                        "period": _forecast_period_label(datos.get("from") or "", datos.get("to") or "")})
+    except Exception:
+        app.logger.exception("[previsiones] no se pudo preparar el informe")
+        return jsonify({"ok": False, "error": "No se pudo preparar el informe."}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/previsiones/informe/vista-previa", endpoint="forecast_report_preview")
+@admin_required
+def forecast_report_preview():
+    """La VISTA PREVIA del correo: la compone el SERVIDOR con el MISMO contenido que se manda."""
+    session_db = db()
+    try:
+        data = request.get_json(silent=True) or {}
+        settings = _forecast_report_settings(data)
+        rep = _forecast_report_get_or_create(session_db, settings)
+        datos = _forecast_report_data(session_db, settings)
+        ctx = _forecast_report_context(session_db, datos, public_url=_forecast_report_url(rep),
+                                       pdf_url=_forecast_report_pdf_url(rep))
+        return jsonify({"ok": True,
+                        "html": _forecast_report_html(ctx, note=(data.get("note") or "")),
+                        "subject": _forecast_report_title(datos),
+                        "url": ctx["public_url"], "pdf_url": ctx["pdf_url"]})
+    except Exception:
+        app.logger.exception("[previsiones] no se pudo componer la vista previa")
+        return jsonify({"ok": False, "error": "No se pudo componer la vista previa."}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/previsiones/informe/enviar", endpoint="forecast_report_send")
+@admin_required
+def forecast_report_send():
+    """Manda el informe por correo (el MISMO contenido que la vista previa y que el enlace)."""
+    session_db = db()
+    try:
+        data = request.get_json(silent=True) or {}
+        destinos = [x.strip() for x in re.split(r"[,;\s]+", str(data.get("emails") or "")) if x.strip()]
+        destinos = [x for x in destinos if "@" in x]
+        if not destinos:
+            return jsonify({"ok": False, "error": "Pon al menos un correo."}), 400
+        settings = _forecast_report_settings(data)
+        rep = _forecast_report_get_or_create(session_db, settings)
+        datos = _forecast_report_data(session_db, settings)
+        ctx = _forecast_report_context(session_db, datos, public_url=_forecast_report_url(rep),
+                                       pdf_url=_forecast_report_pdf_url(rep))
+        cuerpo = _forecast_report_html(ctx, note=(data.get("note") or ""))
+        asunto = _forecast_report_title(datos)
+        ok, err = _send_optional_email(destinos, asunto, cuerpo)
+        if not ok:
+            return jsonify({"ok": False, "error": (err or "No se pudo enviar el correo.")}), 500
+        return jsonify({"ok": True, "sent": len(destinos), "warning": (err or ""),
+                        "url": ctx["public_url"]})
+    except Exception:
+        app.logger.exception("[previsiones] no se pudo enviar el informe")
+        return jsonify({"ok": False, "error": "No se pudo enviar el informe."}), 500
+    finally:
+        session_db.close()
+
+
+@app.get("/previsiones/<token>", endpoint="public_forecast_report")
+def public_forecast_report(token):
+    """La página del informe: **lo mismo que el correo**, en vivo y con sus botones."""
+    with get_db() as session_db:
+        rep = _forecast_report_or_404(session_db, token)
+        datos = _forecast_report_data(session_db, dict(rep.settings or {}))
+        ctx = _forecast_report_context(session_db, datos,
+                                       public_url=_forecast_report_url(rep),
+                                       pdf_url=_forecast_report_pdf_url(rep))
+        # ⚠️ Sin el botón: en la página ya está arriba (y llevaría a la propia página).
+        cuerpo = _forecast_report_html(ctx, with_button=False)
+        return render_template(
+            "public_forecast_report.html",
+            report_html=cuerpo, pdf_url=ctx["pdf_url"],
+            og_title=_forecast_report_title(datos),
+            og_description=", ".join([a.get("name") or "" for a in (datos.get("artists") or [])][:6]),
+            og_image_url=_external_url_for("public_forecast_report_og_image", token=rep.token),
+        )
+
+
+@app.get("/previsiones/<token>/pdf", endpoint="public_forecast_report_pdf")
+def public_forecast_report_pdf(token):
+    with get_db() as session_db:
+        rep = _forecast_report_or_404(session_db, token)
+        datos = _forecast_report_data(session_db, dict(rep.settings or {}))
+        pdf = _build_forecast_report_pdf_bytes(session_db, datos)
+    return _pdf_al_vuelo_response(pdf, _forecast_report_filename(datos))
+
+
+@app.get("/previsiones/<token>/og.jpg", endpoint="public_forecast_report_og_image")
+def public_forecast_report_og_image(token):
+    """La miniatura del enlace: el logo de PIES entero sobre blanco (un informe no tiene portada)."""
+    with get_db() as session_db:
+        _forecast_report_or_404(session_db, token)
+        empresa = _pies_group_company(session_db)
+        fuente = (getattr(empresa, "logo_url", None) or "").strip()
+    return _share_og_image_response([f for f in [fuente, url_for("static", filename="img/logo.png")] if f])
 
 
 def _disco_radio_media_options(session_db) -> list[dict]:
@@ -85496,7 +86295,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -89636,7 +90435,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):

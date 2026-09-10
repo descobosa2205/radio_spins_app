@@ -25,6 +25,9 @@
       prefs: root.getAttribute('data-url-prefs') || '',
       hide: root.getAttribute('data-url-hide') || '',
       move: root.getAttribute('data-url-move') || '',
+      report: root.getAttribute('data-url-report') || '',
+      reportPrev: root.getAttribute('data-url-report-preview') || '',
+      reportSend: root.getAttribute('data-url-report-send') || '',
     };
     // ⚠️ EL FILTRO VA AL REVÉS: todos encendidos y se apagan los que se pinchen. Se guarda lo
     // APAGADO, así un artista nuevo aparece solo.
@@ -204,6 +207,9 @@
         + '</div>'
         // ⚠️ Ya no hay botón «Agenda»: la agenda es UNO MÁS de los elementos que se arrastran al
         // calendario (la paleta de abajo). Y el «+ Periodo de promoción» es ahora esa paleta.
+        + '<button type="button" class="btn btn-sm btn-outline-danger" data-fc-report'
+        + ' title="Descargar, imprimir o compartir el informe de lo que se está viendo">'
+        + '<i class="fa fa-file-export me-1"></i>Informe</button>'
         + ((D.hidden_count || (D.ver_ocultos ? 1 : 0))
             ? ('<button type="button" class="btn btn-sm ' + (D.ver_ocultos ? 'btn-outline-primary active' : 'btn-outline-secondary')
                + '" data-fc-vero title="Lo que se ha quitado del calendario (no se ha borrado: se puede devolver)">'
@@ -224,6 +230,91 @@
       });
       var vo = z.querySelector('[data-fc-vero]');
       if (vo) vo.addEventListener('click', function () { recarga({ ver_ocultos: !D.ver_ocultos }); });
+      var inf = z.querySelector('[data-fc-report]');
+      if (inf) inf.addEventListener('click', abreInforme);
+    }
+
+    // ------------------------------------------------------------ EL INFORME
+    /* ⚠️ Lo que se comparte es un ENLACE EN VIVO: el servidor guarda solo la configuración (qué
+       artistas y qué periodo) y vuelve a calcular los datos en cada visita. La VISTA PREVIA la
+       compone el SERVIDOR con el MISMO contenido que se manda, así que no hay una segunda versión
+       del informe escrita aquí. */
+    function ajustesInforme() {
+      return {
+        desde: D.from || '',
+        semanas: (D.weeks || []).length,
+        artists: visibles().map(function (a) { return a.id; }),
+        agenda: !!D.show_agenda,
+      };
+    }
+
+    function abreInforme() {
+      var m = document.getElementById('fcReportModal');
+      if (!m) return;
+      var q = function (sel) { return m.querySelector(sel); };
+      q('[data-fc-rep-msg]').textContent = '';
+      q('[data-fc-rep-html]').innerHTML = '<div class="text-muted small p-3">Componiendo el informe…</div>';
+      if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(m).show();
+
+      var estado = { url: '', pdf: '', subject: 'Previsiones' };
+      function pinta() {
+        var datos = ajustesInforme();
+        datos.note = q('[data-fc-rep-note]').value || '';
+        return post(U.reportPrev, datos).then(function (r) {
+          if (!r || !r.ok) {
+            q('[data-fc-rep-html]').innerHTML = '<div class="text-danger small p-3">'
+              + esc((r && r.error) || 'No se pudo componer el informe.') + '</div>';
+            return;
+          }
+          estado.url = r.url || ''; estado.pdf = r.pdf_url || ''; estado.subject = r.subject || 'Previsiones';
+          q('[data-fc-rep-title]').textContent = estado.subject;
+          var pdf = q('[data-fc-rep-pdf]'); if (pdf) pdf.setAttribute('href', estado.pdf);
+          q('[data-fc-rep-html]').innerHTML = r.html || '';
+        });
+      }
+      pinta();
+
+      if (m.dataset.fcBound !== '1') {
+        m.dataset.fcBound = '1';
+        var t = null;
+        m.querySelector('[data-fc-rep-note]').addEventListener('input', function () {
+          clearTimeout(t); t = setTimeout(pinta, 500);      // se repinta al escribir, con respiro
+        });
+        m.querySelector('[data-fc-rep-print]').addEventListener('click', function () {
+          // ⚠️ Se imprime la PÁGINA del informe, no esta pantalla: si no, saldría el back office
+          // entero. `?print=1` hace que se imprima sola al abrirse.
+          if (estado.url) window.open(estado.url + (estado.url.indexOf('?') >= 0 ? '&' : '?') + 'print=1', '_blank');
+        });
+        m.querySelector('[data-fc-rep-copy]').addEventListener('click', function () {
+          if (estado.url && window.copyShareLink) window.copyShareLink(estado.url);
+        });
+        m.querySelector('[data-fc-rep-wa]').addEventListener('click', function () {
+          if (estado.url && window.shareByWhatsapp) window.shareByWhatsapp(estado.subject, estado.url);
+        });
+        m.querySelector('[data-fc-rep-sms]').addEventListener('click', function () {
+          if (estado.url && window.shareBySms) window.shareBySms(estado.subject, estado.url);
+        });
+        m.querySelector('[data-fc-rep-send]').addEventListener('click', function () {
+          var b = this, msg = m.querySelector('[data-fc-rep-msg]');
+          var datos = ajustesInforme();
+          datos.emails = m.querySelector('[data-fc-rep-emails]').value || '';
+          datos.note = m.querySelector('[data-fc-rep-note]').value || '';
+          if (!datos.emails.trim()) { msg.className = 'small mt-2 text-danger'; msg.textContent = 'Pon al menos un correo.'; return; }
+          b.disabled = true;
+          msg.className = 'small mt-2 text-muted'; msg.textContent = 'Enviando…';
+          post(U.reportSend, datos).then(function (r) {
+            b.disabled = false;
+            if (r && r.ok) {
+              msg.className = 'small mt-2 text-success';
+              msg.textContent = 'Enviado' + (r.sent > 1 ? (' a ' + r.sent + ' correos') : '') + '.'
+                + (r.warning ? (' ' + r.warning) : '');
+            } else {
+              msg.className = 'small mt-2 text-danger';
+              msg.textContent = (r && r.error) || 'No se pudo enviar.';
+            }
+          });
+        });
+      }
     }
 
     function renderArtists() {
@@ -755,9 +846,9 @@
                             + '<span class="mo">' + esc(it.month_short) + '</span></span>'
                             + '<span class="fc-det__main">'
                             + '<span class="fc-det__what"><i class="fa ' + esc(it.icon) + '"></i>' + esc(it.type_label) + '</span>'
-                            + '<span class="fc-det__name">'
-                            + (it.url ? ('<a href="' + esc(it.url) + '">' + esc(it.title) + '</a>') : esc(it.title))
-                            + '</span>'
+                            + (it.title ? ('<span class="fc-det__name">'
+                                + (it.url ? ('<a href="' + esc(it.url) + '">' + esc(it.title) + '</a>') : esc(it.title))
+                                + '</span>') : '')
                             + (it.sub ? ('<span class="fc-sub">' + esc(it.sub) + '</span>') : '')
                             + '</span></div>';
                         }).join('');

@@ -19,6 +19,9 @@
      data-url-add-options="{{ url_for('forecast_add_options_json') }}"
      data-url-promo-targets="{{ url_for('forecast_promo_targets_json') }}"
      data-url-promo-create="{{ url_for('forecast_promo_create') }}"
+     data-url-report="{{ url_for('forecast_report_link') }}"
+     data-url-report-preview="{{ url_for('forecast_report_preview') }}"
+     data-url-report-send="{{ url_for('forecast_report_send') }}"
      data-can-edit="{{ '1' if CAN_EDIT_DISCOGRAFICA else '' }}">
 
   {# ---------- cabecera: de quién, cuándo y qué se ve ---------- #}
@@ -41,6 +44,56 @@
 
   {# El pop-up de AÑADIR algo al calendario (qué es → de quién → cuál, o crear uno nuevo). #}
   <div class="modal fade" id="fcAddModal" tabindex="-1" aria-hidden="true" data-fc-add></div>
+
+  {# EL INFORME: descargarlo, imprimirlo o compartirlo. A la izquierda a quién y la nota, a la
+     derecha la VISTA PREVIA — que la compone el SERVIDOR con el MISMO contenido que se manda. #}
+  <div class="modal fade" id="fcReportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-file-export me-2"></i>Informe de previsiones</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="fc-rep">
+            <div class="fc-rep__side">
+              <div class="fc-rep__title" data-fc-rep-title>Previsiones</div>
+              <div class="fc-rep__acts">
+                <a class="btn btn-sm btn-outline-danger" data-fc-rep-pdf target="_blank" rel="noopener" download>
+                  <i class="fa fa-file-pdf me-1"></i>Descargar en PDF</a>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-fc-rep-print>
+                  <i class="fa fa-print me-1"></i>Imprimir</button>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-fc-rep-copy>
+                  <i class="fa fa-link me-1"></i>Copiar enlace</button>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-fc-rep-wa>
+                  <i class="fa-brands fa-whatsapp me-1"></i>WhatsApp</button>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-fc-rep-sms>
+                  <i class="fa fa-comment-sms me-1"></i>SMS</button>
+              </div>
+              <div class="text-muted small mb-3">
+                El enlace enseña <strong>lo que haya en cada momento</strong>: no es una copia, es el
+                cuadro en vivo con los artistas y el periodo que estás viendo.
+              </div>
+              <label class="form-label small fw-bold mb-1">Enviar por correo</label>
+              <input type="text" class="form-control form-control-sm mb-2" data-fc-rep-emails
+                     placeholder="correo@ejemplo.com, otro@ejemplo.com">
+              <textarea class="form-control form-control-sm mb-2" rows="3" data-fc-rep-note
+                        placeholder="Nota (opcional): se ve arriba del informe"></textarea>
+              <button class="btn btn-sm btn-primary w-100" type="button" data-fc-rep-send>
+                <i class="fa fa-paper-plane me-1"></i>Enviar el informe</button>
+              <div class="small mt-2" data-fc-rep-msg></div>
+            </div>
+            <div class="fc-rep__prev">
+              <div class="fc-rep__prevhead">Así se va a ver</div>
+              <div class="fc-rep__paper" data-fc-rep-html>
+                <div class="text-muted small p-3">Componiendo el informe…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   {# ---------- A · CALENDARIO DE LANZAMIENTOS ---------- #}
   <div class="fc-card">

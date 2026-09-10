@@ -4607,6 +4607,11 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
    marca: no hace falta inventar una escala nueva. */
 .pv-bar{ border:1px solid #e5e8ee; border-radius:14px; background:#fbfcfe; padding:.6rem .8rem; margin:.8rem 0; }
 .pv-bar__rule{ font-weight:700; color:var(--brand-primary); margin-bottom:.2rem; }
+/* SE HA CAMBIADO LA PLAYLIST después de que contestara: qué ha cambiado (lo suyo se conserva). */
+.pv-changed{display:flex;gap:.55rem;align-items:flex-start;margin:0 0 1rem;padding:.7rem .9rem;border-radius:12px;background:#fff8e1;border:1px solid #f2d98a;color:#7a5b00;font-size:.92rem;line-height:1.6;}
+.pv-changed i{margin-top:.15rem;}
+/* El tema que TODAVÍA no había votado (lo nuevo tras el cambio). */
+.pv-new{display:inline-flex;align-items:center;font-size:.74rem;font-weight:700;padding:.1rem .45rem;border-radius:999px;background:#fff3cd;color:#7a5b00;border:1px solid #f2d98a;text-transform:uppercase;letter-spacing:.02em;}
 .pv-bar__msg{ font-size:.9rem; color:#8a6d3b; }
 .pv-bar__msg.is-ok{ color:#198754; font-weight:600; }
 .pv-tools{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; }

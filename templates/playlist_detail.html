@@ -120,6 +120,11 @@
   {% if vote %}{% include '_playlist_vote_people.html' %}{% endif %}
 {% endif %}
 
+{# ---------- LAS CONDICIONES de una playlist de valoración ----------
+   Lo abre el LÁPIZ de la cabecera. Se pinta fuera de las pestañas (así vale desde cualquiera) y solo
+   cuando no se está editando la lista, que ahí el lápiz no sale. #}
+{% if vote and not edit_mode %}{% include '_playlist_vote_conditions_modal.html' %}{% endif %}
+
 {# ---------- COMPARTIR ----------
    Un solo pop-up con las opciones: WhatsApp, SMS y copiar el enlace arriba, y debajo el correo con sus
    destinatarios y su nota. #}

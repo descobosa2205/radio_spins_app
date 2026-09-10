@@ -164,21 +164,27 @@
       elegidos.insertBefore(llevando, (ev.clientY - r.top) > r.height / 2 ? sobre.nextSibling : sobre);
     });
 
-    /* «¿Cuántas hay que seleccionar?» solo con las dinámicas que llevan selección.
-       ⚠️ Su campo se DESHABILITA al esconderlo: un `required` oculto bloquearía el envío. */
+    guarda();
+  }
+
+  /* «¿Cuántas hay que seleccionar?» solo con las dinámicas que llevan selección. PUNTO ÚNICO: lo usan
+     el ASISTENTE de creación y el pop-up de EDITAR LAS CONDICIONES, así que se comportan igual.
+     ⚠️ El campo se DESHABILITA al esconderlo: un `required` oculto bloquearía el envío. */
+  function initModoForm(form) {
+    if (!form || form.dataset.pvModeReady === '1') return;
+    form.dataset.pvModeReady = '1';
     var panel = form.querySelector('[data-pv-when-pick]');
-    function repasaModo() {
+    if (!panel) return;
+    function repasa() {
       var m = form.querySelector('input[name="vote_mode"]:checked');
       var conSeleccion = !!m && (m.value === 'PICK' || m.value === 'PICK_RATE');
-      if (!panel) return;
       panel.classList.toggle('d-none', !conSeleccion);
       panel.querySelectorAll('input').forEach(function (i) { i.disabled = !conSeleccion; });
     }
     form.addEventListener('change', function (ev) {
-      if (ev.target.name === 'vote_mode') repasaModo();
+      if (ev.target.name === 'vote_mode') repasa();
     });
-    repasaModo();
-    guarda();
+    repasa();
   }
 
   /* ===================== 2) LA PÁGINA DE QUIEN VOTA ===================== */
@@ -310,6 +316,7 @@
     var ambito = root || document;
     (ambito.querySelectorAll ? ambito.querySelectorAll('[data-pv-picker]') : []).forEach(initPicker);
     (ambito.querySelectorAll ? ambito.querySelectorAll('[data-pv-vote]') : []).forEach(initVote);
+    (ambito.querySelectorAll ? ambito.querySelectorAll('[data-pv-mode-form]') : []).forEach(initModoForm);
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { init(document); });

@@ -1457,6 +1457,13 @@ class PlaylistVoter(Base):
     opened_at = Column(DateTime(timezone=True))
     reminded_at = Column(DateTime(timezone=True))
     done_at = Column(DateTime(timezone=True))
+    # ⚠️⚠️ SE HA CAMBIADO LA PLAYLIST DESPUÉS DE QUE CONTESTARA: su respuesta **se conserva** (sus
+    # `playlist_votes` y su `done_at` siguen contando en los resultados) y se le vuelve a abrir el
+    # enlace para que valore lo nuevo y repase su selección. `reopened_note` dice QUÉ ha cambiado,
+    # que es lo que se le enseña al entrar. Al volver a enviar, `done_at` se sella otra vez y con eso
+    # la reapertura queda atendida (`reopened_at` <= `done_at`).
+    reopened_at = Column(DateTime(timezone=True))
+    reopened_note = Column(Text)
     cancelled_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -13104,6 +13111,9 @@ def ensure_playlists_schema():
         "CREATE INDEX IF NOT EXISTS idx_playlist_voters_playlist ON playlist_voters(playlist_id);",
         "CREATE INDEX IF NOT EXISTS idx_playlist_voters_token ON playlist_voters(token);",
         "ALTER TABLE IF EXISTS playlist_voters ADD COLUMN IF NOT EXISTS opened_at timestamptz;",
+        # Se ha cambiado la playlist y tiene que volver a votar (su respuesta anterior se conserva).
+        "ALTER TABLE IF EXISTS playlist_voters ADD COLUMN IF NOT EXISTS reopened_at timestamptz;",
+        "ALTER TABLE IF EXISTS playlist_voters ADD COLUMN IF NOT EXISTS reopened_note text;",
         """
         CREATE TABLE IF NOT EXISTS playlist_votes (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

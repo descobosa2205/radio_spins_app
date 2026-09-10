@@ -1,0 +1,78 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   EDITAR LAS CONDICIONES de una playlist de selección/valoración.
+   Lo que se le pide a quien la recibe: la DINÁMICA, cuántos temas hay que seleccionar, el PLAZO y
+   la NOTA que se manda.
+
+   ⚠️⚠️ Si cambia lo que se le PIDE (la dinámica o cuántos hay que elegir), a quien ya había
+   contestado se le REABRE la votación: su respuesta se conserva y le salen las opciones nuevas.
+   Lo dice el propio pop-up para que nadie lo cambie sin saberlo.
+   ⚠️ Las tarjetas de la dinámica y el panel de «¿cuántas hay que seleccionar?» son los MISMOS que
+   los del asistente de creación (`data-pv-mode-form` + `data-pv-when-pick`, en `playlist_vote.js`):
+   así se comportan igual y no hay dos copias. #}
+<div class="modal fade" id="playlistVoteConditionsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" autocomplete="off" data-pv-mode-form
+          action="{{ url_for('playlist_vote_conditions_save', playlist_id=pl.id) }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-sliders me-2 text-danger"></i>Condiciones de la valoración</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+
+        <label class="form-label">¿Qué tienen que hacer los que la reciban?</label>
+        <div class="row g-2">
+          {% for key, label, icon, ayuda in vote.modes %}
+            <div class="col-12 col-md-4">
+              <label class="promo-pick h-100">
+                <input type="radio" name="vote_mode" value="{{ key }}" required
+                       {% if vote.mode == key %}checked{% endif %}>
+                <i class="fa {{ icon }}"></i>
+                <span class="promo-pick__t">{{ label }}</span>
+                <span class="promo-pick__d">{{ ayuda }}</span>
+              </label>
+            </div>
+          {% endfor %}
+        </div>
+
+        {# CUÁNTAS hay que seleccionar: solo con las dinámicas que llevan selección. #}
+        <div class="row g-3 mt-2{{ ' d-none' if not vote.pick_count and vote.mode == 'RATE' }}" data-pv-when-pick>
+          <div class="col-12 col-md-4">
+            <label class="form-label">¿Cuántas hay que seleccionar?</label>
+            <input class="form-control" type="number" min="1" step="1" name="pick_count"
+                   value="{{ vote.pick_count or '' }}" placeholder="Ej. 5">
+            {% if vote.songs_count %}
+              <div class="form-text">La playlist tiene {{ vote.songs_count }} tema{{ '' if vote.songs_count == 1 else 's' }}.</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="row g-3 mt-1">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Plazo máximo <span class="text-muted small">(opcional)</span></label>
+            <input class="form-control" type="date" name="due_date" value="{{ vote.due_value or '' }}">
+            <div class="form-text">El día antes se les manda un recordatorio.</div>
+          </div>
+          <div class="col-12 col-md-8">
+            <label class="form-label">Nota que se manda <span class="text-muted small">(opcional)</span></label>
+            <textarea class="form-control" name="vote_note" rows="3"
+                      placeholder="Lo que quieras contarles al pedírselo">{{ vote.note or '' }}</textarea>
+          </div>
+        </div>
+
+        {% if vote.done_count %}
+          <div class="alert alert-warning mt-3 mb-0 small">
+            <i class="fa fa-triangle-exclamation me-1"></i>
+            {{ vote.done_count }} persona{{ '' if vote.done_count == 1 else 's' }} ya
+            {{ 'ha' if vote.done_count == 1 else 'han' }} contestado. Si cambias la dinámica o cuántas hay
+            que seleccionar, <strong>su valoración se conserva</strong> pero {{ 'podrá' if vote.done_count == 1 else 'podrán' }}
+            volver a votar con las condiciones nuevas.
+          </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar condiciones</button>
+      </div>
+    </form>
+  </div>
+</div>

@@ -17,6 +17,25 @@
     {% endif %}
   </div>
 
+  {# ⚠️⚠️ SE HA CAMBIADO LA PLAYLIST DESPUÉS DE QUE CONTESTARAN: su valoración se conserva y pueden
+     volver a votar. Aquí se dice y se les puede avisar de una vez. #}
+  {% if vote.review_count %}
+    <div class="alert alert-warning mb-0 rounded-0 d-flex align-items-center gap-2 flex-wrap">
+      <span><i class="fa fa-rotate me-1"></i>
+        {% if vote.review_note %}<strong>{{ vote.review_note }}.</strong>{% endif %}
+        {{ vote.review_count }} persona{{ '' if vote.review_count == 1 else 's' }} que ya
+        {{ 'había' if vote.review_count == 1 else 'habían' }} contestado
+        {{ 'puede' if vote.review_count == 1 else 'pueden' }} volver a votar y seleccionar
+        <span class="text-muted small">(su valoración anterior se conserva)</span>.</span>
+      {% if CAN_EDIT_DISCOGRAFICA %}
+        <form class="ms-auto" method="post"
+              action="{{ url_for('playlist_vote_notify_changes', playlist_id=pl.id) }}">
+          <button class="btn btn-sm btn-warning"><i class="fa fa-paper-plane me-1"></i>Avisarles del cambio</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+
   {# PARA QUÉ se les ha mandado: la dinámica, cuántas hay que elegir, el plazo y la nota. #}
   <div class="card-body pb-2">
     <div class="d-flex flex-wrap gap-2 align-items-center">
@@ -39,7 +58,13 @@
       <div class="list-group-item d-flex align-items-center gap-2 flex-wrap">
         <img class="pv-face" src="{{ v.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
         <span class="fw-semibold">{{ v.name }}</span>
-        <span class="badge text-bg-{{ v.state_color }}"><i class="fa {{ v.state_icon }} me-1"></i>{{ v.state_label }}</span>
+        <span class="badge text-bg-{{ v.state_color }}"
+              {% if v.needs_review and v.reopened_note %}title="{{ v.reopened_note }} · se le reabrió el {{ v.reopened_label }}"{% endif %}>
+          <i class="fa {{ v.state_icon }} me-1"></i>{{ v.state_label }}</span>
+        {% if v.needs_review and v.done_label %}
+          <span class="small text-muted" title="Lo que contestó el {{ v.done_label }} se conserva">
+            contestó el {{ v.done_label }}</span>
+        {% endif %}
         {% if v.progress_label %}<span class="small text-muted">{{ v.progress_label }}</span>{% endif %}
         <a class="btn btn-sm btn-link p-0 ms-1 small"
            href="{{ url_for('playlist_detail_view', playlist_id=pl.id, tab='valoraciones', quien=v.id) }}"

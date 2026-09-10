@@ -54,6 +54,14 @@
 
     <h1 class="h5 text-center mb-3">{{ title }}</h1>
     <p class="text-center text-muted">{{ intro }}</p>
+    {# ⚠️⚠️ Ya había contestado y la playlist ha CAMBIADO: se le dice qué y que lo suyo se conserva. #}
+    {% if changed %}
+      <div class="pv-changed">
+        <i class="fa fa-rotate"></i>
+        <span><strong>{{ changed }}.</strong> Lo que ya habías votado se conserva: valora lo nuevo,
+          repasa tu selección y vuelve a enviarla.</span>
+      </div>
+    {% endif %}
     {% if note %}<div class="pl-note"><i class="fa fa-note-sticky"></i><span>{{ note }}</span></div>{% endif %}
 
     <div class="pl-head">
@@ -90,6 +98,8 @@
         {% set votar %}
           {% if it.kind in ('SONG', 'DEMO') %}
             <span class="pv-tools">
+              {# Viene de un cambio de la playlist: esto es lo que todavía no había votado. #}
+              {% if it.vote_is_new %}<span class="pv-new"><i class="fa fa-circle-plus me-1"></i>Nuevo</span>{% endif %}
               {# Hasta que no se escucha entera, no se puede decidir ni puntuar. #}
               <span class="pv-lock{{ ' d-none' if it.vote_heard }}" data-pv-lock>
                 <i class="fa fa-lock me-1"></i>Escúchala entera para {{ 'decidir' if progress.wants_pick else 'puntuarla' }}

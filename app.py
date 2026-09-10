@@ -39856,18 +39856,29 @@ def _playlist_vote_mode(pl) -> str:
     return modo if modo in PLAYLIST_VOTE_KEYS else ""
 
 
+def _playlist_vote_wants_mode(modo: str) -> tuple[bool, bool]:
+    """`(elige, puntúa)` de un MODO. Punto único: se usa también para hablar de un modo que todavía
+    no está guardado (al cambiar las condiciones)."""
+    modo = (modo or "").strip().upper()
+    return (modo in ("PICK", "PICK_RATE"), modo in ("RATE", "PICK_RATE"))
+
+
 def _playlist_vote_wants(pl) -> tuple[bool, bool]:
     """`(elige, puntúa)` — qué tiene que hacer quien la recibe."""
-    modo = _playlist_vote_mode(pl)
-    return (modo in ("PICK", "PICK_RATE"), modo in ("RATE", "PICK_RATE"))
+    return _playlist_vote_wants_mode(_playlist_vote_mode(pl))
+
+
+def _playlist_vote_word_mode(modo: str) -> str:
+    """«valorar» · «seleccionar» · «seleccionar y valorar» de un MODO."""
+    elige, puntua = _playlist_vote_wants_mode(modo)
+    if elige and puntua:
+        return "seleccionar y valorar"
+    return "seleccionar" if elige else "valorar"
 
 
 def _playlist_vote_word(pl) -> str:
     """«valorar» · «seleccionar» · «seleccionar y valorar» — lo que hay que hacer, en una palabra."""
-    elige, puntua = _playlist_vote_wants(pl)
-    if elige and puntua:
-        return "seleccionar y valorar"
-    return "seleccionar" if elige else "valorar"
+    return _playlist_vote_word_mode(_playlist_vote_mode(pl))
 
 
 def _playlist_vote_kind_label(pl) -> str:
@@ -39961,6 +39972,9 @@ PLAYLIST_VOTER_STATES = (
     ("LISTENING", "Escuchando temas", "fa-headphones", "info"),
     ("PENDING_VOTE", "Escuchado, pendiente de decidir", "fa-clipboard-question", "warning"),
     ("DONE", "Ya ha contestado", "fa-circle-check", "success"),
+    # Contestó y DESPUÉS se cambió la playlist: su respuesta sigue contando, pero tiene que revisar
+    # lo nuevo y volver a enviarla.
+    ("REVIEW", "Pendiente de revisar los cambios", "fa-rotate", "warning"),
     ("CANCELLED", "Anulado", "fa-ban", "danger"),
 )
 PLAYLIST_VOTER_STATE_META = dict((k, {"label": l, "icon": i, "color": c})
@@ -39974,6 +39988,8 @@ def _playlist_voter_state(voter, progreso: dict | None = None) -> tuple[str, str
     es lo que hay que poder ver de un vistazo."""
     if getattr(voter, "cancelled_at", None):
         return ("CANCELLED", PLAYLIST_VOTER_STATE_META["CANCELLED"]["label"])
+    if _playlist_voter_needs_review(voter):
+        return ("REVIEW", PLAYLIST_VOTER_STATE_META["REVIEW"]["label"])
     if getattr(voter, "done_at", None):
         return ("DONE", PLAYLIST_VOTER_STATE_META["DONE"]["label"])
     if not getattr(voter, "sent_at", None):
@@ -40029,6 +40045,9 @@ def _playlist_vote_item_rows(session_db, pl, voter, *, token: str) -> list[dict]
     Dani. Lo que no ha puntuado se queda detrás, en el orden de la playlist."""
     filas = []
     votos = _playlist_vote_rows(session_db, voter.id)
+    # ⚠️ Si viene de un CAMBIO de la playlist, lo que todavía no ha tocado es lo NUEVO: se marca para
+    # que sepa qué le falta sin tener que repasar la lista entera.
+    revisando = _playlist_voter_needs_review(voter)
     for it in _playlist_items_ordered(session_db, pl):
         fila = _playlist_item_payload(session_db, pl, it)
         clave = str(it.id)
@@ -40036,6 +40055,7 @@ def _playlist_vote_item_rows(session_db, pl, voter, *, token: str) -> list[dict]
         fila["vote_state"] = (getattr(v, "state", "") or "")
         fila["vote_score"] = getattr(v, "score", None)
         fila["vote_heard"] = bool(getattr(v, "heard", False))
+        fila["vote_is_new"] = bool(revisando and v is None)
         # ⚠️ El audio va por el enlace de ESA persona (nunca la dirección de Storage).
         if fila.get("stream_url"):
             fila["stream_url"] = url_for("public_playlist_vote_audio", token=token, item_id=it.id)
@@ -40075,7 +40095,9 @@ def _playlist_vote_results(session_db, pl, *, incluir_incompletos: bool = False)
         fichas[str(v.id)] = {"id": str(v.id), "name": (v.name or "—"),
                              "photo_url": _playlist_voter_photo(session_db, v),
                              # ⚠️ PARCIAL = todavía no lo ha enviado: lo que se ve es lo que lleva.
-                             "partial": not bool(getattr(v, "done_at", None))}
+                             "partial": not bool(getattr(v, "done_at", None)),
+                             # Su respuesta VALE, pero la playlist cambió después: le falta revisar.
+                             "needs_review": _playlist_voter_needs_review(v)}
     filas = []
     for it in temas:
         base = _playlist_item_payload(session_db, pl, it)
@@ -40165,6 +40187,110 @@ def _playlist_progress_from(pl, temas, votos: dict) -> dict:
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# SE CAMBIA UNA PLAYLIST QUE YA SE HABÍA MANDADO
+# ⚠️⚠️ Lo ya votado NO se toca: sus `playlist_votes` y su `done_at` se conservan (así su respuesta
+# sigue contando en los resultados) y se le vuelve a abrir el enlace para que valore lo NUEVO y
+# repase su selección. Es lo que pidió Dani: «las votaciones ya emitidas se mantienen pero le salen
+# nuevas opciones a esas personas para volver a votar y seleccionar».
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _playlist_vote_signature(session_db, pl) -> dict:
+    """La HUELLA de lo que le afecta a quien vota: **qué temas suenan**, **qué hay que hacer** y
+    **cuántos hay que elegir**.
+
+    ⚠️ Lo demás (el nombre, la portada, la nota, el plazo, los interruptores, un TÍTULO o una
+    DIVISIÓN) no cambia lo que se le pide a nadie, así que no reabre nada: molestar por eso a quien
+    ya contestó es peor que no avisar."""
+    temas = [str(it.id) for it in _playlist_items_ordered(session_db, pl)
+             if (it.kind or "").upper() in ("SONG", "DEMO")]
+    return {"items": temas, "mode": _playlist_vote_mode(pl),
+            "pick": int(getattr(pl, "pick_count", None) or 0)}
+
+
+def _playlist_vote_change_note(antes: dict, ahora: dict) -> str:
+    """QUÉ HA CAMBIADO, dicho para quien tiene que volver a votar (`''` si nada le afecta)."""
+    if not isinstance(antes, dict) or not isinstance(ahora, dict):
+        return ""
+    trozos = []
+    viejos, nuevos = set(antes.get("items") or []), set(ahora.get("items") or [])
+    n_add, n_del = len(nuevos - viejos), len(viejos - nuevos)
+    if n_add:
+        trozos.append("se ha añadido 1 tema" if n_add == 1 else "se han añadido %d temas" % n_add)
+    if n_del:
+        # Si ya se ha dicho «tema» al hablar de los añadidos, no se repite: «…y se ha quitado 1».
+        cola = "" if n_add else (" tema" if n_del == 1 else " temas")
+        trozos.append(("se ha quitado 1%s" % cola) if n_del == 1
+                      else ("se han quitado %d%s" % (n_del, cola)))
+    modo_antes = (antes.get("mode") or "").strip().upper()
+    modo_ahora = (ahora.get("mode") or "").strip().upper()
+    if modo_antes != modo_ahora:
+        trozos.append("ha cambiado lo que hay que hacer: %s" % _playlist_vote_word_mode(modo_ahora))
+    elif int(antes.get("pick") or 0) != int(ahora.get("pick") or 0):
+        n = int(ahora.get("pick") or 0)
+        trozos.append(("ahora hay que seleccionar %d tema%s" % (n, "" if n == 1 else "s")) if n
+                      else "ya no hay un número fijo de temas que seleccionar")
+    if not trozos:
+        return ""
+    texto = trozos[0] if len(trozos) == 1 else (", ".join(trozos[:-1]) + " y " + trozos[-1])
+    return texto[0].upper() + texto[1:]
+
+
+def _playlist_voter_needs_review(voter) -> bool:
+    """¿Se cambió la playlist DESPUÉS de que contestara? Entonces su enlace vuelve a valer y tiene
+    que repasar su respuesta y volver a enviarla."""
+    reabierto = getattr(voter, "reopened_at", None)
+    if not reabierto:
+        return False
+    hecho = getattr(voter, "done_at", None)
+    return (not hecho) or (reabierto > hecho)
+
+
+def _playlist_vote_reopen(session_db, pl, nota: str) -> list:
+    """Reabre la votación de QUIEN YA HABÍA CONTESTADO y devuelve a quiénes.
+
+    ⚠️ A quien todavía no ha contestado no hay que reabrirle nada: su enlace ya vale y la página lee
+    los temas EN VIVO, así que verá lo nuevo sin más."""
+    nota = (nota or "").strip()
+    if not nota or not _playlist_is_vote(pl):
+        return []
+    ahora = _now_madrid()
+    tocados = []
+    for v in (getattr(pl, "voters", None) or []):
+        if getattr(v, "cancelled_at", None) or not getattr(v, "done_at", None):
+            continue
+        v.reopened_at = ahora
+        v.reopened_note = nota
+        session_db.add(v)
+        tocados.append(v)
+    return tocados
+
+
+def _playlist_vote_apply_change(session_db, pl, antes: dict | None) -> dict:
+    """Punto ÚNICO de «se ha guardado un cambio en la playlist»: compara la huella, reabre a quien
+    haga falta y devuelve qué ha pasado (para decirlo en pantalla)."""
+    if not antes:
+        return {"note": "", "reopened": 0, "names": []}
+    nota = _playlist_vote_change_note(antes, _playlist_vote_signature(session_db, pl))
+    tocados = _playlist_vote_reopen(session_db, pl, nota)
+    return {"note": nota, "reopened": len(tocados),
+            "names": [(v.name or "—") for v in tocados]}
+
+
+def _playlist_vote_reopen_flash(cambio: dict) -> None:
+    """Lo dice en pantalla: qué ha cambiado y a cuántos se les ha vuelto a abrir la votación."""
+    if not cambio or not cambio.get("note"):
+        return
+    n = int(cambio.get("reopened") or 0)
+    if n:
+        flash("%s. %s puede%s volver a votar y seleccionar (su valoración anterior se conserva): %s."
+              % (cambio["note"], "1 persona que ya había contestado" if n == 1
+                 else "%d personas que ya habían contestado" % n,
+                 "" if n == 1 else "n", ", ".join(cambio.get("names") or [])), "warning")
+    else:
+        flash("%s." % cambio["note"], "info")
+
+
 # Las DOS pestañas de una playlist de valoración/selección. ⚠️ La primera es la de por defecto: una
 # `?tab=` que no esté aquí cae en ella (misma regla que la ficha de personal o contabilidad).
 PLAYLIST_VOTE_TABS = ("playlist", "valoraciones")
@@ -40200,6 +40326,11 @@ def _playlist_voter_rows(session_db, pl) -> list[dict]:
             "sent_label": _demo_dt_label(getattr(v, "sent_at", None)),
             "opened_label": _demo_dt_label(getattr(v, "opened_at", None)),
             "done_label": _demo_dt_label(getattr(v, "done_at", None)),
+            # Se cambió la playlist después de que contestara: su respuesta se conserva y tiene que
+            # revisar lo nuevo.
+            "needs_review": _playlist_voter_needs_review(v),
+            "reopened_note": (getattr(v, "reopened_note", None) or ""),
+            "reopened_label": _demo_dt_label(getattr(v, "reopened_at", None)),
             "url": _playlist_vote_url(v),
         })
     return salida
@@ -40344,7 +40475,7 @@ def _playlist_email_html(ctx: dict, *, note: str = "") -> str:
 
 
 def _playlist_vote_email_html(session_db, pl, ctx: dict, *, url: str, note: str = "",
-                              remind_days: int | None = None) -> str:
+                              remind_days: int | None = None, changed: str = "") -> str:
     """EL CORREO de una playlist de selección/valoración. PUNTO ÚNICO: es el mismo HTML que se manda
     y el que se previsualiza, así que no hay dos versiones que se desparejen.
 
@@ -40366,6 +40497,13 @@ def _playlist_vote_email_html(session_db, pl, ctx: dict, *, url: str, note: str 
                       'style="max-height:54px;max-width:190px;"></div>')
     partes.append('<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">%s</h2>'
                   % esc(_playlist_vote_title(pl)))
+    # ⚠️ SE HA CAMBIADO LA PLAYLIST: el mismo correo con el aviso del cambio delante (y lo que ya
+    # había votado se conserva: solo tiene que revisar lo nuevo).
+    if (changed or "").strip():
+        partes.append('<div style="margin:0 0 14px;padding:12px 14px;border-radius:12px;'
+                      'background:#fff8e1;border:1px solid #f2d98a;font-size:14px;line-height:1.7;'
+                      f'color:#7a5b00;"><strong>{esc(changed.strip())}.</strong> Lo que ya habías '
+                      'votado se conserva: repasa tu respuesta y vuelve a enviarla.</div>')
     # ⚠️ EL RECORDATORIO es el MISMO correo con el aviso del plazo delante: no hay un segundo diseño.
     if remind_days is not None:
         dias = int(remind_days)
@@ -40642,7 +40780,16 @@ def playlist_detail_view(playlist_id):
                 "subject": _playlist_vote_subject(session_db, pl),
                 "voters": filas_v,
                 "total_count": len(filas_v),
-                "done_count": sum(1 for v in filas_v if v["state"] == "DONE"),
+                "done_count": sum(1 for v in filas_v if v["state"] in ("DONE", "REVIEW")),
+                # Se cambió la playlist después de que contestaran: tienen que revisarla.
+                "review_count": sum(1 for v in filas_v if v.get("needs_review")),
+                "review_note": next((v.get("reopened_note") for v in filas_v
+                                     if v.get("needs_review") and v.get("reopened_note")), ""),
+                "modes": PLAYLIST_VOTE_MODES,
+                "note": (pl.vote_note or ""),
+                "due_value": (pl.vote_due_date.isoformat() if getattr(pl, "vote_due_date", None) else ""),
+                "songs_count": len([it for it in _playlist_items_ordered(session_db, pl)
+                                    if (it.kind or "").upper() in ("SONG", "DEMO")]),
             }
         # ⚠️ DOS PESTAÑAS cuando es de valoración/selección: **la playlist** (con a quién se le ha
         # mandado, para qué y en qué punto está cada uno) y **las valoraciones**. Una pestaña que no
@@ -40721,6 +40868,123 @@ def playlist_vote_create():
         app.logger.exception("[playlist] no se pudo crear la playlist de selección")
         flash("No se pudo crear la playlist: %s" % e, "danger")
         return redirect(destino)
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/playlists/<playlist_id>/valoracion/condiciones",
+          endpoint="playlist_vote_conditions_save")
+@admin_required
+def playlist_vote_conditions_save(playlist_id):
+    """LAS CONDICIONES de una playlist de selección/valoración: qué tienen que hacer, cuántos temas
+    hay que elegir, el plazo y la nota.
+
+    ⚠️⚠️ Si cambia lo que se le PIDE a la gente (la dinámica o cuántos hay que seleccionar), a quien
+    ya había contestado se le **reabre** la votación: su respuesta se conserva y le salen las
+    opciones nuevas para volver a votar y seleccionar."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar la playlist.")
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        volver = url_for("playlist_detail_view", playlist_id=pl.id)
+        if not _playlist_is_vote(pl):
+            flash("Esta playlist no es de selección ni de valoración.", "warning")
+            return redirect(volver)
+        antes = _playlist_vote_signature(session_db, pl)
+        modo = (request.form.get("vote_mode") or "").strip().upper()
+        if modo not in PLAYLIST_VOTE_KEYS:
+            _flash_form_error("Dinos qué tienen que hacer los que la reciban.",
+                              ["vote_mode"], "#playlistVoteConditionsModal")
+            return redirect(volver)
+        elige, _puntua = _playlist_vote_wants_mode(modo)
+        n_pedidas = 0
+        if elige:
+            try:
+                n_pedidas = int((request.form.get("pick_count") or "0").strip() or 0)
+            except ValueError:
+                n_pedidas = 0
+            if n_pedidas <= 0:
+                _flash_form_error("Di cuántas canciones hay que seleccionar.",
+                                  ["pick_count"], "#playlistVoteConditionsModal")
+                return redirect(volver)
+            # ⚠️ No se pueden pedir más temas de los que hay: nadie podría enviar su selección.
+            suenan = len([it for it in _playlist_items_ordered(session_db, pl)
+                          if (it.kind or "").upper() in ("SONG", "DEMO")])
+            if suenan and n_pedidas > suenan:
+                _flash_form_error("La playlist solo tiene %d tema%s: no se pueden pedir %d."
+                                  % (suenan, "" if suenan == 1 else "s", n_pedidas),
+                                  ["pick_count"], "#playlistVoteConditionsModal")
+                return redirect(volver)
+        pl.vote_mode = modo
+        pl.pick_count = (n_pedidas or None)
+        pl.vote_due_date = parse_optional_date(request.form.get("due_date"))
+        pl.vote_note = (request.form.get("vote_note") or "").strip() or None
+        pl.updated_at = _now_madrid()
+        cambio = _playlist_vote_apply_change(session_db, pl, antes)
+        session_db.commit()
+        if cambio.get("note"):
+            _playlist_vote_reopen_flash(cambio)
+        else:
+            flash("Condiciones guardadas.", "success")
+        return redirect(volver)
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[playlist] no se pudieron guardar las condiciones")
+        flash("No se pudieron guardar las condiciones: %s" % e, "danger")
+        return redirect(url_for("playlist_detail_view", playlist_id=playlist_id))
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/playlists/<playlist_id>/valoracion/avisar-cambios",
+          endpoint="playlist_vote_notify_changes")
+@admin_required
+def playlist_vote_notify_changes(playlist_id):
+    """Les dice a los que TIENEN QUE REVISAR que la playlist ha cambiado.
+
+    Es el MISMO correo de la solicitud con el aviso del cambio delante (`changed`), no un segundo
+    diseño — igual que el recordatorio del plazo."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar la playlist.")
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        volver = url_for("playlist_detail_view", playlist_id=pl.id)
+        pendientes = [v for v in (getattr(pl, "voters", None) or [])
+                      if _playlist_voter_needs_review(v) and not getattr(v, "cancelled_at", None)]
+        if not pendientes:
+            flash("No hay nadie pendiente de revisar los cambios.", "info")
+            return redirect(volver)
+        ctx = _playlist_context(session_db, pl)
+        asunto = "Se ha actualizado: %s" % _playlist_vote_subject(session_db, pl)
+        enviados, fallos = 0, []
+        for v in pendientes:
+            enlace = _playlist_vote_url(v)
+            cuerpo = _playlist_vote_email_html(session_db, pl, ctx, url=enlace,
+                                               note=(pl.vote_note or ""),
+                                               changed=(v.reopened_note or ""))
+            ok, err = (False, "sin correo")
+            if (v.email or ""):
+                ok, err = _send_optional_email(v.email, asunto, cuerpo)
+            elif (v.phone or ""):
+                ok, err = _send_optional_sms(session_db, v.phone, "%s · %s" % (asunto, enlace))
+            if ok:
+                v.sent_at = _now_madrid()
+                enviados += 1
+            else:
+                fallos.append("%s (%s)" % (v.name or "—", err or "no salió"))
+        session_db.commit()
+        if enviados:
+            flash("Avisados %d." % enviados, "success")
+        if fallos:
+            flash("No se pudo avisar a: %s." % ", ".join(fallos), "warning")
+        return redirect(volver)
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[playlist] no se pudo avisar del cambio")
+        flash("No se pudo avisar: %s" % e, "danger")
+        return redirect(url_for("playlist_detail_view", playlist_id=playlist_id))
     finally:
         session_db.close()
 
@@ -40916,6 +41180,9 @@ def playlist_voter_action(playlist_id, voter_id, accion):
                 v.state = None                 # ⚠️ `heard` se conserva a propósito
                 v.updated_at = _now_madrid()
             voter.done_at = None
+            # ⚠️ Empieza de cero: ya no hay ningún cambio «pendiente de revisar».
+            voter.reopened_at = None
+            voter.reopened_note = None
             mensaje = "Se ha borrado su valoración: puede volver a empezar."
         elif accion == "anular":
             voter.cancelled_at = _now_madrid()
@@ -41026,6 +41293,9 @@ def playlist_save(playlist_id):
     session_db = db()
     try:
         pl = _playlist_or_404(session_db, playlist_id)
+        # ⚠️ La huella se toma ANTES de tocar los temas: es con lo que se decide si hay que reabrirle
+        # la votación a quien ya había contestado.
+        antes = _playlist_vote_signature(session_db, pl) if _playlist_is_vote(pl) else None
         nombre = (request.form.get("name") or "").strip()
         if nombre:
             pl.name = nombre
@@ -41042,9 +41312,14 @@ def playlist_save(playlist_id):
                 return jsonify({"ok": False, "error": "No se pudo leer la playlist."}), 400
             _playlist_replace_items(session_db, pl, lineas if isinstance(lineas, list) else [])
         pl.updated_at = _now_madrid()
+        cambio = _playlist_vote_apply_change(session_db, pl, antes)
         session_db.commit()
+        # El aviso se deja como FLASH: el editor navega a la vista al guardar, así que se lee ahí.
+        _playlist_vote_reopen_flash(cambio)
         ctx = _playlist_context(session_db, pl, all_extras=True)     # lo consume el editor
-        return jsonify({"ok": True, "items": ctx["items"], "pl": ctx["pl"]})
+        return jsonify({"ok": True, "items": ctx["items"], "pl": ctx["pl"],
+                        "reopened": cambio.get("reopened") or 0,
+                        "change_note": cambio.get("note") or ""})
     except Exception as e:
         session_db.rollback()
         app.logger.exception("[playlist] no se pudo guardar")
@@ -41281,7 +41556,9 @@ def _playlist_vote_gate(session_db, token):
         return (None, None, "Este enlace ya no vale.")
     if getattr(voter, "cancelled_at", None):
         return (pl, voter, "Ya no está disponible: se ha anulado tu participación.")
-    if getattr(voter, "done_at", None):
+    # ⚠️ Ya contestó, pero DESPUÉS se cambió la playlist: su enlace vuelve a valer para que valore
+    # lo nuevo y repase su selección (lo que ya dijo se conserva).
+    if getattr(voter, "done_at", None) and not _playlist_voter_needs_review(voter):
         return (pl, voter, "Ya has enviado tu respuesta. ¡Gracias!")
     return (pl, voter, "")
 
@@ -41311,6 +41588,9 @@ def public_playlist_vote(token):
             "title": _playlist_vote_title(pl),
             "intro": _playlist_vote_intro(pl),
             "note": (pl.vote_note or ""),
+            # ⚠️ Ya había contestado y la playlist ha cambiado: se le dice QUÉ ha cambiado y que lo
+            # suyo se conserva (solo tiene que revisar lo nuevo y volver a enviarlo).
+            "changed": ((voter.reopened_note or "") if (not motivo and _playlist_voter_needs_review(voter)) else ""),
             "max_score": PLAYLIST_VOTE_MAX_SCORE,
             "due_label": (pl.vote_due_date.strftime("%d/%m/%Y") if getattr(pl, "vote_due_date", None) else ""),
             "save_url": url_for("public_playlist_vote_save", token=token),
@@ -41326,7 +41606,8 @@ def public_playlist_vote(token):
             # ⚠️ Lo que YA tenía puesto: al volver otro día se sigue donde se dejó, así que el
             # estado de cada tema lo manda el SERVIDOR y la pantalla lo aplica al cargar.
             "saved": [{"id": f["id"], "heard": f.get("vote_heard"),
-                       "state": f.get("vote_state") or "", "score": f.get("vote_score")}
+                       "state": f.get("vote_state") or "", "score": f.get("vote_score"),
+                       "is_new": bool(f.get("vote_is_new"))}
                       for f in filas if f.get("kind") in ("SONG", "DEMO")],
         }
         session_db.commit()
@@ -41407,9 +41688,13 @@ def public_playlist_vote_submit(token):
         if not avance.get("ready"):
             return jsonify({"ok": False,
                             "error": avance.get("message") or "Todavía te queda algo por hacer."}), 400
+        revisaba = _playlist_voter_needs_review(voter)      # venía de un cambio de la playlist
         voter.done_at = _now_madrid()
+        # La reapertura queda atendida: su enlace se cierra otra vez hasta el próximo cambio.
+        voter.reopened_at = None
+        voter.reopened_note = None
         session_db.flush()
-        _playlist_vote_notify_done(session_db, pl, voter)
+        _playlist_vote_notify_done(session_db, pl, voter, updated=revisaba)
         session_db.commit()
         return jsonify({"ok": True, "message": "¡Gracias! Ya hemos recibido tu respuesta."})
     except Exception as e:
@@ -41420,18 +41705,26 @@ def public_playlist_vote_submit(token):
         session_db.close()
 
 
-def _playlist_vote_notify_done(session_db, pl, voter) -> None:
-    """Aviso por la app a QUIEN LA MANDÓ: «X ya ha valorado <playlist>»."""
+def _playlist_vote_notify_done(session_db, pl, voter, *, updated: bool = False) -> None:
+    """Aviso por la app a QUIEN LA MANDÓ: «X ya ha valorado <playlist>».
+
+    Con `updated` es una respuesta REVISADA (se cambió la playlist y ha vuelto a votar), que es otra
+    cosa: lo que había contestado antes ya se había visto."""
     destino = getattr(pl, "created_by_user_id", None)
     if not destino:
         return
     palabra = "valorado" if _playlist_vote_mode(pl) == "RATE" else "contestado"
+    quien = (voter.name or "Alguien")
+    nombre = (pl.name or "la playlist")
+    if updated:
+        titulo = "%s ha revisado su respuesta de «%s»" % (quien, nombre)
+        cuerpo = "Ha vuelto a votar después del cambio de la playlist."
+    else:
+        titulo = "%s ya ha %s «%s»" % (quien, palabra, nombre)
+        cuerpo = ("Ya puedes ver su %s en la playlist."
+                  % ("valoración" if palabra == "valorado" else "respuesta"))
     try:
-        _notify_user(session_db, str(destino), "DISCOGRAFICA",
-                     "%s ya ha %s «%s»" % ((voter.name or "Alguien"), palabra,
-                                           (pl.name or "la playlist")),
-                     "Ya puedes ver su %s en la playlist."
-                     % ("valoración" if palabra == "valorado" else "respuesta"),
+        _notify_user(session_db, str(destino), "DISCOGRAFICA", titulo, cuerpo,
                      url_for("playlist_detail_view", playlist_id=pl.id),
                      ref_type="PLAYLIST_VOTE", ref_id=str(pl.id),
                      actor_name=(voter.name or None),
@@ -41459,7 +41752,8 @@ def _playlist_vote_reminder_sweep() -> dict:
             if faltan > PLAYLIST_VOTE_REMIND_DAYS:
                 continue
             pendientes = [v for v in (pl.voters or [])
-                          if v.sent_at and not v.done_at and not v.cancelled_at and not v.reminded_at]
+                          if v.sent_at and not v.cancelled_at and not v.reminded_at
+                          and (not v.done_at or _playlist_voter_needs_review(v))]
             if not pendientes:
                 continue
             ctx = _playlist_context(session_db, pl)
@@ -41469,7 +41763,8 @@ def _playlist_vote_reminder_sweep() -> dict:
                     continue
                 html_correo = _playlist_vote_email_html(
                     session_db, pl, ctx, url=_playlist_vote_url(v),
-                    note=(pl.vote_note or ""), remind_days=faltan)
+                    note=(pl.vote_note or ""), remind_days=faltan,
+                    changed=((v.reopened_note or "") if _playlist_voter_needs_review(v) else ""))
                 ok, _err = _send_optional_email(
                     v.email, "Recordatorio · %s" % _playlist_vote_subject(session_db, pl),
                     html_correo)

@@ -40,6 +40,35 @@
     {% endfor %}
   </span>
 
+  {# ---------- EL LÁPIZ (editar) ----------
+     ⚠️ A la VISTA, no escondido en los tres puntitos: es lo que más se busca al abrir una playlist
+     ya creada. En una de SELECCIÓN/VALORACIÓN despliega las dos cosas que se pueden cambiar —**la
+     lista** (los temas) y **las condiciones** (qué hay que hacer, cuántas elegir, el plazo y la
+     nota)—; en una normal lleva directo a editar, que no hay condiciones.
+     ⚠️ Son DOS dropdowns hermanos (este y el de ⋯), no uno dentro de otro: el ayudante global de
+     desplegables cierra cualquier cosa que se despliegue DENTRO de un menú. #}
+  {% set pl_is_vote = (vote is defined and vote) %}
+  {% if can_edit and not edit_mode %}
+    {% if pl_is_vote %}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"
+                title="Editar la playlist" aria-label="Editar la playlist"><i class="fa fa-pen"></i></button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=1) }}">
+            <i class="fa fa-list-ul fa-fw me-1"></i>Editar la lista
+            <span class="d-block small text-muted">Los temas y su orden, el nombre, la portada…</span></a></li>
+          <li><button class="dropdown-item" type="button"
+                      data-bs-toggle="modal" data-bs-target="#playlistVoteConditionsModal">
+            <i class="fa fa-sliders fa-fw me-1"></i>Editar las condiciones
+            <span class="d-block small text-muted">Qué hay que hacer, cuántas elegir, el plazo y la nota</span></button></li>
+        </ul>
+      </div>
+    {% else %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=1) }}"
+         title="Editar la playlist" aria-label="Editar la playlist"><i class="fa fa-pen"></i></a>
+    {% endif %}
+  {% endif %}
+
   {# ---------- LOS TRES PUNTITOS ----------
      Editar (o ver) · Compartir —al pincharlo salen las opciones, en su pop-up— · Copiar enlace y,
      debajo, Eliminar.
@@ -51,18 +80,13 @@
     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"
             aria-label="Opciones"><i class="fa fa-ellipsis"></i></button>
     <ul class="dropdown-menu dropdown-menu-end">
-      {% if can_edit %}
-        {% if edit_mode %}
-          {# ⚠️ `data-replace-history`: al salir de la edición, ese paso NO se queda en el historial.
-             Si no, el botón de atrás (el nuestro y el del navegador) te devolvía a rellenar el
-             formulario y parecía que la playlist no se había creado. #}
-          <li><a class="dropdown-item" data-replace-history
-                 href="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
-            <i class="fa fa-eye fa-fw me-1"></i>Ver la playlist</a></li>
-        {% else %}
-          <li><a class="dropdown-item" href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=1) }}">
-            <i class="fa fa-pen fa-fw me-1"></i>Editar</a></li>
-        {% endif %}
+      {% if can_edit and edit_mode %}
+        {# ⚠️ `data-replace-history`: al salir de la edición, ese paso NO se queda en el historial.
+           Si no, el botón de atrás (el nuestro y el del navegador) te devolvía a rellenar el
+           formulario y parecía que la playlist no se había creado. #}
+        <li><a class="dropdown-item" data-replace-history
+               href="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
+          <i class="fa fa-eye fa-fw me-1"></i>Ver la playlist</a></li>
       {% endif %}
       <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#playlistShareModal">
         <i class="fa fa-share-alt fa-fw me-1"></i>Compartir</button></li>

@@ -2214,6 +2214,53 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   portada y nota, sus interruptores de descarga/letra/autores… y lo que se cambie lo ven todos, que
   la página de cada uno lee los temas EN VIVO.
 
+- ⚠️⚠️ **UNA PLAYLIST DE SELECCIÓN SE EDITA DESPUÉS DE MANDARLA, Y LO YA VOTADO SE CONSERVA**
+  (sep 2026). En la cabecera de la lista, **arriba a la derecha, el LÁPIZ** (a la vista, no escondido
+  en los ⋯ — es lo que más se busca al abrir una playlist ya creada) despliega las dos cosas que se
+  pueden cambiar: **«Editar la lista»** (el editor de temas de siempre) y **«Editar las
+  condiciones»** (`#playlistVoteConditionsModal` → `playlist_vote_conditions_save`: la dinámica,
+  cuántos temas hay que seleccionar, el plazo y la nota). En una playlist NORMAL el lápiz lleva
+  directo a editar (no hay condiciones), y de los ⋯ se retiró «Editar».
+  ⚠️⚠️ **LO YA VOTADO NO SE TOCA**: `PlaylistVote` y el `done_at` de cada persona **se conservan**
+  (su respuesta sigue contando en los resultados) y lo que se hace es **REABRIRLE el enlace** para
+  que valore lo nuevo y repase su selección — columnas nuevas **`PlaylistVoter.reopened_at`** y
+  **`reopened_note`** (qué ha cambiado, que es lo que se le enseña al entrar).
+  · **QUÉ REABRE** lo decide la HUELLA (`_playlist_vote_signature`): **los temas que suenan**, **la
+  dinámica** y **cuántos hay que elegir**. El nombre, la portada, la nota, el plazo, los
+  interruptores y un TÍTULO o una DIVISIÓN **no reabren nada**: molestar por eso a quien ya contestó
+  es peor que no avisar.
+  · Puntos únicos: `_playlist_vote_change_note` (el texto: «Se han añadido 2 temas y se ha quitado
+  1», «Ahora hay que seleccionar 3 temas»…) · `_playlist_vote_reopen` (solo a quien **ya había
+  contestado**: a quien no, su enlace ya vale y la página lee los temas EN VIVO) ·
+  `_playlist_vote_apply_change` (lo llaman el guardado de la lista **y** el de las condiciones) ·
+  **`_playlist_voter_needs_review`** (¿se cambió después de que contestara?).
+  · **Dónde se ve**: el **flash** al guardar (con los nombres) · el **aviso** de la pantalla de gente
+  con el botón **«Avisarles del cambio»** (`playlist_vote_notify_changes`) · el estado nuevo
+  **REVIEW** («Pendiente de revisar los cambios», ámbar) en el listado, con «contestó el …» al lado ·
+  y en la página de quien vota, el aviso de qué ha cambiado (`.pv-changed`) y la etiqueta **NUEVO**
+  (`.pv-new`) en los temas que todavía no había votado.
+  ⚠️ **El correo del reaviso es el MISMO** de la solicitud con el aviso del cambio delante
+  (`changed=`), como el recordatorio del plazo: no hay un segundo diseño.
+  ⚠️ **`done_count` cuenta también a quien está pendiente de revisar**: ya contestó y su valoración
+  está en los resultados, así que si no entrara, la pestaña diría «0 de 2» y dentro habría una
+  valoración (el contador tiene que decir lo que se va a ver).
+  ⚠️ **El RECORDATORIO del plazo también le llega**: su `done_at` está puesto, así que hay que
+  nombrarlo aparte (`not done_at or needs_review`) o se quedaría sin aviso.
+  ⚠️ Al **ENVIAR** se sella `done_at` y se limpia `reopened_at`: su enlace se cierra otra vez hasta
+  el próximo cambio, y a quien la mandó le llega «X ha revisado su respuesta» (que no es lo mismo que
+  «ya ha contestado»).
+  ⚠️ El **RESET** limpia también la reapertura: empieza de cero, así que no hay nada «pendiente de
+  revisar» (si no, se quedaba en ese estado para siempre).
+  ⚠️ **Quitar un tema se lleva sus votos** (`PlaylistVote.item_id` es ON DELETE CASCADE) y eso es lo
+  correcto: el tema ya no está. Los de los temas que se quedan se conservan porque
+  `_playlist_replace_items` **reutiliza las filas por su id**.
+  ⚠️ El panel «¿cuántas hay que seleccionar?» es un **punto único** (`initModoForm` sobre
+  `[data-pv-mode-form]`, en `playlist_vote.js`): lo usan el asistente de creación y el pop-up de
+  condiciones, así que se comportan igual — y su campo se **DESHABILITA** al esconderlo (un
+  `required` oculto bloquea el envío).
+  ⚠️ **No se pueden pedir más temas de los que hay** (lo comprueba el servidor): nadie podría enviar
+  su selección.
+
 - ⚠️⚠️ **LOS BOTONES DEL DISPOSITIVO: pasar de canción desde el iPhone, CarPlay o los AirPods**
   (sep 2026, **Media Session** en `playlist.js`). Escuchando una playlist —compartida o desde
   dentro—, el móvil la trata como lo que es, MÚSICA: la **pantalla de bloqueo**, el **Centro de

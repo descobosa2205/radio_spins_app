@@ -14,7 +14,7 @@
 <div class="modal fade" id="playlistVoteModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <form autocomplete="off" class="modal-content" method="post" action="{{ url_for('playlist_vote_create') }}"
-          data-step-wizard data-autosave="playlist-seleccion"
+          data-step-wizard data-pv-mode-form data-autosave="playlist-seleccion"
           data-autosave-title="la playlist de selección"
           data-picker-url="{{ url_for('playlist_picker_open') }}">
       <div class="modal-header">

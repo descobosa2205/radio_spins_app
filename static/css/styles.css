@@ -6997,6 +6997,21 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 /* «Todos» / «Ninguno» de los artistas: los chips grises del resto de la app, algo más pequeños. */
 .fc-all{ align-self:center; }
 
+/* --- las EMISORAS de las rayas de radio --- */
+.fc-stations-filter{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; margin:-.4rem 0 .6rem; }
+.fc-station{ display:inline-flex; align-items:center; gap:.3rem; border:1px solid rgba(0,0,0,.1);
+  background:#fff; color:#6c757d; border-radius:999px; padding:.15rem .55rem .15rem .2rem; font-size:.75rem; font-weight:600; }
+.fc-station img,.fc-station i{ width:20px; height:20px; border-radius:50%; object-fit:cover; background:#e9ecef;
+  display:grid; place-items:center; font-size:.6rem; color:#adb5bd; }
+.fc-station.is-on{ border-color:var(--brand-accent,#007ca2); box-shadow:inset 0 0 0 1px var(--brand-accent,#007ca2); color:#212529; }
+/* ⚠️ LA RAYA DE RADIO: cuándo entró la última canción en esa emisora y cuánto aguantó. Va debajo
+   de las semanas del artista y en el AZUL de la marca (es otra cosa que sus lanzamientos). */
+.fc-run{ display:flex; align-items:center; gap:.25rem; height:1.05rem; margin:.06rem .1rem;
+  border-radius:6px; background:rgba(0,124,162,.12); border:1px solid rgba(0,124,162,.35);
+  color:#075f7d; font-size:.62rem; font-weight:600; padding:0 .25rem; overflow:hidden; white-space:nowrap; }
+.fc-run img,.fc-run i{ width:13px; height:13px; border-radius:50%; object-fit:cover; flex:0 0 auto; font-size:.5rem; }
+.fc-run span{ overflow:hidden; text-overflow:ellipsis; }
+
 /* --- la PALETA: lo que se arrastra al calendario (sustituye al «+ Periodo de promoción») --- */
 .fc-palette{ display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; margin:-.3rem 0 .8rem; }
 .fc-palette__lbl{ font-size:.75rem; color:#6c757d; font-weight:600; }

@@ -26713,6 +26713,80 @@ def _forecast_last_entries(session_db, artist_ids: list, *, hasta: date) -> dict
     return out
 
 
+# ⚠️ LAS EMISORAS PRINCIPALES: son las que se ofrecen de entrada en el filtro (el resto, tras «Más
+# emisoras»). Se comparan por su NOMBRE normalizado, que es lo que hay en `radio_stations`.
+FORECAST_MAIN_STATIONS = ("Los 40", "Los 40 Urban", "Dial", "Canal Fiesta", "Cadena 100", "Europa FM")
+
+
+def _forecast_station_is_main(nombre: str) -> bool:
+    """¿Es una de las principales? Se compara sin acentos ni mayúsculas y aceptando cómo se escriben
+    de verdad («LOS40», «Cadena Dial», «Canal Fiesta Radio»…)."""
+    clave = _norm_text_key(nombre or "").replace(" ", "")
+    if not clave:
+        return False
+    for principal in FORECAST_MAIN_STATIONS:
+        p = _norm_text_key(principal).replace(" ", "")
+        if clave == p or p in clave:
+            return True
+    return False
+
+
+def _forecast_radio_runs(session_db, artist_ids: list, desde: date, hasta: date) -> dict:
+    """LA RAYA DE RADIO de cada artista: por emisora, **la última canción que ENTRÓ** y cuánto
+    aguantó (de la semana en que entró a la última semana en que sonó).
+
+    Es lo que dice de un vistazo cuánto hace que no se mete nada en cada emisora y cuánto duró lo
+    último. ⚠️ Solo se pintan las emisoras **en las que ha sonado**: una emisora sin tocadas no
+    aporta nada. Va en UNA consulta agrupada (recorrer las tocadas artista a artista sería
+    inaceptable).
+    """
+    ids = [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))]
+    out = {str(x): [] for x in ids}
+    if not ids:
+        return out
+    sub = (session_db.query(SongArtist.artist_id.label("aid"),
+                            Play.station_id.label("sid"),
+                            Play.song_id.label("song"),
+                            func.min(Play.week_start).label("entro"),
+                            func.max(Play.week_start).label("ultima"),
+                            func.sum(Play.spins).label("total"))
+           .join(Play, Play.song_id == SongArtist.song_id)
+           .filter(SongArtist.artist_id.in_(ids))
+           .filter(Play.spins > 0, Play.week_start <= hasta)
+           .group_by(SongArtist.artist_id, Play.station_id, Play.song_id)
+           .subquery())
+    filas = (session_db.query(sub.c.aid, sub.c.sid, sub.c.song, sub.c.entro, sub.c.ultima, sub.c.total,
+                              Song.title, RadioStation.name, RadioStation.logo_url)
+             .outerjoin(Song, Song.id == sub.c.song)
+             .outerjoin(RadioStation, RadioStation.id == sub.c.sid)
+             .all())
+    # De cada (artista, emisora) nos quedamos con la canción que ENTRÓ la última.
+    mejor = {}
+    for aid, sid, _song, entro, ultima, total, titulo, emisora, logo in filas:
+        clave = (str(aid), str(sid))
+        actual = mejor.get(clave)
+        if actual is None or (entro and entro > actual["entered"]):
+            mejor[clave] = {"station_id": str(sid), "station": (emisora or ""), "logo_url": (logo or ""),
+                            "title": (titulo or ""), "entered": entro, "last": ultima,
+                            "spins": int(total or 0)}
+    for (aid, _sid), fila in mejor.items():
+        fin = fila["last"] or fila["entered"]
+        if not fila["entered"] or (fin and fin < desde):
+            continue                      # aquello acabó antes de lo que se está mirando
+        semanas = ((fin - fila["entered"]).days // 7 + 1) if (fin and fila["entered"]) else 1
+        out.setdefault(aid, []).append({
+            "station_id": fila["station_id"], "station": fila["station"], "logo_url": fila["logo_url"],
+            "title": fila["title"], "spins": fila["spins"],
+            "start_date": fila["entered"].isoformat(),
+            "end_date": (fin.isoformat() if fin else fila["entered"].isoformat()),
+            "weeks": semanas,
+            "main": _forecast_station_is_main(fila["station"]),
+        })
+    for aid in out:
+        out[aid].sort(key=lambda r: (not r["main"], r["station"]))
+    return out
+
+
 def _forecast_ago_label(dias) -> str:
     """«hace 3 semanas» · «hace 5 meses» · «hace más de un año». Sin inventar precisión."""
     if dias is None:
@@ -26988,6 +27062,16 @@ def _forecast_off_artists(artist_id: str = "") -> list[str]:
         return []
 
 
+def _forecast_off_stations() -> list[str]:
+    """Las emisoras que esta persona tiene APAGADAS en el cuadro (su preferencia)."""
+    try:
+        estado = _current_user_state() or {}
+        prefs = dict(getattr(estado.get("profile"), "forecast_prefs", None) or {})
+        return [str(x) for x in (prefs.get("off_stations") or []) if str(x or "").strip()]
+    except Exception:
+        return []
+
+
 def _forecast_hidden_keys() -> list[str]:
     """Lo que se ha QUITADO del calendario de previsiones (`TIPO:id`).
 
@@ -27082,6 +27166,8 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
         "releases": _forecast_releases(session_db, ids_vista, primera, ultima),
         "radio_now": _forecast_radio_now(session_db, ids_vista, week_start),
         "last_entries": _forecast_last_entries(session_db, ids_vista, hasta=ultima),
+        # LA RAYA DE RADIO: por emisora, la última canción que entró y cuánto aguantó.
+        "radio_runs": _forecast_radio_runs(session_db, ids_vista, primera, ultima),
         # Los periodos de promoción Y las PROMOCIONES de verdad, en la misma banda del calendario.
         "promo_windows": _forecast_bands(session_db, ids_vista, primera, ultima),
         "agenda": (_forecast_agenda(session_db, ids_vista, primera, ultima) if show_agenda else
@@ -27098,6 +27184,7 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
         # pinchen. Se guarda lo APAGADO (no lo encendido), así un artista NUEVO se ve solo sin que
         # nadie tenga que acordarse de encenderlo — la misma regla que el calendario de Inicio.
         "off_artists": _forecast_off_artists(elegido),
+        "off_stations": _forecast_off_stations(),
         # LO QUITADO DEL CALENDARIO es del CUADRO (lo ve igual todo el mundo), no de cada uno.
         "hidden": sorted(ocultos),
         "ver_ocultos": bool(ver_ocultos),

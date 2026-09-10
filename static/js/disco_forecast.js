@@ -29,6 +29,8 @@
     // ⚠️ EL FILTRO VA AL REVÉS: todos encendidos y se apagan los que se pinchen. Se guarda lo
     // APAGADO, así un artista nuevo aparece solo.
     var apagados = new Set(D.off_artists || []);
+    var emisorasOff = new Set(D.off_stations || []);
+    var verMasEmisoras = false;
     var ocultos = new Set(D.hidden || []);
     var pitchMode = 'station';     // por emisora | por artista
     var semanasPedidas = 0;        // cuántas semanas se piden (0 = las que decida el servidor)
@@ -132,7 +134,7 @@
       if (!U.prefs) return;
       clearTimeout(guardaPrefsTimer);
       guardaPrefsTimer = setTimeout(function () {
-        post(U.prefs, { off_artists: Array.from(apagados) });
+        post(U.prefs, { off_artists: Array.from(apagados), off_stations: Array.from(emisorasOff) });
       }, 500);     // con un respiro: no se guarda en cada clic
     }
     /* ⚠️ EL CALENDARIO VA POR SEMANAS: cada cosa cae DENTRO de la semana que le toca (no se
@@ -273,6 +275,64 @@
         h += '<span class="fc-leg"><span class="fc-leg__bar" style="background:' + esc(k.color) + '"></span>' + esc(k.label) + '</span>';
       });
       z.innerHTML = h;
+    }
+
+    /* Las emisoras que salen en las rayas de radio (solo aquellas en las que ha sonado algo). */
+    function emisorasDelCuadro() {
+      var mapa = {};
+      var arts = visibles();
+      arts.forEach(function (a) {
+        ((D.radio_runs || {})[a.id] || []).forEach(function (r) {
+          if (!mapa[r.station_id]) mapa[r.station_id] = { id: r.station_id, name: r.station, logo: r.logo_url, main: r.main, n: 0 };
+          mapa[r.station_id].n++;
+        });
+      });
+      var lista = Object.keys(mapa).map(function (k) { return mapa[k]; });
+      lista.sort(function (a, b) { return (a.main === b.main) ? a.name.localeCompare(b.name) : (a.main ? -1 : 1); });
+      return lista;
+    }
+    /* ⚠️ Se ofrecen SOLO LAS PRINCIPALES; el resto, tras «Más emisoras» (con muchas, la fila de
+       chips no se lee). Se guarda lo APAGADO, así una emisora nueva aparece sola. */
+    function renderStations() {
+      var z = root.querySelector('[data-fc-stations]');
+      if (!z) return;
+      var lista = emisorasDelCuadro();
+      if (!lista.length) { z.innerHTML = ''; return; }
+      var otras = lista.filter(function (e) { return !e.main; });
+      var mostrar = verMasEmisoras ? lista : lista.filter(function (e) { return e.main; });
+      if (!mostrar.length) mostrar = lista;
+      var encendidas = mostrar.filter(function (e) { return !emisorasOff.has(e.id); }).length;
+      var h = '<span class="fc-palette__lbl"><i class="fa fa-radio me-1"></i>Radio:</span>';
+      if (mostrar.length > 1) {
+        if (encendidas < mostrar.length) h += '<button type="button" class="filter-chip fc-all" data-fc-est-all="1">Todas</button>';
+        if (encendidas > 0) h += '<button type="button" class="filter-chip fc-all" data-fc-est-all="0">Ninguna</button>';
+      }
+      h += mostrar.map(function (e) {
+        return '<button type="button" class="fc-station' + (emisorasOff.has(e.id) ? '' : ' is-on') + '"'
+          + ' data-fc-station="' + esc(e.id) + '" title="' + esc(e.name) + '">'
+          + (e.logo ? ('<img src="' + esc(e.logo) + '" alt="">') : '<i class="fa fa-radio"></i>')
+          + '<span>' + esc(e.name) + '</span></button>';
+      }).join('');
+      if (otras.length && !verMasEmisoras) {
+        h += '<button type="button" class="fc-artist fc-artist--more" data-fc-mas-emisoras>Más emisoras (' + otras.length + ')</button>';
+      }
+      z.innerHTML = h;
+      z.querySelectorAll('[data-fc-station]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var id = b.getAttribute('data-fc-station');
+          if (emisorasOff.has(id)) emisorasOff.delete(id); else emisorasOff.add(id);
+          guardaPrefs(); render();
+        });
+      });
+      z.querySelectorAll('[data-fc-est-all]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (b.getAttribute('data-fc-est-all') === '1') mostrar.forEach(function (e) { emisorasOff.delete(e.id); });
+          else mostrar.forEach(function (e) { emisorasOff.add(e.id); });
+          guardaPrefs(); render();
+        });
+      });
+      var mas = z.querySelector('[data-fc-mas-emisoras]');
+      if (mas) mas.addEventListener('click', function () { verMasEmisoras = true; renderStations(); });
     }
 
     // ------------------------------------------------------------ la PALETA
@@ -467,7 +527,8 @@
       function tieneAlgo(a) {
         return ((D.releases || {})[a.id] || []).length
             || ((D.promo_windows || {})[a.id] || []).length
-            || (D.show_agenda && ((D.agenda || {})[a.id] || []).length);
+            || (D.show_agenda && ((D.agenda || {})[a.id] || []).length)
+            || ((D.radio_runs || {})[a.id] || []).some(function (r) { return !emisorasOff.has(r.station_id); });
       }
       var arts = D.artist_id ? todosArts : todosArts.filter(tieneAlgo);
       var fuera = todosArts.length - arts.length;
@@ -576,9 +637,25 @@
             + refs + '</div>';
         }).join('');
 
+        // ⚠️ LA RAYA DE RADIO va DEBAJO de las semanas de ese artista: por emisora, la última
+        // canción que entró y cuánto aguantó. Solo las emisoras encendidas y en las que ha sonado.
+        var filaRadio = filaCeldas;
+        var rayas = ((D.radio_runs || {})[a.id] || []).filter(function (r) {
+          return !emisorasOff.has(r.station_id);
+        }).map(function (r) {
+          var t = tramoSemanas(r.start_date, r.end_date);
+          if (!t) return '';
+          filaRadio += 1;
+          var dura = r.weeks + (r.weeks === 1 ? ' semana' : ' semanas');
+          return '<span class="fc-run" style="grid-column:' + (t[0] + 1) + ' / span ' + (t[1] - t[0] + 1) + ';grid-row:' + filaRadio + '"'
+            + ' title="' + esc(r.station + ' · ' + r.title + ' · entró el ' + fechaEs(r.start_date)
+                               + ' y sonó hasta el ' + fechaEs(r.end_date) + ' (' + dura + ' · ' + r.spins + ' tocadas)') + '">'
+            + (r.logo_url ? ('<img src="' + esc(r.logo_url) + '" alt="">') : '<i class="fa fa-radio"></i>')
+            + '<span>' + esc(r.title) + '</span></span>';
+        }).join('');
         return '<div class="fc-cal__row" data-fc-artistrow="' + esc(a.id) + '" style="--c:' + esc(a.color) + '">'
           + '<div class="fc-cal__who">' + avatar(a.photo_url, 'fa-guitar') + '<span>' + esc(a.name) + '</span></div>'
-          + '<div class="fc-cal__weeks" data-fc-track="' + esc(a.id) + '">' + franjas + celdas + '</div>'
+          + '<div class="fc-cal__weeks" data-fc-track="' + esc(a.id) + '">' + franjas + celdas + rayas + '</div>'
           + '</div>';
       }).join('');
 
@@ -904,7 +981,7 @@
     }
 
     function render() {
-      renderTools(); renderArtists(); renderPalette(); renderLegend();
+      renderTools(); renderArtists(); renderStations(); renderPalette(); renderLegend();
       renderCal(); renderWeekNav(); renderRadio(); renderLast();
       renderPitchModes(); renderPitches();
     }

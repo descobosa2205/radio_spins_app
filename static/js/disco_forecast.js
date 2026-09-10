@@ -22,7 +22,14 @@
       window: root.getAttribute('data-url-window') || '',
       windowDel: root.getAttribute('data-url-window-del') || '',
       radio: root.getAttribute('data-url-radio') || '',
+      prefs: root.getAttribute('data-url-prefs') || '',
+      hide: root.getAttribute('data-url-hide') || '',
+      move: root.getAttribute('data-url-move') || '',
     };
+    // ⚠️ EL FILTRO VA AL REVÉS: todos encendidos y se apagan los que se pinchen. Se guarda lo
+    // APAGADO, así un artista nuevo aparece solo.
+    var apagados = new Set(D.off_artists || []);
+    var ocultos = new Set(D.hidden || []);
     var pitchMode = 'station';     // por emisora | por artista
     var semanasPedidas = 0;        // cuántas semanas se piden (0 = las que decida el servidor)
 
@@ -56,8 +63,69 @@
       return null;
     }
     function visibles() {
-      if (D.artist_id) { var a = artistById(D.artist_id); return a ? [a] : []; }
-      return (D.artists || []);
+      return (D.artists || []).filter(function (a) { return !apagados.has(a.id); });
+    }
+    /* ¿Está quitado del calendario? (`TIPO:id`, p. ej. «SONG:…» o «WIN:…»). */
+    function oculto(clave) { return ocultos.has(String(clave || '')); }
+    /* ⚠️ QUITAR DEL CALENDARIO **NO BORRA NADA**: el concierto, el lanzamiento o la promoción
+       siguen donde estaban; solo dejan de pintarse aquí (y es del CUADRO: lo ve todo el mundo). */
+    var seleccion = '';               // la clave del elemento seleccionado (para la tecla Suprimir)
+    function quitar(clave, undo) {
+      if (!U.hide || !clave) return;
+      post(U.hide, { key: clave, undo: undo ? 1 : '' }).then(function (r) {
+        if (r && r.ok) { seleccion = ''; recarga({}); }
+        else alert((r && r.error) || 'No se pudo quitar del calendario.');
+      });
+    }
+    // Con algo seleccionado, la tecla de eliminar lo quita del calendario.
+    document.addEventListener('keydown', function (ev) {
+      if (!seleccion || !CAN) return;
+      if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
+      var t = ev.target || {};
+      var etiqueta = (t.tagName || '').toLowerCase();
+      if (etiqueta === 'input' || etiqueta === 'textarea' || t.isContentEditable) return;
+      ev.preventDefault();
+      quitar(seleccion, false);
+    });
+    /* ⚠️ ARRASTRAR = CAMBIAR DE SEMANA, y lo que se mueve se guarda EN SU FICHA (no hay una fecha
+       paralela aquí). Una ACTIVIDAD no se arrastra: se queda en su día. */
+    function mueve(clave, semana) {
+      if (!U.move || !clave || !semana) return;
+      post(U.move, { key: clave, week: semana }).then(function (r) {
+        if (r && r.ok) recarga({});
+        else alert((r && r.error) || 'No se pudo mover.');
+      });
+    }
+    /* Lo que se ARRASTRA desde la paleta para AÑADIRLO al calendario. */
+    function sueltaNuevo(tipo, artistId, semana) {
+      abreAnadir({ tipo: tipo, artist_id: artistId, week: semana });
+    }
+    function selecciona(el, clave) {
+      var raiz = root.querySelector('[data-fc-cal]');
+      if (raiz) {
+        raiz.querySelectorAll('.is-sel').forEach(function (x) { x.classList.remove('is-sel'); });
+        raiz.querySelectorAll('.fc-x').forEach(function (x) { x.remove(); });
+      }
+      seleccion = '';
+      if (!el || !clave) return;
+      seleccion = clave;
+      el.classList.add('is-sel');
+      if (!CAN) return;
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'fc-x';
+      x.title = 'Quitarlo del calendario (no se borra nada)';
+      x.innerHTML = '<i class="fa fa-xmark"></i>';
+      x.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); quitar(clave, false); });
+      (el.classList.contains('fc-hito') ? el.parentNode : el).appendChild(x);
+    }
+    var guardaPrefsTimer = null;
+    function guardaPrefs() {
+      if (!U.prefs) return;
+      clearTimeout(guardaPrefsTimer);
+      guardaPrefsTimer = setTimeout(function () {
+        post(U.prefs, { off_artists: Array.from(apagados) });
+      }, 500);     // con un respiro: no se guarda en cada clic
     }
     /* ⚠️ EL CALENDARIO VA POR SEMANAS: cada cosa cae DENTRO de la semana que le toca (no se
        posiciona por día). Estos dos son el punto único de «en qué columna va esto».
@@ -93,12 +161,17 @@
       if (semanasPedidas) qs.push('fs=' + semanasPedidas);
       if (D.todos) qs.push('ftodos=1');
       if (D.show_agenda === false) qs.push('fagenda=0');
+      if (D.ver_ocultos) qs.push('fver=1');
       root.classList.add('is-loading');
       return fetch(U.json + (qs.length ? '?' + qs.join('&') : ''), { headers: { 'Accept': 'application/json' } })
         .then(function (r) { return r.json(); })
         .then(function (resp) {
           root.classList.remove('is-loading');
-          if (resp && resp.ok && resp.forecast) { D = resp.forecast; render(); }
+          if (resp && resp.ok && resp.forecast) {
+            D = resp.forecast;
+            ocultos = new Set(D.hidden || []);
+            render();
+          }
         })
         .catch(function () { root.classList.remove('is-loading'); });
     }
@@ -119,9 +192,13 @@
               + '" data-fc-weeks="' + n + '">' + (n < 26 ? (n + ' sem.') : (n === 26 ? '6 meses' : '1 año')) + '</button>';
           }).join('')
         + '</div>'
-        + '<button type="button" class="btn btn-sm ' + (D.show_agenda ? 'btn-outline-primary active' : 'btn-outline-secondary')
-        + '" data-fc-agenda title="Ver lo que ya hay en la agenda como referencia"><i class="fa fa-calendar-check me-1"></i>Agenda</button>'
-        + (CAN ? '<button type="button" class="btn btn-sm btn-primary" data-fc-newwin><i class="fa fa-plus me-1"></i>Periodo de promoción</button>' : '');
+        // ⚠️ Ya no hay botón «Agenda»: la agenda es UNO MÁS de los elementos que se arrastran al
+        // calendario (la paleta de abajo). Y el «+ Periodo de promoción» es ahora esa paleta.
+        + ((D.hidden_count || (D.ver_ocultos ? 1 : 0))
+            ? ('<button type="button" class="btn btn-sm ' + (D.ver_ocultos ? 'btn-outline-primary active' : 'btn-outline-secondary')
+               + '" data-fc-vero title="Lo que se ha quitado del calendario (no se ha borrado: se puede devolver)">'
+               + '<i class="fa fa-eye-slash me-1"></i>Quitados' + (D.hidden_count ? (' ' + D.hidden_count) : '') + '</button>')
+            : '');
       z.querySelectorAll('[data-fc-move]').forEach(function (b) {
         b.addEventListener('click', function () {
           var d = new Date(Date.parse(D.from));
@@ -135,25 +212,44 @@
           recarga({});
         });
       });
-      z.querySelector('[data-fc-agenda]').addEventListener('click', function () {
-        recarga({ show_agenda: !D.show_agenda });
-      });
-      var nw = z.querySelector('[data-fc-newwin]');
-      if (nw) nw.addEventListener('click', function () { openWindow(null); });
+      var vo = z.querySelector('[data-fc-vero]');
+      if (vo) vo.addEventListener('click', function () { recarga({ ver_ocultos: !D.ver_ocultos }); });
     }
 
     function renderArtists() {
       var z = root.querySelector('[data-fc-artists]');
-      var h = '<button type="button" class="fc-artist' + (D.artist_id ? '' : ' is-on') + '" data-fc-artist="">'
-        + '<span class="noimg"><i class="fa fa-users"></i></span><span>Todos</span></button>';
-      (D.artists || []).forEach(function (a) {
-        h += '<button type="button" class="fc-artist' + (D.artist_id === a.id ? ' is-on' : '') + '" data-fc-artist="' + esc(a.id) + '"'
-          + ' style="--c:' + esc(a.color) + '">' + avatar(a.photo_url, 'fa-guitar') + '<span>' + esc(a.name) + '</span></button>';
+      var lista = (D.artists || []);
+      var encendidos = lista.filter(function (a) { return !apagados.has(a.id); }).length;
+      // «Todos» / «Ninguno» solo cuando HACEN algo (la regla de la casa): con todo encendido no se
+      // ofrece «Todos», y con todo apagado no se ofrece «Ninguno».
+      var h = '';
+      if (lista.length > 1) {
+        if (encendidos < lista.length) h += '<button type="button" class="filter-chip fc-all" data-fc-all="1">Todos</button>';
+        if (encendidos > 0) h += '<button type="button" class="filter-chip fc-all" data-fc-all="0">Ninguno</button>';
+      }
+      lista.forEach(function (a) {
+        h += '<button type="button" class="fc-artist' + (apagados.has(a.id) ? '' : ' is-on') + '" data-fc-artist="' + esc(a.id) + '"'
+          + ' style="--c:' + esc(a.color) + '" title="' + esc(apagados.has(a.id) ? ('Ver ' + a.name) : ('Ocultar ' + a.name)) + '">'
+          + avatar(a.photo_url, 'fa-guitar') + '<span>' + esc(a.name) + '</span></button>';
       });
       if (!D.todos) h += '<button type="button" class="fc-artist fc-artist--more" data-fc-todos>Ver más artistas</button>';
       z.innerHTML = h;
       z.querySelectorAll('[data-fc-artist]').forEach(function (b) {
-        b.addEventListener('click', function () { recarga({ artist_id: b.getAttribute('data-fc-artist') }); });
+        b.addEventListener('click', function () {
+          var id = b.getAttribute('data-fc-artist');
+          if (apagados.has(id)) apagados.delete(id); else apagados.add(id);
+          guardaPrefs();
+          render();                     // el filtro es de la pantalla: no hace falta ir al servidor
+        });
+      });
+      z.querySelectorAll('[data-fc-all]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          apagados = (b.getAttribute('data-fc-all') === '1')
+            ? new Set()
+            : new Set(lista.map(function (a) { return a.id; }));
+          guardaPrefs();
+          render();
+        });
       });
       var m = z.querySelector('[data-fc-todos]');
       if (m) m.addEventListener('click', function () { recarga({ todos: true }); });
@@ -169,6 +265,144 @@
         h += '<span class="fc-leg"><span class="fc-leg__bar" style="background:' + esc(k.color) + '"></span>' + esc(k.label) + '</span>';
       });
       z.innerHTML = h;
+    }
+
+    // ------------------------------------------------------------ la PALETA
+    /* Lo que se arrastra al calendario. Se puede **arrastrar** a la semana de un artista o
+       **pinchar** (y entonces el asistente pregunta también de quién es). */
+    function renderPalette() {
+      var z = root.querySelector('[data-fc-palette]');
+      if (!z) return;
+      if (!CAN) { z.innerHTML = ''; return; }
+      z.innerHTML = '<span class="fc-palette__lbl">Arrastra al calendario:</span>'
+        + (D.add_kinds || []).map(function (k) {
+            return '<button type="button" class="fc-pal" draggable="true" data-fc-add-kind="' + esc(k.key) + '"'
+              + ' style="--c:' + esc(k.color) + '" title="Arrástralo a la semana de un artista (o púlsalo)">'
+              + '<i class="fa ' + esc(k.icon) + '"></i><span>' + esc(k.label) + '</span></button>';
+          }).join('');
+      z.querySelectorAll('[data-fc-add-kind]').forEach(function (b) {
+        var tipo = b.getAttribute('data-fc-add-kind');
+        b.addEventListener('dragstart', function (ev) {
+          ev.dataTransfer.setData('text/plain', 'nuevo:' + tipo);
+          ev.dataTransfer.effectAllowed = 'copy';
+          b.classList.add('is-dragging');
+        });
+        b.addEventListener('dragend', function () { b.classList.remove('is-dragging'); });
+        b.addEventListener('click', function () { abreAnadir({ tipo: tipo }); });
+      });
+    }
+
+    /* AÑADIR algo al calendario: qué es → de quién → cuál (o crear uno nuevo). Lo que ya se sabe
+       (porque se ha soltado en la fila de un artista y en una semana) no se vuelve a preguntar. */
+    function abreAnadir(pre) {
+      pre = pre || {};
+      var estado = { tipo: pre.tipo || '', artist_id: pre.artist_id || '', week: pre.week || '', subtipo: '' };
+      var m = modal('fcAddModal', 'Añadir al calendario', '<div class="fc-add" data-fc-addbody></div>',
+                    [{ label: 'Cerrar', click: function () { m.hide(); } }]);
+      var cuerpo = m.el.querySelector('[data-fc-addbody]');
+
+      function meta(k) {
+        var l = D.add_kinds || [];
+        for (var i = 0; i < l.length; i++) if (l[i].key === k) return l[i];
+        return { label: k, icon: 'fa-plus', color: '#6b7280' };
+      }
+      function cabecera() {
+        var partes = [];
+        if (estado.tipo) partes.push('<span class="fc-add__crumb"><i class="fa ' + esc(meta(estado.tipo).icon) + '"></i>' + esc(meta(estado.tipo).label) + '</span>');
+        var a = artistById(estado.artist_id);
+        if (a) partes.push('<span class="fc-add__crumb">' + avatar(a.photo_url, 'fa-guitar') + esc(a.name) + '</span>');
+        if (estado.week) partes.push('<span class="fc-add__crumb"><i class="fa fa-calendar-week"></i>Semana del ' + esc(fechaEs(estado.week)) + '</span>');
+        return partes.length ? ('<div class="fc-add__crumbs">' + partes.join('') + '</div>') : '';
+      }
+      function pinta(html) { cuerpo.innerHTML = cabecera() + html; }
+
+      function pasoTipo() {
+        pinta('<div class="fc-add__q">¿Qué quieres poner en el calendario?</div><div class="fc-add__grid">'
+          + (D.add_kinds || []).map(function (k) {
+              return '<button type="button" class="fc-add__card" data-k="' + esc(k.key) + '" style="--c:' + esc(k.color) + '">'
+                + '<i class="fa ' + esc(k.icon) + '"></i><span>' + esc(k.label) + '</span></button>';
+            }).join('') + '</div>');
+        cuerpo.querySelectorAll('[data-k]').forEach(function (b) {
+          b.addEventListener('click', function () { estado.tipo = b.getAttribute('data-k'); siguiente(); });
+        });
+      }
+      function pasoArtista() {
+        pinta('<div class="fc-add__q">¿De quién es?</div><div class="fc-add__grid">'
+          + (D.artists || []).map(function (a) {
+              return '<button type="button" class="fc-add__card" data-a="' + esc(a.id) + '" style="--c:' + esc(a.color) + '">'
+                + avatar(a.photo_url, 'fa-guitar') + '<span>' + esc(a.name) + '</span></button>';
+            }).join('') + '</div>');
+        cuerpo.querySelectorAll('[data-a]').forEach(function (b) {
+          b.addEventListener('click', function () { estado.artist_id = b.getAttribute('data-a'); siguiente(); });
+        });
+      }
+      function pasoCual() {
+        pinta('<div class="fc-add__q">Cargando…</div>');
+        var qs = '?tipo=' + encodeURIComponent(estado.tipo) + '&artist_id=' + encodeURIComponent(estado.artist_id)
+               + (estado.subtipo ? ('&subtipo=' + encodeURIComponent(estado.subtipo)) : '');
+        fetch((root.getAttribute('data-url-add-options') || '') + qs, { headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.json(); })
+          .then(function (resp) {
+            if (!resp || !resp.ok) { pinta('<div class="fc-empty">No se pudo cargar.</div>'); return; }
+            // En AGENDA se pregunta antes QUÉ TIPO de cosa es.
+            if (estado.tipo === 'AGENDA' && !estado.subtipo) {
+              pinta('<div class="fc-add__q">¿Qué tipo de cosa?</div><div class="fc-add__grid">'
+                + (resp.tipos || []).map(function (t) {
+                    return '<button type="button" class="fc-add__card" data-t="' + esc(t.key) + '">'
+                      + '<i class="fa ' + esc(t.icon) + '"></i><span>' + esc(t.label) + '</span></button>';
+                  }).join('') + '</div>');
+              cuerpo.querySelectorAll('[data-t]').forEach(function (b) {
+                b.addEventListener('click', function () { estado.subtipo = b.getAttribute('data-t'); pasoCual(); });
+              });
+              return;
+            }
+            var fijo = estado.tipo === 'AGENDA';   // una actividad NO se mueve: se queda en su día
+            pinta('<div class="fc-add__q">¿Cuál?</div>'
+              + ((resp.items || []).length
+                  ? '<div class="fc-add__list">' + resp.items.map(function (it) {
+                      return '<button type="button" class="fc-add__row" data-i="' + esc(it.key) + '">'
+                        + (it.cover_url ? ('<img src="' + esc(it.cover_url) + '" alt="">')
+                                        : ('<span class="noimg"><i class="fa ' + esc(it.icon || 'fa-circle') + '"></i></span>'))
+                        + '<span class="fc-add__row-main"><b>' + esc(it.title) + '</b>'
+                        + (it.sub ? ('<span class="fc-sub">' + esc(it.sub) + '</span>') : '') + '</span></button>';
+                    }).join('') + '</div>'
+                  : '<div class="fc-empty">No hay nada de esto todavía para este artista.</div>')
+              + (fijo ? '<div class="form-text mt-2">Una actividad se pone en <b>su día</b>: no se mueve a la semana donde la sueltes.</div>' : '')
+              + '<div class="mt-3"><button type="button" class="btn btn-outline-danger btn-sm" data-nuevo><i class="fa fa-plus me-1"></i>Crear uno nuevo</button></div>');
+            cuerpo.querySelectorAll('[data-i]').forEach(function (b) {
+              b.addEventListener('click', function () { añade(b.getAttribute('data-i')); });
+            });
+            cuerpo.querySelector('[data-nuevo]').addEventListener('click', crear);
+          })
+          .catch(function () { pinta('<div class="fc-empty">No se pudo cargar.</div>'); });
+      }
+      function añade(clave) {
+        // Lo que se elige se pone en ESA semana (menos una actividad, que se queda en su día).
+        if (!estado.week || estado.tipo === 'AGENDA') { m.hide(); recarga({}); return; }
+        post(U.move, { key: clave, week: estado.week }).then(function (r) {
+          m.hide();
+          if (r && r.ok) recarga({});
+          else alert((r && r.error) || 'No se pudo poner en el calendario.');
+        });
+      }
+      function crear() {
+        // Cada cosa se crea DONDE SE CREA (no se inventa aquí otro sitio para lo mismo).
+        var destinos = {
+          PROJECT: '/discografica?section=proyectos&open_wizard=1',
+          ALBUM: '/discografica?section=lanzamientos',
+          AGENDA: '/actividades?open_wizard=1' + (estado.artist_id ? ('&wizard_artist=' + estado.artist_id) : '')
+                  + (estado.week ? ('&wizard_date=' + estado.week) : ''),
+          PROMO: '',
+        };
+        if (estado.tipo === 'PROMO') { m.hide(); openWindow(null, { artist_id: estado.artist_id, start: estado.week }); return; }
+        window.location.href = destinos[estado.tipo] || '/discografica?section=previsiones';
+      }
+      function siguiente() {
+        if (!estado.tipo) return pasoTipo();
+        if (!estado.artist_id) return pasoArtista();
+        return pasoCual();
+      }
+      siguiente();
     }
 
     // ------------------------------------------------------------ A · calendario
@@ -229,7 +463,8 @@
           var fila = 0;
           while (carriles[fila] !== undefined && carriles[fila] >= t[0]) fila++;
           carriles[fila] = t[1];
-          return '<button type="button" class="fc-win" data-fc-win="' + esc(w.id) + '"'
+          return '<button type="button" class="fc-win' + (w.hidden ? ' is-hidden' : '') + '"'
+            + ' data-fc-win="' + esc(w.id) + '" data-fc-key="' + esc(w.key || '') + '"'
             + ' style="grid-column:' + (t[0] + 1) + ' / span ' + (t[1] - t[0] + 1) + ';grid-row:' + (fila + 1) + ';--c:' + esc(w.color) + '"'
             + ' title="' + esc(w.name + ' · ' + fechaEs(w.start_date) + ' – ' + fechaEs(w.end_date) + (w.note ? (' · ' + w.note) : '')) + '">'
             + '<i class="fa ' + esc(w.icon) + '"></i><span>' + esc(w.name) + '</span></button>';
@@ -244,9 +479,17 @@
             var color = meta ? meta.color : '#6b7280';
             var titulo = r.title + ' · ' + fechaEs(r.date) + (meta ? (' · ' + meta.label) : '')
               + (r.radio_ok ? (' · en ' + r.radio_ok + ' emisora' + (r.radio_ok === 1 ? '' : 's')) : '');
+            // ⚠️ Un FOCUS SINGLE se enmarca distinto (`is-focus`): es lo prioritario del trimestre
+            // y tiene que verse de un vistazo entre lo demás.
+            var clases = 'fc-hito'
+              + (r.provisional ? ' is-prov' : '')
+              + (r.release_kind === 'FOCUS' ? ' is-focus' : '')
+              + (r.hidden ? ' is-hidden' : '');
             return '<span class="fc-rel">'
-              + '<button type="button" class="fc-hito' + (r.provisional ? ' is-prov' : '') + '" style="--c:' + esc(color) + '"'
-              + ' data-fc-rel="' + esc(r.kind + ':' + r.id) + '" title="' + esc(titulo) + '">'
+              + '<button type="button" class="' + clases + '" style="--c:' + esc(color) + '"'
+              + ' data-fc-rel="' + esc(r.kind + ':' + r.id) + '" data-fc-key="' + esc(r.key || '') + '"'
+              + (CAN && !r.hidden ? ' draggable="true"' : '')
+              + ' title="' + esc(titulo) + '">'
               + (r.cover_url ? '<img src="' + esc(r.cover_url) + '" alt="">' : '<i class="fa ' + esc(icono) + '"></i>')
               + (meta ? '<i class="fa ' + esc(meta.icon) + ' fc-hito__k"></i>' : '')
               + ((r.radio || []).length ? '<span class="fc-hito__radio">' + (r.radio || []).length + '</span>' : '')
@@ -258,8 +501,10 @@
             var TOPE = 4;
             refs = '<div class="fc-wkcell__refs">'
               + c.ref.slice(0, TOPE).map(function (it) {
-                  return '<span class="fc-ref" style="--c:' + esc(it.color) + '"'
-                    + ' title="' + esc((it.label ? it.label + ' · ' : '') + it.title + ' · ' + fechaEs(it.date)) + '">'
+                  return '<span class="fc-ref' + (it.hidden ? ' is-hidden' : '') + '"'
+                    + ' style="--c:' + esc(it.color) + '" data-fc-key="' + esc(it.key || '') + '"'
+                    + ' title="' + esc((it.label ? it.label + ' · ' : '') + it.title + ' · ' + fechaEs(it.date)
+                                        + (it.subtitle ? (' · ' + it.subtitle) : '')) + '">'
                     + '<i class="fa ' + esc(it.icon) + '"></i></span>';
                 }).join('')
               + (c.ref.length > TOPE
@@ -285,11 +530,54 @@
         + head + body + '</div>'
         + (fuera ? ('<div class="fc-cal__rest">' + fuera + ' artista' + (fuera === 1 ? '' : 's')
                     + ' sin nada en este periodo</div>') : '');
-      z.querySelectorAll('[data-fc-rel]').forEach(function (b) {
-        b.addEventListener('click', function () { openRelease(b.getAttribute('data-fc-rel')); });
+      // ⚠️ EL GESTO de cada elemento: pasar el ratón lo EXPLICA (su tooltip), un CLIC lo
+      // SELECCIONA y saca la «x» para quitarlo del calendario, y el DOBLE CLIC lo abre.
+      z.querySelectorAll('[data-fc-key]').forEach(function (el) {
+        var clave = el.getAttribute('data-fc-key') || '';
+        if (el.classList.contains('is-hidden')) {
+          // Lo que está quitado se ve atenuado y se DEVUELVE pinchándolo.
+          el.addEventListener('click', function (ev) { ev.preventDefault(); quitar(clave, true); });
+          return;
+        }
+        el.addEventListener('click', function (ev) {
+          ev.preventDefault(); ev.stopPropagation();
+          selecciona(el, clave);
+        });
+        el.addEventListener('dblclick', function (ev) {
+          ev.preventDefault(); ev.stopPropagation();
+          if (el.hasAttribute('data-fc-rel')) openRelease(el.getAttribute('data-fc-rel'));
+          else if (el.hasAttribute('data-fc-win')) openWindow(el.getAttribute('data-fc-win'));
+          else if (el.getAttribute('data-fc-url')) window.location.href = el.getAttribute('data-fc-url');
+        });
       });
-      z.querySelectorAll('[data-fc-win]').forEach(function (b) {
-        b.addEventListener('click', function () { openWindow(b.getAttribute('data-fc-win')); });
+      // Pinchar fuera suelta la selección (y con ella la «x»).
+      z.addEventListener('click', function () { selecciona(null, ''); });
+
+      if (!CAN) return;
+      // --- ARRASTRAR: lo que ya está en el calendario cambia de semana; lo que viene de la paleta
+      //     se AÑADE en la semana donde se suelte.
+      z.querySelectorAll('[draggable="true"][data-fc-key]').forEach(function (el) {
+        el.addEventListener('dragstart', function (ev) {
+          ev.dataTransfer.setData('text/plain', 'mover:' + el.getAttribute('data-fc-key'));
+          ev.dataTransfer.effectAllowed = 'move';
+          el.classList.add('is-dragging');
+        });
+        el.addEventListener('dragend', function () { el.classList.remove('is-dragging'); });
+      });
+      z.querySelectorAll('[data-fc-wk]').forEach(function (celda) {
+        var pista = celda.closest('[data-fc-track]');
+        var semana = (weeks[parseInt(celda.getAttribute('data-fc-wk'), 10)] || {}).start || '';
+        celda.addEventListener('dragover', function (ev) { ev.preventDefault(); celda.classList.add('is-drop'); });
+        celda.addEventListener('dragleave', function () { celda.classList.remove('is-drop'); });
+        celda.addEventListener('drop', function (ev) {
+          ev.preventDefault();
+          celda.classList.remove('is-drop');
+          var carga = (ev.dataTransfer.getData('text/plain') || '').split(':');
+          var que = carga.shift();
+          var resto = carga.join(':');
+          if (que === 'mover') mueve(resto, semana);
+          else if (que === 'nuevo') sueltaNuevo(resto, pista ? pista.getAttribute('data-fc-track') : '', semana);
+        });
       });
       if (!CAN) return;
       // Doble clic en la celda de una semana = periodo de promoción ESA SEMANA (el gesto del
@@ -559,7 +847,7 @@
     }
 
     function render() {
-      renderTools(); renderArtists(); renderLegend();
+      renderTools(); renderArtists(); renderPalette(); renderLegend();
       renderCal(); renderWeekNav(); renderRadio(); renderLast();
       renderPitchModes(); renderPitches();
     }

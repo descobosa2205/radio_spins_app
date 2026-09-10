@@ -4248,6 +4248,9 @@ class UserProfile(Base):
     # ⚠️ Se guarda lo APAGADO, no lo encendido: así un calendario NUEVO (un artista que entra) se ve
     #    solo, sin tener que acordarse de encenderlo.
     agenda_prefs = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Lo que cada uno deja APAGADO en el cuadro de PREVISIONES (artistas y emisoras): es una
+    # preferencia suya, como el orden de los módulos, y vale desde cualquier sesión.
+    forecast_prefs = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     # EL ORDEN DE LAS PESTAÑAS que cada uno se ha colocado: {clave del grupo: [ids en su orden]}.
     # Vale para las pestañas de una ficha, las subpestañas de una sección y el menú de cabecera.
     # ⚠️ La CLAVE la calcula el navegador con las pestañas que hay: si mañana se añade una, la clave
@@ -9379,6 +9382,7 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS menu_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS home_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS agenda_prefs jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS forecast_prefs jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS ui_order jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS production_seen_at timestamptz;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS tasks_seen jsonb;",

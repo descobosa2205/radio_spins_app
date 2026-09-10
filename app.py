@@ -17387,6 +17387,7 @@ def discografica_view():
         semanas=_roadmap_int(request.args.get("fs"), FORECAST_WEEKS),
         todos=_truthy(request.args.get("ftodos")),
         show_agenda=(request.args.get("fagenda") != "0"),
+        ver_ocultos=_truthy(request.args.get("fver")),
     ) if section == "previsiones" else None)
     project_wizard = _disco_project_wizard_context(session_db) if section == "proyectos" else None
     # El catálogo de GÉNEROS lo sugiere el paso obligatorio del asistente de proyectos y el editor
@@ -26569,7 +26570,7 @@ def _forecast_releases(session_db, artist_ids: list, desde: date, hasta: date) -
     for s, aid in canciones:
         emisoras = radio.get(str(s.id), [])
         out.setdefault(str(aid), []).append({
-            "kind": "SONG", "id": str(s.id), "title": (s.title or ""),
+            "kind": "SONG", "id": str(s.id), "key": _forecast_key("SONG", s.id), "title": (s.title or ""),
             "date": s.release_date.isoformat() if s.release_date else "",
             "cover_url": _forecast_cover(s),
             "release_kind": _song_release_kind(s),
@@ -26588,7 +26589,7 @@ def _forecast_releases(session_db, artist_ids: list, desde: date, hasta: date) -
     for al in albumes:
         aid = al.artist_id
         out.setdefault(str(aid), []).append({
-            "kind": "ALBUM", "id": str(al.id), "title": (al.title or ""),
+            "kind": "ALBUM", "id": str(al.id), "key": _forecast_key("ALBUM", al.id), "title": (al.title or ""),
             "date": al.release_date.isoformat() if al.release_date else "",
             "cover_url": _forecast_cover(al),
             "release_kind": "",
@@ -26761,7 +26762,7 @@ def _forecast_promo_windows(session_db, artist_ids: list, desde: date, hasta: da
         elif w.album_id:
             vinculo = titulos.get(("ALBUM", str(w.album_id)), "")
         out.setdefault(str(w.artist_id), []).append({
-            "id": str(w.id), "kind": (w.kind or "PROMO"), "label": meta["label"],
+            "id": str(w.id), "key": _forecast_key("WIN", w.id), "kind": (w.kind or "PROMO"), "label": meta["label"],
             "icon": meta["icon"], "color": meta["color"],
             # Sin nombre propio se compone con LO QUE ES y a qué está vinculado («Gira de radio ·
             # Focus»), no siempre «Promoción de…»: el tipo se elige y tiene que verse.
@@ -26800,6 +26801,10 @@ def _forecast_agenda(session_db, artist_ids: list, desde: date, hasta: date) -> 
         if (it.get("kind") or "") == "lanzamiento":
             continue
         out[aid].append({
+            "key": _forecast_key("AG", it.get("url") or "",
+                                 "" if it.get("url") else (it.get("kind") or ""),
+                                 "" if it.get("url") else (it.get("date") or ""),
+                                 "" if it.get("url") else (it.get("title") or "")),
             "kind": it.get("kind") or "", "label": it.get("kind_label") or "",
             "icon": it.get("icon") or "fa-circle", "color": it.get("kind_color") or "#6b7280",
             "title": it.get("title") or "", "subtitle": it.get("subtitle") or "",
@@ -26860,9 +26865,88 @@ def _forecast_weeks(desde: date, semanas: int) -> list[dict]:
     return out
 
 
+FORECAST_HIDDEN_SETTING = "forecast_hidden_v1"
+
+
+def _forecast_key(tipo: str, *partes) -> str:
+    """La CLAVE con la que se identifica un elemento del cuadro (para poder quitarlo del calendario).
+
+    ⚠️ Punto único: la usan el servidor (que es quien filtra lo quitado, también en el informe que
+    se comparte) y la pantalla (para la «x» y para devolverlo). Tiene que ser ESTABLE: de una
+    actividad se usa su URL, que lleva su id dentro.
+    """
+    limpio = [str(x or "").strip() for x in partes if str(x or "").strip()]
+    return ("%s:%s" % (tipo, "|".join(limpio)))[:80]
+
+
+def _forecast_off_artists(artist_id: str = "") -> list[str]:
+    """Los artistas que esta persona tiene APAGADOS en el cuadro (su preferencia).
+
+    ⚠️ Un enlace antiguo con `?fa=<id>` (cuando el filtro era de uno en uno) se sigue entendiendo:
+    equivale a dejar encendido solo ese.
+    """
+    try:
+        estado = _current_user_state() or {}
+        prefs = dict(getattr(estado.get("profile"), "forecast_prefs", None) or {})
+        return [str(x) for x in (prefs.get("off_artists") or []) if str(x or "").strip()]
+    except Exception:
+        return []
+
+
+def _forecast_hidden_keys() -> list[str]:
+    """Lo que se ha QUITADO del calendario de previsiones (`TIPO:id`).
+
+    ⚠️ Es del CUADRO, no de cada uno: se configura entre todos y es lo que se ve también en el
+    enlace que se comparta. Quitar algo NO borra nada: solo deja de pintarse aquí.
+    ⚠️⚠️ `AppSetting.value` es TEXTO: la lista va como JSON. Recorrer el texto con un `for` devuelve
+    LETRAS SUELTAS (la trampa de siempre), así que se parsea y se comprueba que es una lista.
+    """
+    try:
+        crudo = _get_app_setting(FORECAST_HIDDEN_SETTING) or ""
+        if isinstance(crudo, (list, tuple)):
+            filas = list(crudo)
+        else:
+            filas = json.loads(crudo) if str(crudo).strip().startswith("[") else []
+        return [str(x) for x in filas if str(x or "").strip()]
+    except Exception:
+        app.logger.exception("[previsiones] no se pudo leer lo quitado del calendario")
+        return []
+
+
+def _forecast_hidden_save(claves) -> None:
+    """Guarda lo quitado del calendario (JSON, porque el ajuste es de TEXTO)."""
+    _set_app_setting(FORECAST_HIDDEN_SETTING, json.dumps([str(x) for x in claves][:2000]))
+
+
+def _forecast_apply_hidden(datos: dict, ocultos: set, *, ver_ocultos: bool) -> int:
+    """Quita del cuadro lo que se haya QUITADO del calendario. Devuelve cuántos ha quitado.
+
+    ⚠️ Lo hace el SERVIDOR (no la pantalla) porque el informe y el enlace que se comparte tienen
+    que enseñar lo mismo. Con `ver_ocultos` no se quitan: se marcan (`hidden`) para poder
+    devolverlos, atenuados, desde el propio calendario.
+    """
+    if not ocultos:
+        return 0
+    quitados = 0
+    for grupo in ("releases", "promo_windows", "agenda"):
+        por_artista = datos.get(grupo) or {}
+        for aid, filas in list(por_artista.items()):
+            dejar = []
+            for fila in filas:
+                if str(fila.get("key") or "") in ocultos:
+                    quitados += 1
+                    if not ver_ocultos:
+                        continue
+                    fila["hidden"] = True
+                dejar.append(fila)
+            por_artista[aid] = dejar
+    return quitados
+
+
 def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
                       desde: str = "", semanas: int = FORECAST_WEEKS,
-                      todos: bool = False, show_agenda: bool = True) -> dict:
+                      todos: bool = False, show_agenda: bool = True,
+                      ver_ocultos: bool = False) -> dict:
     """Todo lo que pinta el cuadro de mando de PREVISIONES, en una sola pasada."""
     artistas = _forecast_artists(session_db, todos=todos)
     elegido = str(artist_id or "").strip()
@@ -26887,7 +26971,8 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
     ultima = primera + timedelta(days=7 * semanas - 1)
     ids = [a["id"] for a in artistas] if not elegido else [elegido]
     ids_vista = ids
-    return {
+    ocultos = set(_forecast_hidden_keys())
+    datos = {
         "artists": artistas,
         "artist_id": elegido,
         "week_start": week_start.isoformat(),
@@ -26907,11 +26992,22 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
                    {str(x): [] for x in ids_vista}),
         "pitches": _forecast_pitch_calendar(session_db, ids_vista, primera, ultima),
         "release_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in DISCO_RELEASE_KINDS],
+        # Lo que se puede ARRASTRAR al calendario (sustituye al botón «+ Periodo de promoción»).
+        "add_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in FORECAST_ADD_KINDS],
         "window_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in DISCO_PROMO_WINDOW_KINDS],
         "show_agenda": bool(show_agenda),
         "todos": bool(todos),
         "stale_days": FORECAST_STALE_DAYS,
+        # ⚠️ EL FILTRO DE ARTISTAS VA AL REVÉS: **todos encendidos** y se van apagando los que se
+        # pinchen. Se guarda lo APAGADO (no lo encendido), así un artista NUEVO se ve solo sin que
+        # nadie tenga que acordarse de encenderlo — la misma regla que el calendario de Inicio.
+        "off_artists": _forecast_off_artists(elegido),
+        # LO QUITADO DEL CALENDARIO es del CUADRO (lo ve igual todo el mundo), no de cada uno.
+        "hidden": sorted(ocultos),
+        "ver_ocultos": bool(ver_ocultos),
     }
+    datos["hidden_count"] = _forecast_apply_hidden(datos, ocultos, ver_ocultos=ver_ocultos)
+    return datos
 
 
 # --- Acciones del cuadro de mando de PREVISIONES -----------------------------
@@ -27151,6 +27247,232 @@ def forecast_song_radio_plan(sid):
         session_db.close()
 
 
+@app.post("/discografica/previsiones/preferencias", endpoint="forecast_prefs_save")
+@admin_required
+def forecast_prefs_save():
+    """Guarda lo que esta persona deja APAGADO en el cuadro de previsiones (artistas, emisoras).
+
+    Es una preferencia SUYA (como el orden de los módulos): vale desde cualquier navegador y
+    cualquier sesión. ⚠️ Se guarda lo APAGADO, así lo NUEVO (un artista que entra, una emisora que
+    empieza a sonar) se ve solo sin que nadie tenga que acordarse de encenderlo.
+    """
+    uid = to_uuid(session.get("user_id") or "")
+    if not uid:
+        abort(403)
+    session_db = db()
+    try:
+        datos = request.get_json(silent=True) or {}
+        def _lista(clave):
+            return [str(x).strip() for x in (datos.get(clave) or []) if str(x or "").strip()][:400]
+        perfil = session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+        if perfil is None:
+            abort(404)
+        prefs = dict(perfil.forecast_prefs or {})
+        for clave in ("off_artists", "off_stations"):
+            if clave in datos:
+                prefs[clave] = _lista(clave)
+        perfil.forecast_prefs = prefs
+        perfil.updated_at = _now_madrid()
+        session_db.commit()
+        return jsonify({"ok": True, **prefs})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_prefs_save")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+# ⚠️ LO QUE SE PUEDE ARRASTRAR AL CALENDARIO (la paleta que sustituye al botón «+ Periodo de
+# promoción»). Cada uno con su icono y de dónde salen sus opciones.
+FORECAST_ADD_KINDS = (
+    ("PROMO",    "Promoción",             "fa-bullhorn",       "#f59e0b"),
+    ("PROJECT",  "Proyecto discográfico", "fa-compact-disc",   "#7c3aed"),
+    ("ALBUM",    "Álbum",                 "fa-record-vinyl",   "#0ea5e9"),
+    ("AGENDA",   "Agenda",                "fa-calendar-day",   "#198754"),
+)
+
+
+def _forecast_add_options(session_db, tipo: str, artist_id: str, subtipo: str = "") -> dict:
+    """Lo que se le ofrece al soltar un elemento en el calendario: **lo que YA existe** de ese
+    artista (para ponerlo en esa semana) y la opción de crear uno nuevo.
+
+    En AGENDA se pregunta antes QUÉ TIPO de cosa es (concierto, ensayo, promocional…): es lo que
+    distingue una actividad de otra y evita una lista de cien.
+    """
+    aid = to_uuid(str(artist_id or ""))
+    tipo = (tipo or "").upper()
+    out = {"tipo": tipo, "artist_id": str(artist_id or ""), "subtipo": subtipo, "items": [], "tipos": []}
+    if not aid:
+        return out
+    hoy = today_local()
+    if tipo == "PROJECT":
+        filas = (session_db.query(DiscoProject)
+                 .filter(DiscoProject.artist_id == aid, DiscoProject.status != "ARCHIVADO")
+                 .order_by(DiscoProject.release_date.asc().nullslast()).limit(60).all())
+        out["items"] = [{"id": str(p.id), "key": _forecast_key("PROJECT", p.id),
+                         "title": (p.title or "Proyecto"),
+                         "sub": (DISCO_PROJECT_LABELS.get((p.kind or "").upper(), p.kind or "")
+                                 + (" · " + p.release_date.strftime("%d/%m/%Y") if p.release_date else " · sin fecha")),
+                         "icon": "fa-compact-disc"} for p in filas]
+    elif tipo == "ALBUM":
+        filas = (session_db.query(Album).filter(Album.artist_id == aid)
+                 .order_by(Album.release_date.desc().nullslast()).limit(60).all())
+        out["items"] = [{"id": str(a.id), "key": _forecast_key("ALBUM", a.id), "title": (a.title or "Disco"),
+                         "sub": (a.release_date.strftime("%d/%m/%Y") if a.release_date else "sin fecha"),
+                         "cover_url": _forecast_cover(a), "icon": "fa-record-vinyl"} for a in filas]
+    elif tipo == "PROMO":
+        # ⚠️ `Promotion` NO tiene `artist_id`: sus artistas van en `artist_ids` (JSONB).
+        filas = (session_db.query(Promotion)
+                 .filter(func.upper(func.coalesce(Promotion.status, "ACTIVE")) == "ACTIVE",
+                         Promotion.artist_ids.contains([str(aid)]))
+                 .order_by(Promotion.created_at.desc()).limit(60).all())
+        out["items"] = [{"id": str(x.id), "key": _forecast_key("PROMOTION", x.id),
+                         "title": (getattr(x, "name", "") or "Promoción"),
+                         "sub": ("Prensa" if (getattr(x, "kind", "") or "").upper() == PROMO_KIND else "Marketing"),
+                         "icon": "fa-bullhorn"} for x in filas]
+    elif tipo == "AGENDA":
+        out["tipos"] = [{"key": k, "label": l, "icon": i} for k, l, i in QUAD_ACTIVITY_CHOICES]
+        if subtipo:
+            filas = (session_db.query(Concert)
+                     .filter(Concert.artist_id == aid,
+                             func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")) == subtipo.upper(),
+                             Concert.date >= hoy - timedelta(days=90))
+                     .order_by(Concert.date.asc()).limit(60).all())
+            out["items"] = [{"id": str(c.id), "key": _forecast_key("AG", _safe_url_for("concert_detail_view", cid=c.id) or ""),
+                             # Su nombre propio y, si no tiene, el LUGAR (el criterio de la casa).
+                             "title": ((c.festival_name or "").strip()
+                                       or _place_label(_concert_city(c), _concert_province_value(c))
+                                       or _activity_kind_label(c.activity_type)),
+                             "sub": (c.date.strftime("%d/%m/%Y") if c.date else "sin fecha"),
+                             "icon": QUAD_ACTIVITY_ICONS.get((c.activity_type or "CONCIERTO").upper(), "fa-calendar-day"),
+                             "fixed": True} for c in filas]
+    return out
+
+
+@app.get("/discografica/previsiones/opciones", endpoint="forecast_add_options_json")
+@admin_required
+def forecast_add_options_json():
+    """Lo que se puede poner en el calendario de ese artista (y, en agenda, de ese tipo)."""
+    session_db = db()
+    try:
+        return jsonify({"ok": True, **_forecast_add_options(
+            session_db,
+            (request.args.get("tipo") or ""),
+            (request.args.get("artist_id") or ""),
+            (request.args.get("subtipo") or ""),
+        )})
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/previsiones/mover", endpoint="forecast_move")
+@admin_required
+def forecast_move():
+    """Mueve un elemento del calendario a OTRA SEMANA, arrastrándolo.
+
+    ⚠️⚠️ **El día de la semana se conserva**: si un single salía un viernes, sigue saliendo el
+    viernes de la semana a la que se suelte. Mover por semanas no cambia el día que ya se decidió.
+    ⚠️⚠️ Lo que se mueve se actualiza **EN SU FICHA** (no hay una fecha paralela en este cuadro), y
+    si el lanzamiento lo prepara un PROYECTO todavía provisional se mueve **el proyecto**: es él
+    quien manda sobre la fecha del lanzamiento (`_disco_project_sync_release`), así que moviendo
+    solo la canción la fecha volvería atrás sola.
+    ⚠️ Las ACTIVIDADES no se mueven desde aquí: se quedan en su día (se cambian en su ficha).
+    """
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "No tienes permisos para mover esto."}), 403
+    datos = request.get_json(silent=True) or {}
+    clave = str(datos.get("key") or "").strip()
+    semana = str(datos.get("week") or "").strip()[:10]
+    try:
+        lunes = monday_of(parse_date(semana))
+    except Exception:
+        return jsonify({"ok": False, "error": "No se entiende la semana."}), 400
+    tipo, _, ident = clave.partition(":")
+    session_db = db()
+    try:
+        def _nueva(fecha_actual):
+            """La misma fecha en la semana de destino: se conserva el DÍA de la semana."""
+            dia = fecha_actual.weekday() if fecha_actual else 4      # sin fecha, viernes
+            return lunes + timedelta(days=dia)
+
+        if tipo == "SONG":
+            cancion = session_db.get(Song, to_uuid(ident)) if to_uuid(ident) else None
+            if cancion is None:
+                return jsonify({"ok": False, "error": "Ese lanzamiento ya no existe."}), 404
+            destino = _nueva(cancion.release_date)
+            proyecto = _song_project(session_db, cancion.id)
+            if (proyecto is not None and not getattr(proyecto, "closed_at", None)
+                    and bool(getattr(cancion, "is_provisional", False))):
+                proyecto.release_date = destino
+                _disco_project_sync_release(session_db, proyecto)
+            else:
+                cancion.release_date = destino
+            nombre = cancion.title or "el lanzamiento"
+        elif tipo == "ALBUM":
+            album = session_db.get(Album, to_uuid(ident)) if to_uuid(ident) else None
+            if album is None:
+                return jsonify({"ok": False, "error": "Ese disco ya no existe."}), 404
+            destino = _nueva(album.release_date)
+            proyecto = (session_db.query(DiscoProject)
+                        .filter(DiscoProject.album_id == album.id)
+                        .order_by(DiscoProject.created_at.desc()).first())
+            if (proyecto is not None and not getattr(proyecto, "closed_at", None)
+                    and bool(getattr(album, "is_provisional", False))):
+                proyecto.release_date = destino
+                _disco_project_sync_release(session_db, proyecto)
+            else:
+                album.release_date = destino
+            nombre = album.title or "el disco"
+        elif tipo == "WIN":
+            win = session_db.get(DiscoPromoWindow, to_uuid(ident)) if to_uuid(ident) else None
+            if win is None:
+                return jsonify({"ok": False, "error": "Ese periodo ya no existe."}), 404
+            dias = (win.end_date - win.start_date).days if (win.start_date and win.end_date) else 0
+            destino = _nueva(win.start_date)
+            win.start_date = destino
+            win.end_date = destino + timedelta(days=max(0, dias))    # se conserva lo que dura
+            nombre = win.name or "el periodo de promoción"
+        else:
+            return jsonify({"ok": False, "error":
+                            "Una actividad no se mueve desde aquí: se queda en su día "
+                            "(se cambia en su ficha)."}), 400
+        session_db.commit()
+        return jsonify({"ok": True, "date": destino.isoformat(),
+                        "msg": "%s pasa al %s" % (nombre, destino.strftime("%d/%m/%Y"))})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_move")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/previsiones/ocultar", endpoint="forecast_hide")
+@admin_required
+def forecast_hide():
+    """QUITA (o devuelve) un elemento del calendario de previsiones.
+
+    ⚠️⚠️ **No se borra nada**: el concierto, el lanzamiento o la promoción siguen donde estaban;
+    lo único que pasa es que dejan de pintarse en este cuadro. Es del CUADRO, no de cada uno: lo ve
+    igual todo el mundo y es lo que se ve en el enlace que se comparta.
+    """
+    datos = request.get_json(silent=True) or {}
+    clave = str(datos.get("key") or "").strip()
+    if not clave or len(clave) > 80:
+        return jsonify({"ok": False, "error": "Falta qué quitar."}), 400
+    quitar = not _truthy(datos.get("undo"))
+    actuales = [x for x in _forecast_hidden_keys() if x != clave]
+    if quitar:
+        actuales.append(clave)
+    _forecast_hidden_save(actuales)
+    return jsonify({"ok": True, "hidden": actuales})
+
+
 @app.get("/discografica/previsiones/datos", endpoint="forecast_data")
 @admin_required
 def forecast_data():
@@ -27166,6 +27488,7 @@ def forecast_data():
             semanas=_roadmap_int(request.args.get("fs"), FORECAST_WEEKS),
             todos=_truthy(request.args.get("ftodos")),
             show_agenda=(request.args.get("fagenda") != "0"),
+            ver_ocultos=_truthy(request.args.get("fver")),
         )})
     finally:
         session_db.close()
@@ -86228,6 +86551,7 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         home_order=[str(x) for x in (getattr(profile, "home_order", None) or [])],
         # Qué CALENDARIOS y qué TIPOS deja apagados cada uno en el calendario de Inicio.
         agenda_prefs=dict(getattr(profile, "agenda_prefs", None) or {}),
+        forecast_prefs=dict(getattr(profile, "forecast_prefs", None) or {}),
         # El orden de las pestañas que se ha colocado esa persona ({grupo: [ids]}).
         ui_order=dict(getattr(profile, "ui_order", None) or {}),
         production_seen_at=getattr(profile, "production_seen_at", None),
@@ -89048,6 +89372,8 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       # El ORDEN DEL MENÚ es cosa de cada uno: son sus preferencias, no una sección.
                       "nav_menu_order_save",
                       "home_order_save", "agenda_prefs_save", "ui_order_save",
+                      # Lo que cada uno deja apagado en el cuadro de PREVISIONES (su vista).
+                      "forecast_prefs_save",
                       # Apuntar que ya ha abierto una de SUS tareas (para que deje de salir «Nueva»).
                       "home_task_seen",
                       # Los AVISOS son de cada persona (solo ve los suyos: se filtra por su user_id).

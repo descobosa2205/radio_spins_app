@@ -13,6 +13,10 @@
      data-url-window="{{ url_for('forecast_window_save') }}"
      data-url-window-del="{{ url_for('forecast_window_delete', wid='WID') }}"
      data-url-radio="{{ url_for('forecast_song_radio_plan', sid='SID') }}"
+     data-url-prefs="{{ url_for('forecast_prefs_save') }}"
+     data-url-hide="{{ url_for('forecast_hide') }}"
+     data-url-move="{{ url_for('forecast_move') }}"
+     data-url-add-options="{{ url_for('forecast_add_options_json') }}"
      data-can-edit="{{ '1' if CAN_EDIT_DISCOGRAFICA else '' }}">
 
   {# ---------- cabecera: de quién, cuándo y qué se ve ---------- #}
@@ -24,8 +28,14 @@
     <div class="fc-head__tools" data-fc-tools></div>
   </div>
 
-  {# ---------- los artistas (todos a la vez o uno) ---------- #}
+  {# ---------- los artistas · TODOS encendidos, se apagan los que se pinchen ---------- #}
   <div class="fc-artists" data-fc-artists></div>
+
+  {# ---------- lo que se puede ARRASTRAR al calendario (antes «+ Periodo de promoción») ---------- #}
+  <div class="fc-palette" data-fc-palette></div>
+
+  {# El pop-up de AÑADIR algo al calendario (qué es → de quién → cuál, o crear uno nuevo). #}
+  <div class="modal fade" id="fcAddModal" tabindex="-1" aria-hidden="true" data-fc-add></div>
 
   {# ---------- A · CALENDARIO DE LANZAMIENTOS ---------- #}
   <div class="fc-card">

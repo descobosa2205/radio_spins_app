@@ -11586,6 +11586,78 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   el filtro por artista y la semana anterior; y a 375 px, sin desbordes y con el calendario
   deslizándose por dentro.
 
+- **PREVISIONES · EL DETALLE POR ARTISTA** (sep 2026, debajo del calendario): el cuadro de mando de
+  lo que se está viendo — una **columna por artista** y, dentro, sus hitos agrupados por **MES** y
+  por **SEMANA**, cada uno con la **hoja de calendario de las hojas de ruta** (`.rm-cal`: día de la
+  semana, día y mes), el **icono y el nombre de QUÉ es** («Single · Focus single», «Gira de radio»,
+  «Conciertos») y **debajo el nombre** de lo que sea (o el municipio), enlazado a su ficha.
+  ⚠️⚠️ **Lo calcula el SERVIDOR** (`_forecast_detail`) sobre los datos YA cargados (ni una consulta
+  más) y **DESPUÉS de quitar lo oculto**: es lo mismo que lleva el informe, así que la pantalla y lo
+  que se comparte no pueden desparejarse.
+  ⚠️ Punto único **`_forecast_item_name(artista, title, sub)`**: en la fila de un artista **repetir
+  su nombre no dice nada**, así que cuando lo único que la agenda sabe de una actividad es eso —ni
+  festival ni municipio, que es el último recurso de `_agenda_build`— manda **el sitio**, y si
+  tampoco hay se deja vacío y habla la etiqueta de qué es. Lo usan el detalle y el informe.
+  ⚠️⚠️ Los hitos **no enlazaban a su ficha**: `_safe_url_for` apuntaba a `song_detail_view` y
+  `album_detail_view`, **que no existen** (son **`discografica_song_detail`** con `song_id` y
+  **`discografica_album_detail`** con `album_id`), así que devolvía `""` **en silencio**.
+  Comprobación de una línea: recorrer los `_safe_url_for("...")` de `app.py` y comprobar que el
+  nombre está en `app.url_map` — hoy no queda ninguno roto.
+
+- ⚠️⚠️ **PREVISIONES · EL INFORME: se descarga, se imprime y se comparte, y su enlace está EN VIVO**
+  (sep 2026). Botón **«Informe»** en la barra del cuadro → pop-up con **Descargar en PDF ·
+  Imprimir · Copiar enlace · WhatsApp · SMS** y, debajo, **el correo con su vista previa**.
+  · ⚠️⚠️ **EL CONTENIDO ES UNO SOLO**: **`_forecast_report_html`** (con `<table>` y estilos EN LÍNEA
+  porque esto se manda por correo: ahí no hay hojas externas, ni rejillas CSS, ni `position`), y de
+  él salen **el correo, la página del enlace y la vista previa**. Orden: **logo de PIES arriba a la
+  derecha · «Previsiones» y el periodo centrados · el CRONOGRAMA** de los artistas seleccionados con
+  lo que se ve **· el detalle por artista, cada uno en su columna** (de cuatro en cuatro: con siete
+  en la misma fila cada columna se queda en 160 px y no se lee).
+  · **EL TÍTULO es el periodo**: punto único **`_forecast_period_label`** → «Previsiones **del 24 de
+  agosto de 2026 al 13 de diciembre de 2026**», que es también el asunto del correo y el nombre del
+  PDF.
+  · ⚠️⚠️ **NO ES UNA COPIA CONGELADA**: **`DiscoForecastReport`** guarda **solo la CONFIGURACIÓN**
+  (qué artistas, desde cuándo y cuántas semanas) y los datos **se vuelven a calcular en cada
+  visita** — el enlace enseña siempre lo que hay ahora (lo pidió así Dani: «una versión en vivo»).
+  Compartir dos veces **lo mismo REUTILIZA el enlace** (`signature`, la huella de la configuración).
+  ⚠️ El token es **OPACO** y **se crea con COMMIT**: un enlace compartido hace dos años tiene que
+  seguir valiendo (un token firmado a un año ya dio un bug real).
+  ⚠️⚠️ **La configuración vive en el SERVIDOR, no en la URL**: la página es PÚBLICA, así que con los
+  artistas en la query string cualquiera podría cambiarlos y ver los de otro.
+  ⚠️ **Lo que se ha QUITADO del calendario tampoco sale en el informe** (lo filtra el servidor antes
+  de componerlo, `_forecast_apply_hidden`).
+  · **`_forecast_context` gana `only_ids`** (deja solo esos artistas, respetando el ORDEN y el COLOR
+  del cuadro) y **`solo_calendario`** (se salta las tocadas, la última entrada y las presentaciones,
+  que el informe no lleva: son varias consultas).
+  · **IMPRIMIR** abre la página del informe con **`?print=1`** (se imprime sola, y su hoja de estilo
+  de impresión quita los botones): imprimir desde la app sacaría el back office entero.
+  · **EL PDF** (`_build_forecast_report_pdf_bytes`) va **apaisado**, con el logo de PIES arriba a la
+  derecha en todas las páginas, el título centrado con el periodo y las páginas **x/x**, y se sirve
+  con **`_pdf_al_vuelo_response`** (`no-store`: se compone en el momento). ⚠️ Ahí el detalle va **un
+  artista debajo de otro**: en una hoja, siete columnas de 3,5 cm no se leen — las columnas una al
+  lado de otra son de la página y del correo, donde hay ancho de sobra y se puede deslizar.
+  ⚠️⚠️ **El `min-width` va en la TABLA del cronograma, no en las celdas**: con `table-layout:fixed`
+  el de una celda **no se respeta** (las columnas se reparten el ancho de la tabla) y con 52 semanas
+  se quedaban en 12 px.
+  ⚠️⚠️ **Una franja de UNA semana es una columna de 40 px**: sin `white-space:nowrap` +
+  `overflow:hidden` su texto se parte **letra a letra en vertical** (visto en pantalla).
+  ⚠️⚠️ **`min-width:0` en las columnas del pop-up** (`.fc-rep__side`/`.fc-rep__prev`): un hijo de una
+  rejilla **no baja de su contenido**, así que el cronograma ensanchaba el pop-up entero en vez de
+  deslizarse el papel — la trampa de siempre.
+  ⚠️ Dentro de la app la tabla del cronograma la envuelve sola la red de seguridad de móvil
+  (`.table-responsive` que pone `scripts.js`); fuera, la landing la desliza con su `overflow-x:auto`
+  y un cliente de correo la encoge.
+  ⚠️ La **miniatura** del enlace es el **logo de PIES entero sobre blanco** (un informe no tiene
+  portada) y los tres endpoints públicos (`public_forecast_report`, `_pdf`, `_og_image`) van en las
+  **cuatro** listas (`allowed` ×2, `PUBLIC_ENDPOINTS_EXTRA` y `_CSRF_EXEMPT_ENDPOINTS`).
+  ⚠️ Los endpoints de dentro se llaman **`forecast_report_*`**, así que ya caen en
+  `discografica.previsiones` por el prefijo `forecast_`.
+  Probado con la app real (32 comprobaciones) y en el navegador: el enlace se reutiliza con la misma
+  configuración y cambia con otra, la página abre **sin sesión** y enseña lo de AHORA, el PDF (6
+  páginas, con su logo) y la miniatura, el correo con su asunto, su nota y su botón, **solo** los
+  artistas compartidos, lo quitado fuera, los permisos (403 sin acceso, pero el enlace público
+  sigue abriéndose) y, a 375 px, sin desbordes ni texto partido.
+
 - **EL PROMOTOR CUBRE… · SUELDOS MÚSICOS, BACKLINE y OTROS** (sep 2026): tres opciones más en
   `PROMOTER_COST_ITEMS`, así que salen solas en los DOS sitios que usan el módulo
   (`_promoter_costs_module.html`): el asistente de actividad y el de PETICIONES.

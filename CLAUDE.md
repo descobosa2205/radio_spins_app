@@ -11688,12 +11688,30 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 
 - **CUENTAS DE ENVÍO · el catálogo de las que la app ESPERA** (sep 2026,
   **`MAIL_EXPECTED_ACCOUNTS`**): promocion@33producciones.es (notas de prensa) y
-  sync@piesrecords.com (Syncros), cada una con su nombre, su icono, para qué se usa y por qué.
-  Es el punto único del que salen el **aviso** de «esta todavía no está dada de alta», el **alta ya
-  rellena** (solo faltan el servidor y la contraseña) y el «para qué» de cada fila de Integraciones
-  → Correo. **Una cuenta nueva se añade AHÍ y aparece sola en la pantalla.**
+  sync@piesrecords.com (Syncros), cada una con su nombre, su icono, su **servidor de salida**, para
+  qué se usa y por qué. Es el punto único del que salen el **aviso** de «esta todavía no está dada
+  de alta», el **alta ya rellena** y el «para qué» de cada fila de Integraciones → Correo.
+  **Una cuenta nueva se añade AHÍ y aparece sola en la pantalla.**
   ⚠️ Lo que identifica una cuenta es su **DIRECCIÓN** (`MailAccount.from_email` es única), no su
   clave: la clave solo agrupa.
+  · **EL CORREO DE LA CASA ESTÁ EN ARSYS** (`serviciodecorreo.es`, sep 2026):
+  **`MAIL_HOSTING_SMTP` = `smtp.serviciodecorreo.es`** (465 · SSL/TLS), que es lo que trae puesto el
+  alta —así lo ÚNICO que hay que escribir es **la contraseña del buzón**—. Se puede cambiar en el
+  propio formulario: quien manda es el panel del proveedor de ESE buzón.
+  · **QUÉ SPF PIDE CADA PROVEEDOR** (`MAIL_SPF_HINTS` + `_mail_spf_hint`): el `include:` concreto que
+  hay que publicar, que es el dato que nadie sabe de memoria. Sale en «Comprobar los DNS» y en la
+  tabla de la pantalla.
+  ⚠️⚠️ **Solo se sugiere si el SPF NO consta como bueno**, y la condición no puede ser `ok is False`:
+  **`_spf_authorizes_host` devuelve `None`** cuando no ve el servidor en el SPF (es prudente a
+  propósito: los `include:` son recursivos y no se resuelven), así que con `is False` la pista no
+  salía justo en el caso más común. Es `ok is not True` **y** que se haya podido consultar el DNS
+  (si no se pudo, no se sabe si falta y no se dice nada). La tabla no AFIRMA nada: lo que decide es
+  el DNS que lee el botón.
+  ⚠️ Estado real de los dominios al implementarlo: **piesrecords.com** y **33producciones.es** ya
+  tienen el SPF bueno (`include:_spf.serviciodecorreo.es`; ojo, el de piesrecords va con «V=spf1» en
+  mayúscula — es válido, el RFC lo compara sin distinguir caja, y `_mail_dns_check` lo lee bien),
+  33producciones.es tiene **DMARC `p=none`** y **piesrecords.com NO tiene DMARC**. El DKIM se activa
+  en el panel del hosting y su selector se pone en la cuenta para poder comprobarlo.
 
 - ⚠️⚠️ **UNA PETICIÓN NO SE QUEDA EN CONTRATACIÓN: le sale a QUIEN LE AFECTA** (sep 2026). Una
   petición la aprueba **contratación**, pero le importa a más gente. Al crearla —y según van

@@ -1424,7 +1424,7 @@
       </div>
       <div class="col-12 col-md-5">
         <label class="form-label small mb-0">Servidor de salida (SMTP)</label>
-        <input class="form-control form-control-sm" name="smtp_host" required value="{{ a.smtp_host if a else '' }}" placeholder="smtp.tudominio.es (lo dice el panel del proveedor)">
+        <input class="form-control form-control-sm" name="smtp_host" required value="{{ a.smtp_host if a else (prefill.smtp_host or '') }}" placeholder="smtp.tudominio.es (lo dice el panel del proveedor)">
       </div>
       <div class="col-6 col-md-2">
         <label class="form-label small mb-0">Puerto</label>
@@ -1440,7 +1440,7 @@
       </div>
       <div class="col-12 col-md-6">
         <label class="form-label small mb-0">Usuario del buzón</label>
-        <input class="form-control form-control-sm" name="smtp_username" value="{{ a.smtp_username if a else prefill.from_email }}" placeholder="normalmente la propia dirección">
+        <input class="form-control form-control-sm" name="smtp_username" value="{{ a.smtp_username if a else (prefill.smtp_username or prefill.from_email) }}" placeholder="normalmente la propia dirección">
       </div>
       <div class="col-12 col-md-6">
         <label class="form-label small mb-0">Contraseña del buzón</label>
@@ -1583,7 +1583,9 @@
             {% else %}
               Hasta entonces sale con el remitente de la app y con Reply-To a esa dirección.
             {% endif %}
-            <strong>Abajo tienes su alta ya rellena</strong>: solo faltan el servidor de salida y la contraseña del buzón.
+            <strong>Abajo tienes su alta ya rellena</strong>{% if e.smtp_host %} —con el servidor de salida
+            <code>{{ e.smtp_host }}</code>—: solo falta <strong>la contraseña del buzón</strong>{% else %}: solo faltan el
+            servidor de salida y la contraseña del buzón{% endif %}.
           </div>
         {% endfor %}
 
@@ -1645,12 +1647,13 @@
         {% for e in mail.expected if e.missing %}
           <details class="mail-acc-add mb-2"{% if loop.first %} open{% endif %}>
             <summary class="btn btn-sm btn-outline-primary"><i class="fa {{ e.icon }} me-1"></i>Dar de alta {{ e.email }}</summary>
-            {{ mail_form(none, {'label': e.label, 'from_name': e.name, 'from_email': e.email}) }}
+            {{ mail_form(none, {'label': e.label, 'from_name': e.name, 'from_email': e.email,
+                                'smtp_host': e.smtp_host, 'smtp_username': e.email}) }}
           </details>
         {% endfor %}
         <details class="mail-acc-add"{% if not mail.rows and not mail.expected_missing %} open{% endif %}>
           <summary class="btn btn-sm btn-outline-secondary"><i class="fa fa-plus me-1"></i>Añadir otra cuenta de envío</summary>
-          {{ mail_form(none, {'label': '', 'from_name': '', 'from_email': ''}) }}
+          {{ mail_form(none, {'label': '', 'from_name': '', 'from_email': '', 'smtp_host': mail.hosting_smtp}) }}
         </details>
       </div>
     </div>
@@ -1665,11 +1668,10 @@
           <strong>su</strong> servidor y <strong>su</strong> contraseña.
         </p>
         <ol class="small mb-2">
-          <li><strong>Entra en el panel del hosting</strong> (donde está el webmail) y abre la configuración de <em>clientes de correo</em> de ese
-            buzón: ahí salen el <strong>servidor de salida (SMTP)</strong>, el <strong>puerto</strong> y el <strong>cifrado</strong>. Lo habitual es
-            <code>smtp.</code> seguido del dominio (o el servidor del propio hosting) con <strong>465 y SSL/TLS</strong>; si solo da el <strong>587</strong>, elige STARTTLS.</li>
-          <li><strong>Rellena la cuenta de arriba</strong> con eso, el usuario (la propia dirección, salvo que el panel diga otra cosa) y la
-            <strong>misma contraseña con la que se entra en el webmail</strong>. Guarda.</li>
+          <li><strong>El servidor de salida ya viene puesto</strong>: <code>{{ mail.hosting_smtp }}</code>, que es el del hosting donde está el
+            correo de la casa, con <strong>465 y SSL/TLS</strong>. Si algún buzón estuviera en otro proveedor, lo dice el panel de ese proveedor
+            (en la configuración de <em>clientes de correo</em>), y se cambia aquí; si solo da el <strong>587</strong>, elige STARTTLS.</li>
+          <li><strong>Escribe la contraseña</strong>: la <strong>misma con la que se entra en el webmail</strong> de ese buzón. Guarda.</li>
           <li><strong>Pulsa «Probar conexión»</strong>: dice si el servidor acepta el usuario y la contraseña, sin mandar nada. Si falla por
             el cifrado, prueba el otro par (465 SSL/TLS ↔ 587 STARTTLS).</li>
           <li><strong>«Enviar prueba desde aquí»</strong> a un Gmail y a un Outlook: tiene que entrar en la <strong>bandeja</strong>, no en spam,
@@ -1711,7 +1713,9 @@
                   Un TXT en <code>{{ smtp.from_domain or 'el dominio' }}</code> que incluya el
                   servidor de salida. <strong>Uno solo</strong>: si ya hay un SPF, se añade dentro, no
                   se crea otro.<br>
-                  <code>v=spf1 include:&lt;el que diga tu proveedor&gt; ~all</code>
+                  {% if mail.spf_hint %}<code>v=spf1 {{ mail.spf_hint }} ~all</code> (es lo que pide
+                  <code>{{ mail.hosting_smtp }}</code>; el botón «Comprobar los DNS» de cada cuenta dice si ya está){% else %}
+                  <code>v=spf1 include:&lt;el que diga tu proveedor&gt; ~all</code>{% endif %}
                 </td>
               </tr>
               <tr>
@@ -2048,7 +2052,10 @@ document.addEventListener('click', function (ev) {
       function fila(nombre, r) {
         var ico = r.ok === true ? '<i class="fa fa-circle-check text-success"></i>' : (r.ok === false ? '<i class="fa fa-circle-xmark text-danger"></i>' : '<i class="fa fa-circle-question text-warning"></i>');
         var txt = r.text ? '<div class="text-muted text-break"><code>' + esc(r.text) + '</code></div>' : '';
-        return '<div class="mail-dns__row">' + ico + '<div><b>' + nombre + '</b> · ' + esc(r.note || '') + txt + '</div></div>';
+        /* Lo que hay que PUBLICAR (el `include:` de ese proveedor): solo lo manda el servidor
+           cuando el SPF de verdad no autoriza al servidor de salida. */
+        var pista = r.hint_text ? '<div class="mt-1 small text-warning-emphasis"><i class="fa fa-lightbulb me-1"></i>' + esc(r.hint_text) + '</div>' : '';
+        return '<div class="mail-dns__row">' + ico + '<div><b>' + nombre + '</b> · ' + esc(r.note || '') + txt + pista + '</div></div>';
       }
       var html = '<div class="fw-semibold mb-1">DNS de <code>' + esc(js.domain) + '</code>' + (js.unknown ? ' <span class="text-warning">(no se pudo consultar del todo)</span>' : '') + '</div>';
       html += fila('SPF', js.spf || {}) + fila('DKIM', js.dkim || {}) + fila('DMARC', js.dmarc || {});

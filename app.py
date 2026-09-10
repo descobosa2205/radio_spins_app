@@ -3708,6 +3708,41 @@ def _smtp_sender_rejected(exc) -> bool:
 # `_send_optional_email` lo resuelve SOLO: si el From pedido es el de una cuenta activa, sale por ella.
 # ═════════════════════════════════════════════════════════════════════════════
 
+# El SERVIDOR DE SALIDA del hosting donde está el correo del grupo (Arsys / serviciodecorreo.es,
+# sep 2026): los buzones de la casa salen por él, así que el alta de una cuenta viene con esto puesto
+# y lo único que hay que escribir es la CONTRASEÑA. Se puede cambiar en el propio formulario (el
+# panel del proveedor es quien lo dice).
+MAIL_HOSTING_SMTP = "smtp.serviciodecorreo.es"
+
+# ⚠️ Qué hay que PUBLICAR en el SPF del dominio según el servidor de salida. Es lo que hace falta
+# para que Gmail y Outlook no traten el correo como falsificado, y es el dato que nadie sabe de
+# memoria: se sugiere en «Comprobar los DNS» **solo cuando el SPF de verdad no autoriza a ese
+# servidor** (si ya está bien, no se dice nada). La comprobación la hace el DNS, no esta tabla.
+MAIL_SPF_HINTS = {
+    "serviciodecorreo.es": "include:_spf.serviciodecorreo.es",
+    "arsys.es": "include:_spf.serviciodecorreo.es",
+    "ionos.es": "include:_spf-eu.ionos.com",
+    "1and1.es": "include:_spf-eu.ionos.com",
+    "google.com": "include:_spf.google.com",
+    "gmail.com": "include:_spf.google.com",
+    "outlook.com": "include:spf.protection.outlook.com",
+    "office365.com": "include:spf.protection.outlook.com",
+    "zoho.eu": "include:zoho.eu",
+    "sendgrid.net": "include:sendgrid.net",
+}
+
+
+def _mail_spf_hint(smtp_host: str) -> str:
+    """El `include:` que hay que publicar en el SPF para ESE servidor de salida (o «»)."""
+    host = (smtp_host or "").strip().lower().rstrip(".")
+    if not host:
+        return ""
+    for sufijo, include in MAIL_SPF_HINTS.items():
+        if host == sufijo or host.endswith("." + sufijo):
+            return include
+    return ""
+
+
 # ══ Las cuentas de envío que la app ESPERA ═══════════════════════════════════════════════════
 # ⚠️ Punto ÚNICO: de aquí salen el aviso de «esta todavía no está dada de alta», el alta ya rellena
 # y el «para qué se usa» de cada fila. Una cuenta nueva se añade AQUÍ y aparece sola en la pantalla.
@@ -3716,10 +3751,14 @@ def _smtp_sender_rejected(exc) -> bool:
 MAIL_EXPECTED_ACCOUNTS = [
     {"key": "PROMO33", "email": "promocion@33producciones.es", "name": "Promoción | 33 Producciones",
      "label": "Promoción", "icon": "fa-microphone-lines",
+     # El servidor de salida de su hosting, para que el alta solo pida la CONTRASEÑA. Vacío = se
+     # pregunta (lo dice el panel del proveedor de ese buzón).
+     "smtp_host": MAIL_HOSTING_SMTP,
      "uses": "Notas de prensa · se elige como remitente al enviar",
      "why": "Las notas de prensa salen desde este buzón, no con el remitente de la app."},
     {"key": "SYNCRO", "email": "sync@piesrecords.com", "name": "Syncros PIES Compañía Discográfica",
      "label": "Syncros", "icon": "fa-clapperboard",
+     "smtp_host": MAIL_HOSTING_SMTP,
      "uses": "Syncros · los temas que se mandan a los supervisores",
      "why": ("Los temas para sincronización salen SIEMPRE desde este buzón: quien los recibe es un "
              "supervisor de fuera, y un correo de una casa de discos que sale desde otro dominio "
@@ -118102,6 +118141,19 @@ def _mail_dns_check(acc) -> dict:
         fila["note"] = "No se pudo consultar el DNS desde aquí."
     else:
         fila["ok"], fila["note"] = False, "El dominio no tiene SPF: para Gmail y Outlook cualquier correo suyo es sospechoso."
+    # ⚠️ Lo que hay que PUBLICAR, dicho solo cuando NO consta que el SPF esté bien.
+    # ⚠️⚠️ `_spf_authorizes_host` devuelve **None** cuando no ve el servidor en el SPF (es prudente:
+    # los `include:` son recursivos y no se resuelven), así que la condición NO puede ser `is False`
+    # —con eso la pista no salía justo en el caso más común— sino «no está confirmado como bueno».
+    # Si no se pudo consultar el DNS no se dice nada: no se sabe si falta.
+    if fila.get("ok") is not True and not salida["unknown"]:
+        include = _mail_spf_hint(acc.smtp_host or "")
+        if include:
+            fila["hint"] = include
+            fila["hint_text"] = (
+                ("El correo de este buzón sale por %s, así que su SPF pide «%s». " % (acc.smtp_host, include))
+                + ("Hay que publicar un TXT en %s: v=spf1 %s ~all" % (dominio, include) if not fila["found"]
+                   else "Se añade DENTRO del SPF que ya hay (solo puede haber UNO): v=spf1 %s ~all" % include))
     salida["spf"] = fila
     dm = _dns_txt_records("_dmarc." + dominio)
     dmarc = [t for t in (dm or []) if t.lower().startswith("v=dmarc1")]
@@ -118176,6 +118228,9 @@ def _mail_accounts_context(session_db) -> dict:
             "promo_email": PRESS_SENDER_PROMO_EMAIL, "promo_name": PRESS_SENDER_PROMO_NAME,
             "promo_missing": not any(f["is_promo"] for f in filas),
             "sync_email": SYNC_SENDER_EMAIL, "sync_name": SYNC_SENDER_NAME,
+            # El servidor del hosting de la casa (viene puesto en el alta) y el `include:` que pide
+            # su SPF, para poder decirlo en la guía sin que nadie tenga que averiguarlo.
+            "hosting_smtp": MAIL_HOSTING_SMTP, "spf_hint": _mail_spf_hint(MAIL_HOSTING_SMTP),
             # Las que la app espera, con las que faltan marcadas (de aquí salen el aviso y el alta
             # ya rellena de cada una: ver `MAIL_EXPECTED_ACCOUNTS`).
             "expected": esperadas,

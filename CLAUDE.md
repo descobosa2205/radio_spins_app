@@ -11499,8 +11499,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 
 - ⚠️⚠️ **DISCOGRÁFICA · CUADRO DE MANDO DE PREVISIONES** (sep 2026, pestaña **«Previsiones»**,
   `?section=previsiones`). **Una sola pantalla para PLANIFICAR**: el calendario de lanzamientos de
-  todos los artistas, qué suena ahora en radio, hace cuánto entró la última canción de cada artista
-  en cada emisora y las presentaciones a radio ya programadas, con la agenda de fondo.
+  todos los artistas, la raya de lo último que entró en cada emisora, lo que se ponga de su agenda
+  y las presentaciones a radio ya programadas.
   ⚠️⚠️ **NO HAY DOS VERDADES**: el focus vive en la CANCIÓN, las tocadas en `Play`, las
   presentaciones en `SongRadioPitch` y las actividades en la agenda de siempre — aquí solo se MIRAN
   juntas y se DECIDE, y cada cosa se guarda donde vive.
@@ -11513,8 +11513,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (con su foto y su color) y **UNA COLUMNA POR SEMANA** (8 · 16 · 26 · 52, con el mes y la semana de
   hoy marcados), y **en la celda de cada semana va LO QUE ESE ARTISTA TIENE ESA SEMANA**: sus
   **lanzamientos** (portada, la marca de focus/continuidad, cuántas emisoras lo llevan y el rayado
-  si es provisional) y, con el interruptor «Agenda», lo que ya hay en su agenda como **referencia**
-  (`_forecast_agenda`, que es `_agenda_build`: si mañana se añade un tipo, sale aquí solo).
+  si es provisional) y las **actividades que se hayan PUESTO** (ver más abajo: la agenda de este
+  cuadro solo enseña lo que se añade).
   Un **PERIODO DE PROMOCIÓN** es una **barra que ocupa las columnas de las semanas que dura**
   (`grid-column: inicio / span N`), en su **carril** para que dos que se solapan no se pisen.
   ⚠️⚠️ Antes la rejilla era semanal pero el contenido se posicionaba **por día** en una capa
@@ -11543,25 +11543,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   entonces **el nombre se compone solo** («Gira de radio · Focus») y se ve a qué está vinculado.
   **Doble clic en la fila de un artista** = franja desde ese día (el gesto del calendario de la
   casa). Las fechas del revés **se ordenan solas**.
-  · **SUENA AHORA EN RADIO**: por artista, sus canciones con **portada**, **en qué emisoras** (con
-  su logo) y **cuántas tocadas**, más la flecha de si **sube o baja** respecto a la semana anterior.
-  ⚠️⚠️ **La semana por defecto es la ANTERIOR a la actual** (`_forecast_week_start`, el mismo
-  criterio que la pantalla de Tocadas): las tocadas se suben con una semana de retraso, así que la
-  actual estaría a cero y parecería que no suena nada. Se cambia de semana con las flechas.
   · **DESCARTAR una canción de radio** (`Song.radio_dropped_at`/`_by`, `forecast_song_radio_drop`):
-  se deja de trabajar en radio, se ve atenuada con su etiqueta y **se deshace**. ⚠️ **No borra
-  ninguna tocada**: lo que sonó, sonó.
-  · **LA ÚLTIMA QUE ENTRÓ EN CADA EMISORA** («la última de Antoñito Molina en Dial fue el …»):
-  **`_forecast_last_entries`** busca, por artista y emisora, la **PRIMERA semana en la que sonó**
-  cada canción (que es cuando ENTRÓ) y se queda con la más reciente, con su **«hace…»**
-  (`_forecast_ago_label`, que no inventa precisión) y **en ámbar** a partir de
-  `FORECAST_STALE_DAYS` (180 días), que es la oportunidad.
-  ⚠️ Va en **UNA consulta agrupada** (subconsulta con `min(week_start)` por artista+emisora+canción):
-  recorrer las tocadas artista a artista sería inaceptable.
-  · **PRESENTACIONES A RADIO**: `SongRadioPitch` agrupado **por emisora o por artista** (el mismo
-  dato mirado desde los dos sitios), con la fecha de entrada en rotación y su estado. Y desde el
-  cuadro se puede decir **a qué emisoras va** un tema (`forecast_song_radio_plan`): es la MISMA
-  presentación del proyecto, así que sale en su ficha y en su plan de lanzamiento.
+  se deja de trabajar en radio y **se deshace**. Se hace en el **pop-up del lanzamiento** (antes
+  estaba en el módulo «Suena ahora en radio», que se retiró). ⚠️ **No borra ninguna tocada**: lo que
+  sonó, sonó.
+  · **PRESENTACIONES A RADIO** (el ÚNICO módulo de abajo): `SongRadioPitch` agrupado **por emisora o
+  por artista** (el mismo dato mirado desde los dos sitios), con la fecha de entrada en rotación y
+  su estado. Y desde el cuadro se puede decir **a qué emisoras va** un tema
+  (`forecast_song_radio_plan`): es la MISMA presentación del proyecto, así que sale en su ficha y en
+  su plan de lanzamiento.
   ⚠️⚠️ **Solo se puede QUITAR lo que la emisora todavía no ha contestado**: un «sí entra» o un «no»
   es información y no se borra desde un cuadro de mando.
   ⚠️⚠️ **HAY DOS CONCEPTOS DE EMISORA y no son el mismo**: **`RadioStation`** son las de las TOCADAS
@@ -11580,11 +11570,62 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **`DEFAULT_COVER_URL` es un global de PLANTILLA**, no una variable de módulo.
   ⚠️ **`can_edit_discografica()` no es un global de plantilla**: en la plantilla es
   **`CAN_EDIT_DISCOGRAFICA`** (un `{% if can_edit_discografica() %}` revienta la página).
-  Probado con la app real (71 comprobaciones) y en el navegador: el calendario con sus 16 semanas y
-  sus hitos, marcar focus/continuidad, crear una franja con doble clic, descartar de radio (sin
-  perder las tocadas), la última entrada por emisora, las presentaciones por emisora y por artista,
-  el filtro por artista y la semana anterior; y a 375 px, sin desbordes y con el calendario
-  deslizándose por dentro.
+  Probado con la app real y en el navegador: el calendario con sus 16 semanas y sus hitos, marcar
+  focus/continuidad, crear una franja con doble clic, descartar de radio (sin perder las tocadas),
+  las presentaciones por emisora y por artista y el filtro por artista; y a 375 px, sin desbordes y
+  con el calendario deslizándose por dentro.
+
+- ⚠️⚠️ **PREVISIONES · LA AGENDA SOLO ENSEÑA LO QUE SE PONE, y las emisoras van con SU color**
+  (sep 2026, lo pidió Dani). Cuatro cosas:
+  · ⚠️⚠️ **LA AGENDA NO SE VUELCA ENTERA**: antes salía TODO lo que el artista tuviera esos días
+  «como referencia» y el cuadro se llenaba de ruido. Ahora **solo sale lo que se ha ARRASTRADO Y
+  AÑADIDO** desde la paleta «Agenda», y **lo mismo en el detalle de abajo**. Las claves puestas van
+  en el ajuste **`forecast_agenda_v1`** (`_forecast_agenda_keys` / `_forecast_agenda_save`), que es
+  del CUADRO —como lo quitado—, y el endpoint es **`forecast_agenda_add`**.
+  ⚠️ **Quitar una actividad con la ✕ es DESAÑADIRLA**, no ocultarla (`forecast_hide` trata aparte
+  las claves `AG:`): si se apuntara como «oculta» saldría en «Quitados» sin estar puesta. Y al
+  añadir se limpia esa clave de lo oculto, porque una actividad que se quitó cuando la agenda salía
+  entera volvería a esconderse nada más ponerla.
+  ⚠️ Sin nada añadido, `_forecast_agenda` **ni llama a `_agenda_build`**. Y en «¿Cuál?» lo que ya
+  está puesto sale como **«ya está»** y no se puede añadir dos veces.
+  · **UN CONCIERTO Y UN FESTIVAL LLEVAN EL MISMO ICONO: un MICRÓFONO** (`FORECAST_AGENDA_ICONS`,
+  `fa-microphone-lines`). Es solo cómo se ven AQUÍ: en la agenda de la casa cada tipo conserva el
+  suyo (`AGENDA_KIND_META`).
+  · ⚠️⚠️ **EL LOGO DE UNA EMISORA NO SE RECORTA**: un logo es apaisado y metido en un círculo con
+  `object-fit:cover` se le comían los lados. Va ENTERO (`contain`) sobre blanco en los tres sitios
+  (el filtro, la raya del calendario y la cabecera de las presentaciones).
+  · **Y LA RAYA DE CADA EMISORA VA CON EL COLOR DE SU LOGO EN CLARITO** (`--c` +
+  `color-mix`), que es lo que la identifica de un vistazo. El color lo saca **`_logo_main_color`**
+  (Pillow: descarta el blanco del fondo y se queda con el color con más presencia que de verdad sea
+  un color; si el logo es blanco y negro, el negro) y **se guarda en la emisora**
+  (`RadioStation.logo_color` + `logo_color_src`, que es la URL con la que se calculó: al cambiar el
+  logo se vuelve a sacar).
+  ⚠️⚠️ **NO se calcula al pintar el cuadro**: hay que BAJARSE el logo, y diez descargas dejarían la
+  pantalla esperando. Lo pide la pantalla **aparte** (`forecast_station_colors`, con **tope de
+  tiempo** `FORECAST_COLOR_BUDGET`), se guarda y en las siguientes cargas ya viene en el payload.
+  Un logo que no dé color se apunta igual (`logo_color_src`) para no reintentarlo en cada carga.
+  ⚠️ Los valores sólidos van DELANTE del `color-mix` en el CSS: un navegador que no lo entienda se
+  queda con el azul de siempre.
+  · **DE LOS TRES MÓDULOS DE ABAJO QUEDA UNO**: «Presentaciones a radio». «Suena ahora en radio» y
+  «La última que entró en cada emisora» se retiraron (lo que suena ya se ve en la RAYA de cada
+  emisora del calendario), y con ellos `_forecast_radio_now`, `_forecast_last_entries`,
+  `FORECAST_STALE_DAYS` y la navegación por semanas (`week_*`, el parámetro `fw`).
+  · ⚠️⚠️ **A QUÉ EMISORAS VA UN TEMA SE CONFIGURA EN SU POP-UP, sin ir a la ficha** (era un enlace
+  a su ficha): **doble clic** en el lanzamiento del calendario —lo dice su tooltip— y ahí se marcan
+  las emisoras (con su logo), se pone cuándo entra y se guarda. Son las **mismas** presentaciones
+  (`SongRadioPitch`), así que salen en su proyecto, en su ficha y en su plan de lanzamiento.
+  ⚠️ Lo que la emisora **ya ha contestado** sale FIJO (no se puede quitar desde un cuadro de mando)
+  y el servidor lo vuelve a comprobar. Las emisoras son los **`MediaOutlet` de tipo Radio**
+  (`radio_media` del contexto), no las `RadioStation` de las tocadas.
+  Probado con la app real y en el navegador: la agenda vacía hasta que se añade, el micrófono en
+  concierto y festival, quitar y volver a poner, los logos sin recortar (24×20 `contain`), la raya
+  con el color de cada emisora guardado en su ficha, marcar y desmarcar emisoras (y que una
+  «Entra» no se pueda quitar) y el informe (página y PDF) intactos.
+
+- ⚠️ **PLAYLISTING FUERA DEL MENÚ** (sep 2026, lo pidió Dani: «no tiene sentido»). Se ha quitado su
+  entrada de `_build_nav_menu` **y nada más**: la pantalla (`/playlisting`) y su recurso siguen
+  ahí a propósito — retirar el recurso del catálogo **PODA en cascada** los permisos concedidos
+  (`_sync_access_resources`), y aquí solo se ha quitado el acceso desde el menú.
 
 - **PREVISIONES · EL DETALLE POR ARTISTA** (sep 2026, debajo del calendario): el cuadro de mando de
   lo que se está viendo — una **columna por artista** y, dentro, sus hitos agrupados por **MES** y

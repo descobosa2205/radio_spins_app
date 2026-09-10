@@ -6917,11 +6917,6 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .fc-card__head{ display:flex; justify-content:space-between; align-items:center; gap:.6rem; flex-wrap:wrap;
   font-weight:700; font-size:.9rem; margin-bottom:.6rem; }
 .fc-card__head i{ color:var(--brand-accent,#007ca2); margin-right:.35rem; }
-/* Los tres módulos de abajo, en una fila: el cuadro se lee de un vistazo (tres columnas en una
-   pantalla ancha, dos en una mediana y apilados en el móvil). */
-.fc-grid{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:.9rem; }
-@media (max-width: 1399.98px){ .fc-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
-@media (max-width: 991.98px){ .fc-grid{ grid-template-columns:1fr; } }
 .fc-empty{ color:#6c757d; font-size:.85rem; padding:.6rem 0; }
 .fc-legend{ display:flex; gap:.7rem; flex-wrap:wrap; font-weight:500; font-size:.75rem; color:#6c757d; }
 .fc-leg{ display:inline-flex; align-items:center; gap:.25rem; }
@@ -7032,15 +7027,24 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .fc-stations-filter{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; margin:-.4rem 0 .6rem; }
 .fc-station{ display:inline-flex; align-items:center; gap:.3rem; border:1px solid rgba(0,0,0,.1);
   background:#fff; color:#6c757d; border-radius:999px; padding:.15rem .55rem .15rem .2rem; font-size:.75rem; font-weight:600; }
-.fc-station img,.fc-station i{ width:20px; height:20px; border-radius:50%; object-fit:cover; background:#e9ecef;
-  display:grid; place-items:center; font-size:.6rem; color:#adb5bd; }
-.fc-station.is-on{ border-color:var(--brand-accent,#007ca2); box-shadow:inset 0 0 0 1px var(--brand-accent,#007ca2); color:#212529; }
-/* ⚠️ LA RAYA DE RADIO: cuándo entró la última canción en esa emisora y cuánto aguantó. Va debajo
-   de las semanas del artista y en el AZUL de la marca (es otra cosa que sus lanzamientos). */
+/* ⚠️⚠️ EL LOGO DE UNA EMISORA NO SE RECORTA: un logo suele ser apaisado y metido en un círculo con
+   `object-fit:cover` se le comen los lados (se veía cortado). Va ENTERO (`contain`) sobre blanco. */
+.fc-station img,.fc-station i{ width:24px; height:20px; border-radius:4px; object-fit:contain; background:#fff;
+  display:grid; place-items:center; font-size:.6rem; color:#adb5bd; flex:0 0 auto; }
+.fc-station.is-on{ border-color:var(--c,var(--brand-accent,#007ca2));
+  box-shadow:inset 0 0 0 1px var(--c,var(--brand-accent,#007ca2)); color:#212529; }
+/* ⚠️ LA RAYA DE RADIO: cuándo entró la última canción en esa emisora y cuánto aguantó. Va debajo de
+   las semanas del artista y **con el color de SU logo en clarito** (`--c`, que calcula el servidor):
+   así se identifica de un vistazo de qué emisora es. Sin color todavía, el azul de la marca.
+   ⚠️ Los valores sólidos van DELANTE: un navegador que no entienda `color-mix` se queda con ellos. */
 .fc-run{ display:flex; align-items:center; gap:.25rem; height:1.05rem; margin:.06rem .1rem;
   border-radius:6px; background:rgba(0,124,162,.12); border:1px solid rgba(0,124,162,.35);
-  color:#075f7d; font-size:.62rem; font-weight:600; padding:0 .25rem; overflow:hidden; white-space:nowrap; }
-.fc-run img,.fc-run i{ width:13px; height:13px; border-radius:50%; object-fit:cover; flex:0 0 auto; font-size:.5rem; }
+  color:#075f7d; font-size:.62rem; font-weight:600; padding:0 .25rem; overflow:hidden; white-space:nowrap;
+  background:color-mix(in srgb, var(--c,#007ca2) 16%, #fff);
+  border-color:color-mix(in srgb, var(--c,#007ca2) 42%, #fff);
+  color:color-mix(in srgb, var(--c,#007ca2) 72%, #12212b); }
+.fc-run img,.fc-run i{ width:16px; height:14px; border-radius:2px; object-fit:contain; background:#fff;
+  flex:0 0 auto; font-size:.5rem; }
 .fc-run span{ overflow:hidden; text-overflow:ellipsis; }
 
 /* --- la PALETA: lo que se arrastra al calendario (sustituye al «+ Periodo de promoción») --- */
@@ -7069,6 +7073,9 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .fc-add__row{ display:flex; align-items:center; gap:.5rem; padding:.35rem .5rem; border:1px solid rgba(0,0,0,.08);
   border-radius:10px; background:#fff; text-align:left; }
 .fc-add__row:hover{ border-color:var(--brand-primary,#e33d48); }
+/* Lo que YA está puesto en el calendario se enseña, pero no se puede volver a añadir. */
+.fc-add__row.is-done{ opacity:.55; cursor:default; }
+.fc-add__row.is-done:hover{ border-color:rgba(0,0,0,.08); }
 .fc-add__row img,.fc-add__row .noimg{ width:34px; height:34px; border-radius:6px; object-fit:cover;
   background:#e9ecef; display:grid; place-items:center; color:#adb5bd; }
 .fc-add__row-main{ display:flex; flex-direction:column; min-width:0; }
@@ -7077,47 +7084,36 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .fc-hito__radio{ position:absolute; top:-6px; right:-6px; background:#0ea5e9; color:#fff; border-radius:999px;
   font-size:.55rem; font-weight:700; min-width:13px; height:13px; display:grid; place-items:center; padding:0 .15rem; }
 
-/* --- suena ahora en radio --- */
-.fc-weeknav{ display:inline-flex; align-items:center; gap:.3rem; }
-.fc-week{ font-size:.78rem; font-weight:600; color:#495057; }
-.fc-rblock,.fc-lblock,.fc-pblock{ border-top:1px solid rgba(0,0,0,.06); padding-top:.5rem; margin-top:.5rem; }
-.fc-rblock:first-child,.fc-lblock:first-child,.fc-pblock:first-child{ border-top:0; padding-top:0; margin-top:0; }
+/* --- las presentaciones a radio (el único módulo de abajo) --- */
+.fc-pblock{ border-top:1px solid rgba(0,0,0,.06); padding-top:.5rem; margin-top:.5rem; }
+.fc-pblock:first-child{ border-top:0; padding-top:0; margin-top:0; }
 .fc-rblock__who{ display:flex; align-items:center; gap:.4rem; font-size:.8rem; font-weight:700; margin-bottom:.35rem; }
 .fc-rblock__who img,.fc-rblock__who .noimg,.fc-rblock__who .fc-st__logo{ width:22px; height:22px; border-radius:50%;
   object-fit:cover; background:#e9ecef; display:grid; place-items:center; color:#adb5bd; font-size:.6rem; flex:0 0 auto; overflow:hidden; }
 .fc-rblock__n{ margin-left:auto; font-weight:600; color:#adb5bd; font-size:.72rem; }
-.fc-song,.fc-pitch{ display:flex; align-items:center; gap:.5rem; padding:.3rem 0; }
-.fc-song.is-dropped{ opacity:.5; }
+.fc-pitch{ display:flex; align-items:center; gap:.5rem; padding:.3rem 0; }
 .fc-song__cover,.fc-st__logo{ width:34px; height:34px; border-radius:6px; overflow:hidden; background:#e9ecef;
   display:grid; place-items:center; color:#adb5bd; flex:0 0 auto; }
 .fc-song__cover img{ width:100%; height:100%; object-fit:cover; }
+/* Un LOGO de emisora se ve entero (una portada sí se recorta: es cuadrada). ⚠️ Y NO en círculo:
+   la cabecera de las presentaciones lo pinta redondo como la foto de un artista, y un logo
+   apaisado dentro de un círculo se queda con los lados cortados. */
+.fc-st__logo{ background:#fff; }
+.fc-st__logo img{ max-width:100%; max-height:100%; object-fit:contain; }
+.fc-rblock__who .fc-st__logo{ border-radius:4px; width:28px; }
 .fc-song__cover--lg{ width:64px; height:64px; border-radius:8px; }
-.fc-song__main,.fc-pitch__main{ flex:1 1 auto; min-width:0; }
-.fc-song__title{ font-size:.85rem; font-weight:600; }
-.fc-song__title a{ color:inherit; }
+.fc-pitch__main{ flex:1 1 auto; min-width:0; }
 .fc-sub{ font-size:.75rem; color:#6c757d; }
-.fc-song__side{ display:flex; flex-direction:column; align-items:flex-end; gap:.1rem; flex:0 0 auto; }
-.fc-spins{ font-weight:700; font-size:.9rem; }
 .fc-drop{ font-size:.72rem; }
 .fc-stations{ display:flex; gap:.3rem; flex-wrap:wrap; margin-top:.15rem; }
 .fc-st{ display:inline-flex; align-items:center; gap:.2rem; background:#f1f3f5; border-radius:999px; padding:.1rem .4rem;
   font-size:.7rem; color:#495057; }
-.fc-st img{ width:16px; height:16px; border-radius:50%; object-fit:cover; }
+.fc-st img{ width:20px; height:16px; border-radius:2px; object-fit:contain; background:#fff; }
 .fc-st b{ font-weight:700; }
-.fc-up{ color:#198754; font-size:.6rem; }
-.fc-down{ color:#dc3545; font-size:.6rem; }
 .fc-badge{ display:inline-flex; align-items:center; gap:.2rem; font-size:.68rem; font-weight:700; border-radius:999px;
   padding:.05rem .4rem; color:var(--c,#6b7280); background:color-mix(in srgb, var(--c,#6b7280) 12%, #fff); }
 .fc-badge--off{ --c:#6c757d; }
 
-/* --- la última que entró en cada emisora --- */
-.fc-last__row{ display:flex; align-items:center; gap:.45rem; font-size:.8rem; padding:.2rem 0; }
-.fc-last__st{ font-weight:600; flex:0 0 6.5rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fc-last__song{ flex:1 1 auto; min-width:0; color:#6c757d; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fc-last__when{ flex:0 0 auto; font-weight:600; color:#495057; }
-.fc-last__row.is-stale .fc-last__when{ color:#7a4b00; background:rgba(255,193,7,.18); border-radius:6px; padding:0 .3rem; }
-
-/* --- presentaciones a radio --- */
 .fc-pitch__date{ flex:0 0 auto; font-size:.78rem; font-weight:600; color:#495057; }
 
 /* --- pop-ups --- */
@@ -7127,11 +7123,13 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
   font-weight:600; color:#495057; display:inline-flex; align-items:center; gap:.35rem; }
 .fc-pick i{ color:var(--c,#6b7280); }
 .fc-pick.is-on{ border-color:var(--c,#e33d48); box-shadow:inset 0 0 0 1px var(--c,#e33d48); color:#212529; }
+/* Las EMISORAS a las que se presenta un tema: con su logo entero y, lo que ya contestó la emisora,
+   fijo (no se puede quitar desde aquí). */
+.fc-pick--st img{ width:26px; height:18px; object-fit:contain; background:#fff; border-radius:2px; }
+.fc-pick--st.is-on{ border-color:var(--brand-accent,#007ca2); box-shadow:inset 0 0 0 1px var(--brand-accent,#007ca2); }
+.fc-pick--st.is-fixed{ opacity:.85; cursor:default; }
 
-@media (max-width: 767.98px){
-  .fc-cal__who{ flex-basis:6.5rem; }
-  .fc-last__st{ flex-basis:5rem; }
-}
+@media (max-width: 767.98px){ .fc-cal__who{ flex-basis:6.5rem; } }
 /* ⚠️ Con muchos artistas el calendario deja de caber en una pantalla: se desliza por dentro (el
    cuadro de mando tiene que verse de un vistazo) y los que no tienen nada no se pintan. */
 .fc-cal{ max-height:30rem; overflow:auto; }
@@ -7140,7 +7138,7 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 @media (max-width: 767.98px){ .fc-cal__rest{ padding-left:6.5rem; } }
 /* Cada módulo del cuadro se desliza POR DENTRO: así el cuadro entero se lee de un vistazo en vez de
    convertirse en una página de scroll infinito (es la idea de un cuadro de mando). */
-.fc-radio,.fc-last,.fc-pitches{ max-height:16rem; overflow:auto; }
+.fc-pitches{ max-height:22rem; overflow:auto; }
 
 /* ═══════════════════════════ RIDERS · el editor por secciones ═══════════════════════════
    Un rider va POR SECCIONES y cada sección es una PESTAÑA. El orden de las pestañas es el del

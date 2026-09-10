@@ -1835,6 +1835,11 @@ class RadioStation(Base):
     logo_url = Column(Text)
     country_code = Column(Text, nullable=False, server_default=text("'ES'"))
     country_name = Column(Text, nullable=False, server_default=text("'España'"))
+    # EL COLOR PRINCIPAL DE SU LOGO (#rrggbb), para pintar su barra en el cuadro de Previsiones con
+    # su propio color en clarito. Se calcula UNA vez del logo y se guarda; `logo_color_src` es la
+    # URL con la que se calculó, así que al cambiar el logo se vuelve a sacar.
+    logo_color = Column(Text)
+    logo_color_src = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -13686,6 +13691,10 @@ def ensure_song_radio_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_song_radio_song ON song_radio_pitches(song_id);",
         "CREATE INDEX IF NOT EXISTS idx_song_radio_pending ON song_radio_pitches(status);",
+        # EL COLOR DEL LOGO de cada emisora (Previsiones lo usa para su barra). ⚠️ CADA COLUMNA EN
+        # SU PROPIA SENTENCIA: metida en un bloque con guarda no llegaría a aplicarse nunca.
+        "ALTER TABLE IF EXISTS radio_stations ADD COLUMN IF NOT EXISTS logo_color text;",
+        "ALTER TABLE IF EXISTS radio_stations ADD COLUMN IF NOT EXISTS logo_color_src text;",
         # PERIODOS DE PROMOCIÓN del cuadro de mando de Previsiones.
         """
         CREATE TABLE IF NOT EXISTS disco_promo_windows (

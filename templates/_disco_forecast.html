@@ -1,7 +1,7 @@
 {# CUADRO DE MANDO DE PREVISIONES (Discográfica → Previsiones)
    Todo en UNA pantalla: el calendario de lanzamientos de los artistas (con el focus, la
-   continuidad y lo que va a radio), qué suena ahora en radio, hace cuánto entró la última canción
-   de cada artista en cada emisora y las presentaciones a radio programadas.
+   continuidad, lo que va a radio y la raya de cada emisora), su detalle por artista y las
+   presentaciones a radio programadas.
    ⚠️ Los datos vienen de donde viven (la canción, las tocadas, las presentaciones y la agenda):
    aquí solo se miran juntos. El render y las acciones, en static/js/disco_forecast.js. #}
 <div class="fc" data-forecast
@@ -22,6 +22,8 @@
      data-url-report="{{ url_for('forecast_report_link') }}"
      data-url-report-preview="{{ url_for('forecast_report_preview') }}"
      data-url-report-send="{{ url_for('forecast_report_send') }}"
+     data-url-colors="{{ url_for('forecast_station_colors') }}"
+     data-url-agenda="{{ url_for('forecast_agenda_add') }}"
      data-can-edit="{{ '1' if CAN_EDIT_DISCOGRAFICA else '' }}">
 
   {# ---------- cabecera: de quién, cuándo y qué se ve ---------- #}
@@ -113,32 +115,16 @@
     <div data-fc-detail></div>
   </div>
 
-  {# ---------- B · QUÉ SUENA AHORA EN RADIO ---------- #}
-  <div class="fc-grid">
-    <div class="fc-card">
-      <div class="fc-card__head">
-        <div><i class="fa fa-radio"></i> Suena ahora en radio</div>
-        <div class="fc-weeknav" data-fc-weeknav></div>
-      </div>
-      <div class="fc-radio" data-fc-radio></div>
+  {# ---------- B · CALENDARIO DE PRESENTACIONES A RADIO ----------
+     ⚠️ Es el ÚNICO módulo de abajo: «Suena ahora en radio» y «La última que entró en cada emisora»
+     se retiraron (lo que suena se ve en la RAYA de cada emisora del propio calendario, y descartar
+     un tema de radio se hace en el pop-up del lanzamiento). #}
+  <div class="fc-card">
+    <div class="fc-card__head">
+      <div><i class="fa fa-tower-broadcast"></i> Presentaciones a radio</div>
+      <div class="fc-pitch-modes" data-fc-pitchmodes></div>
     </div>
-
-    {# ---------- C · HACE CUÁNTO ENTRÓ LA ÚLTIMA EN CADA EMISORA ---------- #}
-    <div class="fc-card">
-      <div class="fc-card__head">
-        <div><i class="fa fa-clock-rotate-left"></i> La última que entró en cada emisora</div>
-      </div>
-      <div class="fc-last" data-fc-last></div>
-    </div>
-
-    {# ---------- D · CALENDARIO DE PRESENTACIONES A RADIO ---------- #}
-    <div class="fc-card">
-      <div class="fc-card__head">
-        <div><i class="fa fa-tower-broadcast"></i> Presentaciones a radio</div>
-        <div class="fc-pitch-modes" data-fc-pitchmodes></div>
-      </div>
-      <div class="fc-pitches" data-fc-pitches></div>
-    </div>
+    <div class="fc-pitches" data-fc-pitches></div>
   </div>
 </div>
 <script src="{{ url_for('static', filename='js/disco_forecast.js') }}?v={{ ASSET_V }}"></script>

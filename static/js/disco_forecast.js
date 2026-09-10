@@ -28,6 +28,8 @@
       report: root.getAttribute('data-url-report') || '',
       reportPrev: root.getAttribute('data-url-report-preview') || '',
       reportSend: root.getAttribute('data-url-report-send') || '',
+      colors: root.getAttribute('data-url-colors') || '',
+      agenda: root.getAttribute('data-url-agenda') || '',
     };
     // ⚠️ EL FILTRO VA AL REVÉS: todos encendidos y se apagan los que se pinchen. Se guarda lo
     // APAGADO, así un artista nuevo aparece solo.
@@ -36,6 +38,10 @@
     var verMasEmisoras = false;
     var ocultos = new Set(D.hidden || []);
     var pitchMode = 'station';     // por emisora | por artista
+    /* EL COLOR DE CADA EMISORA (el principal de su logo): lo trae el servidor en el cuadro y, el
+       que falte, se pide aparte UNA vez (hay que bajarse el logo para sacarlo). */
+    var coloresEmisora = {};
+    var coloresPedidas = new Set();
     var semanasPedidas = 0;        // cuántas semanas se piden (0 = las que decida el servidor)
 
     // ------------------------------------------------------------ helpers
@@ -169,7 +175,6 @@
       Object.keys(cambios || {}).forEach(function (k) { D[k] = cambios[k]; });
       var qs = [];
       if (D.artist_id) qs.push('fa=' + encodeURIComponent(D.artist_id));
-      if (D.week_start) qs.push('fw=' + encodeURIComponent(D.week_start));
       if (D.from) qs.push('fd=' + encodeURIComponent(D.from));
       if (semanasPedidas) qs.push('fs=' + semanasPedidas);
       if (D.todos) qs.push('ftodos=1');
@@ -368,6 +373,31 @@
       z.innerHTML = h;
     }
 
+    /* EL COLOR DE UNA EMISORA: el principal de su logo (para pintar su barra con él en clarito).
+       Vacío mientras no se sepa: entonces se pinta con el azul de la marca. */
+    function colorEmisora(id) { return coloresEmisora[String(id || '')] || ''; }
+    /* Los que falten se piden UNA vez (el servidor se baja el logo, saca el color y lo guarda en la
+       ficha de la emisora, así que solo pasa la primera vez de cada logo). */
+    function pideColoresEmisora() {
+      if (!U.colors) return;
+      var faltan = emisorasDelCuadro().filter(function (e) {
+        return e.logo && !colorEmisora(e.id) && !coloresPedidas.has(e.id);
+      }).map(function (e) { return e.id; });
+      if (!faltan.length) return;
+      faltan.forEach(function (id) { coloresPedidas.add(id); });
+      fetch(U.colors + '?ids=' + encodeURIComponent(faltan.join(',')), { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+          if (!resp || !resp.ok || !resp.colors) return;
+          var hay = false;
+          Object.keys(resp.colors).forEach(function (id) {
+            if (resp.colors[id]) { coloresEmisora[id] = resp.colors[id]; hay = true; }
+          });
+          if (hay) { renderStations(); renderCal(); }
+        })
+        .catch(function () {});
+    }
+
     /* Las emisoras que salen en las rayas de radio (solo aquellas en las que ha sonado algo). */
     function emisorasDelCuadro() {
       var mapa = {};
@@ -376,6 +406,7 @@
         ((D.radio_runs || {})[a.id] || []).forEach(function (r) {
           if (!mapa[r.station_id]) mapa[r.station_id] = { id: r.station_id, name: r.station, logo: r.logo_url, main: r.main, n: 0 };
           mapa[r.station_id].n++;
+          if (r.color && !coloresEmisora[r.station_id]) coloresEmisora[r.station_id] = r.color;
         });
       });
       var lista = Object.keys(mapa).map(function (k) { return mapa[k]; });
@@ -399,8 +430,10 @@
         if (encendidas > 0) h += '<button type="button" class="filter-chip fc-all" data-fc-est-all="0">Ninguna</button>';
       }
       h += mostrar.map(function (e) {
+        var c = colorEmisora(e.id);
         return '<button type="button" class="fc-station' + (emisorasOff.has(e.id) ? '' : ' is-on') + '"'
-          + ' data-fc-station="' + esc(e.id) + '" title="' + esc(e.name) + '">'
+          + ' data-fc-station="' + esc(e.id) + '" title="' + esc(e.name) + '"'
+          + (c ? (' style="--c:' + esc(c) + '"') : '') + '>'
           + (e.logo ? ('<img src="' + esc(e.logo) + '" alt="">') : '<i class="fa fa-radio"></i>')
           + '<span>' + esc(e.name) + '</span></button>';
       }).join('');
@@ -519,11 +552,13 @@
             pinta('<div class="fc-add__q">¿Cuál?</div>'
               + ((resp.items || []).length
                   ? '<div class="fc-add__list">' + resp.items.map(function (it) {
-                      return '<button type="button" class="fc-add__row" data-i="' + esc(it.key) + '">'
+                      return '<button type="button" class="fc-add__row' + (it.already ? ' is-done' : '') + '"'
+                        + (it.already ? ' disabled' : (' data-i="' + esc(it.key) + '"')) + '>'
                         + (it.cover_url ? ('<img src="' + esc(it.cover_url) + '" alt="">')
                                         : ('<span class="noimg"><i class="fa ' + esc(it.icon || 'fa-circle') + '"></i></span>'))
                         + '<span class="fc-add__row-main"><b>' + esc(it.title) + '</b>'
-                        + (it.sub ? ('<span class="fc-sub">' + esc(it.sub) + '</span>') : '') + '</span></button>';
+                        + (it.sub ? ('<span class="fc-sub">' + esc(it.sub) + '</span>') : '') + '</span>'
+                        + (it.already ? '<span class="fc-sub ms-auto">ya está</span>' : '') + '</button>';
                     }).join('') + '</div>'
                   : '<div class="fc-empty">No hay nada de esto todavía para este artista.</div>')
               + (fijo ? '<div class="form-text mt-2">Una actividad se pone en <b>su día</b>: no se mueve a la semana donde la sueltes.</div>' : '')
@@ -536,8 +571,18 @@
           .catch(function () { pinta('<div class="fc-empty">No se pudo cargar.</div>'); });
       }
       function añade(clave) {
-        // Lo que se elige se pone en ESA semana (menos una actividad, que se queda en su día).
-        if (!estado.week || estado.tipo === 'AGENDA') { m.hide(); recarga({}); return; }
+        // ⚠️⚠️ Una ACTIVIDAD **se queda en su día**: lo que se guarda es que se PONE en el
+        // calendario (la agenda de este cuadro solo enseña lo que se ha añadido).
+        if (estado.tipo === 'AGENDA') {
+          post(U.agenda, { key: clave }).then(function (r) {
+            m.hide();
+            if (r && r.ok) recarga({});
+            else alert((r && r.error) || 'No se pudo poner en el calendario.');
+          });
+          return;
+        }
+        // Lo demás se pone en ESA semana.
+        if (!estado.week) { m.hide(); recarga({}); return; }
         post(U.move, { key: clave, week: estado.week }).then(function (r) {
           m.hide();
           if (r && r.ok) recarga({});
@@ -686,7 +731,11 @@
             var icono = meta ? meta.icon : (r.kind === 'ALBUM' ? 'fa-compact-disc' : 'fa-music');
             var color = meta ? meta.color : '#6b7280';
             var titulo = r.title + ' · ' + fechaEs(r.date) + (meta ? (' · ' + meta.label) : '')
-              + (r.radio_ok ? (' · en ' + r.radio_ok + ' emisora' + (r.radio_ok === 1 ? '' : 's')) : '');
+              + (r.radio_ok ? (' · en ' + r.radio_ok + ' emisora' + (r.radio_ok === 1 ? '' : 's')) : '')
+              // ⚠️ Que se DIGA: desde ahí se marca el focus y se presenta a radio sin ir a su ficha
+              // (en un DISCO el pop-up no lleva radio: eso es de la canción).
+              + (CAN ? (r.kind === 'SONG' ? ' · doble clic: qué es y a qué emisoras va'
+                                          : ' · doble clic: abrirlo') : '');
             // ⚠️ Un FOCUS SINGLE se enmarca distinto (`is-focus`): es lo prioritario del trimestre
             // y tiene que verse de un vistazo entre lo demás.
             var clases = 'fc-hito'
@@ -738,7 +787,9 @@
           if (!t) return '';
           filaRadio += 1;
           var dura = r.weeks + (r.weeks === 1 ? ' semana' : ' semanas');
-          return '<span class="fc-run" style="grid-column:' + (t[0] + 1) + ' / span ' + (t[1] - t[0] + 1) + ';grid-row:' + filaRadio + '"'
+          var cE = colorEmisora(r.station_id);
+          return '<span class="fc-run" style="grid-column:' + (t[0] + 1) + ' / span ' + (t[1] - t[0] + 1) + ';grid-row:' + filaRadio
+            + (cE ? (';--c:' + esc(cE)) : '') + '"'
             + ' title="' + esc(r.station + ' · ' + r.title + ' · entró el ' + fechaEs(r.start_date)
                                + ' y sonó hasta el ' + fechaEs(r.end_date) + ' (' + dura + ' · ' + r.spins + ' tocadas)') + '">'
             + (r.logo_url ? ('<img src="' + esc(r.logo_url) + '" alt="">') : '<i class="fa fa-radio"></i>')
@@ -858,80 +909,6 @@
       }).join('') + '</div>';
     }
 
-    // ------------------------------------------------------------ B · radio ahora
-    function renderWeekNav() {
-      var z = root.querySelector('[data-fc-weeknav]');
-      z.innerHTML = '<button type="button" class="btn btn-sm btn-outline-secondary" data-fc-week="' + esc(D.week_prev) + '"><i class="fa fa-chevron-left"></i></button>'
-        + '<span class="fc-week">' + esc(D.week_label) + '</span>'
-        + '<button type="button" class="btn btn-sm btn-outline-secondary" data-fc-week="' + esc(D.week_next) + '"><i class="fa fa-chevron-right"></i></button>';
-      z.querySelectorAll('[data-fc-week]').forEach(function (b) {
-        b.addEventListener('click', function () { recarga({ week_start: b.getAttribute('data-fc-week') }); });
-      });
-    }
-    function renderRadio() {
-      var z = root.querySelector('[data-fc-radio]');
-      var arts = visibles();
-      var bloques = arts.map(function (a) {
-        var filas = ((D.radio_now || {})[a.id] || []);
-        if (!filas.length) return '';
-        return '<div class="fc-rblock"><div class="fc-rblock__who">' + avatar(a.photo_url, 'fa-guitar')
-          + '<span>' + esc(a.name) + '</span><span class="fc-rblock__n">' + filas.length + ' tema' + (filas.length === 1 ? '' : 's') + '</span></div>'
-          + filas.map(function (r) {
-              var meta = kindMeta(r.release_kind);
-              return '<div class="fc-song' + (r.dropped ? ' is-dropped' : '') + '">'
-                + '<span class="fc-song__cover">' + (r.cover_url ? '<img src="' + esc(r.cover_url) + '" alt="">' : '<i class="fa fa-music"></i>') + '</span>'
-                + '<div class="fc-song__main"><div class="fc-song__title">'
-                + (r.url ? '<a href="' + esc(r.url) + '">' + esc(r.title) + '</a>' : esc(r.title))
-                + (meta ? ' <span class="fc-badge" style="--c:' + esc(meta.color) + '"><i class="fa ' + esc(meta.icon) + '"></i>' + esc(meta.label) + '</span>' : '')
-                + (r.dropped ? ' <span class="fc-badge fc-badge--off"><i class="fa fa-ban"></i>Descartada</span>' : '')
-                + '</div>'
-                + '<div class="fc-stations">' + (r.stations || []).map(function (s) {
-                    var d = s.delta || 0;
-                    return '<span class="fc-st" title="' + esc(s.name + ' · ' + s.spins + ' tocada' + (s.spins === 1 ? '' : 's')
-                             + (d ? (d > 0 ? (' · +' + d) : (' · ' + d)) : ' · igual que la semana anterior')) + '">'
-                      + (s.logo_url ? '<img src="' + esc(s.logo_url) + '" alt="">' : '<i class="fa fa-radio"></i>')
-                      + '<b>' + s.spins + '</b>'
-                      + (d > 0 ? '<i class="fa fa-arrow-up fc-up"></i>' : (d < 0 ? '<i class="fa fa-arrow-down fc-down"></i>' : ''))
-                      + '</span>';
-                  }).join('') + '</div></div>'
-                + '<div class="fc-song__side"><span class="fc-spins" title="Tocadas de la semana">' + r.spins + '</span>'
-                + (CAN ? '<button type="button" class="btn btn-sm btn-link p-0 fc-drop" data-fc-drop="' + esc(r.song_id) + '" data-undo="' + (r.dropped ? '1' : '') + '">'
-                    + (r.dropped ? 'Recuperar' : 'Descartar') + '</button>' : '')
-                + '</div></div>';
-            }).join('')
-          + '</div>';
-      }).filter(Boolean).join('');
-      z.innerHTML = bloques || '<div class="fc-empty">Ningún tema de estos artistas suena en la semana del ' + esc(D.week_label) + '.</div>';
-      z.querySelectorAll('[data-fc-drop]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          var undo = b.getAttribute('data-undo') === '1';
-          post(U.drop.replace('SID', b.getAttribute('data-fc-drop')) + (undo ? '?undo=1' : ''), {})
-            .then(function (r) { if (r && r.ok) recarga({}); else alert((r && r.error) || 'No se pudo guardar.'); });
-        });
-      });
-    }
-
-    // ------------------------------------------------------------ C · última entrada
-    function renderLast() {
-      var z = root.querySelector('[data-fc-last]');
-      var arts = visibles();
-      var h = arts.map(function (a) {
-        var filas = ((D.last_entries || {})[a.id] || []);
-        if (!filas.length) return '';
-        return '<div class="fc-lblock"><div class="fc-rblock__who">' + avatar(a.photo_url, 'fa-guitar') + '<span>' + esc(a.name) + '</span></div>'
-          + filas.map(function (r) {
-              return '<div class="fc-last__row' + (r.stale ? ' is-stale' : '') + '">'
-                + '<span class="fc-st__logo">' + (r.logo_url ? '<img src="' + esc(r.logo_url) + '" alt="">' : '<i class="fa fa-radio"></i>') + '</span>'
-                + '<span class="fc-last__st">' + esc(r.station) + '</span>'
-                + '<span class="fc-last__song">' + esc(r.title) + '</span>'
-                + '<span class="fc-last__when" title="' + esc('Entró el ' + r.entered_label) + '">' + esc(r.ago) + '</span>'
-                + '</div>';
-            }).join('')
-          + '</div>';
-      }).filter(Boolean).join('');
-      z.innerHTML = h || '<div class="fc-empty">Todavía no consta ninguna entrada en radio de estos artistas.</div>';
-    }
-
     // ------------------------------------------------------------ D · presentaciones
     var PITCH_ST = { PENDING: ['Pendiente', 'fa-hourglass-half', '#f59e0b'],
                      ACCEPTED: ['Entra', 'fa-check', '#198754'],
@@ -1020,16 +997,42 @@
                 + '<i class="fa ' + esc(k.icon) + '"></i>' + esc(k.label) + '</button>';
             }).join('')
           + '<button type="button" class="fc-pick' + (fila.release_kind ? '' : ' is-on') + '" data-k="">Sin decidir</button></div>';
-        cuerpo += '<div class="mt-3"><div class="form-label">A qué emisoras va</div>'
-          + ((fila.radio || []).length
-              ? '<div class="fc-stations">' + fila.radio.map(function (r) {
-                  var st = PITCH_ST[r.status] || PITCH_ST.PENDING;
-                  return '<span class="fc-st" title="' + esc(r.name + ' · ' + st[0] + (r.start_date ? (' · ' + fechaEs(r.start_date)) : '')) + '">'
-                    + (r.logo_url ? '<img src="' + esc(r.logo_url) + '" alt="">' : '<i class="fa fa-radio"></i>')
-                    + '<b>' + esc(r.name) + '</b><i class="fa ' + st[1] + '" style="color:' + st[2] + '"></i></span>';
-                }).join('') + '</div>'
-              : '<div class="text-muted small">Todavía no se ha presentado a ninguna emisora.</div>')
-          + (CAN ? '<div class="mt-2"><a class="small" href="' + esc(fila.url || '#') + '">Presentarla a radio desde su ficha</a></div>' : '')
+        // ⚠️⚠️ A QUÉ EMISORAS VA se configura AQUÍ, sin ir a su ficha: son las mismas
+        // presentaciones a radio (`SongRadioPitch`), así que lo que se marque sale en su proyecto,
+        // en la ficha de la canción y en el plan de lanzamiento.
+        cuerpo += '<div class="mt-3"><div class="form-label">Presentar a radio</div>'
+          + (CAN
+              ? ('<div class="fc-relkind" data-radio-pick>' + (D.radio_media || []).map(function (em) {
+                    var ya = pitchDe(fila, em.id);
+                    var st = ya ? (PITCH_ST[ya.status] || PITCH_ST.PENDING) : null;
+                    var fijo = !!(ya && ya.status && ya.status !== 'PENDING');
+                    return '<button type="button" class="fc-pick fc-pick--st' + (ya ? ' is-on' : '')
+                      + (fijo ? ' is-fixed' : '') + '" data-m="' + esc(em.id) + '"'
+                      + (fijo ? ' data-fijo="1"' : '')
+                      + ' title="' + esc(em.name + (st ? (' · ' + st[0]) : '')) + '">'
+                      + (em.logo_url ? ('<img src="' + esc(em.logo_url) + '" alt="">') : '<i class="fa fa-radio"></i>')
+                      + '<span>' + esc(em.name) + '</span>'
+                      + (st ? ('<i class="fa ' + st[1] + '" style="color:' + st[2] + '"></i>') : '') + '</button>';
+                  }).join('')
+                  + ((D.radio_media || []).length ? '' : '<div class="text-muted small">No hay emisoras dadas de alta en Medios.</div>')
+                  + '</div>'
+                  + '<div class="row g-2 mt-2 align-items-end">'
+                  + '<div class="col-auto"><label class="form-label mb-0 small">¿Cuándo entra? <span class="text-muted">(opcional)</span></label>'
+                  + '<input type="date" class="form-control form-control-sm" data-radio-date style="width:10rem"></div>'
+                  + '<div class="col-auto"><button type="button" class="btn btn-sm btn-primary" data-radio-save>'
+                  + '<i class="fa fa-tower-broadcast me-1"></i>Guardar las emisoras</button></div>'
+                  + '<div class="col"><span class="fc-sub" data-radio-msg></span></div></div>'
+                  + '<div class="form-text">Solo se puede quitar lo que la emisora todavía no ha contestado.</div>')
+              : ((fila.radio || []).length
+                  ? '<div class="fc-stations">' + fila.radio.map(function (r) {
+                      var st = PITCH_ST[r.status] || PITCH_ST.PENDING;
+                      return '<span class="fc-st" title="' + esc(r.name + ' · ' + st[0] + (r.start_date ? (' · ' + fechaEs(r.start_date)) : '')) + '">'
+                        + (r.logo_url ? '<img src="' + esc(r.logo_url) + '" alt="">' : '<i class="fa fa-radio"></i>')
+                        + '<b>' + esc(r.name) + '</b><i class="fa ' + st[1] + '" style="color:' + st[2] + '"></i></span>';
+                    }).join('') + '</div>'
+                  : '<div class="text-muted small">Todavía no se ha presentado a ninguna emisora.</div>'))
+          + (CAN ? ('<div class="mt-2"><button type="button" class="btn btn-sm btn-link p-0 fc-drop" data-radio-drop>'
+                    + (fila.radio_dropped ? 'Recuperarla para radio' : 'Descartarla de radio') + '</button></div>') : '')
           + '</div>';
       }
       var m = modal('fcRelModal', 'Lanzamiento', cuerpo, [{ label: 'Cerrar', click: function () { m.hide(); } }]);
@@ -1043,6 +1046,44 @@
             });
         });
       });
+      // Las emisoras se marcan y se desmarcan aquí mismo; lo que ya contestó la emisora no se toca.
+      m.el.querySelectorAll('[data-m]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (b.getAttribute('data-fijo') === '1') return;
+          b.classList.toggle('is-on');
+        });
+      });
+      var guardar = m.el.querySelector('[data-radio-save]');
+      if (guardar) guardar.addEventListener('click', function () {
+        var msg = m.el.querySelector('[data-radio-msg]');
+        var ids = Array.prototype.slice.call(m.el.querySelectorAll('[data-m].is-on'))
+          .map(function (x) { return x.getAttribute('data-m'); });
+        guardar.disabled = true;
+        msg.textContent = 'Guardando…';
+        post(U.radio.replace('SID', fila.id), {
+          media_ids: ids,
+          start_date: ((m.el.querySelector('[data-radio-date]') || {}).value || ''),
+        }).then(function (r) {
+          guardar.disabled = false;
+          if (r && r.ok) { m.hide(); recarga({}); }
+          else { msg.textContent = (r && r.error) || 'No se pudo guardar.'; }
+        });
+      });
+      var descartar = m.el.querySelector('[data-radio-drop]');
+      if (descartar) descartar.addEventListener('click', function () {
+        post(U.drop.replace('SID', fila.id) + (fila.radio_dropped ? '?undo=1' : ''), {})
+          .then(function (r) {
+            if (r && r.ok) { m.hide(); recarga({}); }
+            else alert((r && r.error) || 'No se pudo guardar.');
+          });
+      });
+    }
+
+    /* ¿Ya se le ha presentado este tema a esa emisora? (la fila de `SongRadioPitch`, si la hay). */
+    function pitchDe(fila, mediaId) {
+      var l = (fila && fila.radio) || [];
+      for (var i = 0; i < l.length; i++) if (String(l[i].media_id) === String(mediaId)) return l[i];
+      return null;
     }
 
     /* Un PERIODO DE PROMOCIÓN: de quién, cuándo, de qué y qué es. */
@@ -1053,7 +1094,7 @@
       });
       pre = pre || {};
       var artista = (fila && fila.artist_id) || pre.artist_id || D.artist_id || ((D.artists || [])[0] || {}).id || '';
-      var desde = (fila && fila.start_date) || pre.start || D.week_start || '';
+      var desde = (fila && fila.start_date) || pre.start || semanaDeHoy() || '';
       var hasta = (fila && fila.end_date) || pre.end || pre.start || desde;
       var cuerpo = '<div class="row g-2">'
         + '<div class="col-12"><label class="form-label">Artista</label><select class="form-select" data-w="artist_id">'
@@ -1113,8 +1154,8 @@
 
     function render() {
       renderTools(); renderArtists(); renderStations(); renderPalette(); renderLegend();
-      renderCal(); renderDetalle(); renderWeekNav(); renderRadio(); renderLast();
-      renderPitchModes(); renderPitches();
+      renderCal(); renderDetalle(); renderPitchModes(); renderPitches();
+      pideColoresEmisora();
     }
     render();
   }

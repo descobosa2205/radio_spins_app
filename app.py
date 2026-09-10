@@ -17383,7 +17383,6 @@ def discografica_view():
     forecast = (_forecast_context(
         session_db,
         artist_id=(request.args.get("fa") or ""),
-        week=(request.args.get("fw") or ""),
         desde=(request.args.get("fd") or ""),
         semanas=_roadmap_int(request.args.get("fs"), FORECAST_WEEKS),
         todos=_truthy(request.args.get("ftodos")),
@@ -26474,8 +26473,6 @@ DISCO_PROMO_WINDOW_META = {k: {"label": l, "icon": i, "color": c} for k, l, i, c
 
 # Cuántas semanas se ven de una vez en el calendario (y cuántas caben en pantalla sin apretar).
 FORECAST_WEEKS = 16
-# A partir de cuánto tiempo sin entrar en una emisora se marca en ámbar (es la oportunidad).
-FORECAST_STALE_DAYS = 180
 
 
 def _song_release_kind(song) -> str:
@@ -26501,17 +26498,6 @@ def _forecast_cover(row) -> str:
     if url:
         return url
     return _safe_url_for("static", filename="img/cover_placeholder.png") or ""
-
-
-def _forecast_week_start(value=None) -> date:
-    """El lunes de la semana que se está mirando. ⚠️ Por defecto la ANTERIOR a la actual, que es de
-    la que hay tocadas subidas (el mismo criterio que la pantalla de Tocadas)."""
-    if value:
-        try:
-            return monday_of(parse_date(str(value)[:10]))
-        except Exception:
-            pass
-    return monday_of(today_local()) - timedelta(days=7)
 
 
 def _forecast_artists(session_db, *, todos: bool = False) -> list[dict]:
@@ -26603,117 +26589,6 @@ def _forecast_releases(session_db, artist_ids: list, desde: date, hasta: date) -
     return out
 
 
-def _forecast_radio_now(session_db, artist_ids: list, week_start: date) -> dict:
-    """QUÉ SUENA EN RADIO la semana que se está mirando: por artista, sus canciones con las emisoras
-    en las que suenan y cuántas veces. Devuelve {artist_id: [filas]}.
-
-    ⚠️ La semana por defecto es **la anterior a la actual**: las tocadas se suben con una semana de
-    retraso, así que la actual estaría a cero y parecería que no suena nada.
-    """
-    ids = [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))]
-    out = {str(x): [] for x in ids}
-    if not ids:
-        return out
-    # song_id -> artistas (para repartir las tocadas)
-    por_cancion = {}
-    for sid, aid in (session_db.query(SongArtist.song_id, SongArtist.artist_id)
-                     .filter(SongArtist.artist_id.in_(ids)).all()):
-        por_cancion.setdefault(sid, []).append(str(aid))
-    if not por_cancion:
-        return out
-    filas = (session_db.query(Play, Song, RadioStation)
-             .join(Song, Song.id == Play.song_id)
-             .outerjoin(RadioStation, RadioStation.id == Play.station_id)
-             .filter(Play.week_start == week_start)
-             .filter(Play.song_id.in_(list(por_cancion.keys())))
-             .filter(Play.spins > 0)
-             .all())
-    # semana anterior, para decir si sube o baja
-    previa = {}
-    for p in (session_db.query(Play)
-              .filter(Play.week_start == (week_start - timedelta(days=7)))
-              .filter(Play.song_id.in_(list(por_cancion.keys()))).all()):
-        previa[(p.song_id, p.station_id)] = p.spins or 0
-    acc = {}
-    for play, song, station in filas:
-        for aid in por_cancion.get(play.song_id, []):
-            clave = (aid, str(song.id))
-            fila = acc.get(clave)
-            if fila is None:
-                fila = acc[clave] = {
-                    "song_id": str(song.id), "title": (song.title or ""),
-                    "cover_url": _forecast_cover(song),
-                    "release_kind": _song_release_kind(song),
-                    "date": song.release_date.isoformat() if song.release_date else "",
-                    "dropped": bool(getattr(song, "radio_dropped_at", None)),
-                    "spins": 0, "stations": [],
-                    "url": _safe_url_for("discografica_song_detail", song_id=str(song.id)),
-                }
-            antes = previa.get((play.song_id, play.station_id), 0)
-            fila["spins"] += (play.spins or 0)
-            fila["stations"].append({
-                "id": str(play.station_id), "name": (getattr(station, "name", "") or ""),
-                "logo_url": (getattr(station, "logo_url", "") or ""),
-                "spins": (play.spins or 0), "position": play.position,
-                "delta": (play.spins or 0) - antes,
-            })
-    for (aid, _sid), fila in acc.items():
-        fila["stations"].sort(key=lambda x: (-(x["spins"] or 0), x["name"]))
-        out.setdefault(aid, []).append(fila)
-    for aid in out:
-        out[aid].sort(key=lambda r: (-(r["spins"] or 0), r["title"]))
-    return out
-
-
-def _forecast_last_entries(session_db, artist_ids: list, *, hasta: date) -> dict:
-    """HACE CUÁNTO ENTRÓ la última canción de cada artista en cada emisora.
-
-    «La última de Antoñito Molina en Dial fue el …»: se busca, por artista y emisora, la **primera
-    semana en la que sonó** cada canción (que es cuando ENTRÓ) y se coge la más reciente.
-    ⚠️ En UNA consulta agrupada: recorrer las tocadas artista a artista sería inaceptable.
-    """
-    ids = [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))]
-    out = {str(x): [] for x in ids}
-    if not ids:
-        return out
-    sub = (session_db.query(SongArtist.artist_id.label("aid"),
-                            Play.station_id.label("sid"),
-                            Play.song_id.label("song"),
-                            func.min(Play.week_start).label("entro"))
-           .join(Play, Play.song_id == SongArtist.song_id)
-           .filter(SongArtist.artist_id.in_(ids))
-           .filter(Play.spins > 0, Play.week_start <= hasta)
-           .group_by(SongArtist.artist_id, Play.station_id, Play.song_id)
-           .subquery())
-    filas = (session_db.query(sub.c.aid, sub.c.sid, sub.c.song, sub.c.entro,
-                              Song.title, RadioStation.name, RadioStation.logo_url)
-             .outerjoin(Song, Song.id == sub.c.song)
-             .outerjoin(RadioStation, RadioStation.id == sub.c.sid)
-             .all())
-    mejor = {}
-    for aid, sid, _song, entro, titulo, emisora, logo in filas:
-        clave = (str(aid), str(sid))
-        actual = mejor.get(clave)
-        if actual is None or (entro and entro > actual["entered"]):
-            mejor[clave] = {"station_id": str(sid), "station": (emisora or ""), "logo_url": (logo or ""),
-                            "title": (titulo or ""), "entered": entro}
-    hoy = today_local()
-    for (aid, _sid), fila in mejor.items():
-        dias = (hoy - fila["entered"]).days if fila["entered"] else None
-        out.setdefault(aid, []).append({
-            "station_id": fila["station_id"], "station": fila["station"], "logo_url": fila["logo_url"],
-            "title": fila["title"],
-            "entered": fila["entered"].isoformat() if fila["entered"] else "",
-            "entered_label": (fila["entered"].strftime("%d/%m/%Y") if fila["entered"] else ""),
-            "days": dias,
-            "ago": _forecast_ago_label(dias),
-            "stale": bool(dias is not None and dias >= FORECAST_STALE_DAYS),
-        })
-    for aid in out:
-        out[aid].sort(key=lambda r: (-(r["days"] or 0)))
-    return out
-
-
 # ⚠️ LAS EMISORAS PRINCIPALES: son las que se ofrecen de entrada en el filtro (el resto, tras «Más
 # emisoras»). Se comparan por su NOMBRE normalizado, que es lo que hay en `radio_stations`.
 FORECAST_MAIN_STATIONS = ("Los 40", "Los 40 Urban", "Dial", "Canal Fiesta", "Cadena 100", "Europa FM")
@@ -26757,17 +26632,19 @@ def _forecast_radio_runs(session_db, artist_ids: list, desde: date, hasta: date)
            .group_by(SongArtist.artist_id, Play.station_id, Play.song_id)
            .subquery())
     filas = (session_db.query(sub.c.aid, sub.c.sid, sub.c.song, sub.c.entro, sub.c.ultima, sub.c.total,
-                              Song.title, RadioStation.name, RadioStation.logo_url)
+                              Song.title, RadioStation.name, RadioStation.logo_url,
+                              RadioStation.logo_color)
              .outerjoin(Song, Song.id == sub.c.song)
              .outerjoin(RadioStation, RadioStation.id == sub.c.sid)
              .all())
     # De cada (artista, emisora) nos quedamos con la canción que ENTRÓ la última.
     mejor = {}
-    for aid, sid, _song, entro, ultima, total, titulo, emisora, logo in filas:
+    for aid, sid, _song, entro, ultima, total, titulo, emisora, logo, color in filas:
         clave = (str(aid), str(sid))
         actual = mejor.get(clave)
         if actual is None or (entro and entro > actual["entered"]):
             mejor[clave] = {"station_id": str(sid), "station": (emisora or ""), "logo_url": (logo or ""),
+                            "color": (color or ""),
                             "title": (titulo or ""), "entered": entro, "last": ultima,
                             "spins": int(total or 0)}
     for (aid, _sid), fila in mejor.items():
@@ -26777,6 +26654,9 @@ def _forecast_radio_runs(session_db, artist_ids: list, desde: date, hasta: date)
         semanas = ((fin - fila["entered"]).days // 7 + 1) if (fin and fila["entered"]) else 1
         out.setdefault(aid, []).append({
             "station_id": fila["station_id"], "station": fila["station"], "logo_url": fila["logo_url"],
+            # EL COLOR DE SU LOGO (para pintar la barra con él). Si todavía no se ha calculado va
+            # vacío: la pantalla lo pide aparte y se guarda para las siguientes veces.
+            "color": fila["color"],
             "title": fila["title"], "spins": fila["spins"],
             "start_date": fila["entered"].isoformat(),
             "end_date": (fin.isoformat() if fin else fila["entered"].isoformat()),
@@ -26932,13 +26812,28 @@ def _forecast_promotions(session_db, artist_ids: list, desde: date, hasta: date)
     return out
 
 
-def _forecast_agenda(session_db, artist_ids: list, desde: date, hasta: date) -> dict:
-    """Lo que ya hay en la AGENDA de esos artistas (conciertos, promociones, bloqueos…), como
-    REFERENCIA para planificar: no se toca nada, solo se mira.
+# ⚠️⚠️ EN PREVISIONES UN CONCIERTO Y UN FESTIVAL SON LO MISMO: una ACTUACIÓN. Se pintan con el
+# MISMO icono —un MICRÓFONO— para leerlos de un vistazo entre lo demás. Es solo CÓMO SE VEN AQUÍ:
+# en la agenda de la casa cada tipo conserva el suyo (`AGENDA_KIND_META`).
+FORECAST_AGENDA_ICONS = {
+    "concierto": "fa-microphone-lines",
+    "festival": "fa-microphone-lines",
+}
 
-    ⚠️ Es la agenda de siempre (`_agenda_build`): si mañana se añade un tipo, sale aquí solo.
+
+def _forecast_agenda(session_db, artist_ids: list, desde: date, hasta: date) -> dict:
+    """Lo que se ha PUESTO en el calendario de la agenda de esos artistas (sus actividades).
+
+    ⚠️⚠️ **Solo sale lo que se ha ARRASTRADO Y AÑADIDO** (`_forecast_agenda_keys`), no todo lo que
+    el artista tenga esos días: este cuadro es un PLANTEAMIENTO y se decide qué entra en él. Lo que
+    se quita del calendario deja de estar añadido (no se borra nada: la actividad sigue en su ficha).
+    ⚠️ Los datos siguen saliendo de la agenda de siempre (`_agenda_build`), que es el punto único:
+    si mañana se añade un tipo, se puede añadir aquí sin tocar nada.
     """
     out = {str(x): [] for x in artist_ids}
+    añadidos = set(_forecast_agenda_keys())
+    if not añadidos:
+        return out                    # nadie ha puesto nada: ni se pregunta por la agenda
     try:
         payload = _agenda_build(session_db,
                                 [to_uuid(str(x)) for x in artist_ids if to_uuid(str(x))],
@@ -26955,13 +26850,18 @@ def _forecast_agenda(session_db, artist_ids: list, desde: date, hasta: date) -> 
         # Aquí lo que interesa es lo DEMÁS que el artista tiene esos días.
         if (it.get("kind") or "") == "lanzamiento":
             continue
+        clave = _forecast_key("AG", it.get("url") or "",
+                              "" if it.get("url") else (it.get("kind") or ""),
+                              "" if it.get("url") else (it.get("date") or ""),
+                              "" if it.get("url") else (it.get("title") or ""))
+        if clave not in añadidos:
+            continue                  # no se ha puesto en el calendario: aquí no pinta nada
         out[aid].append({
-            "key": _forecast_key("AG", it.get("url") or "",
-                                 "" if it.get("url") else (it.get("kind") or ""),
-                                 "" if it.get("url") else (it.get("date") or ""),
-                                 "" if it.get("url") else (it.get("title") or "")),
+            "key": clave,
             "kind": it.get("kind") or "", "label": it.get("kind_label") or "",
-            "icon": it.get("icon") or "fa-circle", "color": it.get("kind_color") or "#6b7280",
+            "icon": (FORECAST_AGENDA_ICONS.get(it.get("kind") or "")
+                     or it.get("icon") or "fa-circle"),
+            "color": it.get("kind_color") or "#6b7280",
             "title": it.get("title") or "", "subtitle": it.get("subtitle") or "",
             "date": it.get("date") or "", "end_date": it.get("end_date") or it.get("date") or "",
             "url": it.get("url") or "",
@@ -27146,6 +27046,8 @@ def _forecast_weeks(desde: date, semanas: int) -> list[dict]:
 
 
 FORECAST_HIDDEN_SETTING = "forecast_hidden_v1"
+# Las ACTIVIDADES que se han puesto en el calendario (la agenda solo enseña lo que se añade).
+FORECAST_AGENDA_SETTING = "forecast_agenda_v1"
 
 
 def _forecast_key(tipo: str, *partes) -> str:
@@ -27208,6 +27110,31 @@ def _forecast_hidden_save(claves) -> None:
     _set_app_setting(FORECAST_HIDDEN_SETTING, json.dumps([str(x) for x in claves][:2000]))
 
 
+def _forecast_agenda_keys() -> list[str]:
+    """Las ACTIVIDADES que se han puesto en el calendario de previsiones (`AG:<url>`).
+
+    ⚠️⚠️ La agenda de este cuadro **no es la del artista**: aquí solo sale lo que alguien ha
+    arrastrado y añadido. Es del CUADRO (se decide entre todos), como lo quitado, así que va en el
+    mismo sitio y con las mismas cautelas: `AppSetting.value` es TEXTO y la lista se guarda en JSON
+    (recorrer el texto con un `for` devolvería LETRAS SUELTAS).
+    """
+    try:
+        crudo = _get_app_setting(FORECAST_AGENDA_SETTING) or ""
+        if isinstance(crudo, (list, tuple)):
+            filas = list(crudo)
+        else:
+            filas = json.loads(crudo) if str(crudo).strip().startswith("[") else []
+        return [str(x) for x in filas if str(x or "").strip()]
+    except Exception:
+        app.logger.exception("[previsiones] no se pudo leer la agenda del calendario")
+        return []
+
+
+def _forecast_agenda_save(claves) -> None:
+    """Guarda las actividades puestas en el calendario (JSON, el ajuste es de TEXTO)."""
+    _set_app_setting(FORECAST_AGENDA_SETTING, json.dumps([str(x) for x in claves][:2000]))
+
+
 def _forecast_apply_hidden(datos: dict, ocultos: set, *, ver_ocultos: bool) -> int:
     """Quita del cuadro lo que se haya QUITADO del calendario. Devuelve cuántos ha quitado.
 
@@ -27233,7 +27160,7 @@ def _forecast_apply_hidden(datos: dict, ocultos: set, *, ver_ocultos: bool) -> i
     return quitados
 
 
-def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
+def _forecast_context(session_db, *, artist_id: str = "",
                       desde: str = "", semanas: int = FORECAST_WEEKS,
                       todos: bool = False, show_agenda: bool = True,
                       ver_ocultos: bool = False, only_ids: list | None = None,
@@ -27269,7 +27196,6 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
                                         "photo_url": (a.photo_url or ""),
                                         "color": _agenda_color_for(len(artistas)), "deal": False}]
         artistas = [a for a in artistas if a["id"] in set(quiere)]
-    week_start = _forecast_week_start(week)
     try:
         primera = monday_of(parse_date(desde)) if desde else None
     except Exception:
@@ -27285,18 +27211,12 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
     datos = {
         "artists": artistas,
         "artist_id": elegido,
-        "week_start": week_start.isoformat(),
-        "week_label": week_label_range(week_start),
-        "week_prev": (week_start - timedelta(days=7)).isoformat(),
-        "week_next": (week_start + timedelta(days=7)).isoformat(),
         "from": primera.isoformat(),
         "to": ultima.isoformat(),
         "prev_from": (primera - timedelta(days=7 * 4)).isoformat(),
         "next_from": (primera + timedelta(days=7 * 4)).isoformat(),
         "weeks": _forecast_weeks(primera, semanas),
         "releases": _forecast_releases(session_db, ids_vista, primera, ultima),
-        "radio_now": ({} if solo_calendario else _forecast_radio_now(session_db, ids_vista, week_start)),
-        "last_entries": ({} if solo_calendario else _forecast_last_entries(session_db, ids_vista, hasta=ultima)),
         # LA RAYA DE RADIO: por emisora, la última canción que entró y cuánto aguantó.
         "radio_runs": ({} if solo_calendario else _forecast_radio_runs(session_db, ids_vista, primera, ultima)),
         # Los periodos de promoción Y las PROMOCIONES de verdad, en la misma banda del calendario.
@@ -27304,13 +27224,15 @@ def _forecast_context(session_db, *, artist_id: str = "", week: str = "",
         "agenda": (_forecast_agenda(session_db, ids_vista, primera, ultima) if show_agenda else
                    {str(x): [] for x in ids_vista}),
         "pitches": ([] if solo_calendario else _forecast_pitch_calendar(session_db, ids_vista, primera, ultima)),
+        # LAS EMISORAS a las que se puede presentar un tema: se hace **desde el propio cuadro**
+        # (pinchando el lanzamiento), sin tener que ir a su ficha.
+        "radio_media": ([] if solo_calendario else _disco_radio_media_options(session_db)),
         "release_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in DISCO_RELEASE_KINDS],
         # Lo que se puede ARRASTRAR al calendario (sustituye al botón «+ Periodo de promoción»).
         "add_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in FORECAST_ADD_KINDS],
         "window_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in DISCO_PROMO_WINDOW_KINDS],
         "show_agenda": bool(show_agenda),
         "todos": bool(todos),
-        "stale_days": FORECAST_STALE_DAYS,
         # ⚠️ EL FILTRO DE ARTISTAS VA AL REVÉS: **todos encendidos** y se van apagando los que se
         # pinchen. Se guarda lo APAGADO (no lo encendido), así un artista NUEVO se ve solo sin que
         # nadie tenga que acordarse de encenderlo — la misma regla que el calendario de Inicio.
@@ -28172,6 +28094,56 @@ def forecast_prefs_save():
         session_db.close()
 
 
+# Cuánto se está como mucho bajando logos para sacarles el color (lo que no dé tiempo, la próxima).
+FORECAST_COLOR_BUDGET = 8.0
+
+
+@app.get("/discografica/previsiones/colores", endpoint="forecast_station_colors")
+@admin_required
+def forecast_station_colors():
+    """EL COLOR PRINCIPAL DEL LOGO de esas emisoras, para pintar su barra con su propio color.
+
+    ⚠️⚠️ Se calcula la PRIMERA vez (hay que bajarse el logo) y **se guarda en la ficha de la
+    emisora**: no se vuelve a bajar. Por eso la pantalla lo pide APARTE y no viene en el cuadro: uno
+    que tuviera que bajarse diez logos tardaría diez descargas en pintarse.
+    ⚠️ Con TOPE DE TIEMPO: lo que no dé tiempo se queda para la próxima vez (una descarga colgada no
+    puede dejar la pantalla esperando). Y si un logo no da color, se apunta igual de qué URL era,
+    para no volver a intentarlo en cada carga.
+    """
+    ids = [to_uuid(x.strip()) for x in (request.args.get("ids") or "").split(",") if to_uuid(x.strip())]
+    if not ids:
+        return jsonify({"ok": True, "colors": {}})
+    session_db = db()
+    try:
+        filas = session_db.query(RadioStation).filter(RadioStation.id.in_(ids[:60])).all()
+        out, tocado, t0 = {}, False, time.monotonic()
+        for st in filas:
+            url = (st.logo_url or "").strip()
+            if not url:
+                continue
+            if (st.logo_color_src or "") == url:
+                if st.logo_color:
+                    out[str(st.id)] = st.logo_color
+                continue
+            if time.monotonic() - t0 > FORECAST_COLOR_BUDGET:
+                break
+            color = _logo_main_color(url)
+            st.logo_color = color or None
+            st.logo_color_src = url
+            tocado = True
+            if color:
+                out[str(st.id)] = color
+        if tocado:
+            session_db.commit()
+        return jsonify({"ok": True, "colors": out})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_station_colors")
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 # ⚠️ LO QUE SE PUEDE ARRASTRAR AL CALENDARIO (la paleta que sustituye al botón «+ Periodo de
 # promoción»). Cada uno con su icono y de dónde salen sus opciones.
 FORECAST_ADD_KINDS = (
@@ -28222,6 +28194,7 @@ def _forecast_add_options(session_db, tipo: str, artist_id: str, subtipo: str = 
                          "icon": "fa-bullhorn"} for x in filas]
     elif tipo == "AGENDA":
         out["tipos"] = [{"key": k, "label": l, "icon": i} for k, l, i in QUAD_ACTIVITY_CHOICES]
+        puestas = set(_forecast_agenda_keys())          # las que YA están en el calendario
         if subtipo:
             filas = (session_db.query(Concert)
                      .filter(Concert.artist_id == aid,
@@ -28235,6 +28208,9 @@ def _forecast_add_options(session_db, tipo: str, artist_id: str, subtipo: str = 
                                        or _activity_kind_label(c.activity_type)),
                              "sub": (c.date.strftime("%d/%m/%Y") if c.date else "sin fecha"),
                              "icon": QUAD_ACTIVITY_ICONS.get((c.activity_type or "CONCIERTO").upper(), "fa-calendar-day"),
+                             # Ya puesta en el calendario: se dice, para no ofrecerla otra vez.
+                             "already": (_forecast_key("AG", _safe_url_for("concert_detail_view", cid=c.id) or "")
+                                         in puestas),
                              "fixed": True} for c in filas]
     return out
 
@@ -28537,11 +28513,44 @@ def forecast_hide():
     if not clave or len(clave) > 80:
         return jsonify({"ok": False, "error": "Falta qué quitar."}), 400
     quitar = not _truthy(datos.get("undo"))
+    # ⚠️ Una ACTIVIDAD solo está en el calendario porque alguien la añadió: quitarla es DESAÑADIRLA
+    # (no se apunta como «oculta», que si no saldría en «Quitados» sin estar puesta).
+    if clave.startswith("AG:"):
+        puestas = [x for x in _forecast_agenda_keys() if x != clave]
+        if not quitar:
+            puestas.append(clave)
+        _forecast_agenda_save(puestas)
+        return jsonify({"ok": True, "agenda": puestas})
     actuales = [x for x in _forecast_hidden_keys() if x != clave]
     if quitar:
         actuales.append(clave)
     _forecast_hidden_save(actuales)
     return jsonify({"ok": True, "hidden": actuales})
+
+
+@app.post("/discografica/previsiones/agenda", endpoint="forecast_agenda_add")
+@admin_required
+def forecast_agenda_add():
+    """PONE una actividad en el calendario de previsiones (lo que se arrastra desde «Agenda»).
+
+    ⚠️⚠️ La agenda de este cuadro enseña **solo lo que se añade**: la actividad no se toca (sigue
+    en su día y en su ficha), lo único que se guarda aquí es que se ha puesto en el planteamiento.
+    """
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "No tienes permisos para tocar el calendario."}), 403
+    datos = request.get_json(silent=True) or {}
+    clave = str(datos.get("key") or "").strip()
+    if not clave.startswith("AG:") or len(clave) > 80:
+        return jsonify({"ok": False, "error": "Falta qué actividad poner."}), 400
+    puestas = [x for x in _forecast_agenda_keys() if x != clave]
+    puestas.append(clave)
+    _forecast_agenda_save(puestas)
+    # ⚠️ Si esa actividad se había QUITADO cuando la agenda salía entera, su clave sigue en lo
+    # oculto y volvería a esconderla nada más ponerla: al añadirla, manda lo añadido.
+    ocultos = _forecast_hidden_keys()
+    if clave in ocultos:
+        _forecast_hidden_save([x for x in ocultos if x != clave])
+    return jsonify({"ok": True, "agenda": puestas})
 
 
 @app.get("/discografica/previsiones/datos", endpoint="forecast_data")
@@ -28554,8 +28563,7 @@ def forecast_data():
         return jsonify({"ok": True, "forecast": _forecast_context(
             session_db,
             artist_id=(request.args.get("fa") or ""),
-            week=(request.args.get("fw") or ""),
-            desde=(request.args.get("fd") or ""),
+                desde=(request.args.get("fd") or ""),
             semanas=_roadmap_int(request.args.get("fs"), FORECAST_WEEKS),
             todos=_truthy(request.args.get("ftodos")),
             show_agenda=(request.args.get("fagenda") != "0"),
@@ -88311,7 +88319,9 @@ def _build_nav_menu() -> list[dict]:
         ]},
         {"type": "link", "key": "artists", "label": "Artistas", "url": _resource_default_url("artists")},
         {"type": "link", "key": "discografica", "label": "Discográfica", "url": _resource_default_url("discografica")},
-        {"type": "link", "key": "playlisting", "label": "Playlisting", "url": _resource_default_url("playlisting")},
+        # ⚠️ PLAYLISTING salió del menú (sep 2026, lo pidió Dani: «no tiene sentido»). Su recurso y
+        # su pantalla se conservan a propósito: retirar el recurso del catálogo PODARÍA en cascada
+        # los permisos ya concedidos, y aquí solo se ha quitado el acceso desde el menú.
         {"type": "link", "key": "syncros", "label": "Syncros", "url": _resource_default_url("syncros")},
         {"type": "link", "key": "registros", "label": "Registros", "url": _resource_default_url("registros")},
         {"type": "link", "key": "fotos", "label": "Fotos / Vídeos", "url": _resource_default_url("fotos")},
@@ -155467,6 +155477,63 @@ def _logo_clean_bytes(url: str) -> bytes:
         datos = b""
     _LOGO_CLEAN_CACHE[clave] = datos
     return datos
+
+
+# El color de un logo se calcula UNA vez por proceso (y, en las emisoras, se guarda en su ficha).
+_LOGO_COLOR_CACHE: dict[str, str] = {}
+
+
+def _logo_main_color(url: str) -> str:
+    """EL COLOR PRINCIPAL de un logo (#rrggbb), o '' si no se puede sacar.
+
+    Sirve para pintar algo «con el color de esa marca» (hoy, la barra de una emisora en el cuadro de
+    Previsiones). ⚠️ Un logo es casi todo FONDO: lo blanco (y lo transparente, que se compone sobre
+    blanco) se descarta, y entre lo que queda gana **el color con más presencia que de verdad sea un
+    color** (saturado) — si no, en un logo con un rótulo rojo sobre blanco saldría el blanco, y en uno
+    con una sombra gris saldría el gris. Si el logo es solo blanco y negro, se devuelve el negro: es
+    la verdad de ese logo.
+    ⚠️ La URL sale SIEMPRE de nuestra base de datos (nunca de la petición): esto no es un proxy.
+    """
+    clave = (url or "").strip()
+    if not clave:
+        return ""
+    if clave in _LOGO_COLOR_CACHE:
+        return _LOGO_COLOR_CACHE[clave]
+    color = ""
+    try:
+        from PIL import Image
+        datos, _ct = _download_remote_content(clave, timeout=8)
+        img = Image.open(BytesIO(datos or b""))
+        if img.mode in ("RGBA", "LA", "P"):
+            base = Image.new("RGB", img.size, (255, 255, 255))
+            rgba = img.convert("RGBA")
+            base.paste(rgba, mask=rgba.split()[-1])
+            img = base
+        img = img.convert("RGB")
+        # ⚠️ NEAREST: al reducir con suavizado, un rótulo fino se FUNDE con el fondo y justo el color
+        # de la marca desaparece (la misma trampa que la paleta de las notas de prensa).
+        img.thumbnail((160, 160), getattr(Image, "NEAREST", 0))
+        q = img.quantize(colors=12, method=getattr(Image, "MEDIANCUT", 0))
+        paleta = q.getpalette()[:12 * 3]
+        mejor_color, mejor_n, respaldo, respaldo_n = None, 0, None, 0
+        for n, idx in (q.getcolors() or []):
+            r, g, b = paleta[idx * 3: idx * 3 + 3]
+            mx, mn = max(r, g, b), min(r, g, b)
+            if mx > 240 and mn > 220:
+                continue                          # el fondo blanco del logo
+            sat = ((mx - mn) / mx) if mx else 0.0
+            if sat >= 0.35 and mx >= 60 and n > mejor_n:
+                mejor_color, mejor_n = (r, g, b), n
+            if n > respaldo_n:
+                respaldo, respaldo_n = (r, g, b), n
+        elegido = mejor_color or respaldo
+        if elegido:
+            color = "#%02x%02x%02x" % elegido
+    except Exception:
+        app.logger.exception("[logos] no se pudo sacar el color de %s", clave[:120])
+        color = ""
+    _LOGO_COLOR_CACHE[clave] = color
+    return color
 
 
 def _logo_clean_url(url: str) -> str:

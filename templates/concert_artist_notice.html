@@ -46,6 +46,13 @@
             </label>
           {% endfor %}
         </div>
+        {# Qué va a pasar de verdad con el canal elegido: el correo y —si la pasarela de la casa
+           está configurada— el SMS los manda la app; si no, se abre la app de mensajes de quien
+           avisa. Elegir un canal tiene que significar lo que se ve. #}
+        <div class="small text-muted mt-2" data-an-hint
+             data-hint-email="Lo manda la app, con el aviso entero dentro del correo."
+             data-hint-sms="{{ 'Lo manda la app por SMS (la pasarela de Integraciones → SMS).' if sms_gateway else 'Se abrirá TU app de mensajes con el texto y el enlace: el SMS lo mandas tú.' }}"
+             data-hint-whatsapp="Se abrirá WhatsApp con el texto y el enlace: el mensaje lo mandas tú."></div>
 
         <div class="mt-3" data-an-recipients>
           <div class="fw-semibold small mb-1">A quién</div>
@@ -193,6 +200,12 @@
     var r = root.querySelector('input[name="channel"]:checked');
     return r ? r.value : 'EMAIL';
   }
+  var hint = root.querySelector('[data-an-hint]');
+  function pintaHint() {
+    if (!hint) return;
+    hint.textContent = hint.getAttribute('data-hint-' + channel().toLowerCase()) || '';
+  }
+  pintaHint();
 
   function repaint() {
     fetch(root.getAttribute('data-url-preview'), {
@@ -229,6 +242,7 @@
       root.querySelectorAll('[data-an-manual="PHONE"], [data-an-phones]').forEach(function (el) {
         el.classList.toggle('d-none', esCorreo);
       });
+      pintaHint();
     }
   });
   if (note) note.addEventListener('input', repaintSoon);
@@ -284,12 +298,17 @@
         alert((d && d.error) || 'No se pudo enviar el aviso.');
         return;
       }
-      // WhatsApp y SMS no se mandan del servidor (no hay pasarela): se abre la app con el ENLACE,
-      // que enseña exactamente el mismo contenido que el correo.
-      // ⚠️ El teléfono sale de `d.recipients` (lo que el servidor ha usado de verdad: los contactos
-      // configurados o los escritos a mano), no del cuadro de texto.
+      // ⚠️⚠️ SI LO HA MANDADO LA APP (el correo siempre; el SMS cuando hay pasarela) no se abre
+      // nada: `d.sent` lo dice el servidor, que es el único que sabe si salió de verdad.
       var ficha = {{ url_for('concert_detail_view', cid=concert.id, tab='general')|tojson }};
-      var texto = (d.share_text || '') + '\n\n' + (d.url || '');
+      if (d.warning) alert(d.warning);
+      if (d.sent) { window.location.href = ficha; return; }
+      // Sin pasarela, WhatsApp y SMS se mandan desde la app del móvil con el ENLACE, que enseña
+      // exactamente el mismo contenido que el correo.
+      // ⚠️ El TEXTO lo compone el SERVIDOR (`sms_text`): así lo que se manda por un camino y por el
+      // otro es lo mismo. El teléfono sale de `d.recipients` (lo que el servidor ha usado de
+      // verdad: los contactos configurados o los escritos a mano), no del cuadro de texto.
+      var texto = d.sms_text || ((d.share_text || '') + '\n\n' + (d.url || ''));
       var tel = ((d.recipients && d.recipients[0]) || '').replace(/[^0-9+]/g, '');
       if (d.channel === 'WHATSAPP') {
         // Pestaña nueva: la de aquí sigue viva y puede redirigir a la ficha.

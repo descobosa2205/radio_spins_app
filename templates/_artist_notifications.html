@@ -2,8 +2,9 @@
    Antes esto era el módulo de «Emails». Lo que se configura aquí manda en TODA la app de este
    momento en adelante: quien esté marcado en un canal es quien recibe los correos de ese concepto, y
    un mismo canal lo pueden recibir varias personas.
-   Requiere: `artist`, `notif_contacts`, `notif_channels`, `notif_liquidation_concepts`, `people`
-   (los integrantes, para sugerirlos) y `CAN_EDIT_ARTISTS_STATIONS`. #}
+   Requiere: `artist`, `notif_contacts`, `notif_channels`, `notif_liquidation_concepts`,
+   `notif_suggestions` (los INTEGRANTES con su correo y su teléfono) y `CAN_EDIT_ARTISTS_STATIONS`.
+   ⚠️ Sin nadie configurado NO se manda nada: no hay respaldo al correo suelto del artista. #}
 <div class="ficha-section">
   <div class="ficha-section__head">
     <h6 class="ficha-section__title"><i class="fa fa-bell"></i>Notificaciones:</h6>
@@ -14,8 +15,8 @@
   </div>
   <div class="ficha-section__body">
     <div class="text-muted small mb-3">
-      Quién recibe las comunicaciones de {{ artist.name }}. Lo que se configure aquí es lo que usa la
-      app para mandar cada cosa.
+      Quién recibe las comunicaciones de {{ artist.name }}. <strong>Solo se manda a lo que esté
+      configurado aquí</strong>: quien no esté en un canal, no recibe esa comunicación.
     </div>
 
     {% if notif_contacts %}
@@ -60,8 +61,11 @@
         {% endfor %}
       </div>
     {% else %}
-      <div class="alert alert-light border mb-0 small">
-        Todavía no hay nadie configurado: por ahora las comunicaciones van al correo del artista.
+      {# ⚠️ Sin nadie configurado NO SE MANDA NADA: las comunicaciones van solo a lo que se
+         configure aquí, así que esto es un aviso, no una nota. #}
+      <div class="alert alert-warning border mb-0 small">
+        <i class="fa fa-triangle-exclamation me-1"></i>
+        Todavía no hay nadie configurado, así que <strong>no se le manda ninguna comunicación</strong>.
         {% if CAN_EDIT_ARTISTS_STATIONS %}Añade a alguien con el <i class="fa fa-plus"></i>.{% endif %}
       </div>
     {% endif %}
@@ -76,6 +80,8 @@
       <input type="hidden" name="next" value="{{ request.url }}">
       <input type="hidden" name="contact_id" data-notif-id value="">
       <input type="hidden" name="promoter_id" data-notif-promoter value="">
+      {# Un integrante que todavía no tiene ficha de tercero: se le crea al guardar. #}
+      <input type="hidden" name="artist_person_id" data-notif-person value="">
       <div class="modal-header">
         <h5 class="modal-title"><i class="fa fa-bell me-2 text-muted"></i><span data-notif-title>Añadir a las comunicaciones</span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -84,18 +90,32 @@
         {# ---------- PASO 1: quién ---------- #}
         <div data-notif-step="who">
           <div class="fw-semibold small mb-2">¿Quién recibe las comunicaciones?</div>
-          {% set ya = notif_contacts|map(attribute='promoter_id')|list %}
-          {% set sugeridos = people|selectattr('promoter_id')|rejectattr('promoter_id', 'in', ya)|list %}
-          {% if sugeridos %}
+          {# ⚠️ Cada integrante viene YA con su correo y su teléfono (los de su ficha de tercero,
+             `_artist_notification_suggestions`): al pincharlo se rellenan solos. Antes la tarjeta
+             solo llevaba el id y el nombre y los dos campos se quedaban en blanco teniéndolos. #}
+          {% if notif_suggestions %}
             <div class="text-muted small mb-2">Integrantes de {{ artist.name }} que todavía no están:</div>
             <div class="row g-2 mb-3">
-              {% for p in sugeridos %}
-                <div class="col-6 col-md-4">
+              {% for p in notif_suggestions %}
+                <div class="col-12 col-md-6">
                   <button type="button" class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center w-100 bg-white text-start"
                           data-notif-pick="{{ p.promoter_id }}"
-                          data-notif-pick-name="{{ ((p.first_name or '') ~ ' ' ~ (p.last_name or ''))|trim }}">
-                    <i class="fa fa-user text-muted"></i>
-                    <span class="fw-semibold small">{{ ((p.first_name or '') ~ ' ' ~ (p.last_name or ''))|trim }}</span>
+                          data-notif-pick-person="{{ p.artist_person_id }}"
+                          data-notif-pick-name="{{ p.name }}"
+                          data-notif-pick-email="{{ p.email }}"
+                          data-notif-pick-phone="{{ p.phone }}">
+                    {% if p.photo_url %}
+                      <img src="{{ p.photo_url }}" alt="" class="notif-contact__photo" data-avatar="1">
+                    {% else %}
+                      <i class="fa fa-user text-muted"></i>
+                    {% endif %}
+                    <span class="d-block">
+                      <span class="fw-semibold small d-block">{{ p.name }}</span>
+                      <span class="text-muted small d-block">
+                        {% if p.email %}{{ p.email }}{% else %}<span class="text-danger">sin correo</span>{% endif %}
+                        {% if p.phone %} · {{ p.phone }}{% endif %}
+                      </span>
+                    </span>
                   </button>
                 </div>
               {% endfor %}
@@ -192,12 +212,17 @@
     if (e.target.matches('[data-notif-chan]')) syncLiq();
   });
 
-  // Sugerencias: al pinchar un integrante queda elegido.
+  // Sugerencias: al pinchar un integrante queda elegido CON SUS DATOS (nombre, correo y teléfono
+  // de su ficha de tercero). ⚠️ Solo se rellena lo que esté vacío o lo que traiga el integrante: si
+  // ya se había escrito un correo a mano, no se pisa.
   modal.addEventListener('click', function (e) {
     var pick = e.target.closest('[data-notif-pick]');
     if (!pick) return;
     q('[data-notif-promoter]').value = pick.getAttribute('data-notif-pick') || '';
+    q('[data-notif-person]').value = pick.getAttribute('data-notif-pick-person') || '';
     q('[data-notif-name]').value = pick.getAttribute('data-notif-pick-name') || '';
+    q('[data-notif-email]').value = pick.getAttribute('data-notif-pick-email') || '';
+    q('[data-notif-phone]').value = pick.getAttribute('data-notif-pick-phone') || '';
     modal.querySelectorAll('[data-notif-pick]').forEach(function (b) { b.classList.remove('is-selected'); });
     pick.classList.add('is-selected');
   });
@@ -219,6 +244,7 @@
     q('[data-notif-title]').textContent = editar ? 'Comunicaciones de ' + (datos.name || '') : 'Añadir a las comunicaciones';
     q('[data-notif-id]').value = datos.id || '';
     q('[data-notif-promoter]').value = datos.promoter_id || '';
+    q('[data-notif-person]').value = '';
     q('[data-notif-name]').value = datos.name || '';
     q('[data-notif-email]').value = datos.email || '';
     q('[data-notif-phone]').value = datos.phone || '';

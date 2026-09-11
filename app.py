@@ -2369,6 +2369,12 @@ def artist_detail_view(artist_id):
                 "liquidation_concepts": [str(x) for x in (c.liquidation_concepts or [])],
             } for c in _artist_notification_contacts(session_db, artist.id)] if tab == "datos" else []),
             notif_channels=ARTIST_NOTIFICATION_CHANNELS,
+            # Los INTEGRANTES que se pueden añadir, con SU correo y SU teléfono (los de su ficha de
+            # tercero): al elegirlos se rellenan solos.
+            notif_suggestions=(_artist_notification_suggestions(
+                session_db, artist.id,
+                [str(c.promoter_id) for c in _artist_notification_contacts(session_db, artist.id)
+                 if c.promoter_id]) if tab == "datos" else []),
             notif_liquidation_concepts=(_artist_liquidation_concepts(session_db, artist.id)
                                         if tab == "datos" else []),
             contracts=contracts,
@@ -2540,6 +2546,15 @@ def artist_notification_contact_save(artist_id):
         if contacto is not None and str(contacto.artist_id) != str(artist.id):
             abort(404)
         pid = to_uuid((request.form.get("promoter_id") or "").strip() or None)
+        # ⚠️ Un INTEGRANTE que todavía no tiene ficha de tercero se ofrece igual en las sugerencias:
+        # aquí se le crea (el punto único de siempre), porque una persona del artista ES un tercero.
+        if pid is None:
+            _apid = to_uuid((request.form.get("artist_person_id") or "").strip() or None)
+            if _apid:
+                _persona = session_db.get(ArtistPerson, _apid)
+                if _persona is not None and str(_persona.artist_id) == str(artist.id):
+                    _tercero = _ensure_promoter_for_artist_person(session_db, _persona)
+                    pid = getattr(_tercero, "id", None)
         nombre = (request.form.get("name") or "").strip() or None
         correo = (request.form.get("email") or "").strip() or None
         telefono = (request.form.get("phone") or "").strip() or None
@@ -7731,14 +7746,13 @@ def _artist_email_delivery_data(session_db, artist: Artist | None) -> dict:
         deduped.append((email, label))
 
     default_limit = 2 if is_group else 1
-    # Si hay gente configurada en el canal DISCOGRÁFICA, esos son los destinatarios por defecto.
-    if canal_disc:
-        default_recipients = list(canal_disc)
-        for correo in canal_disc:
-            if correo.lower() not in {e.lower() for e, _l in deduped}:
-                deduped.append((correo, 'Notificaciones discográficas'))
-    else:
-        default_recipients = [email for email, _ in deduped[:default_limit]]
+    # ⚠️⚠️ LOS DESTINATARIOS SON LOS CONFIGURADOS en el canal DISCOGRÁFICA de su ficha. Sin nadie
+    # configurado no se propone a nadie (los correos que conocemos se siguen OFRECIENDO debajo, para
+    # poder marcarlos): una comunicación saliendo sola a un correo viejo es lo que se quiere evitar.
+    default_recipients = list(canal_disc)
+    for correo in canal_disc:
+        if correo.lower() not in {e.lower() for e, _l in deduped}:
+            deduped.append((correo, 'Notificaciones discográficas'))
     suggested_recipients = [email for email, _ in deduped]
     email_options = []
     for idx, (email, label) in enumerate(deduped):
@@ -9748,15 +9762,66 @@ def _contact_name(contact) -> str:
     return (_promoter_display_name(prom) or (getattr(prom, "nick", None) or "").strip() or "Contacto")
 
 
+def _artist_notification_suggestions(session_db, artist_id, ya=()) -> list[dict]:
+    """Los INTEGRANTES que se pueden añadir a las comunicaciones, **con su correo y su teléfono**.
+
+    ⚠️⚠️ Un integrante ES un TERCERO (`ArtistPerson.promoter_id`), así que su correo y su teléfono
+    salen de SU FICHA con el punto único `_promoter_email_phone` (en `Promoter` los campos se llaman
+    `contact_email`/`contact_phone`: `p.email` no existe y devuelve vacío en silencio). Antes la
+    tarjeta del integrante solo llevaba el id y el nombre, así que al elegirlo el correo y el
+    teléfono se quedaban en blanco aunque los tuviera puestos (bug real).
+    ⚠️ Los que todavía NO tienen ficha de tercero se ofrecen IGUAL (viajan como `artist_person_id`) y
+    se les crea al elegirlos: un integrante no se puede quedar fuera de las comunicaciones por eso.
+    ⚠️ Los terceros se cargan EN BLOQUE: una consulta, no una por integrante."""
+    aid = _safe_uuid(artist_id)
+    if not aid:
+        return []
+    try:
+        personas = (session_db.query(ArtistPerson)
+                    .filter(ArtistPerson.artist_id == aid)
+                    .order_by(ArtistPerson.first_name.asc(), ArtistPerson.last_name.asc()).all())
+    except Exception:
+        app.logger.exception("[notificaciones] no se pudieron leer los integrantes")
+        return []
+    puestos = {str(x) for x in (ya or []) if x}
+    ids = [p.promoter_id for p in personas if p.promoter_id]
+    terceros = {}
+    if ids:
+        try:
+            terceros = {t.id: t for t in session_db.query(Promoter).filter(Promoter.id.in_(ids)).all()}
+        except Exception:
+            app.logger.exception("[notificaciones] no se pudieron leer las fichas de los integrantes")
+    filas = []
+    for per in personas:
+        if per.promoter_id and str(per.promoter_id) in puestos:
+            continue
+        tercero = terceros.get(per.promoter_id) if per.promoter_id else None
+        correo, telefono = _promoter_email_phone(tercero)
+        nombre = ("%s %s" % ((per.first_name or "").strip(), (per.last_name or "").strip())).strip()
+        filas.append({
+            "promoter_id": (str(per.promoter_id) if per.promoter_id else ""),
+            "artist_person_id": str(per.id),
+            "name": nombre or (_promoter_display_name(tercero) if tercero is not None else ""),
+            "email": correo,
+            "phone": telefono,
+            "photo_url": (getattr(tercero, "logo_url", "") or ""),
+        })
+    return filas
+
+
 def _artist_notification_emails(session_db, artist_id, channel, *, concept=None,
-                                fallback=True) -> list[str]:
+                                fallback=False) -> list[str]:
     """A QUIÉN se le manda una comunicación de este artista por ese canal.
 
     Es el punto ÚNICO que usa toda la app: lo que se configure en el módulo «Notificaciones» de la
     ficha manda de ese momento en adelante. En LIQUIDACIONES, si se dice el `concept` solo reciben
     quienes lo tengan marcado (o quienes no hayan marcado ninguno: eso significa «todas»).
-    Con `fallback` (por defecto) y sin nadie configurado, se cae al correo del artista y a sus correos
-    adicionales, que es lo que había antes: así no deja de llegar nada por no haberlo configurado."""
+
+    ⚠️⚠️ **SOLO SE MANDA A LO CONFIGURADO** (sep 2026, lo pidió Dani): ya NO se cae al correo suelto
+    del artista ni a sus correos adicionales. Un correo genérico viejo recibiendo liquidaciones es
+    peor que no mandarlo, así que quien tenga que recibir algo tiene que estar en «Notificaciones».
+    ⚠️ Sin nadie configurado no se manda NADA, pero **no se calla**: queda en el log con el artista y
+    el canal, y las pantallas que avisan lo dicen antes de enviar."""
     aid = to_uuid(str(artist_id or ""))
     canal = (channel or "").strip().upper()
     if not aid or canal not in ARTIST_NOTIFICATION_CHANNEL_KEYS:
@@ -9776,8 +9841,12 @@ def _artist_notification_emails(session_db, artist_id, channel, *, concept=None,
             vistos.add(clave)
             salida.append(correo)
     if salida or not fallback:
+        # ⚠️ Sin nadie configurado NO se manda nada, y aquí no se avisa en el log: esto se llama
+        # también al PINTAR (la ficha de una canción, la de un álbum…) y lo llenaría de ruido. Quien
+        # ENVÍA es el que lo dice —la pantalla del aviso, el envío de liquidaciones—, y la ficha del
+        # artista lo avisa en ámbar, que es donde se arregla.
         return salida
-    # Nada configurado: como antes (correo principal del artista + sus correos adicionales).
+    # Con `fallback` a mano: el correo principal del artista + sus correos adicionales.
     try:
         artist = session_db.get(Artist, aid)
         principal = (getattr(artist, "email", None) or "").strip()
@@ -9795,13 +9864,13 @@ def _artist_notification_emails(session_db, artist_id, channel, *, concept=None,
     return salida
 
 
-def _artist_notification_recipients(session_db, artist_id, channel, *, fallback=True) -> list[dict]:
+def _artist_notification_recipients(session_db, artist_id, channel, *, fallback=False) -> list[dict]:
     """A QUIÉN se avisa por ese canal, con nombre, correo y TELÉFONO.
 
     Hermano de `_artist_notification_emails` para los avisos que también salen por WhatsApp o SMS
     (el aviso de una actividad). Devuelve [{'name', 'email', 'phone'}] en el orden configurado.
-    ⚠️ Con `fallback` y sin nadie marcado se cae al correo del artista: mejor eso que no avisar a
-    nadie. Del teléfono no hay fallback posible (el artista no tiene columna de teléfono)."""
+    ⚠️⚠️ **SOLO lo configurado**: sin nadie marcado no se avisa a nadie (y la pantalla lo dice antes
+    de mandar nada). Del teléfono no había fallback posible ni antes: el artista no tiene columna."""
     aid = to_uuid(str(artist_id or ""))
     canal = (channel or "").strip().upper()
     if not aid or canal not in ARTIST_NOTIFICATION_CHANNEL_KEYS:
@@ -9820,7 +9889,7 @@ def _artist_notification_recipients(session_db, artist_id, channel, *, fallback=
         filas.append({"name": _contact_name(c), "email": correo, "phone": telefono})
     if filas or not fallback:
         return filas
-    for correo in _artist_notification_emails(session_db, aid, canal, fallback=True):
+    for correo in _artist_notification_emails(session_db, aid, canal, fallback=True):  # solo a mano
         filas.append({"name": "", "email": correo, "phone": ""})
     return filas
 
@@ -12283,23 +12352,33 @@ def _beneficiary_email_delivery_data(session_db, kind: str, beneficiary_id) -> d
         )
         fallback_email = (getattr(contact, 'email', None) or '').strip()
 
-    # ⚠️ QUIÉN RECIBE manda desde el módulo «Notificaciones» de la ficha del artista: si hay alguien
-    # marcado en LIQUIDACIONES (de este concepto), esos son los destinatarios por defecto. Sin nadie
-    # configurado se sigue como antes (correo principal + los adicionales de royalties).
-    configurados = []
-    if kind == 'ARTIST':
+    # ⚠️⚠️ QUIÉN RECIBE lo manda el módulo «Notificaciones» de la ficha del ARTISTA: quien esté
+    # marcado en LIQUIDACIONES (de este concepto) son los destinatarios. Sin nadie configurado NO se
+    # propone a nadie —una liquidación saliendo a un correo viejo del artista es peor que tener que
+    # configurarlo—; los correos que conocemos siguen OFRECIÉNDOSE abajo (`suggested_recipients`).
+    # ⚠️ Con un TERCERO como beneficiario no hay módulo que configurar: ahí se sigue como siempre.
+    configurados, es_artista = [], (kind == 'ARTIST')
+    if es_artista:
         try:
             configurados = _artist_notification_emails(session_db, bid, "LIQUIDACIONES",
-                                                       concept="Royalties", fallback=False)
+                                                       concept="Royalties")
         except Exception:
+            app.logger.exception("[royalties] no se pudieron leer las notificaciones del artista")
             configurados = []
     default_recipients = _dedupe_valid_email_addresses(
-        configurados or ([primary_email] + royalty_extra))
-    if not default_recipients and fallback_email:
+        configurados if es_artista else ([primary_email] + royalty_extra))
+    if not default_recipients and fallback_email and not es_artista:
         default_recipients = _dedupe_valid_email_addresses([fallback_email])
 
-    suggested_recipients = _dedupe_valid_email_addresses(default_recipients + extra_emails + ([fallback_email] if fallback_email else []))
+    # ⚠️ Lo que se OFRECE para marcar sigue incluyendo los correos que conocemos del artista (el
+    # principal y los adicionales): una cosa es que no se mande solo y otra que no se pueda elegir.
+    suggested_recipients = _dedupe_valid_email_addresses(
+        default_recipients + ([primary_email] if primary_email else []) + royalty_extra
+        + extra_emails + ([fallback_email] if fallback_email else []))
     return {
+        # ⚠️ En un ARTISTA manda su módulo «Notificaciones» y NADA más: quien llame no puede caer a
+        # las sugerencias por su cuenta (los correos sueltos del artista siguen ahí para MARCARLOS).
+        'only_configured': es_artista,
         'primary_email': primary_email,
         'default_recipients': default_recipients,
         'suggested_recipients': suggested_recipients,
@@ -22207,10 +22286,13 @@ def royalty_liquidations_send_all():
                 beneficiary_uuid = to_uuid(str(bid))
                 delivery = _beneficiary_email_delivery_data(session_db, kind, beneficiary_uuid)
                 recipients = _dedupe_valid_email_addresses(
-                    list(delivery.get("default_recipients") or []) or list(delivery.get("suggested_recipients") or [])
+                    list(delivery.get("default_recipients") or [])
+                    or ([] if delivery.get("only_configured")
+                        else list(delivery.get("suggested_recipients") or []))
                 )
                 if not recipients:
-                    errors.append(f"{name}: sin email")
+                    errors.append(f"{name}: sin nadie configurado en «Notificaciones»"
+                                  if delivery.get("only_configured") else f"{name}: sin email")
                     continue
                 pdf_bytes, _fn, beneficiary = _build_royalty_liquidation_pdf_bytes(
                     session_db, kind, beneficiary_uuid, sem_year, sem_half, touch_liquidation=True)
@@ -22293,11 +22375,15 @@ def discografica_royalties_liquidation_send():
     with get_db() as session_db:
         delivery = _beneficiary_email_delivery_data(session_db, kind, beneficiary_uuid)
         if not recipient_values:
-            recipient_values = list(delivery.get('default_recipients') or []) or list(delivery.get('suggested_recipients') or [])
+            recipient_values = (list(delivery.get('default_recipients') or [])
+                                or ([] if delivery.get('only_configured')
+                                    else list(delivery.get('suggested_recipients') or [])))
         recipients = _dedupe_valid_email_addresses(recipient_values)
         if not recipients:
             return _royalty_send_response(
                 False,
+                ('No hay nadie configurado para recibir las liquidaciones de este artista: '
+                 'añádelo en «Notificaciones», en su ficha.') if delivery.get('only_configured') else
                 'El beneficiario no tiene un email válido configurado. Añade una dirección en su ficha antes de enviar la liquidación.',
                 redirect_url=next_url,
                 status_code=400,
@@ -61227,8 +61313,46 @@ def event_detail_view(eid):
                 "status_label": label, "status_badge": badge,
                 "count": sum(1 for x in actividades if str(x.cycle_festival_id or "") == str(cf.id)),
             })
+        # ⚠️⚠️ LAS COMUNICACIONES DE UN EVENTO son las de su artista ESPEJO: es lo que lleva
+        # `Concert.artist_id` en sus actividades, así que TODA la app las busca ahí. El espejo sigue
+        # sin verse (hereda el nombre y el logo del evento), pero su módulo «Notificaciones» y sus
+        # integrantes se gestionan aquí, en la ficha del evento, que es donde se trabaja.
+        espejo = None
+        notif_contacts, notif_suggestions, notif_concepts, person_cards = [], [], [], []
+        if tab == "datos":
+            try:
+                espejo = _ensure_artist_for_event(s, ev)
+                s.commit()
+                notif_contacts = [{
+                    "id": str(c.id),
+                    "promoter_id": (str(c.promoter_id) if c.promoter_id else ""),
+                    "name": _contact_name(c),
+                    "email": _contact_email(c),
+                    "phone": _contact_phone(c),
+                    "photo_url": (getattr(getattr(c, "promoter", None), "logo_url", "") or ""),
+                    "channels": [str(x).upper() for x in (c.channels or [])],
+                    "liquidation_concepts": [str(x) for x in (c.liquidation_concepts or [])],
+                } for c in _artist_notification_contacts(s, espejo.id)]
+                notif_suggestions = _artist_notification_suggestions(
+                    s, espejo.id, [x["promoter_id"] for x in notif_contacts if x["promoter_id"]])
+                notif_concepts = _artist_liquidation_concepts(s, espejo.id)
+                person_cards = _artist_person_cards(s, espejo, can_edit_artists_stations())
+            except Exception:
+                s.rollback()
+                app.logger.exception("[evento] no se pudieron preparar las comunicaciones")
         return render_template(
             "evento_detail.html", event=ev, sims=sims, tab=tab,
+            # El espejo NO se enseña: se usa para colgar de él las comunicaciones y los integrantes.
+            artist=espejo,
+            notif_contacts=notif_contacts,
+            notif_suggestions=notif_suggestions,
+            notif_channels=ARTIST_NOTIFICATION_CHANNELS,
+            notif_liquidation_concepts=notif_concepts,
+            person_cards=person_cards,
+            loyalty_brands=PERSON_LOYALTY_BRANDS,
+            # ⚠️ `CAN_EDIT_ARTISTS_STATIONS` NO se pisa: es el permiso que EXIGEN los endpoints de
+            # integrantes y notificaciones, así que pisarlo con otro enseñaría botones que darían
+            # un 403 a quien puede editar catálogos pero no artistas.
             act_rows=act_rows, contenedores=contenedores, resultado=resultado,
             expense_templates=_expense_templates_for(s, "EVENT", ev.id),
             entity_links=_entity_link_rows(s, "event", ev.id),
@@ -113865,6 +113989,39 @@ def _activity_notice_share_text(ctx: dict) -> str:
     return " · ".join([p for p in partes if p])
 
 
+def _activity_notice_sms_text(ctx: dict, enlace: str) -> str:
+    """El mensaje corto (SMS o WhatsApp) del aviso: la frase + el ENLACE, que es donde está todo.
+
+    ⚠️ Punto ÚNICO: antes lo componía el NAVEGADOR y el servidor no sabía qué se estaba mandando,
+    así que con la pasarela de SMS de por medio habría habido dos textos distintos. Ahora lo devuelve
+    hecho (`sms_text`) y la pantalla usa ESE."""
+    texto = _activity_notice_share_text(ctx)
+    enlace = (enlace or "").strip()
+    return ((texto + "\n\n" + enlace).strip() if enlace else texto)
+
+
+def _activity_notice_send_sms(session_db, destinos, texto, kind, *, nombres=None) -> tuple[bool, str]:
+    """Manda el aviso al artista por SMS con la pasarela de la casa (Integraciones → SMS, la MISMA
+    de los envíos a compradores). UN SMS por persona. Devuelve `(salió para alguien, lo que falló)`.
+
+    ⚠️ Si no sale para NADIE, quien llama retira el aviso: decir «avisado» sin que le haya llegado a
+    nadie es lo peor que puede pasar aquí."""
+    estado = _current_user_state() or {}
+    uid = to_uuid(estado.get("user_id") or "") or None
+    nick = estado.get("nick") or ""
+    nombres = nombres or {}
+    salio, fallos = False, []
+    for tel in destinos:
+        ok, err = _send_optional_sms(session_db, tel, texto,
+                                     kind=("ARTISTA_%s" % (kind or ""))[:40],
+                                     user_id=uid, nick=nick)
+        if ok:
+            salio = True
+        else:
+            fallos.append("%s (%s)" % ((nombres.get(tel) or tel), err or "no se pudo mandar"))
+    return salio, (("No salió para: " + " · ".join(fallos)) if fallos else "")
+
+
 def _concert_for_notice(session_db, cid):
     # ⚠️ `Concert` NO tiene relación `event` (solo la columna `event_id`): el evento se carga aparte
     # en `_activity_notice_context`.
@@ -113924,6 +114081,10 @@ def concert_artist_notice_view(cid):
             # ofrece «ya fue informado» (que es el aviso FORMAL de la actividad, otra fase) y se
             # enseña cómo va la confirmación.
             notice_asks=(kind in ACTIVITY_NOTICE_ASK_KINDS),
+            # ¿Lo puede mandar la APP por SMS? (la pasarela de Integraciones → SMS, la misma de los
+            # envíos a compradores). Si no está configurada se abre la app de mensajes de quien
+            # avisa, y la pantalla lo DICE: elegir SMS tiene que significar lo mismo que se ve.
+            sms_gateway=_sms_available(),
             confirmation=_artist_confirmation_state(session_db, concert),
             # NO hace falta mandar nada (ya ha pasado, o se creó antes del corte): botón propio con
             # los textos de su motivo (`_artist_notice_ack_texts`).
@@ -114148,12 +114309,31 @@ def concert_artist_notice_send(cid):
         aviso.snapshot = {"context": dict(ctx), "html": cuerpo}
 
         error = None
+        # ¿LO MANDA LA APP? El correo siempre; el SMS, cuando la pasarela está configurada
+        # (Integraciones → SMS, la MISMA de los envíos a compradores). Si no lo está, se abre la app
+        # de mensajes de quien avisa, que es lo que se hacía antes de tener pasarela.
+        enviado = False
+        texto_corto = _activity_notice_sms_text(ctx, enlace)
         if canal == "EMAIL":
             asunto = f"{ctx['title']} · {ctx['subject_name']}"
             ok, error = _send_optional_email(destinos, asunto, cuerpo)
             if not ok:
                 session_db.rollback()
                 msg = f"No se pudo enviar el correo: {error or 'error desconocido'}"
+                return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
+                    flash(msg, "danger") or redirect(url_for("concert_artist_notice_view", cid=cid)))
+            enviado = True
+        elif canal == "SMS" and _sms_available():
+            nombres = {(r.get("phone") or ""): (r.get("name") or "") for r in configurados}
+            enviado, error = _activity_notice_send_sms(session_db, destinos, texto_corto, kind,
+                                                       nombres=nombres)
+            if not enviado:
+                # ⚠️ NO se hace `rollback()`: `_sms_log` apunta el intento en ESTA sesión y un
+                # rollback se llevaría por delante el motivo del fallo. Se retira el aviso (nadie lo
+                # ha recibido) y se conserva el registro, que es donde se mira por qué no salió.
+                session_db.delete(aviso)
+                session_db.commit()
+                msg = f"No se pudo mandar el SMS: {error or 'error desconocido'}"
                 return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
                     flash(msg, "danger") or redirect(url_for("concert_artist_notice_view", cid=cid)))
 
@@ -114166,9 +114346,12 @@ def concert_artist_notice_send(cid):
             texto = _activity_notice_share_text(ctx)
             if es_json:
                 return jsonify({"ok": True, "channel": canal, "url": enlace, "share_text": texto,
+                                "sms_text": texto_corto, "sent": enviado, "warning": (error or ""),
                                 "recipients": destinos, "confirmed": False, "asked": True})
-            flash("Se le ha pedido la confirmación al artista." if canal == "EMAIL"
-                  else "Petición de confirmación registrada.", "success")
+            flash(("Se le ha pedido la confirmación al artista." if enviado
+                   else "Petición de confirmación registrada."), "success")
+            if enviado and error:
+                flash(error, "warning")
             return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
 
         # Queda apuntado en la actividad: es lo que enseña la etiqueta y lo que mira la compuerta.
@@ -114208,8 +114391,11 @@ def concert_artist_notice_send(cid):
         texto = _activity_notice_share_text(ctx)
         if es_json:
             return jsonify({"ok": True, "channel": canal, "url": enlace, "share_text": texto,
+                            "sms_text": texto_corto, "sent": enviado, "warning": (error or ""),
                             "recipients": destinos, "confirmed": confirmada})
-        flash("Aviso registrado." if canal != "EMAIL" else "Aviso enviado al artista.", "success")
+        flash("Aviso enviado al artista." if enviado else "Aviso registrado.", "success")
+        if enviado and error:
+            flash(error, "warning")
         if confirmada:
             flash("La actividad ha pasado a CONFIRMADA.", "success")
         if proceso:

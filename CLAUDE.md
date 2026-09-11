@@ -4517,6 +4517,40 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Todo vive en **`Concert.cancellation_payload`** (JSONB). ⚠️ Se marca con `flag_modified`: el
   patrón de leer-copiar-reasignar **no escribe la segunda vez en la misma petición** (bug conocido).
 
+- ⚠️⚠️ **A UN ARTISTA (O A UN EVENTO) SOLO SE LE MANDA LO QUE ESTÉ CONFIGURADO EN SUS
+  «NOTIFICACIONES»** (sep 2026, lo pidió Dani). Se acabó el respaldo al **correo suelto del
+  artista**: `_artist_notification_emails` y `_artist_notification_recipients` nacen con
+  **`fallback=False`**, así que quien no esté marcado en un canal **no recibe esa comunicación**.
+  Un correo genérico viejo recibiendo una liquidación es peor que no mandarla.
+  ⚠️ Sin nadie configurado **no se manda nada, pero NO se calla**: la ficha del artista lo avisa en
+  ÁMBAR («no se le manda ninguna comunicación»), la pantalla del aviso lo dice antes de enviar y el
+  envío de liquidaciones responde «no hay nadie configurado… añádelo en Notificaciones».
+  ⚠️ **En el LOG no se avisa**: ese punto único se llama también al PINTAR (la ficha de una canción,
+  la de un álbum), así que un `warning` ahí llena el log de ruido y lo hace inútil. Avisa **quien
+  ENVÍA**, no quien lee.
+  · **LIQUIDACIONES de royalties y CERTIFICACIONES**: los destinatarios por defecto son **solo** los
+  configurados (`only_configured` en `_beneficiary_email_delivery_data`, que respetan también
+  «Enviar todas» y el envío individual: ya no caen a `suggested_recipients`). ⚠️ Los correos que
+  conocemos del artista **se siguen OFRECIENDO** para marcarlos a mano: una cosa es que no se mande
+  solo y otra que no se pueda elegir. ⚠️ Con un **TERCERO** como beneficiario no hay módulo que
+  configurar: ahí se sigue como siempre.
+  · ⚠️⚠️ **EL INTEGRANTE SE ELIGE Y SE RELLENA ENTERO** (bug real: «pinchas en el miembro y pone el
+  nombre pero no el email ni el teléfono, y sí están introducidos»). La tarjeta del integrante solo
+  llevaba el id y el nombre. Punto único **`_artist_notification_suggestions`**: devuelve cada
+  integrante con **su correo y su teléfono** —los de SU ficha de tercero, con `_promoter_email_phone`
+  (en `Promoter` son `contact_email`/`contact_phone`)—, su foto y su nombre, **en BLOQUE** (una
+  consulta, no una por integrante). Se ven en la propia tarjeta y al pincharla se vuelcan.
+  ⚠️ Los integrantes **SIN ficha de tercero se ofrecen igual** (viajan como `artist_person_id`) y se
+  les crea al elegirlos con `_ensure_promoter_for_artist_person`: una persona del artista ES un
+  tercero, y no puede quedarse fuera de las comunicaciones por no tener ficha todavía.
+  · ⚠️⚠️ **UN EVENTO TAMBIÉN TIENE SUS COMUNICACIONES Y SUS INTEGRANTES**, en la pestaña «Datos» de
+  su ficha: son las de su **artista ESPEJO** (es lo que llevan sus actividades en `Concert.artist_id`,
+  así que es donde las busca toda la app). El espejo **se sigue sin ver** (hereda el nombre y el logo
+  del evento) y se prepara al abrir esa pestaña (`_ensure_artist_for_event`).
+  ⚠️ El parcial de integrantes vuelve a donde se pinta (`members_back_url`), no siempre a la ficha
+  del artista. Y **`CAN_EDIT_ARTISTS_STATIONS` NO se pisa** con `can_edit_catalogs()`: es el permiso
+  que EXIGEN esos endpoints, así que pisarlo enseñaría botones que darían un 403.
+
 - **AVISO AL ARTISTA DE UNA ACTIVIDAD** (ago 2026). Antes de CONFIRMAR una actividad hay que
   habérsela comunicado al artista.
   · **Dos canales nuevos** en la configuración de notificaciones del artista (en cabeza de
@@ -4544,9 +4578,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   título, como se pidió.
   ⚠️ **`'<div>' + escape(x)` ESCAPA el HTML de la izquierda** (Markup en la derecha): el aviso salía
   como texto (bug real). Dentro del motor se escapa con un `esc()` local que devuelve `str`.
+  · ⚠️⚠️ **EL SMS LO MANDA LA APP** (sep 2026): si la pasarela está configurada (**Integraciones →
+  SMS**, la MISMA de los envíos a compradores) el aviso sale del servidor —un SMS por persona, con el
+  teléfono normalizado y el enlace acortado— y **no se abre la app de mensajes de nadie**; sin
+  pasarela se sigue abriendo, que es lo que se hacía antes de tenerla. Lo decide `_sms_available()`
+  y **la pantalla lo DICE** al elegir el canal (`sms_gateway`): elegir SMS tiene que significar lo
+  que se ve. **WhatsApp siempre abre la app** (no hay pasarela).
+  ⚠️ Si el SMS **no sale para nadie** se retira el aviso y se dice el motivo de la pasarela: decir
+  «avisado» sin que le haya llegado a nadie es lo peor que puede pasar aquí. ⚠️ Ahí **NO se hace
+  `rollback()`**: `_sms_log` apunta el intento en ESA sesión y un rollback se llevaría por delante el
+  motivo del fallo — se borra el aviso (`session_db.delete`) y se hace commit.
+  ⚠️ **El TEXTO lo compone el SERVIDOR** (`_activity_notice_sms_text` → `sms_text` en el JSON): antes
+  lo montaba el navegador, así que con la pasarela de por medio habría habido dos textos distintos.
   · **Vista previa** (`concert_artist_notice_view`, página propia + `concert_artist_notice.html`):
-  canal (correo/WhatsApp/SMS), destinatarios, **nota** que se pinta bajo el primer título, y un
-  **OJO por módulo** para dejarlo fuera (`data-notice-eye`; en la previa los ocultos se ven atenuados,
+  canal (correo/WhatsApp/SMS, **con el CORREO marcado por defecto**), destinatarios, **nota** que se
+  pinta bajo el primer título, y un **OJO por módulo** para dejarlo fuera (`data-notice-eye`; en la previa los ocultos se ven atenuados,
   en el envío no van). Se repinta con `concert_artist_notice_preview` (JSON).
   · **La COMPUERTA está en los CUATRO caminos** que escriben el estado, no solo en la etiqueta:
   `concert_quick_status` (409 con `needs_artist_notice` + `notify_url`; el handler de

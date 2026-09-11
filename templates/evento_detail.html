@@ -83,6 +83,22 @@
       </div>
     </div>
 
+    {# ⚠️⚠️ LOS INTEGRANTES Y LAS COMUNICACIONES DE UN EVENTO son las de su artista ESPEJO (es lo
+       que llevan sus actividades en `Concert.artist_id`, así que es donde las busca toda la app).
+       El espejo no se enseña en ninguna parte: solo se usa por debajo. #}
+    {% if artist %}
+      {% set members_back_url = url_for('event_detail_view', eid=event.id, tab='datos') %}
+      <div class="ficha-section mb-3">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-users"></i>Integrantes:</h6>
+        </div>
+        <div class="ficha-section__body">
+          {% include '_artist_members.html' %}
+        </div>
+      </div>
+      {% include '_artist_notifications.html' %}
+    {% endif %}
+
   {% elif tab == 'actividades' %}
     {% if contenedores %}
     <div class="ficha-section">

@@ -1,4 +1,7 @@
 {% import '_fiscal_address_fields.html' as fiscal with context %}
+{# ⚠️ A dónde se vuelve al guardar: la ficha del ARTISTA por defecto, y la del EVENTO cuando la
+   viñeta se pinta ahí (los integrantes de un evento cuelgan de su artista ESPEJO, que no se ve). #}
+{% set members_back = members_back_url or url_for('artist_detail_view', artist_id=artist.id, tab='datos') %}
 {# INTEGRANTES DEL ARTISTA (viñeta dentro de «Datos del artista»).
    Cada integrante ES UN TERCERO que forma parte del artista: tiene los mismos datos que un tercero
    particular (DNI, pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de viaje,
@@ -34,7 +37,7 @@
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-plus"></i>Añadir persona</h6></div>
       <div class="ficha-section__body">
         <form method="post" action="{{ url_for('artist_person_add', artist_id=artist.id) }}" id="apsForm">
-          <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+          <input type="hidden" name="next" value="{{ members_back }}">
           <input type="hidden" name="link_promoter_id" id="apsPickId">
           <input type="hidden" name="first_name" id="apsPickFirst">
           <input type="hidden" name="last_name" id="apsPickLast">
@@ -217,7 +220,7 @@
         {# ---------- Formulario (todos los campos) ---------- #}
         {% if c.can_edit %}
           <form id="personaForm-{{ c.id }}" class="d-none" method="post" action="{{ c.data_url }}">
-            <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+            <input type="hidden" name="next" value="{{ members_back }}">
             <div class="row g-3">
               <div class="col-md-4">
                 <label class="form-label">Nombre</label>
@@ -285,7 +288,7 @@
           <form method="post" action="{{ url_for('artist_person_delete', person_id=c.id) }}" class="mt-2 d-none"
                 data-members-only
                 onsubmit="return confirm('¿Quitar a esta persona del artista? Su ficha de tercero NO se borra.');">
-            <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+            <input type="hidden" name="next" value="{{ members_back }}">
             <button class="btn btn-sm btn-outline-danger"><i class="fa fa-user-minus me-1"></i>Quitar del artista</button>
           </form>
         {% endif %}

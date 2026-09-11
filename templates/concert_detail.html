@@ -1775,16 +1775,26 @@
             <div class="fw-semibold">Sin peticiones de cartelería.</div>
             <div class="small text-muted">
               {% if artwork_group_promoted or not concert.promoter %}
-                El evento lo promueve una empresa del grupo: los carteles se piden a <strong>diseño</strong>.
+                Lo promueve una empresa del grupo, así que lo normal es pedírselos a <strong>diseño</strong>.
               {% else %}
-                El promotor es externo ({{ concert.promoter.nick }}): los carteles se le piden <strong>a él</strong>.
+                El promotor es {{ concert.promoter.nick }}: lo normal es que los haga <strong>él</strong>.
               {% endif %}
+              Los que hace el promotor los aprueba diseño; los nuestros, quien gestiona la actividad.
             </div>
           </div>
-          {% if artwork_group_promoted or not concert.promoter %}
-            <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkWizardModal"><i class="fa fa-paper-plane me-1"></i>Realizar petición a diseño</button>
-          {% else %}
-            <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-handshake me-1"></i>Solicitar al promotor</button>
+          {# ⚠️ SE OFRECEN LAS DOS: la que toca según quién promueve va destacada, pero el cartel lo
+             puede hacer el promotor aunque promovamos nosotros (y al revés), así que nunca falta la
+             opción de pedírselo a él. Sin promotor, solo se puede pedir a diseño. #}
+          {% set _pide_diseno = artwork_group_promoted or not concert.promoter %}
+          <button class="btn btn-sm {{ 'btn-danger' if _pide_diseno else 'btn-outline-danger' }}" type="button"
+                  data-bs-toggle="modal" data-bs-target="#artworkWizardModal">
+            <i class="fa fa-paper-plane me-1"></i>Solicitar carteles a diseño
+          </button>
+          {% if concert.promoter %}
+            <button class="btn btn-sm {{ 'btn-outline-danger' if _pide_diseno else 'btn-danger' }}" type="button"
+                    data-bs-toggle="modal" data-bs-target="#artworkPromoterModal">
+              <i class="fa fa-handshake me-1"></i>Solicitar carteles al promotor
+            </button>
           {% endif %}
           <button class="btn btn-outline-danger btn-sm" type="button" data-art-open="POSTER" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
         </div>
@@ -2638,20 +2648,14 @@
                   </div>
                 </div>
                 <div class="col-lg-7">
-                  <label class="form-label mb-1">Vista previa · lo que recibirá el promotor</label>
-                  <div class="border rounded p-3" style="max-height:520px;overflow:auto;background:#fff">
-                    {% if concert.billing_company and concert.billing_company.logo_url %}<div class="text-end mb-2"><img src="{{ concert.billing_company.logo_url }}" style="max-height:44px;max-width:160px;"></div>{% endif %}
-                    <h5 class="text-center">Solicitud de carteles</h5>
-                    <div class="border rounded p-3 mb-3 d-flex gap-3 align-items-center">
-                      <img src="{{ (concert.artist.photo_url if concert.artist else None) or DEFAULT_PHOTO_URL }}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">
-                      <div>
-                        <div class="fw-bold">{{ concert.artist.name if concert.artist else 'Actividad' }}</div>
-                        <div class="small">{{ concert.date.strftime('%d/%m/%Y') if concert.date else '—' }} · {{ location_summary or 'Recinto pendiente' }}</div>
-                      </div>
-                    </div>
-                    <p class="small">Necesitamos que subas los <strong>carteles del evento</strong> con los datos y logos indicados.</p>
-                    <p class="small text-muted">El correo incluye los logos marcados, la guía de estilo (si está configurada) y el botón «Subir los carteles» con su enlace personal.</p>
-                    <span class="btn btn-danger btn-sm disabled">Subir los carteles</span>
+                  {# ⚠️⚠️ LA VISTA PREVIA **ES** EL CORREO: la compone el servidor con el mismo HTML
+                     que se manda (`concert_artwork_promoter_preview`) y se refresca al cambiar los
+                     formatos, los logos, las notas o el plazo. Escrita a mano se desparejaba. #}
+                  <label class="form-label mb-1">Vista previa · lo que recibirá el promotor
+                    <span class="text-muted small" data-aw-subject></span></label>
+                  <div class="border rounded p-3" style="max-height:520px;overflow:auto;background:#fff"
+                       data-aw-preview data-url="{{ url_for('concert_artwork_promoter_preview', cid=concert.id) }}">
+                    <div class="text-muted small"><i class="fa fa-spinner fa-spin me-1"></i>Preparando la vista previa…</div>
                   </div>
                 </div>
               </div>
@@ -2664,6 +2668,33 @@
         </div>
       </div>
     </div>
+    <script>
+    (function () {
+      // La previa la compone el SERVIDOR con el MISMO HTML del correo: aquí solo se pide y se pinta.
+      var modal = document.getElementById('artworkPromoterModal');
+      if (!modal || modal.__awPrev) return;
+      modal.__awPrev = true;
+      var zona = modal.querySelector('[data-aw-preview]');
+      var asunto = modal.querySelector('[data-aw-subject]');
+      var form = modal.querySelector('form');
+      var timer = null;
+      function pinta() {
+        if (!zona || !form) return;
+        fetch(zona.getAttribute('data-url'), { method: 'POST', body: new FormData(form) })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d || !d.ok) return;
+            zona.innerHTML = d.html || '';
+            if (asunto) asunto.textContent = d.subject ? ('· ' + d.subject) : '';
+          }).catch(function () {});
+      }
+      function pintaLuego() { clearTimeout(timer); timer = setTimeout(pinta, 300); }
+      modal.addEventListener('show.bs.modal', pinta);
+      form.addEventListener('change', pintaLuego);
+      form.addEventListener('input', pintaLuego);
+      if (modal.classList.contains('show')) pinta();
+    })();
+    </script>
 
     {# ---------- Modal: rechazar carteles (correcciones) ---------- #}
     <div class="modal fade" id="artworkRejectModal" tabindex="-1" aria-hidden="true">

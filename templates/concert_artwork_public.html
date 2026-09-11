@@ -110,11 +110,11 @@
               <input type="file" id="artworkFileInput" class="d-none" multiple accept="image/*,video/*,audio/*,application/pdf">
             </div>
             <div id="artworkQueue" class="mt-3"></div>
-            {% if is_promoter_flow %}
-              <form method="post" action="{{ submit_action }}" class="mt-3 text-end" id="artworkSubmitForm">
-                <button class="btn btn-danger" id="artworkSendBtn"><i class="fa fa-paper-plane me-1"></i>Enviar carteles para validación</button>
-              </form>
-            {% endif %}
+            {# ⚠️ El botón SOLO cuando ya hay algo subido: enviar sin carteles no significa nada. #}
+            <form method="post" action="{{ submit_action }}" class="mt-3 text-end{% if not artwork_assets %} d-none{% endif %}"
+                  id="artworkSubmitForm">
+              <button class="btn btn-danger" id="artworkSendBtn"><i class="fa fa-paper-plane me-1"></i>Enviar carteles</button>
+            </form>
           </div>
         </div>
         <script>
@@ -178,7 +178,7 @@
                   status.textContent = 'Subido ✓';
                   status.className = 'badge text-bg-success aw-status';
                   el.querySelector('.aw-format').disabled = true;
-                  {% if not is_promoter_flow %}setTimeout(function(){ window.location.reload(); }, 600);{% endif %}
+                  refrescaEnviar();
                 } else {
                   status.textContent = 'Error';
                   status.className = 'badge text-bg-danger aw-status';
@@ -191,11 +191,55 @@
           }
 
           function addFiles(files){ Array.prototype.forEach.call(files || [], row); }
+
+          // ⚠️ Se puede soltar una CARPETA entera con los carteles dentro: `dataTransfer.files` no
+          // la recorre, hay que ir por sus entradas (el mismo patrón que el modal de dentro).
+          function recogeEntrada(entry, salida){
+            return new Promise(function(listo){
+              if(!entry) return listo();
+              if(entry.isFile){ entry.file(function(f){ salida.push(f); listo(); }, listo); return; }
+              if(!entry.isDirectory) return listo();
+              var lector = entry.createReader(), todas = [];
+              (function siguiente(){
+                lector.readEntries(function(lote){
+                  if(!lote.length){
+                    Promise.all(todas.map(function(e){ return recogeEntrada(e, salida); })).then(listo);
+                    return;
+                  }
+                  todas = todas.concat(Array.prototype.slice.call(lote));
+                  siguiente();
+                }, listo);
+              })();
+            });
+          }
+          function sueltaConCarpetas(ev){
+            var items = ev.dataTransfer && ev.dataTransfer.items;
+            if(!items || !items.length || !items[0].webkitGetAsEntry){
+              if(ev.dataTransfer) addFiles(ev.dataTransfer.files);
+              return;
+            }
+            var entradas = [];
+            for(var i = 0; i < items.length; i++){
+              var e = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+              if(e) entradas.push(e);
+            }
+            var salida = [];
+            Promise.all(entradas.map(function(e){ return recogeEntrada(e, salida); }))
+              .then(function(){ addFiles(salida); });
+          }
+
           drop.addEventListener('click', function(){ input.click(); });
           input.addEventListener('change', function(){ addFiles(input.files); input.value = ''; });
           drop.addEventListener('dragover', function(ev){ ev.preventDefault(); drop.classList.add('border-danger'); });
           drop.addEventListener('dragleave', function(){ drop.classList.remove('border-danger'); });
-          drop.addEventListener('drop', function(ev){ ev.preventDefault(); drop.classList.remove('border-danger'); if(ev.dataTransfer){ addFiles(ev.dataTransfer.files); } });
+          drop.addEventListener('drop', function(ev){ ev.preventDefault(); drop.classList.remove('border-danger'); sueltaConCarpetas(ev); });
+
+          // El botón de enviar aparece en cuanto hay UN cartel subido.
+          function refrescaEnviar(){
+            var f = document.getElementById('artworkSubmitForm');
+            if(f && queue.querySelector('.aw-status.text-bg-success')) f.classList.remove('d-none');
+          }
+          window.refrescaEnviar = refrescaEnviar;
           var submitForm = document.getElementById('artworkSubmitForm');
           if(submitForm){
             submitForm.addEventListener('submit', function(ev){
@@ -210,27 +254,48 @@
         <div class="card shadow-sm">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-              <h5 class="mb-0">Formatos ya subidos</h5>
-              {% if artwork_assets %}<span class="badge text-bg-primary">{{ artwork_assets|length }} formato(s)</span>{% endif %}
+              <h5 class="mb-0">Carteles subidos</h5>
+              {% if artwork_assets %}<span class="badge text-bg-primary">{{ artwork_assets|length }}</span>{% endif %}
             </div>
+            {# ⚠️ CON SU MINIATURA, no una tabla con enlaces: quien sube tiene que ver lo que ha
+               subido. ⚠️ Y la dirección de Storage NO sale a la página: las imágenes y los vídeos
+               van por nuestro dominio (`public_artwork_file`), como en la cartelería que se
+               comparte. #}
             {% if artwork_assets %}
-              <div class="table-responsive">
-                <table class="table align-middle mb-0">
-                  <thead class="table-light"><tr><th>Formato</th><th>Archivo</th><th>Subido</th><th>URL</th></tr></thead>
-                  <tbody>
-                    {% for asset in artwork_assets %}
-                      <tr>
-                        <td class="fw-semibold">{{ asset.format_label }}</td>
-                        <td><a href="{{ asset.file_url }}" target="_blank">{{ asset.original_name or asset.format_label }}</a></td>
-                        <td>{{ asset.created_at.strftime('%d/%m/%Y %H:%M') if asset.created_at else '—' }}</td>
-                        <td><a href="{{ asset.file_url }}" target="_blank">Abrir</a></td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
+              <div class="row g-3">
+                {% for asset in artwork_assets %}
+                  {% set _k = artwork_kind(asset) %}
+                  <div class="col-6 col-md-4">
+                    <div class="border rounded-3 p-2 h-100">
+                      <div class="d-flex align-items-center justify-content-center bg-light rounded mb-2"
+                           style="height:120px;overflow:hidden;">
+                        {% if _k == 'IMAGE' %}
+                          <img src="{{ url_for('concert_artwork_public_file', token=artwork_request.public_token, asset_id=asset.id) }}"
+                               alt="" style="max-width:100%;max-height:120px;object-fit:contain;">
+                        {% elif _k == 'VIDEO' %}
+                          <img src="{{ url_for('concert_artwork_public_file', token=artwork_request.public_token, asset_id=asset.id, poster=1) }}"
+                               alt="" style="max-width:100%;max-height:120px;object-fit:contain;"
+                               onerror="this.remove()">
+                          <i class="fa fa-circle-play position-absolute fs-3 text-white"></i>
+                        {% else %}
+                          <i class="fa {{ 'fa-file-pdf' if _k == 'PDF' else ('fa-music' if _k == 'AUDIO' else 'fa-file') }} fs-1 text-muted"></i>
+                        {% endif %}
+                      </div>
+                      <div class="small fw-semibold text-truncate" title="{{ asset.format_label }}">{{ asset.format_label }}</div>
+                      <div class="small text-muted">
+                        {{ asset.created_at.strftime('%d/%m/%Y %H:%M') if asset.created_at else '' }}
+                        {% if (asset.validation_status or 'APPROVED') == 'PENDING' %}
+                          · <span class="text-warning-emphasis">sin enviar</span>
+                        {% elif (asset.validation_status or '') == 'APPROVED' %}
+                          · <span class="text-success">recibido</span>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                {% endfor %}
               </div>
             {% else %}
-              <div class="text-muted">Todavía no se ha subido ningún formato.</div>
+              <div class="text-muted">Todavía no has subido ningún cartel.</div>
             {% endif %}
           </div>
         </div>

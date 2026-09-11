@@ -12698,3 +12698,63 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ **El checker solo lo destapa si la pantalla tiene FILAS**: con la BD de prueba vacía, /ventas no
   pinta ningún formulario y el fallo no aparece. Si se pasa `check_permisos.py` sin datos, no
   significa que no haya nada.
+
+- ⚠️⚠️ **CARTELERÍA · SI EL CARTEL LO HACE EL PROMOTOR, SE LE PIDE A ÉL** (sep 2026). Hasta ahora la
+  cartelería solo se le podía pedir a **diseño**, así que en una fecha en la que el cartel lo hace el
+  promotor no había nada que hacer desde la app. Ahora la tarjeta **«Sin peticiones de cartelería»**
+  ofrece **los DOS caminos** —«Solicitar carteles a diseño» y **«Solicitar carteles al promotor»**—,
+  con el de siempre RELLENO según quién promueva (lo decide `_concert_is_group_promoted`: si lo
+  promueve un tercero, lo normal es que los haga él) y explicando la regla: *los que hace el promotor
+  los aprueba diseño; los nuestros, quien gestiona la actividad*. La solicitud se puede hacer también
+  desde la pestaña **Cartelería** de la ficha.
+  · **EL CORREO tiene VISTA PREVIA EN VIVO** (`concert_artwork_promoter_preview`, `[data-aw-preview]`
+  del modal, que se repinta al escribir): logo de la empresa del grupo arriba a la **derecha**,
+  **«Solicitud de carteles»** centrado, el texto, la **cabecera de la actividad** con el botón **Subir
+  carteles** DENTRO y abajo a la derecha, y debajo lo que se pida (los logos que tienen que salir, las
+  ticketeras, las notas y la **fecha máxima**). Motor único **`_artwork_promoter_email`**, así que la
+  previa ES el correo. ⚠️ La previa monta un **`SimpleNamespace`** con lo que hay en el formulario
+  (todavía no se ha guardado nada).
+  ⚠️⚠️ **AL PROMOTOR NO SE LE DICE «EVENTO PROMOCIONAL»**: eso es como lo llamamos NOSOTROS. Punto
+  único **`_artwork_activity_word(concert, articulo=)`** (`ARTWORK_ACTIVITY_WORDS`): «el concierto» ·
+  «el festival» · «el ciclo» · **«el evento»** · «el programa» · «la acción» · «el ensayo», usado en
+  el texto **y** en el antetítulo de la cabecera (`datos["eyebrow"]`, que hay que pisar a mano).
+  ⚠️⚠️ **EL `intro` DE `_notice_email_html` ES TEXTO PLANO** (bug real, visto en la vista previa): el
+  motor lo **escapa** y lo mete en su propio `<p>`, así que pasándole HTML las etiquetas salen **A LA
+  VISTA** en el correo (`<p>Buenas, …</p>`). El formato de un correo va en sus **`sections`** (que son
+  **dicts** con `title`/`meta`/`due`/`icon`, no cadenas). Amarrado en la prueba de la épica.
+  · **LA PÁGINA DEL PROMOTOR** (`/carteleria/<token>`) enseña lo mismo que el correo y debajo la zona
+  de **arrastrar o elegir**: se puede soltar **una CARPETA entera** (`webkitGetAsEntry` +
+  `recogeEntrada`, el mismo patrón que el modal de dentro), cada cartel se sube solo con su barra y el
+  **nombre del archivo se usa como formato** (se puede corregir antes de subirlo). Lo subido se ve con
+  su **MINIATURA** y el botón **«Enviar carteles»** aparece **en cuanto hay uno** (`refrescaEnviar`).
+  ⚠️⚠️ Las miniaturas van por **`concert_artwork_public_file`**, no por `public_artwork_file`: ese es
+  el de la cartelería que se COMPARTE (token distinto) y solo sirve lo **aprobado**, y aquí hay que
+  enseñarle a quien sube lo que acaba de subir, que está PENDIENTE. La dirección de Storage no sale a
+  la página, y el id del cartel se valida contra los de ESA solicitud.
+  · **AL RECIBIRLOS se avisa a los DOS a la vez** (`_artwork_notify_received`): a **quien gestiona la
+  actividad** (`_announce_alert_owner_ids`: contratación o el sello, según quién la creara) y a
+  **DISEÑO**, que es quien tiene que darles el visto bueno — hasta que lo dan, los carteles no se
+  pueden usar ni compartir. Kind nuevo **`ARTWORK_RECEIVED`**.
+  ⚠️⚠️ **QUIÉN APRUEBA depende de QUIÉN LOS HIZO** (`_can_validate_artwork` + `_artwork_approver_msg`):
+  los del **PROMOTOR** los aprueba **diseño**; los **NUESTROS**, **quien gestiona la actividad** (si la
+  creó contratación, contratación). Dirección siempre.
+  ⚠️⚠️ **EL 403 AL APROBAR**: la ruta `/conciertos/…` resuelve a `contratacion.conciertos` **con
+  edición**, que diseño no tiene — así que quien tenía que aprobar se comía un 403. Regla de mapeo
+  propia (**`ARTWORK_ACCESS_KEYS`** = diseño · contratación.conciertos · contratación, con
+  `_first_access_key`) y **puesta ANTES** de la de `concerts_view`: detrás sería código muerto (gana el
+  mapeo de la sección, la trampa que ya documenta contabilidad).
+  · ⚠️⚠️ **UN CAMBIO DE FECHA, DE RECINTO, UN APLAZAMIENTO O UNA CANCELACIÓN PIDEN LOS CARTELES
+  NUEVOS SOLOS**, a **quien los hizo** y **diciendo QUÉ hay que actualizar**: punto único
+  **`_artwork_request_refresh(session_db, concert, motivo=, changes=)`**, que archiva los que había,
+  deja la solicitud en REQUESTED y avisa —al **promotor** con el correo **CHANGES** y a **DISEÑO** con
+  el suyo—. El detalle lo compone **`_artwork_changes_list`** comparando con el
+  **`event_snapshot`** congelado de la solicitud (`ARTWORK_SNAPSHOT_LABELS`: «Fecha: 10/10/2026 →
+  17/10/2026», el recinto, el municipio, la hora…). Enganchado en el guardado de la sección «Datos» y
+  en **`_cancel_apply`** (CANCELADO → «hace falta el cartel que lo anuncia»; APLAZADO → «se ha
+  APLAZADO al dd/mm/aaaa: hay que rehacer los carteles»).
+  ⚠️ Es la MISMA idea que el cartel de **SOLD OUT**, que se pide solo al llegar al **90%**
+  (`SOLDOUT_TRIGGER_PCT`, no al 80%) y vive en su propia sección.
+  ⚠️⚠️ Esto corre desde un **cron o un hilo**, así que va dentro de **`_soldout_app_context()`**: hace
+  falta un contexto de **PETICIÓN**, no solo de aplicación — con solo `app_context` el correo sale pero
+  **el aviso de la campanita no llega a nadie** y el `except` se lo traga (la trampa que ya costó el
+  Sold Out).

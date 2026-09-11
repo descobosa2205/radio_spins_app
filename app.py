@@ -2579,6 +2579,10 @@ def artist_notification_contact_save(artist_id):
         # Los conceptos solo tienen sentido si recibe liquidaciones.
         contacto.liquidation_concepts = (conceptos if "LIQUIDACIONES" in canales else [])
         contacto.updated_at = _now_madrid()
+        # ⚠️ El aviso de «no se le ha podido avisar» de cada canal que se acaba de cubrir se cierra
+        # SOLO: ya no está esperando a nadie (la regla de `_notify_resolve`).
+        for _canal in canales:
+            _notify_resolve(session_db, "ARTIST_NOTIF", "%s:%s" % (artist.id, _canal))
         session_db.commit()
         flash("Comunicaciones guardadas: %s." % (", ".join(
             ARTIST_NOTIFICATION_CHANNEL_LABELS.get(k, k) for k in canales) or "ninguna"), "success")
@@ -9762,6 +9766,62 @@ def _contact_name(contact) -> str:
     return (_promoter_display_name(prom) or (getattr(prom, "nick", None) or "").strip() or "Contacto")
 
 
+def _artist_notice_missing(session_db, artist_id, channel, what="") -> None:
+    """⚠️⚠️ UNA COMUNICACIÓN QUE NO SALE NO PUEDE SER INVISIBLE.
+
+    Desde que solo se manda a lo configurado, un artista sin nadie en ese canal se queda sin recibir
+    la comunicación — y si nadie lo dice, se descubre semanas después. Esto avisa por la campanita a
+    **quien lleva a ese artista** (su jefe de producto, y si no hay nadie, el Sello) con el enlace a
+    su ficha para arreglarlo en el momento.
+
+    ⚠️ **No se repite**: mientras el aviso siga sin leer, esa misma pareja artista+canal no genera
+    otro (se compara por `ref_type`/`ref_id`). Y se **cierra solo** en cuanto se configura a alguien
+    (`_notify_resolve` desde el guardado de «Notificaciones»).
+    ⚠️⚠️ **HACE FALTA UN CONTEXTO DE PETICIÓN**, no solo de aplicación: `_notify_user` mira quién
+    actúa con `_current_user_state()` → `session`, que revienta desde un CRON o un HILO — y justo ahí
+    es donde más falta hace este aviso (los recordatorios de publicación, el plazo de materiales).
+    Lo abre `_soldout_app_context()`, el punto único de la casa para esto.
+    ⚠️ Es *best-effort*: si esto fallara, no puede tumbar el envío que lo llamó."""
+    aid = str(artist_id or "")
+    canal = (channel or "").strip().upper()
+    if not aid or not canal:
+        return
+    try:
+        with _soldout_app_context():
+            _artist_notice_missing_do(session_db, aid, canal, what)
+    except Exception:
+        app.logger.exception("[notificaciones] no se pudo avisar de que falta configurar %s", aid)
+
+
+def _artist_notice_missing_do(session_db, aid, canal, what="") -> None:
+    """El cuerpo de `_artist_notice_missing`, ya con contexto de petición."""
+    try:
+        artista = session_db.get(Artist, _safe_uuid(aid))
+        nombre = (getattr(artista, "name", "") or "").strip() or "el artista"
+        etiqueta = ARTIST_NOTIFICATION_CHANNEL_LABELS.get(canal, canal)
+        ref_id = "%s:%s" % (aid, canal)
+        # ¿Ya está avisado y sin leer? Entonces no se repite: sería ruido del mismo problema.
+        ya = (session_db.query(AppNotification.id)
+              .filter(AppNotification.ref_type == "ARTIST_NOTIF",
+                      AppNotification.ref_id == ref_id,
+                      AppNotification.read_at.is_(None)).first())
+        if ya:
+            return
+        url = _safe_url_for("artist_detail_view", artist_id=aid, tab="datos")
+        cuerpo = ("No se le ha mandado%s porque en «%s» no hay nadie configurado para recibirlo. "
+                  "Añádelo en «Notificaciones», en su ficha." %
+                  ((" " + what) if what else " esa comunicación", etiqueta))
+        for uid in _artist_sello_user_ids(session_db, aid):
+            # ⚠️ `actor_user_id=""` (y no None) para que NO se busque quién actúa: esto lo dispara
+            # un envío, no una persona, y sin sesión `_current_user_state()` no puede resolverlo.
+            _notify_user(session_db, uid, "SIN_NOTIFICACIONES",
+                         "Sin avisar a %s: %s" % (nombre, etiqueta), cuerpo, url,
+                         ref_type="ARTIST_NOTIF", ref_id=ref_id, actor_user_id="",
+                         actor_photo=(getattr(artista, "photo_url", "") or ""), actor_name=nombre)
+    except Exception:
+        app.logger.exception("[notificaciones] no se pudo avisar de que falta configurar %s", aid)
+
+
 def _artist_notification_suggestions(session_db, artist_id, ya=()) -> list[dict]:
     """Los INTEGRANTES que se pueden añadir a las comunicaciones, **con su correo y su teléfono**.
 
@@ -9810,7 +9870,7 @@ def _artist_notification_suggestions(session_db, artist_id, ya=()) -> list[dict]
 
 
 def _artist_notification_emails(session_db, artist_id, channel, *, concept=None,
-                                fallback=False) -> list[str]:
+                                fallback=False, aviso="") -> list[str]:
     """A QUIÉN se le manda una comunicación de este artista por ese canal.
 
     Es el punto ÚNICO que usa toda la app: lo que se configure en el módulo «Notificaciones» de la
@@ -9841,10 +9901,12 @@ def _artist_notification_emails(session_db, artist_id, channel, *, concept=None,
             vistos.add(clave)
             salida.append(correo)
     if salida or not fallback:
-        # ⚠️ Sin nadie configurado NO se manda nada, y aquí no se avisa en el log: esto se llama
-        # también al PINTAR (la ficha de una canción, la de un álbum…) y lo llenaría de ruido. Quien
-        # ENVÍA es el que lo dice —la pantalla del aviso, el envío de liquidaciones—, y la ficha del
-        # artista lo avisa en ámbar, que es donde se arregla.
+        # ⚠️⚠️ Sin nadie configurado NO se manda nada. Aquí no se avisa en el log (esto se llama
+        # también al PINTAR: la ficha de una canción, la de un álbum… y lo llenaría de ruido); quien
+        # va a ENVIAR pasa `aviso="el plazo de entrega"` y entonces sí se avisa por la campanita a
+        # quien lleva al artista, con el enlace a su ficha.
+        if not salida and aviso:
+            _artist_notice_missing(session_db, aid, canal, aviso)
         return salida
     # Con `fallback` a mano: el correo principal del artista + sus correos adicionales.
     try:
@@ -9864,7 +9926,8 @@ def _artist_notification_emails(session_db, artist_id, channel, *, concept=None,
     return salida
 
 
-def _artist_notification_recipients(session_db, artist_id, channel, *, fallback=False) -> list[dict]:
+def _artist_notification_recipients(session_db, artist_id, channel, *, fallback=False,
+                                    aviso="") -> list[dict]:
     """A QUIÉN se avisa por ese canal, con nombre, correo y TELÉFONO.
 
     Hermano de `_artist_notification_emails` para los avisos que también salen por WhatsApp o SMS
@@ -9888,6 +9951,9 @@ def _artist_notification_recipients(session_db, artist_id, channel, *, fallback=
         vistos.add(clave)
         filas.append({"name": _contact_name(c), "email": correo, "phone": telefono})
     if filas or not fallback:
+        # Igual que en su hermano: quien va a MANDAR pasa `aviso` y entonces se dice que no ha salido.
+        if not filas and aviso:
+            _artist_notice_missing(session_db, aid, canal, aviso)
         return filas
     for correo in _artist_notification_emails(session_db, aid, canal, fallback=True):  # solo a mano
         filas.append({"name": "", "email": correo, "phone": ""})
@@ -29563,7 +29629,7 @@ def _disco_approval_candidates(session_db, project) -> list[dict]:
     # …y lo que el artista tenga configurado para APROBACIONES.
     if artista is not None:
         for fila in (_artist_notification_recipients(session_db, artista.id, "APROBACIONES",
-                                                    fallback=False) or []):
+                                                    aviso="la aprobación") or []):
             añade(fila.get("name") or fila.get("email"), stage=1, role="OTRO",
                   email=(fila.get("email") or ""), phone=(fila.get("phone") or ""),
                   source="artista")
@@ -33722,7 +33788,8 @@ def _disco_materials_recipients(session_db, project) -> list[dict]:
                       "email": correo_p, "phone": tel_p,
                       "promoter_id": _pr["id"]})
     try:
-        correos = _artist_notification_emails(session_db, project.artist_id, "DISCOGRAFICA") or []
+        correos = _artist_notification_emails(session_db, project.artist_id, "DISCOGRAFICA",
+                                              aviso="el plazo de entrega de materiales") or []
     except Exception:
         app.logger.exception("[proyectos] no se pudieron resolver los correos del artista")
         correos = []
@@ -34647,7 +34714,8 @@ def disco_project_artwork_idea_ask(project_id):
         asunto = "Idea de portada · %s" % _disco_project_title(project)
         filas = _notify_apply_prefs(session_db,
                                    _artist_notification_recipients(session_db, project.artist_id,
-                                                                   "DISCOGRAFICA") or [])
+                                                                   "DISCOGRAFICA",
+                                                                   aviso="la idea de la portada") or [])
         salieron = []
         for f in filas:
             ok, _err = _notify_send_row(session_db, f, subject=asunto, html=cuerpo,
@@ -35145,7 +35213,8 @@ def disco_project_authorship_ask(project_id):
             note=(request.form.get("note") or ""))
         filas = _notify_apply_prefs(session_db,
                                    _artist_notification_recipients(session_db, project.artist_id,
-                                                                   "EDITORIAL") or [])
+                                                                   "EDITORIAL",
+                                                                   aviso="la petición del reparto autoral") or [])
         salieron = []
         for f in filas:
             ok, _err = _notify_send_row(
@@ -36226,7 +36295,8 @@ def song_platform_ids_request(song_id):
         filas = _notify_apply_prefs(session_db,
                                    _artist_notification_recipients(session_db,
                                                                    getattr(artista, "id", None),
-                                                                   "DISCOGRAFICA") or [])
+                                                                   "DISCOGRAFICA",
+                                                                   aviso="la petición de los IDs de plataforma") or [])
         salieron = []
         for f in filas:
             ok, _err = _notify_send_row(session_db, f, subject=asunto, html=cuerpo,
@@ -37337,7 +37407,8 @@ def disco_plan_notify_artist(project_id):
             button_label="Ver el plan", button_url=enlace)
         filas = _notify_apply_prefs(session_db,
                                    _artist_notification_recipients(session_db, project.artist_id,
-                                                                   "DISCOGRAFICA") or [])
+                                                                   "DISCOGRAFICA",
+                                                                   aviso="el plan de lanzamiento") or [])
         salieron = []
         for f in filas:
             ok, _err = _notify_send_row(
@@ -37501,7 +37572,8 @@ def _disco_plan_reminder_candidates(session_db, project, plan) -> list[dict]:
         session_db.get(Artist, project.artist_id) if project.artist_id else None)
     if artista is not None:
         filas = (_artist_notification_recipients(session_db, artista.id, "CONTENIDOS", fallback=False)
-                 or _artist_notification_recipients(session_db, artista.id, "DISCOGRAFICA") or [])
+                 or _artist_notification_recipients(session_db, artista.id, "DISCOGRAFICA",
+                                                    aviso="los recordatorios de publicación") or [])
         for f in filas:
             añade(f.get("name") or artista.name, f.get("email"), f.get("phone"), "ARTISTA",
                   (artista.photo_url or ""))
@@ -37821,14 +37893,11 @@ def _disco_plan_reminder_sweep() -> dict:
 
 @app.get("/cron/publicaciones", endpoint="cron_disco_plan_reminders")
 def cron_disco_plan_reminders():
-    """Cron de los recordatorios de publicación (conviene que corra cada pocos minutos: los avisos
-    van con `reminder_minutes` de antelación)."""
-    clave = (request.args.get("key") or "").strip()
-    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
-                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
-    if not esperada or clave != esperada:
-        abort(404)
-    return jsonify({"ok": True, **_disco_plan_reminder_sweep()})
+    """Ruta ANTIGUA: fuerza «publicaciones» y, de paso, corre lo que toque del resto.
+
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("publicaciones")
 
 
 @app.get("/cronograma/<token>", endpoint="public_disco_plan")
@@ -38341,7 +38410,8 @@ def disco_project_date_notify(project_id):
         recibieron = []
         for f in _notify_apply_prefs(session_db,
                                     _artist_notification_recipients(session_db, project.artist_id,
-                                                                    "DISCOGRAFICA") or []):
+                                                                    "DISCOGRAFICA",
+                                                                    aviso="la fecha de lanzamiento") or []):
             ok, _err = _notify_send_row(
                 session_db, f,
                 subject="Fecha de lanzamiento · %s" % _disco_project_title(project),
@@ -38600,7 +38670,8 @@ def disco_project_pitch_ask(project_id):
             button_label="Contar mi inspiración", button_url=enlace, note=nota)
         filas = _notify_apply_prefs(session_db,
                                    _artist_notification_recipients(session_db, project.artist_id,
-                                                                   "DISCOGRAFICA") or [])
+                                                                   "DISCOGRAFICA",
+                                                                   aviso="la petición de inspiración para el pitch") or [])
         salieron = []
         for f in filas:
             ok, _err = _notify_send_row(
@@ -39286,7 +39357,8 @@ def disco_links_share(project_id):
         recibieron = []
         for fila in _notify_apply_prefs(session_db,
                                         _artist_notification_recipients(
-                                            session_db, project.artist_id, "DISCOGRAFICA") or []):
+                                            session_db, project.artist_id, "DISCOGRAFICA",
+                                            aviso="los enlaces del lanzamiento") or []):
             ok, _err = _notify_send_row(
                 session_db, fila,
                 subject="Enlaces del lanzamiento · %s" % _disco_project_title(project),
@@ -59078,12 +59150,11 @@ def promo_press_unschedule(release_id):
 
 @app.get("/cron/notas-de-prensa", endpoint="cron_press_releases")
 def cron_press_releases():
-    """Cron de las notas PROGRAMADAS (el reloj de dentro las manda igual: esto es la red de seguridad)."""
-    clave = (request.args.get("key") or "").strip()
-    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
-    if not esperada or clave != esperada:
-        abort(404)
-    return jsonify({"ok": True, **_press_sweep()})
+    """Ruta ANTIGUA: fuerza «notas_prensa» y, de paso, corre lo que toque del resto.
+
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("notas_prensa")
 
 
 # ── PÚBLICO: la nota, el píxel, el audio, las descargas, las fotos ───────────────────────────
@@ -90970,6 +91041,13 @@ def inject_personnel_globals():
         "HOME_PROJECT_REGISTROS": (_home_project_registros()
                                    if _dept and "_home_project_registros" in globals()
                                    and has_access_key("registros") else []),
+        # ⚠️ ARTISTAS ACTIVOS sin NADIE en «Notificaciones»: a esos no se les manda nada (desde que
+        # solo se avisa a lo configurado), así que hay que repasarlos.
+        # ⚠️ Con `_home`, no con `_dept`: esto lo tiene que ver TAMBIÉN dirección (es lo que decide
+        # si una comunicación sale o no), así que el módulo va fuera de la compuerta de departamento.
+        "HOME_ARTISTS_NO_NOTIF": (_home_artists_without_notifications()
+                                  if _home and "_home_artists_without_notifications" in globals()
+                                  and has_access_key("artists", include_descendants=True) else []),
         # SELLO: lanzamientos nuevos a los que les falta el pitch.
         "HOME_PITCH_PENDING": (_home_pitch_pending()
                                if _dept and "_home_pitch_pending" in globals()
@@ -118657,23 +118735,11 @@ def _sales_own_sweep(*, force: bool = False) -> dict:
 
 @app.get("/cron/actualizar-ventas", endpoint="cron_sales_requests")
 def cron_sales_requests():
-    """Pide a los promotores de fuera que actualicen sus ventas.
+    """Ruta ANTIGUA: fuerza «ventas_promotor, ventas_propias» y, de paso, corre lo que toque del resto.
 
-    El planificador externo pega CADA HORA (o una vez al día pasadas las 10:00 de Madrid); el DÍA y
-    la HORA los decide la app: `_sales_request_due` (la primera el día siguiente a la salida a la
-    venta y después los lunes y los jueves) y `SALES_REQUEST_HOUR` (a partir de las 10:00). Así «los
-    lunes y los jueves a las 10:00» no se desplaza una hora al cambiar la hora, que es lo que le
-    pasaría a un cron escrito en UTC. Con `?ahora=1` se manda sin esperar a las 10:00."""
-    clave = request.args.get("key")
-    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
-                or os.getenv("CHARTMETRIC_CRON_KEY"))
-    if not esperada or clave != esperada:
-        abort(404)
-    ahora = _truthy(request.args.get("ahora"))
-    # Los DOS barridos: lo que se le pide al promotor de fuera y lo que se le recuerda a ticketing
-    # de lo NUESTRO (más de una semana sin actualizar).
-    return jsonify({"ok": True, **_sales_request_sweep(force=ahora),
-                    "propias": _sales_own_sweep(force=ahora)})
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("ventas_promotor", "ventas_propias")
 
 
 # ─── EL CONTACTO DE TICKETING: configurarlo desde la app ─────────────────────────────────────────
@@ -121111,48 +121177,20 @@ def cabify_user_link_save(link_id):
 
 @app.get("/cron/cabify/refresh", endpoint="cron_cabify_refresh")
 def cron_cabify_refresh():
-    """Sondeo periódico de Cabify (tarea programada externa con ?key=). Sin sesión.
+    """Ruta ANTIGUA: fuerza «cabify» y, de paso, corre lo que toque del resto.
 
-    Cabify no manda webhooks de gastos, así que este cron es lo que hace que la importación sea
-    automática. Recomendado cada 1-2 horas."""
-    expected = (getattr(settings, "CABIFY_CRON_KEY", "") or settings.PLEO_CRON_KEY
-                or settings.CHARTMETRIC_CRON_KEY or "").strip()
-    key = (request.args.get("key") or "").strip()
-    if not expected or key != expected:
-        return ("forbidden", 403)
-    try:
-        window = int(request.args.get("dias") or 0) or None
-    except (TypeError, ValueError):
-        window = None
-    try:
-        out = _cabify_sync_all(window_days=window)
-    except Exception as exc:
-        app.logger.exception("[cabify] cron falló")
-        return (jsonify({"ok": False, "error": str(exc)}), 500)
-    return jsonify({"ok": True, **out})
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("cabify")
 
 
 @app.get("/cron/pleo/refresh", endpoint="cron_pleo_refresh")
 def cron_pleo_refresh():
-    """Sondeo periódico de Pleo (tarea programada externa con ?key=). Sin sesión.
+    """Ruta ANTIGUA: fuerza «pleo» y, de paso, corre lo que toque del resto.
 
-    Pleo no manda webhooks de gastos, así que este cron es lo que hace que la importación sea
-    AUTOMÁTICA. Recomendado cada 30-60 minutos.
-    """
-    expected = (settings.PLEO_CRON_KEY or settings.CHARTMETRIC_CRON_KEY or "").strip()
-    key = (request.args.get("key") or "").strip()
-    if not expected or key != expected:
-        return ("forbidden", 403)
-    try:
-        window = int(request.args.get("dias") or 0) or None
-    except (TypeError, ValueError):
-        window = None
-    try:
-        out = _pleo_sync_all(window_days=window)
-    except Exception as exc:
-        app.logger.exception("[pleo] cron falló")
-        return (jsonify({"ok": False, "error": str(exc)}), 500)
-    return jsonify({"ok": True, **out})
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("pleo")
 
 
 # ===========================================================================
@@ -123465,22 +123503,11 @@ def api_address_search():
 
 @app.get("/cron/holded/refresh", endpoint="cron_holded_refresh")
 def cron_holded_refresh():
-    """Sondeo periódico: mira en Holded qué documentos ya están contabilizados. Sin sesión (?key=)."""
-    expected = (getattr(settings, "HOLDED_CRON_KEY", "") or settings.PLEO_CRON_KEY
-                or settings.CHARTMETRIC_CRON_KEY or "").strip()
-    key = (request.args.get("key") or "").strip()
-    if not expected or key != expected:
-        return ("forbidden", 403)
-    session_db = db()
-    try:
-        out = _holded_refresh_accounted(session_db)
-    except Exception as exc:
-        session_db.rollback()
-        app.logger.exception("[holded] cron falló")
-        return (jsonify({"ok": False, "error": str(exc)}), 500)
-    finally:
-        session_db.close()
-    return jsonify({"ok": True, **out})
+    """Ruta ANTIGUA: fuerza «holded» y, de paso, corre lo que toque del resto.
+
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("holded")
 
 
 @app.post('/mi-orden/pestanas', endpoint='ui_order_save')
@@ -127006,66 +127033,29 @@ def _song_delivery_reminders_sweep(limit: int = 100) -> dict:
 
 @app.get("/cron/entrega-masters", endpoint="cron_song_delivery_reminders")
 def cron_song_delivery_reminders():
-    """Cron diario: recuerda las entregas de masters que se pidieron por correo y no han llegado."""
-    clave = (request.args.get("key") or "").strip()
-    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
-                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
-    if not esperada or clave != esperada:
-        abort(404)
-    return jsonify({"ok": True, **_song_delivery_reminders_sweep()})
+    """Ruta ANTIGUA: fuerza «entregas_masters» y, de paso, corre lo que toque del resto.
+
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("entregas_masters")
 
 
 @app.get("/cron/materiales-proyecto", endpoint="cron_disco_materials_reminders")
 def cron_disco_materials_reminders():
-    """Cron diario: recuerda el PLAZO DE ENTREGA de materiales de los proyectos discográficos.
+    """Ruta ANTIGUA: fuerza «materiales_proyecto, plan_lanzamiento» y, de paso, corre lo que toque del resto.
 
-    ⚠️ Insiste UNA sola vez (a `DISCO_MATERIALS_REMINDER_DAYS` días de la fecha máxima) y solo si los
-    másters no están subidos. Va también dentro del cron diario de documentos, para no depender de
-    otra tarea en el servidor."""
-    clave = (request.args.get("key") or "").strip()
-    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
-                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
-    if not esperada or clave != esperada:
-        abort(404)
-    # …y de paso el aviso del PLAN al artista (para no depender de otra tarea en el servidor).
-    return jsonify({"ok": True, **_disco_materials_reminder_sweep(),
-                    "plan_notice": _disco_plan_notice_sweep()})
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("materiales_proyecto", "plan_lanzamiento")
 
 
 @app.get("/cron/documentos-caducados", endpoint="cron_expired_documents")
 def cron_expired_documents():
-    """Cron diario: avisa por correo a quien tenga el DNI, el carnet o el pasaporte caducado."""
-    clave = (request.args.get("key") or "").strip()
-    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
-                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
-    if not esperada or clave != esperada:
-        abort(404)
-    # Se aprovecha el mismo paso diario para recordar las entregas de masters pendientes: así no
-    # hace falta configurar otro cron en el servidor (el suyo propio existe igualmente).
-    return jsonify({"ok": True, **_person_docs_expired_sweep(),
-                    "entregas_masters": _song_delivery_reminders_sweep(),
-                    # Y el recordatorio del PLAZO DE ENTREGA de materiales de un proyecto (a
-                    # DISCO_MATERIALS_REMINDER_DAYS días de la fecha máxima, una sola vez).
-                    "materiales_proyecto": _disco_materials_reminder_sweep(),
-                    # Y las liquidaciones de royalties A FAVOR que ya toca pedir (un mes después de
-                    # que cierre el semestre): así no depende de otra tarea en el servidor.
-                    "afavor": _afavor_request_sweep(),
-                    # Y la ACTUALIZACIÓN DE VENTAS que se le pide al promotor de fuera (el día lo
-                    # decide `_sales_request_due`: la primera el día siguiente a la salida a la
-                    # venta y después los lunes y los jueves).
-                    "ventas": _sales_request_sweep(),
-                    # Y el recordatorio de LO NUESTRO: al responsable de ticketing, cuando una
-                    # actividad que vendemos nosotros lleva más de una semana sin actualizarse.
-                    # ⚠️ Va aquí a propósito: su cron propio (`/cron/actualizar-ventas`) existe
-                    # igualmente, pero así no hace falta dar de alta otra tarea en el servidor —
-                    # el mismo criterio que las entregas de masters y las liquidaciones «a favor».
-                    "ventas_propias": _sales_own_sweep(),
-                    # Y el RECORDATORIO del plazo de una playlist de selección/valoración (el día
-                    # antes, una sola vez, a quien todavía no ha contestado).
-                    "playlists_valoracion": _playlist_vote_reminder_sweep(),
-                    # Y las NOTAS DE PRENSA programadas cuya hora ya ha llegado (el reloj de dentro
-                    # las manda cada minuto; esto es la red de seguridad si el proceso se reinició).
-                    "notas_de_prensa": _press_sweep()})
+    """Ruta ANTIGUA: fuerza «documentos» y, de paso, corre lo que toque del resto.
+
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("documentos")
 
 
 @app.post("/documentos/pedir", endpoint="person_doc_request_send")
@@ -129934,6 +129924,9 @@ NOTIFICATION_KIND_META = {
     # Lo que llega de un PROYECTO discográfico por sus enlaces públicos (la portada entregada, la idea
     # del artista, su visto bueno, las creatividades, los IDs de plataforma).
     "DISCOGRAFICA": ("Novedad en un proyecto discográfico", "fa-compact-disc"),
+    # ⚠️ Una comunicación que NO ha salido porque el artista no tiene a nadie en ese canal de sus
+    # «Notificaciones». Es el aviso que evita el silencio: sin él, nadie se entera de que no llegó.
+    "SIN_NOTIFICACIONES": ("No se ha podido avisar al artista", "fa-bell-slash"),
 }
 
 # Los avisos que salen en ROJO. El resto son AMARILLOS, que es como se ven los avisos de la casa.
@@ -146522,13 +146515,11 @@ def _afavor_request_sweep() -> dict:
 
 @app.get("/cron/afavor", endpoint="cron_afavor")
 def cron_afavor():
-    """Barrido de los royalties «A favor» (se cuelga también del cron diario de documentos)."""
-    clave = (request.args.get("key") or "").strip()
-    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
-                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
-    if not esperada or clave != esperada:
-        abort(404)
-    return jsonify({"ok": True, **_afavor_request_sweep()})
+    """Ruta ANTIGUA: fuerza «afavor» y, de paso, corre lo que toque del resto.
+
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("afavor")
 
 
 def _artist_sello_user_ids(session_db, artist_id) -> list[str]:
@@ -146573,6 +146564,63 @@ def _pitch_notify_new_release(session_db, kind, obj, artist_id) -> int:
         )
     except Exception:
         return 0
+
+
+def _home_artists_without_notifications(limit: int = 30) -> list[dict]:
+    """ARTISTAS ACTIVOS a los que NO se les puede mandar nada: no hay NADIE en «Notificaciones».
+
+    Desde que solo se manda a lo configurado, un artista así **no recibe ninguna comunicación**, así
+    que esto es para repasarlos de una vez en vez de ir ficha por ficha. A cada uno le salen los de
+    SUS artistas (faceta sello); dirección y quien está en Sello sin artistas asignados, todos.
+
+    ⚠️ Solo los **ACTIVOS** (`_active_artist_ids`): el catálogo entero tiene artistas de hace años a
+    los que no hay que mandar nada, y con ellos la lista no se acabaría nunca.
+    ⚠️ **Dos consultas**, no una por artista: los artistas y, de una vez, quién tiene contactos."""
+    state = _current_user_state()
+    if not state.get("user_id"):
+        return []
+    session_db = db()
+    try:
+        es_direccion = int(state.get("role") or 0) == 10
+        sello_ids = list(getattr(state.get("profile"), "assigned_artist_ids_sello", None) or [])
+        asignados = {str(x) for x in sello_ids if x}
+        if not es_direccion and not asignados:
+            deps = {str(d).strip().casefold() for d in (state.get("departments") or [])}
+            if "sello" not in deps:
+                return []
+        activos = _active_artist_ids(session_db)
+        if not activos:
+            return []
+        if asignados and not es_direccion:
+            activos = {x for x in activos if x in asignados}
+        if not activos:
+            return []
+        ids = [_safe_uuid(x) for x in activos]
+        ids = [x for x in ids if x]
+        con_contactos = {str(a) for (a,) in (
+            session_db.query(ArtistNotificationContact.artist_id)
+            .filter(ArtistNotificationContact.artist_id.in_(ids)).distinct().all())}
+        filas = []
+        for art in (session_db.query(Artist)
+                    .filter(Artist.id.in_(ids))
+                    .filter(Artist.event_id.is_(None))      # los espejos de EVENTO no se enseñan
+                    .order_by(Artist.name.asc()).all()):
+            if str(art.id) in con_contactos:
+                continue
+            filas.append({
+                "id": str(art.id),
+                "name": art.name,
+                "photo_url": (art.photo_url or ""),
+                "url": url_for("artist_detail_view", artist_id=art.id, tab="datos"),
+            })
+            if len(filas) >= limit:
+                break
+        return filas
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron mirar los artistas sin notificaciones")
+        return []
+    finally:
+        session_db.close()
 
 
 def _home_pitch_pending(limit: int = 20) -> list[dict]:
@@ -149676,17 +149724,11 @@ def playlisting_view():
 
 @app.get("/cron/chartmetric/refresh", endpoint="cron_chartmetric_refresh")
 def cron_chartmetric_refresh():
-    """Refresco diario automático de Chartmetric (lo llama una tarea programada de Render con ?key=).
-    Protegido por CHARTMETRIC_CRON_KEY; no requiere sesión. Lanza el refresco en segundo plano."""
-    expected = (os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
-    key = (request.args.get("key") or "").strip()
-    if not expected or key != expected:
-        return ("forbidden", 403)
-    import chartmetric_utils as cm
-    if not cm.chartmetric_configured():
-        return ("chartmetric no configurado", 200)
-    threading.Thread(target=_chartmetric_refresh_all_bg, daemon=True).start()
-    return ("refresco en marcha", 200)
+    """Ruta ANTIGUA: fuerza «chartmetric» y, de paso, corre lo que toque del resto.
+
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("chartmetric")
 
 
 # =========================================================
@@ -151184,25 +151226,11 @@ def sales_et_status():
 
 @app.get("/cron/enterticket/refresh", endpoint="cron_enterticket_refresh")
 def cron_enterticket_refresh():
-    """Refresco periódico de Enterticket (tarea programada externa con ?key=). Sin sesión."""
-    expected = (settings.ENTERTICKET_CRON_KEY or "").strip()
-    key = (request.args.get("key") or "").strip()
-    if not expected or key != expected:
-        return ("forbidden", 403)
-    # Aprovechamos este cron para los recordatorios semanales de LINKS DE VENTA al promotor
-    # (best-effort; el gating semanal por last_sent_at lo hace la propia función).
-    try:
-        _s = db()
-        try:
-            _process_sale_channel_reminders(_s)
-        finally:
-            _s.close()
-    except Exception:
-        app.logger.exception('[canales-venta] recordatorios semanales fallaron')
-    if not et_api.enterticket_configured():
-        return ("enterticket no configurado", 200)
-    threading.Thread(target=_et_sync_all_bg, daemon=True).start()
-    return ("refresco en marcha", 200)
+    """Ruta ANTIGUA: fuerza «enterticket, canales_venta» y, de paso, corre lo que toque del resto.
+
+    Se conserva para que lo que ya esté configurado en el servidor siga funcionando: el
+    cron de la app es ya UNO solo (`/cron`, cada minuto)."""
+    return _cron_legacy("enterticket", "canales_venta")
 
 
 def _et_event_display_label(ev: EnterticketEvent) -> str:
@@ -159482,6 +159510,415 @@ def _sync_promoter_tab_context(session_db, promoter) -> dict:
     }
 
 
+
+# ===========================================================================
+#  ⚠️⚠️ EL CRON ÚNICO · UN SOLO LATIDO PARA TODAS LAS AUTOMATIZACIONES
+#  -------------------------------------------------------------------------
+#  Antes había DOCE tareas programadas distintas, con cuatro claves distintas y cada una con su
+#  cadencia: cualquier automatización nueva obligaba a dar de alta otro cron en el servidor, y si
+#  a alguien se le olvidaba, ese aviso **no salía nunca y nadie se enteraba**.
+#
+#  Ahora el servidor solo tiene que pegarle a UNA dirección CADA MINUTO:
+#
+#        https://app.33producciones.es/cron?key=<APP_CRON_KEY>
+#
+#  …y **la app decide** qué le toca a cada cosa (`CRON_TASKS`: cada tarea con su cadencia y, si es
+#  diaria, su hora). Una automatización nueva se añade a ese registro y **empieza a correr sola**:
+#  no hay que tocar el servidor nunca más.
+#
+#  ⚠️ Las rutas de siempre (`/cron/documentos-caducados`, `/cron/pleo/refresh`…) SE CONSERVAN y
+#  fuerzan su tarea: lo que Dani ya tenga configurado sigue funcionando mientras lo cambia.
+# ===========================================================================
+CRON_LOCK_KEY = "app33_cron_tick"          # el cerrojo entre workers (advisory lock de Postgres)
+CRON_STATE_SETTING = "cron_state_v1"       # dónde se apunta cuándo corrió cada tarea
+CRON_BUDGET_SECONDS = 50                   # el latido es de un minuto: lo que no cabe, a la siguiente
+CRON_RETRY_MINUTES = 15                    # si una tarea falla, se reintenta antes de su cadencia
+CRON_SILENT_MINUTES = 10                   # sin latido en 10 min, el cron está caído
+
+
+def _cron_session_task(fn_name: str):
+    """Envoltorio de un barrido que necesita SESIÓN de BD (la abre y la cierra él)."""
+    def _run():
+        fn = globals().get(fn_name)
+        if fn is None:
+            return {"error": "no existe %s" % fn_name}
+        s = db()
+        try:
+            return fn(s) or {}
+        finally:
+            s.close()
+    return _run
+
+
+def _cron_thread_task(fn_name: str, guard: str = ""):
+    """Envoltorio de una sincronización LARGA: se lanza en segundo plano (no puede bloquear el tick).
+
+    `guard` es una función que dice si esa integración está configurada: sin ella no se arranca nada."""
+    def _run():
+        fn = globals().get(fn_name)
+        if fn is None:
+            return {"error": "no existe %s" % fn_name}
+        if guard:
+            comprueba = globals().get(guard)
+            try:
+                if comprueba is not None and not comprueba():
+                    return {"saltada": "sin configurar"}
+            except Exception:
+                return {"saltada": "sin configurar"}
+        threading.Thread(target=fn, daemon=True).start()
+        return {"lanzada": True}
+
+
+    return _run
+
+
+def _cron_enterticket_guard() -> bool:
+    try:
+        return bool(et_api.enterticket_configured())
+    except Exception:
+        return False
+
+
+def _cron_chartmetric_guard() -> bool:
+    try:
+        import chartmetric_utils as _cm
+        return bool(_cm.chartmetric_configured())
+    except Exception:
+        return False
+
+
+# ⚠️⚠️ EL REGISTRO DE AUTOMATIZACIONES. Una tarea nueva se añade AQUÍ y ya corre sola.
+#   key      – clave estable (es con la que se apunta cuándo corrió: no se cambia)
+#   label    – qué hace, para la pantalla de estado
+#   every    – cada cuántos MINUTOS le toca
+#   at_hour  – (opcional) si es diaria: a partir de qué hora de España, y una sola vez al día
+#   fn       – el NOMBRE de la función (se resuelve en `globals()` al ejecutar: así el registro
+#              puede vivir al final del fichero sin importar dónde esté definida cada una)
+#   run      – (opcional) en vez de `fn`, un envoltorio ya hecho (sesión de BD o hilo)
+CRON_TASKS = [
+    # ── cada minuto ────────────────────────────────────────────────────────────────────────
+    {"key": "notas_prensa", "label": "Notas de prensa programadas", "every": 1,
+     "fn": "_press_sweep", "icon": "fa-newspaper"},
+    # ── cada pocos minutos ─────────────────────────────────────────────────────────────────
+    {"key": "publicaciones", "label": "Recordatorios de publicación (plan de lanzamiento)",
+     "every": 5, "fn": "_disco_plan_reminder_sweep", "icon": "fa-bullhorn"},
+    {"key": "enterticket", "label": "Enterticket · ventas en vivo", "every": 15,
+     "run": _cron_thread_task("_et_sync_all_bg", "_cron_enterticket_guard"), "icon": "fa-ticket"},
+    # ── cada hora ──────────────────────────────────────────────────────────────────────────
+    {"key": "anuncio", "label": "Actividades sin anunciar (el aviso del mes, el recordatorio y el "
+                                "escalado a dirección)", "every": 60,
+     "fn": "_announce_alert_sweep", "icon": "fa-bullhorn"},
+    {"key": "ventas_promotor", "label": "Pedir al promotor que actualice sus ventas", "every": 60,
+     "fn": "_sales_request_sweep", "icon": "fa-chart-simple"},
+    {"key": "ventas_propias", "label": "Recordar a ticketing las ventas sin actualizar", "every": 60,
+     "fn": "_sales_own_sweep", "icon": "fa-chart-simple"},
+    {"key": "pleo", "label": "Pleo · importar gastos", "every": 60,
+     "fn": "_pleo_sync_all", "icon": "fa-receipt"},
+    {"key": "holded", "label": "Holded · qué está ya contabilizado", "every": 60,
+     "run": _cron_session_task("_holded_refresh_accounted"), "icon": "fa-calculator"},
+    # ── cada dos horas ─────────────────────────────────────────────────────────────────────
+    {"key": "cabify", "label": "Cabify · importar viajes", "every": 120,
+     "fn": "_cabify_sync_all", "icon": "fa-taxi"},
+    # ── una vez al día ─────────────────────────────────────────────────────────────────────
+    {"key": "documentos", "label": "Documentos caducados (DNI, carnet, pasaporte)", "every": 1440,
+     "at_hour": 8, "fn": "_person_docs_expired_sweep", "icon": "fa-id-card"},
+    {"key": "entregas_masters", "label": "Recordar las entregas de masters pendientes", "every": 1440,
+     "at_hour": 8, "fn": "_song_delivery_reminders_sweep", "icon": "fa-music"},
+    {"key": "materiales_proyecto", "label": "Plazo de entrega de materiales de un proyecto",
+     "every": 1440, "at_hour": 8, "fn": "_disco_materials_reminder_sweep", "icon": "fa-compact-disc"},
+    {"key": "plan_lanzamiento", "label": "Avisos del plan de lanzamiento (y el escalado a dirección)",
+     "every": 1440, "at_hour": 8, "fn": "_disco_plan_notice_sweep", "icon": "fa-rocket"},
+    {"key": "afavor", "label": "Pedir las liquidaciones de royalties «a favor»", "every": 1440,
+     "at_hour": 8, "fn": "_afavor_request_sweep", "icon": "fa-hand-holding-dollar"},
+    {"key": "playlists_valoracion", "label": "Recordar el plazo de una playlist de valoración",
+     "every": 1440, "at_hour": 8, "fn": "_playlist_vote_reminder_sweep", "icon": "fa-list-check"},
+    {"key": "canales_venta", "label": "Recordar al promotor los enlaces de venta", "every": 1440,
+     "at_hour": 9, "run": _cron_session_task("_process_sale_channel_reminders"), "icon": "fa-link"},
+    {"key": "chartmetric", "label": "Chartmetric · reproducciones y enlaces", "every": 1440,
+     "at_hour": 6, "run": _cron_thread_task("_chartmetric_refresh_all_bg", "_cron_chartmetric_guard"),
+     "icon": "fa-chart-line"},
+]
+CRON_TASKS_BY_KEY = {t["key"]: t for t in CRON_TASKS}
+
+
+def _cron_expected_keys() -> list[str]:
+    """Las claves que valen para llamar al cron.
+
+    La de la casa es **APP_CRON_KEY**; se aceptan también las de siempre (`DOCS_CRON_KEY`,
+    `PLEO_CRON_KEY`…) para que lo que ya esté configurado en el servidor siga funcionando."""
+    nombres = ("APP_CRON_KEY", "CRON_KEY", "DOCS_CRON_KEY", "EXPENSE_CRON_KEY", "CHARTMETRIC_CRON_KEY",
+               "PLEO_CRON_KEY", "CABIFY_CRON_KEY", "HOLDED_CRON_KEY", "ENTERTICKET_CRON_KEY")
+    salida = []
+    for n in nombres:
+        v = (os.getenv(n) or getattr(settings, n, "") or "").strip()
+        if v and v not in salida:
+            salida.append(v)
+    return salida
+
+
+def _cron_key_ok(clave: str) -> bool:
+    esperadas = _cron_expected_keys()
+    return bool(esperadas) and (clave or "").strip() in esperadas
+
+
+def _cron_state() -> dict:
+    """Lo que se apuntó de cada tarea (cuándo corrió, si falló y qué devolvió)."""
+    try:
+        crudo = _get_app_setting(CRON_STATE_SETTING, "") or ""
+        datos = json.loads(crudo) if crudo else {}
+        return datos if isinstance(datos, dict) else {}
+    except Exception:
+        return {}
+
+
+def _cron_state_save(estado: dict) -> None:
+    try:
+        _set_app_setting(CRON_STATE_SETTING, json.dumps(estado, ensure_ascii=False)[:200000])
+    except Exception:
+        app.logger.exception("[cron] no se pudo guardar el estado")
+
+
+def _cron_parse_dt(valor):
+    try:
+        d = datetime.fromisoformat(str(valor or ""))
+        return d if d.tzinfo else d.replace(tzinfo=TZ_MADRID)
+    except Exception:
+        return None
+
+
+def _cron_due(task: dict, info: dict, ahora) -> bool:
+    """¿Le toca a esta tarea?
+
+    ⚠️ Si la última acabó en ERROR se reintenta a los `CRON_RETRY_MINUTES` aunque sea diaria: si no,
+    un fallo a las 8:00 dejaría ese aviso sin salir hasta el día siguiente."""
+    at = _cron_parse_dt((info or {}).get("at"))
+    if at is None:
+        return True
+    minutos = (ahora - at).total_seconds() / 60.0
+    if (info or {}).get("error"):
+        return minutos >= CRON_RETRY_MINUTES
+    hora = task.get("at_hour")
+    if hora is not None:
+        return at.astimezone(TZ_MADRID).date() != ahora.date() and ahora.hour >= int(hora)
+    return minutos >= float(task.get("every") or 1)
+
+
+def _cron_resumen(salida) -> str:
+    """Un resumen corto de lo que ha hecho una tarea (lo que se ve en la pantalla de estado)."""
+    if salida is None:
+        return ""
+    if isinstance(salida, dict):
+        trozos = []
+        for k, v in salida.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                if v:
+                    trozos.append("%s: %s" % (k, v))
+            elif isinstance(v, bool):
+                if v:
+                    trozos.append(str(k))
+            elif isinstance(v, (list, tuple, set)):
+                if v:
+                    trozos.append("%s: %s" % (k, len(v)))
+        return " · ".join(trozos)[:300]
+    return str(salida)[:300]
+
+
+def _cron_run_task(task: dict) -> tuple[bool, str, str]:
+    """Ejecuta UNA tarea. Devuelve (ok, resumen, error)."""
+    try:
+        fn = task.get("run") or globals().get(task.get("fn") or "")
+        if fn is None:
+            return False, "", "no existe la función %s" % (task.get("fn") or "")
+        salida = fn()
+        return True, _cron_resumen(salida), ""
+    except Exception as exc:
+        app.logger.exception("[cron] falló la tarea %s", task.get("key"))
+        return False, "", str(exc)[:300]
+
+
+def _cron_tick(*, only=None, force: bool = False, budget: float = CRON_BUDGET_SECONDS) -> dict:
+    """EL LATIDO: corre las tareas a las que les toca y apunta lo que ha pasado.
+
+    ⚠️ Con CERROJO entre workers: si otro proceso está dentro, este tick no hace nada (mejor eso que
+    mandar dos veces el mismo aviso).
+    ⚠️ Con PRESUPUESTO de tiempo: el latido es de un minuto, así que lo que no cabe queda para la
+    pasada siguiente — y se empieza por lo que **más retraso lleva**, para que ninguna se quede
+    eternamente fuera."""
+    ahora = _now_madrid()
+    pedidas = {str(x).strip() for x in (only or []) if str(x).strip()}
+    with _pleo_pg_lock(CRON_LOCK_KEY) as libre:
+        if not libre:
+            return {"ok": True, "ocupado": True, "tareas": {}}
+        estado = _cron_state()
+        tareas = dict(estado.get("tasks") or {})
+        candidatas = []
+        for t in CRON_TASKS:
+            if pedidas and t["key"] not in pedidas:
+                continue
+            info = tareas.get(t["key"]) or {}
+            if not force and not _cron_due(t, info, ahora):
+                continue
+            at = _cron_parse_dt(info.get("at"))
+            # Retraso RELATIVO a su cadencia: así una de cada minuto con dos minutos de retraso va
+            # antes que una diaria con diez (que no llega ni al 1% de su ciclo).
+            retraso = 10 ** 6 if at is None else ((ahora - at).total_seconds() / 60.0) / max(1.0, float(t.get("every") or 1))
+            candidatas.append((retraso, t))
+        candidatas.sort(key=lambda x: -x[0])
+
+        hecho, sin_tiempo = {}, []
+        arranque = time.monotonic()
+        for _r, t in candidatas:
+            if (time.monotonic() - arranque) >= budget:
+                sin_tiempo.append(t["key"])
+                continue
+            t0 = time.monotonic()
+            ok, resumen, error = _cron_run_task(t)
+            info = {
+                "at": ahora.isoformat(),
+                "ok": ok,
+                "ms": int((time.monotonic() - t0) * 1000),
+                "out": resumen,
+                "error": error,
+                "runs": int((tareas.get(t["key"]) or {}).get("runs") or 0) + 1,
+            }
+            tareas[t["key"]] = info
+            hecho[t["key"]] = {"ok": ok, "out": resumen, "error": error, "ms": info["ms"]}
+
+        estado["tasks"] = tareas
+        estado["tick_at"] = ahora.isoformat()
+        estado["tick_count"] = int(estado.get("tick_count") or 0) + 1
+        _cron_state_save(estado)
+        salida = {"ok": True, "at": ahora.isoformat(), "tareas": hecho}
+        if sin_tiempo:
+            salida["sin_tiempo"] = sin_tiempo
+        return salida
+
+
+@app.get("/cron", endpoint="cron_tick")
+def cron_tick_view():
+    """⚠️⚠️ EL ÚNICO CRON DE LA APP. El servidor le pega CADA MINUTO y la app decide lo demás.
+
+        https://app.33producciones.es/cron?key=<APP_CRON_KEY>
+
+    · `?tarea=<clave>`  corre solo esa (o varias separadas por comas)
+    · `?forzar=1`       se salta la cadencia (para probar una ahora mismo)
+    Las automatizaciones están en `CRON_TASKS`: una nueva se añade ahí y empieza a correr sola."""
+    if not _cron_key_ok(request.args.get("key") or ""):
+        abort(404)
+    solo = [x.strip() for x in (request.args.get("tarea") or "").split(",") if x.strip()]
+    return jsonify(_cron_tick(only=solo or None, force=_truthy(request.args.get("forzar"))))
+
+
+def _cron_legacy(*claves):
+    """Las rutas de cron ANTIGUAS: cada una fuerza SU tarea del registro único.
+
+    ⚠️ Y, además, corre **lo que le toque al resto**: así un cron viejo que siga configurado en el
+    servidor mantiene TODAS las automatizaciones al día mientras se cambia por el latido único (el
+    caso real: hoy solo está dado de alta el cron diario de documentos)."""
+    if not _cron_key_ok(request.args.get("key") or ""):
+        abort(404)
+    salida = _cron_tick(only=list(claves), force=True, budget=90)
+    try:
+        resto = _cron_tick(budget=60)
+        for k, v in (resto.get("tareas") or {}).items():
+            salida.setdefault("tareas", {}).setdefault(k, v)
+    except Exception:
+        app.logger.exception("[cron] el resto del latido falló")
+    return jsonify(salida)
+
+
+def _cron_status_rows() -> list[dict]:
+    """Cómo va cada automatización (para la pantalla de estado de Integraciones)."""
+    estado = _cron_state()
+    tareas = estado.get("tasks") or {}
+    ahora = _now_madrid()
+    filas = []
+    for t in CRON_TASKS:
+        info = tareas.get(t["key"]) or {}
+        at = _cron_parse_dt(info.get("at"))
+        if t.get("at_hour") is not None:
+            cadencia = "cada día a partir de las %02d:00" % int(t["at_hour"])
+        elif int(t.get("every") or 1) >= 60 and int(t.get("every") or 1) % 60 == 0:
+            horas = int(t["every"]) // 60
+            cadencia = "cada hora" if horas == 1 else "cada %d horas" % horas
+        elif int(t.get("every") or 1) == 1:
+            cadencia = "cada minuto"
+        else:
+            cadencia = "cada %d minutos" % int(t["every"])
+        filas.append({
+            "key": t["key"], "label": t["label"], "icon": t.get("icon") or "fa-robot",
+            "cadence": cadencia,
+            "at": at, "at_label": (at.strftime("%d/%m/%Y %H:%M") if at else ""),
+            "ago": (_human_minutes_ago((ahora - at).total_seconds() / 60.0) if at else "nunca"),
+            "ok": bool(info.get("ok", True)),
+            "error": (info.get("error") or ""),
+            "out": (info.get("out") or ""),
+            "runs": int(info.get("runs") or 0),
+        })
+    return filas
+
+
+def _human_minutes_ago(minutos: float) -> str:
+    """«hace 3 minutos» · «hace 2 horas» · «hace 4 días» (el reloj de la pantalla de estado)."""
+    m = int(max(0, minutos))
+    if m < 1:
+        return "hace un momento"
+    if m < 60:
+        return "hace %d minuto%s" % (m, "" if m == 1 else "s")
+    h = m // 60
+    if h < 24:
+        return "hace %d hora%s" % (h, "" if h == 1 else "s")
+    d = h // 24
+    return "hace %d día%s" % (d, "" if d == 1 else "s")
+
+
+def _cron_status_context() -> dict:
+    """El estado del cron: si late, cuándo fue la última vez y cómo va cada automatización.
+
+    ⚠️ Lo primero que hay que saber es si el servidor le está pegando: sin latido, NINGÚN aviso
+    automático sale y en la app no se nota hasta que alguien echa de menos uno."""
+    estado = _cron_state()
+    at = _cron_parse_dt(estado.get("tick_at"))
+    ahora = _now_madrid()
+    minutos = ((ahora - at).total_seconds() / 60.0) if at else None
+    vivo = bool(at) and minutos is not None and minutos <= CRON_SILENT_MINUTES
+    fallos = [f for f in _cron_status_rows() if not f["ok"]]
+    return {
+        "cron_alive": vivo,
+        "cron_never": at is None,
+        "cron_last": at,
+        "cron_last_label": (at.strftime("%d/%m/%Y %H:%M:%S") if at else ""),
+        "cron_ago": (_human_minutes_ago(minutos) if minutos is not None else ""),
+        "cron_ticks": int(estado.get("tick_count") or 0),
+        "cron_rows": _cron_status_rows(),
+        "cron_failing": fallos,
+        "cron_url": _external_url_for("cron_tick"),
+        "cron_key_set": bool(_cron_expected_keys()),
+        "cron_silent_minutes": CRON_SILENT_MINUTES,
+    }
+
+
+@app.post("/cron/probar", endpoint="cron_run_now")
+@admin_required
+def cron_run_now():
+    """«Ejecutar ahora» una automatización desde la pantalla de estado (solo dirección)."""
+    if not is_master():
+        return forbid("Solo dirección puede lanzar las automatizaciones a mano.")
+    clave = (request.form.get("tarea") or "").strip()
+    if clave and clave not in CRON_TASKS_BY_KEY:
+        flash("Esa automatización no existe.", "warning")
+        return redirect(url_for("integrations_view") + "#tab-automatizaciones")
+    salida = _cron_tick(only=([clave] if clave else None), force=True, budget=110)
+    if clave:
+        r = (salida.get("tareas") or {}).get(clave) or {}
+        if r.get("ok"):
+            flash("«%s»: hecho. %s" % (CRON_TASKS_BY_KEY[clave]["label"], r.get("out") or "sin novedades"),
+                  "success")
+        else:
+            flash("«%s» ha fallado: %s" % (CRON_TASKS_BY_KEY[clave]["label"], r.get("error") or ""), "danger")
+    else:
+        flash("Se han lanzado %d automatizaciones." % len(salida.get("tareas") or {}), "success")
+    return redirect(url_for("integrations_view") + "#tab-automatizaciones")
 
 # ⚠️⚠️ LAS EXENCIONES DE CSRF VAN AL FINAL DEL FICHERO, cuando ya están registradas TODAS las
 # rutas: se aplican buscando la view function en `app.view_functions`, así que un endpoint definido

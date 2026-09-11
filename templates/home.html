@@ -754,6 +754,44 @@ document.addEventListener('click', function (ev) {
 
 {% endif %}{# /módulos de departamento (dirección no los ve) #}
 
+{# ⚠️ ARTISTAS ACTIVOS SIN NADIE EN «NOTIFICACIONES»: a esos NO se les manda ninguna comunicación
+   (desde que solo se avisa a lo configurado). Es para repasarlos de una vez, no ficha por ficha. #}
+{% if HOME_ARTISTS_NO_NOTIF %}
+<div class="card mb-4 border-warning">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-bell-slash text-warning me-2"></i>Artistas sin notificaciones configuradas</h5>
+        <div class="small text-muted">
+          Mientras no haya nadie en «Notificaciones», <strong>no se les manda ninguna comunicación</strong>.
+        </div>
+      </div>
+      <span class="badge text-bg-warning text-dark">{{ HOME_ARTISTS_NO_NOTIF|length }}</span>
+    </div>
+    <div class="row g-2">
+      {% for a in HOME_ARTISTS_NO_NOTIF[:12] %}
+        <div class="col-12 col-md-6 col-xl-4">
+          <a href="{{ a.url }}" class="text-decoration-none text-reset">
+            <div class="d-flex align-items-center gap-2 border rounded p-2 h-100" style="min-width:0;">
+              {{ artist_avatar(a.photo_url, a.name) }}
+              <div class="flex-grow-1 text-truncate" style="min-width:0;">
+                <div class="fw-semibold text-truncate">{{ a.name }}</div>
+                <div class="small text-muted">Sin nadie configurado</div>
+              </div>
+              <span class="badge text-bg-warning text-dark">Configurar</span>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+    {% if HOME_ARTISTS_NO_NOTIF|length > 12 %}
+      <div class="small text-muted mt-2">Y {{ HOME_ARTISTS_NO_NOTIF|length - 12 }} más.</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+
 {# ---------- LO SUYO (fuera de la compuerta): lo ve TODO EL MUNDO, sea del departamento que sea ----------
    Lo que es de la PERSONA y no de una función: sus gastos, sus vacaciones, lo que ha creado y está
    sin producción, los carteles que le han rechazado, sus peticiones y sus invitaciones pedidas.

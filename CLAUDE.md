@@ -4550,6 +4550,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ El parcial de integrantes vuelve a donde se pinta (`members_back_url`), no siempre a la ficha
   del artista. Y **`CAN_EDIT_ARTISTS_STATIONS` NO se pisa** con `can_edit_catalogs()`: es el permiso
   que EXIGEN esos endpoints, así que pisarlo enseñaría botones que darían un 403.
+  · ⚠️⚠️ **UNA COMUNICACIÓN QUE NO SALE POR ESO SE DICE** (`_artist_notice_missing`, kind
+  **`SIN_NOTIFICACIONES`**): si al ir a mandar algo no hay nadie en ese canal, le llega un aviso por
+  la campanita a **quien lleva al artista** (`_artist_sello_user_ids`) diciendo **QUÉ no ha salido** y
+  con el **enlace a su ficha**. Sin esto, el silencio se descubre semanas después.
+  ⚠️ Lo dispara **quien va a ENVIAR**, pasando **`aviso="el plazo de entrega de materiales"`** a
+  `_artist_notification_emails` / `_recipients`: **sin ese parámetro no se avisa**, porque esos dos
+  puntos únicos se llaman también al PINTAR (la ficha de una canción, la de un álbum) y saldría un
+  aviso por cada carga. Al cablear un envío nuevo a un artista, pasarlo.
+  ⚠️ **No se repite** mientras el aviso siga sin leer (`ref_type='ARTIST_NOTIF'`,
+  `ref_id='<artista>:<canal>'`) y **se cierra solo** al configurar a alguien en ese canal
+  (`_notify_resolve` desde el guardado de «Notificaciones»).
+  ⚠️⚠️ **HACE FALTA UN CONTEXTO DE PETICIÓN** (`_soldout_app_context`), no solo de aplicación:
+  `_notify_user` mira quién actúa con `_current_user_state()` → `session` y revienta desde un CRON o
+  un HILO — que es justo donde más falta hace (los recordatorios de publicación, el plazo de
+  materiales). Y se le pasa **`actor_user_id=""`**: esto lo dispara un envío, no una persona.
+  · **Y se repasan de una vez**: módulo de Inicio **«Artistas sin notificaciones configuradas»**
+  (`HOME_ARTISTS_NO_NOTIF` ← `_home_artists_without_notifications`), con los artistas **ACTIVOS**
+  (`_active_artist_ids`) que no tienen a NADIE, su foto y el botón a su ficha.
+  ⚠️ Va **FUERA de la compuerta de departamento** de `home.html` (con `_home`, no con `_dept`): esto
+  lo tiene que ver también **dirección**, que si no se quedaría sin enterarse. Y en **dos consultas**,
+  no una por artista.
 
 - **AVISO AL ARTISTA DE UNA ACTIVIDAD** (ago 2026). Antes de CONFIRMAR una actividad hay que
   habérsela comunicado al artista.

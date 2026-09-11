@@ -4173,25 +4173,14 @@
               </div>
             </div>
             <div class="col-lg-7">
-              <label class="form-label mb-1">Vista previa · lo que se le pedirá al promotor</label>
-              <div class="border rounded p-3" style="max-height:520px;overflow:auto;background:#fff">
-                {% for sec in contract_sheet_sections %}
-                <div class="mb-3">
-                  <div class="fw-semibold small text-uppercase text-danger mb-1">{{ sec.title }}</div>
-                  <div class="row g-1">
-                    {% for label, value in sec.rows %}
-                    <div class="col-6 d-flex justify-content-between gap-2 border-bottom py-1" style="font-size:.82rem;">
-                      <span class="text-muted">{{ label }}</span>
-                      <span class="text-truncate {{ 'fw-semibold' if value else 'text-muted fst-italic' }}" style="max-width:55%;" title="{{ value or 'Lo rellena el promotor' }}">{{ value or 'Pendiente' }}</span>
-                    </div>
-                    {% endfor %}
-                  </div>
-                </div>
-                {% else %}
-                <div class="text-muted">La ficha se genera con los datos del concierto; el promotor completará el resto.</div>
-                {% endfor %}
-              </div>
-              <div class="form-text">Los campos ya rellenos se prellenarán; el promotor completa los pendientes.</div>
+              {# ⚠️ LA VISTA PREVIA ES EL CORREO: lo compone el SERVIDOR con el MISMO HTML que se
+                 manda (`concert_contract_sheet_preview`), así que se ve con su logo, su bocadillo y
+                 su botón, tal y como le va a llegar. Va en un iframe para que el CSS de la app no
+                 lo toque, y se refresca al escribir el mensaje. #}
+              <label class="form-label mb-1">Vista previa · el correo tal y como le va a llegar</label>
+              <iframe data-cs-preview title="Vista previa del correo"
+                      style="width:100%;height:520px;border:1px solid #e2e7ee;border-radius:.5rem;background:#fff;"></iframe>
+              <div class="form-text">Los datos que ya tenemos le saldrán rellenos en la ficha; él completa lo que falte.</div>
             </div>
           </div>
         </div>
@@ -4205,6 +4194,31 @@
 </div>
 
 <script>
+/* VISTA PREVIA del correo de la ficha de contratación: se pide al servidor (es el mismo HTML que se
+   manda) al abrir el pop-up y cada vez que se deja de escribir el mensaje.
+   ⚠️ `show.bs.modal` y no `shown`: con `modal_stack.js` por medio, `shown` no siempre llega. */
+(function () {
+  var modal = document.getElementById('requestContractSheetModal');
+  if (!modal) return;
+  var marco = modal.querySelector('[data-cs-preview]');
+  var nota = modal.querySelector('[name="message"]');
+  var url = {{ url_for('concert_contract_sheet_preview', cid=concert.id)|tojson }};
+  var t = null;
+  function pinta() {
+    if (!marco) return;
+    var fd = new FormData();
+    fd.append('message', (nota && nota.value) || '');
+    fetch(url, { method: 'POST', body: fd })
+      .then(function (r) { return r.text(); })
+      .then(function (html) { marco.srcdoc = html; })
+      .catch(function () {
+        marco.srcdoc = '<p style="font-family:Arial;color:#888;padding:20px">' +
+                       'No se pudo cargar la vista previa.</p>';
+      });
+  }
+  modal.addEventListener('show.bs.modal', pinta);
+  if (nota) nota.addEventListener('input', function () { clearTimeout(t); t = setTimeout(pinta, 500); });
+})();
 document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('.copy-link-btn').forEach(function(btn){
     btn.addEventListener('click', function(){

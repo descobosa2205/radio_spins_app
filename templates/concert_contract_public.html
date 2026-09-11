@@ -47,66 +47,84 @@
     </div>
   {% endif %}
 
+  {% if draft_at_label and not submitted %}
+    {# SE VA GUARDANDO SOLO: no se le mezcla nada a la callada, se le DICE de cuándo es. #}
+    <div class="alert alert-info">
+      <i class="fa fa-clock-rotate-left me-1"></i>Sigues donde lo dejaste: esta ficha se guarda sola
+      según la rellenas, y esto es lo que llevabas escrito {{ draft_at_label }}.
+    </div>
+  {% endif %}
+
   {% if not submitted %}
+  {# ⚠️ `data-no-autosave` cuando esta ficha ya se guarda sola EN EL SERVIDOR: si no, con sesión
+     abierta saldría además el aviso del guardado local de la casa (`form_autosave.js`) diciendo lo
+     mismo dos veces. #}
   <form method="post" action="{{ form_action }}" id="csheetForm"
+        {% if draft_url %}data-no-autosave{% endif %}
         {% if not can_submit and public_mode %}style="pointer-events:none;opacity:.6;"{% endif %}>
 
     {# ============================ 1 · DATOS DEL PROMOTOR ============================ #}
+    {# ⚠️⚠️ Son SUS datos (los de su ficha de tercero y de la sociedad con la que factura), NUNCA los
+       de la empresa del grupo que factura: eso es lo que salía antes. Lo que ya tenemos sale
+       relleno para que lo revise y lo que nos falta va marcado en ámbar. #}
+    {% macro cfield(name, label, value, col='col-12 col-md-6', kind='text', required=false,
+                    addr='', ph='', inputmode='') %}
+      <div class="{{ col }} {% if addr %}position-relative{% endif %}">
+        <label class="form-label d-flex align-items-center gap-2">
+          <span>{{ label }}{% if required %} <span class="text-danger">*</span>{% endif %}</span>
+          {% if not (value or '')|trim %}<span class="csheet-tag">Nos falta</span>{% endif %}
+        </label>
+        <input class="form-control {% if not (value or '')|trim %}csheet-need{% endif %}"
+               type="{{ kind }}" name="{{ name }}" value="{{ value or '' }}"
+               {% if addr %}data-addr="{{ addr }}" autocomplete="off"{% endif %}
+               {% if inputmode %}inputmode="{{ inputmode }}"{% endif %}
+               {% if ph %}placeholder="{{ ph }}"{% endif %}{% if required %} required{% endif %}>
+      </div>
+    {% endmacro %}
     <div class="csheet-mod">
       <div class="csheet-mod__head"><span class="csheet-mod__ico"><i class="fa fa-user-tie"></i></span>
         <div><div class="csheet-mod__t">Datos del promotor</div>
-          <div class="csheet-mod__s">Son los que tenemos. Completa lo que falte o cambia de empresa promotora.</div></div>
+          <div class="csheet-mod__s">Estos son los que tenemos. Corrige lo que haya cambiado y completa lo que falte.</div></div>
       </div>
       <div class="csheet-mod__body">
         <div class="row g-3">
           <div class="col-12 col-md-8">
-            <label class="form-label">Razón social <span class="text-danger">*</span></label>
-            <input class="form-control" name="company_legal_name" id="cshCompanyName" value="{{ data.company_legal_name or '' }}" required>
+            <label class="form-label d-flex align-items-center gap-2">
+              <span>Razón social <span class="text-danger">*</span></span>
+              {% if not (data.company_legal_name or '')|trim %}<span class="csheet-tag">Nos falta</span>{% endif %}
+            </label>
+            <input class="form-control {% if not (data.company_legal_name or '')|trim %}csheet-need{% endif %}"
+                   name="company_legal_name" id="cshCompanyName" value="{{ data.company_legal_name or '' }}" required>
           </div>
           <div class="col-12 col-md-4">
-            <label class="form-label">CIF <span class="text-danger">*</span></label>
-            <input class="form-control" name="company_tax_id" id="cshCompanyTaxId" value="{{ data.company_tax_id or '' }}" required>
+            <label class="form-label d-flex align-items-center gap-2">
+              <span>CIF <span class="text-danger">*</span></span>
+              {% if not (data.company_tax_id or '')|trim %}<span class="csheet-tag">Nos falta</span>{% endif %}
+            </label>
+            <input class="form-control {% if not (data.company_tax_id or '')|trim %}csheet-need{% endif %}"
+                   name="company_tax_id" id="cshCompanyTaxId" value="{{ data.company_tax_id or '' }}" required>
           </div>
           {# DIRECCIÓN FISCAL con autocompletado: al escribir la calle salen sugerencias y se rellenan
              el CP, el municipio y la provincia (la provincia sale del CP, que es lo fiable). #}
           <div class="col-12" data-address-autocomplete>
             <div class="row g-3">
-              <div class="col-12 position-relative">
-                <label class="form-label">Dirección fiscal</label>
-                <input class="form-control" name="company_address" data-addr="address" autocomplete="off"
-                       value="{{ data.company_address or '' }}" placeholder="Calle y número">
-              </div>
-              <div class="col-6 col-md-3">
-                <label class="form-label">Código postal</label>
-                <input class="form-control" name="company_postal_code" data-addr="postal_code" inputmode="numeric"
-                       value="{{ data.company_postal_code or '' }}">
-              </div>
-              <div class="col-6 col-md-5">
-                <label class="form-label">Municipio</label>
-                <input class="form-control" name="company_municipality" data-addr="city" value="{{ data.company_municipality or '' }}">
-              </div>
-              <div class="col-12 col-md-4">
-                <label class="form-label">Provincia</label>
-                <input class="form-control" name="company_province" data-addr="province" value="{{ data.company_province or '' }}">
-              </div>
+              {{ cfield('company_address', 'Dirección fiscal', data.company_address, 'col-12', addr='address', ph='Calle y número') }}
+              {{ cfield('company_postal_code', 'Código postal', data.company_postal_code, 'col-6 col-md-3', addr='postal_code', inputmode='numeric') }}
+              {{ cfield('company_municipality', 'Municipio', data.company_municipality, 'col-6 col-md-5', addr='city') }}
+              {{ cfield('company_province', 'Provincia', data.company_province, 'col-12 col-md-4', addr='province') }}
             </div>
           </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label">Representante</label>
-            <input class="form-control" name="company_representative" value="{{ data.company_representative or '' }}">
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label">DNI del representante</label>
-            <input class="form-control" name="company_representative_dni" value="{{ data.company_representative_dni or '' }}">
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label">Email</label>
-            <input class="form-control" type="email" name="company_email" value="{{ data.company_email or '' }}">
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label">Teléfono</label>
-            <input class="form-control" name="company_phone" value="{{ data.company_phone or '' }}">
-          </div>
+          {{ cfield('company_email', 'Email', data.company_email, kind='email') }}
+          {{ cfield('company_phone', 'Teléfono', data.company_phone) }}
+        </div>
+
+        {# ---- REPRESENTANTE: subsección del promotor, con lo que ya está en su ficha ---- #}
+        <div class="csheet-sub mt-3"><i class="fa fa-user-pen me-1"></i>Representante</div>
+        <div class="row g-3">
+          {{ cfield('company_representative', 'Nombre completo del representante', data.company_representative) }}
+          {{ cfield('company_representative_dni', 'DNI del representante', data.company_representative_dni) }}
+          {{ cfield('company_representative_email', 'Email del representante', data.company_representative_email, kind='email') }}
+          {{ cfield('company_representative_phone', 'Teléfono del representante', data.company_representative_phone) }}
         </div>
 
         {# CAMBIAR DE EMPRESA PROMOTORA: primero el CIF, para ver si ya la tenemos. #}
@@ -197,15 +215,95 @@
           <input class="form-control" name="show_series_name" value="{{ data.show_series_name or '' }}" style="max-width:520px;">
         </div>
 
-        <div class="csheet-sub">¿Al aire libre o cubierto?</div>
-        <div class="promo-pick-grid promo-pick-grid--wide mb-3">
-          {% for value, label, icon in show_venue_kind_choices %}
-            <label class="promo-pick">
-              <input type="radio" name="show_venue_kind" value="{{ value }}" {% if data.show_venue_kind == value %}checked{% endif %}>
-              <span class="promo-pick__box"><i class="fa {{ icon }}"></i>
-                <span class="promo-pick__name">{{ label }}</span></span>
-            </label>
-          {% endfor %}
+        {# ---------------------------- EL RECINTO ----------------------------
+           ⚠️⚠️ Sustituye a la pregunta «¿al aire libre o cubierto?»: eso es un dato DEL RECINTO y se
+           pregunta solo al darlo de alta. Aquí se enseña el que tengamos y, si no hay (o solo hay
+           municipio), se busca en nuestra base y se elige; si no está, se crea desde aquí y queda
+           puesto. El nombre, su dirección y si es cubierto viajan en ocultos. #}
+        <div class="csheet-sub">Recinto</div>
+        <div class="mb-3" data-csh-venue
+             data-search-url="{{ venue_search_url }}" data-create-url="{{ venue_create_url }}">
+          <input type="hidden" name="gala_venue_id" value="{{ data.gala_venue_id or '' }}" data-csh-v="id">
+          <input type="hidden" name="gala_venue" value="{{ data.gala_venue or '' }}" data-csh-v="name">
+          <input type="hidden" name="gala_venue_address" value="{{ data.gala_venue_address or '' }}" data-csh-v="address">
+          <input type="hidden" name="gala_postal_code" value="{{ data.gala_postal_code or '' }}" data-csh-v="postal_code">
+          <input type="hidden" name="gala_municipality" value="{{ data.gala_municipality or '' }}" data-csh-v="municipality">
+          <input type="hidden" name="gala_province" value="{{ data.gala_province or '' }}" data-csh-v="province">
+          <input type="hidden" name="show_venue_kind" value="{{ data.show_venue_kind or '' }}" data-csh-v="kind">
+
+          {# La tarjeta del recinto elegido (la pinta el JS al cambiarlo; aquí sale ya el que hay). #}
+          <div class="csheet-venue {% if not (data.gala_venue or '')|trim %}d-none{% endif %}" data-csh-venue-card>
+            <img class="csheet-venue__img" alt=""
+                 src="{{ (venue_current.photo_url if venue_current else '') or DEFAULT_AVATAR_URL }}"
+                 data-avatar="1" data-fallback="{{ DEFAULT_AVATAR_URL }}" data-csh-venue-img>
+            <div class="csheet-venue__b">
+              <div class="csheet-venue__n" data-csh-venue-name>{{ data.gala_venue or '' }}</div>
+              <div class="csheet-venue__p" data-csh-venue-place>
+                {{ (venue_current.place if venue_current else '')
+                   or ([data.gala_municipality, data.gala_province]|select|join(', ')) }}
+              </div>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-csh-venue-change>
+              <i class="fa fa-right-left me-1"></i>Cambiar
+            </button>
+          </div>
+
+          {# Hace falta decir cuál es: se busca escribiendo. #}
+          <div class="{% if (data.gala_venue or '')|trim %}d-none{% endif %}" data-csh-venue-picker>
+            {% if not (data.gala_venue or '')|trim %}
+              <div class="alert alert-warning py-2 px-3 mb-2">
+                <i class="fa fa-triangle-exclamation me-1"></i>Hay que especificar el
+                recinto{% if data.gala_municipality %} (de momento solo sabemos el municipio:
+                <strong>{{ data.gala_municipality }}</strong>){% endif %}.
+              </div>
+            {% endif %}
+            <div class="position-relative" style="max-width:560px;">
+              <input class="form-control" data-csh-venue-q autocomplete="off"
+                     placeholder="Escribe el nombre del recinto o su municipio…">
+              <div class="ta-results" data-csh-venue-results></div>
+            </div>
+          </div>
+
+          {# ALTA DE UN RECINTO: solo el nombre, la dirección (que rellena lo demás) y si es
+             cubierto o al aire libre. El resto de campos no se piden. #}
+          <div class="border rounded-3 p-3 mt-2 bg-light-subtle d-none" data-csh-venue-new>
+            <div class="csheet-sub mb-2"><i class="fa fa-plus me-1"></i>Nuevo recinto</div>
+            <div class="row g-3" data-address-autocomplete>
+              <div class="col-12 col-md-6">
+                <label class="form-label">Nombre del recinto <span class="text-danger">*</span></label>
+                <input class="form-control" data-csh-venue-newname autocomplete="off">
+              </div>
+              <div class="col-12 col-md-6 position-relative">
+                <label class="form-label">Dirección</label>
+                <input class="form-control" data-addr="address" data-csh-venue-newaddr autocomplete="off"
+                       placeholder="Escribe la dirección y se rellena el resto">
+              </div>
+              {# Los rellena el buscador de direcciones: no se piden. #}
+              <input type="hidden" data-addr="postal_code" data-csh-venue-newcp>
+              <input type="hidden" data-addr="city" data-csh-venue-newcity>
+              <input type="hidden" data-addr="province" data-csh-venue-newprov>
+              <input type="hidden" data-addr="country" data-csh-venue-newcountry value="España">
+              <div class="col-12">
+                <div class="csheet-sub">¿Al aire libre o cubierto?</div>
+                <div class="promo-pick-grid promo-pick-grid--wide">
+                  {% for value, label, icon in show_venue_kind_choices %}
+                    <label class="promo-pick">
+                      <input type="radio" data-csh-venue-newkind value="{{ value }}">
+                      <span class="promo-pick__box"><i class="fa {{ icon }}"></i>
+                        <span class="promo-pick__name">{{ label }}</span></span>
+                    </label>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2 mt-3">
+              <button class="btn btn-primary btn-sm" type="button" data-csh-venue-create>
+                <i class="fa fa-check me-1"></i>Crear recinto
+              </button>
+              <button class="btn btn-link btn-sm text-muted" type="button" data-csh-venue-cancel>Cancelar</button>
+              <span class="small" data-csh-venue-msg></span>
+            </div>
+          </div>
         </div>
 
         <div class="csheet-sub">Formato</div>
@@ -405,6 +503,11 @@
       </div>
     </div>
 
+    {% if draft_url %}
+      <div class="csheet-save" data-csh-save data-url="{{ draft_url }}">
+        <i class="fa fa-cloud-arrow-up"></i><span data-csh-save-txt>Se va guardando solo</span>
+      </div>
+    {% endif %}
     <div class="d-flex justify-content-end gap-2 mb-5">
       <button class="btn btn-danger btn-lg" type="submit">
         <i class="fa fa-paper-plane me-1"></i>{{ 'Guardar la ficha' if admin_mode else 'Enviar la ficha' }}
@@ -471,6 +574,203 @@
     });
   }
 
+  /* ══════════════════ EL RECINTO: se busca, y si no está se crea aquí ══════════════════
+     La lista cuelga del <body> (`app33FloatList`): dentro de su bocadillo la recortaría el
+     `overflow` del contenedor. Los resultados salen con su FOTO y, al final, siempre la opción de
+     crear uno nuevo con lo escrito — como en el resto de los buscadores de la casa. */
+  var zonaV = document.querySelector('[data-csh-venue]');
+  if (zonaV) {
+    var vGet = function (k) { return zonaV.querySelector('[data-csh-v="' + k + '"]'); };
+    var card = zonaV.querySelector('[data-csh-venue-card]');
+    var picker = zonaV.querySelector('[data-csh-venue-picker]');
+    var nueva = zonaV.querySelector('[data-csh-venue-new]');
+    var q = zonaV.querySelector('[data-csh-venue-q]');
+    var lista = zonaV.querySelector('[data-csh-venue-results]');
+    var msg = zonaV.querySelector('[data-csh-venue-msg]');
+    var tSearch = null, dejarSeguir = null;
+
+    function cierra() {
+      lista.style.display = 'none';
+      if (dejarSeguir) { dejarSeguir(); dejarSeguir = null; }
+    }
+    function abre() {
+      if (!window.app33FloatList) { lista.style.display = 'block'; return; }
+      /* ⚠️ La saca al <body> AQUÍ y no al arrancar: los scripts en línea de una plantilla corren
+         ANTES que los globales del layout, así que al cargar `app33FloatList` todavía no existe y
+         la lista se quedaba dentro de su bocadillo (donde el `overflow` la recortaría). */
+      window.app33FloatList.attach(lista);
+      window.app33FloatList.ensureRoom(q, { abajo: true });
+      lista.style.display = 'block';
+      window.app33FloatList.place(q, lista, { abajo: true, max: 330 });
+      dejarSeguir = window.app33FloatList.follow(q, lista, { abajo: true, max: 330 }, cierra);
+    }
+    /* Lo elegido: se pinta su tarjeta y se rellenan los ocultos que viajan con la ficha. */
+    function elige(v) {
+      vGet('id').value = v.id || '';
+      vGet('name').value = v.name || '';
+      vGet('address').value = v.address || '';
+      vGet('postal_code').value = v.postal_code || '';
+      vGet('municipality').value = v.municipality || '';
+      vGet('province').value = v.province || '';
+      vGet('kind').value = v.covered ? 'INDOOR' : (v.covered === false ? 'OUTDOOR' : '');
+      var img = zonaV.querySelector('[data-csh-venue-img]');
+      if (img) img.src = v.photo_url || img.getAttribute('data-fallback') || img.src;
+      zonaV.querySelector('[data-csh-venue-name]').textContent = v.name || '';
+      zonaV.querySelector('[data-csh-venue-place]').textContent = v.place || '';
+      card.classList.remove('d-none');
+      picker.classList.add('d-none');
+      nueva.classList.add('d-none');
+      cierra();
+      zonaV.dispatchEvent(new Event('change', { bubbles: true }));   // se guarda solo
+    }
+    function pinta(venues, texto) {
+      lista.innerHTML = '';
+      (venues || []).forEach(function (v) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ta-item';
+        var img = document.createElement('img');
+        img.src = v.photo_url || {{ DEFAULT_AVATAR_URL|tojson }};
+        img.alt = '';
+        var t = document.createElement('span');
+        t.className = 'ta-item__t';
+        t.innerHTML = '<span>' + (v.name || '') + '</span>' +
+                      (v.place ? '<span class="ta-item__s">' + v.place + '</span>' : '');
+        b.appendChild(img); b.appendChild(t);
+        b.addEventListener('click', function () { elige(v); });
+        lista.appendChild(b);
+      });
+      /* Si no está, se crea: la última fila es siempre «Crear nuevo recinto». */
+      var c = document.createElement('button');
+      c.type = 'button';
+      c.className = 'ta-item';
+      c.innerHTML = '<span class="ta-item__noimg d-inline-flex align-items-center justify-content-center">' +
+                    '<i class="fa fa-plus"></i></span><span class="ta-item__t"><span>' +
+                    (texto ? 'Crear el recinto «' + texto + '»' : 'Crear un recinto nuevo') +
+                    '</span><span class="ta-item__s">No está en la lista</span></span>';
+      c.addEventListener('click', function () { abreAlta(texto); });
+      lista.appendChild(c);
+      abre();
+    }
+    function busca() {
+      var texto = (q.value || '').trim();
+      if (texto.length < 2) { cierra(); return; }
+      var fd = new FormData();
+      fd.append('q', texto);
+      fetch(zonaV.getAttribute('data-search-url'), { method: 'POST', body: fd })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { pinta((d && d.venues) || [], texto); })
+        .catch(function () { pinta([], texto); });
+    }
+    if (q) {
+      q.addEventListener('input', function () { clearTimeout(tSearch); tSearch = setTimeout(busca, 250); });
+      q.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); busca(); } });
+      document.addEventListener('click', function (e) {
+        if (e.target !== q && !lista.contains(e.target)) cierra();
+      });
+    }
+    function abreAlta(texto) {
+      cierra();
+      nueva.classList.remove('d-none');
+      var n = zonaV.querySelector('[data-csh-venue-newname]');
+      if (n) { n.value = texto || ''; n.focus(); }
+      if (msg) msg.textContent = '';
+    }
+    var btnCambiar = zonaV.querySelector('[data-csh-venue-change]');
+    if (btnCambiar) btnCambiar.addEventListener('click', function () {
+      card.classList.add('d-none');
+      picker.classList.remove('d-none');
+      if (q) { q.value = ''; q.focus(); }
+    });
+    var btnCancel = zonaV.querySelector('[data-csh-venue-cancel]');
+    if (btnCancel) btnCancel.addEventListener('click', function () { nueva.classList.add('d-none'); });
+    var btnCrear = zonaV.querySelector('[data-csh-venue-create]');
+    if (btnCrear) btnCrear.addEventListener('click', function () {
+      var nombre = (zonaV.querySelector('[data-csh-venue-newname]') || {}).value || '';
+      if (!nombre.trim()) {
+        if (msg) { msg.className = 'small text-danger'; msg.textContent = 'Escribe el nombre del recinto.'; }
+        return;
+      }
+      var fd = new FormData();
+      fd.append('name', nombre);
+      fd.append('address', (zonaV.querySelector('[data-csh-venue-newaddr]') || {}).value || '');
+      fd.append('postal_code', (zonaV.querySelector('[data-csh-venue-newcp]') || {}).value || '');
+      fd.append('municipality', (zonaV.querySelector('[data-csh-venue-newcity]') || {}).value || '');
+      fd.append('province', (zonaV.querySelector('[data-csh-venue-newprov]') || {}).value || '');
+      fd.append('country', (zonaV.querySelector('[data-csh-venue-newcountry]') || {}).value || 'España');
+      fd.append('covered', ((zonaV.querySelector('[data-csh-venue-newkind]:checked') || {}).value || ''));
+      btnCrear.disabled = true;
+      if (msg) { msg.className = 'small text-muted'; msg.textContent = 'Creando…'; }
+      fetch(zonaV.getAttribute('data-create-url'), { method: 'POST', body: fd })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          btnCrear.disabled = false;
+          if (d && d.ok && d.venue) {
+            elige(d.venue);                    // creado y ya elegido
+            if (msg) {
+              msg.className = 'small text-success';
+              msg.textContent = d.reused ? 'Ya lo teníamos: lo hemos puesto.' : 'Recinto creado.';
+            }
+          } else if (msg) {
+            msg.className = 'small text-danger';
+            msg.textContent = (d && d.error) || 'No se pudo crear.';
+          }
+        })
+        .catch(function () {
+          btnCrear.disabled = false;
+          if (msg) { msg.className = 'small text-danger'; msg.textContent = 'No se pudo crear.'; }
+        });
+    });
+  }
+
+  /* ⚠️⚠️ SE VA GUARDANDO SOLO. Lo que lleva escrito se manda a NUESTRO servidor (a su ficha), no
+     al disco de su ordenador: así sigue donde lo dejó aunque cambie de dispositivo, y en una página
+     pública no dejamos nada escrito en el ordenador de un tercero (la regla de la casa).
+     ⚠️ No es un envío: el servidor lo guarda aparte y para la casa la ficha sigue igual hasta que
+     pulse «Enviar la ficha». */
+  var barra = document.querySelector('[data-csh-save]');
+  var forma = document.getElementById('csheetForm');
+  if (barra && forma) {
+    var txt = barra.querySelector('[data-csh-save-txt]');
+    var url = barra.getAttribute('data-url');
+    var timer = null, enVuelo = false, sucio = false;
+    function di(mensaje, clase) {
+      if (txt) txt.textContent = mensaje;
+      barra.classList.toggle('is-saving', clase === 'saving');
+      barra.classList.toggle('is-ko', clase === 'ko');
+    }
+    function guarda() {
+      if (enVuelo) { sucio = true; return; }          // uno a la vez: al terminar se repite
+      enVuelo = true; sucio = false;
+      di('Guardando…', 'saving');
+      fetch(url, { method: 'POST', body: new FormData(forma) })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (d) {
+          enVuelo = false;
+          if (d && d.ok) di('Guardado' + (d.at ? ' a las ' + d.at : ''), '');
+          else di((d && d.error) || 'No se pudo guardar', 'ko');
+          if (sucio) guarda();
+        })
+        .catch(function () { enVuelo = false; di('Sin conexión: se guardará al volver', 'ko'); });
+    }
+    forma.addEventListener('input', function () {
+      sucio = true;
+      clearTimeout(timer);
+      timer = setTimeout(guarda, 900);               // un respiro: no una petición por tecla
+    });
+    forma.addEventListener('change', function () {
+      clearTimeout(timer);
+      timer = setTimeout(guarda, 400);
+    });
+    /* Al cerrar la pestaña se manda lo último sin esperar respuesta. */
+    window.addEventListener('pagehide', function () {
+      if (!sucio || !navigator.sendBeacon) return;
+      try { navigator.sendBeacon(url, new FormData(forma)); } catch (e) {}
+    });
+    /* Al ENVIAR ya no hace falta guardar más (el servidor limpia el borrador). */
+    forma.addEventListener('submit', function () { clearTimeout(timer); sucio = false; });
+  }
+
   /* CAMBIAR DE EMPRESA PROMOTORA: se busca por CIF en nuestra base de datos. Si está, se rellenan
      sus datos para actualizarlos; si no, se deja el CIF puesto y se rellena de cero. */
   var btn = document.getElementById('cshLookupBtn');
@@ -503,6 +803,7 @@
           } else {
             ['company_legal_name', 'company_address', 'company_postal_code', 'company_municipality',
              'company_province', 'company_representative', 'company_representative_dni',
+             'company_representative_email', 'company_representative_phone',
              'company_email', 'company_phone'].forEach(function (n) {
               var el = document.querySelector('[name="' + n + '"]');
               if (el) el.value = '';

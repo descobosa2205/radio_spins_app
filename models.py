@@ -3394,6 +3394,11 @@ class ConcertContractSheet(Base):
     promoter_data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     # Cuándo se revisó lo que mandó (si es NULL y hay `promoter_data`, está pendiente de revisar).
     promoter_reviewed_at = Column(DateTime(timezone=True))
+    # ⚠️ `draft` = LO QUE ESTÁ ESCRIBIENDO el promotor, guardado según teclea (no es un envío): si se
+    # sale o se le cierra el navegador, al volver a su enlace sigue donde lo dejó. La casa NO lo
+    # mira: la pantalla de revisión y la ficha solo enseñan lo ENVIADO (`promoter_data`).
+    draft = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    draft_at = Column(DateTime(timezone=True))
     merge_log = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     rejection_reason = Column(Text)
     requested_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -9786,6 +9791,17 @@ def ensure_third_party_and_contract_sheet_schema():
         ALTER TABLE IF EXISTS concert_contract_sheets
             ADD COLUMN IF NOT EXISTS promoter_data jsonb NOT NULL DEFAULT '{}'::jsonb,
             ADD COLUMN IF NOT EXISTS promoter_reviewed_at timestamptz;
+        """,
+        # LO QUE ESTÁ ESCRIBIENDO el promotor: se guarda según teclea para que no tenga que volver a
+        # empezar si se sale. Va en su propia sentencia a propósito (una columna nueva metida en un
+        # ALTER que ya existía NO se aplica: `_ddl_already_applied` lo da por hecho).
+        """
+        ALTER TABLE IF EXISTS concert_contract_sheets
+            ADD COLUMN IF NOT EXISTS draft jsonb NOT NULL DEFAULT '{}'::jsonb;
+        """,
+        """
+        ALTER TABLE IF EXISTS concert_contract_sheets
+            ADD COLUMN IF NOT EXISTS draft_at timestamptz;
         """,
     ]
 

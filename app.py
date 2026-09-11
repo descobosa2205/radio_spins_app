@@ -496,6 +496,9 @@ _CSRF_EXEMPT_ENDPOINTS = {"public_forecast_report", "public_forecast_report_pdf"
     "concert_artwork_public_submit",
     "public_sale_channels",
     "concert_contract_public_form",
+    "public_contract_sheet_draft",
+    "public_contract_sheet_venues",
+    "public_contract_sheet_venue_create",
     "public_contract_sheet_company",
     "public_bag_expense_document_upload",
     "public_invitation_guest_list_status",
@@ -904,7 +907,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -3629,7 +3632,6 @@ def _concert_cache_summary(concert: Concert | None) -> str | None:
 def _concert_contract_sheet_seed(concert: Concert | None) -> dict:
     if not concert:
         return {}
-    billing_company = getattr(concert, 'billing_company', None)
     promoter_company = getattr(concert, 'promoter_company', None)
     ticketer_names = []
     for row in (getattr(concert, 'ticketers', None) or []):
@@ -3642,13 +3644,19 @@ def _concert_contract_sheet_seed(concert: Concert | None) -> dict:
         'gala_municipality': _concert_city(concert),
         'gala_province': _concert_province_value(concert),
         'gala_venue': _concert_venue_name(concert),
+        # ⚠️ EL RECINTO de la ficha es el de la BASE DE DATOS: se guarda su id para que al revisarla
+        # se le pueda poner a la actividad, no solo su nombre escrito a mano.
+        'gala_venue_id': (str(concert.venue_id) if getattr(concert, 'venue_id', None) else ''),
+        'show_venue_kind': ('INDOOR' if getattr(getattr(concert, 'venue', None), 'covered', None)
+                            else ('OUTDOOR' if getattr(concert, 'venue', None) is not None else '')),
         'gala_venue_address': _concert_venue_address(concert),
         'gala_postal_code': (getattr(concert, 'manual_postal_code', None) or '').strip(),
         'gala_show_time': (getattr(concert, 'show_time', None) or '').strip(),
         'gala_doors_time': (getattr(concert, 'doors_time', None) or '').strip(),
         'gala_capacity': str(getattr(concert, 'capacity', None)) if getattr(concert, 'capacity', None) not in (None, '') and not getattr(concert, 'no_capacity', False) else '',
-        'company_legal_name': (getattr(billing_company, 'name', None) or '').strip(),
-        'company_tax_id': (getattr(billing_company, 'tax_info', None) or '').strip(),
+        # ⚠️⚠️ `company_*` son LOS DATOS DEL PROMOTOR (los rellena él en su ficha), NO los de la
+        # empresa del grupo que factura: los pone `_contract_sheet_promoter_seed`. Aquí salían los
+        # NUESTROS, así que el promotor abría su enlace y veía la razón social y el CIF de la casa.
         'local_legal_name': (getattr(promoter_company, 'legal_name', None) or '').strip(),
         'local_tax_id': (getattr(promoter_company, 'tax_id', None) or '').strip(),
         'local_address': _fiscal_address_text(promoter_company),
@@ -5355,6 +5363,7 @@ def _parse_contract_sheet_form(form) -> dict:
         'gala_province': (form.get('gala_province') or '').strip(),
         'gala_date': (form.get('gala_date') or '').strip(),
         'gala_venue': (form.get('gala_venue') or '').strip(),
+        'gala_venue_id': (form.get('gala_venue_id') or '').strip(),
         'gala_venue_address': (form.get('gala_venue_address') or '').strip(),
         'gala_postal_code': (form.get('gala_postal_code') or '').strip(),
         'gala_show_time': (form.get('gala_show_time') or '').strip(),
@@ -5368,6 +5377,8 @@ def _parse_contract_sheet_form(form) -> dict:
         'company_postal_code': (form.get('company_postal_code') or '').strip(),
         'company_representative': (form.get('company_representative') or '').strip(),
         'company_representative_dni': (form.get('company_representative_dni') or '').strip(),
+        'company_representative_email': (form.get('company_representative_email') or '').strip(),
+        'company_representative_phone': (form.get('company_representative_phone') or '').strip(),
         'company_email': (form.get('company_email') or '').strip(),
         'company_phone': (form.get('company_phone') or '').strip(),
         'local_legal_name': (form.get('local_legal_name') or '').strip(),
@@ -5451,6 +5462,8 @@ def _sheet_merge_candidates(data: dict) -> dict:
         'manual_municipality': (data.get('gala_municipality') or '').strip() or None,
         'manual_province': (data.get('gala_province') or '').strip() or None,
         'manual_venue_name': (data.get('gala_venue') or '').strip() or None,
+        # El RECINTO de la base de datos que ha elegido el promotor (no solo su nombre a mano).
+        'venue_id': (data.get('gala_venue_id') or '').strip() or None,
         'manual_venue_address': (data.get('gala_venue_address') or '').strip() or None,
         'manual_postal_code': (data.get('gala_postal_code') or '').strip() or None,
         'show_time': (data.get('gala_show_time') or '').strip() or None,
@@ -5470,6 +5483,7 @@ def _prepare_contract_sheet_merge(concert: Concert, data: dict) -> tuple[list[di
         'manual_municipality': _concert_city(concert) or None,
         'manual_province': _concert_province_value(concert) or None,
         'manual_venue_name': _concert_venue_name(concert) or None,
+        'venue_id': (str(concert.venue_id) if getattr(concert, 'venue_id', None) else None),
         'manual_venue_address': _concert_venue_address(concert) or None,
         'manual_postal_code': (getattr(concert, 'manual_postal_code', None) or '').strip() or None,
         'show_time': (getattr(concert, 'show_time', None) or '').strip() or None,
@@ -5483,6 +5497,7 @@ def _prepare_contract_sheet_merge(concert: Concert, data: dict) -> tuple[list[di
         'manual_municipality': 'Municipio',
         'manual_province': 'Provincia',
         'manual_venue_name': 'Recinto',
+        'venue_id': 'Recinto (de la base de datos)',
         'manual_venue_address': 'Dirección recinto',
         'manual_postal_code': 'Código postal',
         'show_time': 'Hora del show',
@@ -5520,6 +5535,10 @@ def _apply_contract_sheet_merge(concert: Concert, updates: list[dict], decisions
                 value = max(0, int(value))
             except Exception:
                 continue
+        elif field == 'venue_id':
+            value = _safe_uuid(value)
+            if not value:
+                continue
         setattr(concert, field, value)
         if field == 'show_time' and value:
             concert.show_time_tbc = False
@@ -5532,7 +5551,14 @@ def _apply_contract_sheet_merge(concert: Concert, updates: list[dict], decisions
         if field == 'announcement_date' and value:
             concert.do_not_announce = False
         applied.append(item['label'])
-    if any(x['field'] in ('manual_venue_name', 'manual_venue_address', 'manual_municipality', 'manual_province') for x in (updates or [])):
+    # ⚠️⚠️ UN RECINTO ESCRITO A MANO manda sobre el de la base (se limpia el vínculo)… PERO si el
+    # promotor ha ELEGIDO un recinto de nuestra base en su ficha, manda ÉSE: si no, esta regla
+    # borraba el `venue_id` que se acaba de poner (su nombre y su dirección viajan también como
+    # texto, así que casaba con la condición).
+    eligio_recinto = any(x['field'] == 'venue_id' and x.get('value') for x in (updates or []))
+    if not eligio_recinto and any(x['field'] in ('manual_venue_name', 'manual_venue_address',
+                                                 'manual_municipality', 'manual_province')
+                                  for x in (updates or [])):
         concert.venue_id = None
     return applied
 
@@ -72825,10 +72851,77 @@ def _parse_hashtag_text(raw: str | None) -> list[str]:
     return _dedupe_concert_tags(parts)
 
 
-def _contract_sheet_prefill(concert: Concert, sheet: ConcertContractSheet | None = None) -> dict:
+# ⚠️⚠️ LOS DATOS DEL PROMOTOR de la ficha de contratación (`company_*`) SON SUYOS: salen de su
+# ficha de tercero y de la sociedad con la que factura, nunca de la empresa del grupo. Y el
+# REPRESENTANTE es OTRO TERCERO vinculado a él con la relación «Representante»
+# (`_promoter_representatives`), así que hace falta la sesión para leerlo.
+CONTRACT_SHEET_PROMOTER_FIELDS = (
+    "company_legal_name", "company_tax_id", "company_address", "company_postal_code",
+    "company_municipality", "company_province", "company_email", "company_phone",
+    "company_representative", "company_representative_dni",
+    "company_representative_email", "company_representative_phone",
+)
+
+
+def _contract_sheet_promoter_seed(concert, session_db=None) -> dict:
+    """Lo que YA TENEMOS del promotor, para que su ficha salga cumplimentada: manda la SOCIEDAD con
+    la que factura (`Concert.promoter_company`) y lo que no diga se completa con su ficha de tercero.
+
+    ⚠️ El correo y el teléfono se leen con **`_promoter_email_phone`**: en `Promoter` los campos son
+    `contact_email`/`contact_phone` (`p.email` no existe y devuelve vacío en silencio).
+    ⚠️ Sin sesión no se puede resolver el REPRESENTANTE (es otro tercero): se devuelve lo demás."""
+    out = {k: "" for k in CONTRACT_SHEET_PROMOTER_FIELDS}
+    promoter = getattr(concert, "promoter", None)
+    company = getattr(concert, "promoter_company", None)
+    if promoter is None and company is None:
+        return out
+    correo, telefono = _promoter_email_phone(promoter) if promoter is not None else ("", "")
+    nombre = ((getattr(company, "legal_name", None) or "").strip()
+              or (getattr(promoter, "legal_name", None) or "").strip()
+              or (_promoter_display_name(promoter) if promoter is not None else "")
+              or (getattr(promoter, "nick", None) or "").strip())
+    def pieza(campo):
+        return ((getattr(company, campo, None) or "").strip()
+                or (getattr(promoter, campo, None) or "").strip())
+    out.update({
+        "company_legal_name": nombre,
+        "company_tax_id": ((getattr(company, "tax_id", None) or "").strip()
+                           or (getattr(promoter, "tax_id", None) or "").strip()),
+        "company_address": pieza("fiscal_address"),
+        "company_postal_code": pieza("fiscal_postal_code"),
+        "company_municipality": pieza("fiscal_city"),
+        "company_province": pieza("fiscal_province"),
+        "company_email": (correo or "").strip(),
+        "company_phone": (telefono or "").strip(),
+    })
+    if session_db is not None and promoter is not None:
+        try:
+            reps = _promoter_representatives(session_db, getattr(promoter, "id", None))
+        except Exception:
+            app.logger.exception("[ficha contratación] no se pudo leer el representante del promotor")
+            reps = []
+        if reps:
+            rep = reps[0]
+            rep_mail, rep_tel = _promoter_email_phone(rep)
+            out.update({
+                "company_representative": (_promoter_display_name(rep)
+                                           or (getattr(rep, "nick", None) or "").strip()),
+                "company_representative_dni": (getattr(rep, "tax_id", None) or "").strip(),
+                "company_representative_email": (rep_mail or "").strip(),
+                "company_representative_phone": (rep_tel or "").strip(),
+            })
+    return out
+
+
+def _contract_sheet_prefill(concert: Concert, sheet: ConcertContractSheet | None = None,
+                            session_db=None) -> dict:
     payload = dict(getattr(sheet, 'request_payload', {}) or {})
     data = dict(getattr(sheet, 'data', {}) or {})
     merged = {**_concert_contract_sheet_seed(concert), **payload, **data}
+    # Los datos del PROMOTOR que ya tenemos, solo donde no haya nada escrito en la ficha.
+    for clave, valor in _contract_sheet_promoter_seed(concert, session_db).items():
+        if valor and not str(merged.get(clave) or '').strip():
+            merged[clave] = valor
     if not merged.get('gala_date') and getattr(concert, 'date', None):
         merged['gala_date'] = concert.date.isoformat()
     if not merged.get('gala_municipality'):
@@ -72883,10 +72976,13 @@ CONTRACT_SHEET_GROUPS = [
         ("company_postal_code", "Código postal", "text"),
         ("company_municipality", "Municipio", "text"),
         ("company_province", "Provincia", "text"),
-        ("company_representative", "Representante", "text"),
-        ("company_representative_dni", "DNI del representante", "text"),
         ("company_email", "Email", "text"),
         ("company_phone", "Teléfono", "text"),
+        # El REPRESENTANTE es una subsección del promotor: sus datos salen de su ficha de tercero.
+        ("company_representative", "Nombre completo del representante", "text"),
+        ("company_representative_dni", "DNI del representante", "text"),
+        ("company_representative_email", "Email del representante", "text"),
+        ("company_representative_phone", "Teléfono del representante", "text"),
     ]},
     {"key": "local", "title": "Producción local", "icon": "fa-people-carry-box", "fields": [
         ("local_by", "¿Quién hace la producción local?", "choice"),
@@ -75278,6 +75374,15 @@ def _contract_sheet_form_context(session_db, concert, sheet, data, *, public_mod
         "show_venue_kind_choices": CONTRACT_SHEET_CHOICES["show_venue_kind"],
         "show_format_choices": CONTRACT_SHEET_CHOICES["show_format"],
         "lookup_url": url_for("public_contract_sheet_company", token=sheet.public_token),
+        # SE VA GUARDANDO SOLO (solo en el enlace del promotor: dentro se guarda con su botón).
+        "draft_url": (url_for("public_contract_sheet_draft", token=sheet.public_token)
+                      if public_mode else ""),
+        # EL RECINTO: se busca en nuestra base y, si no está, se da de alta desde aquí.
+        "venue_search_url": url_for("public_contract_sheet_venues", token=sheet.public_token),
+        "venue_create_url": url_for("public_contract_sheet_venue_create", token=sheet.public_token),
+        "venue_current": (_contract_sheet_venue_payload(concert.venue)
+                          if getattr(concert, "venue", None) is not None else None),
+        "draft_at_label": _contract_sheet_draft_label(sheet) if public_mode else "",
     }
 
 
@@ -75325,6 +75430,158 @@ def public_contract_sheet_company(token):
         session_db.close()
 
 
+def _contract_sheet_draft(sheet: ConcertContractSheet | None) -> dict:
+    """LO QUE ESTABA ESCRIBIENDO el promotor, si es más nuevo que lo último que envió.
+
+    ⚠️ Solo vale para SU formulario: la ficha de la casa y la pantalla de revisión enseñan lo
+    ENVIADO (`promoter_data`), nunca un borrador a medias."""
+    datos = dict(getattr(sheet, 'draft', None) or {})
+    if not datos:
+        return {}
+    cuando = getattr(sheet, 'draft_at', None)
+    enviado = getattr(sheet, 'submitted_at', None)
+    if cuando and enviado and cuando <= enviado:
+        return {}                       # ya lo mandó: lo que vale es el envío
+    return datos
+
+
+def _contract_sheet_draft_label(sheet: ConcertContractSheet | None) -> str:
+    """«el 10/09/2026 a las 12:40» — cuándo se guardó lo que estaba escribiendo (vacío si no hay)."""
+    if not _contract_sheet_draft(sheet):
+        return ""
+    cuando = getattr(sheet, 'draft_at', None)
+    if not cuando:
+        return ""
+    try:
+        return cuando.astimezone(ZoneInfo('Europe/Madrid')).strftime('el %d/%m/%Y a las %H:%M')
+    except Exception:
+        return ""
+
+
+@app.post('/ficha-contratacion/<token>/borrador', endpoint='public_contract_sheet_draft')
+def public_contract_sheet_draft(token):
+    """SE VA GUARDANDO SOLO: lo que el promotor lleva escrito, según lo escribe.
+
+    ⚠️⚠️ NO es un envío: se guarda en `draft` y no toca `promoter_data`, ni el estado, ni avisa a
+    nadie — para la casa la ficha sigue igual hasta que él le da a «Enviar». Así, si se sale o se le
+    cierra el navegador, al volver a su enlace sigue donde lo dejó y no empieza de cero.
+    ⚠️ Es una comodidad: si falla, no se le dice nada que le impida seguir rellenando (el JS lo
+    apunta en su barra) y el envío sigue funcionando igual."""
+    session_db = db()
+    try:
+        sheet = (session_db.query(ConcertContractSheet)
+                 .filter(ConcertContractSheet.public_token == (token or '').strip()).first())
+        if not sheet:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        if not _contract_sheet_can_submit(sheet):
+            return jsonify({"ok": False, "error": "Esta ficha ya no admite cambios"}), 409
+        sheet.draft = _parse_contract_sheet_form(request.form)
+        sheet.draft_at = datetime.now(ZoneInfo('Europe/Madrid'))
+        session_db.commit()
+        return jsonify({"ok": True, "at": sheet.draft_at.strftime('%H:%M')})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[ficha contratación] no se pudo guardar el borrador del promotor")
+        return jsonify({"ok": False, "error": "No se pudo guardar"}), 500
+    finally:
+        session_db.close()
+
+
+def _contract_sheet_venue_payload(venue) -> dict:
+    """Un recinto como lo enseña la ficha del promotor: su FOTO, su nombre y su sitio."""
+    return {
+        "id": str(venue.id),
+        "name": (venue.name or "").strip(),
+        "photo_url": (getattr(venue, "photo_url", None) or "").strip(),
+        "place": _place_label(getattr(venue, "municipality", "") or "",
+                              getattr(venue, "province", "") or "",
+                              getattr(venue, "country", "") or ""),
+        "address": (getattr(venue, "address", None) or "").strip(),
+        "postal_code": (getattr(venue, "postal_code", None) or "").strip(),
+        "municipality": (getattr(venue, "municipality", None) or "").strip(),
+        "province": (getattr(venue, "province", None) or "").strip(),
+        "covered": bool(getattr(venue, "covered", False)),
+    }
+
+
+@app.post('/ficha-contratacion/<token>/recintos', endpoint='public_contract_sheet_venues')
+def public_contract_sheet_venues(token):
+    """LOS RECINTOS que se le ofrecen al promotor al escribir en la barra de su ficha.
+
+    ⚠️ Solo responde con el token de la ficha: es un enlace público, no un buscador abierto de
+    nuestra base de datos. Se compara **sin acentos ni mayúsculas** (`_norm_text_key`) contra el
+    nombre y el municipio, que es como se busca un recinto."""
+    session_db = db()
+    try:
+        sheet = (session_db.query(ConcertContractSheet)
+                 .filter(ConcertContractSheet.public_token == (token or '').strip()).first())
+        if not sheet:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        texto = _norm_text_key((request.form.get("q") or "").strip())
+        if len(texto) < 2:
+            return jsonify({"ok": True, "venues": []})
+        filas = []
+        for v in session_db.query(Venue).order_by(Venue.name.asc()).all():
+            nombre = _norm_text_key(v.name or "")
+            sitio = _norm_text_key(" ".join([(v.municipality or ""), (v.province or "")]))
+            if texto in nombre or texto in sitio:
+                filas.append((0 if nombre.startswith(texto) else 1, _contract_sheet_venue_payload(v)))
+            if len(filas) > 60:
+                break
+        filas.sort(key=lambda x: (x[0], x[1]["name"].lower()))
+        return jsonify({"ok": True, "venues": [f[1] for f in filas[:12]]})
+    finally:
+        session_db.close()
+
+
+@app.post('/ficha-contratacion/<token>/recinto-nuevo', endpoint='public_contract_sheet_venue_create')
+def public_contract_sheet_venue_create(token):
+    """DA DE ALTA UN RECINTO desde la ficha del promotor: su nombre, su dirección (que rellena el
+    buscador de direcciones) y si es cubierto o al aire libre. Al crearlo queda elegido.
+
+    ⚠️⚠️ NO SE DUPLICA: si ya tenemos uno con ese nombre en ese municipio se reutiliza el que hay
+    (mismo criterio que el alta rápida de dentro, `_norm_text_key`), y se dice.
+    ⚠️ Solo con el token de la ficha, y con `_contract_sheet_can_submit`: una ficha cerrada no puede
+    seguir escribiendo en nuestra base de datos."""
+    session_db = db()
+    try:
+        sheet = (session_db.query(ConcertContractSheet)
+                 .filter(ConcertContractSheet.public_token == (token or '').strip()).first())
+        if not sheet:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        if not _contract_sheet_can_submit(sheet):
+            return jsonify({"ok": False, "error": "Esta ficha ya no admite cambios"}), 409
+        nombre = " ".join((request.form.get("name") or "").split())
+        if not nombre:
+            return jsonify({"ok": False, "error": "Escribe el nombre del recinto"}), 400
+        municipio = (request.form.get("municipality") or "").strip()
+        # ¿Ya lo tenemos? (mismo nombre y, si se sabe, mismo municipio.)
+        for v in session_db.query(Venue).all():
+            if _norm_text_key(v.name or "") != _norm_text_key(nombre):
+                continue
+            if municipio and _norm_text_key(v.municipality or "") not in ("", _norm_text_key(municipio)):
+                continue
+            return jsonify({"ok": True, "reused": True, "venue": _contract_sheet_venue_payload(v)})
+        venue = Venue(
+            name=nombre,
+            address=(request.form.get("address") or "").strip() or None,
+            postal_code=(request.form.get("postal_code") or "").strip() or None,
+            municipality=municipio or None,
+            province=(request.form.get("province") or "").strip() or None,
+            country=(request.form.get("country") or "").strip() or "España",
+            covered=((request.form.get("covered") or "").strip().upper() == "INDOOR"),
+        )
+        session_db.add(venue)
+        session_db.commit()
+        return jsonify({"ok": True, "reused": False, "venue": _contract_sheet_venue_payload(venue)})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[ficha contratación] no se pudo crear el recinto desde el enlace público")
+        return jsonify({"ok": False, "error": "No se pudo crear el recinto"}), 500
+    finally:
+        session_db.close()
+
+
 @app.route('/ficha-contratacion/<token>', methods=['GET', 'POST'], endpoint='concert_contract_public_form')
 def concert_contract_public_form(token):
     session = db()
@@ -75358,6 +75615,8 @@ def concert_contract_public_form(token):
             # revisión. Antes se escribía en `data` y borraba lo que hubiera.
             sheet.promoter_data = data
             sheet.promoter_reviewed_at = None          # hay algo nuevo que revisar
+            sheet.draft = {}                           # ya lo ha mandado: el borrador no hace falta
+            sheet.draft_at = None
             sheet.status = 'RECEIVED'
             sheet.submitted_at = datetime.now(ZoneInfo('Europe/Madrid'))
             sheet.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
@@ -75382,8 +75641,12 @@ def concert_contract_public_form(token):
             )
         # El promotor rellena SU ficha: se le prellena con lo que él mandó la última vez (y, si es la
         # primera, con lo que sabemos de la actividad).
-        data = _contract_sheet_prefill(concert, sheet)
+        data = _contract_sheet_prefill(concert, sheet, session_db=session)
         data.update({k: v for k, v in (getattr(sheet, 'promoter_data', None) or {}).items()
+                     if v not in (None, '', [], {})})
+        # ⚠️ Y encima, LO QUE ESTABA ESCRIBIENDO (sigue donde lo dejó). Solo lo que tiene valor: un
+        # borrador a medias no puede borrar lo que sí sabemos.
+        data.update({k: v for k, v in _contract_sheet_draft(sheet).items()
                      if v not in (None, '', [], {})})
         can_submit = _contract_sheet_can_submit(sheet)
         return render_template(
@@ -86303,7 +86566,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -90445,7 +90708,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -111682,23 +111945,54 @@ def _contract_sheet_hero_rows(concert) -> list:
     return filas
 
 
-def _contract_sheet_request_email_html(session_db, concert, public_url: str, message: str = "") -> str:
-    """Correo de SOLICITUD de la ficha de contratación, con el estilo de casa: el logo de la empresa
-    del grupo arriba a la DERECHA, el título centrado, el texto de contratación y una viñeta con la
-    MISMA cabecera de la actividad que se ve en su ficha, con el botón dentro."""
-    company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
-    logo = (getattr(company, "logo_url", None) or "").strip()
+def _contract_sheet_email_card(concert, public_url: str, label: str) -> str:
+    """El BOCADILLO de la actividad de un correo de la ficha de contratación: arriba la FOTO y los
+    DATOS, y **el botón ABAJO A LA DERECHA, dentro del propio bocadillo** — la misma maqueta que el
+    resto de los correos de la casa (`_notice_email_html`).
+
+    Punto ÚNICO: lo pintan la SOLICITUD y la SUBSANACIÓN, así que no se pueden desparejar.
+    ⚠️ Las imágenes van con **`_absolute_media_url`** (en un correo una ruta relativa no se ve, y
+    de paso recorta el «?» final que dejaba storage3 en las URLs guardadas)."""
+    esc = lambda v: escape("" if v is None else str(v))
     artista = (getattr(getattr(concert, "artist", None), "name", None) or "la actividad")
-    foto = (getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()
-    tipo = ""
+    foto = _absolute_media_url(getattr(getattr(concert, "artist", None), "photo_url", None) or "")
     try:
-        tipo = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+        tipo = (_activity_kind_label(getattr(concert, "activity_type", None)) or "").strip()
     except Exception:
         tipo = ""
     datos = "".join(
-        '<tr><td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">%s</td>'
-        '<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">%s</td></tr>'
-        % (escape(lab), escape(str(val))) for _ico, lab, val in _contract_sheet_hero_rows(concert))
+        f'<tr><td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">{esc(lab)}</td>'
+        f'<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">{esc(val)}</td></tr>'
+        for _ico, lab, val in _contract_sheet_hero_rows(concert))
+    img = (f'<td width="76" valign="top" style="padding-right:12px;">'
+           f'<img src="{esc(foto)}" alt="" style="display:block;width:64px;height:64px;border-radius:50%;'
+           f'object-fit:cover;border:1px solid #e6e8eb;"></td>') if foto else ""
+    eyebrow = (f'<div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;'
+               f'color:#8b95a1;">{esc(tipo)}</div>') if tipo else ""
+    return f"""<div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>
+      {img}
+      <td valign="top">
+        {eyebrow}
+        <div style="font-size:18px;font-weight:800;margin:1px 0 6px;">{esc(artista)}</div>
+        <table role="presentation" style="border-collapse:collapse;">{datos}</table>
+      </td>
+    </tr></table>
+    <div style="margin-top:14px;text-align:right;">
+      <a href="{esc(public_url)}" style="display:inline-block;padding:11px 18px;background:#E33D48;
+         color:#fff;text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">{esc(label)}</a>
+    </div>
+  </div>"""
+
+
+def _contract_sheet_request_email_html(session_db, concert, public_url: str, message: str = "") -> str:
+    """Correo de SOLICITUD de la ficha de contratación, con el estilo de casa: el logo de la empresa
+    del grupo arriba a la DERECHA, el título centrado, el texto de contratación y una viñeta con la
+    MISMA cabecera de la actividad que se ve en su ficha, con el botón abajo a la derecha DENTRO de
+    ella (`_contract_sheet_email_card`)."""
+    company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+    logo = _absolute_media_url(getattr(company, "logo_url", None) or "")
+    card = _contract_sheet_email_card(concert, public_url, "Cumplimentar ficha de contratación")
     return f"""
 <div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:640px;">
   <div style="text-align:right;margin-bottom:6px;">
@@ -111706,22 +112000,7 @@ def _contract_sheet_request_email_html(session_db, concert, public_url: str, mes
   </div>
   <h2 style="text-align:center;font-size:20px;margin:0 0 14px;">Solicitud ficha de contratación</h2>
   <p style="margin:0 0 16px;">Contratación le solicita que rellene los datos de la ficha de contratación.</p>
-  <div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">
-    <table style="width:100%;border-collapse:collapse;"><tr>
-      <td style="width:64px;vertical-align:top;">
-        {f'<img src="{foto}" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">' if foto else ''}
-      </td>
-      <td style="vertical-align:top;">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b95a1;">{escape(tipo)}</div>
-        <div style="font-size:18px;font-weight:800;margin:1px 0 6px;">{escape(artista)}</div>
-        <table style="border-collapse:collapse;">{datos}</table>
-      </td>
-      <td style="vertical-align:middle;text-align:right;white-space:nowrap;">
-        <a href="{public_url}" style="display:inline-block;padding:11px 16px;background:#E33D48;color:#fff;
-           text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">Cumplimentar ficha de contratación</a>
-      </td>
-    </tr></table>
-  </div>
+  {card}
   {f'<p style="margin:16px 0 0;white-space:pre-line;">{escape(message)}</p>' if (message or "").strip() else ''}
   <p style="margin:16px 0 0;color:#6b7683;font-size:12px;">Si el botón no funciona, copia este enlace: {public_url}</p>
 </div>"""
@@ -111744,21 +112023,12 @@ def _contract_sheet_subject(concert, titulo: str) -> str:
 def _contract_sheet_reject_email_html(session_db, concert, public_url: str, reason: str) -> str:
     """Correo de SUBSANACIÓN de la ficha de contratación: el MISMO esqueleto que la solicitud (logo
     de la empresa del grupo arriba a la derecha, título centrado y la cabecera de la actividad con
-    el botón dentro), con el MOTIVO destacado — que es lo que tiene que corregir.
+    el botón abajo a la derecha dentro de ella), con el MOTIVO destacado — lo que hay que corregir.
 
     ⚠️ Y se le dice que **no empieza de cero**: el formulario le sale con lo que ya rellenó."""
     company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
-    logo = (getattr(company, "logo_url", None) or "").strip()
-    artista = (getattr(getattr(concert, "artist", None), "name", None) or "la actividad")
-    foto = (getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()
-    try:
-        tipo = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
-    except Exception:
-        tipo = ""
-    datos = "".join(
-        '<tr><td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">%s</td>'
-        '<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">%s</td></tr>'
-        % (escape(lab), escape(str(val))) for _ico, lab, val in _contract_sheet_hero_rows(concert))
+    logo = _absolute_media_url(getattr(company, "logo_url", None) or "")
+    card = _contract_sheet_email_card(concert, public_url, "Subsanar la ficha")
     return f"""
 <div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:640px;">
   <div style="text-align:right;margin-bottom:6px;">
@@ -111770,22 +112040,7 @@ def _contract_sheet_reject_email_html(session_db, concert, public_url: str, reas
     <div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8a6d00;">Qué hay que corregir</div>
     <div style="white-space:pre-line;margin-top:4px;">{escape(reason)}</div>
   </div>
-  <div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">
-    <table style="width:100%;border-collapse:collapse;"><tr>
-      <td style="width:64px;vertical-align:top;">
-        {f'<img src="{foto}" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">' if foto else ''}
-      </td>
-      <td style="vertical-align:top;">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b95a1;">{escape(tipo)}</div>
-        <div style="font-size:18px;font-weight:800;margin:1px 0 6px;">{escape(artista)}</div>
-        <table style="border-collapse:collapse;">{datos}</table>
-      </td>
-      <td style="vertical-align:middle;text-align:right;white-space:nowrap;">
-        <a href="{public_url}" style="display:inline-block;padding:11px 16px;background:#E33D48;color:#fff;
-           text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">Subsanar la ficha</a>
-      </td>
-    </tr></table>
-  </div>
+  {card}
   <p style="margin:16px 0 0;">No tiene que empezar de cero: el formulario le sale con todo lo que ya
     había rellenado, y solo hay que corregir lo que le indicamos.</p>
   <p style="margin:10px 0 0;color:#6b7683;font-size:12px;">Si el botón no funciona, copia este enlace: {public_url}</p>
@@ -118289,6 +118544,34 @@ def _home_ticketing_sales_wrap() -> list[dict]:
     except Exception:
         app.logger.exception("[venta] no se pudieron calcular las tareas de ticketing")
         return []
+    finally:
+        session_db.close()
+
+
+@app.route('/conciertos/<cid>/ficha-contratacion/previsualizar',
+           methods=['GET', 'POST'], endpoint='concert_contract_sheet_preview')
+@admin_required
+def concert_contract_sheet_preview(cid):
+    """EL CORREO DE LA SOLICITUD TAL Y COMO VA A LLEGAR (con su logo y su bocadillo).
+
+    Punto único: la previa devuelve el MISMO HTML que se manda (`_contract_sheet_request_email_html`),
+    así que no hay una segunda versión que se pueda desparejar de lo que recibe el promotor.
+    ⚠️ NO crea nada: si la ficha todavía no tiene enlace se pinta uno de muestra (se genera al
+    enviarla) — previsualizar no puede tener efectos."""
+    session_db = db()
+    try:
+        concert = (session_db.query(Concert)
+                   .options(joinedload(Concert.artist), joinedload(Concert.billing_company),
+                            joinedload(Concert.venue), selectinload(Concert.contract_sheet))
+                   .filter(Concert.id == to_uuid(cid)).first())
+        if not concert:
+            abort(404)
+        token = (getattr(getattr(concert, 'contract_sheet', None), 'public_token', None) or '').strip()
+        public_url = _external_url_for('concert_contract_public_form',
+                                       token=(token or 'ENLACE-AL-ENVIAR'))
+        message = (request.values.get('message') or '').strip()
+        return Response(_contract_sheet_request_email_html(session_db, concert, public_url, message),
+                        mimetype='text/html')
     finally:
         session_db.close()
 

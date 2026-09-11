@@ -12684,3 +12684,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ En una **PLANTILLA** no se ofrece (no hay a quién avisar) y el endpoint lo vuelve a comprobar.
   · Y de paso, `_roadmap_person_rows` **resuelve el NOMBRE de la ficha** cuando en la hoja de ruta
   se quedó vacío: esa persona salía como «Sin nombre» en el listado, en el PDF y aquí.
+
+- ⚠️⚠️ **«ACTUALIZAR VENTAS» NO SERVÍA PARA NADA SUELTO** (bug real, sep 2026, lo sacó
+  `tools/check_permisos.py`): **todos** los endpoints `sales_*` resolvían a la SECCIÓN `ventas`, y
+  `has_access_key` acepta los **ANCESTROS, no los descendientes** — así que a quien se le concedía
+  **solo** la pestaña «Actualizar ventas» se le pintaba la pantalla (42 formularios) y **cualquier
+  cosa que hiciera ahí daba 403**: guardar la venta del día, los tipos de entrada, las ticketeras,
+  el sold out. Ahora se acepta **la PRIMERA clave que tenga** (`SALES_UPDATE_ACCESS_KEYS`: la
+  sección entera **o** su pestaña), el mismo patrón que contabilidad y que la base de facturas.
+  ⚠️ **No abre nada nuevo**: si no tiene ninguna de las dos, se resuelve a `ventas` como siempre
+  (comprobado: sin nada de ventas sigue siendo 403), y el REPORTE sigue siendo `ventas.reportes` con
+  su propio interruptor económico (`can_view_sales_revenue`).
+  ⚠️ **El checker solo lo destapa si la pantalla tiene FILAS**: con la BD de prueba vacía, /ventas no
+  pinta ningún formulario y el fallo no aparece. Si se pasa `check_permisos.py` sin datos, no
+  significa que no haya nada.

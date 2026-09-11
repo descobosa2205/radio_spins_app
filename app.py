@@ -697,6 +697,11 @@ NON_CONCERT_CACHE_LABELS = {
 # sus permisos se migran aquí con `_sales_revenue_grants_migrate`.
 SALES_REVENUE_ACCESS_KEY = "ventas.reportes"
 
+# ⚠️ Quien puede ACTUALIZAR las ventas tiene que poder hacerlo: las escrituras de esa pantalla
+# (guardar la venta del día, los tipos de entrada, las ticketeras, el sold out) valen con la sección
+# entera **o** con su pestaña «Actualizar ventas». Punto único.
+SALES_UPDATE_ACCESS_KEYS = ("ventas", "ventas.actualizar")
+
 SALES_SECTION_ORDER = ["EMPRESA", "GIRAS_COMPRADAS", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {k: CONCERT_SALE_TYPE_LABELS[k] for k in SALES_SECTION_ORDER}
 # Etiqueta corta + icono para los "chips" de tipo del reporte de ventas (estilo filtros de invitaciones).
@@ -88587,6 +88592,14 @@ def _resolve_request_resource_key() -> str | None:
         return "ventas.reportes"
     if endpoint == "sales_update_view":
         return "ventas.actualizar"
+    # ⚠️⚠️ LO QUE SE HACE EN «ACTUALIZAR VENTAS» ES DE «ACTUALIZAR VENTAS» (bug real, sep 2026):
+    # todos los `sales_*` resolvían a la SECCIÓN `ventas`, y `has_access_key` acepta los ANCESTROS,
+    # no los descendientes — así que a quien se le concedía **solo** «Actualizar ventas» veía la
+    # pantalla y **cualquier cosa que hiciera ahí daba 403**: ese permiso no servía para nada suelto.
+    # Se acepta la PRIMERA que tenga (la sección entera o su pestaña), como en contabilidad.
+    if endpoint.startswith("sales_"):
+        return _first_access_key(SALES_UPDATE_ACCESS_KEYS, "ventas",
+                                 edit=(request.method not in ("GET", "HEAD", "OPTIONS")))
     if endpoint in {"artists_view", "artist_update", "artist_delete", "artist_create"}:
         return "artists"
     # Plantillas del artista (personal / rooming / hoja de ruta) y las PERSONAS del artista (que son

@@ -114608,7 +114608,9 @@ def _artist_confirmation_state(session_db, concert) -> dict:
         "at": aviso.responded_at,
         "at_label": (aviso.responded_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if aviso.responded_at else ""),
         "note": (aviso.response_note or ""),
-        "url": (url_for("public_activity_notice_view", token=aviso.public_token) if aviso.public_token else ""),
+        # ⚠️ `url_for` revienta FUERA de una petición (un cron, un hilo): esto se lee también desde
+        # las fases de una petición, que se montan en sitios que no siempre son una pantalla.
+        "url": (_safe_url_for("public_activity_notice_view", token=aviso.public_token) if aviso.public_token else ""),
         "channel": (aviso.channel or ""),
     }
 

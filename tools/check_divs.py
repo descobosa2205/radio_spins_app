@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""UN `</div>` DE MÁS CIERRA EL CONTENEDOR ANTES DE TIEMPO · comprobación automática.
+"""NINGUNA PANTALLA REVIENTA NI SIRVE UN HTML DESCUADRADO · comprobación automática.
+
+Dos cosas en una pasada, porque las dos se ven pidiendo todas las pantallas:
+  · que ninguna dé un **500** (para quien la abre, eso es la página de «cerrado por mantenimiento»);
+  · y que el HTML que sirve **cuadre de `<div>`**.
+
+UN `</div>` DE MÁS CIERRA EL CONTENEDOR ANTES DE TIEMPO.
 
 El navegador no da ningún error: «arregla» el HTML a su manera y lo que viene debajo se queda
 FUERA del contenedor. Ha pasado tres veces y cada una costó un rato encontrarla:
@@ -130,6 +136,7 @@ def main():
         urls = [x for x in urls if any(f in x for f in filtro)]
     malas = 0
     vistas = 0
+    revientan = []
     # ⚠️⚠️ HAY QUE ENTRAR EN CADA PESTAÑA: una ficha abre por su primera pestaña, y los dos `</div>`
     # de más que ha habido estaban en OTRAS (los cachés de «Datos» y el de «Producción»). Se siguen
     # los enlaces `?tab=`/`?section=` que la propia pantalla pinta, que es la lista de verdad.
@@ -153,6 +160,9 @@ def main():
             r = c.get(url, follow_redirects=True)
         except Exception:
             continue
+        if r.status_code >= 500 and "/healthz" not in url:
+            # ⚠️ `/healthz` da 503 en local a propósito (la marca de esquema): no es un fallo.
+            revientan.append((url, r.status_code))
         if r.status_code != 200 or "html" not in (r.mimetype or ""):
             continue
         html = r.get_data(as_text=True)
@@ -168,10 +178,14 @@ def main():
                 print("   se quedan %d <div> sin cerrar (líneas %s)"
                       % (len(abiertos), ", ".join(str(x) for x in abiertos[:6])))
     print("\npantallas revisadas: %d" % vistas)
-    if malas:
+    if revientan:
+        print("⚠️  PANTALLAS QUE REVIENTAN (500): %d" % len(revientan))
+        for url, st in revientan[:20]:
+            print("   %s  %s" % (st, url))
+    if malas or revientan:
         print("⚠️  PANTALLAS CON EL HTML DESCUADRADO: %d" % malas)
         return 1
-    print("OK · ninguna pantalla sirve un <div> de más o de menos")
+    print("OK · ninguna pantalla revienta y todas cuadran de <div>")
     return 0
 
 

@@ -2717,7 +2717,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   modal** (dentro del `<form>`, así que sí se enviaban, pero sin su maqueta ni su scroll)— y, en
   Inicio, cerraba también el envoltorio de los módulos, con lo que «Ordenar mi inicio» solo veía los
   dos primeros. No da ningún error: el navegador lo «arregla» a su manera.
-  ⚠️⚠️ **LA COMPROBACIÓN ES `python3 tools/check_divs.py`** (sep 2026): pinta las pantallas con la
+  ⚠️⚠️ **LA COMPROBACIÓN ES `python3 tools/check_divs.py`** (sep 2026), que en la misma pasada mira
+  también que **ninguna pantalla dé un 500** —para quien la abre, eso es la página de «cerrado por
+  mantenimiento»—. Así salió que el **PDF del informe de ventas** reventaba en cualquier actividad
+  **sin recinto** (`c.venue` es None desde que el recinto dejó de ser obligatorio), y de paso su
+  lugar pasa a escribirse con el formato único de la casa (`_place_label`). Pinta las pantallas con la
   app real (como dirección) y mira el **HTML SERVIDO**, que es lo que ve el navegador, diciendo
   **qué `</div>` sobra y en qué línea**. Contar `<div`/`</div>` en la PLANTILLA da falsos positivos
   —es legítimo abrir un div en una rama `{% if %}` y cerrarlo en otra— y por eso se nos escapaban:

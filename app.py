@@ -72063,8 +72063,18 @@ def sales_event_report_pdf(cid):
         head_tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (1, 0), (1, 0), "RIGHT")]))
         story.append(head_tbl)
 
+        # ⚠️ UNA ACTIVIDAD PUEDE NO TENER RECINTO (el recinto dejó de ser obligatorio: vale con
+        # escribirlo a mano, o con saber solo el municipio), así que `c.venue` puede ser None —
+        # leerlo a pelo reventaba el PDF con un 500, o sea la página de mantenimiento (bug real).
+        # Y el lugar se escribe con el formato ÚNICO de la casa: «Recinto · Municipio, Provincia».
         v = c.venue
-        sub = f"{(v.municipality or '')} · {(v.province or '')} · {(v.name or '')} · {c.date.strftime('%d/%m/%Y') if c.date else ''}"
+        lugar = _place_label(
+            (getattr(v, "municipality", "") or "") or (getattr(c, "manual_municipality", "") or ""),
+            (getattr(v, "province", "") or "") or (getattr(c, "manual_province", "") or ""),
+            (getattr(v, "country", "") or "") or (getattr(c, "manual_country", "") or ""),
+            venue=(getattr(v, "name", "") or "") or (getattr(c, "manual_venue_name", "") or ""),
+        )
+        sub = " · ".join([x for x in [lugar, (c.date.strftime('%d/%m/%Y') if c.date else '')] if x])
         story.append(Paragraph(sub, styles["Normal"]))
         story.append(Paragraph(f"Emitido el {today_local().strftime('%d/%m/%Y')}", styles["Normal"]))
         story.append(Spacer(1, 10))

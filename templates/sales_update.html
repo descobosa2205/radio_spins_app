@@ -51,15 +51,22 @@
   <div class="card shadow-sm sales-card {{ card_state }}" id="concert-{{ c.id }}">
     <div class="card-body py-2">
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-        <div class="me-auto">
-          <div class="fw-bold">{{ c.artist.name if c.artist else 'Sin artista' }}</div>
-          {% if c.artist %}{{ linked_mini('artist', c.artist.id) }}{% endif %}
-          <div class="text-muted small">
-            {{ c.date.strftime('%d/%m/%Y') if c.date else '' }}
-            {% if c.venue %} · {{ c.venue.name }}{% endif %}
-            {% if c.venue and c.venue.municipality %} · {{ c.venue.municipality }}{% endif %}
+        {# La foto del artista (o el logo del evento, que se ve ENTERO). Las personas vinculadas al
+           artista no se pintan aquí: esto es para actualizar ventas, y ahí solo son ruido. #}
+        <div class="me-auto d-flex align-items-center gap-2">
+          <img src="{{ (c.artist.photo_url if c.artist else None) or DEFAULT_AVATAR_URL }}"
+               class="artist-avatar{% if c.artist and c.artist.event_id %} artist-avatar--logo{% endif %}"
+               alt="" data-avatar="1"
+               {%- if c.artist and not c.artist.event_id %} data-artist-link="{{ c.artist.id }}"{% endif %}>
+          <div>
+            <div class="fw-bold">{{ c.artist.name if c.artist else 'Sin artista' }}</div>
+            <div class="text-muted small">
+              {{ c.date.strftime('%d/%m/%Y') if c.date else '' }}
+              {% if c.venue %} · {{ c.venue.name }}{% endif %}
+              {% if c.venue and c.venue.municipality %} · {{ c.venue.municipality }}{% endif %}
+            </div>
+            {% if c.venue %}{{ linked_mini('venue', c.venue.id) }}{% endif %}
           </div>
-          {% if c.venue %}{{ linked_mini('venue', c.venue.id) }}{% endif %}
         </div>
 
         <div class="d-flex align-items-center gap-1">

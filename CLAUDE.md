@@ -12223,3 +12223,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   y el enlace. La macro acepta **`area_class`** y el pitch le pasa `rich-editor__area--justify` (lo
   usan la ficha del lanzamiento y el paso del proyecto). El `.pitch-input` del `<textarea>` viejo se
   conserva.
+
+- ⚠️⚠️ **UNA FOTO DE TAMAÑO FIJO NO SE ENCOGE NUNCA: NI ELLA NI EL ENLACE QUE LA ENVUELVE** (bug
+  real con captura, sep 2026: «en el reporte de ventas, en móvil, la foto del artista o del evento se
+  distorsiona»). Es la trampa de siempre —**cualquier hijo de un flex se comprime a lo ancho
+  manteniendo el alto**, así que el círculo sale OVALADO—, pero aquí el que se encogía **no era el
+  `<img>`: era el `<a>` que lo envuelve**. Medido a 375 px: las 12 fotos debían medir 42×42 y había
+  una en **15×42** (una tira).
+  · Regla en `styles.css`: **`.artist-avatar, .artist-mini, .artist-avatar-inline, .station-logo
+  { flex: 0 0 auto }`** y **`.avatar-link { flex: 0 0 auto }`** para el enlace (que hay que ponerle
+  a mano en la plantilla). Es la misma regla que `.ficha-hero__media`.
+  ⚠️ Al envolver un avatar en un `<a>` dentro de un flex, ese `<a>` lleva **`class="avatar-link"`**.
+  · **EL LOGO DE UN EVENTO SE VE ENTERO** (`.artist-avatar--logo`: `object-fit:contain` sobre
+  blanco): un logo es apaisado y con `cover` dentro de un círculo se le comen los lados. La FOTO de
+  una persona sigue con `cover` (con `contain` quedaría diminuta y con franjas). Se distingue con
+  **`c.artist.event_id`** — el artista de una actividad de evento es el ESPEJO y su foto es el logo.
+  ⚠️ `.sales-card .artist-avatar { object-fit:cover }` tiene la misma especificidad, así que la del
+  logo va DESPUÉS y con `.artist-avatar.artist-avatar--logo`.
+  Comprobado en nueve pantallas a 375 px: cero avatares deformados y ninguna desborda.
+
+- **ACTUALIZAR VENTAS · la foto del artista, y sin los vinculados** (sep 2026): cada actividad de
+  `/ventas` sale con la **foto del artista** (o el logo del evento, entero) delante de su nombre, y
+  **se retiran las personas vinculadas al artista** que se pintaban debajo (`linked_mini('artist')`):
+  eso es de la ficha del artista y en una pantalla de actualizar ventas solo es ruido — la misma
+  regla que ya se aplicó en la cabecera de una actividad. Las del RECINTO se conservan.
+  ⚠️ El `data-artist-link` (que hace clicable la foto) **no se pone en el espejo de un evento**: su
+  ficha de artista no debe verse nunca.

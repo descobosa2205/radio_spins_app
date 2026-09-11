@@ -53,6 +53,15 @@ html, body { overflow-x: clip; }
   width: 56px; height: 56px; border-radius: 50%; object-fit: cover;
   border: 2px solid #eee;
 }
+/* ⚠️ UNA FOTO DE TAMAÑO FIJO NO SE ENCOGE NUNCA: ni ella ni el enlace que la envuelve. Cualquier
+   hijo de un flex se comprime a lo ancho manteniendo el alto, así que el círculo sale OVALADO (bug
+   real del reporte de ventas en móvil: una foto de 42 px se quedaba en 15). Es la misma regla de
+   `.ficha-hero__media`. */
+.artist-avatar, .artist-mini, .artist-avatar-inline, .station-logo { flex: 0 0 auto; }
+.avatar-link { flex: 0 0 auto; display: inline-flex; line-height: 0; }
+/* El logo de un EVENTO es apaisado: dentro de un círculo con `cover` se le comen los lados, así que
+   se ve ENTERO sobre blanco (lo mismo que los logos de las emisoras). */
+.artist-avatar.artist-avatar--logo { object-fit: contain; background: #fff; padding: 2px; }
 .artist-hero{
   border: 1px solid rgba(0,0,0,.06);
   background: #fff;
@@ -2917,7 +2926,9 @@ body.vmap-max-open { overflow: hidden; }
   .sales-card .station-logo { width:38px; height:38px; }
 }
 .sales-card .artist-avatar, .sales-card .station-logo { object-fit:contain; }
+/* La FOTO de un artista se recorta (si no, queda diminuta con franjas); el LOGO de un evento, no. */
 .sales-card .artist-avatar { object-fit:cover; }
+.sales-card .artist-avatar.artist-avatar--logo { object-fit:contain; background:#fff; }
 
 /* Socios (participaciones): logo + % apilados, SIN badge superpuesto. El nombre y el % van en el
    title -> tooltip al pasar el ratón por el logo. */

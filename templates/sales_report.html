@@ -127,9 +127,9 @@
       <!-- CABECERA -->
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div class="d-flex align-items-center gap-3">
-          <a href="{{ url_for('sales_report_by_artist', aid=c.artist_id) if c.artist_id else '#' }}" onclick="event.stopPropagation();">
+          <a class="avatar-link" href="{{ url_for('sales_report_by_artist', aid=c.artist_id) if c.artist_id else '#' }}" onclick="event.stopPropagation();">
             <img src="{{ (c.artist.photo_url if c.artist else None) or DEFAULT_AVATAR_URL }}"
-                 class="artist-avatar" alt="" data-avatar="1">
+                 class="artist-avatar{% if c.artist and c.artist.event_id %} artist-avatar--logo{% endif %}" alt="" data-avatar="1">
           </a>
           <div class="d-flex align-items-center flex-wrap gap-2">
             <div class="fw-semibold"{% if c.artist %} data-artist-link="{{ c.artist.id }}"{% endif %}>

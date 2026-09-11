@@ -62,6 +62,13 @@
       ev.preventDefault();
       if (!media.paused) { media.pause(); return; }
       if (actual && actual !== media) { try { actual.pause(); } catch (e) {} }
+      /* ⚠️ Y lo que esté sonando en OTRO reproductor de la pantalla (el de una playlist o el de un
+         material): solo suena uno a la vez, venga de donde venga. */
+      try {
+        document.querySelectorAll('audio, video').forEach(function (m) {
+          if (m !== media && !m.paused) { try { m.pause(); } catch (e) {} }
+        });
+      } catch (e) {}
       actual = media;
       media.play().catch(function () {
         // Sin permiso de reproducción o archivo ilegible: se abre en una pestaña, que siempre vale.

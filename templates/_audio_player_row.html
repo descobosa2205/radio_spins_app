@@ -1,0 +1,34 @@
+{# ============================================================================================
+   EL REPRODUCTOR DE AUDIO DE LA CASA · punto ÚNICO.
+   Es el de la landing de Syncros y el de las demos: **play redondo + barra que se arrastra +
+   duración**. Lo mueve `playlist.js` (se engancha por `data-playlist-player`), así que la pantalla
+   que lo use tiene que cargar ese script — en el back office viene de `layout.html`; en una página
+   pública standalone hay que ponerlo a mano.
+   ⚠️ El título, el artista y la portada van en `data-*` aunque no se pinten: son los que ve el
+   SISTEMA (pantalla de bloqueo, CarPlay, AirPods) con la Media Session.
+   ⚠️ Solo suena uno a la vez, también entre varios reproductores de la misma pantalla (lo corta
+   `playlist.js`).
+   Con `{% raw %}{% call %}{% endraw %}` se le añaden iconos a la derecha (la letra, la descarga…).
+   ============================================================================================ #}
+{% macro audio_player(src, id='', title='', artist='', cover='', dur='', label='', album='', row_class='') %}
+<ul class="pl-list list-unstyled mb-0 sync-player {{ row_class }}" data-playlist-player
+    data-pl-album="{{ album }}">
+  <li class="pl-row sync-player__row" data-pl-row data-pl-item="{{ id }}"
+      data-pl-src="{{ src }}" data-pl-dur="{{ dur }}"
+      data-pl-title="{{ title }}" data-pl-artist="{{ artist }}"
+      data-pl-cover="{{ cover or DEFAULT_COVER_PNG_URL }}">
+    <button type="button" class="sync-player__play" data-pl-toggle
+            aria-label="{{ label or 'Escuchar' }}"><i class="fa-solid fa-play" data-pl-icon></i></button>
+    {% if label %}<span class="sync-player__label">{{ label }}</span>{% endif %}
+    <div class="sync-player__bar" data-pl-player-zone>
+      <div class="pl-track" data-pl-track role="slider" tabindex="0" aria-label="Posición">
+        <div class="pl-track__fill" data-pl-fill></div>
+        <span class="pl-track__knob" data-pl-knob></span>
+      </div>
+      <span class="pl-row__time" data-pl-time>0:00</span>
+    </div>
+    <span class="pl-row__dur ms-auto" data-pl-durlabel></span>
+    {% if caller %}{{ caller() }}{% endif %}
+  </li>
+</ul>
+{% endmacro %}

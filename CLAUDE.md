@@ -12125,3 +12125,101 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   con la foto, el sello de OTRO artista no recibe nada y no puede abrir la ficha, avisar otra vez no
   duplica, al asignar producción le llega con el estado ya actualizado, quien viaja lo recibe y abre
   su ficha, y el estado va cambiando de fase en fase.
+
+- ⚠️⚠️ **FICHA DE CONTRATACIÓN · LOS DATOS DEL PROMOTOR SON SUYOS, NO LOS DE LA CASA** (bug real y
+  grave, sep 2026). El primer módulo del formulario que rellena el promotor («Datos del promotor»)
+  salía con la **razón social y el CIF de la EMPRESA DEL GRUPO que factura**: la semilla
+  (`_concert_contract_sheet_seed`) volcaba `billing_company.name`/`.tax_info` en `company_legal_name`
+  /`company_tax_id`. O sea, se le enseñaban NUESTROS datos fiscales y se le pedía «completarlos».
+  · Punto único **`_contract_sheet_promoter_seed(concert, session_db=None)`**: manda la **SOCIEDAD
+  con la que factura** (`Concert.promoter_company`) y lo que no diga se completa con su ficha de
+  tercero (`Concert.promoter`) — nombre o razón social, CIF, dirección fiscal en piezas, correo y
+  teléfono (⚠️ con **`_promoter_email_phone`**: en `Promoter` son `contact_email`/`contact_phone`).
+  Lo fusiona `_contract_sheet_prefill(..., session_db=)` **solo donde no haya nada escrito**.
+  · **EL REPRESENTANTE es una SUBSECCIÓN del promotor** y sale de su ficha: es **otro TERCERO
+  vinculado** con la relación «Representante» (`_promoter_representatives`, por eso hace falta la
+  sesión). Su rótulo es **«Nombre completo del representante»** y lleva además su DNI, su correo y su
+  teléfono (`company_representative_email`/`_phone`, campos nuevos del catálogo).
+  · **Lo que YA TENEMOS sale relleno y lo que FALTA va en ÁMBAR** (`.csheet-need` + la pastilla
+  «Nos falta», que las pinta el SERVIDOR al cargar): en una página pública `form_check.js` no actúa,
+  y lo que hay que señalar es el hueco que le toca rellenar. Todo editable, que es como se actualiza.
+  ⚠️ La macro `cfield` del módulo evita repetir el mismo markup diez veces.
+
+- ⚠️⚠️ **LA FICHA DE CONTRATACIÓN SE VA GUARDANDO SOLA** (sep 2026): según el promotor escribe, lo
+  que lleva se manda a **NUESTRO servidor** (`ConcertContractSheet.draft` + `draft_at`, endpoint
+  **`public_contract_sheet_draft`**) con un respiro de 900 ms y con `sendBeacon` al cerrar la
+  pestaña; abajo, la barra **«Se va guardando solo · Guardado a las 12:40»** (`.csheet-save`).
+  Al volver a su enlace **sigue donde lo dejó** y **se le DICE de cuándo es** lo que se le repone
+  (nunca se mezcla nada a la callada). Al ENVIARLA el borrador se limpia.
+  ⚠️⚠️ **NO es un envío**: `draft` no toca `promoter_data`, ni el estado, ni avisa a nadie — para la
+  casa la ficha sigue igual hasta que él le da a «Enviar», y la pantalla de revisión solo enseña lo
+  ENVIADO. `_contract_sheet_draft` descarta el borrador anterior a lo último que mandó.
+  ⚠️ Es la EXCEPCIÓN a «en una página pública no se guarda nada»: esa regla es del guardado LOCAL
+  (`form_autosave.js`, que dejaría datos en el disco de un tercero). Aquí se guarda en su propia
+  ficha de nuestra BD, así que además le vale desde otro dispositivo. Por eso el `<form>` lleva
+  **`data-no-autosave`**: si no, con sesión abierta salían los DOS avisos diciendo lo mismo.
+  ⚠️ Solo se repone lo que TIENE valor: un borrador a medias no puede borrar lo que ya sabemos.
+
+- ⚠️⚠️ **FICHA DE CONTRATACIÓN · EL RECINTO sustituye a «¿al aire libre o cubierto?»** (sep 2026):
+  eso es un dato **DEL RECINTO** y se pregunta solo al darlo de alta. En «Datos del show» sale el
+  recinto que tengamos (foto + nombre + «Municipio, Provincia» y el botón «Cambiar»); si no hay, un
+  aviso ámbar («hay que especificar el recinto», diciendo el municipio si es lo único que sabemos) y
+  una **barra de búsqueda**: se escribe y salen las coincidencias **con su foto**
+  (`public_contract_sheet_venues`), y la última fila es siempre **«Crear el recinto «X»»**.
+  · El alta pide **solo el nombre, la DIRECCIÓN (la barra que rellena lo demás: el CP, el municipio,
+  la provincia y el país van en OCULTOS, no se piden) y si es cubierto o al aire libre**
+  (`Venue.covered`), y **al crearlo queda elegido** (`public_contract_sheet_venue_create`).
+  ⚠️ **NO se duplican recintos**: si ya tenemos uno con ese nombre en ese municipio se reutiliza y se
+  dice (`_norm_text_key`, el mismo criterio que el alta rápida de dentro).
+  · Lo elegido viaja en ocultos (`gala_venue_id` + nombre, dirección, CP, municipio, provincia y
+  `show_venue_kind` derivado de `covered`) y **al REVISAR la ficha se le pone a la actividad**
+  (`venue_id` en `_sheet_merge_candidates`).
+  ⚠️⚠️ Ahí había una trampa: `_apply_contract_sheet_merge` limpiaba `concert.venue_id` cuando llegaba
+  un recinto **escrito a mano** (la regla de siempre), y como el nombre y la dirección viajan también
+  como texto, **borraba el recinto que se acababa de poner**. Ahora, si viene `venue_id`, manda ése.
+  ⚠️ La lista de sugerencias se saca al `<body>` (`app33FloatList.attach`) **al ABRIRLA**, no al
+  arrancar: los scripts en línea de una plantilla corren ANTES que los globales del layout, así que
+  al cargar `app33FloatList` todavía no existe (la lista se quedaba dentro de su bocadillo).
+
+- **EL CORREO DE LA FICHA DE CONTRATACIÓN · el botón, dentro del bocadillo y abajo a la derecha**
+  (sep 2026): punto único **`_contract_sheet_email_card`** (foto y datos arriba, y el botón **abajo
+  a la derecha DENTRO del bocadillo**, la misma maqueta que `_notice_email_html`), usado por la
+  SOLICITUD y por la SUBSANACIÓN — así no se pueden desparejar. Las imágenes van con
+  `_absolute_media_url` (en un correo una ruta relativa no se ve, y de paso recorta el «?» que
+  dejaba storage3).
+  · **Y LA PREVISUALIZACIÓN ES EL CORREO**: el pop-up de solicitar la ficha enseña en un `<iframe>`
+  el MISMO HTML que se manda (`concert_contract_sheet_preview`, que se refresca al escribir el
+  mensaje) con su logo y su bocadillo; antes era un listado de campos. ⚠️ No crea nada: si la ficha
+  aún no tiene enlace se pinta uno de muestra (se genera al enviarla).
+
+- ⚠️ **UNA BOLSA NO REPITE SUS DATOS: la cabecera ya los dice** (sep 2026). El módulo «Datos de la
+  bolsa» se **retiró**: lo que enseñaba (título, tipo, estado, artistas, vínculo, fechas y empresa)
+  está en su `ficha-hero`. Se editan con el **LÁPIZ de la cabecera**, que abre el MISMO formulario
+  (`#bagDataForm`, oculto, con **`data-keep-view`** para no esconder nada de lo que ya está a la
+  vista). La **descripción** y las **indicaciones económicas** —que la cabecera no dice— se pintan
+  debajo **solo si tienen algo**.
+  · **LAS NOTAS solo son un módulo SI HAY NOTAS**; si no, queda una **barra fina con el icono de una
+  nota** (`.bag-notes-bar__btn`) que abre el formulario. Un módulo vacío que dice «todavía no hay
+  notas» solo ocupa sitio. El formulario es una macro (`bag_note_form`), la misma en los dos casos.
+
+- ⚠️⚠️ **EL REPRODUCTOR DE AUDIO ES UNO SOLO: el de la landing de Syncros** (sep 2026,
+  `templates/_audio_player_row.html`, macro **`audio_player`**): play redondo + **barra que se
+  arrastra** + duración, movido por `playlist.js`. Lo usan la **landing de Syncros**
+  (`_sync_song_player.html`) y los **MATERIALES de una canción** (masters, instrumental, TV track,
+  stems y las demos del proyecto), que antes iban con la etiqueta `.mat-chip` de `media_chip.js`.
+  Con `{% call %}` se le añaden iconos a la derecha (la letra, la descarga).
+  ⚠️⚠️ **`playlist.js` NO es global**: la pantalla que lo use tiene que cargarlo (la ficha de canción
+  lo hace ya en su `{% block scripts %}`). Sin ese `<script>` los audios se ven pero **no suenan**.
+  ⚠️ **Solo suena uno a la vez, también entre VARIOS reproductores de la misma pantalla** (Materiales
+  tiene uno por módulo): al arrancar, `playlist.js` pausa los demás `<audio>`/`<video>` del documento
+  —y `media_chip.js` hace lo mismo—, así que se cortan entre sí venga de donde venga.
+  ⚠️ El marco rojo del que suena es `.is-playing:not(.is-paused)`: la fila que se queda pausada
+  conserva `is-playing` (es la que está cargada) y con dos marcos no se sabría cuál suena.
+  · **La ESTÉTICA de los módulos de Materiales y del videoclip es la de la landing**: tarjeta blanca
+  de esquinas redondeadas (14px), borde suave (#e5e7eb), sombra ligera y aire dentro.
+
+- ⚠️ **EL PITCH SE ESCRIBE JUSTIFICADO** (sep 2026): el editor con formato (`_rich_text_field.html`)
+  no justificaba, así que se escribía en bandera y se leía justificado en la ficha, el PDF, el correo
+  y el enlace. La macro acepta **`area_class`** y el pitch le pasa `rich-editor__area--justify` (lo
+  usan la ficha del lanzamiento y el paso del proyecto). El `.pitch-input` del `<textarea>` viejo se
+  conserva.

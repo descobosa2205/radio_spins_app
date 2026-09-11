@@ -3,38 +3,19 @@
    ⚠️ Aquí NO se usa la fila entera (`pl_row`): la portada, el título y el artista ya están arriba
    en la tarjeta y se DUPLICABAN. Abajo va solo lo que hace falta: el PLAY con su barra de estado
    al lado, y los iconos de letra y de descarga.
-   Lo mueve el mismo motor de las demos (`playlist.js`), que se engancha por `data-playlist-player`
-   y necesita esta estructura (`data-pl-row` + `data-pl-src` + la zona del reproductor).
+   ⚠️ Es el REPRODUCTOR ÚNICO de la casa (`_audio_player_row.html`), el mismo que se usa en los
+   materiales de una canción: si se toca, se toca en los dos sitios a la vez.
    ============================================================================ #}
-{# ⚠️ El título, el artista y la portada van en `data-*` aunque aquí no se pinten: son los que ve el
-   SISTEMA (pantalla de bloqueo, CarPlay, AirPods) con la Media Session. #}
-<ul class="pl-list list-unstyled mb-0 sync-player" data-playlist-player
-    data-pl-album="{{ row.artist_name or '' }}">
-  <li class="pl-row sync-player__row" data-pl-row data-pl-item="{{ row.id }}"
-      data-pl-src="{{ row.audio_url }}" data-pl-dur="{{ row.duration_seconds or '' }}"
-      data-pl-title="{{ row.title }}"
-      data-pl-artist="{{ row.artist_name or '' }}"
-      {# ⚠️ La carátula del SISTEMA (bloqueo, CarPlay): el placeholder, en PNG (un SVG no se pinta). #}
-      data-pl-cover="{{ row.cover_url or DEFAULT_COVER_PNG_URL }}">
-    <button type="button" class="sync-player__play" data-pl-toggle aria-label="{{ play_label }}">
-      <i class="fa-solid fa-play" data-pl-icon></i>
-    </button>
-    <span class="sync-player__label">{{ play_label }}</span>
-    <div class="sync-player__bar" data-pl-player-zone>
-      <div class="pl-track" data-pl-track role="slider" tabindex="0" aria-label="Posición">
-        <div class="pl-track__fill" data-pl-fill></div>
-        <span class="pl-track__knob" data-pl-knob></span>
-      </div>
-      <span class="pl-row__time" data-pl-time>0:00</span>
-    </div>
-    <span class="pl-row__dur ms-auto" data-pl-durlabel></span>
-    {% if row.has_lyrics %}
-      <a class="sync-player__ico" href="#letra" title="{{ lyrics_label }}" aria-label="{{ lyrics_label }}">
-        <i class="fa-solid fa-align-justify"></i></a>
-    {% endif %}
-    {% if row.download_url %}
-      <a class="sync-player__ico" href="{{ row.download_url }}" title="{{ download_label }}"
-         aria-label="{{ download_label }}"><i class="fa-solid fa-download"></i></a>
-    {% endif %}
-  </li>
-</ul>
+{% import '_audio_player_row.html' as ap with context %}
+{% call ap.audio_player(row.audio_url, id=row.id, title=row.title, artist=(row.artist_name or ''),
+                        cover=(row.cover_url or ''), dur=(row.duration_seconds or ''),
+                        label=play_label, album=(row.artist_name or '')) %}
+  {% if row.has_lyrics %}
+    <a class="sync-player__ico" href="#letra" title="{{ lyrics_label }}" aria-label="{{ lyrics_label }}">
+      <i class="fa-solid fa-align-justify"></i></a>
+  {% endif %}
+  {% if row.download_url %}
+    <a class="sync-player__ico" href="{{ row.download_url }}" title="{{ download_label }}"
+       aria-label="{{ download_label }}"><i class="fa-solid fa-download"></i></a>
+  {% endif %}
+{% endcall %}

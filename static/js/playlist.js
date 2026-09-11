@@ -109,13 +109,26 @@
       var t = li.querySelector('[data-pl-time]'); if (t) t.textContent = fmt(audio.currentTime);
     }
 
+    /* ⚠️ SOLO SUENA UNO A LA VEZ, también entre VARIOS reproductores de la misma pantalla (la
+       pestaña Materiales de una canción tiene uno por módulo: masters, instrumental, TV track…).
+       Cada `initPlayer` cuelga su propio `<audio>` del documento, así que al arrancar se paran los
+       demás — incluidas las etiquetas de `media_chip.js`, que también son `<audio>` del documento. */
+    function paraLosDemas() {
+      try {
+        document.querySelectorAll('audio, video').forEach(function (m) {
+          if (m !== audio && !m.paused) { try { m.pause(); } catch (e) {} }
+        });
+      } catch (e) {}
+    }
+
     function suena(idx) {
       if (idx < 0 || idx >= filas.length) return;
       if (idx === actual) {                     // la misma: pausa o sigue
-        if (audio.paused) { audio.play().catch(function () {}); } else { audio.pause(); }
+        if (audio.paused) { paraLosDemas(); audio.play().catch(function () {}); } else { audio.pause(); }
         pinta();
         return;
       }
+      paraLosDemas();
       actual = idx;
       var li = filas[idx];
       audio.src = li.getAttribute('data-pl-src');

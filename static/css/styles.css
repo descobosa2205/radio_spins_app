@@ -1160,8 +1160,12 @@ label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !im
 /* Solicitudes pedidas para OTRA persona de la oficina (vista de solo lectura en "Mis solicitudes") */
 .invitation-office-row{ border-left:3px solid var(--brand-accent); background:rgba(0,124,162,.045); }
 /* Materiales de canción (rediseño) */
-.mat-module{ border:1px solid #e9ecef; border-radius:.6rem; padding:.6rem .75rem; background:#fff; }
-.mat-module__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; flex-wrap:wrap; margin-bottom:.4rem; }
+/* ⚠️ LA ESTÉTICA ES LA DE LA LANDING DE SYNCROS (la página que recibe quien nos escucha): tarjeta
+   blanca de esquinas redondeadas, borde suave y una sombra muy ligera, con aire dentro. Se cambia
+   aquí para que todos los módulos de Materiales y el del videoclip vayan a una. */
+.mat-module{ border:1px solid #e5e7eb; border-radius:14px; padding:.85rem 1rem; background:#fff;
+  box-shadow:0 1px 2px rgba(16,24,40,.04); }
+.mat-module__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; flex-wrap:wrap; margin-bottom:.6rem; }
 .mat-file{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
 .mat-file__main{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; min-width:0; flex:1; }
 .mat-file__name{ font-size:.85rem; color:#1e2530; word-break:break-word; }
@@ -1178,9 +1182,11 @@ label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !im
 .mat-stems-toggle:hover{ text-decoration:underline; }
 .mat-empty{ font-size:.82rem; color:#8a94a6; }
 .mat-subhead{ font-size:.72rem; letter-spacing:.04em; text-transform:uppercase; color:#8a94a6; margin-bottom:.4rem; }
-.mat-cover{ position:relative; border:1px solid #e9ecef; border-radius:.7rem; padding:.75rem; display:flex; align-items:center; gap:.75rem; min-height:96px; background:#fff; }
-.mat-cover__img{ width:84px; height:84px; object-fit:cover; border-radius:.6rem; border:1px solid #eee; }
-.mat-cover__placeholder{ width:84px; height:84px; border-radius:.6rem; border:1px dashed #d4d9e0; display:flex; align-items:center; justify-content:center; color:#c2c8d2; font-size:1.5rem; }
+.mat-cover{ position:relative; border:1px solid #e5e7eb; border-radius:14px; padding:.85rem;
+  display:flex; align-items:center; gap:.85rem; min-height:96px; background:#fff;
+  box-shadow:0 1px 2px rgba(16,24,40,.04); }
+.mat-cover__img{ width:84px; height:84px; object-fit:cover; border-radius:12px; border:1px solid #e5e7eb; }
+.mat-cover__placeholder{ width:84px; height:84px; border-radius:12px; border:1px dashed #d4d9e0; display:flex; align-items:center; justify-content:center; color:#c2c8d2; font-size:1.5rem; }
 .mat-cover__body{ flex:1; min-width:0; }
 .mat-cover__badge{ position:absolute; top:.5rem; right:.5rem; font-size:.68rem; font-weight:600; padding:.1rem .45rem; border-radius:999px; background:#eef0f3; color:#6b7280; }
 .mat-cover__badge--main{ background:var(--brand-primary, #E33D48); color:#fff; }
@@ -1742,6 +1748,40 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .csheet-mod__body{ padding:1rem; }
 .csheet-sub{ font-size:.74rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em;
   color:var(--muted-2); margin:.25rem 0 .5rem; }
+/* Lo que NOS FALTA de sus datos va en ÁMBAR (rojo se reserva a lo que está mal). Se marca al
+   pintar, no al enviar: el promotor tiene que ver de un golpe qué hueco le toca rellenar. */
+.csheet-need{ border-color:#e3a008; background:#fffbf0; }
+.csheet-need:focus{ border-color:#e3a008; box-shadow:0 0 0 .2rem rgba(227,160,8,.18); }
+.csheet-tag{ font-size:.66rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+  padding:.1rem .4rem; border-radius:999px; background:#fff3cd; color:#8a6d00; }
+/* EL REPRODUCTOR dentro de un módulo de materiales: el mismo de la landing de Syncros, ocupando
+   su línea con aire (en la landing va sobre gris claro y aquí, dentro de la tarjeta del módulo). */
+.mat-file .sync-player{ flex:1 1 14rem; min-width:0; }
+.mat-file .sync-player__row{ padding:.35rem .55rem; border:1px solid #eef0f4; border-radius:10px;
+  background:#f8f9fb; }
+/* ⚠️ El marco rojo solo cuando SUENA DE VERDAD: la fila que se queda pausada conserva
+   `is-playing` (es la que está cargada), y con dos marcos rojos no se sabe cuál suena. */
+.mat-file .sync-player__row.is-playing:not(.is-paused){ border-color:var(--brand-primary,#E33D48); background:#fff6f6; }
+/* BOLSA · la barra fina de las notas: cuando no hay ninguna, un módulo vacío solo ocupa sitio, así
+   que queda solo esta línea con el icono de una nota para añadir la primera. */
+.bag-notes-bar__btn{ display:flex; align-items:center; gap:.5rem; width:100%; border:1px dashed var(--line-2);
+  border-radius:10px; background:#fff; color:var(--muted-2); padding:.4rem .7rem; font-size:.86rem; }
+.bag-notes-bar__btn:hover{ border-color:var(--brand-primary,#E33D48); color:var(--brand-primary,#E33D48); }
+.bag-notes-bar__btn i{ color:var(--brand-primary,#E33D48); }
+/* EL RECINTO elegido: su foto, su nombre y su sitio (y el botón de cambiarlo). */
+.csheet-venue{ display:flex; align-items:center; gap:.7rem; flex-wrap:wrap;
+  border:1px solid var(--line-2); border-radius:12px; padding:.55rem .7rem; background:#fff; }
+.csheet-venue__img{ width:52px; height:52px; border-radius:10px; object-fit:cover; flex:0 0 auto;
+  background:#f4f6f8; }
+.csheet-venue__b{ min-width:0; flex:1 1 12rem; }
+.csheet-venue__n{ font-weight:800; }
+.csheet-venue__p{ font-size:.85rem; color:var(--muted-2); }
+/* SE VA GUARDANDO SOLO: la ficha se guarda según se escribe, así que si se sale no empieza de cero. */
+.csheet-save{ position:sticky; bottom:0; z-index:5; display:flex; align-items:center; gap:.5rem;
+  justify-content:flex-end; padding:.5rem .25rem; font-size:.82rem; color:var(--muted-2);
+  background:linear-gradient(to top, rgba(255,255,255,.96), rgba(255,255,255,0)); }
+.csheet-save.is-saving{ color:#8a6d00; }
+.csheet-save.is-ko{ color:#b3242e; }
 /* Ticketeras: tarjetas con su logo que se marcan (varias). */
 .csheet-tks{ display:flex; flex-wrap:wrap; gap:.5rem; }
 .csheet-tk{ margin:0; cursor:pointer; }
@@ -4735,10 +4775,10 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 }
 
 /* VIDEOCLIP: mismo hueco que la portada, con la miniatura del vídeo. */
-.mat-video{ position:relative; border:1px solid #e9ecef; border-radius:.7rem; padding:.75rem;
+.mat-video{ position:relative; border:1px solid #e5e7eb; border-radius:14px; padding:.85rem; box-shadow:0 1px 2px rgba(16,24,40,.04);
             display:flex; align-items:center; gap:.75rem; min-height:96px; background:#fff; }
-.mat-video__thumb{ width:150px; height:84px; object-fit:cover; border-radius:.6rem; border:1px solid #eee; background:#000; }
-.mat-video__placeholder{ width:150px; height:84px; border-radius:.6rem; border:1px dashed #d4d9e0;
+.mat-video__thumb{ width:150px; height:84px; object-fit:cover; border-radius:12px; border:1px solid #e5e7eb; background:#000; }
+.mat-video__placeholder{ width:150px; height:84px; border-radius:12px; border:1px dashed #d4d9e0;
                          display:flex; align-items:center; justify-content:center; color:#c2c8d2; font-size:1.5rem; }
 .mat-video__play{ position:absolute; left:calc(.75rem + 59px); top:50%; transform:translate(-50%,-50%);
                   width:34px; height:34px; border-radius:50%; background:rgba(0,0,0,.55); color:#fff;
@@ -6008,6 +6048,10 @@ button.pl-row__dl-plain{ border:0; background:transparent; }
 .rich-editor__area p{ margin:0 0 .7rem; }
 .rich-editor__area p:last-child{ margin-bottom:0; }
 .rich-editor__area:empty::before{ content:attr(data-placeholder); color:#adb5bd; }
+/* ⚠️ EL PITCH SE ESCRIBE YA JUSTIFICADO: es como se va a leer en la ficha, en el PDF, en el correo
+   y en el enlace público, así que el editor lo enseña igual (antes solo lo justificaba el
+   `<textarea>` viejo, `.pitch-input`, y con el editor con formato se escribía en bandera). */
+.rich-editor__area--justify{ text-align:justify; }
 
 /* ═════════════ DOBLE CIERRE DE UNA BOLSA ═════════════
    Una bolsa que trabajan DOS departamentos (un proyecto discográfico con logística, una promoción

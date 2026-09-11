@@ -1,6 +1,8 @@
 {% extends "layout.html" %}
 {% block content %}
 {% import '_label_copy_share.html' as lcshare with context %}
+{# EL REPRODUCTOR de audio de la casa (el mismo de la landing de Syncros). #}
+{% import '_audio_player_row.html' as ap with context %}
 
 <div class="mb-2">
   {# Vuelve al listado del que se viene (repertorio, lanzamientos o Syncros); si no se sabe, al repertorio. #}
@@ -1719,9 +1721,12 @@
                     {{ d.who or '' }}{% if d.authors_tooltip %} · {{ d.authors_tooltip }}{% endif %}</span>
                 </span>
                 {% if d.audio_url %}
-                  {# La etiqueta de audio del sistema (suena aquí mismo, uno a la vez). #}
-                  <span class="mat-chip mat-chip--bare" data-chip-src="{{ d.audio_url }}">
-                    <i class="fa fa-play"></i></span>
+                  {# El reproductor de la casa (el de Syncros): suena aquí mismo, uno a la vez. #}
+                  <span style="flex:1 1 12rem;min-width:9rem;">
+                    {{ ap.audio_player(d.audio_url, id=('demo-' ~ (d.id or '')), title=d.title,
+                                       artist=(d.who or ''), cover=(d.cover_url or ''),
+                                       album=(d.who or '')) }}
+                  </span>
                 {% endif %}
                 <a class="btn btn-sm btn-outline-secondary"
                    href="{{ url_for('discografica_view', section='demos', demo_artist=(d.artist_id or 'none')) }}">
@@ -1874,15 +1879,15 @@
       {% endif %}
     {% endmacro %}
 
-    {# ETIQUETA de audio: icono del tipo + play + duración. Sin nombre de archivo — el módulo en el
-       que está ya dice qué es («Master 48 bits», «Instrumental»…) y el nombre lo pone quien lo sube.
-       Al pinchar suena; la duración la lee el navegador (ver media_chip.js). #}
+    {# EL REPRODUCTOR de un audio: **el MISMO de la landing de Syncros** (play redondo + barra que
+       se arrastra + duración), punto único `_audio_player_row.html`. Sin nombre de archivo: el
+       módulo en el que está ya dice qué es («Master 48 bits», «Instrumental»…).
+       ⚠️ Solo suena uno a la vez, también entre los varios reproductores de esta pestaña. #}
     {% macro audio_chip(item) %}
-      <span class="mat-chip" data-chip-src="{{ item.file_url }}" title="Reproducir">
-        <span class="mat-chip__btn"><i class="fa fa-play" data-chip-icon></i></span>
-        <span class="mat-chip__kind"><i class="fa fa-file-audio"></i>Audio</span>
-        <span class="mat-chip__dur" data-chip-dur></span>
-      </span>
+      {{ ap.audio_player(item.file_url, id=item.id, title=song.title,
+                         artist=(primary_artist.name if primary_artist else ''),
+                         cover=(song.cover_url or ''),
+                         album=(primary_artist.name if primary_artist else '')) }}
     {% endmacro %}
 
     {# Fila de archivo de audio: la etiqueta + el menú de 3 puntos. #}
@@ -3602,4 +3607,11 @@
 </script>
 {% endif %}
 
+{% endblock %}
+
+{# ⚠️⚠️ EL REPRODUCTOR de audio de la casa lo mueve `playlist.js`, que NO es global: sin este
+   <script> los audios de los materiales se ven pero **no suenan** (bug real de la sección Demos).
+   Va en su propio bloque para que se cargue después del layout. #}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
 {% endblock %}

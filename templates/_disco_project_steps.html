@@ -2068,7 +2068,7 @@
             <label class="form-label mt-3">El pitch</label>
             {# Mismo editor que en la ficha: se conserva la negrita, la cursiva y el subrayado. #}
             {{ rich.rich_text('pitch_text', ps.text_html or '',
-                              'El texto con el que se presenta el lanzamiento…', '300px') }}
+                              'El texto con el que se presenta el lanzamiento…', '300px', area_class='rich-editor__area--justify') }}
           </div>
           <div class="col-12 col-lg-5">
             {% if ps.artist_text %}

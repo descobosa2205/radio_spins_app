@@ -229,9 +229,10 @@
           </div>
         </section>
 
-        {# GÉNEROS: OBLIGATORIO en todo proyecto con AUDIO (todos menos un videoclip suelto, donde el
-           audio ya existe con sus géneros). Se aplican a las canciones del lanzamiento. #}
-        <section class="sw-step" data-step="9" data-title="Género" data-sw-when="ALBUM,EP,SINGLE,SINGLE_VIDEOCLIP">
+        {# ⚠️⚠️ GÉNERO Y CONTENIDO EXPLÍCITO SON DE **CADA CANCIÓN**, así que este paso solo sale en un
+           SINGLE (que ES una canción). En un ÁLBUM o un EP se ponen en la ficha de cada tema, y el
+           álbum asume los géneros de las canciones que incluye: no se le pone etiqueta al disco. #}
+        <section class="sw-step" data-step="9" data-title="Género" data-sw-when="SINGLE,SINGLE_VIDEOCLIP">
           <div class="sw-step__q"><i class="fa fa-tags me-2 text-danger"></i>¿De qué género es?</div>
           <div class="sw-step__h">Se puede poner más de uno. Es obligatorio: es con lo que se presenta
             el tema (a radio, a playlists y a sincronizaciones).</div>

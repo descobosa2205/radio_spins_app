@@ -111,6 +111,16 @@
     function sueltaNuevo(tipo, artistId, semana) {
       abreAnadir({ tipo: tipo, artist_id: artistId, week: semana });
     }
+    /* El VIERNES de una semana (el lunes + 4): es el día en el que se lanza y el que enseña la
+       columna. ⚠️ Se calcula con la fecha en texto para no meter husos horarios por medio. */
+    function vierneDe(lunesIso) {
+      var iso = (lunesIso || semanaDeHoy() || '').slice(0, 10);
+      var p = iso.split('-');
+      if (p.length !== 3) return iso;
+      var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+      d.setUTCDate(d.getUTCDate() + 4);
+      return d.toISOString().slice(0, 10);
+    }
     /* La semana en la que estamos hoy (para lo que se añade sin arrastrar a una semana concreta). */
     function semanaDeHoy() {
       var hoy = new Date();
@@ -366,6 +376,12 @@
       var h = (D.release_kinds || []).map(function (k) {
         return '<span class="fc-leg"><i class="fa ' + esc(k.icon) + '" style="color:' + esc(k.color) + '"></i>' + esc(k.label) + '</span>';
       }).join('');
+      // La COLABORACIÓN EXTERNA no se elige (es de la ficha), pero se ve distinta: va en la leyenda
+      // para que el marco morado se entienda.
+      if (D.collab_meta) {
+        h += '<span class="fc-leg"><i class="fa ' + esc(D.collab_meta.icon) + '" style="color:'
+          + esc(D.collab_meta.color) + '"></i>' + esc(D.collab_meta.label) + '</span>';
+      }
       h += '<span class="fc-leg"><i class="fa fa-tower-broadcast" style="color:#0ea5e9"></i>A radio</span>';
       (D.window_kinds || []).forEach(function (k) {
         h += '<span class="fc-leg"><span class="fc-leg__bar" style="background:' + esc(k.color) + '"></span>' + esc(k.label) + '</span>';
@@ -632,12 +648,63 @@
           })
           .catch(function () { pinta('<div class="fc-empty">No se pudo cargar.</div>'); });
       }
+      /* ⚠️⚠️ UN PROYECTO NUEVO SE CREA **AQUÍ MISMO**: lo que se está haciendo es PLANIFICAR, así
+         que solo se pregunta lo imprescindible —el artista (ya se sabe), el NOMBRE y si es FOCUS o
+         de CONTINUIDAD— y nace en el **VIERNES** de la semana donde se ha soltado. El resto (los
+         temas, el soporte, la colaboración) se rellena luego en su ficha. Para un ÁLBUM o un EP
+         está el asistente completo, que pregunta lo suyo. */
+      function pasoProyecto() {
+        var kinds = (D.release_kinds || []);
+        pinta('<div class="fc-add__q">Un single nuevo</div>'
+          + '<div class="fc-new">'
+          + '<label class="form-label">Nombre del single</label>'
+          + '<input class="form-control" data-np-name placeholder="Cómo se llama" autocomplete="off">'
+          + '<label class="form-label mt-3">¿Qué es?</label>'
+          + '<div class="fc-picks" data-np-kind>'
+          + kinds.map(function (k) {
+              return '<button type="button" class="fc-pick" data-k="' + esc(k.key) + '" style="--c:' + esc(k.color) + '">'
+                + '<i class="fa ' + esc(k.icon) + '"></i>' + esc(k.label) + '</button>';
+            }).join('')
+          + '<button type="button" class="fc-pick is-on" data-k="">Sin decidir</button></div>'
+          + '<div class="form-text mt-2">Saldrá el <b>viernes ' + esc(fechaEs(vierneDe(estado.week))) + '</b>'
+          + ' (los lanzamientos son en viernes). Se puede cambiar arrastrándolo.</div>'
+          + '<div class="mt-3 d-flex gap-2 align-items-center">'
+          + '<button type="button" class="btn btn-danger btn-sm" data-np-ok><i class="fa fa-plus me-1"></i>Crear el proyecto</button>'
+          + '<a class="btn btn-link btn-sm px-0" href="/discografica?section=proyectos&open_wizard=1">¿Es un álbum o un EP? Ábrelo en el asistente completo</a>'
+          + '</div></div>');
+        var elegido = '';
+        cuerpo.querySelectorAll('[data-np-kind] .fc-pick').forEach(function (b) {
+          b.addEventListener('click', function () {
+            cuerpo.querySelectorAll('[data-np-kind] .fc-pick').forEach(function (x) { x.classList.remove('is-on'); });
+            b.classList.add('is-on');
+            elegido = b.getAttribute('data-k') || '';
+          });
+        });
+        var campo = cuerpo.querySelector('[data-np-name]');
+        try { campo.focus(); } catch (e) {}
+        var ok = cuerpo.querySelector('[data-np-ok]');
+        function crea() {
+          var nombre = (campo.value || '').trim();
+          if (!nombre) { campo.classList.add('is-invalid'); campo.focus(); return; }
+          ok.disabled = true;
+          post(root.getAttribute('data-url-project-create'), {
+            artist_id: estado.artist_id, name: nombre,
+            week: estado.week || semanaDeHoy(), release_kind: elegido,
+          }).then(function (r) {
+            ok.disabled = false;
+            if (r && r.ok) { m.hide(); recarga({}); }
+            else alert((r && r.error) || 'No se pudo crear el proyecto.');
+          });
+        }
+        ok.addEventListener('click', crea);
+        campo.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); crea(); } });
+      }
       function crear() {
         // Cada cosa se crea DONDE SE CREA (no se inventa aquí otro sitio para lo mismo); la
-        // PROMOCIÓN sí se crea desde aquí, porque es planificarla.
+        // PROMOCIÓN y el PROYECTO sí se crean desde aquí, porque es planificarlos.
         if (estado.tipo === 'PROMO') return pasoPromo();
+        if (estado.tipo === 'PROJECT') return pasoProyecto();
         var destinos = {
-          PROJECT: '/discografica?section=proyectos&open_wizard=1',
           ALBUM: '/discografica?section=lanzamientos',
           AGENDA: '/actividades?open_wizard=1' + (estado.artist_id ? ('&wizard_artist=' + estado.artist_id) : '')
                   + (estado.week ? ('&wizard_date=' + estado.week) : ''),
@@ -728,9 +795,14 @@
           var c = porSemana[i];
           var hitos = c.rel.map(function (r) {
             var meta = kindMeta(r.release_kind);
-            var icono = meta ? meta.icon : (r.kind === 'ALBUM' ? 'fa-compact-disc' : 'fa-music');
-            var color = meta ? meta.color : '#6b7280';
-            var titulo = r.title + ' · ' + fechaEs(r.date) + (meta ? (' · ' + meta.label) : '')
+            // ⚠️ UNA COLABORACIÓN EXTERNA se ve como tal: su icono y su color mandan sobre el
+            // planteamiento (no es un lanzamiento nuestro, y eso es lo primero que hay que ver).
+            var col = r.external_collab ? (D.collab_meta || null) : null;
+            var marca = col || meta;
+            var icono = marca ? marca.icon : (r.kind === 'ALBUM' ? 'fa-compact-disc' : 'fa-music');
+            var color = marca ? marca.color : '#6b7280';
+            var titulo = r.title + ' · ' + fechaEs(r.date)
+              + (col ? (' · ' + col.label) : '') + (meta ? (' · ' + meta.label) : '')
               + (r.radio_ok ? (' · en ' + r.radio_ok + ' emisora' + (r.radio_ok === 1 ? '' : 's')) : '')
               // ⚠️ Que se DIGA: desde ahí se marca el focus y se presenta a radio sin ir a su ficha
               // (en un DISCO el pop-up no lleva radio: eso es de la canción).
@@ -741,6 +813,8 @@
             var clases = 'fc-hito'
               + (r.provisional ? ' is-prov' : '')
               + (r.release_kind === 'FOCUS' ? ' is-focus' : '')
+              + (r.external_collab ? ' is-collab' : '')
+              + (r.kind === 'ALBUM' ? ' is-album' : '')
               + (r.hidden ? ' is-hidden' : '');
             return '<span class="fc-rel">'
               + '<button type="button" class="' + clases + '" style="--c:' + esc(color) + '"'
@@ -748,7 +822,7 @@
               + (CAN && !r.hidden ? ' draggable="true"' : '')
               + ' title="' + esc(titulo) + '">'
               + (r.cover_url ? '<img src="' + esc(r.cover_url) + '" alt="">' : '<i class="fa ' + esc(icono) + '"></i>')
-              + (meta ? '<i class="fa ' + esc(meta.icon) + ' fc-hito__k"></i>' : '')
+              + (marca ? '<i class="fa ' + esc(marca.icon) + ' fc-hito__k"></i>' : '')
               + ((r.radio || []).length ? '<span class="fc-hito__radio">' + (r.radio || []).length + '</span>' : '')
               + '</button>'
               + '<span class="fc-wkcell__t">' + esc(r.title) + '</span></span>';

@@ -8,7 +8,7 @@
 {# PROVISIONAL: lo ha creado un PROYECTO discográfico y todavía se está preparando. #}
 <div class="ficha-hero{% if album.is_provisional %} is-provisional{% endif %}">
   {#- LA PORTADA SE PINCHA Y SE VE EN GRANDE (visor de la casa). Solo si hay portada de verdad. -#}
-  <img class="ficha-hero__media" src="{{ album.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover
+  <img class="ficha-hero__media" src="{{ album.cover_url or DEFAULT_ALBUM_COVER_URL }}" alt="" data-cover
        {% if album.cover_url %}data-viewer-src="{{ album.cover_url }}" data-viewer-kind="IMAGE"
        data-viewer-name="Portada · {{ album.title }}" data-viewer-download="{{ album.cover_url }}"
        data-viewer-set="portada-hero" style="cursor:zoom-in"{% endif %}>
@@ -221,6 +221,17 @@
         {% endif %}
       </div>
     </div>
+
+    {# ⚠️ LOS GÉNEROS DE UN ÁLBUM son los de las canciones que incluye: no se le pone etiqueta al
+       disco (si se pudiera, habría dos verdades). Por eso aquí solo se ven, no se editan: se
+       cambian en la ficha de cada tema. #}
+    {% if album_genres %}
+      <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+        <span class="text-muted small"><i class="fa fa-tags me-1"></i>Géneros</span>
+        {% for g in album_genres %}<span class="badge text-bg-light border">{{ g }}</span>{% endfor %}
+        <span class="text-muted small">· de sus canciones</span>
+      </div>
+    {% endif %}
 
     <div class="song-status-bar mb-3" id="albumStatusBar" data-inline-zone>
       <div class="d-flex flex-wrap gap-2 align-items-center">

@@ -12308,3 +12308,52 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   estados se guardan, un estado inventado **se sigue rechazando** (el CHECK protege), y el proceso
   entero de cancelar y de aplazar llega hasta el final («La actividad queda CANCELADA. Producción ya
   tiene sus tareas»).
+
+- **PREVISIONES · lo que se ve en el calendario y cómo se crea un proyecto desde él** (sep 2026):
+  · ⚠️⚠️ **EL DÍA DE CADA COLUMNA ES EL VIERNES** (`FORECAST_RELEASE_WEEKDAY` = 4, punto único): los
+  lanzamientos se hacen en viernes, así que es la fecha que se busca al mirar una semana. El MES de
+  la columna es también el del viernes (si no, una semana a caballo enseñaría el día de octubre bajo
+  el rótulo de septiembre). De esa constante salen **los tres sitios**: la etiqueta de la columna, la
+  fecha de un proyecto creado arrastrando y la fecha a la que se mueve un lanzamiento.
+  · ⚠️⚠️ **ARRASTRAR UN LANZAMIENTO LO LLEVA AL VIERNES** de la semana de destino (antes conservaba
+  su día). Se escribe **en su ficha** —y en el PROYECTO si lo está preparando, que es quien manda
+  sobre la fecha—, así que la fecha es UNA sola y no hay nada que cuadrar después. Una PROMOCIÓN o
+  un periodo **conservan su día** (pueden empezar cualquier día).
+  · **UN PROYECTO NUEVO SE CREA EN EL PROPIO CALENDARIO** (`forecast_project_create`): al arrastrar
+  «Proyecto discográfico» y elegir «Crear uno nuevo» se pide **solo el nombre y si es FOCUS o de
+  CONTINUIDAD** (el artista ya se sabe: es la fila donde se ha soltado) y nace en el **VIERNES** de
+  esa semana. Lo crea `_disco_project_create_release`, el MISMO punto único que el asistente, así que
+  su canción provisional entra en el repertorio igual. Es un **SINGLE**: para un álbum o un EP está
+  el asistente completo (hay un enlace en el propio paso).
+  ⚠️ Lo que se está haciendo ahí es PLANIFICAR: el resto (los temas, el soporte, la colaboración) se
+  rellena luego en la ficha del proyecto, que es donde se trabaja.
+  · ⚠️ **UNA COLABORACIÓN EXTERNA SE VE COMO TAL**: marco **discontinuo grueso morado** y su icono
+  (`DISCO_COLLAB_META`, `fa-handshake`), con su entrada en la leyenda. **No es un planteamiento que
+  se elija** (es `is_external_collab`, un dato de la ficha: el máster es de otra compañía), por eso va
+  APARTE de `DISCO_RELEASE_KINDS` —que es lo que se marca en el selector— pero se distingue igual de
+  bien que un focus, que es lo que se pidió.
+  · **UN ÁLBUM SE DISTINGUE DE UN SINGLE**: en el calendario va **redondo** (`is-album`) y, sobre
+  todo, **su imagen de «SIN PORTADA» es OTRA** — la FUNDA con el disco asomando
+  (`cover_placeholder_album.svg/.png`) frente al disco suelto del single. Punto único
+  **`_cover_placeholder(kind, png=)`** + los globales `DEFAULT_ALBUM_COVER_URL` /
+  `cover_placeholder('ALBUM')`, ya aplicado en Previsiones, en el listado de **Lanzamientos** (que
+  mezcla discos y singles), en el repertorio y en la ficha del álbum.
+  ⚠️ Lleva **respaldo a mano** (`"/static/" + nombre`): `url_for` revienta fuera de una petición y
+  devolver "" dejaría el hueco vacío justo donde se quiere ver que no hay portada.
+
+- ⚠️⚠️ **UN ÁLBUM NO TIENE GÉNERO NI CALIFICACIÓN PROPIOS: SON DE CADA CANCIÓN** (sep 2026). El
+  asistente preguntaba el **género** y el **contenido explícito** también al crear un ÁLBUM o un EP y
+  se los aplicaba **a TODAS sus canciones** — y en un disco cada tema puede ser de su padre y muy
+  señor mío. Ahora ese paso solo sale en un **SINGLE** (que ES una canción); en un álbum se ponen en
+  la ficha de cada tema y **el disco los ASUME**: punto único **`_album_genre_names`** (los de sus
+  canciones, en el orden del disco y sin repetir), que se ve en su ficha y **no se puede editar
+  ahí** — si se pudiera, habría dos verdades.
+  ⚠️ Lo comprueba también el SERVIDOR (`disco_project_create` exige género y explícito solo si
+  `kind in DISCO_SINGLE_KINDS`): esconder el paso no basta.
+  ⚠️ `AlbumTrack` ordena por **`track_number`**, no por `position` (eso es de `SongGenre` y
+  `PlaylistItem`).
+  ⚠️⚠️ **EL CASETE NO TENÍA ICONO**: `fa-cassette-tape` **no existe** en esta versión de Font Awesome
+  y salía VACÍO (medido: ancho 0 y `content: none`). Ahora es **`fa-tape`**. La comprobación de una
+  línea, que conviene pasar al tocar un catálogo de iconos:
+  `python3 -c "import re;css=open('static/vendor/fontawesome/css/all.min.css').read();s=open('app.py').read();print([i for i in set(re.findall(r'\"(fa-[a-z0-9-]+)\"',s)) if ('.%s:'%i) not in css])"`
+  — hoy sale **vacía** (de paso apareció `fa-circle-euro`, que tampoco existe: era `fa-euro-sign`).

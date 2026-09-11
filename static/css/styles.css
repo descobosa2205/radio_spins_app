@@ -7034,6 +7034,12 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 /* ⚠️ Un FOCUS SINGLE se enmarca DISTINTO: doble marco y una sombra de su color, para que salte a
    la vista entre lo demás (es lo prioritario del trimestre). */
 .fc-hito.is-focus{ border-width:3px; box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--c,#e33d48); }
+/* ⚠️ Una COLABORACIÓN EXTERNA no es un lanzamiento nuestro: marco DISCONTINUO GRUESO de su color,
+   distinto del doble marco del focus, para que se distinga de un vistazo. */
+.fc-hito.is-collab{ border-width:3px; border-style:dashed; }
+/* Y un ÁLBUM se distingue de un single por la forma: el disco va más redondeado (casi un círculo),
+   como el vinilo de su placeholder. */
+.fc-hito.is-album, .fc-hito.is-album img{ border-radius:50%; }
 /* Seleccionado (un clic): se marca y sale la «x» para quitarlo del calendario. */
 .fc-hito.is-sel,.fc-win.is-sel,.fc-ref.is-sel{ outline:2px solid var(--brand-accent,#007ca2); outline-offset:2px; }
 .fc-rel,.fc-win,.fc-ref{ position:relative; }
@@ -7276,3 +7282,7 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
   vertical-align:middle;
 }
 .badge-release-kind i { color:inherit; }
+
+/* Crear un single desde el propio calendario de Previsiones (solo el nombre y qué es). */
+.fc-new .form-label{ font-weight:600; font-size:.85rem; margin-bottom:.25rem; }
+.fc-new .fc-picks{ display:flex; flex-wrap:wrap; gap:.4rem; }

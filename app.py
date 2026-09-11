@@ -6684,6 +6684,34 @@ def _song_genres_map(session_db, song_ids) -> dict[str, list[str]]:
     return salida
 
 
+def _album_genre_names(session_db, album) -> list[str]:
+    """Los géneros de un ÁLBUM: **los de las canciones que incluye**, sin repetir.
+
+    ⚠️⚠️ Un álbum NO tiene género propio (ni calificación de contenido): son de cada tema, y el disco
+    los ASUME. Por eso no se le pregunta al crearlo ni se le puede poner una etiqueta suya: si se
+    pudiera, habría dos verdades y acabarían diciendo cosas distintas.
+    Se respeta el orden del disco y, dentro de cada tema, el de sus géneros.
+    """
+    if album is None:
+        return []
+    ids = [t.song_id for t in (session_db.query(AlbumTrack)
+                               .filter(AlbumTrack.album_id == album.id)
+                               .order_by(AlbumTrack.track_number.asc()).all())
+           if getattr(t, "song_id", None)]
+    if not ids:
+        return []
+    por_cancion = _song_genres_map(session_db, ids)
+    fuera: list[str] = []
+    vistos: set[str] = set()
+    for sid in ids:
+        for nombre in por_cancion.get(str(sid), []):
+            clave = _norm_text_key(nombre)
+            if clave and clave not in vistos:
+                vistos.add(clave)
+                fuera.append(nombre)
+    return fuera
+
+
 def _apply_song_genres(session_db, song, nombres, *, present: bool = True) -> list[str]:
     """Fija los géneros de una canción (crea los que no estén en el catálogo) y devuelve los nombres.
 
@@ -17269,7 +17297,10 @@ def _disco_launch_items(session_db, contract_artist_ids=None) -> list[dict]:
             'title': getattr(album, 'title', None) or '—',
             'artist_label': (getattr(getattr(album, 'artist', None), 'name', None) or '').strip() or '—',
             'collaborator': '',
-            'cover_url': (getattr(album, 'cover_url', None) or '').strip(),
+            # ⚠️ Sin portada, la del ÁLBUM (la funda): este listado mezcla discos y singles y así se
+            # distinguen de un vistazo.
+            'cover_url': ((getattr(album, 'cover_url', None) or '').strip()
+                          or _cover_placeholder('ALBUM')),
             'release_date': release_date,
             'days_remaining': days_remaining,
             'is_new': is_new,
@@ -25019,7 +25050,8 @@ DISCO_RELEASE_MODE_LABELS = {k: l for k, l, _i in DISCO_RELEASE_MODES}
 DISCO_PHYSICAL_FORMATS = [
     ("CD", "CD", "fa-compact-disc"),
     ("VINILO", "Vinilo", "fa-record-vinyl"),
-    ("CASETE", "Casete", "fa-cassette-tape"),
+    # ⚠️ `fa-cassette-tape` NO existe en esta versión de Font Awesome: salía VACÍO. `fa-tape` sí.
+    ("CASETE", "Casete", "fa-tape"),
 ]
 DISCO_PHYSICAL_LABELS = {k: l for k, l, _i in DISCO_PHYSICAL_FORMATS}
 DISCO_VIDEO_SOURCES = [
@@ -26517,6 +26549,11 @@ DISCO_RELEASE_KINDS = [
     ("CONTINUIDAD", "Continuidad", "fa-circle-dot", "#007ca2"),
 ]
 DISCO_RELEASE_KIND_META = {k: {"label": l, "icon": i, "color": c} for k, l, i, c in DISCO_RELEASE_KINDS}
+# ⚠️⚠️ UNA COLABORACIÓN EXTERNA NO ES UN PLANTEAMIENTO que se elija (es un dato de la canción o del
+# disco: el máster es de otra compañía y nos liquidan un %). Por eso va APARTE de
+# `DISCO_RELEASE_KINDS` —que es lo que se marca en el selector— pero se VE igual de diferenciada en
+# el calendario: su icono, su color y su marco.
+DISCO_COLLAB_META = {"label": "Colaboración externa", "icon": "fa-handshake", "color": "#8b5cf6"}
 
 # Las franjas de promoción que se dibujan en el calendario.
 DISCO_PROMO_WINDOW_KINDS = [
@@ -26529,6 +26566,11 @@ DISCO_PROMO_WINDOW_META = {k: {"label": l, "icon": i, "color": c} for k, l, i, c
 
 # Cuántas semanas se ven de una vez en el calendario (y cuántas caben en pantalla sin apretar).
 FORECAST_WEEKS = 16
+# ⚠️ EL DÍA DE LA SEMANA EN EL QUE SE LANZA: **VIERNES** (0=lunes). Es el día que se enseña en cada
+# columna, el que se le pone a un proyecto que se crea arrastrándolo y al que se mueve un
+# lanzamiento cuando se arrastra a otra semana. Punto único: si un día se lanzara en jueves, se
+# cambia aquí y cambian los tres sitios.
+FORECAST_RELEASE_WEEKDAY = 4
 
 
 def _song_release_kind(song) -> str:
@@ -26599,16 +26641,35 @@ def _release_kind_from_form(form=None) -> str | None:
     return valor if valor in ("FOCUS", "CONTINUIDAD") else ""
 
 
-def _forecast_cover(row) -> str:
-    """La portada de un lanzamiento y, si no tiene, la imagen de «sin portada» de la casa.
+def _cover_placeholder(kind: str = "", *, png: bool = False) -> str:
+    """La imagen de «SIN PORTADA» que le toca: la del ÁLBUM (la funda) o la del single (el disco).
 
+    ⚠️ Punto único: con `kind='ALBUM'` devuelve la del disco, así que en cualquier listado se
+    distingue un álbum de un single aunque ninguno tenga portada todavía. El PNG es para donde un
+    SVG no se pinta (un correo, la miniatura de un enlace, el coche).
+    """
+    album = (kind or "").strip().upper() in ("ALBUM", "EP", "DISCO")
+    if album:
+        nombre = "img/cover_placeholder_album.png" if png else "img/cover_placeholder_album.svg"
+    else:
+        nombre = "img/cover_placeholder.png" if png else "img/cover_placeholder.svg"
+    # ⚠️ Con respaldo a mano: `url_for` revienta fuera de una petición (un cron, un hilo) y devolver
+    # "" dejaría el hueco VACÍO justo donde se quiere ver que no hay portada.
+    return _safe_url_for("static", filename=nombre) or ("/static/" + nombre)
+
+
+def _forecast_cover(row, kind: str = "") -> str:
+    """La portada de un lanzamiento y, si no tiene, la imagen de «sin portada» que le TOCA.
+
+    ⚠️ Un ÁLBUM sin portada lleva la SUYA (la funda con el disco asomando), para distinguirlo de un
+    single de un vistazo — que es justo lo que cuesta en un calendario lleno de cuadraditos.
     ⚠️ `DEFAULT_COVER_URL` es un global de PLANTILLA, no una variable de módulo; y
     `_resolve_song_cover_url` **no devuelve** la URL: recalcula `Song.cover_url`.
     """
     url = (getattr(row, "cover_url", "") or "").strip()
     if url:
         return url
-    return _safe_url_for("static", filename="img/cover_placeholder.png") or ""
+    return _cover_placeholder(kind, png=True)
 
 
 def _forecast_artists(session_db, *, todos: bool = False) -> list[dict]:
@@ -26672,6 +26733,8 @@ def _forecast_releases(session_db, artist_ids: list, desde: date, hasta: date) -
             "date": s.release_date.isoformat() if s.release_date else "",
             "cover_url": _forecast_cover(s),
             "release_kind": _song_release_kind(s),
+            # ⚠️ De otra compañía: se ve distinto en el calendario (no es un lanzamiento nuestro).
+            "external_collab": bool(getattr(s, "is_external_collab", False)),
             "provisional": bool(getattr(s, "is_provisional", False)),
             "radio": emisoras,
             "radio_ok": len([x for x in emisoras if x["status"] == "ACCEPTED"]),
@@ -26689,8 +26752,9 @@ def _forecast_releases(session_db, artist_ids: list, desde: date, hasta: date) -
         out.setdefault(str(aid), []).append({
             "kind": "ALBUM", "id": str(al.id), "key": _forecast_key("ALBUM", al.id), "title": (al.title or ""),
             "date": al.release_date.isoformat() if al.release_date else "",
-            "cover_url": _forecast_cover(al),
+            "cover_url": _forecast_cover(al, "ALBUM"),
             "release_kind": "",
+            "external_collab": bool(getattr(al, "is_external_collab", False)),
             "provisional": bool(getattr(al, "is_provisional", False)),
             "radio": [], "radio_ok": 0, "radio_dropped": False,
             "url": _safe_url_for("discografica_album_detail", album_id=str(al.id)),
@@ -27142,15 +27206,25 @@ def _es_date(iso: str) -> str:
 
 
 def _forecast_weeks(desde: date, semanas: int) -> list[dict]:
-    """Las columnas del calendario: una por SEMANA, con su etiqueta y de qué mes es."""
+    """Las columnas del calendario: una por SEMANA, con su etiqueta y de qué mes es.
+
+    ⚠️ EL DÍA QUE SE ENSEÑA ES EL **VIERNES**, no el lunes: los lanzamientos se hacen en viernes, así
+    que es la fecha que se busca al mirar la columna (y la que se pone sola al arrastrar algo a esa
+    semana, ver `FORECAST_RELEASE_WEEKDAY`). El mes de la columna es también el del viernes: si no,
+    una semana a caballo enseñaría el día de octubre bajo el rótulo de septiembre.
+    """
     MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
     out = []
     for i in range(semanas):
         d = desde + timedelta(days=7 * i)
+        vie = d + timedelta(days=FORECAST_RELEASE_WEEKDAY)
+        vie_ant = (d - timedelta(days=7)) + timedelta(days=FORECAST_RELEASE_WEEKDAY)
         out.append({
             "start": d.isoformat(), "end": (d + timedelta(days=6)).isoformat(),
-            "label": "%d" % d.day, "month": MESES[d.month - 1], "month_num": d.month,
-            "first_of_month": (i == 0 or (desde + timedelta(days=7 * (i - 1))).month != d.month),
+            # El día del VIERNES de esa semana (y su fecha completa, que usa el arrastre).
+            "label": "%d" % vie.day, "friday": vie.isoformat(),
+            "month": MESES[vie.month - 1], "month_num": vie.month,
+            "first_of_month": (i == 0 or vie_ant.month != vie.month),
             "is_now": (monday_of(today_local()) == d),
         })
     return out
@@ -27339,6 +27413,9 @@ def _forecast_context(session_db, *, artist_id: str = "",
         # (pinchando el lanzamiento), sin tener que ir a su ficha.
         "radio_media": ([] if solo_calendario else _disco_radio_media_options(session_db)),
         "release_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in DISCO_RELEASE_KINDS],
+        # Cómo se ve una COLABORACIÓN EXTERNA (icono, color y rótulo): igual de diferenciada que un
+        # focus, pero no se elige — sale de la ficha.
+        "collab_meta": DISCO_COLLAB_META,
         # Lo que se puede ARRASTRAR al calendario (sustituye al botón «+ Periodo de promoción»).
         "add_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in FORECAST_ADD_KINDS],
         "window_kinds": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in DISCO_PROMO_WINDOW_KINDS],
@@ -28495,13 +28572,80 @@ def forecast_add_options_json():
         session_db.close()
 
 
+@app.post("/discografica/previsiones/proyecto", endpoint="forecast_project_create")
+@admin_required
+def forecast_project_create():
+    """Crea un PROYECTO discográfico (single) **desde el propio calendario**, sin salir de él.
+
+    ⚠️ Aquí solo se pregunta lo imprescindible —**artista, nombre y si es focus o de continuidad**—
+    porque lo que se está haciendo es PLANIFICAR: el resto (los temas, el soporte, la colaboración)
+    se rellena luego en la ficha del proyecto, que es donde se trabaja. Para un álbum o un EP está
+    el asistente completo, que pregunta lo suyo.
+    ⚠️⚠️ Nace en el **VIERNES** de la semana en la que se ha soltado (`FORECAST_RELEASE_WEEKDAY`):
+    los lanzamientos se hacen en viernes y es el día que enseña esa columna.
+    ⚠️ Lo crea `_disco_project_create_release`, el MISMO punto único que el asistente, así que su
+    canción provisional entra en el repertorio igual que si se hubiera creado por el camino largo.
+    """
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "No tienes permisos para crear proyectos."}), 403
+    datos = request.get_json(silent=True) or {}
+    nombre = str(datos.get("name") or "").strip()
+    artist_id = to_uuid(str(datos.get("artist_id") or "").strip())
+    semana = str(datos.get("week") or "").strip()[:10]
+    kind_rel = str(datos.get("release_kind") or "").strip().upper()
+    if kind_rel not in ("FOCUS", "CONTINUIDAD", ""):
+        return jsonify({"ok": False, "error": "No se entiende el planteamiento."}), 400
+    if not artist_id:
+        return jsonify({"ok": False, "error": "Dinos de qué artista es."}), 400
+    if not nombre:
+        return jsonify({"ok": False, "error": "Ponle nombre al single."}), 400
+    try:
+        lunes = monday_of(parse_date(semana))
+    except Exception:
+        return jsonify({"ok": False, "error": "No se entiende la semana."}), 400
+    viernes = lunes + timedelta(days=FORECAST_RELEASE_WEEKDAY)
+    session_db = db()
+    try:
+        artista = session_db.get(Artist, artist_id)
+        if artista is None:
+            return jsonify({"ok": False, "error": "Ese artista ya no existe."}), 404
+        estado = _current_user_state() or {}
+        nick = (estado.get("nick") or estado.get("email") or "").strip() or None
+        proyecto = DiscoProject(
+            artist_id=artista.id, kind="SINGLE", status="ACTIVO",
+            title=nombre, release_date=viernes,
+            created_by_user_id=to_uuid(estado.get("user_id")) if estado.get("user_id") else None,
+            created_by_nick=nick,
+        )
+        session_db.add(proyecto)
+        session_db.flush()
+        # El lanzamiento en el repertorio (provisional), por el camino de siempre.
+        _disco_project_create_release(session_db, proyecto, [{
+            "position": 1, "title": nombre, "is_collab": False, "release_date": viernes,
+        }])
+        cancion = _disco_project_release_song(session_db, proyecto)
+        if cancion is not None and kind_rel:
+            _apply_song_release_kind(cancion, kind_rel, nick or "")
+        _ensure_project_bag(session_db, proyecto)
+        session_db.commit()
+        return jsonify({"ok": True, "id": str(proyecto.id),
+                        "url": _safe_url_for("disco_project_detail", project_id=str(proyecto.id))})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("forecast_project_create")
+        return jsonify({"ok": False, "error": "No se pudo crear el proyecto: %s" % exc}), 500
+    finally:
+        session_db.close()
+
+
 @app.post("/discografica/previsiones/mover", endpoint="forecast_move")
 @admin_required
 def forecast_move():
     """Mueve un elemento del calendario a OTRA SEMANA, arrastrándolo.
 
-    ⚠️⚠️ **El día de la semana se conserva**: si un single salía un viernes, sigue saliendo el
-    viernes de la semana a la que se suelte. Mover por semanas no cambia el día que ya se decidió.
+    ⚠️⚠️ **Un LANZAMIENTO se va al VIERNES** de la semana a la que se suelte (`FORECAST_RELEASE_WEEKDAY`):
+    los discos y los singles salen en viernes, que es además el día que enseña esa columna. Una
+    PROMOCIÓN o un periodo conservan el día que tuvieran (pueden empezar cualquier día).
     ⚠️⚠️ Lo que se mueve se actualiza **EN SU FICHA** (no hay una fecha paralela en este cuadro), y
     si el lanzamiento lo prepara un PROYECTO todavía provisional se mueve **el proyecto**: es él
     quien manda sobre la fecha del lanzamiento (`_disco_project_sync_release`), así que moviendo
@@ -28521,15 +28665,24 @@ def forecast_move():
     session_db = db()
     try:
         def _nueva(fecha_actual):
-            """La misma fecha en la semana de destino: se conserva el DÍA de la semana."""
-            dia = fecha_actual.weekday() if fecha_actual else 4      # sin fecha, viernes
+            """La misma fecha en la semana de destino: se conserva el DÍA de la semana.
+
+            ⚠️ Es lo que vale para una PROMOCIÓN o un periodo (que empiezan el día que sea). Un
+            LANZAMIENTO usa `_viernes()`: se lanza en viernes."""
+            dia = fecha_actual.weekday() if fecha_actual else FORECAST_RELEASE_WEEKDAY
             return lunes + timedelta(days=dia)
+
+        def _viernes():
+            """⚠️ UN LANZAMIENTO SE VA AL **VIERNES** de la semana a la que se arrastra: los discos
+            y los singles salen en viernes, que es además el día que enseña esa columna. Se escribe
+            en su ficha (y en el PROYECTO si lo está preparando), así que la fecha es UNA sola."""
+            return lunes + timedelta(days=FORECAST_RELEASE_WEEKDAY)
 
         if tipo == "SONG":
             cancion = session_db.get(Song, to_uuid(ident)) if to_uuid(ident) else None
             if cancion is None:
                 return jsonify({"ok": False, "error": "Ese lanzamiento ya no existe."}), 404
-            destino = _nueva(cancion.release_date)
+            destino = _viernes()
             proyecto = _song_project(session_db, cancion.id)
             if (proyecto is not None and not getattr(proyecto, "closed_at", None)
                     and bool(getattr(cancion, "is_provisional", False))):
@@ -28542,7 +28695,7 @@ def forecast_move():
             album = session_db.get(Album, to_uuid(ident)) if to_uuid(ident) else None
             if album is None:
                 return jsonify({"ok": False, "error": "Ese disco ya no existe."}), 404
-            destino = _nueva(album.release_date)
+            destino = _viernes()
             proyecto = (session_db.query(DiscoProject)
                         .filter(DiscoProject.album_id == album.id)
                         .order_by(DiscoProject.created_at.desc()).first())
@@ -32725,15 +32878,16 @@ def disco_project_create():
         if kind not in DISCO_PROJECT_LABELS:
             flash("Elige qué tipo de proyecto es.", "warning")
             return redirect(url_for("discografica_view", section="proyectos"))
-        # ⚠️ En un proyecto con AUDIO el GÉNERO es obligatorio: lo pide el asistente y lo vuelve a
-        # comprobar el servidor (esconder el paso no basta). Un videoclip suelto no lo lleva.
-        if kind != "VIDEOCLIP" and not [g for g in request.form.getlist("song_genres[]") if (g or "").strip()]:
-            flash("Dile al menos un género al proyecto: es obligatorio para poder presentarlo.", "warning")
+        # ⚠️⚠️ EL GÉNERO Y EL EXPLÍCITO SON DE CADA CANCIÓN, así que solo se piden en un SINGLE
+        # (que ES una canción). En un ÁLBUM o un EP cada tema puede ser de su padre y madre: se
+        # ponen en la ficha de cada uno y **el álbum asume los géneros de las canciones que
+        # incluye** (`_album_genre_names`) — un álbum no tiene ni género ni calificación propios.
+        pide_cancion = kind in DISCO_SINGLE_KINDS
+        if pide_cancion and not [g for g in request.form.getlist("song_genres[]") if (g or "").strip()]:
+            flash("Dile al menos un género al single: es obligatorio para poder presentarlo.", "warning")
             return redirect(url_for("discografica_view", section="proyectos"))
-        # ⚠️ Y lo mismo con el CONTENIDO EXPLÍCITO: hay que decirlo en todas las canciones, y el
-        # proyecto las crea. Un videoclip suelto no lleva audio nuevo, así que ahí no se pregunta.
         explicita = _explicit_from_form(request.form.get("is_explicit"))
-        if kind != "VIDEOCLIP" and explicita is None:
+        if pide_cancion and explicita is None:
             flash("Dinos si el contenido es explícito o no.", "warning")
             return redirect(url_for("discografica_view", section="proyectos"))
 
@@ -47944,6 +48098,8 @@ def discografica_album_detail(album_id):
         track_rows=track_rows,
         material_groups=material_groups,
         album_status=album_status,
+        # ⚠️ Un ÁLBUM no tiene género propio: ASUME los de las canciones que incluye.
+        album_genres=_album_genre_names(session_db, album),
         album_materials_status=album_materials_status,
         royalties_artist=royalties_artist,
         royalty_other_beneficiaries=royalty_other_beneficiaries,
@@ -90683,6 +90839,13 @@ def inject_personnel_globals():
         # SISTEMA (pantalla de bloqueo, CarPlay, el reloj) y las miniaturas de los enlaces. Ni el
         # coche ni WhatsApp pintan un SVG, así que ahí saldría sin portada.
         "DEFAULT_COVER_PNG_URL": url_for("static", filename="img/cover_placeholder.png"),
+        # ⚠️⚠️ UN ÁLBUM SIN PORTADA SE DISTINGUE DE UN SINGLE: su placeholder es la FUNDA con el disco
+        # asomando (el del single es el disco suelto), así que en un listado se ve de un vistazo qué
+        # es cada cosa aunque todavía no tengan portada. Punto único `_cover_placeholder(kind)`.
+        "DEFAULT_ALBUM_COVER_URL": url_for("static", filename="img/cover_placeholder_album.svg"),
+        "DEFAULT_ALBUM_COVER_PNG_URL": url_for("static", filename="img/cover_placeholder_album.png"),
+        # `cover_placeholder('ALBUM')` desde cualquier plantilla (el de un single es el de siempre).
+        "cover_placeholder": _cover_placeholder,
         # Las dinámicas de una playlist de SELECCIÓN/VALORACIÓN (con su icono), para el asistente.
         "playlist_vote_modes": PLAYLIST_VOTE_MODES,
         "SECTION_ICONS": SECTION_ICONS,
@@ -107290,11 +107453,11 @@ def _bag_payment_symbol(expense: BagExpense) -> dict:
     status = (getattr(expense, "payment_status", "NO_PAGADO") or "NO_PAGADO").upper()
     requested = bool(getattr(expense, "immediate_payment_requested", False))
     if status == "PAGADO":
-        return {"show": True, "class": "text-success", "icon": "fa-circle-euro", "label": "Pagado"}
+        return {"show": True, "class": "text-success", "icon": "fa-euro-sign", "label": "Pagado"}
     if status == "PARCIAL":
         return {"show": True, "class": "text-success", "icon": "fa-circle-half-stroke", "label": "Pago parcial"}
     if requested or status == "PENDIENTE":
-        return {"show": True, "class": "text-warning", "icon": "fa-circle-euro", "label": "Pendiente de pago"}
+        return {"show": True, "class": "text-warning", "icon": "fa-euro-sign", "label": "Pendiente de pago"}
     return {"show": False, "class": "", "icon": "", "label": ""}
 
 

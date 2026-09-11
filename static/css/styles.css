@@ -7286,3 +7286,23 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 /* Crear un single desde el propio calendario de Previsiones (solo el nombre y qué es). */
 .fc-new .form-label{ font-weight:600; font-size:.85rem; margin-bottom:.25rem; }
 .fc-new .fc-picks{ display:flex; flex-wrap:wrap; gap:.4rem; }
+
+/* ── MANDARLE UN MENSAJE AL PERSONAL DE LA HOJA DE RUTA ─────────────────────────────────────── */
+.rmmsg-channels { display: flex; gap: .4rem; flex-wrap: wrap; }
+.rmmsg-people { max-height: 22rem; overflow-y: auto; display: flex; flex-direction: column; gap: .15rem; }
+.rmmsg-person { display: flex; align-items: center; gap: .55rem; padding: .3rem .4rem; border-radius: .5rem;
+  cursor: pointer; min-width: 0; }
+.rmmsg-person:hover { background: #f6f7f9; }
+.rmmsg-person.is-off { opacity: .55; cursor: not-allowed; }
+/* ⚠️ La foto NO se encoge: cualquier hijo de un flex se comprime a lo ancho y el círculo sale ovalado. */
+.rmmsg-person img, .rmmsg-person__ico { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+  object-fit: cover; background: #eef0f3; display: inline-flex; align-items: center; justify-content: center;
+  color: #8b95a1; font-size: .8rem; }
+.rmmsg-person__body { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.rmmsg-person__name { font-weight: 600; font-size: .9rem; }
+.rmmsg-person__meta { font-size: .75rem; color: #6b7683; }
+.rmmsg-preview { max-height: 26rem; overflow: auto; }
+/* El SMS se ve como se ve en el móvil: un bocadillo. */
+.rmmsg-sms { white-space: pre-wrap; background: #e9f3ff; border: 1px solid #cfe3fb; border-radius: 14px;
+  padding: .7rem .9rem; font-size: .9rem; max-width: 22rem; }
+.rmmsg-mail { zoom: .82; }

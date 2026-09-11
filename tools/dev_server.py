@@ -32,4 +32,22 @@ app.app.config["WTF_CSRF_ENABLED"] = False      # en local, para poder probar lo
 # ⚠️ Sin esto, Jinja CACHEA las plantillas y hay que reiniciar el servidor tras cada cambio de HTML.
 app.app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.app.jinja_env.auto_reload = True
+
+
+# ⚠️ SOLO EN LOCAL: entrar como quien sea sin contraseña, para poder VER las pantallas
+# (`/entrar-como/<nick>`). Esto vive en el arrancador de pruebas, no en la app.
+@app.app.get("/entrar-como/<nick>")
+def dev_entrar(nick):
+    from flask import session, redirect
+    s = app.db()
+    try:
+        prof = s.query(app.UserProfile).filter(app.UserProfile.nick == nick).first()
+        if not prof:
+            return "no existe " + nick, 404
+        session["user_id"] = str(prof.user_id)
+        return redirect("/home")
+    finally:
+        s.close()
+
+
 app.app.run(host="127.0.0.1", port=5099, debug=False, use_reloader=False)

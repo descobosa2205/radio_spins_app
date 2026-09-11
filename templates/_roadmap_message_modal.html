@@ -1,0 +1,80 @@
+{# ═══════════════════════════════════════════════════════════════════════════════════════════════
+   MANDARLE UN MENSAJE AL PERSONAL DE LA HOJA DE RUTA
+
+   «Mañana el bus sale a las 8:30» hay que decírselo a los que van. Se manda a TODOS o a los que se
+   elijan, y se eligen **POR FUNCIÓN** (solo los técnicos, solo los músicos…), que es como se piensa.
+   Mismo patrón que los envíos a compradores: a la izquierda a quién y a la derecha lo que se manda,
+   con su VISTA PREVIA. El contador de caracteres y trozos del SMS lo compone el SERVIDOR.
+   ⚠️ UN mensaje por persona (nunca todos en el «Para»), y si no sale para nadie se DICE.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ #}
+<div class="modal fade" id="rmMsgModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" data-rm-msg
+         data-url-data="{{ rm_msg_url_data }}"
+         data-url-preview="{{ rm_msg_url_preview }}"
+         data-url-send="{{ rm_msg_url_send }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Mandar un mensaje al personal</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {# ── POR DÓNDE ──────────────────────────────────────────────────────────────────── #}
+        <div class="rmmsg-channels mb-3" data-rm-msg-channels></div>
+
+        <div class="row g-3">
+          {# ── A QUIÉN ──────────────────────────────────────────────────────────────────── #}
+          <div class="col-12 col-lg-5">
+            <div class="border rounded-3 p-3 h-100">
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <h6 class="mb-0"><i class="fa fa-users me-1 text-muted"></i>¿A quién?</h6>
+                <span class="badge text-bg-danger ms-auto" data-rm-msg-count>0</span>
+              </div>
+              {# Las FUNCIONES, para elegir en bloque (solo técnicos, solo músicos…). #}
+              <div class="filter-chips mb-2" data-rm-msg-roles></div>
+              <div class="rmmsg-people" data-rm-msg-people></div>
+              <div class="small text-muted mt-2" data-rm-msg-hint></div>
+            </div>
+          </div>
+
+          {# ── QUÉ SE MANDA ─────────────────────────────────────────────────────────────── #}
+          <div class="col-12 col-lg-7">
+            <div class="border rounded-3 p-3">
+              <div class="mb-2" data-rm-msg-subject-box>
+                <label class="form-label small mb-1">Asunto</label>
+                <input class="form-control form-control-sm" data-rm-msg-subject
+                       placeholder="{{ rm_msg_title }}">
+              </div>
+              <label class="form-label small mb-1">El mensaje</label>
+              <textarea class="form-control form-control-sm" rows="5" data-rm-msg-body
+                        placeholder="Lo que hay que decirles."></textarea>
+              <div class="row g-2 mt-1">
+                <div class="col-12 col-sm-6" data-rm-msg-btnlabel-box>
+                  <label class="form-label small mb-1">Botón <span class="text-muted">(opcional)</span></label>
+                  <input class="form-control form-control-sm" data-rm-msg-btnlabel placeholder="Ver la hoja de ruta">
+                </div>
+                <div class="col-12 col-sm-6">
+                  <label class="form-label small mb-1">Enlace <span class="text-muted">(opcional)</span></label>
+                  <input class="form-control form-control-sm" data-rm-msg-link placeholder="https://…">
+                </div>
+              </div>
+              <div class="small text-muted mt-2" data-rm-msg-sms-count></div>
+            </div>
+
+            <div class="border rounded-3 p-3 mt-3">
+              <h6 class="mb-2"><i class="fa fa-eye me-1 text-muted"></i>Así lo van a recibir</h6>
+              <div class="rmmsg-preview" data-rm-msg-preview>
+                <div class="text-muted small">Escribe el mensaje para verlo.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="small text-muted me-auto" data-rm-msg-status></div>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-rm-msg-send>
+          <i class="fa fa-paper-plane me-1"></i>Enviar</button>
+      </div>
+    </div>
+  </div>
+</div>

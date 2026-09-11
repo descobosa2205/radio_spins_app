@@ -1,10 +1,13 @@
 {# ═══════════════════════════════════════════════════════════════════════════════════════════════
    MIS TAREAS PENDIENTES
 
-   Lo que le toca a ESTA persona: lo que le afecta a ella y lo que es de dirección, en un mismo sitio
-   (aprobar remesas, aprobar vacaciones, el OK a un plan, las fases de sus actividades, activar la
-   producción de lo que ha creado, sus carteles rechazados…).
-   No calcula nada nuevo: `_home_my_tasks` (app.py) junta lo que los módulos ya han resuelto.
+   ⚠️⚠️ EL ÚNICO MÓDULO DE TAREAS DE INICIO, y lo ve TODO EL MUNDO. Antes cada departamento tenía
+   los suyos (cuarenta tarjetas en total) y lo de cada uno se perdía entre ellas.
+   Aquí está TODO lo que le toca a ESTA persona: lo que tiene asignado, lo que ha creado, lo que
+   gestiona y lo genérico de su departamento —aprobar remesas o vacaciones, las fases de sus
+   actividades, los materiales por revisar, la cartelería, sus gastos sin asignar…—.
+   No calcula nada nuevo: `_home_my_tasks` (app.py) junta lo que cada módulo ya ha resuelto, con el
+   registro `HOME_TASK_SOURCES` — una fuente nueva es UNA LÍNEA ahí.
 
    Cómo se lee cada fila:
      · la FOTO del artista · la ETIQUETA de qué es (icono en el azul de la marca) · el título;
@@ -24,7 +27,10 @@
   <div class="list-group list-group-flush">
     {% for t in HOME_MY_TASKS %}
       {# La fila ENTERA lleva a la ficha (menos los botones, que hacen lo suyo). #}
-      <div class="mytask{% if t.is_new %} is-new{% endif %}" data-mytask="{{ t.key }}"
+      {# ⚠️ A partir de la 20 se esconden: con cincuenta tareas el módulo se hace infinito y lo de
+         arriba —que es lo más urgente, porque van por fecha— deja de verse. Se despliegan aquí
+         mismo con «Ver las N restantes»: no se pierde ninguna. #}
+      <div class="mytask{% if t.is_new %} is-new{% endif %}{% if loop.index > 20 %} mytask--more d-none{% endif %}" data-mytask="{{ t.key }}"
            data-mytask-url="{{ t.url }}" data-mytask-seen="{{ t.seen_url }}" role="button" tabindex="0">
         <div class="mytask__head">
           {# LA IMAGEN es CUADRADA: la PORTADA del lanzamiento (o la de «sin portada») y, en un
@@ -75,9 +81,25 @@
       </div>
     {% endfor %}
   </div>
+  {% if HOME_MY_TASKS|length > 20 %}
+    <div class="card-footer bg-white text-center py-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-mytask-more>
+        Ver las {{ HOME_MY_TASKS|length - 20 }} restantes <i class="fa fa-chevron-down ms-1"></i>
+      </button>
+    </div>
+  {% endif %}
 </div>
 <script>
 (function () {
+  // «Ver las N restantes»: se despliegan aquí mismo (y el botón desaparece).
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-mytask-more]');
+    if (!b) return;
+    document.querySelectorAll('.mytask--more').forEach(function (f) { f.classList.remove('d-none'); });
+    var pie = b.closest('.card-footer');
+    if (pie) pie.remove();
+  });
+
   // Pinchar la fila (fuera de los botones) abre la FICHA; y en cuanto se abre por primera vez, la
   // tarea deja de ser «Nueva» (se apunta en el servidor, para que valga en cualquier sesión).
   var CONTROLES = 'a,button,input,select,textarea,label,form,[role="button"] .btn';

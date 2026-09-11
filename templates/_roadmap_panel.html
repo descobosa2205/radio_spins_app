@@ -18,5 +18,14 @@
   </div>
   <div id="rmView" class="rm-view"></div>
 </div>
+{# MANDARLE UN MENSAJE AL PERSONAL (SMS o correo). No en una PLANTILLA: no hay a quién avisar. #}
+{% if not rm.readonly and rm.entity_type != 'template' %}
+  {% set rm_msg_url_data = url_for('roadmap_message_data', entity_type=rm.entity_type, entity_id=rm.entity_id) %}
+  {% set rm_msg_url_preview = url_for('roadmap_message_preview', entity_type=rm.entity_type, entity_id=rm.entity_id) %}
+  {% set rm_msg_url_send = url_for('roadmap_message_send', entity_type=rm.entity_type, entity_id=rm.entity_id) %}
+  {% set rm_msg_title = rm.title or 'La actividad' %}
+  {% include '_roadmap_message_modal.html' %}
+{% endif %}
 <script src="{{ url_for('static', filename='js/roadmap.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/roadmap_message.js', v=ASSET_V) }}"></script>
 {% endif %}

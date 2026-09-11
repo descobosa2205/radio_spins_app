@@ -1527,9 +1527,13 @@
         + '<li><button class="dropdown-item" data-pexp="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li></ul></div>';
       var buscador = '<div class="rm-pbusca"><i class="fa fa-magnifying-glass"></i>'
         + '<input class="form-control form-control-sm" placeholder="Buscar en el personal…" value="' + esc(pBusca) + '" data-pbusca></div>';
+      /* MANDARLE UN MENSAJE a los que van (SMS o correo), a todos o por función. El pop-up y su
+         motor viven aparte (`roadmap_message.js`), enganchados por delegación. */
+      var msgBtn = RO ? '' : '<button class="btn btn-sm btn-outline-primary py-0 me-1" data-rm-msg-open>'
+        + '<i class="fa fa-paper-plane me-1"></i>Mandar un mensaje</button>';
       var html = personalSubtabs()
         + '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div>'
-        + '<span>' + ordenBtn + colsBtn + exportBtns + tplBtn('PERSONNEL') + addBtn + '</span></div>'
+        + '<span>' + ordenBtn + colsBtn + msgBtn + exportBtns + tplBtn('PERSONNEL') + addBtn + '</span></div>'
         + buscador + personRoleChips(personRowsNow());
       if (!(P.personnel || []).length) html += '<div class="rm-empty">Sin personal todavía.</div>';
       else if (!rows.length) html += '<div class="rm-empty">Nadie casa con lo que se está buscando.</div>';

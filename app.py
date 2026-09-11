@@ -81348,6 +81348,122 @@ def _roadmap_person_entity(session_db, person: dict, *, promoters=None, profiles
     return None, None
 
 
+# ===========================================================================
+#  ⚠️⚠️ MANDARLE UN MENSAJE AL PERSONAL DE LA HOJA DE RUTA
+#  -------------------------------------------------------------------------
+#  «Mañana el bus sale a las 8:30» hay que decírselo a los que van, y hasta ahora se hacía por
+#  fuera de la app (un grupo de WhatsApp, un correo a mano) — con el riesgo de dejarse a alguien.
+#  Desde la pestaña **Personal** de la hoja de ruta se manda a TODOS o a los que se elijan, y se
+#  eligen **POR FUNCIÓN** (solo los técnicos, solo los músicos…), que es como se piensa de verdad.
+#
+#  Es el MISMO patrón que los envíos a compradores: a la izquierda a quién, a la derecha lo que se
+#  manda con su VISTA PREVIA, y el contador de caracteres y trozos del SMS lo compone el SERVIDOR
+#  (`_campaign_sms_preview`) — nunca el navegador, o habría dos verdades.
+# ===========================================================================
+ROADMAP_MESSAGE_CHANNELS = [("SMS", "Mensaje (SMS)", "fa-comment-sms"),
+                            ("EMAIL", "Correo", "fa-envelope")]
+
+
+def _roadmap_message_title(session_db, kind: str, row) -> str:
+    """El nombre de aquello de lo que es la hoja de ruta (para el asunto y la cabecera)."""
+    try:
+        artistas = _artists_from_ids(session_db, _roadmap_artist_ids(row))
+        return _roadmap_title(session_db, kind, row, artistas)
+    except Exception:
+        return (getattr(row, "name", None) or getattr(row, "title", None)
+                or getattr(row, "festival_name", None) or "Actividad")
+
+
+def _roadmap_message_people(session_db, kind: str, row) -> list[dict]:
+    """A QUIÉN se le puede mandar: el personal de la hoja de ruta con su función y su contacto.
+
+    Sale del MISMO punto único que la pestaña Personal (`_roadmap_person_rows`), así que lo que se
+    ve en la lista y a quien se le manda no se pueden desparejar."""
+    payload = _roadmap_load(row) or {}
+    filas = _roadmap_person_rows(session_db, payload.get("personnel") or [])
+    salida = []
+    for r in filas:
+        correo = (r.get("email") or "").strip()
+        tel = sms_utils.normalize_phone(r.get("phone") or "") or ""
+        salida.append({
+            "id": str(r.get("id") or ""),
+            "name": (r.get("name") or "").strip() or "Sin nombre",
+            "role": (r.get("role") or "").strip(),
+            "photo": (r.get("photo_url") or r.get("photo") or ""),
+            "email": correo,
+            "phone": tel,
+            "phone_label": (r.get("phone") or "").strip(),
+        })
+    return salida
+
+
+def _roadmap_message_roles(personas: list[dict]) -> list[dict]:
+    """Las FUNCIONES que hay, con cuánta gente lleva cada una (los chips para elegir en bloque).
+
+    ⚠️ Se comparan sin acentos ni mayúsculas (`_norm_text_key`): «Tour Manager» y «tour manager» son
+    la misma función, y con dos chips no se podría elegir «los técnicos» de una vez."""
+    grupos: dict = {}
+    for p in personas:
+        clave = _norm_text_key(p.get("role") or "") or "_"
+        g = grupos.setdefault(clave, {"key": clave, "label": (p.get("role") or "").strip() or "Sin función",
+                                      "count": 0, "ids": []})
+        g["count"] += 1
+        g["ids"].append(p["id"])
+    return sorted(grupos.values(), key=lambda g: (g["label"] == "Sin función", g["label"].lower()))
+
+
+def _roadmap_message_context(session_db, kind: str, row) -> dict:
+    """Lo que necesita el pop-up: a quién se le puede mandar, sus funciones y por dónde."""
+    personas = _roadmap_message_people(session_db, kind, row)
+    return {
+        "people": personas,
+        "roles": _roadmap_message_roles(personas),
+        "with_phone": len([p for p in personas if p["phone"]]),
+        "with_email": len([p for p in personas if p["email"]]),
+        "sms_gateway": _sms_available(),
+        "channels": ROADMAP_MESSAGE_CHANNELS,
+        "title": _roadmap_message_title(session_db, kind, row),
+    }
+
+
+def _roadmap_message_email_html(session_db, kind: str, row, *, subject: str, body: str,
+                                button_label: str = "", button_url: str = "") -> str:
+    """EL CORREO: el esqueleto de la casa (logo, título centrado, la cabecera de LO QUE ES y el
+    botón dentro), el mismo de todos los avisos.
+
+    ⚠️ Con la cabecera de la actividad delante, quien lo recibe sabe de qué le están hablando sin
+    tener que explicarlo en el texto."""
+    datos = None
+    try:
+        if kind == "concert":
+            datos = _notice_email_activity(row, title=subject, subject=subject, intro=body,
+                                           button_label=button_label, button_url=button_url)
+        elif kind == "promotion":
+            datos = _notice_email_promotion(session_db, row, title=subject, subject=subject,
+                                            intro=body, button_label=button_label,
+                                            button_url=button_url)
+        elif kind == "project":
+            datos = _notice_email_project(session_db, row, title=subject, subject=subject,
+                                          intro=body, button_label=button_label,
+                                          button_url=button_url)
+    except Exception:
+        app.logger.exception("[hoja de ruta] no se pudo componer la cabecera del correo")
+    if not datos:
+        datos = {"title": subject, "intro": body, "logo_url": "", "heading": _roadmap_message_title(session_db, kind, row),
+                 "button": ({"label": button_label, "url": button_url}
+                            if (button_label and button_url) else None)}
+    datos = dict(datos)
+    datos.pop("subject", None)
+    return _notice_email_html(**datos)
+
+
+def _roadmap_message_targets(personas: list[dict], ids, canal: str) -> list[dict]:
+    """Los elegidos que de verdad se pueden alcanzar por ese canal."""
+    pedidos = {str(x) for x in (ids or [])}
+    campo = "phone" if canal == "SMS" else "email"
+    return [p for p in personas if (not pedidos or p["id"] in pedidos) and p.get(campo)]
+
+
 def _roadmap_person_ficha_url(person: dict, entity) -> str:
     """El enlace a la ficha de esa persona (para ir a completar lo que falte con calma)."""
     kind = (person.get("kind") or "MANUAL").upper()
@@ -81451,6 +81567,13 @@ def _roadmap_person_rows(session_db, personnel: list, *, with_doc: bool = True) 
                 usuario = users.get(ref) if ref else None
                 fila["email"] = (getattr(entity, "contact_email", None)
                                  or getattr(usuario, "email", None) or "").strip()
+            # ⚠️ Y EL NOMBRE, si en la hoja de ruta se quedó vacío: sin él, la persona sale como
+            # «Sin nombre» en el listado, en el PDF y en «a quién se le manda un mensaje».
+            if not fila["name"]:
+                if isinstance(entity, Promoter):
+                    fila["name"] = (_promoter_display_name(entity) or "").strip()
+                else:
+                    fila["name"] = (getattr(entity, "nick", None) or "").strip()
         fila["fillable"] = _roadmap_person_fillable(fila["kind"]) if entity is not None else []
         fila["missing"] = [k for k in fila["fillable"] if not fila.get(k)]
         out.append(fila)
@@ -84285,6 +84408,111 @@ def roadmap_personnel_data(entity_type, entity_id):
             "fields": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_PERSON_FIELDS],
             "roles": _roadmap_role_options(payload),
         })
+    finally:
+        session_db.close()
+
+
+@app.get("/hoja-ruta/<entity_type>/<entity_id>/personal/mensaje", endpoint="roadmap_message_data")
+@admin_required
+def roadmap_message_data(entity_type, entity_id):
+    """A QUIÉN se le puede mandar un mensaje: el personal con su función y su contacto."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        return jsonify({"ok": True, **_roadmap_message_context(session_db, kind, row)})
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/personal/mensaje/vista-previa",
+          endpoint="roadmap_message_preview")
+@admin_required
+def roadmap_message_preview(entity_type, entity_id):
+    """La VISTA PREVIA: el correo tal como va a salir, o el texto del SMS con sus trozos.
+
+    ⚠️ El contador del SMS lo compone el SERVIDOR (`_campaign_sms_preview`, el mismo de los envíos a
+    compradores): el GSM-7, los acentos y los trozos son suyos, y en el navegador habría otra verdad."""
+    datos = request.get_json(silent=True) or {}
+    canal = (datos.get("channel") or "SMS").strip().upper()
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            return jsonify({"ok": False, "error": "No se encuentra."}), 404
+        cuerpo = (datos.get("body") or "").strip()
+        enlace = (datos.get("link") or "").strip()
+        if canal == "SMS":
+            return jsonify({"ok": True, **_campaign_sms_preview(session_db, cuerpo, enlace, [])})
+        asunto = (datos.get("subject") or "").strip() or _roadmap_message_title(session_db, kind, row)
+        return jsonify({"ok": True, "html": _roadmap_message_email_html(
+            session_db, kind, row, subject=asunto, body=cuerpo,
+            button_label=(datos.get("button_label") or "").strip(), button_url=enlace)})
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/personal/mensaje/enviar",
+          endpoint="roadmap_message_send")
+@admin_required
+def roadmap_message_send(entity_type, entity_id):
+    """Manda el mensaje al personal elegido. UNO por persona, nunca uno con todos en el «Para»."""
+    datos = request.get_json(silent=True) or {}
+    canal = (datos.get("channel") or "SMS").strip().upper()
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            return jsonify({"ok": False, "error": "No se encuentra."}), 404
+        if kind == "template":
+            return jsonify({"ok": False, "error": "Una plantilla no tiene a quién avisar."}), 400
+        cuerpo = (datos.get("body") or "").strip()
+        if not cuerpo:
+            return jsonify({"ok": False, "error": "Escribe el mensaje."}), 400
+        enlace = (datos.get("link") or "").strip()
+        personas = _roadmap_message_people(session_db, kind, row)
+        destinos = _roadmap_message_targets(personas, datos.get("ids"), canal)
+        if not destinos:
+            falta = "teléfono" if canal == "SMS" else "correo"
+            return jsonify({"ok": False,
+                            "error": "Nadie de los elegidos tiene %s. Complétalo en su ficha o en "
+                                     "el personal de la hoja de ruta." % falta}), 400
+        estado = _current_user_state() or {}
+        uid = to_uuid(estado.get("user_id") or "") or None
+        nick = estado.get("nick") or ""
+        enviados, fallos = [], []
+        if canal == "SMS":
+            if not _sms_available():
+                return jsonify({"ok": False,
+                                "error": "La pasarela de SMS no está configurada (Integraciones → "
+                                         "SMS), así que ahora mismo no se puede mandar."}), 400
+            texto = _shorten_links_in_text(session_db, "\n".join([x for x in (cuerpo, enlace) if x]),
+                                           kind="ROADMAP")
+            for p in destinos:
+                ok, err = _send_optional_sms(session_db, p["phone"], texto, kind="HOJA_RUTA",
+                                             user_id=uid, nick=nick)
+                (enviados if ok else fallos).append(p["name"] + ("" if ok else " (%s)" % (err or "")))
+        else:
+            asunto = (datos.get("subject") or "").strip() or _roadmap_message_title(session_db, kind, row)
+            html_correo = _roadmap_message_email_html(
+                session_db, kind, row, subject=asunto, body=cuerpo,
+                button_label=(datos.get("button_label") or "").strip(), button_url=enlace)
+            for p in destinos:
+                # ⚠️ UNO POR PERSONA (nunca todos en el «Para»): es la regla de la casa y además
+                # evita que cada uno vea el correo de los demás.
+                ok, err = _send_optional_email([p["email"]], asunto, html_correo)
+                (enviados if ok else fallos).append(p["name"] + ("" if ok else " (%s)" % (err or "")))
+        session_db.commit()
+        if not enviados:
+            return jsonify({"ok": False, "error": "No salió para nadie. " + " · ".join(fallos)}), 400
+        return jsonify({"ok": True, "sent": len(enviados), "failed": fallos,
+                        "message": ("Mandado a %d persona%s." % (len(enviados),
+                                                                 "" if len(enviados) == 1 else "s"))})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[hoja de ruta] no se pudo mandar el mensaje")
+        return jsonify({"ok": False, "error": str(exc)}), 500
     finally:
         session_db.close()
 
@@ -90016,6 +90244,14 @@ MY_TASK_KINDS = {
     "VACACIONES":  ("Vacaciones", "fa-umbrella-beach"),
     "INVITACIONES": ("Invitaciones", "fa-envelope-open-text"),
     "CARTELERIA":  ("Cartelería", "fa-palette"),
+    # Los que trae el registro `HOME_TASK_SOURCES` (los módulos de cada departamento).
+    "LANZAMIENTO": ("Lanzamiento", "fa-compact-disc"),
+    "ARTISTA":     ("Artista", "fa-guitar"),
+    "MARKETING":   ("Campaña de marketing", "fa-tags"),
+    "ROYALTIES":   ("Royalties", "fa-hand-holding-dollar"),
+    "ADMIN":       ("Administración", "fa-briefcase"),
+    "EMPRESA":     ("Empresa del grupo", "fa-building"),
+    "GASTO":       ("Gasto", "fa-receipt"),
 }
 # ⚠️⚠️ CORTE de «Mis tareas pendientes»: lo que sea ANTERIOR a este lunes no se reclama — hasta
 # entonces la gente no usaba la app para todo, así que ese trabajo no está en ella y pedirlo solo
@@ -90034,8 +90270,181 @@ def _my_task_date(valor):
         return None
 
 
+# ⚠️⚠️ UN SOLO MÓDULO DE TAREAS EN INICIO
+# ---------------------------------------------------------------------------------------------
+# Inicio llegó a tener CUARENTA módulos: uno por cada cosa que puede estar pendiente. Cada persona
+# veía media pantalla de tarjetas y lo suyo se perdía entre ellas. Ahora **todo lo que hay que
+# HACER va en «Mis tareas pendientes»**, una fila por aquello a lo que pertenece y, dentro, una
+# subtarea por cosa. Lo que NO es una tarea (el calendario, el cuadro de mando, lo que uno ha
+# pedido, sus vacaciones, los cobros) se queda como estaba: eso se mira, no se hace.
+#
+# ⚠️ NO SE CALCULA NADA NUEVO: cada `_home_*` ya decide qué le toca a esta persona (lo que tiene
+# asignado, lo que ha creado, lo que gestiona, o lo genérico de su departamento). Esto solo junta
+# lo que esos módulos ya han resuelto y lo pinta en un sitio.
+#
+# CÓMO SE AÑADE UNA FUENTE: una línea en `HOME_TASK_SOURCES`.
+#   ctx      – la clave del contexto (`HOME_…`) que ya trae las filas
+#   kind     – de qué es la tarea (`MY_TASK_KINDS`: sale su etiqueta y su icono)
+#   label    – el texto de la subtarea; con `label_key` se saca de la propia fila
+#   action   – lo que dice el botón
+#   order    – urgencia (1 = lo primero)
+#   subtasks – si la fila trae SUS subtareas dentro (una clave con la lista)
+#   Las demás claves (título, enlace, artista, foto, fecha, nota, id) se buscan por su nombre
+#   habitual: `HOME_TASK_FIELDS`. Si una fuente las tiene con otro nombre, se dicen aquí.
+HOME_TASK_FIELDS = {
+    "title": ("title", "concert_title", "subject_name", "name", "release_label", "company", "label"),
+    "url": ("url", "detail_url", "manage_url", "activity_url", "press_url"),
+    "artist": ("artist_name", "artist", "artist_names", "artists", "subject_name"),
+    "photo": ("artist_photo", "subject_photo", "cover_url", "photo_url", "logo_url", "company_logo"),
+    "date": ("date", "first_day", "date_label", "deadline_label", "due_label"),
+    "note": ("place_label", "note", "release_label", "venue", "subtitle", "period",
+             "missing_label", "range_label", "requested_label"),
+    "id": ("id", "concert_id", "song_id", "project_id", "bag_id"),
+}
+
+
+def _home_task_pick(fila: dict, campo: str, extra=()) -> str:
+    """El valor de un campo de la fila, buscándolo por sus nombres habituales."""
+    if not isinstance(fila, dict):
+        return ""
+    for clave in (tuple(extra or ()) + HOME_TASK_FIELDS.get(campo, ())):
+        valor = fila.get(clave)
+        if isinstance(valor, (list, tuple)):
+            valor = ", ".join([str(x) for x in valor if x])
+        if valor not in (None, "", []):
+            return valor if campo == "date" else str(valor)
+    return ""
+
+
+HOME_TASK_SOURCES = [
+    # ── LO QUE CADUCA PRIMERO ──────────────────────────────────────────────────────────────────
+    {"ctx": "HOME_MY_EXPENSES", "rows": "rows", "kind": "GASTO", "order": 1,
+     "label": "Asignarlo a una bolsa", "action": "Asignarlo",
+     "title": ("concept",), "note": ("provider_name",), "url_fixed": ("my_expenses_assign",)},
+    {"ctx": "HOME_ADMIN_PENDING", "kind": "ADMIN", "order": 2,
+     "label_key": "label", "action": "Ir",
+     "title": ("label",), "note": ("count",)},
+    {"ctx": "HOME_ADMIN_REQUESTS", "kind": "ADMIN", "order": 2,
+     "label_key": "kind_label", "action": "Gestionarlo"},
+    {"ctx": "HOME_ADMIN_ALTAS_PENDING", "kind": "EMPRESA", "order": 2,
+     "label": "El ITA está caducado o sin subir", "action": "Subirlo",
+     "url_fixed": ("administracion_view", {"tab": "altas"})},
+    # ── CONTRATACIÓN ───────────────────────────────────────────────────────────────────────────
+    {"ctx": "HOME_CONTRATACION_TASKS", "kind": "ACTIVIDAD", "order": 3,
+     "subtasks": "tasks", "subtask_label": "label", "action": "Hacerlo"},
+    {"ctx": "HOME_PENDING_PETICIONES", "kind": "PETICION", "order": 2,
+     "label": "Petición sin tramitar", "action": "Gestionarla",
+     "title": ("subject",), "note": ("place_label",)},
+    {"ctx": "HOME_TICKETING_SALES", "kind": "ACTIVIDAD", "order": 3,
+     "label_key": "action_label", "action": "Hacerlo", "note": ("venue", "municipality")},
+    # ── PRODUCCIÓN ─────────────────────────────────────────────────────────────────────────────
+    {"ctx": "HOME_PRODUCCION_PENDING", "kind": "ACTIVIDAD", "order": 3,
+     "label": "Montar la producción", "action": "Producirla", "note": ("venue",)},
+    {"ctx": "HOME_ESCORT_PENDING", "kind": "ACTIVIDAD", "order": 3,
+     "label_key": "what", "action": "Confirmarlo"},
+    {"ctx": "HOME_DISCO_LOGISTICS", "kind": "PROYECTO", "order": 3,
+     "label": "Montar la logística", "action": "Montarla"},
+    {"ctx": "HOME_BAG_CLOSE", "kind": "PROYECTO", "order": 4,
+     "label": "Cerrar tu parte de la bolsa", "action": "Cerrarla"},
+    # ── TICKETING E INVITACIONES ───────────────────────────────────────────────────────────────
+    {"ctx": "HOME_INVITATIONS_TO_MANAGE", "kind": "INVITACIONES", "order": 4,
+     "label": "Invitaciones por gestionar", "action": "Gestionarlas",
+     "artist": ("artists",), "note": ("city",)},
+    {"ctx": "HOME_INVITATION_LEFTOVERS", "kind": "INVITACIONES", "order": 1,
+     "label": "Hoy hay evento y quedan invitaciones sin repartir", "action": "Repartirlas"},
+    # ── ADMINISTRACIÓN Y DIRECCIÓN ─────────────────────────────────────────────────────────────
+    # ── SELLO Y REGISTROS ──────────────────────────────────────────────────────────────────────
+    {"ctx": "HOME_PROJECT_REGISTROS", "kind": "PROYECTO", "order": 3,
+     "label": "Cumplimentar los datos y subir los materiales", "action": "Hacerlo",
+     "note": ("missing",)},
+    {"ctx": "HOME_REGISTROS_PENDING", "kind": "LANZAMIENTO", "order": 3,
+     "label": "Revisar y validar lo entregado", "action": "Revisarlo",
+     "artist": ("artist_names",)},
+    {"ctx": "HOME_PITCH_PENDING", "kind": "LANZAMIENTO", "order": 4,
+     "label": "Falta el pitch", "action": "Escribirlo", "note": ("release_label",)},
+    {"ctx": "HOME_SONGS_NO_GENRE", "rows": "rows", "kind": "LANZAMIENTO", "order": 5,
+     "label": "Falta el género", "action": "Ponerlo"},
+    {"ctx": "HOME_SYNC_TO_SEND", "rows": "rows", "kind": "LANZAMIENTO", "order": 5,
+     "label": "Mandarlo a Supervisors", "action": "Enviarlo"},
+    {"ctx": "HOME_RELEASE_LINKS", "kind": "LANZAMIENTO", "order": 4,
+     "label": "Los enlaces de la distribuidora", "action": "Subirlos"},
+    {"ctx": "HOME_PRODUCER_CONTRACTS", "kind": "LANZAMIENTO", "order": 4,
+     "label": "Preparar el contrato del productor", "action": "Prepararlo"},
+    {"ctx": "HOME_RADIO_PITCHES", "kind": "LANZAMIENTO", "order": 4,
+     "label": "Contestar a las emisoras", "action": "Contestar"},
+    {"ctx": "HOME_ARTISTS_NO_NOTIF", "kind": "ARTISTA", "order": 5,
+     "label": "No se le puede comunicar nada: falta configurar sus notificaciones",
+     "action": "Configurarlo"},
+    # ── ROYALTIES A FAVOR ──────────────────────────────────────────────────────────────────────
+    {"ctx": "HOME_AFAVOR_REQUEST", "rows": "companies", "kind": "ROYALTIES", "order": 4,
+     "label": "Pedirle la liquidación", "action": "Pedirla", "title": ("name",),
+     "url_fixed": ("discografica_view", {"section": "royalties", "royalty_tab": "afavor"})},
+    {"ctx": "HOME_AFAVOR_REVIEW", "kind": "ROYALTIES", "order": 3,
+     "label": "Revisar lo que han liquidado", "action": "Revisarlo"},
+    {"ctx": "HOME_AFAVOR_INVOICES", "kind": "ROYALTIES", "order": 3,
+     "label": "Emitir la factura", "action": "Emitirla"},
+    # ── DISEÑO Y PRENSA ────────────────────────────────────────────────────────────────────────
+    {"ctx": "HOME_DESIGN_TASKS", "kind": "LANZAMIENTO", "order": 3,
+     "subtasks": "tasks", "subtask_label": "label", "action": "Entregarlo"},
+    {"ctx": "HOME_PRESS_TASKS", "kind": "LANZAMIENTO", "order": 3,
+     "subtasks": "tasks", "subtask_label": "label", "action": "Hacerlo"},
+    {"ctx": "HOME_SOLDOUT_ARTWORK", "kind": "ACTIVIDAD", "order": 2,
+     "label": "Los carteles de Sold Out", "action": "Subirlos",
+     "artist": ("artist",), "note": ("place",)},
+    # ── PROMOCIÓN Y MARKETING ──────────────────────────────────────────────────────────────────
+    {"ctx": "HOME_PROMO_TASKS", "kind": "PROMOCION", "order": 3,
+     "label_key": "role", "action": "Gestionarla"},
+    {"ctx": "HOME_MARKETING_CLOSE", "kind": "MARKETING", "order": 4,
+     "label": "Cerrar la campaña", "action": "Cerrarla", "note": ("missing",)},
+]
+
+# ⚠️ LOS QUE **NO** VAN AQUÍ porque `_home_my_tasks` ya los trata con su lógica propia (las fases de
+# una petición miran de quién es cada una; la activación, los carteles rechazados, las remesas y las
+# vacaciones llevan su propio texto): HOME_ACTIVITY_PHASES · HOME_PRODUCTION_ACTIVATION ·
+# HOME_ARTWORK_REJECTED · HOME_BATCH_APPROVALS · HOME_VACATION_PENDING · HOME_MY_PETICIONES ·
+# HOME_INVITATIONS.
+# Y los que NO son una tarea (se miran, no se hacen) siguen siendo su propio módulo: el calendario,
+# el cuadro de mando, «Mis peticiones», «Mis vacaciones», mis invitaciones y los cobros.
+HOME_TASK_SOURCES_SPECIAL = {"HOME_ACTIVITY_PHASES", "HOME_PRODUCTION_ACTIVATION",
+                             "HOME_ARTWORK_REJECTED", "HOME_BATCH_APPROVALS",
+                             "HOME_VACATION_PENDING", "HOME_MY_PETICIONES", "HOME_INVITATIONS"}
+
+
+def _home_task_url(fuente: dict, fila: dict) -> str:
+    """El enlace de la tarea: el de la fila o, si la fuente lleva uno FIJO, ese."""
+    url = _home_task_pick(fila, "url", fuente.get("url"))
+    if url:
+        return url
+    fijo = fuente.get("url_fixed")
+    if fijo:
+        try:
+            return url_for(fijo[0], **(fijo[1] if len(fijo) > 1 else {}))
+        except Exception:
+            return ""
+    return ""
+
+
+def _home_task_title(fuente: dict, fila: dict) -> str:
+    """El título de la fila (el nombre de aquello a lo que pertenece la tarea)."""
+    plantilla = fuente.get("title_fmt")
+    if plantilla:
+        try:
+            return plantilla % {k: (v if v is not None else "") for k, v in fila.items()}
+        except Exception:
+            pass
+    return _home_task_pick(fila, "title", fuente.get("title"))
+
+
+def _home_task_source_rows(fuente: dict, datos) -> list[dict]:
+    """Las filas de una fuente (una lista, o la lista que lleva dentro un resumen)."""
+    if isinstance(datos, dict):
+        datos = datos.get(fuente.get("rows") or "rows") or []
+    return [f for f in (datos or []) if isinstance(f, dict)]
+
+
 def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None,
-                   artwork=None, peticiones=None, invitations=None, plans=None) -> list[dict]:
+                   artwork=None, peticiones=None, invitations=None, plans=None,
+                   fuentes=None) -> list[dict]:
     """MIS TAREAS PENDIENTES: lo que le toca a ESTA persona, agrupado POR AQUELLO A LO QUE PERTENECE.
 
     No calcula nada nuevo: junta lo que los módulos de Inicio ya han resuelto. Lo que es de una MISMA
@@ -90156,6 +90565,48 @@ def _home_my_tasks(*, batches=None, vacations=None, phases=None, activation=None
                   label="Invitaciones pendientes", action_label="Ver mis invitaciones",
                   state="sent", artist=(ev.get("artist_names") or ""),
                   photo=(ev.get("artist_photo") or ""), fecha=(ev.get("date") or ""), order=6)
+
+    # ── Y TODO LO DEMÁS, del registro: lo que cada módulo de departamento ya ha resuelto ──────
+    # ⚠️ No se calcula nada nuevo: `fuentes` es el contexto de Inicio, donde cada `_home_*` ya ha
+    # decidido qué le toca a ESTA persona (lo asignado, lo que ha creado, lo que gestiona o lo
+    # genérico de su departamento).
+    for fuente in HOME_TASK_SOURCES:
+        if fuente["ctx"] in HOME_TASK_SOURCES_SPECIAL:
+            continue
+        try:
+            for fila in _home_task_source_rows(fuente, (fuentes or {}).get(fuente["ctx"])):
+                url = _home_task_url(fuente, fila)
+                comun = dict(
+                    ficha_url=url,
+                    artist=_home_task_pick(fila, "artist", fuente.get("artist")),
+                    photo=_home_task_pick(fila, "photo", fuente.get("photo")),
+                    fecha=_home_task_pick(fila, "date", fuente.get("date")),
+                    note=_home_task_pick(fila, "note", fuente.get("note")),
+                    order=int(fuente.get("order") or 5),
+                    activity_type=str(fila.get("activity_type") or ""),
+                    ref_id=_home_task_pick(fila, "id", fuente.get("id")),
+                )
+                titulo = _home_task_title(fuente, fila)
+                sid = comun["ref_id"] or titulo
+                subs = fila.get(fuente["subtasks"]) if fuente.get("subtasks") else None
+                if subs:
+                    # La fila trae SUS subtareas dentro: cada una es una línea del mismo sujeto.
+                    for sub in subs:
+                        if not isinstance(sub, dict):
+                            continue
+                        añade(fuente["kind"], sid, titulo,
+                              label=(sub.get(fuente.get("subtask_label") or "label") or ""),
+                              action_url=(sub.get("url") or url),
+                              action_label=(sub.get("action_label") or fuente.get("action") or "Hacerlo"),
+                              state=(sub.get("state") or "todo"), **comun)
+                else:
+                    etiqueta = (str(fila.get(fuente["label_key"]) or "") if fuente.get("label_key")
+                                else (fuente.get("label") or ""))
+                    añade(fuente["kind"], sid, titulo, label=etiqueta,
+                          action_label=(fuente.get("action") or "Hacerlo"),
+                          state=(fuente.get("state") or "todo"), **comun)
+        except Exception:
+            app.logger.exception("[inicio] no se pudo montar la tarea de %s", fuente["ctx"])
 
     filas = list(grupos.values())
     # ⚠️ EL CORTE: lo anterior al lunes de arranque no se reclama; lo que NO tiene fecha (AGEDI,
@@ -91036,7 +91487,7 @@ def inject_personnel_globals():
             app.logger.exception("[inicio] no se pudieron montar los módulos de facturación")
         finally:
             _sb.close()
-    return {
+    contexto = {
         "CURRENT_USER": current_user,
         "NAV_MENU": _build_nav_menu() if session.get("user_id") else [],
         "HOME_QUICK_LINKS": [],
@@ -91147,12 +91598,12 @@ def inject_personnel_globals():
         # ⚠️ EL INICIO DE TICKETING es solo el calendario y sus tareas: quien está SOLO en ese
         # departamento no tiene por qué mirar los módulos de los demás. Quien además esté en otro
         # (o sea dirección) los sigue viendo todos.
-        # ── DIRECCIÓN: sus avisos, sus tareas de una pieza y el CUADRO DE MANDO ────────────
-        "HOME_NOTICES": (_home_notices() if _dir and "_home_notices" in globals() else []),
-        "HOME_MY_TASKS": (_home_my_tasks(batches=_batches, vacations=_vacpend, phases=_phases,
-                                         activation=_activation, artwork=_artwork,
-                                         peticiones=_mypet, invitations=_myinv, plans=_plans)
-                          if _dir and "_home_my_tasks" in globals() else []),
+        # ⚠️⚠️ UN SOLO MÓDULO DE TAREAS, PARA TODO EL MUNDO. Antes esto era solo de dirección y
+        # cada departamento tenía los suyos: cuarenta tarjetas en las que lo de uno se perdía. Se
+        # monta AL FINAL del contexto (`_home_tasks_unified`), cuando el resto de módulos ya está
+        # resuelto, porque es de ellos de donde salen sus filas.
+        # ⚠️ «Mis avisos» se retiró: es lo MISMO que la franja de arriba y la campanita.
+        "HOME_MY_TASKS": [],
         "HOME_DIRECCION_BOARD": _board,
         "HOME_TICKETING_ONLY": _home_ticketing_only(),
         "HOME_TICKETING_SALES": (_home_ticketing_sales_wrap()
@@ -91246,6 +91697,18 @@ def inject_personnel_globals():
         "IMPERSONATOR_NICK": _impersonator_nick() if session.get("impersonator_id") else "",
         "MAINTENANCE_ACTIVE": _maintenance_active(),
     }
+    # ⚠️⚠️ EL MÓDULO ÚNICO DE TAREAS SE MONTA AL FINAL, con el contexto ya hecho: sus filas salen
+    # de los módulos que cada departamento ya ha resuelto (`HOME_TASK_SOURCES`), así que no puede
+    # calcularse antes que ellos.
+    if _home and "_home_my_tasks" in globals():
+        try:
+            contexto["HOME_MY_TASKS"] = _home_my_tasks(
+                batches=_batches, vacations=_vacpend, phases=_phases, activation=_activation,
+                artwork=_artwork, peticiones=_mypet, invitations=_myinv, plans=_plans,
+                fuentes=contexto)
+        except Exception:
+            app.logger.exception("[inicio] no se pudieron montar las tareas pendientes")
+    return contexto
 
 
 @app.before_request
@@ -91415,6 +91878,9 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_person_no_room",
     # Personal: qué datos se ven y completar en su ficha lo que le falta a una persona.
     "roadmap_personnel_cols", "roadmap_person_fill",
+    # MANDARLE UN MENSAJE (SMS o correo) al personal de la hoja de ruta: lo hace quien monta la
+    # producción, que no tiene por qué poder editar la sección de la actividad.
+    "roadmap_message_data", "roadmap_message_preview", "roadmap_message_send",
     # PRL / altas del personal del evento (subpestaña PRL del Personal + fichas)
     "prl_request_docs", "prl_doc_upload", "prl_doc_reject", "prl_doc_delete", "prl_set_worker_type",
     # Bolsa: cargar plantillas de gastos y pedir facturas a los proveedores
@@ -96811,6 +97277,16 @@ def _promo_alert_add(session_db, promotion, activity, kind: str, message: str) -
         target_user_id=target,
         created_by_nick=(state.get("nick") or state.get("email") or "").strip() or None,
     ))
+    # ⚠️⚠️ Y POR LA CAMPANITA: un aviso es «esto te está esperando» y todos los de la casa van por
+    # ahí. Antes esto vivía SOLO en su módulo de Inicio, así que al reunir las tareas en uno solo se
+    # habría perdido (`PromotionAlert` es su propia tabla, no crea `AppNotification`).
+    try:
+        _notify_user(session_db, target, "PRODUCCION",
+                     "Cambio en una promoción que produces", message[:600],
+                     _safe_url_for("promotion_detail_view", promotion_id=promotion.id),
+                     ref_type="PROMO_ALERT", ref_id=str(promotion.id), email_repeat=True)
+    except Exception:
+        app.logger.exception("[promoción] no se pudo avisar del cambio")
 
 
 def _promo_activity_change_summary(before: dict, activity) -> str:

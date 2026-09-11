@@ -12632,3 +12632,55 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Columnas nuevas en `Concert` (`announce_alert_at` · `_2_at` · `_dir_at`), **cada una en su
   propia sentencia** del `ensure_*` (la regla de la casa: dentro de un ALTER que ya existe puede no
   ejecutarse nunca y la app revienta al leerla).
+
+- ⚠️⚠️⚠️ **INICIO · UN SOLO MÓDULO DE TAREAS** (sep 2026). Inicio llegó a tener **CUARENTA** módulos
+  —uno por cada cosa que puede estar pendiente— y lo de cada uno se perdía entre ellos. Ahora **TODO
+  lo que hay que HACER está en «Mis tareas pendientes»**, que lo ve **todo el mundo** (antes era solo
+  de dirección): una fila por aquello a lo que pertenece y, dentro, **una subtarea por cosa**.
+  · **Lo que NO es una tarea sigue siendo su módulo** (eso se MIRA, no se hace): la cabecera, los
+  accesos rápidos, el **calendario**, los **cobros y lo facturado** (contratación y dirección), el
+  **CUADRO DE MANDO** (dirección) y el resumen de **mis vacaciones**. Y ya está: de 40 a 4.
+  ⚠️ **«Mis avisos» se retiró**: era el MISMO dato que la franja de arriba y la campanita.
+  · **CÓMO SE AÑADE UNA FUENTE: una línea en `HOME_TASK_SOURCES`** (`ctx` = la clave del contexto ·
+  `kind` · `label` o `label_key` · `action` · `order` · `subtasks` si la fila trae las suyas). Los
+  campos habituales (título, enlace, artista, foto, fecha, nota, id) se buscan **por su nombre
+  habitual** (`HOME_TASK_FIELDS`), así que una fuente nueva no necesita adaptador propio.
+  ⚠️ **NO SE CALCULA NADA NUEVO**: cada `_home_*` ya decide qué le toca a esa persona (lo asignado,
+  lo que ha creado, lo que gestiona o lo genérico de su departamento) y esto solo lo junta. Los
+  módulos que ya trata `_home_my_tasks` con su lógica propia están en `HOME_TASK_SOURCES_SPECIAL`
+  (las fases de una petición miran de quién es cada una) y **no se repiten** en el registro.
+  ⚠️ El módulo único se monta **AL FINAL** de `inject_personnel_globals` (con `fuentes=contexto`):
+  sus filas salen de los demás módulos, así que no puede calcularse antes que ellos.
+  ⚠️ A partir de la fila **20** se esconden tras «Ver las N restantes»: con cincuenta tareas lo de
+  arriba —que es lo más urgente, porque van por fecha— dejaba de verse.
+  ⚠️ Su plantilla es **`_home_my_tasks.html`** (antes `_home_direccion.html`).
+  ⚠️ Los **avisos de una promoción** que se produce (cambio de fecha, de sitio, cancelación) pasan a
+  la **campanita** (`_promo_alert_add` crea ya el `AppNotification`): vivían SOLO en su módulo de
+  Inicio y al reunir las tareas se habrían perdido —`PromotionAlert` es su propia tabla—.
+
+- **HOJA DE RUTA · MANDARLE UN MENSAJE AL PERSONAL** (sep 2026). «Mañana el bus sale a las 8:30» hay
+  que decírselo a los que van, y se hacía por fuera de la app (un grupo de WhatsApp, un correo a
+  mano), con el riesgo de dejarse a alguien. Botón **«Mandar un mensaje»** en la barra de la pestaña
+  **Personal**: se manda a TODOS o a los que se elijan, y **se eligen POR FUNCIÓN** (solo los
+  técnicos, solo los músicos…), que es como se piensa de verdad.
+  · **Es el patrón de los envíos a compradores**: a la izquierda a quién (chips de función con su
+  contador + la gente con su foto y su contacto) y a la derecha lo que se manda **con su VISTA
+  PREVIA**. Dos canales: **SMS** y **CORREO** (asunto, texto, botón y enlace).
+  ⚠️ **El contador de caracteres y trozos lo compone el SERVIDOR** (`_campaign_sms_preview`, el
+  mismo de compradores): el GSM-7, los acentos y los trozos son suyos, y calcularlo en el navegador
+  sería una segunda verdad. Su clave es **`segments`**, no `parts`.
+  ⚠️ **EL CORREO lleva la cabecera de LO QUE ES** (`_notice_email_activity` / `_promotion` /
+  `_project` + `_notice_email_html`, el esqueleto de la casa): quien lo recibe sabe de qué le hablan
+  sin que haya que explicarlo en el texto.
+  ⚠️ **UN mensaje por persona**, nunca todos en el «Para». Quien no tiene teléfono (o correo) sale
+  **deshabilitado** y se dice cuántos son; si no sale para nadie, se DICE.
+  ⚠️ Sin pasarela de SMS configurada el pop-up **arranca en Correo** y lo explica: ofrecer «SMS» sin
+  poder mandarlo es un botón que no funciona.
+  · Motor `_roadmap_message_*` (del MISMO `_roadmap_person_rows` que la pestaña, así que la lista y
+  a quien se le manda no se pueden desparejar), pop-up `_roadmap_message_modal.html` + JS
+  `roadmap_message.js` (global y por DELEGACIÓN: el panel de la hoja de ruta se repinta entero).
+  ⚠️ Sus tres endpoints van en **`SUPPORT_ACTION_ENDPOINTS`**: lo hace quien monta la producción,
+  que no tiene por qué poder editar la sección de la actividad.
+  ⚠️ En una **PLANTILLA** no se ofrece (no hay a quién avisar) y el endpoint lo vuelve a comprobar.
+  · Y de paso, `_roadmap_person_rows` **resuelve el NOMBRE de la ficha** cuando en la hoja de ruta
+  se quedó vacío: esa persona salía como «Sin nombre» en el listado, en el PDF y aquí.

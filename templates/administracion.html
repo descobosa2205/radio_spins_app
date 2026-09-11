@@ -32,7 +32,16 @@
       {% if row.retention %}
         <div class="small text-muted"><i class="fa fa-scissors me-1"></i>Retención {{ row.retention|eur }} (no se le abona: la ingresa la casa)</div>
       {% endif %}
-      {% if row.missing %}<div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ row.missing_labels|join(', ') }}</div>{% endif %}
+      {% if row.missing %}
+        <div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ row.missing_labels|join(', ') }}
+          {% if 'iban' in row.missing %}
+            <button type="button" class="btn btn-link btn-sm p-0 align-baseline ms-1"
+                    data-pay-bank="{{ url_for('payment_bank_save', kind='expense', row_id=row.id) }}"
+                    data-pay-bank-who="{{ row.beneficiary }}"
+                    data-pay-bank-doc="{{ '1' if row.attachment_url else '' }}">Poner la cuenta</button>
+          {% endif %}
+        </div>
+      {% endif %}
       {# Avisos antes de abonar: orden de embargo vigente y adelantos/deudas con la casa. #}
       {% if row.embargos %}
         <div class="small text-danger fw-semibold"><i class="fa fa-gavel me-1"></i>Orden de embargo vigente: no abonar
@@ -349,6 +358,12 @@
                   <i class="fa fa-scale-balanced text-muted me-1"></i>
                   <span class="fw-semibold">{{ bolsa.title }}</span>
                   <span class="text-muted small ms-2">{{ bolsa.rows|length }} gasto{{ '' if bolsa.rows|length == 1 else 's' }} pendiente{{ '' if bolsa.rows|length == 1 else 's' }}</span>
+                  {# DE QUIÉN ES la liquidación: en pequeño y con su foto, debajo del nombre. #}
+                  {% if bolsa.artists %}
+                    <span class="d-block small text-muted mt-1">
+                      {% for a in bolsa.artists %}{{ artist_chip(a.name, a.photo) }}{% endfor %}
+                    </span>
+                  {% endif %}
                 </button>
                 <div class="d-flex align-items-center gap-2">
                   <span class="fw-bold">{{ bolsa.total|eur }}</span>
@@ -390,7 +405,14 @@
                     {% endif %}
                     <div class="small text-muted text-truncate">
                       {{ r.period_label }}{% if r.iban_masked %} · {{ r.iban_masked }}{% endif %}
-                      {% if r.missing %}<span class="text-danger"> · falta {{ r.missing_labels|join(', ') }}</span>{% endif %}
+                      {% if r.missing %}<span class="text-danger"> · falta {{ r.missing_labels|join(', ') }}</span>
+                        {% if 'iban' in r.missing %}
+                          <button type="button" class="btn btn-link btn-sm p-0 align-baseline ms-1"
+                                  data-pay-bank="{{ url_for('payment_bank_save', kind='royalty', row_id=r.id) }}"
+                                  data-pay-bank-who="{{ r.name }}"
+                                  data-pay-bank-doc="{{ '1' if r.invoice_url else '' }}">Poner la cuenta</button>
+                        {% endif %}
+                      {% endif %}
                     </div>
                     {% if r.mismatch %}
                       {# Se paga lo que dice la factura, pero si no cuadra con lo que se pidió
@@ -462,6 +484,36 @@
         </div>
       </div>
     {% endfor %}
+
+    {# LA CUENTA QUE FALTA. Pop-up ÚNICO de la página: la URL se fija EN EL CLIC (con `modal_stack`
+       por medio, `shown.bs.modal` no siempre llega). Se escribe o se LEE de la propia factura. #}
+    <div class="modal fade" id="payBankModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+        <form method="post" data-pay-bank-form>
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-building-columns me-2"></i>Número de cuenta</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted mb-2">Sin cuenta este pago no se puede meter en ninguna remesa.
+              La que pongas queda en la ficha de <strong data-pay-bank-who>quien cobra</strong>, así que
+              la próxima vez ya no hará falta.</p>
+            <label class="form-label">IBAN</label>
+            <input class="form-control" name="iban" placeholder="ES00 0000 0000 0000 0000 0000" autocomplete="off">
+            <div class="form-text">Si la factura la dice, se puede leer de ella.</div>
+          </div>
+          <div class="modal-footer justify-content-between">
+            <button type="submit" name="leer" value="1" class="btn btn-outline-secondary d-none" data-pay-bank-read>
+              <i class="fa fa-magnifying-glass me-1"></i>Leerla de la factura</button>
+            <div class="ms-auto">
+              <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+            </div>
+          </div>
+        </form>
+      </div></div>
+    </div>
 
     {# Modal único para «marcar como pagado» (lo rellena el JS con el gasto que se elija) #}
     {# Pop-up del DOCUMENTO (la factura de un pago, un certificado…): parcial ÚNICO compartido. #}
@@ -669,7 +721,7 @@
           {% if bag.liquidation_status in ADMIN_BAG_LIQUIDACION_STATUSES %}
             {% set totals = bag_totals.get(bag.id|string, {}) %}
             <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap" id="admin-liqval-{{ bag.id }}" data-inline-zone>
-              <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Cerrada: {{ bag.closed_at.strftime('%d/%m/%Y') if bag.closed_at else '—' }}</div>{% if totals.get('unpaid', 0) %}<span class="badge text-bg-warning">Pagos pendientes</span>{% else %}<span class="badge text-bg-success">Sin pagos pendientes</span>{% endif %}{% if admin_promo_bag_ids and bag.id|string in admin_promo_bag_ids %}<span class="badge text-bg-info text-dark ms-1"><i class="fa fa-microphone-lines me-1"></i>Promoción · sin pagos</span>{% endif %}</div>
+              <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{% if bag.artist %}{{ artist_chip(bag.artist.name, bag.artist.photo_url) }}{% else %}Sin artista{% endif %} · Cerrada: {{ bag.closed_at.strftime('%d/%m/%Y') if bag.closed_at else '—' }}</div>{% if totals.get('unpaid', 0) %}<span class="badge text-bg-warning">Pagos pendientes</span>{% else %}<span class="badge text-bg-success">Sin pagos pendientes</span>{% endif %}{% if admin_promo_bag_ids and bag.id|string in admin_promo_bag_ids %}<span class="badge text-bg-info text-dark ms-1"><i class="fa fa-microphone-lines me-1"></i>Promoción · sin pagos</span>{% endif %}</div>
               <div class="d-flex gap-2 align-items-start"><a href="{{ url_for('bag_detail_view', bag_id=bag.id) }}" class="btn btn-sm btn-outline-primary">Revisar gastos</a><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}" data-inline data-inline-target="#admin-liqval-{{ bag.id }}"><input type="hidden" name="mode" value="VALIDAR"><button class="btn btn-sm btn-success">Validar ingresos/gastos</button></form></div>
             </div>
           {% endif %}
@@ -685,7 +737,7 @@
             {% set totals = bag_totals.get(bag.id|string, {}) %}
             <div class="p-3 border-bottom" id="admin-liqclose-{{ bag.id }}" data-inline-zone>
               <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-                <div><div class="fw-semibold">{{ bag.title }} {% if admin_promo_bag_ids and bag.id|string in admin_promo_bag_ids %}<span class="badge text-bg-info text-dark ms-1"><i class="fa fa-microphone-lines me-1"></i>Promoción · sin pagos</span>{% endif %}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Estado: {{ bag.liquidation_status }}</div><div class="fw-bold mt-2">Resultado provisional: {{ totals.get('bag', 0)|eur }}</div></div>
+                <div><div class="fw-semibold">{{ bag.title }} {% if admin_promo_bag_ids and bag.id|string in admin_promo_bag_ids %}<span class="badge text-bg-info text-dark ms-1"><i class="fa fa-microphone-lines me-1"></i>Promoción · sin pagos</span>{% endif %}</div><div class="small text-muted">{% if bag.artist %}{{ artist_chip(bag.artist.name, bag.artist.photo_url) }}{% else %}Sin artista{% endif %} · Estado: {{ bag.liquidation_status }}</div><div class="fw-bold mt-2">Resultado provisional: {{ totals.get('bag', 0)|eur }}</div></div>
                 <div class="btn-group">
                   <a class="btn btn-sm btn-outline-primary" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">Ver liquidación</a>
                   <button class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>

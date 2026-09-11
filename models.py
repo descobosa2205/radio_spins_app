@@ -3891,6 +3891,10 @@ class SupplierInvoice(Base):
     # A quién va dirigida cuando se sube por el enlace genérico (paso «¿para quién es la factura?»).
     target_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     group_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    # ⚠️ EL IBAN QUE DICE LA PROPIA FACTURA (leído al subirla, validado mod-97). De aquí sale la
+    # cuenta del proveedor cuando su ficha no la tiene: una factura casi siempre lleva dónde
+    # pagarla, así que no hay que perseguir a nadie para que la diga.
+    bank_account = Column(Text)
     file_url = Column(Text, nullable=False)
     original_name = Column(Text)
     mime_type = Column(Text)
@@ -9481,6 +9485,8 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS billing_updated_at timestamptz;",
         "ALTER TABLE IF EXISTS supplier_invoices ADD COLUMN IF NOT EXISTS issue_date date;",
         "ALTER TABLE IF EXISTS supplier_invoices ADD COLUMN IF NOT EXISTS target_user_id uuid;",
+        # El IBAN que dice la propia factura (de ahí se completa la cuenta del proveedor).
+        "ALTER TABLE IF EXISTS supplier_invoices ADD COLUMN IF NOT EXISTS bank_account text;",
         # Importes leídos de la propia factura al subirla (base, IVA y retención).
         """
         ALTER TABLE IF EXISTS supplier_invoices

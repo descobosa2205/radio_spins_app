@@ -369,5 +369,25 @@
     }
   }, true);
 
+  /* LA CUENTA QUE FALTA. El pop-up es UNO para toda la página: la URL, quién cobra y si hay factura
+     de la que leerla se fijan EN EL CLIC (con `modal_stack` por medio, `shown.bs.modal` no siempre
+     llega). Va por DELEGACIÓN: estas listas se repintan. */
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-pay-bank]');
+    if (!btn) return;
+    var modal = document.getElementById('payBankModal');
+    var form = modal && modal.querySelector('[data-pay-bank-form]');
+    if (!form) return;
+    form.setAttribute('action', btn.getAttribute('data-pay-bank') || '');
+    var quien = form.querySelector('[data-pay-bank-who]');
+    if (quien) quien.textContent = btn.getAttribute('data-pay-bank-who') || 'quien cobra';
+    var leer = form.querySelector('[data-pay-bank-read]');
+    // «Leerla de la factura» solo si hay factura subida: un botón que no puede hacer nada estorba.
+    if (leer) leer.classList.toggle('d-none', !btn.getAttribute('data-pay-bank-doc'));
+    var iban = form.querySelector('input[name="iban"]');
+    if (iban) iban.value = '';
+    if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modal).show();
+  });
+
   document.querySelectorAll('[data-pay-drop]').forEach(refresh);
 })();

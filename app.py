@@ -87356,8 +87356,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "databases.publishing_companies"
     if endpoint == "banks_view" or endpoint.startswith("bank_"):
         return "databases.banks"
-    # Las remesas se preparan en Administración → Pendiente → Pago.
-    if endpoint.startswith("payment_batch_"):
+    # Las remesas se preparan en Administración → Pendiente → Pago (y ahí se pone la cuenta que
+    # falte, `payment_bank_save`).
+    if endpoint.startswith("payment_batch_") or endpoint == "payment_bank_save":
         return "administracion.pendiente"
     if endpoint == "companies_view" or endpoint.startswith("company_"):
         return "databases.group_companies"
@@ -88176,8 +88177,9 @@ def _resolve_request_resource_key() -> str | None:
         return "databases.publishing_companies"
     if endpoint == "banks_view" or endpoint.startswith("bank_"):
         return "databases.banks"
-    # Las remesas se preparan en Administración → Pendiente → Pago.
-    if endpoint.startswith("payment_batch_"):
+    # Las remesas se preparan en Administración → Pendiente → Pago (y ahí se pone la cuenta que
+    # falte, `payment_bank_save`).
+    if endpoint.startswith("payment_batch_") or endpoint == "payment_bank_save":
         return "administracion.pendiente"
     if endpoint == "companies_view" or endpoint.startswith("company_"):
         return "databases.group_companies"
@@ -97513,6 +97515,8 @@ def _payment_pending_context(session_db) -> list:
             bolsa = grupo["bags"].setdefault(row["bag_id"], {
                 "bag_id": row["bag_id"], "title": row["bag_title"] or "Liquidación",
                 "rows": [], "total": Decimal("0"),
+                # DE QUIÉN ES: debajo del nombre, con su foto (es lo que identifica la liquidación).
+                "artists": _bag_artist_chips(session_db, getattr(expense, "bag", None)),
                 "url": url_for("bag_detail_view", bag_id=row["bag_id"]),
             })
             bolsa["rows"].append(row)
@@ -102381,6 +102385,85 @@ def administration_no_invoice_decision(expense_id, decision):
     return redirect(url_for("administracion_view", tab="pendiente"))
 
 
+# ⚠️⚠️ LA CUENTA QUE FALTA SE PONE DONDE SE VE QUE FALTA. Un pago sin IBAN no se puede meter en
+# ninguna remesa, así que en «pendiente de pago» se pone ahí mismo —escribiéndola o LEYÉNDOLA de la
+# propia factura— y queda guardada en la ficha de quien cobra: la próxima vez ya no falta.
+@app.post("/administracion/pagos/<kind>/<row_id>/cuenta", endpoint="payment_bank_save")
+@admin_required
+def payment_bank_save(kind, row_id):
+    next_url = safe_next_or(request.form.get("next") or url_for("administracion_view", tab="pendiente", subtab="pago"))
+    session_db = db()
+    try:
+        kind = (kind or "").strip().lower()
+        destinos, doc_url = [], ""
+        if kind == "expense":
+            gasto = session_db.get(BagExpense, to_uuid(row_id) or uuid.uuid4())
+            if gasto is None:
+                abort(404)
+            destinos = [getattr(gasto, "provider_company", None), getattr(gasto, "provider", None)]
+            inv = _accounting_expense_invoice(session_db, gasto)
+            doc_url = ((getattr(inv, "file_url", None) or "") if inv is not None else "") or (gasto.attachment_url or "")
+        elif kind == "royalty":
+            rec = session_db.get(RoyaltyLiquidation, to_uuid(row_id) or uuid.uuid4())
+            if rec is None:
+                abort(404)
+            destinos = [_royalty_beneficiary_promoter(session_db, rec)]
+            inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
+            doc_url = (getattr(inv, "file_url", None) or "") if inv is not None else ""
+        else:
+            abort(404)
+        destinos = [d for d in destinos if d is not None]
+        if not destinos:
+            flash("No consta quién cobra este pago: ponle el proveedor antes.", "warning")
+            return redirect(next_url)
+        iban = (request.form.get("iban") or "").strip()
+        if not iban and _truthy(request.form.get("leer")):
+            # LEERLA DE LA FACTURA: es lo que evita tener que perseguir a nadie para que la diga.
+            if not doc_url:
+                flash("Este pago no tiene ninguna factura subida de la que leer la cuenta.", "warning")
+                return redirect(next_url)
+            try:
+                req = Request(doc_url, headers={"User-Agent": "Mozilla/5.0"})
+                with urlopen(req, timeout=12) as resp:
+                    datos = resp.read()
+                iban = _detect_iban_in_text(_pdf_extract_text_bytes(datos))
+            except Exception:
+                app.logger.exception("[iban] no se pudo bajar la factura para leer la cuenta")
+                iban = ""
+            if not iban:
+                flash("No hemos encontrado ninguna cuenta en la factura: escríbela a mano.", "warning")
+                return redirect(next_url)
+        if not iban:
+            flash("Escribe el número de cuenta.", "warning")
+            return redirect(next_url)
+        if not _iban_is_valid(iban):
+            flash("Ese número de cuenta no es válido (no cuadra el dígito de control).", "warning")
+            return redirect(next_url)
+        # ⚠️ Ni la nuestra: pagarnos a nosotros mismos sería lo peor que podría salir de aquí.
+        if _iban_is_ours(session_db, iban):
+            flash("Esa cuenta es de una empresa del grupo, no del proveedor: repásala.", "warning")
+            return redirect(next_url)
+        bonito = _iban_pretty(iban)
+        for destino in destinos:
+            destino.bank_account = bonito
+            if hasattr(destino, "updated_at"):
+                destino.updated_at = _now_madrid()
+        bic = (request.form.get("bic") or "").strip().upper()
+        if bic:
+            for destino in destinos:
+                if hasattr(destino, "bank_bic"):
+                    destino.bank_bic = bic
+        session_db.commit()
+        flash("Cuenta guardada en la ficha de quien cobra: %s" % _iban_masked(bonito), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("payment_bank_save")
+        flash("No se pudo guardar la cuenta: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
 @app.post("/administracion/gastos/<expense_id>/pago", endpoint="administration_expense_mark_paid")
 @admin_required
 def administration_expense_mark_paid(expense_id):
@@ -106302,6 +106385,38 @@ def _bag_artist_rows(session_db, bag: WorkflowBag) -> list[Artist]:
     return [by_id[str(uid)] for uid in ids if str(uid) in by_id]
 
 
+def _bag_artist_chips(session_db, bag) -> list:
+    """DE QUIÉN ES UNA BOLSA, para enseñarlo con su foto debajo del nombre.
+
+    Punto único: lo usan las listas de Administración (pendiente de pago, liquidación y cierre), así
+    que todas dicen lo mismo. Cacheado por bolsa: estas pantallas la pintan una vez por gasto."""
+    if bag is None:
+        return []
+    clave = str(getattr(bag, "id", "") or "")
+    try:
+        cache = g._bag_artist_chips_cache
+    except Exception:
+        cache = {}
+        try:
+            g._bag_artist_chips_cache = cache
+        except Exception:
+            cache = {}
+    if clave and clave in cache:
+        return cache[clave]
+    filas = []
+    try:
+        filas = _bag_artist_rows(session_db, bag)
+    except Exception:
+        filas = []
+    if not filas and getattr(bag, "artist", None) is not None:
+        filas = [bag.artist]
+    chips = [{"id": str(a.id), "name": (a.name or "").strip(),
+              "photo": (getattr(a, "photo_url", None) or "")} for a in filas if a is not None]
+    if clave:
+        cache[clave] = chips
+    return chips
+
+
 def _bag_provider_snapshot(provider: Promoter | None, company: PromoterCompany | None = None) -> dict:
     if not provider:
         return {}
@@ -106845,6 +106960,10 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
 
     if file_storage and getattr(file_storage, "filename", ""):
         old_url = expense.attachment_url
+        # ⚠️ LA CUENTA EN LA QUE COBRA sale de la propia factura: se lee ANTES de subirla (subirla
+        # consume el stream) y se completa la ficha de quien va a cobrar, que es lo que evita que el
+        # gasto llegue a «pendiente de pago» sin IBAN. Nunca pisa uno ya escrito.
+        _iban_doc = _invoice_iban_from_upload(file_storage)
         url, original_name, mime = _bag_document_upload(file_storage)
         if old_url and append_history:
             history = list(expense.replace_history or [])
@@ -106858,6 +106977,11 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
         expense.attachment_url = url
         expense.attachment_name = original_name
         expense.attachment_mime = mime
+        if _iban_doc:
+            # Se paga a la SOCIEDAD si el gasto factura con ella (`_expense_beneficiary`), así que se
+            # completan las dos fichas.
+            _iban_fill(session_db, (company or getattr(expense, "provider_company", None)), _iban_doc)
+            _iban_fill(session_db, (provider or getattr(expense, "provider", None)), _iban_doc)
     if expense.attachment_url:
         expense.consolidation_status = "CONSOLIDADO"
     elif expense.consolidation_status in BAG_CONSOLIDATED_STATUSES and not expense.attachment_url:
@@ -109681,7 +109805,7 @@ def supplier_invoices_read_meta():
         # guardaba NADA (el commit iba al final), así que el botón parecía colgarse sin resultado.
         # Ahora se trabaja con un TOPE DE TIEMPO, se va guardando por el camino y, si quedan, se dice
         # cuántas para volver a pulsar y seguir.
-        leidas, sin_datos = 0, 0
+        leidas, sin_datos, bancos = 0, 0, 0
         _t0, _presupuesto, _pendientes = time.monotonic(), 40.0, 0
         for _i, inv_id in enumerate(ids[:200]):
             if time.monotonic() - _t0 > _presupuesto:
@@ -109716,6 +109840,11 @@ def supplier_invoices_read_meta():
                 if _money_or_zero(getattr(inv, campo, None)) <= 0 and meta.get(campo) is not None:
                     setattr(inv, campo, meta[campo])
                     algo = True
+            # LA CUENTA en la que cobra: se apunta en la factura y se completa la ficha del proveedor
+            # si no la tiene (así deja de estar en pendiente de pago sin poder pagarse).
+            if _invoice_iban_apply(session_db, inv, meta.get("bank_account") or ""):
+                bancos += 1
+                algo = True
             if algo:
                 leidas += 1
             else:
@@ -109723,6 +109852,9 @@ def supplier_invoices_read_meta():
         session_db.commit()
         if leidas:
             flash("Leído de %d factura%s." % (leidas, "" if leidas == 1 else "s"), "success")
+        if bancos:
+            flash("Y se ha completado el número de cuenta de %d proveedor%s con el que dice su factura."
+                  % (bancos, "" if bancos == 1 else "es"), "success")
         if sin_datos:
             flash("De %d no se pudo leer nada: habrá que completarlas a mano." % sin_datos, "warning")
         if not leidas and not sin_datos and not _pendientes:
@@ -109915,6 +110047,7 @@ def supplier_invoice_replace(invoice_id):
                       "vat_pct", "retention_pct"):
             if meta.get(campo) is not None:
                 setattr(inv, campo, meta[campo])
+        _invoice_iban_apply(session_db, inv, meta.get("bank_account") or "")
         # Una factura reemplazada vuelve a estar PENDIENTE: hay que validar la nueva.
         inv.status = "PENDIENTE"
         inv.reject_reason = None
@@ -124756,7 +124889,9 @@ def _billing_profile_payload(session_db, promoter) -> dict:
         missing.append("email")
     if not (promoter.contact_phone or "").strip():
         missing.append("phone")
-    if not (promoter.bank_account or "").strip():
+    # ⚠️ Un IBAN mal escrito es como no tenerlo: la remesa lo rechaza y el pago se queda parado, así
+    # que se vuelve a pedir (se valida mod-97).
+    if not _iban_is_valid(promoter.bank_account or ""):
         missing.append("bank_account")
     return {
         "id": str(promoter.id),
@@ -124789,7 +124924,10 @@ def _billing_profile_payload(session_db, promoter) -> dict:
             "fiscal_province": piezas["province"],
             "email": _mask_value(promoter.contact_email or ""),
             "phone": _mask_value(promoter.contact_phone or "", 3),
-            "bank_account": _mask_value(promoter.bank_account or ""),
+            # Solo se enseña (y se bloquea) la cuenta si de verdad vale: si no, hay que poder
+            # escribirla otra vez.
+            "bank_account": (_mask_value(promoter.bank_account or "")
+                             if _iban_is_valid(promoter.bank_account or "") else ""),
         }.items() if v},
         "missing": missing,
         "complete": not missing,
@@ -125032,7 +125170,10 @@ def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
     `_detect_invoice_amounts` (que también reconoce una retención que no se dijo con palabras)."""
     out = {"invoice_number": "", "issue_date": "", "concept": "", "detected": False,
            "amount_net": None, "amount_vat": None, "retention_amount": None, "amount_gross": None,
-           "vat_pct": None, "retention_pct": None, "amounts_warn": "", "retention_guessed": False}
+           "vat_pct": None, "retention_pct": None, "amounts_warn": "", "retention_guessed": False,
+           # ⚠️ EL IBAN: una factura dice dónde hay que pagarla, así que de aquí sale la cuenta del
+           # proveedor cuando su ficha no la tiene (validado mod-97 en `_detect_iban_in_text`).
+           "bank_account": ""}
     if not is_pdf:
         return out
     text = _pdf_extract_text_bytes(data)
@@ -125099,6 +125240,9 @@ def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
                   "vat_pct", "retention_pct"):
         if out.get(clave) is None and _viejos.get(clave) is not None:
             out[clave] = _viejos[clave]
+    # LA CUENTA de quien emite la factura (lo que evita que el gasto llegue a pagarse sin IBAN).
+    if not out.get("bank_account"):
+        out["bank_account"] = _detect_iban_in_text(text)
     out["amounts_warn"] = _viejos.get("amounts_warn") or ""
     out["retention_guessed"] = bool(_viejos.get("retention_guessed"))
     # Con lo leído por el motor, el desglose se recompone y se comprueba que cuadre.
@@ -125220,6 +125364,12 @@ def public_invoice_detect():
     for clave in ("vat_pct", "retention_pct"):
         valor = meta.get(clave)
         meta[clave] = ("" if valor in (None, "") else ("%g" % float(valor)))
+    # La cuenta se enseña con sus grupos de cuatro y se descarta si es una NUESTRA.
+    session_db = db()
+    try:
+        meta["bank_account"] = _invoice_iban_candidate(session_db, meta.get("bank_account") or "")
+    finally:
+        session_db.close()
     return jsonify({"ok": True, **meta})
 
 
@@ -125399,9 +125549,26 @@ def public_invoice_register():
         required = ["fiscal_address", "fiscal_postal_code", "fiscal_city", "fiscal_province",
                     "email", "phone", "bank_account"]
         required += ["company_name", "contact_name"] if kind == "EMPRESA" else ["full_name"]
-        faltan = [f for f in required if not fields.get(f)]
-        if faltan and promoter is None:
+        # ⚠️⚠️ LO QUE FALTA SE MIDE CONTRA LO QUE QUEDARÍA, no contra lo que llega. Antes era
+        # `if faltan and promoter is None`, así que los datos obligatorios solo se exigían al dar de
+        # alta a alguien NUEVO: a un proveedor que ya estaba y no tenía IBAN se le dejaba pasar y su
+        # factura llegaba a «pendiente de pago» sin cuenta a la que pagarle (bug real).
+        ya_tiene = set()
+        if promoter is not None:
+            try:
+                ya_tiene = set(required) - set(_billing_profile_payload(session_db, promoter).get("missing") or [])
+            except Exception:
+                app.logger.exception("public_invoice_register · no se pudo leer lo que ya tenemos")
+        faltan = [f for f in required if not fields.get(f) and f not in ya_tiene]
+        if faltan:
             return jsonify({"ok": False, "error": "Faltan datos obligatorios", "missing": faltan}), 400
+        # Y la cuenta que llega tiene que ser un IBAN de verdad: guardar uno mal escrito es dejar el
+        # pago parado más adelante, cuando ya no está delante quien lo sabe.
+        if fields.get("bank_account") and not _iban_is_valid(fields["bank_account"]):
+            return jsonify({"ok": False, "error": "Ese número de cuenta no es válido: repásalo.",
+                            "missing": ["bank_account"]}), 400
+        if fields.get("bank_account"):
+            fields["bank_account"] = _iban_pretty(fields["bank_account"])
         if promoter is None:
             nick = fields["company_name"] if kind == "EMPRESA" else fields["full_name"]
             promoter = Promoter(nick=nick[:120], kind=("empresa" if kind == "EMPRESA" else None), tax_id=raw_tax)
@@ -125796,6 +125963,30 @@ def public_invoice_upload():
             return jsonify({"ok": False, "error": "Antes sube: " + _falta_docs}), 400
         filename = (f.filename or "factura").strip()
         is_pdf = filename.lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
+        # ⚠️⚠️ LA CUENTA EN LA QUE COBRA, ANTES DE ACEPTAR NADA. Una factura dice dónde hay que
+        # pagarla, así que se lee de ella (mod-97, y descartando las NUESTRAS) y se completa la ficha
+        # del proveedor si no la tiene. Sin cuenta, el gasto llegaba a «pendiente de pago» sin poder
+        # pagarse y había que ir detrás de alguien para que la dijera.
+        iban_factura = _invoice_iban_from_upload(f)
+        _iban_fill(session_db, promoter, iban_factura)
+        iban_escrito = (request.form.get("bank_account") or "").strip()
+        if iban_escrito:
+            if not _iban_is_valid(iban_escrito):
+                return jsonify({"ok": False, "need_bank": True,
+                                "error": "Ese número de cuenta no es válido: repásalo."}), 400
+            if not _iban_is_valid(getattr(promoter, "bank_account", None) or ""):
+                promoter.bank_account = _iban_pretty(iban_escrito)
+        if not _iban_is_valid(getattr(promoter, "bank_account", None) or ""):
+            session_db.commit()
+            _invoice_attempt_log(session_db, promoter=promoter, code="BANK", form=request.form,
+                                 filename=(getattr(f, "filename", "") or ""),
+                                 origin=("ROYALTY" if (request.form.get("liq_token") or "").strip()
+                                         else ("REQUEST" if (request.form.get("token") or "").strip() else "LANDING")),
+                                 reason="No consta el número de cuenta en el que cobra")
+            return jsonify({"ok": False, "need_bank": True, "error": (
+                "Nos falta el número de cuenta en la que cobras y la factura no lo dice. "
+                "Escríbelo aquí y vuelve a enviarla.")}), 400
+        session_db.commit()            # la cuenta queda guardada aunque luego falle otra cosa
         url = upload_pdf(f, "invoices") if is_pdf else upload_file(f, "invoices")
         if not url:
             return jsonify({"ok": False, "error": "No se pudo guardar la factura"}), 400
@@ -125892,6 +126083,7 @@ def public_invoice_upload():
                 issue_date=parse_optional_date(request.form.get("issue_date")),
                 group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
                 file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
+                bank_account=(iban_factura or None),
                 **_invoice_amount_fields_from_form(request.form),
             )
             session_db.add(invoice)
@@ -125981,6 +126173,7 @@ def public_invoice_upload():
                 issue_date=parse_optional_date(request.form.get("issue_date")),
                 group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
                 file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
+                bank_account=(iban_factura or None),
                 **_invoice_amount_fields_from_form(request.form),
             )
             session_db.add(invoice)
@@ -126030,6 +126223,7 @@ def public_invoice_upload():
             target_user_id=target_user_id,
             group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
             file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
+            bank_account=(iban_factura or None),
             **_invoice_amount_fields_from_form(request.form),
         )
         session_db.add(inv)
@@ -126102,6 +126296,97 @@ def _detect_iban_in_text(text: str) -> str:
             if _iban_is_valid(cand[:fin]):
                 return cand[:fin]
     return ""
+
+
+# ⚠️⚠️ EL IBAN DE UN PROVEEDOR SALE DE SU PROPIA FACTURA. Una factura casi siempre dice dónde hay
+# que pagarla, así que no puede llegar a «pendiente de pago» un gasto sin cuenta teniéndola delante:
+# se lee al subirla (validada mod-97), se apunta en la factura y se COMPLETA la ficha de quien la
+# emite. Punto único para TODOS los caminos por los que entra una factura.
+def _iban_is_ours(session_db, iban: str) -> bool:
+    """¿Es una cuenta NUESTRA (de una empresa del grupo)?
+
+    ⚠️ Muchas facturas llevan también la cuenta en la que se domicilia el cobro o la de quien la
+    recibe: darla por buena sería pagarnos a nosotros mismos."""
+    limpio = _iban_clean(iban)
+    if not limpio:
+        return False
+    try:
+        for acc in _company_bank_accounts(session_db):
+            if _iban_clean(getattr(acc, "iban", "") or "") == limpio:
+                return True
+    except Exception:
+        app.logger.exception("[iban] no se pudieron leer las cuentas de las empresas del grupo")
+    return False
+
+
+def _invoice_iban_candidate(session_db, iban: str) -> str:
+    """El IBAN leído de una factura, si de verdad sirve para pagarle a quien la emite."""
+    limpio = _iban_clean(iban)
+    if not limpio or not _iban_is_valid(limpio):
+        return ""
+    return "" if _iban_is_ours(session_db, limpio) else _iban_pretty(limpio)
+
+
+def _iban_fill(session_db, obj, iban: str) -> bool:
+    """Pone la cuenta en la ficha de quien factura (tercero o su sociedad) SOLO si no tiene ninguna.
+
+    ⚠️ NUNCA pisa un IBAN ya escrito: ese lo ha puesto alguien a propósito. Esto es para COMPLETAR."""
+    if obj is None:
+        return False
+    if _iban_is_valid(getattr(obj, "bank_account", None) or ""):
+        return False
+    bueno = _invoice_iban_candidate(session_db, iban)
+    if not bueno:
+        return False
+    obj.bank_account = bueno
+    return True
+
+
+def _invoice_iban_apply(session_db, inv, iban: str = "") -> bool:
+    """Apunta en la factura el IBAN que dice y lo pasa a la ficha de quien la emite si le falta.
+
+    Devuelve True si ha completado alguna ficha (para poder decirlo)."""
+    if inv is None:
+        return False
+    bueno = _invoice_iban_candidate(session_db, iban or (getattr(inv, "bank_account", None) or ""))
+    if not bueno:
+        return False
+    if not (getattr(inv, "bank_account", None) or "").strip():
+        inv.bank_account = bueno
+    promoter = getattr(inv, "promoter", None)
+    if promoter is None and getattr(inv, "promoter_id", None):
+        promoter = session_db.get(Promoter, inv.promoter_id)
+    puesto = _iban_fill(session_db, promoter, bueno)
+    # Si el gasto se factura con una SOCIEDAD del proveedor, el pago sale de la cuenta de ELLA
+    # (`_expense_beneficiary`), así que se completa también.
+    try:
+        gasto = (session_db.get(BagExpense, inv.bag_expense_id)
+                 if getattr(inv, "bag_expense_id", None) else None)
+        if gasto is not None and getattr(gasto, "provider_company", None) is not None:
+            puesto = _iban_fill(session_db, gasto.provider_company, bueno) or puesto
+    except Exception:
+        app.logger.exception("[iban] no se pudo completar la cuenta de la sociedad del gasto")
+    return puesto
+
+
+def _invoice_iban_from_upload(storage) -> str:
+    """El IBAN de un documento recién subido, SIN consumir su stream (después hay que subirlo)."""
+    try:
+        nombre = (getattr(storage, "filename", "") or "").lower()
+        tipo = (getattr(storage, "mimetype", "") or "").lower()
+        if not (nombre.endswith(".pdf") or "pdf" in tipo):
+            return ""
+        storage.stream.seek(0)
+        datos = storage.stream.read()
+        storage.stream.seek(0)
+        return _detect_iban_in_text(_pdf_extract_text_bytes(datos))
+    except Exception:
+        app.logger.exception("[iban] no se pudo leer el IBAN del documento")
+        try:
+            storage.stream.seek(0)
+        except Exception:
+            pass
+        return ""
 
 
 def _intake_file_text(storage) -> str:

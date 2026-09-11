@@ -12396,3 +12396,50 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ En `concert_detail_view` la sesión se llama **`session`** y la actividad **`c`**: un
   `session_db`/`concert` copiado de otra función es un **NameError → 500 → pantalla de
   mantenimiento**, y **pyflakes no lo detecta** porque esos nombres existen en otros ámbitos.
+
+- ⚠️⚠️⚠️ **UNA FACTURA DICE DÓNDE HAY QUE PAGARLA: EL IBAN SE RESUELVE AL SUBIRLA** (sep 2026, bug
+  real: «llegan facturas a pendiente de pago sin el IBAN del proveedor, y en la factura viene»).
+  Eran **tres agujeros distintos**, cada uno por su lado:
+  ⚠️⚠️ **1 · EL REGISTRO SOLO EXIGÍA LOS DATOS A QUIEN NO ESTABA DADO DE ALTA.** En
+  `public_invoice_register` la comprobación era **`if faltan and promoter is None`**, así que los
+  obligatorios (dirección fiscal, correo, teléfono y **la cuenta**) solo se pedían al crear un
+  proveedor NUEVO: a uno que ya estaba y no tenía IBAN se le dejaba pasar y su factura llegaba a
+  «pendiente de pago» sin cuenta a la que pagarle. Ahora **lo que falta se mide contra lo que
+  QUEDARÍA** (lo que llega + lo que ya tiene, vía el `missing` de `_billing_profile_payload`, que es
+  el punto único).
+  ⚠️ Y **un IBAN que no vale es como no tenerlo** (`_iban_is_valid`, mod-97): se vuelve a pedir, y
+  **no se enseña bloqueado** —el formulario bloquea lo que «ya tenemos», así que enseñando uno malo
+  no habría forma de corregirlo—.
+  ⚠️⚠️ **2 · EL IBAN DE LA FACTURA NO SE LEÍA NUNCA.** `_detect_iban_in_text` existía desde el alta
+  de terceros (el certificado de titularidad) pero `_detect_invoice_meta` no lo sacaba. Ahora sí, y
+  de ahí sale la cuenta: **`_invoice_iban_candidate`** (válido y **que NO sea una cuenta NUESTRA**:
+  muchas facturas llevan también dónde domiciliar el cobro, y darla por buena sería pagarnos a
+  nosotros mismos) · **`_iban_fill(session_db, obj, iban)`** (la pone en la ficha de quien factura
+  —tercero **o su SOCIEDAD**, que es de donde sale el pago si el gasto factura con ella— **solo si no
+  tiene ninguna**: nunca pisa una escrita) · **`_invoice_iban_apply`** · y
+  **`_invoice_iban_from_upload`**, que lee el documento **SIN consumir su stream** (después hay que
+  subirlo).
+  · **`SupplierInvoice.bank_account`** (columna nueva) guarda lo que decía la factura: así se puede
+  aplicar más tarde y se arregla lo ya subido con **«Leer los datos que faltan»** de la base de
+  facturas, que ahora también completa cuentas y dice cuántas.
+  ⚠️⚠️ **3 · LOS OTROS CAMINOS NO COMPROBABAN NADA.** Una factura entra por la landing pública, por
+  la petición de una bolsa, por la liquidación de royalties, **desde dentro** (`interno=1`), al
+  **reemplazar** el documento y —sobre todo— en el **formulario de un gasto de bolsa**, que es por
+  donde entra casi todo lo que se paga. Ahora la cuenta se lee y se completa **en todos**.
+  · **SIN CUENTA NO SE ACEPTA LA FACTURA** (`public_invoice_upload`): si no la tiene el proveedor y
+  la factura no la dice, se responde **`need_bank`** y la pantalla la pide ahí mismo (campo nuevo en
+  el repaso de la factura, con lo leído ya puesto). El rechazo **queda apuntado**
+  (`_invoice_attempt_log`, code `BANK`): un rechazo no puede ser invisible.
+  · **Y LO QUE YA ESTÁ SE ARREGLA DONDE SE VE**: en «pendiente de pago», la línea que avisa de que
+  falta el IBAN lleva **«Poner la cuenta»** → pop-up único (`payment_bank_save`) que la guarda **en la
+  ficha de quien cobra** (así la próxima vez ya no falta) o la **LEE de la propia factura**. Vale para
+  un gasto de bolsa y para una liquidación de royalties.
+  ⚠️ Tampoco ahí se deja poner una cuenta NUESTRA, y el IBAN se valida siempre (mod-97).
+  ⚠️ El pop-up es UNO por página y su URL se fija **EN EL CLIC** (con `modal_stack` por medio,
+  `shown.bs.modal` no siempre llega), y su JS va por **delegación**: estas listas se repintan.
+
+- **ADMINISTRACIÓN · DE QUIÉN ES CADA BOLSA, debajo de su nombre** (sep 2026): en pendiente de pago,
+  en liquidación y en cierre, bajo el título de la bolsa va **el artista con su foto** en pequeño
+  (`artist_chip`), que es lo que identifica una liquidación de un vistazo. Punto único
+  **`_bag_artist_chips(session_db, bag)`** (reutiliza `_bag_artist_rows` y cae a `bag.artist`),
+  **cacheado por bolsa**: estas pantallas la pintan una vez por gasto.

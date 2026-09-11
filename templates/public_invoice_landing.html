@@ -434,6 +434,13 @@
                     <i class="fa fa-plus me-1"></i>Esta factura lleva retención</button>
                 </div>
                 <div class="col-12 col-md-6" data-meta-field="gross"><label class="form-label">Total de la factura</label><input class="form-control" id="invGross" inputmode="decimal" placeholder="0,00"></div>
+                {# ⚠️ LA CUENTA EN LA QUE COBRAS: solo se pregunta si NO la tenemos. Casi siempre la
+                   dice la propia factura y se coge de ahí; sin ella el pago se queda parado. #}
+                <div class="col-12 d-none" data-meta-field="bank" id="invBankBox">
+                  <label class="form-label">Número de cuenta en el que cobras (IBAN)</label>
+                  <input class="form-control" id="invBank" placeholder="ES00 0000 0000 0000 0000 0000">
+                  <div class="form-text">Es la cuenta en la que te pagaremos esta factura.</div>
+                </div>
                 <input type="hidden" id="invVatPct"><input type="hidden" id="invRetentionPct">
               </div>
               {# Lo leído, en claro, para que se confirme de un vistazo. #}
@@ -1005,6 +1012,23 @@
     });
   };
 
+  /* LA CUENTA DEL PROVEEDOR. Solo se pide si su ficha no la tiene (lo dice el perfil) o si el
+     servidor la reclama (`need_bank`): lo normal es que salga de la propia factura. */
+  window.invBankNeeded = function () {
+    return !!(profile && (profile.missing || []).indexOf('bank_account') >= 0);
+  };
+  window.invShowBank = function (valor, marcar) {
+    const caja = document.getElementById('invBankBox');
+    const inp = document.getElementById('invBank');
+    if (!caja || !inp) return;
+    caja.classList.remove('d-none');
+    if (valor && !(inp.value || '').trim()) inp.value = valor;
+    const vacio = !(inp.value || '').trim();
+    caja.classList.toggle('inv-need', vacio || !!marcar);
+    inp.classList.toggle('is-need', vacio || !!marcar);
+    if (marcar) { try { inp.focus(); } catch (e) {} }
+  };
+
   window.invMissingLabels = function () {
     const faltan = [];
     META_CAMPOS.forEach(function (c) {
@@ -1072,6 +1096,8 @@
           poner('invGross', d.amount_gross);
           poner('invVatPct', d.vat_pct);
           poner('invRetentionPct', d.retention_pct);
+          // LA CUENTA: si no la tenemos, se pregunta aquí con la que dice la factura ya puesta.
+          if (window.invBankNeeded()) window.invShowBank(d.bank_account || '');
           // Lo leído, en claro, para confirmarlo de un vistazo.
           const leidos = [];
           if (d.amount_net) leidos.push('base ' + d.amount_net + ' €');
@@ -1137,6 +1163,7 @@
     {% if inv_mode == 'REQUEST' and company %}fd.append('group_company_id', {{ (company.id|string)|tojson }});{% endif %}
     if (TOKEN) fd.append('token', TOKEN);
     if (LIQ) fd.append('liq_token', LIQ);
+    fd.append('bank_account', (document.getElementById('invBank')||{}).value || '');
     if (window.invReplace) fd.append('replace', '1');
     // DESDE DENTRO se puede enviar una factura cuyo importe no cuadre (administración sabe lo que
     // hace): la primera vez se avisa y, si se vuelve a pulsar, se manda con `force`.
@@ -1208,7 +1235,8 @@
           }
           if (pista) { pista.className = 'small text-danger'; pista.textContent = aviso; }
           // Si le faltan datos o hay que reemplazar la anterior, se vuelve al paso de la factura.
-          if (resp && (resp.needs_data || resp.can_replace)) unlock(UPLOAD_STEP);
+          if (resp && (resp.needs_data || resp.can_replace || resp.need_bank)) unlock(UPLOAD_STEP);
+          if (resp && resp.need_bank) window.invShowBank('', true);
           if (resp && resp.docs) renderDocs(resp.docs);
           return;
         }

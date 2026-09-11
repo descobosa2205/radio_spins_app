@@ -70,6 +70,16 @@
 </div>
 
 {# ---------- ACCESOS RÁPIDOS: justo debajo de la cabecera, con iconos ---------- #}
+{# ⚠️ `?open=ficha` abre el formulario de enviar la ficha al promotor: es a donde lleva el alta
+   cuando el correo NO ha salido, para corregir la dirección sin tener que buscar el botón. #}
+{% if request.args.get('open') == 'ficha' %}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.app33AutoOpenModal) window.app33AutoOpenModal('requestContractSheetModal');
+    });
+  </script>
+{% endif %}
+
 <div class="ficha-quick mb-0">
   {% if CAN_EDIT_CONCERTS and tab == 'general' %}
     {# Pone TODA la ficha en modo edición inline (todas las secciones con todos los campos,
@@ -79,8 +89,28 @@
        con el mecanismo estándar de ficha_inline.js (oculta la vista, muestra el formulario). #}
     <button class="d-none" type="button" data-edit-toggle="#concert-datos-edit" aria-hidden="true" tabindex="-1"></button>
   {% endif %}
-  {% if CAN_EDIT_CONCERTS %}
-    <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"><i class="fa fa-file-signature me-1"></i>Solicitar ficha al promotor</button>
+  {# FICHA DE CONTRATACIÓN. Sin enviar → el botón; ENVIADA → la etiqueta «Pendiente de recibir
+     ficha» y «Reenviar»; RECIBIDA → sale de los destacados (ya no hay nada que pedir) y se queda
+     en la rueda por si hiciera falta mandarla otra vez. #}
+  {% if CAN_EDIT_CONCERTS and not (sheet_state and sheet_state.received) %}
+    {% if sheet_state and sheet_state.pending %}
+      <span class="badge text-bg-warning text-dark align-self-center" data-bs-toggle="tooltip"
+            title="Enviada el {{ sheet_state.sent_at_label }}{% if sheet_state.sent_to_label %} a {{ sheet_state.sent_to_label }}{% endif %} · esperando a que la devuelva">
+        <i class="fa fa-hourglass-half me-1"></i>Pendiente de recibir ficha
+      </span>
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">
+        <i class="fa fa-rotate me-1"></i>Reenviar ficha
+      </button>
+    {% else %}
+      <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">
+        <i class="fa fa-file-signature me-1"></i>{{ 'Reenviar ficha al promotor' if sheet_state and sheet_state.rejected else 'Solicitar ficha al promotor' }}
+      </button>
+    {% endif %}
+  {% elif CAN_EDIT_CONCERTS and sheet_state and sheet_state.received %}
+    <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
+          title="El promotor la devolvió{% if sheet_state.reviewed %} y ya está revisada{% else %} · queda revisarla{% endif %}">
+      <i class="fa fa-circle-check me-1"></i>Ficha recibida
+    </span>
   {% endif %}
   <a class="btn btn-outline-dark btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>PDF ficha</a>
   {# PRODUCCIÓN: mientras no esté activada, este botón es el que la activa (decir quién se encarga).
@@ -95,18 +125,42 @@
      valer y vuelve a hacer falta. #}
   {% if concert.artist_id and CAN_EDIT_CONCERTS %}
     {% if artist_notice and artist_notice.notified %}
+      {# ⚠️ YA ESTÁ INFORMADO: solo la etiqueta. El botón de volver a avisar SALE de los destacados
+         (no hay nada que hacer) y se queda en la rueda, por si hiciera falta mandarlo otra vez. Si
+         cambia algo gordo —fecha, hora, recinto o caché— el aviso deja de valer y vuelve solo. #}
       <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
             title="{% if artist_notice.manual %}Ya estaba informado (marcado a mano) el {{ artist_notice.at_label }}{% if artist_notice.by %} por {{ artist_notice.by }}{% endif %}{% else %}Avisado el {{ artist_notice.at_label }}{% if artist_notice.to_label %} a {{ artist_notice.to_label }}{% endif %}{% if artist_notice.by %} · lo mandó {{ artist_notice.by }}{% endif %}{% endif %}">
         <i class="fa fa-circle-check me-1"></i>Notificado{% if artist_notice.manual %} <span class="small">(a mano)</span>{% endif %}
       </span>
-      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}"
-         title="Volver a avisar al artista"><i class="fa fa-rotate"></i></a>
     {% else %}
       <a class="btn btn-outline-warning btn-sm" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}">
         <i class="fa fa-bell me-1"></i>Notificar al artista
         {% if artist_notice and artist_notice.stale %}<span class="badge text-bg-danger ms-1">hay cambios</span>{% endif %}
       </a>
     {% endif %}
+  {% endif %}
+  {# ⚠️⚠️ EL ARTISTA YA HA DICHO QUE SÍ: eso ES la comunicación (se le mandó, la vio y contestó),
+     así que la actividad se deja CONFIRMADA de un clic, sin volver a mandarle nada. Vale en
+     CUALQUIER actividad, venga o no de una petición. #}
+  {% if artist_confirmation and artist_confirmation.answered and artist_confirmation.ok
+        and concert.status != 'CONFIRMADO' and CAN_EDIT_CONCERTS %}
+    <form method="post" action="{{ url_for('concert_confirm_after_artist', cid=concert.id) }}" class="d-inline">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <button class="btn btn-success btn-sm" type="submit"
+              data-confirm="El artista ya ha confirmado. ¿Dejamos la actividad como CONFIRMADA?">
+        <i class="fa fa-circle-check me-1"></i>Confirmar la actividad
+      </button>
+    </form>
+  {% elif artist_confirmation and artist_confirmation.answered and artist_confirmation.ok %}
+    <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
+          title="El artista la confirmó el {{ artist_confirmation.at_label }}">
+      <i class="fa fa-user-check me-1"></i>Confirmada por el artista
+    </span>
+  {% elif artist_confirmation and artist_confirmation.answered %}
+    <span class="badge text-bg-danger align-self-center" data-bs-toggle="tooltip"
+          title="{{ artist_confirmation.note or 'El artista la ha rechazado' }}">
+      <i class="fa fa-circle-xmark me-1"></i>El artista la ha rechazado
+    </span>
   {% endif %}
   {# FASES de una actividad que viene de una PETICIÓN APROBADA, en su orden: primero el ARTISTA
      confirma la fecha (es una conversación: se marca) y solo después se le confirma al PROMOTOR.
@@ -248,8 +302,17 @@
             {% endif %}
             <li>
               <a class="dropdown-item" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}">
-                <i class="fa fa-bell me-2 text-muted"></i>Avisar al artista
+                <i class="fa fa-bell me-2 text-muted"></i>
+                {{ 'Volver a avisar al artista' if artist_notice and artist_notice.notified else 'Avisar al artista' }}
               </a>
+            </li>
+            {# LA FICHA DE CONTRATACIÓN también vive aquí: en los destacados solo está mientras hay
+               algo que hacer (pedirla o reenviarla); una vez recibida, se manda desde aquí. #}
+            <li>
+              <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">
+                <i class="fa fa-file-signature me-2 text-muted"></i>
+                {{ 'Volver a enviar la ficha al promotor' if sheet_state and sheet_state.sent else 'Enviar la ficha al promotor' }}
+              </button>
             </li>
             <li><hr class="dropdown-divider"></li>
             <li>

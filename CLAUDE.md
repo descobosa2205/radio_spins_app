@@ -12357,3 +12357,42 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   línea, que conviene pasar al tocar un catálogo de iconos:
   `python3 -c "import re;css=open('static/vendor/fontawesome/css/all.min.css').read();s=open('app.py').read();print([i for i in set(re.findall(r'\"(fa-[a-z0-9-]+)\"',s)) if ('.%s:'%i) not in css])"`
   — hoy sale **vacía** (de paso apareció `fa-circle-euro`, que tampoco existe: era `fa-euro-sign`).
+
+- ⚠️⚠️ **LA FICHA DE CONTRATACIÓN, EL AVISO AL ARTISTA Y LOS BOTONES DESTACADOS** (sep 2026, tres
+  cosas que se pidieron juntas porque son el mismo proceso: lo que está pendiente se ve, y lo que ya
+  está hecho deja de ocupar sitio en la barra).
+  · **EL ESTADO DE LA FICHA ES UN PUNTO ÚNICO**: **`_contract_sheet_state(session_db, concert,
+  sheet=None)`** → `exists` · `sent` · `sent_at`/`sent_at_label` · `sent_to`/`sent_to_label` ·
+  `pending` · `received` · `reviewed` · `rejected` · `status`. De él viven la barra de botones, la
+  rueda y los avisos, así que no pueden decir cosas distintas.
+  ⚠️⚠️ **«ENVIADA» ES QUE EL CORREO SALIÓ**: `sent_at` se sella **solo si `ok`**
+  (`_send_optional_email` devuelve `(ok, error)`). Antes se marcaba siempre, así que una ficha que
+  nadie había recibido figuraba como enviada y se esperaba una respuesta que no podía llegar.
+  · **LO QUE SE VE EN LA BARRA**: sin enviar → **«Solicitar ficha al promotor»**; enviada → la
+  etiqueta **«Pendiente de recibir ficha»** (con a quién y cuándo al pasar el ratón) y el botón pasa
+  a **«Reenviar ficha»**; **recibida** → etiqueta «Ficha recibida» y **el botón SALE de los
+  destacados** y se queda en los **tres puntitos** («Volver a enviar la ficha al promotor»), por si
+  hay que pedirla otra vez.
+  · **IGUAL CON EL AVISO AL ARTISTA**: una vez notificado (o confirmado por él), **«Notificar al
+  artista» sale de los destacados en TODAS las actividades** y queda en la rueda («Volver a avisar al
+  artista»); en la barra solo se queda la etiqueta. Vuelve a salir **si hay cambios gordos**
+  (`_concert_notice_signature`: fecha, hora, recinto o cachés) o si se cancela — que es justo cuando
+  hay que volver a decírselo.
+  · **EL ALTA CON «SOLICITAR LA FICHA» LA ENVÍA SOLA**: al terminar el asistente en modo
+  `request_sheet` se crea la actividad en BORRADOR **y sale el correo** con el mismo contenido que el
+  botón de la ficha (`_contract_sheet_subject` + `_contract_sheet_request_email_html`: un solo
+  motor).
+  ⚠️⚠️ **SI EL CORREO NO SALE, LA ACTIVIDAD NO SE PIERDE**: se crea igual, la ficha **NO** figura
+  como enviada y se redirige a **`?tab=general&open=ficha`** con el flash rojo, o sea a su ficha con
+  **el formulario de enviarla ABIERTO**, para corregir el correo y mandarla — o dejarla sin enviar.
+  Perder el alta entera por un correo que rebota sería lo peor que podría pasar ahí.
+  · **CUANDO EL ARTISTA CONFIRMA, ESO YA ES LA COMUNICACIÓN**: `_concert_notice_gate` abre la
+  compuerta si `_artist_confirmation_state` dice que contestó que sí, y en la ficha sale
+  **«Confirmar la actividad»** (verde, `concert_confirm_after_artist`), que la deja CONFIRMADA de un
+  clic y apunta el aviso a mano con la nota «El artista confirmó la actividad desde el aviso que se
+  le mandó.». Un **rechazo** se ve como tal y **no abre** la compuerta.
+  ⚠️ Ese bloque va **FUERA de `{% if peticion_phases %}`**: metido dentro solo salía en las
+  actividades que venían de una petición (bug real de esta épica).
+  ⚠️ En `concert_detail_view` la sesión se llama **`session`** y la actividad **`c`**: un
+  `session_db`/`concert` copiado de otra función es un **NameError → 500 → pantalla de
+  mantenimiento**, y **pyflakes no lo detecta** porque esos nombres existen en otros ámbitos.

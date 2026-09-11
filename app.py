@@ -65150,6 +65150,11 @@ def concert_detail_view(cid):
             promoter_sheet_pending=bool(sheet is not None
                                         and (getattr(sheet, 'promoter_data', None) or {})
                                         and not getattr(sheet, 'promoter_reviewed_at', None)),
+            # CÓMO VA la ficha del promotor (enviada / pendiente de recibir / recibida): de aquí
+            # salen la etiqueta y si el botón va en los destacados o en la rueda.
+            sheet_state=_contract_sheet_state(session, c, sheet),
+            # ¿El ARTISTA ha confirmado ya? Con su «sí» se puede dejar CONFIRMADA de un clic.
+            artist_confirmation=_artist_confirmation_state(session, c),
             invitation_rows=invitation_rows,
             invitation_totals=invitation_totals,
             invitation_counts=invitation_counts,
@@ -73102,6 +73107,60 @@ CONTRACT_SHEET_PROMOTER_FIELDS = (
 )
 
 
+def _contract_sheet_state(session_db, concert, sheet=None) -> dict:
+    """CÓMO VA la ficha de contratación del promotor. Punto ÚNICO.
+
+    Lo usan la barra de botones de la ficha, su menú de configuración y la pestaña «Inicio», así que
+    los tres dicen lo mismo:
+      · `sent`      – se le ENVIÓ de verdad (el correo salió), con cuándo y a quién
+      · `pending`   – enviada y todavía sin recibir  → etiqueta «Pendiente de recibir ficha»
+      · `received`  – el promotor la ha mandado (hay `promoter_data`)
+      · `reviewed`  – ya se ha revisado lo que mandó
+      · `rejected`  – se le devolvió para que la subsane
+    ⚠️ «Enviada» NO es «se preparó el enlace»: si el correo no sale, la ficha existe pero nadie la
+    ha recibido, y decir «enviada» sería mentir. Por eso `sent_at` se apunta solo cuando salió.
+    """
+    vacio = {"exists": False, "sent": False, "sent_at": None, "sent_at_label": "", "sent_to": [],
+             "sent_to_label": "", "pending": False, "received": False, "reviewed": False,
+             "rejected": False, "status": ""}
+    if concert is None:
+        return vacio
+    if sheet is None:
+        try:
+            sheet = (session_db.query(ConcertContractSheet)
+                     .filter(ConcertContractSheet.concert_id == concert.id).first())
+        except Exception:
+            app.logger.exception("[ficha contratación] no se pudo leer el estado")
+            return vacio
+    if sheet is None:
+        return vacio
+    req = dict(getattr(sheet, "request_payload", None) or {})
+    destinos = [str(x).strip() for x in (req.get("sent_to") or []) if str(x).strip()]
+    enviado_raw = (req.get("sent_at") or "").strip()
+    enviado = None
+    if enviado_raw:
+        try:
+            enviado = datetime.fromisoformat(enviado_raw)
+        except Exception:
+            enviado = None
+    recibida = bool(getattr(sheet, "promoter_data", None) or {})
+    estado = (getattr(sheet, "status", "") or "").upper()
+    return {
+        "exists": True,
+        "sent": bool(enviado),
+        "sent_at": enviado,
+        "sent_at_label": (enviado.strftime("%d/%m/%Y %H:%M") if enviado else ""),
+        "sent_to": destinos,
+        "sent_to_label": " · ".join(destinos),
+        # Pendiente de recibir: se le mandó y todavía no ha contestado.
+        "pending": bool(enviado) and not recibida,
+        "received": recibida,
+        "reviewed": bool(getattr(sheet, "promoter_reviewed_at", None)),
+        "rejected": estado == "REJECTED",
+        "status": estado,
+    }
+
+
 def _contract_sheet_promoter_seed(concert, session_db=None) -> dict:
     """Lo que YA TENEMOS del promotor, para que su ficha salga cumplimentada: manda la SOCIEDAD con
     la que factura (`Concert.promoter_company`) y lo que no diga se completa con su ficha de tercero.
@@ -75212,21 +75271,32 @@ def concert_wizard_create():
             session.commit()
             concert = session.get(Concert, concert.id)
             sheet = session.query(ConcertContractSheet).filter(ConcertContractSheet.concert_id == concert.id).first()
-            company = session.get(GroupCompany, billing_company_id) if billing_company_id else None
             form_url = _external_url_for('concert_contract_public_form', token=sheet.public_token)
-            logo_html = ''
-            if company and company.logo_url:
-                logo_html = f'<div style="margin-bottom:20px;"><img src="{company.logo_url}" style="max-height:64px;max-width:220px;"></div>'
-            photo_html = ''
-            if artist and artist.photo_url:
-                photo_html = f'<img src="{artist.photo_url}" style="width:70px;height:70px;object-fit:cover;border-radius:50%;">'
-            html_body = f'''<div style="font-family:Arial,sans-serif;color:#1f2937;">{logo_html}<h2 style="margin:0 0 16px;">Solicitud ficha de contratación</h2><div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;"><div style="display:flex;gap:16px;align-items:center;"><div>{photo_html}</div><div><div style="font-size:18px;font-weight:700;">{artist.name if artist else ''}</div><div>Fecha: {event_date.strftime('%d/%m/%Y')}</div><div>{_concert_venue_name(concert) or 'Recinto pendiente'}</div><div>{_concert_city(concert)} {('· ' + _concert_province_value(concert)) if _concert_province_value(concert) else ''}</div></div></div></div><p>Puedes cumplimentar la ficha de contratación desde este enlace:</p><p><a href="{form_url}" style="display:inline-block;background:#0d6efd;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Cumplimentar ficha de contratación</a></p><p style="color:#6b7280;font-size:13px;">Si el enlace deja de estar disponible es porque la ficha ya fue enviada o cerrada.</p></div>'''
-            ok, error = _send_optional_email(promoter_email, 'Solicitud ficha de contratación', html_body, text_body=form_url)
+            # ⚠️ EL MISMO CORREO que el de «Solicitar ficha» de la ficha (`_contract_sheet_email_card`):
+            # antes aquí se componía OTRO a mano y los dos se podían desparejar.
+            subject = _contract_sheet_subject(concert, 'Solicitud ficha de contratación')
+            html_body = _contract_sheet_request_email_html(session, concert, form_url, '')
+            ok, error = _send_optional_email(promoter_email, subject, html_body,
+                                             text_body=form_url, reply_to=_current_user_email())
+            req = dict(sheet.request_payload or {})
+            req['sent_to'] = [promoter_email]
             if ok:
-                flash('Concierto creado en borrador y ficha de contratación enviada al promotor.', 'success')
-            else:
-                flash(f'Concierto creado en borrador. No se pudo enviar el correo automáticamente: {error}', 'warning')
-            return redirect(url_for('concert_detail_view', cid=concert.id, tab='general'))
+                # «Enviada» solo si el correo SALIÓ: de ahí sale «Pendiente de recibir ficha».
+                req['sent_at'] = _now_madrid().isoformat()
+            sheet.request_payload = req
+            session.commit()
+            if ok:
+                flash('Actividad creada en borrador y ficha de contratación enviada al promotor.', 'success')
+                return redirect(url_for('concert_detail_view', cid=concert.id, tab='general'))
+            # ⚠️⚠️ NO SE DA POR TERMINADA LA CREACIÓN EN SILENCIO: la actividad queda creada (deshacerla
+            # sería peor), pero **la ficha no ha llegado a nadie**, así que se dice y se lleva al
+            # formulario de enviarla ABIERTO, con el correo puesto: ahí se corrige la dirección y se
+            # reenvía, o se cierra y la actividad se queda sin mandarla.
+            flash('Actividad creada en borrador, pero la ficha NO se pudo enviar a %s: %s. '
+                  'Corrige el correo y vuelve a enviarla, o cierra esta ventana para dejarla sin enviar.'
+                  % (promoter_email, error or 'SMTP no configurado'), 'danger')
+            return redirect(url_for('concert_detail_view', cid=concert.id, tab='general',
+                                    open='ficha'))
 
         promoter_id = to_uuid((request.form.get('promoter_id') or '').strip() or None)
         promoter_company_id = to_uuid((request.form.get('promoter_company_id') or '').strip() or None)
@@ -112910,6 +112980,16 @@ def _concert_notice_gate(session_db, concert, new_status: str) -> dict | None:
     estado = _concert_notice_state(session_db, concert)
     if estado["notified"] and estado.get("kind") != "CANCELACION":
         return None
+    # ⚠️⚠️ QUE EL ARTISTA LO HAYA CONFIRMADO **ES** la comunicación: se le mandó la actividad, la vio
+    # y dijo que sí. Pedirle además un aviso «formal» sería mandarle dos veces lo mismo. Solo vale si
+    # desde entonces no ha cambiado nada gordo (la firma), que es la misma regla del aviso.
+    if not estado["stale"]:
+        try:
+            conf = _artist_confirmation_state(session_db, concert)
+            if conf.get("answered") and conf.get("ok"):
+                return None
+        except Exception:
+            app.logger.exception("[aviso artista] no se pudo leer la confirmación en la compuerta")
     motivo = ("Han cambiado datos de la actividad desde el último aviso: hay que volver a avisar al artista."
               if estado["stale"] else "Todavía no se le ha comunicado la actividad al artista.")
     # Hay dos casos en los que NO hace falta mandar nada y se puede seguir con el estado: que la
@@ -113647,6 +113727,57 @@ def concert_artist_notice_preview(cid):
         session_db.close()
 
 
+@app.post("/conciertos/<cid>/confirmar-tras-artista", endpoint="concert_confirm_after_artist")
+@admin_required
+def concert_confirm_after_artist(cid):
+    """Deja la actividad CONFIRMADA cuando el artista ya ha dicho que sí.
+
+    ⚠️⚠️ Que el artista lo haya CONFIRMADO **es** la comunicación: se le mandó la actividad, la vio y
+    contestó. Así que en cuanto llega su «sí» se puede confirmar de un clic, sin volver a mandarle
+    nada (antes había que pasar otra vez por el aviso, que era pedirle dos veces lo mismo).
+    ⚠️ Si desde su confirmación ha cambiado algo gordo (fecha, hora, recinto o caché), NO se confirma:
+    lo que dijo que sí ya no es lo que hay, y hay que volver a avisarle.
+    """
+    session_db = db()
+    try:
+        if not can_edit_concerts():
+            return forbid("No tienes permisos para confirmar actividades.")
+        concert = session_db.get(Concert, to_uuid(cid))
+        if concert is None:
+            abort(404)
+        conf = _artist_confirmation_state(session_db, concert)
+        if not (conf.get("answered") and conf.get("ok")):
+            flash("El artista todavía no ha confirmado esta actividad.", "warning")
+            return redirect(safe_next_or(url_for("concert_detail_view", cid=cid, tab="general")))
+        estado = _concert_notice_state(session_db, concert)
+        if estado.get("stale"):
+            flash("Han cambiado datos de la actividad desde que el artista la confirmó: vuelve a "
+                  "avisarle antes de confirmarla.", "warning")
+            return redirect(url_for("concert_artist_notice_view", cid=cid))
+        if (concert.status or "").upper() != "CONFIRMADO":
+            # El aviso queda apuntado con el motivo de verdad: lo confirmó el artista.
+            if not estado.get("notified"):
+                _concert_notice_mark_manual(
+                    session_db, concert,
+                    nota="El artista confirmó la actividad desde el aviso que se le mandó.")
+            concert.status = "CONFIRMADO"
+            _ensure_production_request_for_concert(session_db, concert)
+            session_db.commit()
+            flash("Actividad CONFIRMADA: el artista ya la había confirmado.", "success")
+        else:
+            flash("La actividad ya estaba confirmada.", "info")
+        return redirect(safe_next_or(url_for("concert_detail_view", cid=cid, tab="general")))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("concert_confirm_after_artist")
+        flash("No se pudo confirmar: %s" % exc, "danger")
+        return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
+    finally:
+        session_db.close()
+
+
 @app.post("/conciertos/<cid>/avisar-artista/ya-informado", endpoint="concert_artist_notice_ack")
 @admin_required
 def concert_artist_notice_ack(cid):
@@ -114172,6 +114303,10 @@ def _artist_confirmation_apply(session_db, aviso, concert, respuesta: str, nota:
         titulo = ("%s ha confirmado la actividad" % artista) if respuesta == "OK" else \
                  ("%s ha rechazado la actividad" % artista)
         cuerpo = _concert_title_for_notice(concert)
+        # ⚠️ Con su «sí» ya se puede CONFIRMAR sin mandarle nada más (su confirmación ES la
+        # comunicación): que el aviso lo diga, para no tener que adivinar qué toca ahora.
+        if respuesta == "OK" and (getattr(concert, "status", "") or "").upper() != "CONFIRMADO":
+            cuerpo = " · ".join([x for x in [cuerpo, "Ya puedes dejarla CONFIRMADA"] if x])
         cuerpo = " · ".join([x for x in [cuerpo, (nota or "").strip()] if x])
         try:
             _notify_users(session_db, destinos, "TAREA", titulo, cuerpo,
@@ -118865,9 +119000,14 @@ def concert_contract_sheet_request(cid):
             html_body = _contract_sheet_request_email_html(session_db, concert, public_url, message)
             ok, err = _send_optional_email(emails, subject, html_body, reply_to=_current_user_email())
             if ok:
-                flash('Ficha de contratación solicitada al promotor.', 'success')
+                # ⚠️ «Enviada» se apunta SOLO si el correo salió: de ahí sale la etiqueta «Pendiente
+                # de recibir ficha» y el botón «Reenviar». Si no salió, nadie la ha recibido.
+                _prev_req['sent_at'] = _now_madrid().isoformat()
+                sheet.request_payload = dict(_prev_req)
+                flash('Ficha de contratación enviada al promotor. Queda pendiente de que la devuelva.', 'success')
             else:
-                flash(f'Ficha preparada, pero el correo no se pudo enviar: {err or "SMTP no configurado"}.', 'warning')
+                flash(f'Ficha preparada, pero el correo NO se pudo enviar: {err or "SMTP no configurado"}. '
+                      f'Nadie la ha recibido: corrige el correo y vuelve a enviarla.', 'warning')
         else:
             flash('Ficha preparada. Añade destinatarios para enviarla al promotor.', 'warning')
         session_db.commit()

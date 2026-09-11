@@ -94,6 +94,18 @@
    —un proyecto discográfico, una actividad, una promoción— no se repite: se va directo al resumen
    económico (y a los ingresos, si los hay) y a los gastos. `bag_hide_hero` se conserva por si alguna
    pantalla lo pasa, pero ya no hace falta: lo que manda es `bag_standalone`. #}
+{# El formulario de una nota, en un solo sitio: lo usan el módulo (cuando hay notas) y la barra
+   fina (cuando no hay ninguna). Nace plegado: se abre con su botón. #}
+{% macro bag_note_form() %}
+  <form method="post" action="{{ url_for('bag_note_create', bag_id=bag.id) }}"
+        class="row g-2 collapse mt-2" id="bagNoteForm">
+    <input type="hidden" name="next" value="{{ bag_next }}">
+    <div class="col-md-4"><input type="text" name="note_type" class="form-control" placeholder="Tipo" value="General"></div>
+    <div class="col-md-8"><textarea name="body" class="form-control" rows="2" placeholder="Nueva nota"></textarea></div>
+    <div class="col-12 d-flex justify-content-end"><button class="btn btn-sm btn-outline-primary"><i class="fa fa-plus me-1"></i>Añadir nota</button></div>
+  </form>
+{% endmacro %}
+
 {% if bag_standalone and not bag_hide_hero %}
 {% set bag_type_label = bag_type_labels.get(bag.bag_type, bag.bag_type or 'General') %}
 <div class="ficha-hero">
@@ -121,9 +133,17 @@
       <span title="Total de la bolsa"><i class="fa fa-euro-sign"></i>{{ totals.bag|eur }}</span>
     </div>
   </div>
-  {# LA EMPRESA DEL GRUPO que factura, arriba a la derecha, como en la ficha de una actividad. #}
+  {# LA EMPRESA DEL GRUPO que factura, arriba a la derecha, como en la ficha de una actividad, y
+     el LÁPIZ que abre los datos: ⚠️ el módulo «Datos de la bolsa» se RETIRÓ porque repetía lo que
+     ya dice la cabecera (título, tipo, estado, artistas, vínculo, fechas y empresa). #}
+  <div class="ficha-hero__actions align-items-start">
+    {% if can_edit_bag %}
+      <button class="btn btn-sm btn-outline-secondary" type="button"
+              data-edit-toggle="#bagDataForm" title="Editar los datos de la bolsa">
+        <i class="fa fa-pen"></i>
+      </button>
+    {% endif %}
   {% if bag.company %}
-    <div class="ficha-hero__actions align-items-start">
       <div class="hero-company" title="Empresa del grupo de la bolsa">
         {# Como en la ficha de la actividad: el logo y, si la empresa no tiene, el icono (nunca el
            logo de OTRA empresa del grupo). #}
@@ -137,8 +157,8 @@
           <span class="hero-company__name">{{ bag.company.name }}</span>
         </span>
       </div>
-    </div>
   {% endif %}
+  </div>
 </div>
 {% endif %}{# /cabecera de la bolsa #}
 
@@ -146,12 +166,12 @@
    de algo que ya la tiene, no se repiten — para tocarlos se abre la bolsa en su página, que es donde
    se ve todo. Aquí se va directo al resumen y a los gastos. #}
 {% if bag_standalone %}
-<div class="row g-3 mb-4">
-  <div class="col-12 col-xl-7">
-    <div class="card h-100">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center"><strong>Datos de la bolsa</strong><span class="small text-muted">Módulo 1</span></div>
-      <div class="card-body">
-        <form method="post" action="{{ url_for('bag_detail_view', bag_id=bag.id) }}" class="row g-3">
+{# ⚠️⚠️ EL MÓDULO «DATOS DE LA BOLSA» SE RETIRÓ: repetía lo que ya dice la cabecera (título, tipo,
+   estado, artistas, vínculo, fechas, total y empresa). Lo que no se ve arriba —la descripción y las
+   indicaciones económicas— se pinta debajo SOLO SI TIENE ALGO, y para cambiar cualquier dato está el
+   LÁPIZ de la cabecera, que abre este mismo formulario (el patrón de edición inline de las fichas).
+   `data-keep-view` para que al abrirlo no se esconda nada de lo que ya está a la vista. #}
+<form method="post" action="{{ url_for('bag_detail_view', bag_id=bag.id) }}" class="row g-3 d-none" id="bagDataForm" data-keep-view>
           <input type="hidden" name="next" value="{{ bag_next }}">
           <div class="col-md-6"><label class="form-label">Título</label><input type="text" name="title" class="form-control" value="{{ bag.title }}" {% if not can_edit_bag %}readonly{% endif %}></div>
           <div class="col-md-3"><label class="form-label">Tipo</label><select name="bag_type" class="form-select" {% if not can_edit_bag %}disabled{% endif %}>{% for value,label in bag_types %}<option value="{{ value }}" {% if bag.bag_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
@@ -181,44 +201,64 @@
           <div class="col-12"><label class="form-label">Indicaciones económicas</label><textarea name="economic_indications" class="form-control" rows="3" {% if not can_edit_bag %}readonly{% endif %}>{{ bag.economic_indications or '' }}</textarea></div>
           {% if can_edit_bag %}<div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Guardar bolsa</button></div>{% endif %}
         </form>
-      </div>
+
+{# La descripción y las indicaciones económicas: solo cuando hay algo escrito. #}
+{% if (bag.description or '')|trim or (bag.economic_indications or '')|trim %}
+  <div class="card mb-3">
+    <div class="card-body">
+      {% if (bag.description or '')|trim %}
+        <div class="small text-uppercase text-muted fw-semibold mb-1">Descripción</div>
+        <div class="mb-3" style="white-space:pre-line;">{{ bag.description }}</div>
+      {% endif %}
+      {% if (bag.economic_indications or '')|trim %}
+        <div class="small text-uppercase text-muted fw-semibold mb-1">Indicaciones económicas</div>
+        <div style="white-space:pre-line;">{{ bag.economic_indications }}</div>
+      {% endif %}
     </div>
   </div>
-  <div class="col-12 col-xl-5">
-    <div class="card mb-3">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center"><strong>Notas</strong><span class="small text-muted">Módulo 2</span></div>
-      <div class="card-body">
-        {% if bag.notes %}
-          {% for group in bag.notes|groupby('note_type') %}
-            <div class="mb-3">
-              <div class="small text-uppercase text-muted fw-semibold mb-2">{{ group.grouper }}</div>
-              {% for note in group.list %}
-                <div class="border rounded-3 p-2 mb-2 bg-warning-subtle">
-                  <div class="d-flex gap-2 align-items-start">
-                    <span class="rounded-circle bg-white border d-inline-flex align-items-center justify-content-center" title="{{ note.created_by_nick or 'Usuario' }} · {{ note.created_at.strftime('%d/%m/%Y %H:%M') if note.created_at else '' }}" style="width:30px;height:30px;overflow:hidden;">
-                      {% if note.created_by_photo_url %}<img src="{{ note.created_by_photo_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">{% else %}<i class="fa fa-user small text-muted"></i>{% endif %}
-                    </span>
-                    <div class="small flex-grow-1">{{ note.body }}</div>
-                  </div>
-                </div>
-              {% endfor %}
+{% endif %}
+
+{# ---------- NOTAS ----------
+   ⚠️ El módulo solo existe SI HAY NOTAS. Si no hay, queda una barra fina con el icono de una nota
+   para añadir la primera: un módulo vacío que dice «todavía no hay notas» solo ocupa sitio. #}
+{% if bag.notes %}
+  <div class="card mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+      <strong><i class="fa fa-note-sticky me-2 text-danger"></i>Notas</strong>
+      {% if can_edit_bag %}
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                data-bs-toggle="collapse" data-bs-target="#bagNoteForm">
+          <i class="fa fa-plus me-1"></i>Añadir nota
+        </button>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      {% for group in bag.notes|groupby('note_type') %}
+        <div class="mb-3">
+          <div class="small text-uppercase text-muted fw-semibold mb-2">{{ group.grouper }}</div>
+          {% for note in group.list %}
+            <div class="border rounded-3 p-2 mb-2 bg-warning-subtle">
+              <div class="d-flex gap-2 align-items-start">
+                <span class="rounded-circle bg-white border d-inline-flex align-items-center justify-content-center" title="{{ note.created_by_nick or 'Usuario' }} · {{ note.created_at.strftime('%d/%m/%Y %H:%M') if note.created_at else '' }}" style="width:30px;height:30px;overflow:hidden;">
+                  {% if note.created_by_photo_url %}<img src="{{ note.created_by_photo_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">{% else %}<i class="fa fa-user small text-muted"></i>{% endif %}
+                </span>
+                <div class="small flex-grow-1">{{ note.body }}</div>
+              </div>
             </div>
           {% endfor %}
-        {% else %}
-          <div class="alert alert-light border">Todavía no hay notas.</div>
-        {% endif %}
-        {% if can_edit_bag %}
-          <form method="post" action="{{ url_for('bag_note_create', bag_id=bag.id) }}" class="row g-2">
-
-  <input type="hidden" name="next" value="{{ bag_next }}">            <div class="col-md-4"><input type="text" name="note_type" class="form-control" placeholder="Tipo" value="General"></div>
-            <div class="col-md-8"><textarea name="body" class="form-control" rows="2" placeholder="Nueva nota"></textarea></div>
-            <div class="col-12 d-flex justify-content-end"><button class="btn btn-sm btn-outline-primary"><i class="fa fa-plus me-1"></i>Añadir nota</button></div>
-          </form>
-        {% endif %}
-      </div>
+        </div>
+      {% endfor %}
+      {% if can_edit_bag %}{{ bag_note_form() }}{% endif %}
     </div>
   </div>
-</div>
+{% elif can_edit_bag %}
+  <div class="bag-notes-bar mb-3">
+    <button class="bag-notes-bar__btn" type="button" data-bs-toggle="collapse" data-bs-target="#bagNoteForm">
+      <i class="fa fa-note-sticky"></i><span>Añadir una nota</span>
+    </button>
+    {{ bag_note_form() }}
+  </div>
+{% endif %}
 
 {% endif %}{# /bag_standalone: dentro de otra ficha no se repiten cabecera, datos ni notas #}
 

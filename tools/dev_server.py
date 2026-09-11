@@ -38,7 +38,11 @@ app.app.jinja_env.auto_reload = True
 # (`/entrar-como/<nick>`). Esto vive en el arrancador de pruebas, no en la app.
 @app.app.get("/entrar-como/<nick>")
 def dev_entrar(nick):
-    from flask import session, redirect
+    from flask import session, redirect, request
+    # ⚠️ Solo desde ESTA máquina: este arrancador es de pruebas, pero que no pueda usarse por error
+    # si alguna vez se levanta en otro sitio.
+    if (request.remote_addr or "") not in ("127.0.0.1", "::1"):
+        return "solo en local", 403
     s = app.db()
     try:
         prof = s.query(app.UserProfile).filter(app.UserProfile.nick == nick).first()

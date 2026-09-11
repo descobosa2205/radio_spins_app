@@ -7243,3 +7243,36 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .sync-rcp__main{ min-width:0; flex:1 1 auto; }
 .sync-rcp__name{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sync-rcp__sub{ font-size:.8rem; color:#6b7280; }
+
+/* ===== QUÉ ES UN LANZAMIENTO: focus single o continuidad =====================================
+   El selector único (`_song_release_kind_picker.html`) y la etiqueta que se pinta cuando ya está
+   marcado. El color lo pone cada opción en `--rk` desde el catálogo `DISCO_RELEASE_KINDS`, así que
+   la etiqueta y el selector no se pueden desparejar. */
+.rkind__opts { display:flex; flex-wrap:wrap; gap:.5rem; }
+.rkind__opt { margin:0; cursor:pointer; }
+.rkind__box {
+  display:flex; align-items:center; gap:.5rem; padding:.5rem .75rem;
+  border:1px solid #dee2e6; border-radius:10px; background:#fff; color:#495057;
+  font-size:.9rem; line-height:1.15; transition:border-color .12s, background .12s, color .12s;
+}
+.rkind__box i { color:var(--rk,#adb5bd); }
+.rkind__opt:hover .rkind__box { border-color:var(--rk,#adb5bd); }
+.rkind__opt input:checked + .rkind__box {
+  border-color:var(--rk,#495057); background:color-mix(in srgb, var(--rk,#495057) 10%, #fff);
+  color:#212529; font-weight:600;
+}
+.rkind__opt input:focus-visible + .rkind__box { outline:2px solid var(--rk,#495057); outline-offset:2px; }
+.rkind__opt--none { --rk:#6b7280; }
+/* En el alta y en el asistente el rótulo va en la misma línea que las opciones. */
+.rkind--compact { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
+.rkind--compact .form-label { margin:0; }
+/* La etiqueta (cabecera de la canción y repertorio): el color lo pone el servidor en `style`.
+   Se dimensiona sola —como `.badge-explicit`— para que dentro del `<h1>` de la cabecera no salga
+   gigante ni haya que pasarle estilos en línea desde cada plantilla. */
+.badge-release-kind {
+  display:inline-flex; align-items:center; gap:.3em; color:#fff;
+  border-radius:999px; padding:.3em .7em; font-size:.68rem; font-weight:800;
+  letter-spacing:.06em; text-transform:uppercase; line-height:1; white-space:nowrap;
+  vertical-align:middle;
+}
+.badge-release-kind i { color:inherit; }

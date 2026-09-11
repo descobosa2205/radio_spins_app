@@ -1,5 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
+{# El selector ÚNICO de «qué es este lanzamiento» (focus / continuidad). #}
+{% import '_song_release_kind_picker.html' as rkind with context %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="m-0">Discográfica</h4>
@@ -316,10 +318,8 @@
                               <span class="badge text-bg-warning text-dark" title="La está preparando un proyecto discográfico: deja de ser provisional cuando se cierra">
                                 <i class="fa fa-hourglass-half me-1"></i>Provisional</span>
                               {% endif %}
-                              {% if s.focus_single %}
-                                <span class="badge text-bg-danger ms-1" title="Focus single · lanzamiento prioritario">
-                                  <i class="fa fa-star me-1"></i>Focus</span>
-                            {% endif %}
+                              {# Focus single o continuidad: la MISMA etiqueta que la cabecera. #}
+                              {{ release_kind_badge(s, 'ms-1') }}
                             {# ONE-STOP: se puede licenciar para una sincronización sin pedir permiso
                                a nadie. Lo calcula `_song_one_stop` (no se marca a mano). #}
                             {% if s.one_stop and s.one_stop.ok %}
@@ -601,6 +601,12 @@
                       </label>
                     {% endfor %}
                   </div>
+                </div>
+
+                {# QUÉ ES el lanzamiento: se puede decir ya al darlo de alta (y cambiarlo después en
+                   su ficha). «Sin decidir» es una respuesta válida. #}
+                <div class="col-12">
+                  {{ rkind.release_kind_picker('', compact=true) }}
                 </div>
 
                 {# Propia: % de master #}
@@ -1927,7 +1933,7 @@
                 <span class="oa-row__sep">·</span><span class="oa-row__place">{{ r.kind_label }}</span>
                 {% if r.is_collab %}<span class="badge text-bg-light border ms-1">Colaboración</span>{% endif %}
                 {% if r.video_badge %}<span class="badge text-bg-light border ms-1"><i class="fa fa-film me-1"></i>Con videoclip</span>{% endif %}
-                {% if r.focus_single %}<span class="badge text-bg-danger ms-1" title="Focus single · lanzamiento prioritario"><i class="fa fa-star me-1"></i>Focus single</span>{% endif %}
+                {{ release_kind_badge(r, 'ms-1') }}
               </span>
               <span class="oa-row__sub">
                 {{ r.release_label }}

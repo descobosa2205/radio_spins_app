@@ -12249,3 +12249,39 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   regla que ya se aplicó en la cabecera de una actividad. Las del RECINTO se conservan.
   ⚠️ El `data-artist-link` (que hace clicable la foto) **no se pone en el espejo de un evento**: su
   ficha de artista no debe verse nunca.
+
+- **QUÉ ES UN LANZAMIENTO: focus single o de CONTINUIDAD, y se marca DONDE SE CREA** (sep 2026).
+  El **focus single** solo se podía marcar desde el paso del proyecto discográfico y desde el cuadro
+  de Previsiones, y la **continuidad** (`Song.is_continuity`, que nació con Previsiones) no se podía
+  marcar en ningún sitio de la ficha. Ahora se elige en los **TRES** sitios donde se trabaja con la
+  canción, con el **MISMO selector**:
+  · la **ficha de la canción** → editar **Información** (es *donde se actualiza*),
+  · el **alta** de una canción (Discográfica → Repertorio → «+ Añadir canción»),
+  · y los pasos de **crear la canción**: el **asistente de PROYECTO**, en el paso del single.
+  · **Selector único**: `templates/_song_release_kind_picker.html` (macro `release_kind_picker`), con
+  las tres respuestas —**Focus single · Continuidad · Sin decidir**— sacadas del catálogo
+  `DISCO_RELEASE_KINDS`, así que el color y el icono de cada una son los del calendario de
+  Previsiones. `compact=true` es la versión de una línea (el alta y el asistente).
+  · **Punto único de ESCRITURA: `_apply_song_release_kind(song, kind, nick)`** (lo usan los cuatro
+  caminos, incluido el endpoint `forecast_song_kind` del cuadro, que antes lo hacía a mano). **Un
+  tema no es las dos cosas**: marcar una quita la otra.
+  ⚠️ **CON CENTINELA** (`release_kind_present`, lo lee `_release_kind_from_form`): sin él, un
+  guardado parcial de otra pantalla **borraría el focus** (la regla de siempre).
+  ⚠️ **«Sin decidir» deja las dos columnas en `NULL`**, que **no es «no»**: hay tareas que esperan a
+  que se decida. Al marcar CONTINUIDAD, `focus_single` se queda en **`False`** (se ha decidido que no
+  es focus) y no en NULL.
+  ⚠️ **En un ÁLBUM no se aplica a todas sus canciones**: el focus de un disco es UNO de sus temas y
+  eso se marca en su ficha (`disco_project_create` solo lo aplica si el proyecto es un SINGLE,
+  `DISCO_SINGLE_KINDS`; y el selector solo está en el paso del single, cuyos campos `step_wizard.js`
+  DESHABILITA en los demás tipos).
+  · **LA ETIQUETA es un global**: **`release_kind_badge(song_o_fila, cls)`** (+ `song_release_kind`),
+  que pinta Focus single o Continuidad con su color. Sustituye a los CUATRO sitios que pintaban el
+  focus a mano (la cabecera de la canción, su módulo de Radio, el repertorio y la ficha del
+  proyecto), así que ya no se pueden desparejar.
+  ⚠️ `_song_release_kind` acepta la **canción y también una FILA (dict)** de un listado —que es lo
+  que pintan el repertorio y el proyecto—, y una fila puede traer ya `release_kind` calculado.
+  ⚠️ La fila de **Lanzamientos** leía `r.focus_single`, que **`_disco_launch_items` no devolvía**:
+  esa etiqueta no salía nunca (bug real, arreglado con `release_kind` en la fila).
+  ⚠️ Al guardar por AJAX **la CABECERA no se repinta** (`ajax_inline` solo reemplaza su zona), así
+  que el planteamiento sale también como una fila de la vista de **Información** —que sí se refresca
+  al momento— y en la cabecera al recargar, igual que PROVISIONAL o EXPLÍCITA.

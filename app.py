@@ -1583,6 +1583,20 @@ def inject_globals():
         return Markup('<span class="badge badge-explicit %s" title="Contenido explícito">'
                       '<i class="fa-solid fa-e"></i>%s</span>') % (cls or "", EXPLICIT_LABEL)
 
+    def release_kind_badge(song, cls=""):
+        """La etiqueta de QUÉ ES este lanzamiento: **Focus single** o **Continuidad**.
+
+        ⚠️ Punto único: sale del mismo `_song_release_kind` que lee el cuadro de Previsiones, así que
+        la cabecera de la canción, el repertorio y el calendario no pueden decir cosas distintas.
+        Si todavía no se ha decidido no se pinta nada (`NULL` no es «no»)."""
+        kind = _song_release_kind(song) if song is not None else ""
+        meta = DISCO_RELEASE_KIND_META.get(kind)
+        if not meta:
+            return Markup("")
+        return Markup('<span class="badge badge-release-kind %s" style="background:%s" title="%s">'
+                      '<i class="fa-solid %s me-1"></i>%s</span>') % (
+            cls or "", meta["color"], meta["label"], meta["icon"], meta["label"])
+
     def company_logo(company=None, name=None, logo_url=None, size=40, cls="co-logo"):
         """El LOGO de una empresa del grupo y, si todavía no tiene, un ICONO de empresa.
 
@@ -1639,6 +1653,11 @@ def inject_globals():
         company_logo=company_logo,
         one_stop_badge=one_stop_badge,
         explicit_badge=explicit_badge,
+        # QUÉ ES un lanzamiento (focus single / continuidad): la etiqueta y el catálogo con el que se
+        # marca. Van de global porque se marca en TRES sitios (la ficha, el alta y el asistente).
+        release_kind_badge=release_kind_badge,
+        song_release_kind=_song_release_kind,
+        RELEASE_KIND_CHOICES=DISCO_RELEASE_KINDS,
         company_chip=company_chip,
         IS_ADMIN=bool(session.get("user_id")),
         has_endpoint=has_endpoint,
@@ -17216,6 +17235,8 @@ def _disco_launch_items(session_db, contract_artist_ids=None) -> list[dict]:
             # PROVISIONAL: lo está preparando un proyecto discográfico (se ve igual que en su
             # ficha: el fondo rayado y su etiqueta).
             'is_provisional': bool(getattr(song, 'is_provisional', False)),
+            # QUÉ ES: focus single o de continuidad (la etiqueta la pinta `release_kind_badge`).
+            'release_kind': _song_release_kind(song),
             # `nav`: las FLECHAS de la ficha recorren el listado de LANZAMIENTOS (canciones y
             # álbumes mezclados, en este mismo orden).
             'detail_url': url_for('discografica_song_detail', song_id=song.id, tab='informacion',
@@ -20022,6 +20043,11 @@ def discografica_song_create():
         session_db.add(s)
         session_db.flush()  # para obtener s.id
         session_db.add(SongArtist(song_id=s.id, artist_id=artist_id))
+
+        # QUÉ ES el lanzamiento (focus single / continuidad), si se ha dicho ya en el alta.
+        _rk = _release_kind_from_form()
+        if _rk is not None:
+            _apply_song_release_kind(s, _rk, (_current_user_state().get("nick") or ""))
 
         # Estado por defecto
         session_db.add(SongStatus(song_id=s.id, cover_done=False))
@@ -23699,6 +23725,11 @@ def discografica_song_info_update(song_id):
         # GÉNEROS: son etiquetas (`SongGenre`), y `Song.genre` se mantiene como espejo en texto.
         # ⚠️ Con centinela: si el formulario no trae el campo, no se tocan (un guardado parcial no
         # puede borrar los géneros). El campo de texto suelto sigue valiendo por compatibilidad.
+        # QUÉ ES el lanzamiento (focus / continuidad). Con CENTINELA: si el formulario no lo trae,
+        # no se toca (un guardado parcial de otra pantalla no puede borrar el focus).
+        _rk = _release_kind_from_form()
+        if _rk is not None:
+            _apply_song_release_kind(s, _rk, (_current_user_state().get("nick") or ""))
         if "song_genres_present" in request.form or "song_genres[]" in request.form:
             _apply_song_genres(session_db, s, request.form.getlist("song_genres[]"), present=True)
         elif "genre" in request.form:
@@ -25092,9 +25123,8 @@ def _disco_project_row(session_db, project, *, bag=None) -> dict:
         "song_title": (getattr(getattr(project, "song", None), "title", None) or ""),
         # FOCUS SINGLE: la decisión vive en la CANCIÓN del lanzamiento, y se enseña también aquí (en
         # la fila del listado y en la cabecera de la ficha) para no tener que abrirla.
-        "focus_single": bool(getattr(session_db.get(Song, project.release_song_id)
-                                     if getattr(project, "release_song_id", None) else None,
-                                     "focus_single", False)),
+        "release_kind": _song_release_kind(session_db.get(Song, project.release_song_id)
+                                           if getattr(project, "release_song_id", None) else None),
         "status": (getattr(project, "status", None) or "ACTIVO").upper(),
         "bag_id": (str(project.bag_id) if getattr(project, "bag_id", None) else ""),
         "created_by": (getattr(project, "created_by_nick", None) or ""),
@@ -26507,11 +26537,66 @@ def _song_release_kind(song) -> str:
     ⚠️ Punto único: el **focus MANDA** (si está marcado, es focus aunque quede la marca vieja de
     continuidad), y las dos columnas son `NULL` = sin decidir, que no es «no».
     """
-    if getattr(song, "focus_single", None):
+    # ⚠️ Acepta la CANCIÓN y también una fila (dict) de un listado: el repertorio y la ficha de un
+    # proyecto pintan diccionarios, y sin esto la etiqueta no saldría ahí.
+    leer = song.get if isinstance(song, dict) else (lambda k, d=None: getattr(song, k, d))
+    ya = (leer("release_kind", None) or "").upper() if isinstance(song, dict) else ""
+    if ya in ("FOCUS", "CONTINUIDAD"):
+        return ya
+    if leer("focus_single", None):
         return "FOCUS"
-    if getattr(song, "is_continuity", None):
+    if leer("is_continuity", None):
         return "CONTINUIDAD"
     return ""
+
+
+def _apply_song_release_kind(song, kind: str, nick: str = "") -> str:
+    """Marca la canción como FOCUS SINGLE, de CONTINUIDAD o sin decidir.
+
+    ⚠️ PUNTO ÚNICO de escritura: lo usan el cuadro de Previsiones, la ficha de la canción, el alta y
+    el asistente de proyecto, así que se guarda igual venga de donde venga. **Un tema no es las dos
+    cosas**: marcar una quita la otra.
+    """
+    pedido = (kind or "").strip().upper()
+    if pedido not in ("FOCUS", "CONTINUIDAD", ""):
+        raise ValueError("No se entiende qué se quiere marcar.")
+    ahora = datetime.utcnow()
+    if pedido == "FOCUS":
+        song.focus_single = True
+        song.focus_single_at = ahora
+        song.focus_single_by = nick
+        song.is_continuity = None
+        song.is_continuity_at = None
+        song.is_continuity_by = None
+    elif pedido == "CONTINUIDAD":
+        song.is_continuity = True
+        song.is_continuity_at = ahora
+        song.is_continuity_by = nick
+        # `False` (y no NULL) a propósito: se ha decidido que NO es focus, no es que no se sepa.
+        song.focus_single = False
+        song.focus_single_at = ahora
+        song.focus_single_by = nick
+    else:
+        song.focus_single = None
+        song.focus_single_at = None
+        song.focus_single_by = None
+        song.is_continuity = None
+        song.is_continuity_at = None
+        song.is_continuity_by = None
+    return _song_release_kind(song)
+
+
+def _release_kind_from_form(form=None) -> str | None:
+    """Lo que dice el formulario sobre el planteamiento, **con CENTINELA**.
+
+    ⚠️ Devuelve `None` cuando el formulario NO pregunta por esto (no hay `release_kind_present`), y
+    entonces no se toca nada: un guardado parcial de otra pantalla no puede borrar el focus.
+    """
+    f = form if form is not None else request.form
+    if not (f.get("release_kind_present") or "").strip():
+        return None
+    valor = (f.get("release_kind") or "").strip().upper()
+    return valor if valor in ("FOCUS", "CONTINUIDAD") else ""
 
 
 def _forecast_cover(row) -> str:
@@ -27872,33 +27957,13 @@ def forecast_song_kind(sid):
         estado = _current_user_state()
         nick = estado.get("nick") or ""
         pedido = ((request.get_json(silent=True) or {}).get("kind")
-                  or request.form.get("kind") or "").strip().upper()
-        if pedido not in ("FOCUS", "CONTINUIDAD", ""):
-            return jsonify({"ok": False, "error": "No se entiende qué se quiere marcar."}), 400
-        ahora = datetime.utcnow()
-        if pedido == "FOCUS":
-            song.focus_single = True
-            song.focus_single_at = ahora
-            song.focus_single_by = nick
-            song.is_continuity = None
-            song.is_continuity_at = None
-            song.is_continuity_by = None
-        elif pedido == "CONTINUIDAD":
-            song.is_continuity = True
-            song.is_continuity_at = ahora
-            song.is_continuity_by = nick
-            song.focus_single = False
-            song.focus_single_at = ahora
-            song.focus_single_by = nick
-        else:
-            song.focus_single = None
-            song.focus_single_at = None
-            song.focus_single_by = None
-            song.is_continuity = None
-            song.is_continuity_at = None
-            song.is_continuity_by = None
+                  or request.form.get("kind") or "")
+        try:
+            kind = _apply_song_release_kind(song, pedido, nick)
+        except ValueError as err:
+            return jsonify({"ok": False, "error": str(err)}), 400
         session_db.commit()
-        return jsonify({"ok": True, "kind": _song_release_kind(song)})
+        return jsonify({"ok": True, "kind": kind})
     except HTTPException:
         raise
     except Exception as exc:
@@ -32770,6 +32835,14 @@ def disco_project_create():
         if explicita is not None:
             for cancion in canciones_lanzamiento:
                 cancion.is_explicit = explicita
+        # QUÉ ES el lanzamiento (focus single / continuidad), si se ha dicho en el paso del single.
+        # ⚠️ Solo en un SINGLE: en un álbum el focus sería UNO de sus temas y eso se marca en su
+        # ficha, así que no se le pone a todas las canciones del disco.
+        _rk = _release_kind_from_form()
+        if _rk is not None and project.kind in DISCO_SINGLE_KINDS:
+            _cancion_single = _disco_project_release_song(session_db, project)
+            if _cancion_single is not None:
+                _apply_song_release_kind(_cancion_single, _rk, (_current_user_state().get("nick") or ""))
         # Y su bolsa de gastos (la hoja de ruta y el calendario se montan sobre el propio proyecto).
         _ensure_project_bag(session_db, project)
         session_db.commit()

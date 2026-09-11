@@ -1,0 +1,41 @@
+{# QUÉ ES ESTE LANZAMIENTO: focus single o de continuidad.
+
+   ⚠️ SELECTOR ÚNICO: lo usan la ficha de la canción (editar Información), el alta de una canción y
+   el asistente de PROYECTO discográfico (paso del single). Así se marca igual en los tres sitios y
+   una mejora vale para todos.
+
+   ⚠️ Lleva SIEMPRE su centinela `release_kind_present`: sin él, un guardado parcial de otra pantalla
+   borraría el focus (lo lee `_release_kind_from_form`).
+
+   `actual`  → lo que ya está marcado ('FOCUS' · 'CONTINUIDAD' · '')
+   `compact` → la versión de una línea (para el alta y el asistente, donde hay menos sitio)
+#}
+{% macro release_kind_picker(actual='', compact=false, label='¿Qué es este lanzamiento?') %}
+  <input type="hidden" name="release_kind_present" value="1">
+  <div class="rkind{% if compact %} rkind--compact{% endif %}" data-release-kind>
+    {% if label %}
+      <label class="form-label"><i class="fa-solid fa-star me-1 text-muted"></i>{{ label }}</label>
+    {% endif %}
+    <div class="rkind__opts">
+      {% for key, name, icon, color in RELEASE_KIND_CHOICES %}
+        <label class="rkind__opt" style="--rk:{{ color }}">
+          <input class="visually-hidden" type="radio" name="release_kind" value="{{ key }}"
+                 {% if actual == key %}checked{% endif %}>
+          <span class="rkind__box">
+            <i class="fa-solid {{ icon }}"></i>
+            <span class="rkind__name">{{ name }}</span>
+          </span>
+        </label>
+      {% endfor %}
+      {# «Sin decidir» es una respuesta válida: NULL no es «no». #}
+      <label class="rkind__opt rkind__opt--none">
+        <input class="visually-hidden" type="radio" name="release_kind" value=""
+               {% if not actual %}checked{% endif %}>
+        <span class="rkind__box">
+          <i class="fa-solid fa-minus"></i>
+          <span class="rkind__name">Sin decidir</span>
+        </span>
+      </label>
+    </div>
+  </div>
+{% endmacro %}

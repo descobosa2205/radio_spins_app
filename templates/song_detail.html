@@ -3,6 +3,8 @@
 {% import '_label_copy_share.html' as lcshare with context %}
 {# EL REPRODUCTOR de audio de la casa (el mismo de la landing de Syncros). #}
 {% import '_audio_player_row.html' as ap with context %}
+{# El selector ÚNICO de «qué es este lanzamiento» (focus / continuidad). #}
+{% import '_song_release_kind_picker.html' as rkind with context %}
 
 <div class="mb-2">
   {# Vuelve al listado del que se viene (repertorio, lanzamientos o Syncros); si no se sabe, al repertorio. #}
@@ -19,7 +21,7 @@
        data-viewer-set="portada-hero" style="cursor:zoom-in"{% endif %}>
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">{{ song_type_label }}{% if song.is_provisional %} · <span class="text-warning-emphasis">En preparación</span>{% endif %}</div>
-    <h1 class="ficha-hero__title">{{ song.title }}{% if song.is_provisional %} <span class="badge text-bg-warning text-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="La está preparando un proyecto discográfico">PROVISIONAL</span>{% endif %}{% if song.is_explicit %} {{ explicit_badge('align-middle') }}{% endif %}{% if song.focus_single %} <span class="badge text-bg-danger align-middle" style="font-size:.5em;vertical-align:middle;" title="Focus single · lanzamiento prioritario"><i class="fa fa-star me-1"></i>FOCUS SINGLE</span>{% endif %}</h1>
+    <h1 class="ficha-hero__title">{{ song.title }}{% if song.is_provisional %} <span class="badge text-bg-warning text-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="La está preparando un proyecto discográfico">PROVISIONAL</span>{% endif %}{% if song.is_explicit %} {{ explicit_badge('align-middle') }}{% endif %} {{ release_kind_badge(song, "align-middle") }}</h1>
     <div class="ficha-hero__facts">
       {# ⚠️ Sin `linked_mini`: las personas vinculadas al artista no pintan nada aquí (esto es la
          cabecera de la CANCIÓN). La etiqueta One-stop va en esta misma línea, tras el artista. #}
@@ -430,7 +432,7 @@
         <div class="d-flex align-items-center gap-2 mb-2">
           <i class="fa fa-radio text-danger"></i>
           <h6 class="m-0">Radio</h6>
-          {% if song.focus_single %}<span class="badge text-bg-danger"><i class="fa fa-star me-1"></i>Focus single</span>{% endif %}
+          {{ release_kind_badge(song) }}
         </div>
         <div class="d-flex flex-wrap gap-2">
           {% for r in radio_rows %}
@@ -738,6 +740,12 @@
                   <input type="number" name="bpm" class="form-control" value="{{ song.bpm or '' }}" min="0" step="1">
                 </div>
 
+                {# QUÉ ES: focus single o de continuidad. Aquí es DONDE SE ACTUALIZA; al marcarlo
+                   sale su etiqueta en la cabecera y en el repertorio. #}
+                <div class="col-12">
+                  {{ rkind.release_kind_picker(song_release_kind(song)) }}
+                </div>
+
                 <div class="col-12 col-md-8">
                   <label class="form-label">Géneros <span class="text-muted small">(etiquetas)</span></label>
                   <input type="hidden" name="song_genres_present" value="1">
@@ -1038,6 +1046,13 @@
                     <tr><th>{{ content_rating_field_label }}</th>
                         <td><span class="badge-content-rating{{ ' is-explicit' if song.is_explicit }}">
                           <i class="fa-solid {{ content_rating_icon }}"></i>{{ content_rating_label }}</span></td></tr>
+                  {% endif %}
+
+                  {# QUÉ ES: focus single o de continuidad. Se pinta aquí además de en la cabecera
+                     porque esta zona SÍ se repinta al guardar (la cabecera, solo al recargar). #}
+                  {% if song_release_kind(song) %}
+                    <tr><th>Planteamiento</th>
+                        <td>{{ release_kind_badge(song) }}</td></tr>
                   {% endif %}
 
                   {% if song.musicians and (song.musicians|length) > 0 %}

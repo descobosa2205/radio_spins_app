@@ -1,3 +1,5 @@
+{# El selector ÚNICO de «qué es este lanzamiento» (focus / continuidad). #}
+{% import '_song_release_kind_picker.html' as rkind with context %}
 {# ============================================================================================
    Asistente «+ Nuevo proyecto discográfico» (Discográfica → Proyectos).
    Pasos: artista → tipo → (según el tipo) sus preguntas. Usa el asistente genérico
@@ -181,6 +183,11 @@
                 <input class="form-check-input m-0" type="checkbox" name="is_collab" value="1">
                 <span><i class="fa fa-user-group text-danger me-1"></i>Es una colaboración</span>
               </label>
+            </div>
+            {# QUÉ ES el single: focus o de continuidad. Se puede decir ya aquí y cambiarlo luego en
+               la ficha de la canción (es el MISMO dato y el mismo selector). #}
+            <div class="col-12">
+              {{ rkind.release_kind_picker('', compact=true) }}
             </div>
           </div>
         </section>

@@ -75146,7 +75146,13 @@ def concert_wizard_create():
                              else 'No se pudo preparar el evento.')
         artist_id = artist_ids[0]
         artist_ids_payload = [str(uid) for uid in artist_ids]
-        event_date = parse_date(request.form.get('date') or '')
+        # ⚠️ Sin esto, `parse_date('')` levanta el ValueError de la librería —«time data '' does not
+        # match format '%Y-%m-%d'»— y ese texto acababa EN PANTALLA: lo que se le dice a una persona
+        # se escribe aquí (los mensajes técnicos van al log).
+        try:
+            event_date = parse_date(request.form.get('date') or '')
+        except ValueError:
+            raise ValueError('Falta la fecha de la actividad.')
         activity_type = (request.form.get('activity_type') or 'CONCIERTO').strip().upper()
         # ⚠️ El TIPO se normaliza con el PUNTO ÚNICO del catálogo (`_activity_kind_key` +
         # `QUAD_ACTIVITY_ALIASES`). Antes había aquí un segundo diccionario de alias y se

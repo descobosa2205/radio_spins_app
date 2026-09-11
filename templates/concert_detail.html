@@ -1399,7 +1399,10 @@
         <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
       </form>
       {% endif %}
-    </div>
+    {# ⚠️ AQUÍ NO VA NINGÚN </div>: «#concert-caches-view» se cierra arriba (antes del
+       formulario) y el formulario se cierra solo. El </div> que había de cuando los cachés
+       eran un único módulo CERRABA «#concert-general-zone» ANTES DE TIEMPO, así que todo lo
+       que viene debajo quedaba FUERA de la zona y no se refrescaba al guardar por AJAX. #}
 
     {# ---------- Entradas y venta ---------- #}
     {% set tpay = concert.ticketing_payload or {} %}
@@ -3226,7 +3229,8 @@
         {% endif %}
       </div>
       </div>
-    </div>
+    {# ⚠️ NO VA OTRO </div>: arriba solo se abren «tab-content» y sus tres «tab-pane». El que
+       había de más cerraba el contenedor de la pestaña ANTES DE TIEMPO. #}
 
   {% elif tab == 'ticketing' %}
     {# ---------- ¿QUIÉN SACA LAS ENTRADAS A LA VENTA? ----------

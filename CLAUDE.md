@@ -2717,10 +2717,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   modal** (dentro del `<form>`, así que sí se enviaban, pero sin su maqueta ni su scroll)— y, en
   Inicio, cerraba también el envoltorio de los módulos, con lo que «Ordenar mi inicio» solo veía los
   dos primeros. No da ningún error: el navegador lo «arregla» a su manera.
-  ⚠️ La comprobación es de una línea y hay que hacerla al tocar una plantilla:
-  `for f in templates/*.html; do a=$(grep -o '<div' $f|wc -l); b=$(grep -o '</div>' $f|wc -l); [ "$a" != "$b" ] && echo "$f $a/$b"; done`
-  (un desajuste solo es legítimo cuando el `<div>` se abre en una rama `{% if %}` y se cierra en
-  otra, o a caballo entre dos includes).
+  ⚠️⚠️ **LA COMPROBACIÓN ES `python3 tools/check_divs.py`** (sep 2026): pinta las pantallas con la
+  app real (como dirección) y mira el **HTML SERVIDO**, que es lo que ve el navegador, diciendo
+  **qué `</div>` sobra y en qué línea**. Contar `<div`/`</div>` en la PLANTILLA da falsos positivos
+  —es legítimo abrir un div en una rama `{% if %}` y cerrarlo en otra— y por eso se nos escapaban:
+  hoy pasa por **362 pantallas** (sigue los enlaces `?tab=`/`?section=` que cada una pinta, que es
+  donde estaban los dos últimos) y **tiene que estar en cero**.
+  ⚠️ Ignora lo que hay dentro de un `<script>` o un `<style>`: ahí un `html += '</div>'` es TEXTO.
+  · Así salieron (sep 2026) dos `</div>` huérfanos en la ficha de una actividad: uno tras el
+  formulario de **cachés**, que cerraba **`#concert-general-zone`** antes de tiempo —todo lo que
+  viene debajo (entradas, comisionistas, equipamiento, contratos y notas) quedaba FUERA de la zona,
+  así que **al guardar una sección por AJAX no se refrescaba**—, y otro al final de la pestaña
+  **Producción**, que cerraba su contenedor de pestañas.
 
 - ⚠️⚠️ **UN `{% include %}` FUERA DEL `{% block content %}` SE PINTA ANTES DEL `<!doctype>`** (bug
   real con captura, ago 2026). El pop-up de envío de Syncros estaba al final de `song_detail.html`,

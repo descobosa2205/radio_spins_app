@@ -14,6 +14,7 @@
   {'key': 'enterticket', 'name': 'Enterticket', 'subtitle': 'Ticketing', 'icon': 'fa-ticket', 'configured': enterticket_configured},
   {'key': 'sms', 'name': 'SMS', 'subtitle': 'Avisos al móvil', 'icon': 'fa-comment-sms', 'configured': sms_configured},
   {'key': 'correo', 'name': 'Correo', 'subtitle': 'Avisos y cuentas de envío', 'icon': 'fa-envelope', 'configured': (smtp.configured or mail.active_count > 0)},
+  {'key': 'automatizaciones', 'name': 'Automatizaciones', 'subtitle': 'El cron de la app', 'icon': 'fa-robot', 'configured': cron_alive},
 ] %}
 
 <ul class="nav nav-tabs mb-3" id="integrationsTabs" role="tablist">
@@ -1495,6 +1496,106 @@
       </div>
     </form>
   {% endmacro %}
+  {# ============================ AUTOMATIZACIONES ============================
+     ⚠️⚠️ TODO lo automático de la app cuelga de UN SOLO cron: el servidor le pega cada minuto a
+     `/cron?key=…` y la app decide qué le toca a cada cosa. Lo PRIMERO que hay que saber es si está
+     latiendo: sin latido no sale NINGÚN aviso automático y en la app no se nota hasta que alguien
+     echa de menos uno. #}
+  <div class="tab-pane fade" id="tab-automatizaciones" role="tabpanel" aria-labelledby="tab-automatizaciones-tab">
+    <div class="card mb-3 {{ 'border-success' if cron_alive else 'border-danger' }}">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+          <h2 class="h5 mb-0"><i class="fa fa-robot me-2"></i>El cron de la app</h2>
+          {% if cron_alive %}
+            <span class="badge text-bg-success"><i class="fa fa-heart-pulse me-1"></i>Latiendo · {{ cron_ago }}</span>
+          {% elif cron_never %}
+            <span class="badge text-bg-danger">Nunca ha latido</span>
+          {% else %}
+            <span class="badge text-bg-danger">Sin latido {{ cron_ago }}</span>
+          {% endif %}
+        </div>
+
+        {% if not cron_alive %}
+          <div class="alert alert-danger py-2 px-3">
+            <strong>Las automatizaciones NO se están ejecutando.</strong>
+            {% if cron_never %}
+              Nadie le ha pegado nunca a la dirección del cron.
+            {% else %}
+              El último latido fue {{ cron_ago }} ({{ cron_last_label }}); se espera uno cada minuto.
+            {% endif %}
+            Mientras no late, no salen los avisos de «sigue sin anunciarse», ni las peticiones de
+            ventas, ni los recordatorios, ni las notas de prensa programadas.
+          </div>
+        {% endif %}
+
+        <p class="text-muted small mb-2">
+          El servidor solo tiene que pegarle <strong>cada minuto</strong> a esta dirección. La app
+          decide sola qué le toca a cada automatización, así que una nueva no necesita configurar
+          nada más.
+        </p>
+        <div class="input-group input-group-sm mb-2" style="max-width:46rem;">
+          <span class="input-group-text">Dirección</span>
+          <input class="form-control" readonly value="{{ cron_url }}?key=TU_CLAVE" id="cronUrl">
+          <button class="btn btn-outline-secondary copy-link-btn" type="button"
+                  data-copy-url="{{ cron_url }}?key=TU_CLAVE"><i class="fa fa-copy"></i></button>
+        </div>
+        <div class="small text-muted">
+          {% if cron_key_set %}
+            La clave es la variable <code>APP_CRON_KEY</code> del servidor (también valen las
+            antiguas: <code>DOCS_CRON_KEY</code>, <code>PLEO_CRON_KEY</code>…).
+          {% else %}
+            <span class="text-danger"><strong>No hay ninguna clave configurada</strong>: añade
+            <code>APP_CRON_KEY</code> en las variables de entorno o el cron no responderá.</span>
+          {% endif %}
+          Latidos contados: {{ cron_ticks }}.
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+          <h3 class="h6 mb-0">Qué hace y cuándo</h3>
+          <form method="post" action="{{ url_for('cron_run_now') }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-primary" type="submit">
+              <i class="fa fa-play me-1"></i>Ejecutarlas todas ahora</button>
+          </form>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr>
+              <th>Automatización</th><th>Cada</th><th>Última vez</th><th>Qué hizo</th><th></th>
+            </tr></thead>
+            <tbody>
+              {% for r in cron_rows %}
+              <tr class="{{ 'table-danger' if not r.ok else '' }}">
+                <td><i class="fa {{ r.icon }} me-1 text-muted"></i>{{ r.label }}</td>
+                <td class="text-muted small">{{ r.cadence }}</td>
+                <td class="small">
+                  {% if r.at %}<span title="{{ r.at_label }}">{{ r.ago }}</span>{% else %}
+                    <span class="text-muted">nunca</span>{% endif %}
+                </td>
+                <td class="small">
+                  {% if r.error %}<span class="text-danger">{{ r.error }}</span>
+                  {% elif r.out %}{{ r.out }}
+                  {% else %}<span class="text-muted">sin novedades</span>{% endif %}
+                </td>
+                <td class="text-end">
+                  <form method="post" action="{{ url_for('cron_run_now') }}" class="d-inline">
+                    <input type="hidden" name="tarea" value="{{ r.key }}">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit"
+                            title="Ejecutarla ahora"><i class="fa fa-play"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="tab-pane fade" id="tab-correo" role="tabpanel" aria-labelledby="tab-correo-tab">
     <div id="correoZone" data-inline-zone>
     <div class="card mb-3">

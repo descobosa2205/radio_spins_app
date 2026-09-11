@@ -907,7 +907,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -54098,10 +54098,20 @@ def _concert_task_board(session_db, concert) -> dict:
                             + "#plan-facturacion"),
                        action_label="Configurarla",
                        hint="Reparte el caché en pagos (concepto, importe y fecha límite).")
-            if (not getattr(concert, "announcement_date", None)
-                    and not getattr(concert, "do_not_announce", False)):
-                # La MISMA etiqueta clicable de la cabecera: se pone la fecha o «Anunciado» sin salir.
-                suelta("anuncio", 7, "Pendiente de anunciar", "fa-bullhorn", do="anuncio")
+            # ⚠️⚠️ EL ANUNCIO NO PUEDE OLVIDARSE: a partir de las cuatro semanas la tarea dice
+            # cuántos días faltan y lleva a ANUNCIARLA Y COMUNICÁRSELO al artista (que es lo que
+            # hay que hacer). Antes de eso basta con la etiqueta de siempre, que pone la fecha sin
+            # salir de aquí. Mismo punto único que el aviso automático, así que no hay dos verdades.
+            _anun = _announce_alert_state(session_db, concert)
+            if _anun["pending"] and (_anun["urgent"] or not getattr(concert, "announcement_date", None)):
+                _falta = ("" if not _anun["urgent"] else
+                          (" · es hoy" if (_anun["days"] or 0) <= 0 else
+                           " · falta %d día%s" % (_anun["days"], "" if _anun["days"] == 1 else "s")))
+                suelta("anuncio", 7, "Pendiente de anunciar" + _falta, "fa-bullhorn",
+                       do=("" if _anun["urgent"] else "anuncio"),
+                       url=(_anun["url"] if _anun["urgent"] else ""),
+                       action_label="Anunciar y avisar al artista",
+                       hint=(_anun["situation"] if _anun["urgent"] else ""))
             if _concert_sale_state(session_db, concert)["needs_activation"]:
                 suelta("venta", 8, "Sin activar la venta", "fa-ticket", do="venta",
                        action_label="Activar la venta")
@@ -87110,7 +87120,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -88656,7 +88666,10 @@ def _resolve_request_resource_key() -> str | None:
             or endpoint.startswith("cabify_") or endpoint.startswith("cm_")
             or endpoint.startswith("holded_account_") or endpoint == "api_cm_search"
             or endpoint.startswith("sms_") or endpoint.startswith("smtp_")
-            or endpoint.startswith("mail_account_")):
+            or endpoint.startswith("mail_account_")
+            # El CRON ÚNICO: su pantalla de estado y el «ejecutar ahora» viven en Integraciones
+            # (dentro se exige además dirección). ⚠️ `cron_tick` NO: es público, lo autoriza su clave.
+            or endpoint == "cron_run_now"):
         return "integraciones"
     # TODO lo que se HACE en contabilidad (subir a Holded, marcar contabilizado, omitir, corregir
     # los datos de una factura) cuelga de «Pendiente de contabilizar», que es donde se trabaja. Quien
@@ -112811,6 +112824,9 @@ ACTIVITY_NOTICE_KINDS = {
     # dos botones —Confirmar / Rechazar— y lo que conteste el artista se guarda con su fecha. Es la
     # fase 2 de una petición aprobada («Confirmar con el artista»), que hasta ahora se marcaba a mano.
     "CONFIRMAR": "Confirmación de la actividad",
+    # ⚠️ ANUNCIO: «ya se puede anunciar». Es el MISMO contenido de la actividad más la CARTELERÍA y
+    # los detalles del anuncio — se manda al marcar la actividad como anunciada.
+    "ANUNCIO": "Ya se puede anunciar",
     "CAMBIOS": "Cambios en la actividad",
     "CANCELACION": "Actividad cancelada",
     "APLAZAMIENTO": "Actividad aplazada",
@@ -112828,6 +112844,9 @@ ACTIVITY_NOTICE_MODULES = [
     # ⚠️ La HOJA DE RUTA es una opción MÁS del aviso (su botón): antes se decidía en el asistente, al
     # crear la actividad, y ahí no se sabe todavía si se le va a mandar — se decide al comunicarla.
     ("hoja_ruta", "Hoja de ruta"),
+    # ⚠️ Solo en el aviso de ANUNCIO: los carteles con los que se anuncia y cuándo se anuncia.
+    ("carteles", "Cartelería"),
+    ("anuncio", "El anuncio"),
     ("descripcion", "Descripción"),
     ("cache", "Caché"),
     ("comisiones", "Comisiones"),
@@ -113769,6 +113788,319 @@ def _cancel_notice_note(session_db, concert, notice_kind: str) -> str:
         return ""
 
 
+# ===========================================================================
+#  ⚠️⚠️ QUE NO SE QUEDE NINGUNA ACTIVIDAD SIN ANUNCIAR
+#  -------------------------------------------------------------------------
+#  A CUATRO SEMANAS de la fecha, una actividad que sigue sin anunciar (o marcada «no anunciar») ya
+#  es un problema: la entrada no se vende sola. Así que la app avisa ELLA:
+#    · **a un mes** → aviso (app + correo) a quien la GESTIONA: quien la creó y, si no consta, el
+#      departamento de Contratación. Desde el aviso se anuncia y se le comunica al artista.
+#    · **a los 3 días** de ese aviso, si sigue sin comunicarse → se le insiste POR CORREO (que es
+#      lo que se mira cuando la campanita se ignora).
+#    · **a 15 días** de la actividad → se le dice a DIRECCIÓN, por correo.
+#  Todo lo apunta la propia actividad (`announce_alert_at`, `_2_at`, `_dir_at`), así que no se
+#  repite, y el aviso **se cierra solo** en cuanto se anuncia (`_notify_resolve`).
+# ===========================================================================
+ANNOUNCE_ALERT_DAYS = 28            # a cuatro semanas de la fecha
+ANNOUNCE_ALERT_REMIND_DAYS = 3      # a los 3 días del aviso, se insiste por correo
+ANNOUNCE_ALERT_DIRECTION_DAYS = 15  # a 15 días de la actividad, se escala a dirección
+ANNOUNCE_ALERT_REF = "CONCERT_ANNOUNCE"
+# Lo que se ANUNCIA es lo que tiene público. Un ensayo, una grabación o una reunión no se anuncian.
+ANNOUNCE_ACTIVITY_TYPES = (set(CONCERT_LIKE_ACTIVITY_TYPES) | set(PROMO_LIKE_ACTIVITY_TYPES)
+                           | {"DISC_PREMIOS", "DISC_FIRMA"})
+
+
+def _announce_pending(concert) -> bool:
+    """¿Esta actividad sigue SIN ANUNCIAR? (punto único).
+
+    Lo está todo lo que no se haya anunciado ya: sin fecha, con fecha por venir **y** lo marcado
+    «no anunciar» — que es una decisión que a un mes vista hay que repasar, no un anuncio."""
+    return _announcement_state(concert) != "ANNOUNCED"
+
+
+def _announce_alert_applies(concert, today=None) -> bool:
+    """¿A esta actividad se le reclama el anuncio?
+
+    Lo que tiene PÚBLICO, no cancelado ni aplazado, ni del histórico, y que todavía no ha pasado.
+    ⚠️ Un BORRADOR no: es un apunte a medias. Una RESERVA sí — a un mes vista, una fecha sin cerrar
+    es justo lo que hay que mirar (y el aviso lo dice)."""
+    if concert is None:
+        return False
+    hoy = today or today_local()
+    fecha = getattr(concert, "date", None)
+    if not fecha or fecha < hoy:
+        return False
+    tipo = (getattr(concert, "activity_type", None) or "CONCIERTO").strip().upper()
+    if tipo not in ANNOUNCE_ACTIVITY_TYPES:
+        return False
+    if (getattr(concert, "status", None) or "").strip().upper() in ("BORRADOR", "CANCELADO", "APLAZADO"):
+        return False
+    try:
+        if _concert_is_legacy(concert):
+            return False
+    except Exception:
+        pass
+    return _announce_pending(concert)
+
+
+def _announce_situation(concert) -> str:
+    """En qué punto está el anuncio, dicho en una frase (va en el cuerpo del aviso)."""
+    estado = _announcement_state(concert)
+    if estado == "NO_ANNOUNCE":
+        return "Ahora mismo está marcada como «No anunciar»."
+    fecha = getattr(concert, "announcement_date", None)
+    if estado == "UPCOMING" and fecha:
+        return "Está previsto anunciarla el %s." % fecha.strftime("%d/%m/%Y")
+    return "Todavía no tiene fecha de anuncio."
+
+
+def _announce_alert_owner_ids(session_db, concert) -> list[str]:
+    """A QUIÉN se le reclama: a quien la GESTIONA.
+
+    Es **quien la creó** (contratación o sello, según de dónde haya salido). Si no consta —las
+    actividades antiguas no guardan creador— se le dice al departamento de **Contratación**, que es
+    quien anuncia; y si tampoco hay nadie, a dirección: mejor que lo vea alguien de más que dejar
+    una actividad sin anunciar porque no había a quién decírselo."""
+    fuera = _inactive_user_ids(session_db)
+    creador = getattr(concert, "created_by_user_id", None)
+    if creador and to_uuid(str(creador)) not in fuera:
+        return [str(creador)]
+    quienes = [u for u in _department_user_ids(session_db, "Contratación") if u]
+    return quienes or _direccion_user_ids(session_db)
+
+
+def _announce_activity_place(concert) -> str:
+    """El nombre de la actividad o, si no tiene, el LUGAR (el formato único de la casa)."""
+    nombre = (getattr(concert, "festival_name", None) or "").strip()
+    if nombre:
+        return nombre
+    try:
+        return _place_label(getattr(concert, "manual_municipality", None) or _concert_city(concert) or "",
+                            getattr(concert, "manual_province", None) or "")
+    except Exception:
+        return (_concert_city(concert) or "").strip()
+
+
+def _announce_alert_subject(session_db, concert) -> str:
+    """«Aviso: Concierto, Sala Fun, de Los Ñus del viernes 10 de octubre de 2026, todavía no se ha
+    anunciado.» — punto único del asunto (el del escalado a dirección y el título del aviso)."""
+    try:
+        tipo = _activity_kind_label(getattr(concert, "activity_type", None)) or "Actividad"
+    except Exception:
+        tipo = "Actividad"
+    nombre = _announce_activity_place(concert)
+    artista = ""
+    try:
+        if getattr(concert, "event_id", None):
+            ev = session_db.get(AppEvent, concert.event_id)
+            artista = (getattr(ev, "name", None) or "").strip()
+        if not artista:
+            artista = (getattr(getattr(concert, "artist", None), "name", None) or "").strip()
+    except Exception:
+        artista = ""
+    fecha = _long_date_es(getattr(concert, "date", None))
+    partes = ["Aviso: %s" % tipo]
+    if nombre:
+        partes.append(nombre)
+    texto = ", ".join(partes)
+    if artista:
+        texto += ", de %s" % artista
+    if fecha:
+        texto += " del %s" % fecha
+    return texto + ", todavía no se ha anunciado."
+
+
+def _announce_alert_url(concert) -> str:
+    """A dónde lleva el aviso: a ANUNCIARLA y comunicárselo al artista, con su vista previa.
+
+    ⚠️ `url_for` revienta fuera de una petición (esto se monta desde el cron), así que la ruta se
+    compone a mano como respaldo."""
+    cid = str(getattr(concert, "id", "") or "")
+    try:
+        return _external_url_for("concert_artist_notice_view", cid=cid, kind="ANUNCIO")
+    except Exception:
+        base = (_public_base_url() or "").rstrip("/")
+        return "%s/conciertos/%s/avisar-artista?kind=ANUNCIO" % (base, cid)
+
+
+def _announce_alert_body(concert, dias: int) -> str:
+    """El cuerpo del aviso: cuánto falta, en qué punto está y qué hay que hacer."""
+    cuando = ("Es mañana." if dias == 1 else
+              ("Es hoy." if dias <= 0 else "Faltan %d días." % dias))
+    partes = [cuando, _announce_situation(concert)]
+    if (getattr(concert, "status", None) or "").strip().upper() != "CONFIRMADO":
+        partes.append("Además, la actividad todavía no está confirmada.")
+    partes.append("Al anunciarla se le comunica al artista con la cartelería.")
+    return " ".join(partes)
+
+
+def _announce_alert_email(concert, *, title: str, body: str) -> dict | None:
+    """El correo del aviso, con la cabecera de la actividad y el botón (el esqueleto de la casa)."""
+    try:
+        return _notice_email_activity(
+            concert, title="Sigue sin anunciarse", subject=title, intro=body,
+            button_label="Anunciar y avisar al artista", button_url=_announce_alert_url(concert))
+    except Exception:
+        app.logger.exception("[anuncio] no se pudo componer el correo del aviso")
+        return None
+
+
+def _announce_alert_notify(session_db, concert, *, escalar: bool = False) -> int:
+    """Manda el aviso de «sigue sin anunciar» a quien la gestiona (o a dirección al escalar)."""
+    hoy = today_local()
+    dias = (concert.date - hoy).days if getattr(concert, "date", None) else 0
+    titulo = _announce_alert_subject(session_db, concert)
+    cuerpo = _announce_alert_body(concert, dias)
+    quienes = (_direccion_user_ids(session_db) if escalar
+               else _announce_alert_owner_ids(session_db, concert))
+    correo = _announce_alert_email(concert, title=titulo, body=cuerpo)
+    # ⚠️ `email_repeat=True`: es un RECORDATORIO que se repite (el de los 3 días y el escalado), y la
+    # regla de la casa —«por correo solo la primera vez»— lo dejaría sin salir.
+    return _notify_users(session_db, quienes, "ANUNCIO", titulo, cuerpo,
+                         _announce_alert_url(concert),
+                         ref_type=ANNOUNCE_ALERT_REF, ref_id=str(concert.id),
+                         actor_user_id=None, email=(correo if correo is not None else None),
+                         email_repeat=True)
+
+
+def _announce_alert_resolve(session_db, concert) -> None:
+    """El aviso se cierra SOLO en cuanto la actividad se anuncia (la regla de `_notify_resolve`)."""
+    try:
+        _notify_resolve(session_db, ANNOUNCE_ALERT_REF, str(getattr(concert, "id", "") or ""))
+    except Exception:
+        app.logger.exception("[anuncio] no se pudo cerrar el aviso")
+
+
+def _announce_alert_sweep(limit: int = 300) -> dict:
+    """EL BARRIDO (cron único, cada hora): el aviso del mes, el recordatorio y el escalado.
+
+    ⚠️ Hace falta un contexto de PETICIÓN (`_notify_user` mira quién actúa en la sesión): con solo
+    `app_context` el correo sale pero **el aviso de la campanita no llega a nadie**."""
+    hoy = today_local()
+    ahora = _now_madrid()
+    tope = hoy + timedelta(days=ANNOUNCE_ALERT_DAYS)
+    salida = {"avisadas": 0, "recordadas": 0, "escaladas": 0, "resueltas": 0}
+    session_db = db()
+    try:
+        filas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                 .filter(Concert.date >= hoy, Concert.date <= tope)
+                 .order_by(Concert.date.asc()).limit(limit).all())
+        with _soldout_app_context():
+            for c in filas:
+                try:
+                    if not _announce_alert_applies(c, hoy):
+                        # Ya está anunciada (o no aplica): si tenía aviso, se cierra solo.
+                        if getattr(c, "announce_alert_at", None) and not _announce_pending(c):
+                            _announce_alert_resolve(session_db, c)
+                            salida["resueltas"] += 1
+                        continue
+                    dias = (c.date - hoy).days
+                    # 1 · EL AVISO DEL MES (una sola vez)
+                    if not getattr(c, "announce_alert_at", None):
+                        if _announce_alert_notify(session_db, c):
+                            salida["avisadas"] += 1
+                        c.announce_alert_at = ahora
+                        continue
+                    # 2 · A LOS 3 DÍAS, se insiste POR CORREO
+                    if not getattr(c, "announce_alert_2_at", None):
+                        primero = c.announce_alert_at
+                        pasado = (ahora - primero).days if primero else 0
+                        if pasado >= ANNOUNCE_ALERT_REMIND_DAYS:
+                            if _announce_alert_notify(session_db, c):
+                                salida["recordadas"] += 1
+                            c.announce_alert_2_at = ahora
+                            continue
+                    # 3 · A 15 DÍAS DE LA ACTIVIDAD, se le dice a DIRECCIÓN
+                    # ⚠️ Nunca el MISMO día que el primer aviso: a quien la gestiona hay que darle
+                    # margen para anunciarla antes de que se lo digan a dirección (si no, en una
+                    # actividad que entra ya dentro de los 15 días saldrían los dos avisos a la vez).
+                    _dias_desde = ((ahora - c.announce_alert_at).days if c.announce_alert_at else 99)
+                    if (dias <= ANNOUNCE_ALERT_DIRECTION_DAYS and _dias_desde >= 1
+                            and not getattr(c, "announce_alert_dir_at", None)):
+                        if _announce_alert_notify(session_db, c, escalar=True):
+                            salida["escaladas"] += 1
+                        c.announce_alert_dir_at = ahora
+                except Exception:
+                    app.logger.exception("[anuncio] falló el aviso de %s", getattr(c, "id", ""))
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[anuncio] el barrido falló")
+        salida["error"] = str(exc)[:200]
+    finally:
+        session_db.close()
+    return salida
+
+
+def _announce_alert_state(session_db, concert) -> dict:
+    """Cómo va el reclamo del anuncio (para la ficha y la tarea): si urge y qué se ha avisado ya."""
+    hoy = today_local()
+    fecha = getattr(concert, "date", None)
+    dias = ((fecha - hoy).days if fecha else None)
+    aplica = _announce_alert_applies(concert, hoy)
+    return {
+        "pending": _announce_pending(concert),
+        "applies": aplica,
+        "days": dias,
+        # URGE cuando falta un mes o menos: es lo que pone la tarea en rojo.
+        "urgent": bool(aplica and dias is not None and dias <= ANNOUNCE_ALERT_DAYS),
+        "late": bool(aplica and dias is not None and dias <= ANNOUNCE_ALERT_DIRECTION_DAYS),
+        "alerted_at": getattr(concert, "announce_alert_at", None),
+        "escalated_at": getattr(concert, "announce_alert_dir_at", None),
+        "situation": _announce_situation(concert),
+        "url": _safe_url_for("concert_artist_notice_view", cid=str(concert.id), kind="ANUNCIO"),
+    }
+
+
+def _activity_notice_artwork(session_db, concert) -> dict:
+    """LA CARTELERÍA con la que se anuncia: las piezas aprobadas y el enlace público para bajarlas.
+
+    ⚠️ Lo que se manda es SIEMPRE la PÁGINA de cartelería (`_concert_artwork_share_url`), nunca la
+    URL de Storage: quien lo recibe no tiene usuario y un enlace directo no se previsualiza."""
+    try:
+        piezas = _concert_artwork_share_assets(session_db, concert) or []
+    except Exception:
+        app.logger.exception("[anuncio] no se pudieron leer los carteles")
+        piezas = []
+    filas = []
+    for a in piezas[:8]:
+        try:
+            filas.append({
+                "name": ((getattr(a, "format_label", None) or "").strip()
+                         or (getattr(a, "original_name", None) or "").strip() or "Cartel"),
+                "image": _artwork_image_src(a) or "",
+            })
+        except Exception:
+            continue
+    url = ""
+    if piezas:
+        try:
+            url = _concert_artwork_share_url(session_db, concert)
+        except Exception:
+            url = ""
+    return {"rows": filas, "count": len(piezas), "url": url}
+
+
+def _activity_notice_announcement(concert) -> dict:
+    """LOS DETALLES DEL ANUNCIO: cuándo se anuncia y cómo está la venta (lo que hace falta saber
+    para publicarlo)."""
+    fecha = getattr(concert, "announcement_date", None)
+    filas = []
+    hoy = today_local()
+    if fecha:
+        filas.append({"label": "Se anuncia", "value": ("Hoy" if fecha == hoy else fecha.strftime("%d/%m/%Y")),
+                      "note": ""})
+    venta = getattr(concert, "sale_start_date", None)
+    if venta:
+        hora = (getattr(concert, "sale_start_time", None) or "").strip()
+        filas.append({"label": "Salida a la venta",
+                      "value": venta.strftime("%d/%m/%Y") + (" · %s" % hora if hora else ""), "note": ""})
+    elif _truthy(getattr(concert, "sale_start_tbc", False)):
+        filas.append({"label": "Salida a la venta", "value": "Por confirmar", "note": ""})
+    return {"rows": filas}
+
+
 def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION") -> dict:
     """Todo lo que necesitan el correo, la página pública y la vista previa del aviso."""
     kind = (kind or "CONFIRMACION").strip().upper()
@@ -113824,6 +114156,10 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
         "roadmap_url": roadmap_url,
         "description": _activity_notice_description(session_db, concert),
         "conditions": _activity_notice_conditions(session_db, concert),
+        # ⚠️ Solo en el aviso de ANUNCIO: la CARTELERÍA con la que se anuncia y los detalles del
+        # anuncio. En los demás tipos van vacíos y sus módulos no se pintan.
+        "artwork": (_activity_notice_artwork(session_db, concert) if kind == "ANUNCIO" else {}),
+        "announcement": (_activity_notice_announcement(concert) if kind == "ANUNCIO" else {}),
         "has_cache": _concert_has_cache(session_db, concert),
         "channel_key": _activity_notification_channel(session_db, concert),
         # ¿Este aviso PIDE respuesta? (los botones Confirmar / Rechazar del correo y de la landing).
@@ -113990,6 +114326,43 @@ def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool
             + ojo("hoja_ruta", "Hoja de ruta") +
             '</div>'
         )
+
+    # ---- LA CARTELERÍA con la que se anuncia (solo en el aviso de ANUNCIO) ----
+    # ⚠️ Las miniaturas van en una `<table>` con URLs ABSOLUTAS: esto se ve en un cliente de correo.
+    arte = ctx.get("artwork") or {}
+    if arte.get("rows") or arte.get("url"):
+        cuerpo = ""
+        if arte.get("rows"):
+            cuerpo += ('<table role="presentation" cellspacing="0" cellpadding="0" '
+                       'style="border-collapse:collapse;margin-top:8px;"><tr>')
+            for pieza in arte["rows"][:4]:
+                img = _absolute_media_url(pieza.get("image") or "") if (pieza.get("image") or "") else ""
+                cuerpo += ('<td style="padding:0 10px 0 0;text-align:center;vertical-align:top;">'
+                           + (f'<img src="{esc(img)}" alt="" style="max-width:120px;max-height:120px;'
+                              'border-radius:8px;border:1px solid #e6e8eb;display:block;">' if img else "")
+                           + f'<div style="font-size:11px;color:#6b7683;margin-top:4px;max-width:120px;">{esc(pieza.get("name") or "")}</div>'
+                           + '</td>')
+            cuerpo += '</tr></table>'
+            if int(arte.get("count") or 0) > len(arte["rows"]):
+                cuerpo += (f'<div style="margin-top:6px;font-size:12px;color:#6b7683;">'
+                           f'y {int(arte["count"]) - len(arte["rows"])} más</div>')
+        elif int(arte.get("count") or 0):
+            cuerpo += f'<div style="margin-top:6px;font-size:14px;">{esc(arte["count"])} piezas</div>'
+        if arte.get("url"):
+            cuerpo += (f'<div style="margin-top:10px;"><a href="{esc(arte["url"])}" '
+                       'style="display:inline-block;padding:10px 16px;background:#212529;color:#fff;'
+                       'text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">'
+                       'Descargar la cartelería</a></div>')
+        bloque_arte = modulo("carteles", "Cartelería", cuerpo, "fa-image")
+        if bloque_arte:
+            partes.append(bloque_arte)
+
+    # ---- LOS DETALLES DEL ANUNCIO (cuándo se anuncia y cómo va la venta) ----
+    anuncio = ctx.get("announcement") or {}
+    if anuncio.get("rows"):
+        bloque_an = modulo("anuncio", "El anuncio", filas_html(anuncio["rows"]), "fa-bullhorn")
+        if bloque_an:
+            partes.append(bloque_an)
 
     # ---- DESCRIPCIÓN (solo si la actividad la tiene: en un concierto no sale ni el título) ----
     desc = ctx.get("description") or None
@@ -114171,6 +114544,14 @@ def concert_artist_notice_view(cid):
             ack_url=url_for("concert_artist_notice_ack", cid=concert.id),
             artist_config_url=(url_for("artist_detail_view", artist_id=concert.artist_id, tab="datos")
                                if getattr(concert, "artist_id", None) else ""),
+            # ⚠️ EL AVISO DE **ANUNCIO**: además de la vista previa, la pantalla pide la FECHA en la
+            # que se anuncia y avisa si todavía no hay carteles subidos (que es con lo que se
+            # anuncia). Sin ellos se puede avisar igual, pero hay que decirlo a propósito.
+            announce=({"date": (getattr(concert, "announcement_date", None) or today_local()),
+                       "state": _announce_alert_state(session_db, concert),
+                       "artwork": ctx.get("artwork") or {},
+                       "artwork_url": url_for("concert_detail_view", cid=concert.id, tab="carteleria")}
+                      if kind == "ANUNCIO" else None),
         )
     finally:
         session_db.close()
@@ -114414,6 +114795,30 @@ def concert_artist_notice_send(cid):
                 msg = f"No se pudo mandar el SMS: {error or 'error desconocido'}"
                 return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
                     flash(msg, "danger") or redirect(url_for("concert_artist_notice_view", cid=cid)))
+
+        # ⚠️⚠️ EL AVISO DE **ANUNCIO** MARCA LA ACTIVIDAD COMO ANUNCIADA: es lo que se está
+        # comunicando. Se le pone la fecha (hoy o la que se haya elegido), se quita el «no anunciar»
+        # y el reclamo automático se cierra solo (la regla de `_notify_resolve`).
+        # ⚠️ Y **NO** marca el aviso formal de la actividad (`artist_notified_at`): son dos
+        # comunicaciones distintas, como CONFIRMAR — si lo marcara, la fase «Informar al artista»
+        # desaparecería sola sin haberse hecho.
+        if kind == "ANUNCIO":
+            fecha_anuncio = parse_optional_date(datos.get("announce_date")) or today_local()
+            concert.do_not_announce = False
+            concert.announcement_date = fecha_anuncio
+            concert.updated_at = _now_madrid()
+            _announce_alert_resolve(session_db, concert)
+            session_db.commit()
+            texto = _activity_notice_share_text(ctx)
+            if es_json:
+                return jsonify({"ok": True, "channel": canal, "url": enlace, "share_text": texto,
+                                "sms_text": texto_corto, "sent": enviado, "warning": (error or ""),
+                                "recipients": destinos, "announced": True})
+            flash(("Anunciada y comunicada al artista." if enviado
+                   else "Anunciada. El aviso queda registrado."), "success")
+            if enviado and error:
+                flash(error, "warning")
+            return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
 
         # ⚠️⚠️ PEDIR LA CONFIRMACIÓN **NO ES** EL AVISO FORMAL DE LA ACTIVIDAD: son dos
         # comunicaciones distintas (la fase 2 de la petición y la 4). Si CONFIRMAR marcara
@@ -129911,6 +130316,9 @@ NOTIFICATION_KIND_META = {
     "VACACIONES": ("Vacaciones", "fa-umbrella-beach"),
     "DEMO": ("Nos han enviado demos", "fa-compact-disc"),
     "VENTA": ("Hay que sacarla a la venta", "fa-ticket"),
+    # ⚠️ A UN MES de la actividad, si sigue sin anunciar: se le dice a quien la gestiona, se le
+    # insiste a los 3 días y a 15 días se escala a dirección (`_announce_alert_sweep`).
+    "ANUNCIO": ("Sigue sin anunciarse", "fa-bullhorn"),
     # ⚠️ Distinto de VENTA: ese es «sácala a la venta» y este «actualiza cómo van las ventas».
     "VENTAS_ACTUALIZAR": ("Hay que actualizar las ventas", "fa-rotate"),
     "CONTABILIDAD": ("Hay algo nuevo que contabilizar", "fa-calculator"),
@@ -130008,6 +130416,9 @@ NOTICE_CHANNELS_SETTING = "notification_channels_v1"
 # Cuándo salta cada aviso (se explica en la pantalla de configuración: un interruptor sin saber qué
 # apaga no se toca nunca).
 NOTIFICATION_KIND_HELP = {
+    "ANUNCIO": ("Cuando faltan cuatro semanas para una actividad y sigue sin anunciarse. Se avisa a "
+                "quien la gestiona, se le insiste por correo a los tres días y, si a quince días "
+                "sigue sin anunciarse, se le dice a dirección."),
     "ACOMPANANTE": ("Cuando producción decide quién va con el artista a un evento promocional o a "
                     "una promoción, se le avisa a esa persona."),
     "PRODUCCION": "Cuando a alguien se le asigna la producción de un concierto, una actividad, "
@@ -130045,13 +130456,16 @@ NOTICE_EMAIL_DEFAULT_KINDS = {"PRODUCCION", "DISENO", "VACACIONES", "ADMIN_BOLSA
                               # entrar en la app: es la regla de la casa (por correo, lo que te
                               # ENTRA por primera vez).
                               "ACOMPANANTE",
-                              "VENTAS_ACTUALIZAR", "PETICION"}
+                              "VENTAS_ACTUALIZAR", "PETICION",
+                              # Que una actividad se quede sin anunciar cuesta entradas: este no se
+                              # puede quedar solo en la campanita.
+                              "ANUNCIO"}
 
 
 def _notice_kind_catalog() -> list[dict]:
     """Todos los tipos de aviso internos de la app, en el orden en que se configuran."""
     orden = ["PRODUCCION", "ACOMPANANTE", "DISENO", "PETICION", "ADMIN_BOLSA", "ADMIN_PETICION", "REMESA", "VACACIONES",
-             "VENTA", "VENTAS_ACTUALIZAR", "CONTABILIDAD", "REGISTROS", "MATERIALES",
+             "VENTA", "ANUNCIO", "VENTAS_ACTUALIZAR", "CONTABILIDAD", "REGISTROS", "MATERIALES",
              "FECHA_LANZAMIENTO", "PITCH",
              "DEMO", "DISCOGRAFICA", "AGENDA", "TAREA"]
     claves = orden + [k for k in NOTIFICATION_KIND_META if k not in orden]
@@ -148306,6 +148720,10 @@ def integrations_view():
         cm_platform_labels=[("spotify", "Spotify"), ("apple_music", "Apple Music"), ("amazon_music", "Amazon Music"), ("tiktok", "TikTok"), ("youtube", "YouTube")],
         cm_last_refresh=cm_last_refresh,
         cm_credit_warning=cm_credit_warning,
+        # EL CRON ÚNICO: si late, cuándo fue la última vez y cómo va cada automatización.
+        **(_cron_status_context() if "_cron_status_context" in globals() else
+           {"cron_alive": False, "cron_never": True, "cron_rows": [], "cron_ago": "",
+            "cron_last_label": "", "cron_ticks": 0, "cron_url": "", "cron_key_set": False}),
         **sms_ctx,
     )
 
@@ -159678,6 +160096,14 @@ def _cron_state_save(estado: dict) -> None:
         app.logger.exception("[cron] no se pudo guardar el estado")
 
 
+def _safe_url_for_external(endpoint, **valores) -> str:
+    """`_external_url_for` que no revienta fuera de una petición (devuelve "")."""
+    try:
+        return _external_url_for(endpoint, **valores)
+    except Exception:
+        return ""
+
+
 def _cron_parse_dt(valor):
     try:
         d = datetime.fromisoformat(str(valor or ""))
@@ -159892,7 +160318,9 @@ def _cron_status_context() -> dict:
         "cron_ticks": int(estado.get("tick_count") or 0),
         "cron_rows": _cron_status_rows(),
         "cron_failing": fallos,
-        "cron_url": _external_url_for("cron_tick"),
+        # ⚠️ `url_for` revienta fuera de una petición (esto se puede leer desde un cron o un hilo):
+        # con respaldo a mano, como el resto de enlaces que se componen fuera de una petición.
+        "cron_url": (_safe_url_for_external("cron_tick") or ((_public_base_url() or "").rstrip("/") + "/cron")),
         "cron_key_set": bool(_cron_expected_keys()),
         "cron_silent_minutes": CRON_SILENT_MINUTES,
     }

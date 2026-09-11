@@ -12560,3 +12560,75 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`artist_chip`), que es lo que identifica una liquidación de un vistazo. Punto único
   **`_bag_artist_chips(session_db, bag)`** (reutiliza `_bag_artist_rows` y cae a `bag.artist`),
   **cacheado por bolsa**: estas pantallas la pintan una vez por gasto.
+
+- ⚠️⚠️⚠️ **UN SOLO CRON PARA TODA LA APP** (sep 2026). Había **DOCE** tareas programadas distintas,
+  con cuatro claves y cada una con su cadencia: una automatización nueva obligaba a dar de alta otro
+  cron en el servidor y, si a alguien se le olvidaba, **ese aviso no salía nunca y nadie se
+  enteraba**. Ahora el servidor solo le pega **CADA MINUTO** a UNA dirección:
+
+      https://app.33producciones.es/cron?key=<APP_CRON_KEY>
+
+  …y **la app decide** qué le toca a cada cosa. **UNA AUTOMATIZACIÓN NUEVA SE AÑADE A `CRON_TASKS`
+  Y EMPIEZA A CORRER SOLA**: no hay que tocar el servidor nunca más.
+  · **EL REGISTRO** (`CRON_TASKS`, al final de `app.py`): `key` (clave estable, es con la que se
+  apunta cuándo corrió) · `label` · **`every`** (cada cuántos minutos) · **`at_hour`** (si es diaria,
+  a partir de qué hora de España, una vez al día) · **`fn`** (el NOMBRE de la función, que se
+  resuelve en `globals()` al ejecutar: así el registro vive al final sin importar dónde esté
+  definida) o **`run`** (un envoltorio ya hecho: `_cron_session_task` abre y cierra la sesión,
+  `_cron_thread_task` lanza en 2º plano lo que tarda, con su `guard` de «está configurada»).
+  · **EL LATIDO** (`_cron_tick`): **cerrojo** entre workers (`_pleo_pg_lock`, mejor no hacer nada que
+  mandar dos veces el mismo aviso) · **presupuesto de 50 s** (el latido es de un minuto: lo que no
+  cabe queda para la siguiente) · y empieza por **lo que más retraso lleva RELATIVO a su cadencia**
+  (si no, una de cada minuto no adelantaría nunca a una diaria). Lo que pasa se apunta en
+  `AppSetting` (`cron_state_v1`).
+  ⚠️ **Si una tarea FALLA se reintenta a los `CRON_RETRY_MINUTES` (15)** aunque sea diaria: un fallo
+  a las 8:00 dejaría ese aviso sin salir hasta el día siguiente.
+  · **LAS RUTAS VIEJAS SE CONSERVAN** (`/cron/documentos-caducados`, `/cron/pleo/refresh`…): cada una
+  fuerza SU tarea **y corre lo que le toque al resto**, así que lo que ya esté configurado en el
+  servidor mantiene TODA la app al día mientras se cambia.
+  · **SE VE SI LATE**: Integraciones → **Automatizaciones** (`_cron_status_context`): si está
+  latiendo, cuándo fue la última vez, la cadencia de cada una, qué hizo, sus errores y un botón para
+  ejecutarla ahora (`cron_run_now`, solo dirección). ⚠️ Sin latido **NO sale ningún aviso
+  automático** y en la app no se nota hasta que alguien echa de menos uno: por eso lo primero que
+  dice la pantalla es si el servidor le está pegando.
+  ⚠️ La clave es **`APP_CRON_KEY`**; se aceptan también las de siempre (`DOCS_CRON_KEY`,
+  `PLEO_CRON_KEY`…) para no romper lo que ya está puesto. `cron_tick` va en las listas de PÚBLICOS
+  (lo autoriza su `?key=`), y `cron_run_now` se mapea a `integraciones`.
+  ⚠️ `?tarea=<clave>` corre solo esa y `?forzar=1` se salta la cadencia (para probar una ahora).
+
+- ⚠️⚠️ **QUE NO SE QUEDE NINGUNA ACTIVIDAD SIN ANUNCIAR** (sep 2026). A **CUATRO SEMANAS**
+  (`ANNOUNCE_ALERT_DAYS` = 28) de la fecha, una actividad que sigue sin anunciar —o marcada **«No
+  anunciar»**, que a un mes vista es una decisión que hay que repasar— ya es un problema: la entrada
+  no se vende sola. La app avisa ELLA (`_announce_alert_sweep`, del cron único, cada hora):
+  · **a un mes** → aviso (campanita **y correo**) a **quien la GESTIONA**: **quien la creó**
+    (`Concert.created_by_user_id`, o sea contratación o sello según de dónde haya salido) y, si no
+    consta, el departamento de **Contratación** (y si tampoco hay nadie, dirección);
+  · **a los 3 días** (`ANNOUNCE_ALERT_REMIND_DAYS`), si sigue sin anunciarse, **se le insiste**;
+  · **a 15 días** (`ANNOUNCE_ALERT_DIRECTION_DAYS`) → se le dice a **DIRECCIÓN**, con el asunto que
+    pidió Dani: **«Aviso: \<tipo\>, \<nombre o municipio\>, de \<artista\> del \<día de la semana y
+    fecha\>, todavía no se ha anunciado.»** (punto único `_announce_alert_subject`).
+  ⚠️ El escalado **nunca el mismo día** que el primer aviso: a quien la gestiona hay que darle margen
+  (si no, en una actividad que entra ya dentro de los 15 días saldrían los dos avisos a la vez).
+  ⚠️ **`email_repeat=True`**: es un recordatorio que se repite, y la regla de la casa («por correo
+  solo la primera vez») lo dejaría sin salir.
+  · **QUÉ SE ANUNCIA**: lo que tiene público (`ANNOUNCE_ACTIVITY_TYPES`: conciertos, festivales,
+  ciclos, promocionales, TV, marca, premios y firmas). Un ENSAYO, una grabación o una reunión **no**.
+  Tampoco un **BORRADOR** (es un apunte a medias), ni lo cancelado, ni el histórico. Una **RESERVA
+  sí** —a un mes vista una fecha sin cerrar es justo lo que hay que mirar— y el aviso lo DICE.
+  · **ANUNCIAR ES COMUNICARLO**: el aviso lleva a la pantalla de siempre del aviso al artista con el
+  tipo nuevo **`ANUNCIO`** («Ya se puede anunciar»), que es el MISMO contenido de la actividad más
+  dos módulos: **CARTELERÍA** (las piezas aprobadas y el enlace público para descargarlas —nunca la
+  URL de Storage—) y **EL ANUNCIO** (qué día se anuncia y cómo va la venta), con su vista previa, su
+  nota, sus ojos y sus destinatarios. **Al enviarlo, la actividad queda ANUNCIADA** con la fecha que
+  se elija y el reclamo **se cierra solo** (`_notify_resolve`).
+  ⚠️ **SIN CARTELERÍA no se manda de primeras**: se avisa y hay que pulsar «Avisar sin carteles» a
+  propósito (hay actividades que se anuncian sin cartel, pero no puede pasar sin darse cuenta).
+  ⚠️ **ANUNCIO no marca el aviso formal** de la actividad (`artist_notified_at`), como CONFIRMAR: son
+  comunicaciones distintas y la fase «Informar al artista» desaparecería sola sin haberse hecho.
+  · **Dónde se ve**: la **tarea** de la pestaña «Inicio» de la actividad, que a partir de las cuatro
+  semanas dice **cuántos días faltan** y lleva a «Anunciar y avisar al artista»; y la **etiqueta del
+  anuncio** de la cabecera, que gana esa misma opción. Punto único `_announce_alert_state`, así que
+  la tarea, la ficha y el aviso automático no pueden decir cosas distintas.
+  ⚠️ Columnas nuevas en `Concert` (`announce_alert_at` · `_2_at` · `_dir_at`), **cada una en su
+  propia sentencia** del `ensure_*` (la regla de la casa: dentro de un ALTER que ya existe puede no
+  ejecutarse nunca y la app revienta al leerla).

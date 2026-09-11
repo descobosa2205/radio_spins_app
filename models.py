@@ -479,6 +479,13 @@ def ensure_artist_notifications_schema():
             -- tareas (ver `Concert.cancellation_payload`).
             ADD COLUMN IF NOT EXISTS cancellation_payload jsonb NOT NULL DEFAULT '{}'::jsonb;
         """,
+        # ⚠️⚠️ EN SU PROPIA SENTENCIA (la regla de la casa): una columna nueva metida dentro de un
+        # ALTER que ya existe puede no llegar a ejecutarse nunca y la app revienta al leerla.
+        # AVISO DE «FALTA UN MES Y SIGUE SIN ANUNCIAR»: cuándo se avisó a quien lo gestiona, cuándo
+        # se le insistió por correo (a los 3 días) y cuándo se escaló a dirección (a los 15 días).
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_alert_at timestamptz;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_alert_2_at timestamptz;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS announce_alert_dir_at timestamptz;",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_artwork_share_token "
         "ON concerts(artwork_share_token) WHERE artwork_share_token IS NOT NULL;",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_sales_request_token "
@@ -2893,6 +2900,13 @@ class Concert(Base):
     # Enlace PÚBLICO de la cartelería (token opaco; ⚠️ NO es el de la solicitud a diseño, que sirve
     # para SUBIR carteles: aquí solo se ven y se descargan).
     artwork_share_token = Column(Text)
+    # ⚠️⚠️ QUE NO SE QUEDE NINGUNA ACTIVIDAD SIN ANUNCIAR. A CUATRO SEMANAS de la fecha, si sigue sin
+    # anunciar (o marcada «no anunciar»), la app avisa sola a quien la gestiona; a los 3 días le
+    # insiste POR CORREO y, cuando quedan 15 días, se lo dice a DIRECCIÓN. Aquí se apunta cada paso
+    # para no repetirlo (el barrido es `_announce_alert_sweep`, del cron único).
+    announce_alert_at = Column(DateTime(timezone=True))
+    announce_alert_2_at = Column(DateTime(timezone=True))
+    announce_alert_dir_at = Column(DateTime(timezone=True))
     # ⚠️ CANCELAR o APLAZAR una actividad no es solo cambiar el estado: es un PROCESO (el motivo, si
     # se cobra el caché, si el promotor cubre los gastos, la nueva fecha si la hay) y un puñado de
     # tareas para producción (avisar a proveedores y al personal, cerrar la bolsa). Todo eso vive

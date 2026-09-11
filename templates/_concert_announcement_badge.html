@@ -43,6 +43,16 @@
       </li>
       <li><hr class="dropdown-divider"></li>
       <li>
+        {# ⚠️ ANUNCIARLA Y COMUNICÁRSELO AL ARTISTA (con la cartelería y su vista previa): es lo que
+           hay que hacer de verdad, así que va aquí y no escondido en otra pantalla. #}
+        <a class="dropdown-item d-flex align-items-center gap-2 px-1"
+           href="{{ url_for('concert_artist_notice_view', cid=concert.id, kind='ANUNCIO') }}">
+          <i class="fa fa-bullhorn text-primary"></i>
+          <span>Anunciar y avisar al artista</span>
+        </a>
+      </li>
+      <li><hr class="dropdown-divider"></li>
+      <li>
         {# Poner (o cambiar) la FECHA de anuncio sin salir del desplegable. #}
         <form method="post" action="{{ url_for('concert_announcement_set', cid=concert.id) }}" class="px-1">
           <input type="hidden" name="next" value="{{ request.full_path }}">

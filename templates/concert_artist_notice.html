@@ -121,9 +121,46 @@
       </div>
     {% endif %}
 
+    {# ⚠️⚠️ EL ANUNCIO: se marca la actividad como ANUNCIADA y se le comunica al artista con la
+       CARTELERÍA. Si todavía no hay carteles aprobados se avisa y hay que decidirlo a propósito
+       (subirlos, o avisar igual: hay actividades que se anuncian sin cartel). #}
+    {% if announce %}
+      <div class="card mb-3 border-primary">
+        <div class="card-body">
+          <h6 class="mb-2"><i class="fa fa-bullhorn me-1 text-primary"></i>El anuncio</h6>
+          <label class="form-label small mb-1">¿Qué día se anuncia?</label>
+          <input type="date" class="form-control form-control-sm" data-an-announce-date
+                 value="{{ announce.date.isoformat() if announce.date else '' }}">
+          <div class="form-text">Al enviar el aviso, la actividad queda <strong>anunciada</strong> ese día.</div>
+
+          {% if announce.artwork and announce.artwork.count %}
+            <div class="alert alert-success py-2 px-3 small mt-3 mb-0">
+              <i class="fa fa-image me-1"></i>{{ announce.artwork.count }}
+              {{ 'cartel' if announce.artwork.count == 1 else 'carteles' }} en el aviso.
+              {% if announce.artwork.url %}
+                <a href="{{ announce.artwork.url }}" target="_blank" rel="noopener" class="alert-link">Ver lo que recibe</a>
+              {% endif %}
+            </div>
+          {% else %}
+            <div class="alert alert-warning py-2 px-3 small mt-3 mb-0" data-an-noart>
+              <i class="fa fa-triangle-exclamation me-1"></i>
+              <strong>Todavía no hay cartelería aprobada.</strong> Es con lo que se anuncia: súbela
+              antes y luego avisa.
+              <div class="mt-2 d-flex flex-wrap gap-2">
+                <a class="btn btn-sm btn-primary" href="{{ announce.artwork_url }}">
+                  <i class="fa fa-upload me-1"></i>Subir la cartelería</a>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-an-skip-art>
+                  Avisar sin carteles</button>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
     <div class="d-grid gap-2">
       <button class="btn btn-primary" type="button" data-an-send>
-        <i class="fa fa-paper-plane me-1"></i>{{ 'Pedirle la confirmación' if notice_asks else 'Enviar el aviso' }}
+        <i class="fa fa-paper-plane me-1"></i>{% if announce %}Anunciar y avisar al artista{% else %}{{ 'Pedirle la confirmación' if notice_asks else 'Enviar el aviso' }}{% endif %}
         {% if confirm_after and not notice_asks %}<span class="badge text-bg-light text-dark ms-1">y confirmar</span>{% endif %}
       </button>
       {% if notice_asks %}
@@ -275,8 +312,27 @@
     });
   });
 
+  // ⚠️ SIN CARTELERÍA no se manda de primeras: hay que decir a propósito que se avisa sin ella
+  // (hay actividades que se anuncian sin cartel, pero no puede pasar sin darse cuenta).
+  var avisoSinArte = root.querySelector('[data-an-noart]');
+  var saltarArte = false;
+  var botonSaltar = root.querySelector('[data-an-skip-art]');
+  if (botonSaltar) {
+    botonSaltar.addEventListener('click', function () {
+      saltarArte = true;
+      avisoSinArte.classList.remove('alert-warning');
+      avisoSinArte.classList.add('alert-secondary');
+      this.outerHTML = '<span class="badge text-bg-secondary">Se avisará sin carteles</span>';
+    });
+  }
+
   root.querySelector('[data-an-send]').addEventListener('click', function () {
     var btn = this;
+    if (avisoSinArte && !saltarArte) {
+      avisoSinArte.scrollIntoView({ block: 'center' });
+      alert('Todavía no hay cartelería aprobada. Súbela antes, o pulsa «Avisar sin carteles» si esta actividad se anuncia sin cartel.');
+      return;
+    }
     btn.disabled = true;
     var previo = btn.innerHTML;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
@@ -290,7 +346,9 @@
         hidden: hidden(),
         emails: (root.querySelector('[data-an-emails]') || {}).value || '',
         phones: (root.querySelector('[data-an-phones]') || {}).value || '',
-        confirm_after: root.getAttribute('data-confirm-after') ? '1' : ''
+        confirm_after: root.getAttribute('data-confirm-after') ? '1' : '',
+        // El día en que se anuncia (solo en el aviso de ANUNCIO).
+        announce_date: (root.querySelector('[data-an-announce-date]') || {}).value || ''
       })
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (!d || !d.ok) {

@@ -160466,6 +160466,24 @@ def _cron_thread_task(fn_name: str, guard: str = ""):
     return _run
 
 
+def _cron_pleo_sync_bg() -> None:
+    """Pleo, en 2º plano (con su contexto: dentro se componen avisos y enlaces)."""
+    with app.app_context():
+        try:
+            _pleo_sync_all()
+        except Exception:
+            app.logger.exception("[cron] la sincronización de Pleo falló")
+
+
+def _cron_cabify_sync_bg() -> None:
+    """Cabify, en 2º plano."""
+    with app.app_context():
+        try:
+            _cabify_sync_all()
+        except Exception:
+            app.logger.exception("[cron] la sincronización de Cabify falló")
+
+
 def _cron_enterticket_guard() -> bool:
     try:
         return bool(et_api.enterticket_configured())
@@ -160506,13 +160524,15 @@ CRON_TASKS = [
      "fn": "_sales_request_sweep", "icon": "fa-chart-simple"},
     {"key": "ventas_propias", "label": "Recordar a ticketing las ventas sin actualizar", "every": 60,
      "fn": "_sales_own_sweep", "icon": "fa-chart-simple"},
+    # ⚠️ EN SEGUNDO PLANO: una sincronización larga tiene el cerrojo tomado y deja fuera al resto
+    # (el latido es de un minuto). Nadie espera su resultado, así que se lanza y se sigue.
     {"key": "pleo", "label": "Pleo · importar gastos", "every": 60,
-     "fn": "_pleo_sync_all", "icon": "fa-receipt"},
+     "run": _cron_thread_task("_cron_pleo_sync_bg"), "icon": "fa-receipt"},
     {"key": "holded", "label": "Holded · qué está ya contabilizado", "every": 60,
      "run": _cron_session_task("_holded_refresh_accounted"), "icon": "fa-calculator"},
     # ── cada dos horas ─────────────────────────────────────────────────────────────────────
     {"key": "cabify", "label": "Cabify · importar viajes", "every": 120,
-     "fn": "_cabify_sync_all", "icon": "fa-taxi"},
+     "run": _cron_thread_task("_cron_cabify_sync_bg"), "icon": "fa-taxi"},
     # ── una vez al día ─────────────────────────────────────────────────────────────────────
     {"key": "documentos", "label": "Documentos caducados (DNI, carnet, pasaporte)", "every": 1440,
      "at_hour": 8, "fn": "_person_docs_expired_sweep", "icon": "fa-id-card"},

@@ -123467,8 +123467,13 @@ def my_expense_upload_invoice(expense_id):
         fs = request.files.get("file")
         if not fs or not getattr(fs, "filename", ""):
             return jsonify({"ok": False, "error": "No llegó ningún archivo."}), 400
+        # LA CUENTA que dice la factura: se apunta en su factura registrada (si la tiene) para que
+        # al asignar el gasto a una bolsa no haya que perseguir a nadie para que la diga.
+        _iban_doc = _invoice_iban_from_upload(fs)
         row.file_url = upload_file(fs, "gastos-personales")
         row.original_name = os.path.basename((fs.filename or "").replace("\\", "/"))[:200] or None
+        if _iban_doc and getattr(row, "supplier_invoice_id", None):
+            _invoice_iban_apply(session_db, session_db.get(SupplierInvoice, row.supplier_invoice_id), _iban_doc)
         row.document_type = (request.form.get("document_type") or row.document_type or "FACTURA").upper()
         # Con justificante ya no hace falta el «sin factura» que hubiera pedido.
         if (row.no_invoice_status or "").upper() in ("SOLICITADO", "RECHAZADO"):
@@ -127513,6 +127518,8 @@ def public_bag_invoice_upload_post(token):
             return jsonify({"ok": False, "error": "Concepto no encontrado"}), 404
         filename = (f.filename or "factura").strip()
         is_pdf = filename.lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
+        # LA CUENTA en la que cobra, de la propia factura (antes de subirla: subirla gasta el stream).
+        _iban_fill(session_db, provider, _invoice_iban_from_upload(f))
         url = upload_pdf(f, "invoices") if is_pdf else upload_file(f, "invoices")
         if not url:
             return jsonify({"ok": False, "error": "No se pudo guardar el archivo"}), 400

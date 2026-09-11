@@ -12285,3 +12285,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Al guardar por AJAX **la CABECERA no se repinta** (`ajax_inline` solo reemplaza su zona), así
   que el planteamiento sale también como una fila de la vista de **Información** —que sí se refresca
   al momento— y en la cabecera al recargar, igual que PROVISIONAL o EXPLÍCITA.
+
+- ⚠️⚠️⚠️ **UN ESTADO NUEVO HAY QUE AÑADIRLO TAMBIÉN AL CHECK DE LA BD** (bug real y grave, sep 2026:
+  «al cancelar una actividad, a contratación le da `violates check constraint
+  "concerts_status_check"`»). `concerts.status` tiene un **CHECK con la lista cerrada** de estados
+  válidos, y cuando se añadieron **CANCELADO** y **APLAZADO** al proceso de cancelación (ago 2026)
+  se actualizó `CONCERT_STATUS_META` en `app.py` pero **NO el DDL**: el CHECK se quedó con los
+  cuatro de siempre, así que **cancelar o aplazar no se podía** —reventaba al guardar el estado y
+  salía la pantalla de mantenimiento— desde que se implementó.
+  · **Punto ÚNICO: `models.CONCERT_STATUS_VALUES`**, y el CHECK se CONSTRUYE con ella
+  (`ensure_third_party_and_contract_sheet_schema`), así que un estado nuevo entra solo y no se
+  pueden desparejar. El bloque `DO $$` dropea el constraint antes de recrearlo, así que se aplica
+  en cada arranque (⚠️ `_ddl_already_applied` **no salta un `DO $$`**: solo CREATE TABLE/INDEX y
+  ALTER … ADD COLUMN).
+  · **RED DE SEGURIDAD**: al arrancar se comprueba que todo estado de `CONCERT_STATUS_META` esté en
+  esa lista y, si falta alguno, se avisa en el log **con el nombre** — que es cuando se puede
+  arreglar, no cuando alguien intenta cancelar.
+  ⚠️ Comprobación: `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE contype='c'
+  AND pg_get_constraintdef(oid) LIKE '%= ANY (ARRAY[%'` — hoy **solo hay UNO** en toda la base (este),
+  así que no hay más catálogos que se puedan quedar atrás por este camino.
+  ⚠️ Probado reproduciendo el CHECK viejo: antes falla con `CheckViolation` y después los SEIS
+  estados se guardan, un estado inventado **se sigue rechazando** (el CHECK protege), y el proceso
+  entero de cancelar y de aplazar llega hasta el final («La actividad queda CANCELADA. Producción ya
+  tiene sus tareas»).

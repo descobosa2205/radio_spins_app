@@ -59338,6 +59338,16 @@ CONCERT_STATUS_META = {
 # Los estados a los que se llega por el PROCESO de cancelación/aplazamiento, no pinchando la
 # etiqueta: hay que decir el motivo, qué pasa con el caché y avisar al artista.
 CONCERT_PROCESS_STATUSES = {"CANCELADO", "APLAZADO"}
+# ⚠️⚠️ RED DE SEGURIDAD: la BD tiene un CHECK con los estados válidos (`concerts_status_check`, que
+# se construye con `models.CONCERT_STATUS_VALUES`). Un estado que esté aquí y NO en la BD revienta
+# al guardar con «violates check constraint» y saca la pantalla de mantenimiento — pasó con
+# CANCELADO y APLAZADO. Se avisa en el arranque, que es cuando se puede arreglar.
+from models import CONCERT_STATUS_VALUES as _CONCERT_STATUS_VALUES_DB
+_estados_sin_check = set(CONCERT_STATUS_META) - set(_CONCERT_STATUS_VALUES_DB)
+if _estados_sin_check:
+    app.logger.error(
+        "Estados de actividad que la BD NO admite (falta añadirlos a models.CONCERT_STATUS_VALUES): %s",
+        ", ".join(sorted(_estados_sin_check)))
 GROUP_STATUS_META = {
     "ACTIVA": ("Activa", "text-bg-success"), "ACTIVO": ("Activo", "text-bg-success"),
     "ARCHIVADA": ("Archivada", "text-bg-secondary"), "ARCHIVADO": ("Archivado", "text-bg-secondary"),

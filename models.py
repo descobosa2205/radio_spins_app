@@ -2711,6 +2711,15 @@ class RoyaltyLiquidation(Base):
     )
 
 
+# ⚠️⚠️ LOS ESTADOS VÁLIDOS DE UNA ACTIVIDAD, EN UN SOLO SITIO. De aquí sale el CHECK de la BD
+# (`concerts_status_check`, en `ensure_third_party_and_contract_sheet_schema`) y de aquí los lee
+# `app.CONCERT_STATUS_META`. Un estado nuevo que se añada SOLO en Python revienta al guardar con
+# «violates check constraint» (bug real: CANCELADO y APLAZADO se añadieron al proceso de
+# cancelación y el CHECK se quedó con los cuatro de siempre, así que cancelar una actividad no se
+# podía y salía la pantalla de mantenimiento).
+CONCERT_STATUS_VALUES = ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO", "CANCELADO", "APLAZADO")
+
+
 class Concert(Base):
     __tablename__ = "concerts"
 
@@ -9694,6 +9703,8 @@ def ensure_third_party_and_contract_sheet_schema():
             NULL;
         END $$;
         """,
+        # ⚠️ El ARRAY se construye con `CONCERT_STATUS_VALUES`: un estado nuevo entra solo y el CHECK
+        # no puede quedarse atrás (el bloque de arriba lo dropea antes, así que se recrea siempre).
         """
         DO $$
         BEGIN
@@ -9705,13 +9716,13 @@ def ensure_third_party_and_contract_sheet_schema():
                 BEGIN
                     ALTER TABLE concerts
                         ADD CONSTRAINT concerts_status_check
-                        CHECK (status = ANY (ARRAY['BORRADOR'::text, 'HABLADO'::text, 'RESERVADO'::text, 'CONFIRMADO'::text]));
+                        CHECK (status = ANY (ARRAY[%s]));
                 EXCEPTION WHEN duplicate_object THEN
                     NULL;
                 END;
             END IF;
         END $$;
-        """,
+        """ % ", ".join("'%s'::text" % v for v in CONCERT_STATUS_VALUES),
 
         """
         ALTER TABLE IF EXISTS concert_promoter_shares

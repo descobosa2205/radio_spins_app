@@ -11,6 +11,9 @@
       <form autocomplete="off" method="post" action="{{ url_for('concert_wizard_create') }}" enctype="multipart/form-data" id="concertWizardForm">
         <div class="modal-body">
           <input type="hidden" name="wizard_mode" id="wizard_mode" value="direct">
+          {# Sin correo del promotor: se puede crear igualmente con la ficha SIN enviar (lo decide
+             el pop-up del paso de la ficha). #}
+          <input type="hidden" name="sheet_skip_email" id="wizard_sheet_skip_email" value="">
           <input type="hidden" name="wizard_simulation_id" id="wizard_simulation_id" value="">
 
           <div class="d-flex flex-wrap gap-2 mb-3" id="wizardStepPills"></div>
@@ -2900,7 +2903,14 @@
       }
       if(step === 4 && modeInput.value === 'request_sheet'){
         const email = form.querySelector('input[name="promoter_email"]');
-        if(!email.value.trim()) return falla(email, 'Indica el email del promotor.');
+        const saltar = document.getElementById('wizard_sheet_skip_email');
+        if(!email.value.trim() && !(saltar && saltar.value)){
+          // ⚠️ No se pierde el alta por no saber el correo: se pregunta qué se hace.
+          pideCorreoPromotor(email, saltar);
+          return false;
+        }
+        // En cuanto se escribe el correo, se manda (deja de estar «sin enviar»).
+        if(email.value.trim() && saltar) saltar.value = '';
       }
       if(step === 4 && modeInput.value === 'direct' && isPromoActivity()){
         // Solo en actividades promocionales/TV/marca/otros: en un concierto o festival se canta
@@ -2917,6 +2927,50 @@
         }
       }
       return true;
+    }
+
+    /* SIN CORREO DEL PROMOTOR: se dice y se elige. «Añadir el correo» vuelve al campo; «Crearla sin
+       enviar la ficha» sigue adelante y deja la ficha preparada para mandarla desde la actividad. */
+    function pideCorreoPromotor(email, saltar){
+      function seguirSinEnviar(){
+        if(saltar) saltar.value = '1';
+        const seq = stepSequence();
+        const idx = seq.indexOf(currentStep);
+        if(idx >= 0 && idx < seq.length - 1) showStep(seq[idx + 1]);
+        else form.requestSubmit ? form.requestSubmit() : form.submit();
+      }
+      if(!window.bootstrap){
+        if(confirm('No has puesto el correo del promotor, así que no se le puede enviar la ficha.\n\n'
+                   + '¿Crear la actividad igualmente sin enviarla?')) seguirSinEnviar();
+        else if(email) email.focus();
+        return;
+      }
+      const caja = document.createElement('div');
+      caja.className = 'modal fade';
+      caja.innerHTML =
+        '<div class="modal-dialog modal-dialog-centered"><div class="modal-content">' +
+          '<div class="modal-header"><h5 class="modal-title"><i class="fa fa-file-signature me-2"></i>' +
+          'Falta el correo del promotor</h5>' +
+          '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
+          '<div class="modal-body"><p class="mb-2">Sin su correo no se le puede enviar la ficha de ' +
+          'contratación.</p><p class="small text-muted m-0">Si la creas sin enviarla, la actividad se ' +
+          'queda en borrador con su ficha preparada y se la mandas desde la propia actividad cuando ' +
+          'tengas el correo.</p></div>' +
+          '<div class="modal-footer flex-wrap gap-2">' +
+            '<button type="button" class="btn btn-outline-secondary" data-sk-skip>' +
+            '<i class="fa fa-forward me-1"></i>Crearla sin enviar la ficha</button>' +
+            '<button type="button" class="btn btn-primary" data-bs-dismiss="modal">' +
+            '<i class="fa fa-envelope me-1"></i>Añadir el correo</button>' +
+          '</div>' +
+        '</div></div>';
+      document.body.appendChild(caja);
+      const modal = bootstrap.Modal.getOrCreateInstance(caja);
+      caja.addEventListener('hidden.bs.modal', function(){ caja.remove(); });
+      caja.querySelector('[data-sk-skip]').addEventListener('click', function(){
+        modal.hide(); seguirSinEnviar();
+      });
+      caja.addEventListener('hidden.bs.modal', function(){ if(email && !(saltar && saltar.value)) email.focus(); });
+      modal.show();
     }
 
     prevBtn.addEventListener('click', ()=> {

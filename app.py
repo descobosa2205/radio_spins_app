@@ -75210,7 +75210,12 @@ def concert_wizard_create():
 
         if mode == 'request_sheet':
             promoter_email = (request.form.get('promoter_email') or '').strip()
-            if not promoter_email:
+            # ⚠️⚠️ SIN CORREO NO SE PIERDE EL ALTA. Si no se sabe el del promotor, se puede crear la
+            # actividad igualmente **con la ficha sin enviar** (`sheet_skip_email`): se lleva a su
+            # ficha con el formulario de envío abierto para ponerlo, que es el MISMO camino que
+            # cuando el correo rebota. Tirar el alta entera por eso sería lo peor que podría pasar.
+            saltar_email = _truthy(request.form.get('sheet_skip_email'))
+            if not promoter_email and not saltar_email:
                 raise ValueError('Debes indicar el email del promotor.')
             concert = Concert(
                 # QUIÉN la crea: es quien tiene que activar la producción.
@@ -75274,6 +75279,12 @@ def concert_wizard_create():
             form_url = _external_url_for('concert_contract_public_form', token=sheet.public_token)
             # ⚠️ EL MISMO CORREO que el de «Solicitar ficha» de la ficha (`_contract_sheet_email_card`):
             # antes aquí se componía OTRO a mano y los dos se podían desparejar.
+            if not promoter_email:
+                flash('Actividad creada en borrador. No consta el correo del promotor, así que la '
+                      'ficha NO se ha enviado: ponlo aquí y mándasela, o cierra esta ventana para '
+                      'dejarla sin enviar.', 'warning')
+                return redirect(url_for('concert_detail_view', cid=concert.id, tab='general',
+                                        open='ficha'))
             subject = _contract_sheet_subject(concert, 'Solicitud ficha de contratación')
             html_body = _contract_sheet_request_email_html(session, concert, form_url, '')
             ok, error = _send_optional_email(promoter_email, subject, html_body,

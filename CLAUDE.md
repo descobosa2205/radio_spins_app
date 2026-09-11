@@ -12382,6 +12382,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `request_sheet` se crea la actividad en BORRADOR **y sale el correo** con el mismo contenido que el
   botón de la ficha (`_contract_sheet_subject` + `_contract_sheet_request_email_html`: un solo
   motor).
+  ⚠️⚠️ **Y SI NO SE SABE EL CORREO DEL PROMOTOR, TAMPOCO SE PIERDE EL ALTA**: al continuar sin él
+  sale un pop-up con las DOS opciones —**«Añadir el correo»** y **«Crearla sin enviar la ficha»**
+  (`sheet_skip_email`)—, y con la segunda la actividad se crea con su ficha **preparada y sin
+  enviar**, llevando a su ficha con el formulario de envío abierto. Sin decidir nada no se crea.
   ⚠️⚠️ **SI EL CORREO NO SALE, LA ACTIVIDAD NO SE PIERDE**: se crea igual, la ficha **NO** figura
   como enviada y se redirige a **`?tab=general&open=ficha`** con el flash rojo, o sea a su ficha con
   **el formulario de enviarla ABIERTO**, para corregir el correo y mandarla — o dejarla sin enviar.

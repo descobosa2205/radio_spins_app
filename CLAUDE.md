@@ -11544,6 +11544,40 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **solo el gate** (no la vista), así que no guarda, borra ni manda nada.
   ⚠️ `forbid()` **LANZA** (`abort(403)`), no devuelve: al simular el gate hay que capturar
   `werkzeug.exceptions.Forbidden` o no se detecta ni uno (la herramienta daba 0 falsos).
+  · **SEGUNDA PASADA (sep 2026): 42 enlaces más**, de cinco clases, y las cinco son la misma regla
+  vista desde los dos lados —o se abre, o no se pinta—:
+    · **`/ventas` → el INFORME por concierto**: el botón colgaba de `CAN_VIEW_ECON` (el económico
+      general) y el informe exige la **RECAUDACIÓN del reporte** (`ventas.reportes` con su
+      económico, grant EXACTO). Global nuevo **`CAN_VIEW_SALES_REVENUE`** (= `can_view_sales_revenue()`),
+      que es el que decide el botón: **el mismo punto único que la puerta**.
+    · **`/ventas` y `/ventas/reporte` → la FICHA de una actividad SIN CONFIRMAR**: las dos pantallas
+      la listaban y Ticketing no puede abrirla. Ahora las dos (y el A4) pasan por
+      **`_concert_list_visible`**, el mismo punto único que el calendario y `/actividades`: **lo que
+      no está confirmado no se pinta a quien no puede abrirlo**. Contratación y dirección la siguen
+      viendo (y quien la creó).
+    · **`/registros` y `/syncros` → la ficha de una CANCIÓN o de un DISCO**: ver
+      **`_release_read_resource_key`** más abajo.
+    · **`/facturas` → la ficha del TERCERO que factura**: ver **`_third_party_read_resource_key`**.
+  ⚠️ Y `_concert_list_visible` lee la sesión, así que **fuera de una petición** (un cron, un hilo) va
+  protegido: ahí se trata como que no se ve lo que no está confirmado, que es lo prudente.
+
+- ⚠️⚠️ **LA FICHA DE UNA CANCIÓN, DE UN DISCO Y DE UN TERCERO SE ABREN DESDE VARIAS SECCIONES**
+  (sep 2026), igual que la de una actividad (`_activity_read_resource_key`). En **LECTURA** el gate
+  acepta **la primera sección que el usuario tenga** de su lista; **modificar sigue exigiendo la
+  sección dueña**, porque el helper solo actúa en GET:
+  · **`RELEASE_READ_ACCESS_KEYS`** = `discografica` · `registros` · `syncros` · `radio` · `promocion`
+    → **`_release_read_resource_key(default, tab)`**. REGISTROS pincha el título de lo que tiene
+    pendiente de AGEDI/SGAE (y necesita su **REPARTO AUTORAL**, que es justo lo que registra),
+    SYNCROS abre el tema de su repertorio, RADIO la canción que suena y PROMOCIÓN el lanzamiento.
+    ⚠️ Las pestañas **ECONÓMICAS** no se abren por trabajar en otra sección
+    (`RELEASE_READ_ECON_TABS`: royalties · ingresos · gastos · beneficiarios): ahí siguen mandando
+    sus recursos de Discográfica.
+  · **`THIRD_PARTY_READ_ACCESS_KEYS`** = `third_parties` · `databases.invoices` · `administracion` ·
+    `contabilidad` → **`_third_party_read_resource_key`**, y solo para **`promoter_detail_view`**:
+    la base de facturas agrupa por quien emite y enlaza a su ficha, y es donde se le **pone la
+    cuenta** (el trabajo del IBAN). El resto de endpoints `promoter_*` siguen siendo de «Terceros».
+  ⚠️ Los dos van **solo en `_resolve_request_resource_key`**, NO en `_coarse_endpoint_resource`: ese
+  es el del auto-descubrimiento del catálogo y tiene que seguir diciendo la sección dueña.
 
 - ⚠️⚠️ **DISCOGRÁFICA · CUADRO DE MANDO DE PREVISIONES** (sep 2026, pestaña **«Previsiones»**,
   `?section=previsiones`). **Una sola pantalla para PLANIFICAR**: el calendario de lanzamientos de

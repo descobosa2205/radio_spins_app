@@ -1718,6 +1718,11 @@ def inject_globals():
         ROLE=current_role(),
         ROLE_LABEL=ROLE_LABELS.get(current_role(), str(current_role())),
         CAN_VIEW_ECON=can_view_economics(),
+        # ⚠️ LA RECAUDACIÓN DEL REPORTE DE VENTAS ES OTRO PERMISO (`ventas.reportes` con el
+        # económico, grant EXACTO): quien tiene economía en «Ventas» NO la ve. Sin este global, la
+        # pantalla de actualizar ventas pintaba el botón de «Informe» con `CAN_VIEW_ECON` y quien lo
+        # pinchaba se comía un 403 (bug real).
+        CAN_VIEW_SALES_REVENUE=can_view_sales_revenue(),
         CAN_EDIT_RADIO=can_edit_radio(),
         CAN_EDIT_SALES=can_edit_sales(),
         CAN_EDIT_CONCERTS=can_edit_concerts(),
@@ -69272,6 +69277,8 @@ def sales_update_view():
         # varios artistas y la venta no es de nuestra fecha). Punto único, EN BLOQUE.
         _rep = _concerts_need_sales_report_map(session_db, concerts)
         concerts = [c for c in concerts if _rep.get(c.id, True)]
+        # ⚠️ Igual que el reporte: lo que no está confirmado no se pinta a quien no puede abrirlo.
+        concerts = _concert_list_visible(concerts)
 
         # ⚠️ `?cid=` deja SOLO esa actividad: es a donde lleva el aviso de «actualiza las ventas»
         # (el correo y la campanita del responsable de ticketing), para no tener que buscarla entre
@@ -70311,6 +70318,10 @@ def concerts_for_report(session, day: date, past: bool = False, promoter_id=None
     # varios artistas y la venta no es de nuestra fecha). Punto único, EN BLOQUE.
     _rep = _concerts_need_sales_report_map(session, concerts)
     concerts = [c for c in concerts if _rep.get(c.id, True)]
+    # ⚠️⚠️ LO QUE NO ESTÁ CONFIRMADO ES DE CONTRATACIÓN, y la regla de la casa es «lo que se ve, se
+    # abre»: el reporte listaba actividades sin confirmar cuya ficha Ticketing NO puede abrir, así
+    # que el nombre llevaba a un 403 (bug real). Mismo punto único que el calendario y /actividades.
+    concerts = _concert_list_visible(concerts)
 
     def _safe_uuid(x):
         try:
@@ -71291,6 +71302,8 @@ def sales_update_report_pdf():
         # varios artistas y la venta no es de nuestra fecha). Punto único, EN BLOQUE.
         _rep = _concerts_need_sales_report_map(session_db, concerts)
         concerts = [c for c in concerts if _rep.get(c.id, True)]
+        # ⚠️ Y en su A4: lo que no se ve en la pantalla tampoco se imprime.
+        concerts = _concert_list_visible(concerts)
         concert_ids = [c.id for c in concerts]
 
         if concert_ids:
@@ -88025,6 +88038,57 @@ def _activity_read_resource_key(default_key: str) -> str:
     return default_key
 
 
+# ⚠️⚠️ LA FICHA DE UNA CANCIÓN O DE UN DISCO SE ABRE DESDE VARIAS SECCIONES: REGISTROS pincha el
+# título de lo que tiene pendiente de AGEDI/SGAE (y necesita ver su REPARTO AUTORAL, que es lo que
+# registra), SYNCROS abre el tema de su repertorio, RADIO la canción que suena y PROMOCIÓN el
+# lanzamiento que promociona. Por eso el acceso de LECTURA no exige el recurso de Discográfica:
+# `_release_read_resource_key` acepta la PRIMERA de estas secciones que el usuario tenga —igual que
+# `_activity_read_resource_key` con una actividad—. Sin esto, quien trabaja en Registros o en
+# Syncros se comía un 403 al pinchar el nombre de la canción (bug real, 6 enlaces).
+RELEASE_READ_ACCESS_KEYS = ("discografica", "registros", "syncros", "radio", "promocion")
+# ⚠️ Las pestañas ECONÓMICAS de un lanzamiento NO se abren por trabajar en otra sección: ahí siguen
+# mandando sus recursos de Discográfica.
+RELEASE_READ_ECON_TABS = {"royalties", "ingresos", "gastos", "beneficiarios"}
+
+
+# Y lo mismo con la ficha de un TERCERO: la base de facturas agrupa por quien emite y enlaza a su
+# ficha, y administración y contabilidad entran ahí a mirar sus datos de facturación y a ponerle la
+# cuenta. Sin esto, quien tiene «Facturas» se comía un 403 al pinchar el nombre del proveedor.
+THIRD_PARTY_READ_ACCESS_KEYS = ("third_parties", "databases.invoices", "administracion",
+                                "contabilidad")
+
+
+def _third_party_read_resource_key(default_key: str) -> str:
+    """Recurso con el que se comprueba el acceso de LECTURA a la ficha de un tercero (solo GET)."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        return default_key
+    try:
+        for key in THIRD_PARTY_READ_ACCESS_KEYS:
+            if has_access_key(key, include_descendants=True):
+                return key
+    except Exception:
+        pass
+    return default_key
+
+
+def _release_read_resource_key(default_key: str, tab: str = "") -> str:
+    """Recurso con el que se comprueba el acceso de LECTURA a la ficha de una canción o un álbum.
+
+    Solo en GET y solo fuera de las pestañas económicas: **modificar sigue exigiendo Discográfica**.
+    """
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        return default_key
+    if (tab or "").strip().lower() in RELEASE_READ_ECON_TABS:
+        return default_key
+    try:
+        for key in RELEASE_READ_ACCESS_KEYS:
+            if has_access_key(key, include_descendants=True):
+                return key
+    except Exception:
+        pass
+    return default_key
+
+
 # CORREGIR LOS DATOS DE UNA FACTURA se hace desde DOS sitios que no son la misma sección: la base de
 # facturas y la tabla de CONTABILIDAD (donde es el trabajo del día). Por eso su endpoint acepta la
 # primera de estas claves que tenga el usuario — si no, quien es de contabilidad y no tiene la base
@@ -88142,7 +88206,7 @@ def _resolve_request_resource_key() -> str | None:
             # abrirla salía un 403 que en la pantalla de Accesos no se podía explicar.
             "gastos": "discografica.gastos",
         }
-        return mapping.get(tab, "discografica.canciones")
+        return _release_read_resource_key(mapping.get(tab, "discografica.canciones"), tab)
     if endpoint in {"registros_release_dates_view", "registros_release_date_confirm"}:
         # ⚠️ Se acepta la PRIMERA clave que tenga el usuario (como la pestaña ISRC o la lectura de una
         # actividad): cuando nadie tiene «Registros», el aviso cae en el SELLO o en dirección, y con
@@ -88175,10 +88239,16 @@ def _resolve_request_resource_key() -> str | None:
             "marketing": "promocion",
             "gastos": "discografica.gastos",
         }
-        return mapping.get(tab, "discografica.canciones")
+        return _release_read_resource_key(mapping.get(tab, "discografica.canciones"), tab)
     if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
         return "fotos"
     if endpoint == "promoters_view" or endpoint.startswith("promoter_"):
+        # ⚠️ LA FICHA DE UN TERCERO SE ABRE TAMBIÉN DESDE LA BASE DE FACTURAS Y DESDE
+        # ADMINISTRACIÓN/CONTABILIDAD: es donde se mira quién factura y donde se le pone la cuenta.
+        # En LECTURA se acepta la primera de esas secciones que tenga el usuario (igual que una
+        # actividad o un lanzamiento); EDITAR sigue exigiendo «Terceros».
+        if endpoint == "promoter_detail_view":
+            return _third_party_read_resource_key("third_parties")
         return "third_parties"
     if endpoint == "venues_view" or endpoint.startswith("venue_"):
         return "databases.venues"
@@ -143471,7 +143541,12 @@ def _concert_list_visible(concerts, *, full_details=None, user_id=None) -> list:
     ve_todo = _user_sees_unconfirmed_activities() if full_details is None else bool(full_details)
     if ve_todo:
         return list(concerts or [])
-    uid = str(user_id or (_current_user_state() or {}).get("user_id") or "")
+    # ⚠️ Fuera de una petición (un cron, un hilo) leer la sesión revienta: ahí se trata como que no
+    # se ve lo que no está confirmado, que es lo prudente.
+    try:
+        uid = str(user_id or (_current_user_state() or {}).get("user_id") or "")
+    except Exception:
+        uid = str(user_id or "")
     fuera = []
     for c in (concerts or []):
         if ((getattr(c, "status", "") or "").upper() in _CONCERT_PRIVATE_STATUSES

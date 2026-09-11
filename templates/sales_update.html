@@ -81,7 +81,10 @@
           <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id) }}" title="Ficha del concierto">
             <i class="fa fa-eye"></i>
           </a>
-          {% if CAN_VIEW_ECON %}
+          {# ⚠️ El informe por concierto exige la RECAUDACIÓN del reporte de ventas (su propio
+             interruptor económico), no el económico general: con `CAN_VIEW_ECON` el botón se
+             pintaba a quien al pincharlo se comía un 403. #}
+          {% if CAN_VIEW_SALES_REVENUE %}
             <a class="btn btn-sm btn-outline-secondary" title="Informe" target="_blank"
                href="{{ url_for('sales_event_report_view', cid=c.id, d=day.isoformat()) }}">
               <i class="fa fa-file-lines"></i>

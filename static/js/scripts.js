@@ -20,7 +20,7 @@ function enableFormEdit(btn){
 function initSelect2(){
   // Select2: soporta selects en página y dentro de modales Bootstrap.
   // Si no configuramos dropdownParent en modales, el desplegable puede quedar detrás (z-index).
-  $('.select-artists, .select-with-thumbs, .select-country, .select-unified, .third-party-select, .select-promoters, .select-providers, .select-media, .select-songs, .select-venues').each(function(){
+  $('.select-artists, .select-with-thumbs, .select-country, .select-unified, .third-party-select, .select-promoters, .select-providers, .select-media, .select-songs, .select-venues, .select-people').each(function(){
     const $el = $(this);
     if ($el.hasClass('select2-hidden-accessible')) return;
 

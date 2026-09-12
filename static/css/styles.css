@@ -746,7 +746,44 @@ img.img-error-pending{ visibility: hidden; }
 .rm-room--edit{ min-height:96px; }
 .rm-room--pool{ min-height:140px; display:flex; flex-wrap:wrap; gap:.3rem; align-content:flex-start; }
 .rm-room.drag-over{ border-color:#E33D48; box-shadow:0 0 0 .15rem rgba(227,61,72,.15); }
-.rm-room__head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:.25rem; }
+.rm-room__head{
+  display:flex; justify-content:space-between; align-items:center; gap:.35rem;
+  margin:-.4rem -.5rem .35rem; padding:.28rem .5rem;
+  background:#e8f4f9; color:#07607e; border-radius:9px 9px 0 0; border-bottom:1px solid #d6e9f2;
+}
+.rm-room__head .text-muted{ color:#07607e !important; opacity:.75; }
+.rm-room__meta{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; margin-bottom:.25rem; }
+.rm-room__type{
+  display:inline-block; font-size:.72rem; font-weight:700; color:#07607e;
+  background:#e8f4f9; border:1px solid #d6e9f2; border-radius:999px; padding:.02rem .4rem;
+}
+/* EL NÚMERO QUE DA EL HOTEL (214). Es de la casa: no se pinta en solo lectura. */
+.rm-room__num{
+  display:inline-flex; align-items:center; gap:.2rem; font-size:.72rem; color:#8c95a0;
+  border:1px dashed #d9dee5; border-radius:999px; padding:.02rem .4rem; cursor:text; margin:0;
+}
+.rm-room__num.is-set{ color:#07607e; border-style:solid; border-color:#d6e9f2; background:#f4fafd; }
+.rm-room__num input{
+  border:0; background:transparent; width:3.2rem; font-size:.72rem; font-weight:700; color:inherit; padding:0;
+}
+.rm-room__num input:focus{ outline:0; }
+/* El DESAYUNO: la taza activa o TACHADA (no una taza medio borrosa, que no dice nada). */
+.rm-brk--on{ color:#07607e; }
+.rm-brk--off{ color:#aab2bb; position:relative; }
+.rm-brk--off::after{
+  content:''; position:absolute; left:-2px; right:-2px; top:50%;
+  border-top:1.5px solid currentColor; transform:rotate(-20deg);
+}
+/* Compartir · Editar · ⋮ arriba a la derecha de la tarjeta del hotel.
+   ⚠️ NO va en `position:absolute` (lo que hace `.rm-hotel .rm-menu`): con tres botones se montaba
+   encima del nombre del hotel. Es un hijo flex más, así que el bloque de datos ocupa lo que queda. */
+.rm-hotel__acts{ display:flex; gap:.25rem; align-items:center; }
+.rm-hotel .rm-menu.rm-hotel__acts{ position:static; flex:0 0 auto; align-self:flex-start; }
+@media (max-width: 575.98px){
+  /* En el móvil no caben al lado: bajan a su propia fila, a la derecha. */
+  .rm-hotel{ flex-wrap:wrap; }
+  .rm-hotel .rm-menu.rm-hotel__acts{ order:3; width:100%; justify-content:flex-end; }
+}
 .rm-occ{
   display:inline-flex; align-items:center; gap:.3rem; border:1px solid #eceff3; border-radius:999px;
   padding:.1rem .5rem .1rem .15rem; margin:.1rem .15rem .1rem 0; background:#f8f9fb; cursor:grab;
@@ -978,6 +1015,26 @@ label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !im
 .rm-nav button{border:1px solid rgba(0,0,0,.1);background:#fff;border-radius:999px;padding:.45rem .95rem;font-weight:600;color:#495057;display:inline-flex;align-items:center;gap:.4rem;font-size:.9rem;}
 .rm-nav button i{opacity:.8;}
 .rm-nav button.active{background:var(--brand-accent,#007ca2);border-color:var(--brand-accent,#007ca2);color:#fff;}
+/* ⚠️ En MÓVIL se queda solo el icono: así las secciones se ven todas seguidas en una fila y no
+   hay que adivinar cuántas hay. El rótulo sigue en el `title` y en el lector de pantalla. */
+@media (max-width: 575.98px){
+  .rm-nav{flex-wrap:nowrap;gap:.3rem;}
+  .rm-nav button{flex:1 1 0;justify-content:center;padding:.45rem .2rem;}
+  .rm-nav button span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
+  .rm-nav button i{opacity:1;font-size:1.02rem;}
+}
+
+/* ===== La ACTIVIDAD (primera pestaña de la hoja de ruta) ===== */
+.rm-act{border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff;padding:.9rem 1rem;}
+.rm-act__head{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;}
+.rm-act__photo{width:64px;height:64px;border-radius:50%;object-fit:cover;flex:0 0 auto;background:#f1f3f5;}
+.rm-act__photo--none{display:grid;place-items:center;color:#adb5bd;font-size:1.4rem;}
+.rm-act__eyebrow{font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8c95a0;}
+.rm-act__title{font-size:1.25rem;font-weight:700;line-height:1.2;}
+.rm-act__facts{display:flex;flex-wrap:wrap;gap:.35rem .9rem;margin-top:.8rem;padding-top:.7rem;border-top:1px solid #eef1f4;}
+.rm-act__fact{display:flex;align-items:center;gap:.35rem;font-size:.88rem;min-width:0;}
+.rm-act__fact i{color:var(--brand-accent,#007ca2);width:1.05rem;text-align:center;flex:0 0 auto;}
+.rm-act__lab{color:#8c95a0;font-size:.78rem;}
 .rm-toolbar{display:flex;justify-content:space-between;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.8rem;}
 .rm-add{border:0;border-radius:999px;background:var(--brand-primary,#e33d48);color:#fff;font-weight:600;padding:.45rem .9rem;display:inline-flex;align-items:center;gap:.4rem;}
 .rm-add.sm{padding:.3rem .7rem;font-size:.85rem;}
@@ -1047,7 +1104,10 @@ label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !im
 /* Personal */
 .rm-group-title{font-weight:700;color:#6c757d;text-transform:uppercase;font-size:.72rem;letter-spacing:.04em;margin:.9rem 0 .35rem;}
 .rm-person{display:flex;align-items:center;gap:.7rem;border:1px solid rgba(0,0,0,.07);border-radius:12px;padding:.5rem .7rem;background:#fff;}
-.rm-person .av{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#e9ecef;display:grid;place-items:center;color:#adb5bd;flex:0 0 auto;}
+.rm-person .av{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#e9ecef;display:grid;place-items:center;color:#adb5bd;flex:0 0 auto;overflow:hidden;}
+/* ⚠️ La imagen SE RECORTA al círculo: sin esto, un logo apaisado se pintaba a tamaño natural y
+   reventaba la fila (visto con el logo de un tercero como foto de un contacto). */
+.rm-person .av img{width:100%;height:100%;object-fit:cover;display:block;}
 .rm-person .nm{font-weight:600;}
 .rm-person .rl{font-size:.8rem;color:#6c757d;}
 .rm-person .ct{font-size:.8rem;color:#6c757d;}

@@ -80023,6 +80023,142 @@ def _roadmap_title(session_db, entity_type: str, row, artists) -> str:
     return "Hoja de ruta"
 
 
+# ============================ LA ACTIVIDAD (pestaña de la hoja de ruta) ======================
+# Cómo se llama la actividad en la hoja de ruta: es el rótulo de su PRIMERA pestaña y el antetítulo
+# de lo que se comparte.
+# ⚠️ Una fecha de un CICLO se llama «Concierto» (lo pidió Dani): lo que hay ese día es un concierto,
+# y a quien recibe la hoja de ruta la palabra «ciclo» no le dice nada.
+ROADMAP_ACTIVITY_WORDS = {
+    "CONCIERTO": "Concierto",
+    "FESTIVAL": "Festival",
+    "CICLO": "Concierto",
+    "EVENTO_PROMOCIONAL": "Evento",
+    "TV": "Programa",
+    "MARCA": "Acción",
+    "ENSAYO": "Ensayo",
+}
+
+
+def _roadmap_activity_word(row) -> str:
+    """«Concierto» · «Festival» · «Evento» · «Promoción»… Punto único: lo usan la pestaña de la hoja
+    de ruta y la cabecera de sus PDFs, así que no se pueden desparejar."""
+    if isinstance(row, Promotion):
+        return "Promoción"
+    if isinstance(row, CompanyAction):
+        return "Acción"
+    if isinstance(row, DiscoProject):
+        return "Proyecto"
+    if not isinstance(row, Concert):
+        return "Actividad"
+    try:
+        clave = _activity_kind_key(getattr(row, "activity_type", None)) or "CONCIERTO"
+    except Exception:
+        clave = "CONCIERTO"
+    if clave in ROADMAP_ACTIVITY_WORDS:
+        return ROADMAP_ACTIVITY_WORDS[clave]
+    try:
+        return (_activity_kind_label(clave) or "Actividad").strip() or "Actividad"
+    except Exception:
+        return "Actividad"
+
+
+def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None) -> dict | None:
+    """La ficha de LA ACTIVIDAD que abre la hoja de ruta: de quién es, cuándo, dónde y con quién se
+    habla. Es lo primero que necesita quien la recibe (y lo que antes había que ir a buscar a la
+    ficha), así que se ve también en la hoja de ruta compartida.
+
+    ⚠️ Los datos salen de los puntos únicos de siempre —`_contract_sheet_hero_rows` (la MISMA
+    cabecera de la ficha) y `_concert_promoter_display`—: aquí no se calcula nada nuevo que se pueda
+    desparejar de lo que dice la ficha.
+    ⚠️ En una PLANTILLA no hay actividad (no tiene ni fecha ni sitio): devuelve None y su pestaña
+    no se pinta."""
+    if isinstance(row, ArtistTemplate):
+        return None
+    artista = _artist_label_from_rows(artists)
+    foto = ""
+    for a in (artists or []):
+        foto = (getattr(a, "photo_url", None) or "")
+        if foto:
+            break
+    titulo = _roadmap_title(session_db, entity_type, row, artists)
+    filas: list[dict] = []
+
+    def pon(icono, etiqueta, valor):
+        valor = str(valor or "").strip()
+        if valor:
+            filas.append({"icon": icono, "label": etiqueta, "value": valor})
+
+    contactos: list[dict] = []
+    if isinstance(row, Concert):
+        for icono, etiqueta, valor in _contract_sheet_hero_rows(row):
+            pon(icono, etiqueta, valor)
+        if getattr(row, "end_date", None) and row.end_date != getattr(row, "date", None):
+            pon("fa-calendar-week", "Hasta", row.end_date.strftime("%d/%m/%Y"))
+        if getattr(row, "show_time_tbc", False) and not getattr(row, "show_time", None):
+            pon("fa-clock", "Hora", "Por confirmar")
+        if getattr(row, "doors_time", None):
+            pon("fa-door-open", "Puertas", str(row.doors_time)[:5])
+        elif getattr(row, "doors_time_tbc", False):
+            pon("fa-door-open", "Puertas", "Por confirmar")
+        venue = getattr(row, "venue", None)
+        direccion = (getattr(venue, "address", None) or getattr(row, "manual_venue_address", None) or "")
+        if direccion:
+            pon("fa-map-location-dot", "Dirección", direccion)
+        # ⚠️ `Venue` NO tiene teléfono (sus columnas son el nombre, la dirección y si es cubierto):
+        # lo que sí se sabe —y en producción importa para el montaje— es si se toca a cubierto.
+        if venue is not None:
+            pon("fa-warehouse", "Espacio", "Cubierto" if getattr(venue, "covered", False) else "Al aire libre")
+        promotor = _concert_promoter_display(row)
+        if promotor:
+            extra = ""
+            if promotor.get("kind") == "PROMOTER":
+                correo, telefono = _promoter_email_phone(getattr(row, "promoter", None))
+                extra = " · ".join([x for x in [telefono, correo] if x])
+            pon("fa-handshake", "Promotor", promotor.get("name") + (" · " + extra if extra else ""))
+        # ⚠️ Se recorre `concert.contacts` a mano y no `_concert_contact_rows`: ese DESCARTA a quien
+        # no tiene ninguna función marcada, y una persona sin etiqueta está igualmente en la
+        # actividad (es la regla del selector de contactos) — en una hoja de ruta hay que verla.
+        try:
+            for link in (getattr(row, "contacts", None) or []):
+                persona = getattr(link, "contact", None)
+                if persona is None:
+                    continue
+                datos = _promoter_contact_payload(persona)
+                marcados = link.roles if isinstance(link.roles, list) else []
+                contactos.append({
+                    "name": datos.get("name") or "",
+                    "photo": datos.get("photo") or "",
+                    "roles": " · ".join([CONCERT_CONTACT_ROLE_META[r]["label"]
+                                         for r in CONCERT_CONTACT_ROLE_KEYS if r in marcados]
+                                        or ([datos.get("title")] if datos.get("title") else [])),
+                    "phone": datos.get("phone") or "",
+                    "email": datos.get("email") or "",
+                })
+        except Exception:
+            app.logger.exception("[hoja de ruta] no se pudieron leer los contactos de la actividad")
+    else:
+        # Promoción, acción o proyecto: lo que se sabe sin preguntar nada más son sus días (los que
+        # ya ha resuelto la propia hoja de ruta) y lo que la identifica.
+        def _es(iso):
+            try:
+                return datetime.strptime(str(iso)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+            except Exception:
+                return str(iso or "")
+        fechas = [d.get("date") for d in (days or []) if isinstance(d, dict) and d.get("date")]
+        if fechas:
+            primero, ultimo = _es(fechas[0]), _es(fechas[-1])
+            pon("fa-calendar-day", "Fechas", primero if primero == ultimo else f"{primero} – {ultimo}")
+    return {
+        "word": _roadmap_activity_word(row),
+        "icon": "fa-star",
+        "title": titulo,
+        "subtitle": (artista if artista and artista != titulo else ""),
+        "photo": foto,
+        "rows": filas,
+        "contacts": contactos,
+    }
+
+
 def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
     payload = _roadmap_load(row)
     artists = _artists_from_ids(session_db, _roadmap_artist_ids(row))
@@ -80036,6 +80172,10 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "tabs": (ARTIST_TEMPLATE_TABS.get(getattr(row, "kind", ""), []) if isinstance(row, ArtistTemplate) else []),
         "title": _roadmap_title(session_db, entity_type, row, artists),
         "artist_label": _artist_label_from_rows(artists),
+        # LA ACTIVIDAD: la primera pestaña de la hoja de ruta (de quién es, cuándo, dónde y con
+        # quién se habla). None en una plantilla, que no es ninguna actividad.
+        "activity": _roadmap_activity_card(session_db, entity_type, row, artists,
+                                           _roadmap_days(row, payload)),
         "payload": payload,
         "days": _roadmap_days(row, payload),
         # Días "base" (del propio evento): no se pueden quitar desde el configurador de días.
@@ -80111,6 +80251,14 @@ def _roadmap_payload_for_kind(payload: dict, kind: str) -> dict:
     out = dict(payload or {})
     out["agenda"] = [it for it in ((payload or {}).get("agenda") or [])
                      if _roadmap_item_sheets(it.get("sheets")).get(k, True)]
+    # ⚠️⚠️ EL NÚMERO DE HABITACIÓN NO SALE DE CASA: es de la oficina y del road manager (saber en qué
+    # habitación duerme alguien es un dato de seguridad). Se quita AQUÍ, no en el navegador: la hoja
+    # de ruta compartida mete el payload entero en el HTML.
+    def _sin_numero(habitaciones):
+        return [{kk: vv for kk, vv in (r or {}).items() if kk != "room_number"} for r in (habitaciones or [])]
+    out["hotels"] = [dict(h or {}, rooms=_sin_numero((h or {}).get("rooms")))
+                     for h in ((payload or {}).get("hotels") or [])]
+    out["rooms_pool"] = _sin_numero((payload or {}).get("rooms_pool"))
     return out
 
 
@@ -80204,7 +80352,7 @@ def _roadmap_hotel_from_json(data: dict) -> dict:
         # 0 = no se ha dicho, y entonces no hay tope.
         "rooms_reserved": max(0, _roadmap_int(data.get("rooms_reserved"), 0)),
         "attachments": [],
-        "rooms": [],  # rooming list: [{id, bed, breakfast, day_from, day_to, occupant_ids[]}]
+        "rooms": [],  # rooming list: [{id, bed, breakfast, room_number, day_from, day_to, occupant_ids[]}]
     }
 
 
@@ -80784,6 +80932,10 @@ def roadmap_hotel_rooms_save(entity_type, entity_id):
                 # perdía al guardar y todas volvían a leerse como Twin.
                 "bed": ("DOBLE" if str(raw.get("bed") or "").upper() == "DOBLE" else "TWIN"),
                 "breakfast": bool(raw.get("breakfast")),
+                # ⚠️ EL NÚMERO DE HABITACIÓN del hotel (214): lo apunta producción cuando el hotel
+                # se lo da, así que hay que CONSERVARLO aquí — este endpoint reconstruye la lista
+                # entera y sin esta línea se perdía al tocar cualquier otra cosa del rooming.
+                "room_number": _rooming_clean_number(raw.get("room_number")),
                 "day_from": ("" if es_plantilla else _roadmap_clean_day(raw.get("day_from") or "")),
                 "day_to": ("" if es_plantilla else _roadmap_clean_day(raw.get("day_to") or "")),
                 "occupant_ids": occupants,
@@ -80954,6 +81106,39 @@ def roadmap_room_delete(entity_type, entity_id):
         session_db.close()
 
 
+def _rooming_clean_number(value) -> str:
+    """El número que el hotel le da a una habitación («214», «3B», «Suite 2»). Es texto libre —hay
+    hoteles que no numeran con cifras— y se recorta para que quepa en su hueco."""
+    return re.sub(r"\s+", " ", str(value or "").strip())[:12]
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/habitacion/numero", endpoint="roadmap_room_number")
+@admin_required
+def roadmap_room_number(entity_type, entity_id):
+    """Apunta el NÚMERO que el hotel le da a una habitación.
+
+    Endpoint propio (y no el guardado de toda la rooming list) porque se escribe en un hueco de la
+    propia tarjeta: así solo se toca ese campo y no se puede pisar nada de lo demás. Vale esté la
+    habitación en un hotel o todavía sin repartir (`_rooming_find_room` busca en los dos sitios)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or request.form
+        payload = _roadmap_load(row)
+        _origen, lista, i = _rooming_find_room(payload, (data.get("room_id") or "").strip())
+        if lista is None:
+            return jsonify({"ok": False, "error": "Habitación no encontrada."}), 404
+        lista[i]["room_number"] = _rooming_clean_number(data.get("room_number"))
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.post("/hoja-ruta/<entity_type>/<entity_id>/habitacion/huesped", endpoint="roadmap_room_guest")
 @admin_required
 def roadmap_room_guest(entity_type, entity_id):
@@ -81079,7 +81264,11 @@ def _rooming_range_label(day_from: str, day_to: str) -> str:
 
 
 def _roadmap_export_header(kind, row) -> dict:
-    """Cabecera del evento para PDFs/Excels de rooming y personal."""
+    """Cabecera del evento para PDFs/Excels de rooming y personal.
+
+    ⚠️ `rows` son las MISMAS filas que la cabecera de la ficha de la actividad
+    (`_contract_sheet_hero_rows`), así que un documento que se comparte se lee igual que la ficha:
+    no hay dos versiones de «los datos de esta actividad» que se puedan desparejar."""
     if kind == "concert":
         return {
             "title": (row.artist.name if getattr(row, "artist", None) else "Actividad"),
@@ -81088,9 +81277,12 @@ def _roadmap_export_header(kind, row) -> dict:
             "city": _concert_city(row) or "",
             "logo_url": (getattr(getattr(row, "billing_company", None), "logo_url", None) or "") or (getattr(getattr(row, "group_company", None), "logo_url", None) or ""),
             "artist_photo": (getattr(getattr(row, "artist", None), "photo_url", None) or ""),
+            "eyebrow": _roadmap_activity_word(row),
+            "rows": _contract_sheet_hero_rows(row),
         }
     title = getattr(row, "title", None) or getattr(row, "name", None) or "Actividad"
-    return {"title": title, "date": "", "venue": "", "city": "", "logo_url": "", "artist_photo": ""}
+    return {"title": title, "date": "", "venue": "", "city": "", "logo_url": "", "artist_photo": "",
+            "eyebrow": _roadmap_activity_word(row), "rows": []}
 
 
 def _room_type_label(ocupantes: int, cama: str | None = None) -> str:
@@ -81116,7 +81308,7 @@ def _rooming_rows_for_pdf(session_db, payload: dict, hotel: dict) -> list[dict]:
     default_from = (hotel.get("days") or [""])[0]
     default_to = (hotel.get("days") or [""])[-1] if hotel.get("days") else ""
     groups = {}
-    for r in (hotel.get("rooms") or []):
+    for numero, r in enumerate((hotel.get("rooms") or []), 1):
         day_from = r.get("day_from") or default_from
         day_to = r.get("day_to") or default_to
         key = (day_from, day_to)
@@ -81127,8 +81319,13 @@ def _rooming_rows_for_pdf(session_db, payload: dict, hotel: dict) -> list[dict]:
                 occupants.append(_rooming_person_info(session_db, person))
         rtype = _room_type_label(len(occupants), r.get("bed"))
         groups.setdefault(key, []).append({
+            # ⚠️ El número de orden es el de la habitación DENTRO DEL HOTEL, no el de su grupo de
+            # fechas: con dos rangos, numerar por grupo daría dos «Habitación 1».
+            "index": numero,
             "type": rtype,
             "breakfast": bool(r.get("breakfast")),
+            # El número que le da el hotel (214). Solo sale si está puesto.
+            "number": _rooming_clean_number(r.get("room_number")),
             "occupants": occupants,
         })
     out = []
@@ -81146,6 +81343,64 @@ def _fetch_image_reader(url: str):
             return BytesIO(resp.read())
     except Exception:
         return None
+
+
+# El AZUL de la marca en los documentos del rooming (el mismo que la app usa para destacar).
+ROOMING_PDF_BLUE = '#007CA2'
+ROOMING_PDF_BLUE_DARK = '#07607e'
+ROOMING_PDF_BLUE_SOFT = '#e8f4f9'
+
+
+def _roadmap_pdf_icon(nombre: str, color: str = '374151', size: int = 9) -> str:
+    """Un icono de la casa dentro de un `Paragraph` de ReportLab (que no entiende la fuente de
+    iconos): va como PNG en disco. Devuelve '' si no se puede, para no romper el documento."""
+    ruta = _fa_icon_png_path(str(nombre or '').replace('fa-', ''), color, 36)
+    if not ruta:
+        return ''
+    return f'<img src="{html.escape(ruta)}" width="{size}" height="{size}" valign="middle"/>&nbsp;'
+
+
+def _rooming_pdf_room_head(indice: int, room: dict) -> str:
+    """La cabecera de una habitación: «🛏 Habitación 1 · Twin · 🚪 214 · ☕ Con desayuno»."""
+    azul = ROOMING_PDF_BLUE.lstrip('#')
+    partes = [_roadmap_pdf_icon('bed', azul) + f'Habitación {indice}', html.escape(room.get('type') or '')]
+    if room.get('number'):
+        partes.append(_roadmap_pdf_icon('door-closed', azul) + html.escape(str(room['number'])))
+    partes.append(_roadmap_pdf_icon('mug-saucer', azul if room.get('breakfast') else '9aa4ae')
+                  + ('Con desayuno' if room.get('breakfast') else 'Sin desayuno'))
+    return ' · '.join([x for x in partes if x])
+
+
+def _roadmap_pdf_activity_card(header: dict):
+    """La GALLETA de la actividad para los documentos de la hoja de ruta: foto, qué es, de quién y
+    los datos con sus iconos. Es la misma cabecera que su ficha (`_contract_sheet_hero_rows`)."""
+    styles = getSampleStyleSheet()
+    eyebrow = ParagraphStyle('RmEyebrow', parent=styles['Normal'], fontSize=7.5, leading=9,
+                             textColor=colors.HexColor('#6b7280'), fontName='Helvetica-Bold')
+    titulo = ParagraphStyle('RmTitle', parent=styles['Normal'], fontSize=13, leading=15, fontName='Helvetica-Bold')
+    datos = ParagraphStyle('RmFacts', parent=styles['Normal'], fontSize=9, leading=12.5,
+                           textColor=colors.HexColor('#374151'))
+    col = [Paragraph((header.get('eyebrow') or 'Actividad').upper(), eyebrow),
+           Paragraph(html.escape(header.get('title') or ''), titulo)]
+    filas = header.get('rows') or []
+    if filas:
+        col.append(Spacer(1, 2))
+        col.append(Paragraph(' &nbsp;·&nbsp; '.join(
+            _roadmap_pdf_icon(ico, ROOMING_PDF_BLUE.lstrip('#')) + html.escape(str(val))
+            for ico, _lab, val in filas), datos))
+    else:
+        linea = ' · '.join([x for x in [header.get('date'), header.get('venue'), header.get('city')] if x])
+        if linea:
+            col.append(Paragraph(html.escape(linea), datos))
+    foto = _fetch_image_reader(header.get('artist_photo') or '')
+    izq = RLImage(foto, width=54, height=54, kind='proportional') if foto else ''
+    tabla = Table([[izq, col]], colWidths=[62 if foto else 0, 469 if foto else 531])
+    tabla.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (0, 0), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 0), ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    return tabla
 
 
 @app.get('/hoja-ruta/<entity_type>/<entity_id>/rooming/<hotel_id>/pdf', endpoint='roadmap_rooming_pdf')
@@ -81183,16 +81438,17 @@ def roadmap_rooming_pdf(entity_type, entity_id, hotel_id):
         lr.setStyle(TableStyle([('ALIGN', (1, 0), (1, 0), 'RIGHT')]))
         story.append(lr)
         story.append(Paragraph('Rooming list', title_style))
-        facts = ' · '.join([x for x in [header['date'], header['venue'], header['city']] if x])
-        story.append(Paragraph(header['title'], h_style))
-        if facts:
-            story.append(Paragraph(facts, n_style))
-        story.append(Spacer(1, 6))
+        story.append(Spacer(1, 4))
+        # LA CABECERA DE LA ACTIVIDAD, la misma que su ficha: foto, qué es, de quién y sus datos con
+        # iconos (`_roadmap_export_header` los saca de `_contract_sheet_hero_rows`).
+        story.append(_roadmap_pdf_activity_card(header))
+        story.append(Spacer(1, 8))
         hotel_line = ' · '.join([x for x in [
             (hotel.get('name') or 'Hotel') + (' ' + '★' * int(hotel.get('stars') or 0) if hotel.get('stars') else ''),
             hotel.get('address') or '', hotel.get('phone') or '', hotel.get('email') or '',
         ] if x])
-        ht = Table([[Paragraph(hotel_line, h_style)]], colWidths=[531])
+        icono_hotel = _roadmap_pdf_icon('hotel', ROOMING_PDF_BLUE.lstrip('#'))
+        ht = Table([[Paragraph(icono_hotel + html.escape(hotel_line), h_style)]], colWidths=[531])
         ht.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8f9fb')),
             ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#e5e7eb')),
@@ -81202,11 +81458,14 @@ def roadmap_rooming_pdf(entity_type, entity_id, hotel_id):
         story.append(Spacer(1, 6))
         if not groups:
             story.append(Paragraph('Sin habitaciones configuradas todavía.', n_style))
+        # ⚠️ La cabecera de cada habitación va en el AZUL de la marca y con sus iconos (cama, puerta
+        # y taza): de un vistazo se ve cuántas hay, cuál es cada una y si lleva desayuno.
+        head_style = ParagraphStyle('RoomHead', parent=h_style, textColor=colors.HexColor(ROOMING_PDF_BLUE_DARK))
         for g in groups:
-            story.append(Paragraph(g['label'], ParagraphStyle('RoomG', parent=h_style, textColor=colors.HexColor('#E33D48'), spaceBefore=8, spaceAfter=3)))
-            for i, room in enumerate(g['rooms'], 1):
-                head = f"Habitación {i} · {room['type']} · {'Con desayuno' if room['breakfast'] else 'Sin desayuno'}"
-                cells = [[Paragraph(head, h_style)]]
+            story.append(Paragraph(g['label'], ParagraphStyle(
+                'RoomG', parent=h_style, textColor=colors.HexColor('#E33D48'), spaceBefore=8, spaceAfter=3)))
+            for room in g['rooms']:
+                cells = [[Paragraph(_rooming_pdf_room_head(room.get('index') or 1, room), head_style)]]
                 for occ in room['occupants']:
                     line = occ['full_name']
                     if occ['dni']:
@@ -81225,12 +81484,13 @@ def roadmap_rooming_pdf(entity_type, entity_id, hotel_id):
                             cells.append([Table([imgs], colWidths=[160] * len(imgs))])
                 t = Table(cells, colWidths=[531])
                 t.setStyle(TableStyle([
-                    ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#e5e7eb')),
-                    ('LINEBELOW', (0, 0), (0, 0), 0.6, colors.HexColor('#f3d3d6')),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 8), ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                    ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#d6e9f2')),
+                    ('BACKGROUND', (0, 0), (0, 0), colors.HexColor(ROOMING_PDF_BLUE_SOFT)),
+                    ('LINEBELOW', (0, 0), (0, 0), 0.6, colors.HexColor('#bfdfee')),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 8), ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
                 ]))
                 story.append(t)
-                story.append(Spacer(1, 4))
+                story.append(Spacer(1, 5))
         doc.build(story)
         buf.seek(0)
         fname = f"rooming_{(hotel.get('name') or 'hotel').replace(' ', '_')}.pdf"
@@ -81261,13 +81521,15 @@ def roadmap_rooming_xlsx(entity_type, entity_id, hotel_id):
         ws.append([f"Rooming list · {header['title']} · {header['date']}"])
         ws.append([f"Hotel: {hotel.get('name') or ''} · {hotel.get('address') or ''}"])
         ws.append([])
-        ws.append(['Días', 'Habitación', 'Tipo', 'Desayuno', 'Nombre y apellidos', 'DNI', 'Nota hotel'])
+        ws.append(['Días', 'Habitación', 'Nº hab.', 'Tipo', 'Desayuno', 'Nombre y apellidos', 'DNI', 'Nota hotel'])
         for g in groups:
-            for i, room in enumerate(g['rooms'], 1):
+            for room in g['rooms']:
+                base = [g['label'], f"Habitación {room.get('index') or 1}", room.get('number') or '', room['type'],
+                        'Sí' if room['breakfast'] else 'No']
                 if not room['occupants']:
-                    ws.append([g['label'], f'Habitación {i}', room['type'], 'Sí' if room['breakfast'] else 'No', '(vacía)', '', ''])
+                    ws.append(base + ['(vacía)', '', ''])
                 for occ in room['occupants']:
-                    ws.append([g['label'], f'Habitación {i}', room['type'], 'Sí' if room['breakfast'] else 'No', occ['full_name'], occ['dni'], occ['hotel_note']])
+                    ws.append(base + [occ['full_name'], occ['dni'], occ['hotel_note']])
         buf = BytesIO()
         wb.save(buf)
         buf.seek(0)
@@ -92414,7 +92676,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     # Reparto de habitaciones: la reserva del hotel, mover una habitación o un huésped y decir que
     # alguien no necesita habitación. ⚠️ Sin esto, quien monta la producción se come un 403.
     "roadmap_hotel_reserved", "roadmap_room_move", "roadmap_room_delete", "roadmap_room_guest",
-    "roadmap_person_no_room",
+    "roadmap_person_no_room", "roadmap_room_number",
     # Personal: qué datos se ven y completar en su ficha lo que le falta a una persona.
     "roadmap_personnel_cols", "roadmap_person_fill",
     # MANDARLE UN MENSAJE (SMS o correo) al personal de la hoja de ruta: lo hace quien monta la

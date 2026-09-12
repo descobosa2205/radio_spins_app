@@ -309,7 +309,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - **Select2 con logos**: `initSelect2()` (scripts.js) pinta la imagen de cada opción desde
   `data-photo`/`data-logo`. El `<select>` debe llevar una clase: `select-providers` (terceros),
   `select-venues` (recintos), `select-with-thumbs` (ticketeras/editoriales, miniatura cuadrada),
-  `select-artists` (artistas). Campos de logo: promoter/ticketer/publishing → `logo_url`;
+  `select-artists` (artistas), **`select-people`** (personal de la oficina, foto redonda).
+  ⚠️ **UNA PERSONA SE ELIGE POR SU CARA**: donde se elige a alguien, las opciones van con foto —da
+  igual que sea de la casa o un tercero—, y **sin foto, el muñequito gris** (`DEFAULT_AVATAR_URL`),
+  no el icono suelto de Font Awesome. Aplicado en el selector de **quién va con el artista** (la
+  ficha de una actividad y la de una promoción), donde el personal iba sin foto. Campos de logo: promoter/ticketer/publishing → `logo_url`;
   venue/artist → `photo_url`.
 - **Foto del artista junto al nombre (global)**: para mostrar la foto del artista **en círculo delante
   del nombre** en cualquier plantilla, usar los helpers globales **`artist_chip(nombre, foto_url)`**
@@ -8341,6 +8345,52 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   quien esté en el personal y no en la plantilla se queda **sin habitación**. Las plantillas de
   **gastos** y de **repertorio** se crean/editan desde el mismo hub (`expense_template_create` /
   `_update_items` y el modal de repertorio que ya existía).
+- ⚠️⚠️ **HOJA DE RUTA · LA ACTIVIDAD, «HORARIOS» Y LAS HABITACIONES** (sep 2026):
+  · **LA ACTIVIDAD es la PRIMERA sección** y se llama **como lo que es** —Concierto · Festival ·
+  Evento…— con el icono de una **ESTRELLA**. Punto único **`_roadmap_activity_word(row)`**
+  (`ROADMAP_ACTIVITY_WORDS`), del que salen el rótulo de la pestaña y el antetítulo de sus PDFs, así
+  que no se pueden desparejar. ⚠️ Una fecha de un **CICLO se llama «Concierto»** (lo pidió Dani): lo
+  que hay ese día es un concierto y a quien recibe la hoja de ruta la palabra «ciclo» no le dice
+  nada. Una **PROMOCIÓN** es «Promoción», una acción «Acción» y un proyecto «Proyecto».
+  · Lo que enseña lo compone **`_roadmap_activity_card`** (`rm.activity`): la foto, de quién es,
+  **los datos con sus iconos** y los **CONTACTOS de la actividad** con su teléfono y su correo.
+  ⚠️ Las filas son las de **`_contract_sheet_hero_rows`** —la MISMA cabecera de la ficha— más la
+  apertura de puertas, la dirección y el promotor: aquí no se calcula nada nuevo.
+  ⚠️ En una **PLANTILLA** devuelve **None** (no es ninguna actividad) y su pestaña no se pinta.
+  · **«Agenda» pasa a llamarse «HORARIOS»** con el icono de un **reloj**. ⚠️ La CLAVE sigue siendo
+  `agenda` (está en `ARTIST_TEMPLATE_TABS`, en el payload y en el router del JS): lo que cambia es
+  el rótulo y el icono, en `_roadmap_panel.html` **y** en `TABS` de `roadmap.js`.
+  · **En MÓVIL se queda solo el ICONO** (el rótulo va en un `<span>` que el CSS esconde por debajo
+  de 576 px): así las cinco secciones se ven seguidas en UNA fila. El nombre sigue en el `title`.
+  · **LAS HABITACIONES SE NUMERAN** («🛏 Habitación 1») y debajo va el tipo (DUI · Twin · Doble)
+  como etiqueta. ⚠️ El número es el de la habitación **DENTRO DEL HOTEL** (`roomOrder` en el JS ·
+  `index` en `_rooming_rows_for_pdf`), no el de su grupo de fechas: con dos rangos, numerar por
+  grupo daba dos «Habitación 1». **Si se toca uno, se toca el otro.**
+  · **EL NÚMERO QUE DA EL HOTEL** (214, «5B»): se escribe en un hueco de la propia tarjeta, con el
+  icono de una **PUERTA**, y se guarda al salir del campo por su **endpoint propio**
+  (`roadmap_room_number`, en `SUPPORT_ACTION_ENDPOINTS`) — así no se toca nada más de la rooming
+  list. Vale esté la habitación en un hotel o sin repartir (`_rooming_find_room`).
+  ⚠️⚠️ **`roadmap_hotel_rooms_save` RECONSTRUYE la lista entera**, así que tiene que CONSERVARLO
+  (`_rooming_clean_number`): sin esa línea se perdía al tocar cualquier otra cosa del rooming.
+  ⚠️⚠️ **NO SALE DE CASA**: es de la oficina y del road manager (saber en qué habitación duerme
+  alguien es un dato de seguridad). Lo quita **`_roadmap_payload_for_kind`** —el punto único por el
+  que pasa el payload de la hoja de ruta pública y del portal de externos—, **en el SERVIDOR**: esas
+  pantallas meten el payload entero en el HTML, así que esconderlo en el navegador no valdría. En el
+  **PDF y el Excel sí sale** (los baja quien tiene sesión, y es con lo que se reparten las llaves).
+  · **EL DESAYUNO: la taza ACTIVA o TACHADA** (`brkIcon`, `.rm-brk--off` con su barra en CSS). Una
+  taza al 25% no dice si es que no hay desayuno o que el dato no está.
+  · **Compartir · Editar · ⋮** van juntos **arriba a la derecha** de la tarjeta del hotel
+  (`roomingActions`), y en pantalla estrecha se quedan solo los iconos. El bloque del rooming ya no
+  lleva botones.
+  · **La FOTO DEL DNI se DECIDE**: al descargar el PDF sale un pop-up con **«Incluir imagen DNI»** /
+  **«No incluir»** (antes era un `confirm()` de Aceptar/Cancelar, que no dice qué hace cada uno). La
+  descarga va con la **barra de la casa** (`app33Download.get`), que no bloquea la pantalla.
+  · **EL PDF DE LA ROOMING LIST** lleva la **cabecera de la actividad** (foto, qué es, de quién y sus
+  datos con iconos, `_roadmap_pdf_activity_card` ← `_roadmap_export_header`) y cada habitación con su
+  **cabecera en el AZUL de la marca** y sus iconos (cama · puerta · taza). ⚠️ En un PDF los iconos
+  van como **PNG** (`_roadmap_pdf_icon` → `_fa_icon_png_path`): ReportLab no entiende la fuente de
+  iconos, y un `<img>` dentro de un `<font backColor>` **no se dibuja**.
+
 - **Hoja de ruta: GENERAL y TÉCNICA** (`ROADMAP_KINDS`, `_roadmap_kinds`/`_set_roadmap_kinds`): cada
   actividad tiene las dos activas por defecto (etiquetas en el alta) y **un enlace público por hoja**
   (`roadmap_public_token` para la general, `roadmap_payload['tech_token']` para la técnica;

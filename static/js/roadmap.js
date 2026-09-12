@@ -33,7 +33,10 @@
     var PERSON_ROLES = CTX.roles || [];
     var view = document.getElementById('rmView');
     // Pestaña de arranque: la primera que exista (una plantilla de personal solo tiene «personal»).
+    // ⚠️ LA ACTIVIDAD va la primera, y solo cuando la hay (una plantilla no es ninguna actividad).
+    var ACTIVITY = CTX.activity || null;
     var TABS = (CTX.tabs && CTX.tabs.length) ? CTX.tabs : ['agenda', 'logistica', 'hoteles', 'personal'];
+    if (ACTIVITY && !(CTX.tabs && CTX.tabs.length)) TABS = ['actividad'].concat(TABS);
     var tab = TABS[0];
     var dragId = null;
 
@@ -311,6 +314,41 @@
           + '<i class="fa fa-calendar-day"></i>' + esc(d.label || (d.weekday + ' ' + d.day)) + '</button>';
       });
       return '<div class="rm-dayfilter">' + chips + '</div>';
+    }
+
+    /* ================================================================ LA ACTIVIDAD
+       De quién es, cuándo, dónde y con quién se habla: lo primero que necesita quien abre la hoja
+       de ruta. Los datos los compone el SERVIDOR (`_roadmap_activity_card`, que es la MISMA
+       cabecera de la ficha), aquí solo se pintan. */
+    function renderActividad() {
+      var a = ACTIVITY || {};
+      var foto = a.photo
+        ? '<img class="rm-act__photo" src="' + esc(a.photo) + '" alt="" data-avatar="1">'
+        : '<span class="rm-act__photo rm-act__photo--none"><i class="fa ' + esc(a.icon || 'fa-star') + '"></i></span>';
+      var datos = (a.rows || []).map(function (f) {
+        return '<div class="rm-act__fact"><i class="fa ' + esc(f.icon || 'fa-circle-info') + '"></i>'
+          + '<span class="rm-act__lab">' + esc(f.label) + '</span>'
+          + '<b>' + esc(f.value) + '</b></div>';
+      }).join('');
+      var html = '<div class="rm-act">'
+        + '<div class="rm-act__head">' + foto + '<div>'
+        + '<div class="rm-act__eyebrow">' + esc(a.word || 'Actividad') + '</div>'
+        + '<div class="rm-act__title">' + esc(a.title || '') + '</div>'
+        + (a.subtitle ? '<div class="rm-sub">' + esc(a.subtitle) + '</div>' : '')
+        + '</div></div>'
+        + (datos ? '<div class="rm-act__facts">' + datos + '</div>' : '<div class="rm-empty">Sin datos todavía.</div>')
+        + '</div>';
+      var cont = (a.contacts || []).map(function (c) {
+        return '<div class="rm-person"><span class="av">' + avatar(c.photo, 'fa-user') + '</span><div class="flex-grow-1">'
+          + '<div class="fw-semibold">' + esc(c.name) + '</div>'
+          + (c.roles ? '<div class="rm-sub">' + esc(c.roles) + '</div>' : '')
+          + '</div><div class="rm-sub text-end">'
+          + (c.phone ? '<div><a href="tel:' + esc(c.phone) + '"><i class="fa fa-phone"></i> ' + esc(c.phone) + '</a></div>' : '')
+          + (c.email ? '<div><a href="mailto:' + esc(c.email) + '"><i class="fa fa-envelope"></i> ' + esc(c.email) + '</a></div>' : '')
+          + '</div></div>';
+      }).join('');
+      if (cont) html += '<div class="rm-group-title">Contactos de la actividad</div><div class="d-flex flex-column gap-2">' + cont + '</div>';
+      view.innerHTML = html;
     }
 
     function renderAgenda() {
@@ -1028,6 +1066,26 @@
         }),
       ]);
     }
+    /* Bajar un documento que el servidor GENERA al vuelo: con la barra de la casa (no bloquea la
+       pantalla) y, donde no esté cargada, abriéndolo en otra pestaña. */
+    function bajaDoc(url, nombre) {
+      if (window.app33Download && window.app33Download.get) window.app33Download.get(url, { name: nombre });
+      else window.open(url, '_blank');
+    }
+    /* ⚠️ LA FOTO DEL DNI SE DECIDE, no se contesta a una pregunta: son dos opciones con el mismo
+       peso («Incluir imagen DNI» / «No incluir»), no un Aceptar/Cancelar que nadie sabe qué hace. */
+    function pedirDni(ho) {
+      var body = '<p class="mb-1">¿Se incluyen las <b>fotos del DNI</b> de cada huésped en la rooming list?</p>'
+        + '<p class="rm-sub mb-0">Algunos hoteles las piden para el registro. Si no hacen falta, el documento sale solo con el nombre y el número.</p>';
+      function baja(conDni) {
+        var i = bs('rmDniModal'); if (i) i.hide();
+        bajaDoc(ep('/rooming/' + encodeURIComponent(ho.id) + '/pdf') + (conDni ? '?dni=1' : ''), 'rooming.pdf');
+      }
+      openModal('rmDniModal', 'modal-md', 'Descargar la rooming list', body, [
+        btn('<i class="fa fa-file-pdf me-1"></i>No incluir', 'btn-outline-secondary', function () { baja(false); }),
+        btn('<i class="fa fa-id-card me-1"></i>Incluir imagen DNI', 'btn-primary', function () { baja(true); })
+      ]);
+    }
     function wireRooming() {
       view.querySelectorAll('[data-rooming-edit]').forEach(function (b) {
         b.addEventListener('click', function () { var ho = hotelById(b.getAttribute('data-rooming-edit')); if (ho) openRoomingEditor(ho); });
@@ -1037,10 +1095,9 @@
           var ho = hotelById(b.getAttribute('data-rhotel')); if (!ho) return;
           var mode = b.getAttribute('data-rshare');
           if (mode === 'pdf') {
-            var withDni = confirm('¿Incluir la foto del DNI de cada huésped en el documento?\n\nAceptar = con fotos del DNI · Cancelar = sin fotos');
-            window.open(ep('/rooming/' + encodeURIComponent(ho.id) + '/pdf') + (withDni ? '?dni=1' : ''), '_blank');
+            pedirDni(ho);
           } else if (mode === 'xlsx') {
-            window.open(ep('/rooming/' + encodeURIComponent(ho.id) + '/xlsx'), '_blank');
+            bajaDoc(ep('/rooming/' + encodeURIComponent(ho.id) + '/xlsx'), 'rooming.xlsx');
           } else {
             var text = roomingShareText(ho);
             if (mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
@@ -1050,6 +1107,24 @@
         });
       });
       if (RO) return;
+      /* EL NÚMERO QUE DA EL HOTEL: se escribe en la propia tarjeta y se guarda al salir del campo
+         (o con Enter), por su propio endpoint — así no se toca nada más de la rooming list. */
+      view.querySelectorAll('[data-room-number]').forEach(function (inp) {
+        var previo = inp.value;
+        function guarda() {
+          if (inp.value === previo) return;
+          previo = inp.value;
+          inp.parentElement.classList.toggle('is-set', !!inp.value.trim());
+          postJson(ep('/habitacion/numero'), { room_id: inp.getAttribute('data-room-number'), room_number: inp.value })
+            .then(function (resp) { if (resp && resp.ok) { P = resp.payload; DAYS = resp.days || DAYS; } });
+        }
+        inp.addEventListener('change', guarda);
+        inp.addEventListener('blur', guarda);
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+        // Escribir un número no puede arrastrar la habitación ni abrir nada de debajo.
+        inp.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        inp.addEventListener('click', function (e) { e.stopPropagation(); });
+      });
       // Arrastrar personas ENTRE habitaciones (también de un hotel a otro) desde la vista.
       view.querySelectorAll('.rm-occ[data-occ]').forEach(function (chip) {
         chip.addEventListener('dragstart', function (e) {
@@ -1112,15 +1187,40 @@
       function f(d) { return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2); }
       return 'del ' + f(d1) + ' al ' + f(d2) + ' (' + nights + ' noche' + (nights !== 1 ? 's' : '') + ')';
     }
+    /* El DESAYUNO: la taza ACTIVA cuando lo lleva y TACHADA cuando no (una taza al 25% no dice si
+       es que no hay desayuno o que el dato no está). Punto único: lo pintan la tarjeta y el editor. */
+    function brkIcon(on) {
+      return '<i class="fa fa-mug-saucer rm-brk' + (on ? ' rm-brk--on' : ' rm-brk--off') + '" title="'
+        + (on ? 'Con desayuno' : 'Sin desayuno') + '"></i>';
+    }
+    /* Qué número hace cada habitación DENTRO del hotel (1, 2, 3…). ⚠️ Va por el orden en que están
+       guardadas, igual que el PDF y el Excel (`_rooming_rows_for_pdf`): así «la 3» es la misma
+       habitación en los tres sitios aunque haya varios rangos de fechas. */
+    function roomOrder(ho, r) {
+      var rooms = (ho && ho.rooms) || [];
+      for (var i = 0; i < rooms.length; i++) if (String(rooms[i].id) === String(r.id)) return i + 1;
+      return 0;
+    }
     function roomMiniCard(ho, r, ri) {
       var occ = (r.occupant_ids || []).map(function (id) {
         var p = personById(id); if (!p) return '';
         return '<span class="rm-occ" draggable="' + (RO ? 'false' : 'true') + '" data-occ="' + esc(id) + '" data-occ-hotel="' + esc(ho.id) + '" data-occ-room="' + esc(r.id) + '" title="' + esc(p.name) + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
       }).join('');
+      var n = ri || roomOrder(ho, r);
+      /* ⚠️ EL NÚMERO QUE DA EL HOTEL (214) es de la CASA: se ve y se escribe dentro de la app, y NO
+         se pinta en solo lectura (la hoja de ruta que se comparte y el portal de externos). */
+      var numero = RO
+        ? (r.room_number ? '<span class="rm-room__num is-set"><i class="fa fa-door-closed"></i>' + esc(r.room_number) + '</span>' : '')
+        : '<label class="rm-room__num' + (r.room_number ? ' is-set' : '') + '" title="Número de habitación del hotel">'
+          + '<i class="fa fa-door-closed"></i>'
+          + '<input type="text" maxlength="12" value="' + esc(r.room_number || '') + '" placeholder="nº"'
+          + ' data-room-number="' + esc(r.id) + '"></label>';
       return '<div class="rm-room" data-room="' + esc(r.id) + '" data-room-hotel="' + esc(ho.id) + '">'
-        + '<div class="rm-room__head"><span class="fw-semibold">' + roomTypeLabel((r.occupant_ids || []).length, r.bed) + '</span>'
-        + '<span class="rm-sub">' + (r.breakfast ? '<i class="fa fa-mug-saucer" title="Con desayuno"></i>' : '<i class="fa fa-mug-saucer" style="opacity:.25" title="Sin desayuno"></i>') + '</span></div>'
-        + (occ || '<div class="rm-sub">Arrastra personas aquí</div>')
+        + '<div class="rm-room__head"><span class="fw-semibold"><i class="fa fa-bed me-1 text-muted"></i>Habitación ' + n + '</span>'
+        + '<span class="rm-sub d-inline-flex align-items-center gap-1">' + brkIcon(r.breakfast) + '</span></div>'
+        + '<div class="rm-room__meta"><span class="rm-room__type">' + roomTypeLabel((r.occupant_ids || []).length, r.bed) + '</span>' + numero + '</div>'
+        // ⚠️ En solo lectura no se arrastra nada: ahí el texto sería un botón que no existe.
+        + (occ || '<div class="rm-sub">' + (RO ? 'Sin ocupantes' : 'Arrastra personas aquí') + '</div>')
         + '</div>';
     }
     function roomingBlock(ho) {
@@ -1129,19 +1229,10 @@
       var groups = {};
       rooms.forEach(function (r) { var k = roomRangeLabel(r, ho) || 'Sin días'; (groups[k] = groups[k] || []).push(r); });
       var html = '<div class="rm-rooming mt-2" data-rooming="' + esc(ho.id) + '">';
-      html += '<div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-1">'
-        + '<span class="rm-sub fw-semibold"><i class="fa fa-bed"></i> Rooming list' + (rooms.length ? ' · ' + rooms.length + ' hab.' : '') + '</span>'
-        + '<span class="d-flex gap-1">'
-        + (RO ? '' : '<button class="btn btn-sm btn-outline-primary py-0" data-rooming-edit="' + esc(ho.id) + '"><i class="fa fa-pen"></i> Editar rooming</button>')
-        + '<div class="dropdown d-inline-block"><button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i> Compartir</button>'
-        + '<ul class="dropdown-menu dropdown-menu-end">'
-        + '<li><button class="dropdown-item" data-rshare="pdf" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar PDF</button></li>'
-        + '<li><button class="dropdown-item" data-rshare="xlsx" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-file-excel fa-fw me-1"></i>Descargar Excel</button></li>'
-        + '<li><hr class="dropdown-divider"></li>'
-        + '<li><button class="dropdown-item" data-rshare="email" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</button></li>'
-        + '<li><button class="dropdown-item" data-rshare="wa" data-rhotel="' + esc(ho.id) + '"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
-        + '<li><button class="dropdown-item" data-rshare="sms" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>'
-        + '</ul></div></span></div>';
+      // ⚠️ Compartir y editar el rooming viven ARRIBA DEL TODO, junto a los tres puntos del hotel
+      // (`hotelCard` → `roomingActions`): aquí solo queda el rótulo.
+      html += '<div class="rm-sub fw-semibold mb-1"><i class="fa fa-bed"></i> Rooming list'
+        + (rooms.length ? ' · ' + rooms.length + ' hab.' : '') + '</div>';
       if (!rooms.length) html += '<div class="rm-sub">Sin habitaciones. ' + (RO ? '' : 'Pulsa «Editar rooming» para configurarlas.') + '</div>';
       Object.keys(groups).forEach(function (k) {
         html += '<div class="rm-sub fw-semibold mt-1">' + esc(k) + '</div><div class="rm-rooms-grid">';
@@ -1155,7 +1246,10 @@
       var lines = ['Rooming list · ' + (ho.name || 'Hotel')];
       (ho.rooms || []).forEach(function (r, i) {
         var names = (r.occupant_ids || []).map(function (id) { var p = personById(id); return p ? p.name : ''; }).filter(Boolean).join(', ');
-        lines.push('Hab. ' + (i + 1) + ' (' + roomTypeLabel((r.occupant_ids || []).length, r.bed) + (r.breakfast ? ', con desayuno' : ', sin desayuno') + ') ' + (roomRangeLabel(r, ho) || '') + ': ' + (names || 'vacía'));
+        lines.push('Habitación ' + (i + 1) + (r.room_number ? ' (nº ' + r.room_number + ')' : '')
+          + ' · ' + roomTypeLabel((r.occupant_ids || []).length, r.bed)
+          + (r.breakfast ? ' · con desayuno' : ' · sin desayuno')
+          + ' ' + (roomRangeLabel(r, ho) || '') + ': ' + (names || 'vacía'));
       });
       return lines.join('\n');
     }
@@ -1186,14 +1280,15 @@
           // Con DOS personas se elige la cama: Twin (dos camas) o Doble (una sola).
           var esDoble = String(r.bed || '').toUpperCase() === 'DOBLE';
           var camaBtn = ((r.occupant_ids || []).length === 2)
-            ? '<button type="button" class="btn btn-sm btn-link p-0 me-2 rm-sub" data-ebed="' + i + '"'
+            ? '<button type="button" class="btn btn-sm btn-link p-0 rm-sub" data-ebed="' + i + '"'
               + ' title="' + (esDoble ? 'Una sola cama · pulsa para dos camas separadas' : 'Dos camas separadas · pulsa para una sola cama') + '">'
               + '<i class="fa ' + (esDoble ? 'fa-bed' : 'fa-bed-pulse') + '"></i> ' + (esDoble ? 'una cama' : 'dos camas') + '</button>'
             : '';
           left += '<div class="rm-room rm-room--edit" data-eroom="' + i + '">'
-            + '<div class="rm-room__head"><span class="fw-semibold">' + roomTypeLabel((r.occupant_ids || []).length, r.bed) + '</span>'
-            + '<span>' + camaBtn + '<label class="rm-sub me-1" title="Desayuno"><input type="checkbox" data-ebrk="' + i + '"' + (r.breakfast ? ' checked' : '') + '> <i class="fa fa-mug-saucer"></i></label>'
+            + '<div class="rm-room__head"><span class="fw-semibold"><i class="fa fa-bed me-1"></i>Habitación ' + (i + 1) + '</span>'
+            + '<span class="d-inline-flex align-items-center gap-1"><label class="rm-sub" title="Desayuno"><input type="checkbox" data-ebrk="' + i + '"' + (r.breakfast ? ' checked' : '') + '> ' + brkIcon(r.breakfast) + '</label>'
             + '<button type="button" class="btn btn-sm btn-link text-danger p-0" data-edelroom="' + i + '"><i class="fa fa-trash"></i></button></span></div>'
+            + '<div class="rm-room__meta"><span class="rm-room__type">' + roomTypeLabel((r.occupant_ids || []).length, r.bed) + '</span>' + camaBtn + '</div>'
             + (IS_TPL ? '' : '<div class="rm-sub mb-1">De <select class="form-select form-select-sm d-inline-block w-auto" data-efrom="' + i + '">' + dayOptions(r.day_from || hotelDays[0] || '') + '</select> a <select class="form-select form-select-sm d-inline-block w-auto" data-eto="' + i + '">' + dayOptions(r.day_to || hotelDays[hotelDays.length - 1] || '') + '</select></div>')
             + (occ || '<div class="rm-sub">Arrastra personas aquí</div>')
             + '</div>';
@@ -1282,8 +1377,31 @@
         + (atts ? '<div class="mt-1">' + atts + '</div>' : '')
         + roomingBlock(ho)
         + '</div>'
-        + (RO ? '' : '<div class="dropdown rm-menu"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button><ul class="dropdown-menu dropdown-menu-end"><li><button class="dropdown-item" data-hedit="' + esc(ho.id) + '">Editar</button></li><li><button class="dropdown-item text-danger" data-hdel="' + esc(ho.id) + '">Eliminar</button></li></ul></div>')
+        + roomingActions(ho)
         + '</div>';
+    }
+    /* Arriba a la derecha de la tarjeta del hotel y en este orden: COMPARTIR · EDITAR (la rooming
+       list) · los tres puntos del hotel. En pantalla estrecha se quedan solo los iconos. */
+    function roomingActions(ho) {
+      var compartir = '<div class="dropdown d-inline-block"><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" title="Compartir la rooming list">'
+        + '<i class="fa fa-share-nodes"></i> <span class="d-none d-md-inline">Compartir</span></button>'
+        + '<ul class="dropdown-menu dropdown-menu-end">'
+        + '<li><button class="dropdown-item" data-rshare="pdf" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar PDF</button></li>'
+        + '<li><button class="dropdown-item" data-rshare="xlsx" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-file-excel fa-fw me-1"></i>Descargar Excel</button></li>'
+        + '<li><hr class="dropdown-divider"></li>'
+        + '<li><button class="dropdown-item" data-rshare="email" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</button></li>'
+        + '<li><button class="dropdown-item" data-rshare="wa" data-rhotel="' + esc(ho.id) + '"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
+        + '<li><button class="dropdown-item" data-rshare="sms" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>'
+        + '</ul></div>';
+      if (RO) return '<div class="rm-menu rm-hotel__acts">' + compartir + '</div>';
+      return '<div class="rm-menu rm-hotel__acts">' + compartir
+        + '<button class="btn btn-sm btn-outline-primary" data-rooming-edit="' + esc(ho.id) + '" title="Editar la rooming list">'
+        + '<i class="fa fa-pen"></i> <span class="d-none d-md-inline">Editar</span></button>'
+        + '<div class="dropdown d-inline-block"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown" title="Más"><i class="fa fa-ellipsis-vertical"></i></button>'
+        + '<ul class="dropdown-menu dropdown-menu-end">'
+        + '<li><button class="dropdown-item" data-hedit="' + esc(ho.id) + '"><i class="fa fa-hotel fa-fw me-1"></i>Editar el hotel</button></li>'
+        + '<li><button class="dropdown-item text-danger" data-hdel="' + esc(ho.id) + '"><i class="fa fa-trash fa-fw me-1"></i>Eliminar el hotel</button></li>'
+        + '</ul></div></div>';
     }
     function openHotelEditor(ho) {
       var editing = !!ho.id;
@@ -2025,7 +2143,7 @@
     }
 
     // ---------------------------------------------------------------- init
-    function render() { if (tab === 'agenda') renderAgenda(); else if (tab === 'logistica') renderLogistica(); else if (tab === 'hoteles') renderHoteles(); else renderPersonal(); }
+    function render() { if (tab === 'actividad') renderActividad(); else if (tab === 'agenda') renderAgenda(); else if (tab === 'logistica') renderLogistica(); else if (tab === 'hoteles') renderHoteles(); else renderPersonal(); }
     root.querySelectorAll('[data-rm-tab]').forEach(function (b) { b.addEventListener('click', function () { tab = b.getAttribute('data-rm-tab'); root.querySelectorAll('[data-rm-tab]').forEach(function (x) { x.classList.toggle('active', x === b); }); render(); }); });
     render();
   }

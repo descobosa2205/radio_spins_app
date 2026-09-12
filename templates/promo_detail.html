@@ -182,10 +182,10 @@
                   </div>
                   <div class="mt-2 {% if escort.kind != 'USER' %}d-none{% endif %}" data-promo-escort-user>
                     <label class="form-label small">¿Quién?</label>
-                    <select class="form-select" name="escort_user_id">
+                    <select class="form-select select-people" name="escort_user_id">
                       <option value="">Elige a la persona…</option>
                       {% for p in office_people %}
-                        <option value="{{ p.id }}" {% if promotion.escort_user_id and p.id == promotion.escort_user_id|string %}selected{% endif %}>{{ p.name }}</option>
+                        <option value="{{ p.id }}" data-photo="{{ p.photo_url or DEFAULT_AVATAR_URL }}" {% if promotion.escort_user_id and p.id == promotion.escort_user_id|string %}selected{% endif %}>{{ p.name }}</option>
                       {% endfor %}
                     </select>
                   </div>
@@ -194,7 +194,7 @@
                     <select class="form-select select-providers" name="escort_promoter_id" id="promoEscortPromoter">
                       <option value="">Elige el tercero…</option>
                       {% for p in third_parties %}
-                        <option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}" {% if promotion.escort_promoter_id and p.id|string == promotion.escort_promoter_id|string %}selected{% endif %}>{{ p.nick or p.name }}</option>
+                        <option value="{{ p.id }}" data-photo="{{ p.logo_url or DEFAULT_AVATAR_URL }}" {% if promotion.escort_promoter_id and p.id|string == promotion.escort_promoter_id|string %}selected{% endif %}>{{ p.nick or p.name }}</option>
                       {% endfor %}
                     </select>
                   </div>

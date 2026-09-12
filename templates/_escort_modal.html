@@ -72,10 +72,13 @@
           {# Alguien de la EMPRESA #}
           <div class="mt-3 {% if escort.kind != 'USER' %}d-none{% endif %}" data-escort-panel="USER">
             <label class="form-label small mb-1">¿Quién?</label>
-            <select class="form-select" name="escort_user_id">
+            {# ⚠️ CON FOTO, igual que el de terceros: elegir a una persona por su nombre a secas
+               es mucho más lento que reconocer su cara. Sin foto, el muñequito gris de la casa. #}
+            <select class="form-select select-people" name="escort_user_id">
               <option value="">Elige a la persona…</option>
               {% for p in escort_office_people %}
-                <option value="{{ p.id }}" {% if escort.user_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                <option value="{{ p.id }}" data-photo="{{ p.photo_url or DEFAULT_AVATAR_URL }}"
+                        {% if escort.user_id == p.id %}selected{% endif %}>{{ p.name }}</option>
               {% endfor %}
             </select>
             <div class="form-text">Le llega el aviso en la app y por correo.</div>
@@ -88,7 +91,7 @@
               <select class="form-select select-providers" name="escort_promoter_id" id="escortPromoter">
                 <option value="">Elige el tercero…</option>
                 {% for p in (third_parties or []) %}
-                  <option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}"
+                  <option value="{{ p.id }}" data-photo="{{ p.logo_url or DEFAULT_AVATAR_URL }}"
                           {% if escort.promoter_id == p.id|string %}selected{% endif %}>{{ p.nick or p.name }}</option>
                 {% endfor %}
               </select>

@@ -6,13 +6,23 @@
 <div class="rm-panel" id="roadmapPanel"
      {% if rm.readonly %}data-readonly="1" data-base=""{% else %}data-base="{{ url_for('roadmap_item_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"{% endif %}>
   <script type="application/json" id="roadmapData">{{ rm | tojson }}</script>
-  {# Con `rm.tabs` (plantillas de artista) solo se enseñan las pestañas que tocan; sin él, las cuatro. #}
+  {# Con `rm.tabs` (plantillas de artista) solo se enseñan las pestañas que tocan; sin él, todas.
+     ⚠️ LA ACTIVIDAD va la PRIMERA y se llama como lo que es (Concierto · Festival · Evento…):
+     `rm.activity.word`. En una PLANTILLA no hay actividad, así que `rm.activity` llega vacío.
+     ⚠️ El rótulo va en un <span>: en MÓVIL se esconde y quedan solo los iconos, para que las
+     secciones se vean todas seguidas en una fila. #}
   {% set _tabs = rm.tabs or ['agenda', 'logistica', 'hoteles', 'personal'] %}
+  {% set _defs = [('agenda','Horarios','fa-clock'), ('logistica','Logística','fa-route'),
+                  ('hoteles','Hoteles','fa-hotel'), ('personal','Personal','fa-users')] %}
+  {% if rm.activity and not rm.tabs %}
+    {% set _tabs = ['actividad'] + _tabs %}
+    {% set _defs = [('actividad', rm.activity.word, rm.activity.icon or 'fa-star')] + _defs %}
+  {% endif %}
   <div class="rm-nav" role="tablist">
-    {% for key, label, icon in [('agenda','Agenda','fa-calendar-day'), ('logistica','Logística','fa-route'),
-                                ('hoteles','Hoteles','fa-hotel'), ('personal','Personal','fa-users')] %}
+    {% for key, label, icon in _defs %}
       {% if key in _tabs %}
-        <button type="button"{% if loop.first or key == _tabs[0] %} class="active"{% endif %} data-rm-tab="{{ key }}"><i class="fa {{ icon }}"></i> {{ label }}</button>
+        <button type="button"{% if key == _tabs[0] %} class="active"{% endif %} data-rm-tab="{{ key }}"
+                title="{{ label }}"><i class="fa {{ icon }}"></i> <span>{{ label }}</span></button>
       {% endif %}
     {% endfor %}
   </div>

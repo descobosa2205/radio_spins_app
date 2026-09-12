@@ -641,7 +641,12 @@
 
     <div class="tab-pane fade" id="inv-tab-tickets">
       <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
-        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-bs-toggle="modal" data-bs-target="#categoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
+        {# GENERAR INVITACIONES (entradas con QR que compone la app): solo en lo que promueve una
+           empresa del grupo — en lo de un tercero, las entradas las manda él. Va delante de «Configurar». #}
+        {% if group_promoted %}
+        <a class="btn btn-sm btn-outline-danger ms-auto" href="{{ url_for('invitation_gen_view', concert_id=concert.id) }}" title="Generar las invitaciones de esta actividad (entradas con código QR)"><i class="fa fa-qrcode me-1"></i>Generar invitaciones</a>
+        {% endif %}
+        <button type="button" class="btn btn-sm btn-outline-danger{% if not group_promoted %} ms-auto{% endif %}" data-bs-toggle="modal" data-bs-target="#categoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
       </div>
       {# Mapa del RECINTO (visor): las entradas subidas casadas por sector/fila/asiento con el mapa
          de butacas del recinto, cada invitado con su color (nombre + raya al acercar). Aditivo:

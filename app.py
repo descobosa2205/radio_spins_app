@@ -136,6 +136,7 @@ from models import (
     ensure_third_party_and_contract_sheet_schema,
     ensure_concert_artwork_schema,
     ensure_invitation_schema,
+    ensure_invitation_gen_schema,
     ensure_entity_links_schema,
     ensure_radio_import_schema,
     ensure_simulations_schema,
@@ -257,6 +258,14 @@ from models import (
     InvitationPublicLink,
     InvitationRequest,
     InvitationTicket,
+    InvitationGenConfig,
+    InvitationGenExtra,
+    InvitationGenCategory,
+    InvitationGenSector,
+    InvitationConditionsTemplate,
+    InvitationExtraPreset,
+    InvitationVoidedCode,
+    InvitationAccessLog,
     ThirdPartyLink,
     InvitationGuestListLink,
     InvitationManagerOptIn,
@@ -929,7 +938,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
+    allowed = {"public_invitation_conditions", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan"}
     if request.endpoint in allowed:
         return
 
@@ -79445,6 +79454,7 @@ def _bootstrap_schema_bg():
         (ensure_third_party_and_contract_sheet_schema, "ensure_third_party_and_contract_sheet_schema"),
         (ensure_concert_artwork_schema, "ensure_concert_artwork_schema"),
         (ensure_invitation_schema, "ensure_invitation_schema"),
+        (ensure_invitation_gen_schema, "ensure_invitation_gen_schema"),
         (ensure_entity_links_schema, "ensure_entity_links_schema"),
         (ensure_radio_import_schema, "ensure_radio_import_schema"),
         (ensure_simulations_schema, "ensure_simulations_schema"),
@@ -88900,7 +88910,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_invitation_conditions", "externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -93396,7 +93406,7 @@ def _require_login_v2():
     # blanca de endpoints, su sesión, su actividad y su marca) y devuelve False en cualquier otra cosa.
     if _ext_roadmap_gate_ok():
         return
-    allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_invitation_conditions", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -164546,6 +164556,964 @@ def external_access_preview(pid):
         _ext_session_start([p])
         session["ext_preview"] = True
         return redirect(url_for("externos_home"))
+    finally:
+        session_db.close()
+
+
+# =====================================================================================================
+# GENERACIÓN DE INVITACIONES · las entradas con QR que compone la propia app (y su control de acceso)
+# =====================================================================================================
+# «Gestionar invitaciones» trabaja con PDFs que se SUBEN (los manda la ticketera o el promotor). Aquí
+# se GENERAN: en las actividades que promueve una empresa del grupo, la app compone la entrada —con su
+# código QR, la imagen, las horas, los extras (M&G, After Party, Parking…) y las condiciones de uso— y
+# las entradas generadas entran en la gestión de siempre como si se hubieran subido (planos, asignar,
+# enviar, descargar). Lo que cambia por dentro:
+#   · `InvitationGenConfig` (una por actividad): los DATOS DE LA ENTRADA, sus extras y sus condiciones.
+#   · El PDF se compone AL VUELO (`_invgen_ticket_pdf_bytes`): así, cuando una entrada enviada se
+#     recupera y su código se anula, la entrada vieja deja de valer sin tocar ningún fichero.
+#   · Las condiciones completas tienen su enlace público (`public_invitation_conditions`), que es lo que
+#     enlaza la propia entrada (en la entrada va solo un resumen).
+
+INVGEN_ICON_CHOICES = [
+    ("fa-handshake", "Meet & Greet"), ("fa-champagne-glasses", "After party"), ("fa-square-parking", "Parking"),
+    ("fa-utensils", "Catering"), ("fa-martini-glass", "Copa"), ("fa-beer-mug-empty", "Consumición"),
+    ("fa-bus", "Transporte"), ("fa-car", "Coche"), ("fa-van-shuttle", "Lanzadera"),
+    ("fa-camera", "Foto"), ("fa-microphone-lines", "Prueba de sonido"), ("fa-guitar", "Backstage"),
+    ("fa-couch", "Zona VIP"), ("fa-crown", "Palco"), ("fa-gift", "Regalo"), ("fa-shirt", "Merchandising"),
+    ("fa-bag-shopping", "Tienda"), ("fa-hotel", "Hotel"), ("fa-wheelchair", "Acceso PMR"),
+    ("fa-door-open", "Acceso"), ("fa-clock", "Horario"), ("fa-id-badge", "Acreditación"),
+    ("fa-users", "Grupo"), ("fa-star", "Otro"),
+]
+INVGEN_ICON_SET = {i for i, _ in INVGEN_ICON_CHOICES}
+INVGEN_CONDITIONS_TEMPLATE_DEFAULT = "Condiciones generales"
+# Las cláusulas de FÁBRICA: se siembran como la primera plantilla y se pueden cambiar desde la app.
+INVGEN_CONDITIONS_DEFAULT = [
+    {"title": "Invitación personal e intransferible",
+     "body": "Esta invitación es personal y gratuita: no puede venderse, cederse ni utilizarse con fines "
+             "publicitarios o promocionales. La organización podrá anularla si detecta su reventa o un uso "
+             "distinto al autorizado."},
+    {"title": "Un solo acceso por código",
+     "body": "El código QR de la invitación se valida una única vez en el control de acceso. Si se presenta "
+             "un código ya utilizado, anulado o ilegible, no se permitirá el acceso."},
+    {"title": "Horarios",
+     "body": "Las puertas se abrirán a la hora indicada en la invitación. La organización se reserva el derecho "
+             "a modificar los horarios por causas justificadas, sin que ello dé derecho a compensación alguna."},
+    {"title": "Derecho de admisión",
+     "body": "La organización se reserva el derecho de admisión conforme a la normativa vigente. No se permitirá "
+             "el acceso a quien muestre síntomas de embriaguez, una actitud violenta o porte objetos peligrosos."},
+    {"title": "Menores de edad",
+     "body": "El acceso de menores se rige por la normativa autonómica y por las condiciones del recinto. Cuando "
+             "la actividad lo exija, el menor deberá ir acompañado de un adulto con la autorización correspondiente."},
+    {"title": "Imagen y sonido",
+     "body": "El asistente consiente que su imagen pueda ser captada en las grabaciones y fotografías del evento, "
+             "que podrán difundirse con fines informativos y promocionales."},
+    {"title": "Cancelación o aplazamiento",
+     "body": "En caso de cancelación o aplazamiento la organización lo comunicará por sus canales habituales. Al "
+             "tratarse de una invitación gratuita no procede devolución económica."},
+]
+INVGEN_PDF_SUMMARY_CLAUSES = 3          # cuántas cláusulas se resumen EN la entrada (el resto, en su enlace)
+INVGEN_QR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # sin 0/O/1/I: se lee también a ojo
+INVGEN_QR_LEN = 16
+INVGEN_KICKER = "Invitación personal · No válida para su venta"
+
+
+def _invgen_config(session_db, concert, *, create: bool = False):
+    """Los datos de la entrada de una actividad (una fila por actividad). Con `create` la crea."""
+    if concert is None:
+        return None
+    cfg = session_db.query(InvitationGenConfig).filter(InvitationGenConfig.concert_id == concert.id).first()
+    if cfg is None and create:
+        cfg = InvitationGenConfig(concert_id=concert.id)
+        session_db.add(cfg)
+        session_db.flush()
+    return cfg
+
+
+def _invgen_can_generate(session_db, concert) -> bool:
+    """Solo se generan invitaciones de lo que PROMUEVE una empresa del grupo: en lo de un tercero las
+    entradas son suyas y las manda él (el mismo criterio que cartelería e invitaciones)."""
+    try:
+        return bool(concert) and _concert_is_group_promoted(session_db, concert)
+    except Exception:
+        return False
+
+
+def _invgen_new_token() -> str:
+    return "".join(secrets.choice(INVGEN_QR_ALPHABET) for _ in range(INVGEN_QR_LEN))
+
+
+def _invgen_ensure_conditions_token(cfg) -> str:
+    if cfg is not None and not (cfg.conditions_token or "").strip():
+        cfg.conditions_token = _uuid_token()
+    return (cfg.conditions_token or "") if cfg is not None else ""
+
+
+def _invgen_extra_presets(session_db) -> list:
+    return (session_db.query(InvitationExtraPreset)
+            .order_by(InvitationExtraPreset.sort_order.asc(), InvitationExtraPreset.name.asc()).all())
+
+
+def _invgen_preset_key(name: str, existing: set[str]) -> str:
+    base = re.sub(r"[^A-Z0-9]+", "_", _norm_text_key(name).upper()).strip("_") or "EXTRA"
+    key, n = base, 2
+    while key in existing:
+        key = f"{base}_{n}"
+        n += 1
+    return key[:60]
+
+
+def _invgen_seed_default_template(session_db):
+    """La plantilla de FÁBRICA existe siempre (si alguien la borró, se vuelve a crear): así el paso de
+    condiciones nunca sale vacío."""
+    tpl = (session_db.query(InvitationConditionsTemplate)
+           .filter(InvitationConditionsTemplate.is_builtin.is_(True)).first())
+    if tpl is None:
+        tpl = (session_db.query(InvitationConditionsTemplate)
+               .filter(InvitationConditionsTemplate.name == INVGEN_CONDITIONS_TEMPLATE_DEFAULT).first())
+    if tpl is None:
+        tpl = InvitationConditionsTemplate(name=INVGEN_CONDITIONS_TEMPLATE_DEFAULT,
+                                           clauses_json=[dict(c) for c in INVGEN_CONDITIONS_DEFAULT],
+                                           is_builtin=True, created_by_nick="sistema")
+        session_db.add(tpl)
+        session_db.flush()
+    return tpl
+
+
+def _invgen_templates(session_db) -> list:
+    _invgen_seed_default_template(session_db)
+    return (session_db.query(InvitationConditionsTemplate)
+            .order_by(InvitationConditionsTemplate.is_builtin.desc(), InvitationConditionsTemplate.name.asc()).all())
+
+
+def _invgen_clean_clauses(titles, bodies) -> list[dict]:
+    """Las cláusulas tal como llegan del editor: se descartan las vacías y se recortan."""
+    out = []
+    for t, b in zip(list(titles or []), list(bodies or [])):
+        t = re.sub(r"\s+", " ", str(t or "")).strip()[:160]
+        b = str(b or "").strip()[:4000]
+        if not t and not b:
+            continue
+        out.append({"title": t or "Condición", "body": b})
+    return out
+
+
+def _invgen_clauses(obj) -> list[dict]:
+    """Las cláusulas de una configuración o de una plantilla, normalizadas (título + texto)."""
+    raw = None
+    if isinstance(obj, dict):
+        raw = obj.get("clauses") or obj.get("conditions")
+    else:
+        raw = getattr(obj, "conditions_json", None) if hasattr(obj, "conditions_json") else getattr(obj, "clauses_json", None)
+    out = []
+    for c in (raw or []):
+        if not isinstance(c, dict):
+            continue
+        t = str(c.get("title") or "").strip()
+        b = str(c.get("body") or "").strip()
+        if t or b:
+            out.append({"title": t or "Condición", "body": b})
+    return out
+
+
+def _invgen_brand_logo_url(session_db, concert) -> str:
+    """El logo que va en la entrada, en el correo y en la landing: el del FESTIVAL o CICLO nuestro si
+    la actividad es de uno, si no el del EVENTO, y si no el de la empresa del grupo (la que factura o
+    la que promueve, y en último caso el de la casa). Siempre absoluto: va por correo y a un PDF."""
+    logo = ""
+    try:
+        cf = getattr(concert, "cycle_festival", None)
+        if cf is not None:
+            logo = (getattr(cf, "logo_url", None) or "").strip()
+        if not logo and getattr(concert, "event_id", None):
+            ev = session_db.get(AppEvent, concert.event_id)
+            logo = (getattr(ev, "logo_url", None) or "").strip() if ev is not None else ""
+    except Exception:
+        logo = ""
+    if logo:
+        return _absolute_media_url(logo)
+    return _invitation_event_logo_url(session_db, concert, external=True)
+
+
+def _invgen_image_options(session_db, concert) -> list[dict]:
+    """Las imágenes que ya tenemos de la actividad, para elegir la de la entrada sin subir nada."""
+    opts = []
+    poster = _concert_poster_url(concert)
+    if poster:
+        opts.append({"key": "poster", "label": "Cartel de la actividad", "url": _absolute_media_url(poster)})
+    try:
+        if getattr(concert, "event_id", None):
+            ev = session_db.get(AppEvent, concert.event_id)
+            if ev is not None and (ev.logo_url or "").strip():
+                opts.append({"key": "event", "label": f"Imagen de {ev.name}", "url": _absolute_media_url(ev.logo_url)})
+        for a in _concert_artist_rows(session_db, concert) or []:
+            if (getattr(a, "photo_url", None) or "").strip() and not getattr(a, "event_id", None):
+                opts.append({"key": f"artist:{a.id}", "label": f"Foto de {a.name}", "url": _absolute_media_url(a.photo_url)})
+    except Exception:
+        pass
+    return opts
+
+
+def _invgen_image_url(session_db, concert, cfg) -> str:
+    """La imagen de la entrada: la elegida en la configuración y, si no hay, la primera que tengamos."""
+    url = (getattr(cfg, "image_url", None) or "").strip() if cfg is not None else ""
+    if url:
+        return _absolute_media_url(url)
+    opts = _invgen_image_options(session_db, concert)
+    return opts[0]["url"] if opts else ""
+
+
+def _invgen_venue_info(concert) -> dict:
+    """El recinto tal como se escribe en la entrada: nombre y dirección completa (el formato único de
+    la casa: «Calle y número, CP Municipio, Provincia», el país solo si no es España)."""
+    v = getattr(concert, "venue", None)
+    name = (getattr(v, "name", None) or getattr(concert, "manual_venue_name", None) or "").strip()
+    address = (getattr(v, "address", None) or getattr(concert, "manual_venue_address", None) or "").strip()
+    cp = (getattr(v, "postal_code", None) or getattr(concert, "manual_postal_code", None) or "").strip()
+    city = (getattr(v, "municipality", None) or getattr(concert, "manual_municipality", None) or "").strip()
+    prov = (getattr(v, "province", None) or getattr(concert, "manual_province", None) or "").strip()
+    country = (getattr(v, "country", None) or getattr(concert, "manual_country", None) or "").strip()
+    place = _place_label(city, prov, country)
+    tail = " ".join([x for x in [cp, place] if x]).strip()
+    address_line = ", ".join([x for x in [address, tail] if x]).strip()
+    return {"name": name, "address": address, "postal_code": cp, "city": city, "province": prov,
+            "country": country, "place": place, "address_line": address_line,
+            "has_venue": bool(getattr(concert, "venue_id", None)),
+            "venue_id": str(getattr(concert, "venue_id", "") or "")}
+
+
+def _invgen_times(concert, cfg) -> tuple[str, str]:
+    """(apertura de puertas, comienzo): lo fijado en la configuración y, si no, lo de la actividad
+    (una hora «por confirmar» cuenta como vacía)."""
+    doors = _agenda_clean_time(getattr(cfg, "doors_time", None)) if cfg is not None else ""
+    show = _agenda_clean_time(getattr(cfg, "show_time", None)) if cfg is not None else ""
+    if not doors and not getattr(concert, "doors_time_tbc", False):
+        doors = _agenda_clean_time(getattr(concert, "doors_time", None))
+    if not show and not getattr(concert, "show_time_tbc", False):
+        show = _agenda_clean_time(getattr(concert, "show_time", None))
+    return doors, show
+
+
+def _invgen_extra_payload(x) -> dict:
+    return {"id": str(x.id), "name": x.name or "", "icon": (x.icon or "fa-star"),
+            "instructions": (x.instructions or "").strip(),
+            "preset_id": str(x.preset_id) if getattr(x, "preset_id", None) else ""}
+
+
+def _invgen_conditions_url(cfg) -> str:
+    tok = (getattr(cfg, "conditions_token", None) or "").strip() if cfg is not None else ""
+    if not tok:
+        return ""
+    try:
+        return _external_url_for("public_invitation_conditions", token=tok)
+    except Exception:
+        return f"{_public_base_url()}/invitaciones/condiciones/{tok}"
+
+
+def _invgen_title_parts(session_db, concert) -> tuple[str, str]:
+    """(título, subtítulo) de la entrada: de quién es (el evento o el artista) y qué es (el festival o
+    el ciclo, o el tipo de actividad) con el lugar."""
+    ev = _invitation_event_payload(session_db, concert)
+    title = ""
+    try:
+        if getattr(concert, "event_id", None):
+            ae = session_db.get(AppEvent, concert.event_id)
+            title = (getattr(ae, "name", None) or "").strip() if ae is not None else ""
+    except Exception:
+        title = ""
+    title = title or (ev.get("artist_names") or ev.get("title") or "Actividad")
+    sub_bits = []
+    fest = (getattr(concert, "festival_name", None) or "").strip()
+    if fest and fest != title:
+        sub_bits.append(fest)
+    else:
+        sub_bits.append(ev.get("type_label") or _activity_kind_label(getattr(concert, "activity_type", None)))
+    venue = _invgen_venue_info(concert)
+    if venue.get("place"):
+        sub_bits.append(venue["place"])
+    return title[:120], " · ".join([b for b in sub_bits if b])[:140]
+
+
+def _invgen_ticket_context(session_db, concert, cfg, *, ticket=None, sample: bool = False, extras=None) -> dict:
+    """TODO lo que pinta el PDF de una entrada (y la vista previa): es el punto único, así la muestra y
+    la entrada de verdad no pueden decir cosas distintas."""
+    title, subtitle = _invgen_title_parts(session_db, concert)
+    venue = _invgen_venue_info(concert)
+    doors, show = _invgen_times(concert, cfg)
+    all_extras = [_invgen_extra_payload(x) for x in (getattr(cfg, "extras", None) or [])] if cfg is not None else []
+    if extras is None:
+        if sample or ticket is None:
+            extras_rows = all_extras
+        else:
+            wanted = set()
+            gc = getattr(ticket, "gen_category", None)
+            if gc is not None:
+                wanted = {str(x) for x in (gc.extras_json or [])}
+            extras_rows = [x for x in all_extras if x["id"] in wanted]
+    else:
+        extras_rows = list(extras)
+    facts = []
+    if getattr(concert, "date", None):
+        d1 = _vacation_long_date(concert.date)
+        d2 = _vacation_long_date(concert.end_date) if getattr(concert, "end_date", None) and concert.end_date != concert.date else ""
+        facts.append(("fa-calendar-day", "Fecha", (d1[:1].upper() + d1[1:]) + (f" – {d2}" if d2 else "")))
+    facts.append(("fa-door-open", "Apertura de puertas", doors or "Por confirmar"))
+    facts.append(("fa-clock", "Comienzo", show or "Por confirmar"))
+    if venue.get("name"):
+        facts.append(("fa-location-dot", "Recinto", venue["name"]))
+    if venue.get("address_line"):
+        facts.append(("fa-map", "Dirección", venue["address_line"]))
+    clauses = _invgen_clauses(cfg) if cfg is not None else []
+    if sample:
+        code = "MUESTRA" + "0" * (INVGEN_QR_LEN - 7)
+        cat = {"name": "Categoría de ejemplo", "numbered": True, "sector": venue.get("name") and "Grada" or "Grada",
+               "row_label": "12", "seat_number": "7", "door": "Puerta 3", "guest": "Nombre del invitado"}
+    else:
+        code = (getattr(ticket, "qr_token", None) or getattr(ticket, "ticket_code", None) or "").strip()
+        gc = getattr(ticket, "gen_category", None) if ticket is not None else None
+        cat = {"name": (getattr(gc, "name", None) or getattr(getattr(ticket, "category", None), "name", None) or "Invitación"),
+               "numbered": bool(getattr(ticket, "is_numbered", False)),
+               "sector": (getattr(ticket, "sector", None) or "").strip(),
+               "row_label": (getattr(ticket, "row_label", None) or "").strip(),
+               "seat_number": (getattr(ticket, "seat_number", None) or "").strip(),
+               "door": (getattr(ticket, "door", None) or "").strip(),
+               "guest": (getattr(ticket, "assigned_label", None) or "").strip()}
+    company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+    return {
+        "title": title, "subtitle": subtitle, "kicker": INVGEN_KICKER,
+        "logo_url": _invgen_brand_logo_url(session_db, concert),
+        "image_url": _invgen_image_url(session_db, concert, cfg),
+        "facts": facts, "venue": venue, "doors": doors, "show": show,
+        "extras": extras_rows, "clauses": clauses,
+        "conditions_url": _invgen_conditions_url(cfg),
+        "code": code, "qr_text": code, "category": cat,
+        "issuer": (getattr(company, "name", None) or "").strip(),
+        "issued_label": _now_madrid().strftime("%d/%m/%Y %H:%M"),
+        "sample": bool(sample),
+    }
+
+
+_INVGEN_IMG_CACHE: dict[str, bytes] = {}
+
+
+def _invgen_image_bytes(url: str) -> bytes | None:
+    """Los bytes de una imagen para el PDF: una ruta de `static/` se lee del disco y una URL se baja
+    (con caché en memoria, que un PDF de 200 entradas usa la misma imagen 200 veces)."""
+    target = (url or "").strip()
+    if not target:
+        return None
+    if target in _INVGEN_IMG_CACHE:
+        return _INVGEN_IMG_CACHE[target]
+    data = None
+    try:
+        if target.startswith("/static/") or target.startswith("static/"):
+            p = Path(app.root_path) / target.lstrip("/")
+            data = p.read_bytes() if p.exists() else None
+        elif re.match(r"^https?://", target, flags=re.I):
+            # Un estático nuestro por su URL absoluta: del disco, sin bajarlo de nosotros mismos.
+            m = re.search(r"/static/(.+)$", target.split("?")[0])
+            p = (Path(app.root_path) / "static" / m.group(1)) if m else None
+            if p is not None and p.exists():
+                data = p.read_bytes()
+            else:
+                data, _ct = _download_remote_content(target, timeout=12)
+        else:
+            p = Path(target)
+            if not p.is_absolute():
+                p = Path(app.root_path) / target
+            data = p.read_bytes() if p.exists() else None
+    except Exception:
+        data = None
+    if data:
+        if len(_INVGEN_IMG_CACHE) > 40:
+            _INVGEN_IMG_CACHE.clear()
+        _INVGEN_IMG_CACHE[target] = data
+    return data
+
+
+def _invgen_image_reader(url: str, *, cover: tuple[int, int] | None = None):
+    """Un `ImageReader` de ReportLab. Con `cover=(w, h)` la imagen se RECORTA a esa proporción (como
+    `object-fit: cover`), con el alfa compuesto sobre blanco: un PNG transparente saldría negro."""
+    data = _invgen_image_bytes(url)
+    if not data:
+        return None
+    try:
+        from reportlab.lib.utils import ImageReader
+        from PIL import Image as _PILImage, ImageOps as _PILOps
+        img = _PILImage.open(BytesIO(data))
+        try:
+            img = _PILOps.exif_transpose(img)
+        except Exception:
+            pass
+        if img.mode in ("RGBA", "LA", "P"):
+            img = img.convert("RGBA")
+            fondo = _PILImage.new("RGBA", img.size, (255, 255, 255, 255))
+            img = _PILImage.alpha_composite(fondo, img).convert("RGB")
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+        if cover:
+            tw, th = cover
+            # Suficiente resolución para imprimir (≈ 2× el tamaño en puntos) sin inflar el PDF.
+            escala = 2.0
+            img = _PILOps.fit(img, (int(tw * escala), int(th * escala)), method=_PILImage.LANCZOS, centering=(0.5, 0.4))
+        out = BytesIO()
+        img.save(out, format="JPEG", quality=86, optimize=True)
+        out.seek(0)
+        return ImageReader(out)
+    except Exception:
+        return None
+
+
+def _invgen_pdf_fit_text(c, texto: str, ancho: float, font: str, size: float, min_size: float = 9.0) -> float:
+    """Baja el tamaño de la fuente hasta que el texto quepa en `ancho` (o recorta con «…»). Devuelve
+    el tamaño usado y deja la fuente puesta en el canvas."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+    s = size
+    while s > min_size and _sw(texto, font, s) > ancho:
+        s -= 0.5
+    c.setFont(font, s)
+    return s
+
+
+def _invgen_pdf_truncate(texto: str, ancho: float, font: str, size: float) -> str:
+    from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+    t = str(texto or "")
+    if _sw(t, font, size) <= ancho:
+        return t
+    while t and _sw(t + "…", font, size) > ancho:
+        t = t[:-1]
+    return (t.rstrip() + "…") if t else ""
+
+
+def _invgen_ticket_pdf_bytes(session_db, concert, cfg, ctx: dict) -> bytes:
+    """El PDF de UNA invitación generada (A4 vertical, estilo de casa). Arriba a la izquierda dice que
+    es una INVITACIÓN y a la derecha va el logo; luego la imagen, el título, los datos con sus iconos y
+    el QR; y debajo la categoría con su butaca y su puerta, los extras con sus instrucciones y el
+    resumen de las condiciones con el enlace a las completas."""
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError("ReportLab no está disponible: no se puede componer la entrada.")
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.utils import ImageReader
+    from reportlab.lib import colors as _rl_colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT
+    from reportlab.platypus import Paragraph, Frame, KeepInFrame, Spacer, Table, TableStyle
+    from xml.sax.saxutils import escape as _xesc
+
+    W, H = A4
+    M = 14 * mm
+    CW = W - 2 * M
+    BRAND = _rl_colors.HexColor("#E33D48")
+    INK = _rl_colors.HexColor("#111827")
+    GREY = _rl_colors.HexColor("#6b7683")
+    LINE = _rl_colors.HexColor("#e5e7eb")
+    SOFT = _rl_colors.HexColor("#fdecee")
+    SOFTGREY = _rl_colors.HexColor("#f6f8fa")
+
+    buf = BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+    c.setTitle(f"Invitación · {ctx.get('title') or ''}")
+    c.setAuthor(ctx.get("issuer") or "33 Producciones")
+    y = H - M
+
+    # 1) «INVITACIÓN» arriba a la IZQUIERDA (lo pidió Dani) y el logo a la derecha.
+    c.setFillColor(BRAND)
+    c.setFont("Helvetica-Bold", 24)
+    c.drawString(M, y - 20, "INVITACIÓN")
+    c.setFillColor(GREY)
+    c.setFont("Helvetica", 8.5)
+    c.drawString(M, y - 32, ctx.get("kicker") or INVGEN_KICKER)
+    logo = _invgen_image_reader(ctx.get("logo_url") or "")
+    if logo is not None:
+        try:
+            iw, ih = logo.getSize()
+            esc = min(130.0 / iw, 44.0 / ih)
+            lw, lh = iw * esc, ih * esc
+            c.drawImage(logo, W - M - lw, y - lh, lw, lh, mask="auto", preserveAspectRatio=True)
+        except Exception:
+            pass
+    y -= 50
+
+    # 2) La imagen de la actividad, a todo el ancho y con las esquinas redondeadas (recorte «cover»).
+    banner_h = 150.0
+    banner = _invgen_image_reader(ctx.get("image_url") or "", cover=(int(CW), int(banner_h)))
+    if banner is not None:
+        c.saveState()
+        p = c.beginPath()
+        p.roundRect(M, y - banner_h, CW, banner_h, 10)
+        c.clipPath(p, stroke=0, fill=0)
+        try:
+            c.drawImage(banner, M, y - banner_h, CW, banner_h)
+        except Exception:
+            pass
+        c.restoreState()
+        y -= banner_h + 14
+    else:
+        y -= 4
+
+    # 3) El título (de quién es) y el subtítulo (qué es y dónde).
+    title = (ctx.get("title") or "Actividad").strip()
+    c.setFillColor(INK)
+    s = _invgen_pdf_fit_text(c, title, CW, "Helvetica-Bold", 21, 13)
+    y -= s
+    c.drawString(M, y, _invgen_pdf_truncate(title, CW, "Helvetica-Bold", s))
+    sub = (ctx.get("subtitle") or "").strip()
+    if sub:
+        y -= 15
+        c.setFillColor(GREY)
+        c.setFont("Helvetica", 11)
+        c.drawString(M, y, _invgen_pdf_truncate(sub, CW, "Helvetica", 11))
+    y -= 16
+
+    # 4) Los datos con sus iconos a la izquierda y el QR a la derecha.
+    qr_box_w = 152.0
+    left_w = CW - qr_box_w - 16
+    top = y
+    ry = y
+    for icon, label, value in ctx.get("facts") or []:
+        ipath = _fa_icon_png_path(icon, color="E33D48", size=40)
+        if ipath:
+            try:
+                c.drawImage(ipath, M, ry - 12, 11, 11, mask="auto")
+            except Exception:
+                pass
+        c.setFillColor(GREY)
+        c.setFont("Helvetica", 7.2)
+        c.drawString(M + 17, ry - 4, str(label or "").upper())
+        c.setFillColor(INK)
+        c.setFont("Helvetica-Bold", 10.5)
+        vtxt = str(value or "")
+        lineas = []
+        # La dirección puede necesitar dos líneas: se parte por palabras.
+        palabras = vtxt.split(" ")
+        actual = ""
+        from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+        for w_ in palabras:
+            prueba = (actual + " " + w_).strip()
+            if _sw(prueba, "Helvetica-Bold", 10.5) <= left_w - 17 or not actual:
+                actual = prueba
+            else:
+                lineas.append(actual)
+                actual = w_
+        if actual:
+            lineas.append(actual)
+        lineas = lineas[:2]
+        if len(lineas) == 2:
+            lineas[1] = _invgen_pdf_truncate(lineas[1], left_w - 17, "Helvetica-Bold", 10.5)
+        for i, ln in enumerate(lineas):
+            c.drawString(M + 17, ry - 15 - i * 12, ln)
+        ry -= 27 + (12 if len(lineas) == 2 else 0)
+    # QR
+    qx = W - M - qr_box_w
+    qh = 118.0
+    box_h = qh + 46
+    c.setStrokeColor(LINE)
+    c.setFillColor(_rl_colors.white)
+    c.roundRect(qx, top - box_h, qr_box_w, box_h, 10, stroke=1, fill=1)
+    qr_code = (ctx.get("qr_text") or ctx.get("code") or "").strip() or "SIN-CODIGO"
+    try:
+        qr = ImageReader(BytesIO(_qr_png_bytes(qr_code, scale=8, border=1)))
+        c.drawImage(qr, qx + (qr_box_w - qh) / 2, top - 8 - qh, qh, qh)
+    except Exception:
+        pass
+    c.setFillColor(INK)
+    c.setFont("Helvetica-Bold", 9)
+    code_txt = (ctx.get("code") or "").strip()
+    code_pretty = "-".join([code_txt[i:i + 4] for i in range(0, len(code_txt), 4)]) if len(code_txt) >= 8 else code_txt
+    c.drawCentredString(qx + qr_box_w / 2, top - qh - 22, code_pretty[:28])
+    c.setFillColor(GREY)
+    c.setFont("Helvetica", 6.8)
+    c.drawCentredString(qx + qr_box_w / 2, top - qh - 33, "Presenta este código en el control de acceso")
+    y = min(ry, top - box_h) - 8
+
+    # 5) Lo de abajo (categoría, extras y condiciones) va en un marco que se ENCOGE si hace falta:
+    #    con muchos extras la entrada sigue cabiendo en una sola página.
+    st_lbl = ParagraphStyle("lbl", fontName="Helvetica", fontSize=7.2, textColor=GREY, leading=9)
+    st_val = ParagraphStyle("val", fontName="Helvetica-Bold", fontSize=12, textColor=INK, leading=14)
+    st_val_s = ParagraphStyle("vals", fontName="Helvetica-Bold", fontSize=10, textColor=INK, leading=12)
+    st_txt = ParagraphStyle("txt", fontName="Helvetica", fontSize=8.6, textColor=INK, leading=11, alignment=TA_JUSTIFY)
+    st_cond = ParagraphStyle("cond", fontName="Helvetica", fontSize=7.6, textColor=GREY, leading=9.6, alignment=TA_JUSTIFY)
+    st_h = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=8, textColor=GREY, leading=10)
+    st_door = ParagraphStyle("door", fontName="Helvetica-Bold", fontSize=10, textColor=_rl_colors.white, leading=12)
+    story = []
+    cat = ctx.get("category") or {}
+    loc_bits = []
+    if cat.get("sector"):
+        loc_bits.append(f"Sector <b>{_xesc(cat['sector'])}</b>")
+    if cat.get("numbered"):
+        if cat.get("row_label"):
+            loc_bits.append(f"Fila <b>{_xesc(cat['row_label'])}</b>")
+        if cat.get("seat_number"):
+            loc_bits.append(f"Butaca <b>{_xesc(cat['seat_number'])}</b>")
+    else:
+        loc_bits.append("Sin numerar")
+    izq = [Paragraph("CATEGORÍA", st_lbl), Paragraph(_xesc(cat.get("name") or "Invitación"), st_val),
+           Paragraph(" · ".join(loc_bits), st_val_s)]
+    if cat.get("guest"):
+        izq.append(Paragraph(f"A nombre de <b>{_xesc(cat['guest'])}</b>", st_txt))
+    der = []
+    if cat.get("door"):
+        der = [Paragraph("PUERTA DE ACCESO", ParagraphStyle("lbl2", parent=st_lbl, textColor=_rl_colors.white)),
+               Paragraph(_xesc(cat["door"]), st_door)]
+    cat_tbl = Table([[izq, der]], colWidths=[CW * 0.66, CW * 0.34])
+    cat_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), SOFT), ("BACKGROUND", (1, 0), (1, 0), BRAND if der else SOFT),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("ROUNDEDCORNERS", [8, 8, 8, 8]),
+    ]))
+    story.append(cat_tbl)
+    story.append(Spacer(1, 8))
+    extras = ctx.get("extras") or []
+    if extras:
+        story.append(Paragraph("EXTRAS INCLUIDOS", st_h))
+        story.append(Spacer(1, 3))
+        filas = []
+        for x in extras:
+            ipath = _fa_icon_png_path(x.get("icon") or "fa-star", color="E33D48", size=40)
+            ico = f'<img src="{ipath}" width="11" height="11" valign="middle"/>&nbsp;' if ipath else ""
+            txt = f"{ico}<b>{_xesc(x.get('name') or '')}</b>"
+            if x.get("instructions"):
+                txt += f"<br/><font color='#6b7683'>{_xesc(x['instructions'])}</font>"
+            filas.append([Paragraph(txt, st_txt)])
+        ex_tbl = Table(filas, colWidths=[CW])
+        ex_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), SOFTGREY), ("LINEBELOW", (0, 0), (-1, -2), 0.6, _rl_colors.white),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("ROUNDEDCORNERS", [8, 8, 8, 8]),
+        ]))
+        story.append(ex_tbl)
+        story.append(Spacer(1, 8))
+    clauses = ctx.get("clauses") or []
+    if clauses:
+        story.append(Paragraph("CONDICIONES DE USO (RESUMEN)", st_h))
+        story.append(Spacer(1, 2))
+        for i, cl in enumerate(clauses[:INVGEN_PDF_SUMMARY_CLAUSES], start=1):
+            body = (cl.get("body") or "").strip()
+            if len(body) > 170:
+                body = body[:167].rstrip() + "…"
+            story.append(Paragraph(f"<b>{i}. {_xesc(cl.get('title') or '')}</b> {_xesc(body)}", st_cond))
+        url = ctx.get("conditions_url") or ""
+        resto = len(clauses) - min(len(clauses), INVGEN_PDF_SUMMARY_CLAUSES)
+        if url:
+            mas = f" ({resto} más)" if resto > 0 else ""
+            story.append(Paragraph(
+                f'<a href="{_xesc(url)}" color="#E33D48"><b>Ver las condiciones completas{mas}</b></a>'
+                f' <font color="#6b7683">· {_xesc(url)}</font>', st_cond))
+        story.append(Paragraph("Al utilizar esta invitación aceptas sus condiciones de uso.", st_cond))
+    bottom = M + 16
+    alto = max(y - bottom, 60)
+    frame = Frame(M, bottom, CW, alto, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0, showBoundary=0)
+    try:
+        frame.addFromList([KeepInFrame(CW, alto, story, mode="shrink")], c)
+    except Exception:
+        pass
+
+    # 6) Pie.
+    c.setFillColor(GREY)
+    c.setFont("Helvetica", 7)
+    pie_izq = " · ".join([x for x in [f"Emitida por {ctx['issuer']}" if ctx.get("issuer") else "", ctx.get("issued_label") or ""] if x])
+    c.drawString(M, M + 3, pie_izq[:120])
+    if ctx.get("sample"):
+        c.drawRightString(W - M, M + 3, "MUESTRA · así se verá la entrada")
+    elif code_txt:
+        c.drawRightString(W - M, M + 3, f"Nº {code_pretty}")
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def _invgen_page_context(session_db, concert) -> dict:
+    """Lo que necesita la pantalla de generación: la configuración, sus extras, las condiciones y
+    lo que hace falta para el asistente (catálogo de extras, plantillas, imágenes disponibles)."""
+    cfg = _invgen_config(session_db, concert)
+    presets = _invgen_extra_presets(session_db)
+    templates = _invgen_templates(session_db)
+    venue = _invgen_venue_info(concert)
+    doors, show = _invgen_times(concert, cfg)
+    extras = [_invgen_extra_payload(x) for x in (cfg.extras if cfg is not None else [])]
+    clauses = _invgen_clauses(cfg) if cfg is not None else []
+    tpl_row = cfg.conditions_template if (cfg is not None and cfg.conditions_template_id) else None
+    return {
+        "cfg": cfg,
+        "configured": bool(cfg is not None and cfg.configured_at),
+        "venue": venue,
+        "doors": doors, "show": show,
+        "doors_default": _agenda_clean_time(getattr(concert, "doors_time", None)) if not getattr(concert, "doors_time_tbc", False) else "",
+        "show_default": _agenda_clean_time(getattr(concert, "show_time", None)) if not getattr(concert, "show_time_tbc", False) else "",
+        "image_url": _invgen_image_url(session_db, concert, cfg),
+        "image_set": bool(cfg is not None and (cfg.image_url or "").strip()),
+        "image_options": _invgen_image_options(session_db, concert),
+        "extras": extras,
+        "presets": [{"id": str(p.id), "key": p.key, "name": p.name, "icon": p.icon or "fa-star", "builtin": bool(p.is_builtin)} for p in presets],
+        "clauses": clauses,
+        "template": ({"id": str(tpl_row.id), "name": tpl_row.name} if tpl_row is not None else None),
+        "templates": [{"id": str(t.id), "name": t.name, "n": len(_invgen_clauses(t)), "builtin": bool(t.is_builtin)} for t in templates],
+        "conditions_url": _invgen_conditions_url(cfg),
+        "icon_choices": INVGEN_ICON_CHOICES,
+        "logo_url": _invgen_brand_logo_url(session_db, concert),
+        "gen_categories": list(cfg.gen_categories) if cfg is not None else [],
+    }
+
+
+@app.get('/invitaciones/evento/<concert_id>/generar', endpoint='invitation_gen_view')
+@admin_required
+def invitation_gen_view(concert_id):
+    """La pantalla de GENERACIÓN de invitaciones de una actividad: los datos de la entrada (con su vista
+    previa) y las categorías generadas."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        if not _invgen_can_generate(session_db, concert):
+            flash('Solo se generan invitaciones de las actividades que promueve una empresa del grupo: en las de un tercero, las entradas las manda él.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=concert.id) + '#inv-tab-tickets')
+        ctx = _invgen_page_context(session_db, concert)
+        session_db.commit()   # la plantilla de fábrica puede haberse sembrado
+        return render_template(
+            'invitaciones_generar.html',
+            concert=concert,
+            event=_invitation_event_payload(session_db, concert),
+            back_url=url_for('invitation_event_detail', concert_id=concert.id) + '#inv-tab-tickets',
+            preview_url=url_for('invitation_gen_preview_pdf', concert_id=concert.id),
+            **ctx,
+        )
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/evento/<concert_id>/generar/muestra.pdf', endpoint='invitation_gen_preview_pdf')
+@admin_required
+def invitation_gen_preview_pdf(concert_id):
+    """Una entrada DE MUESTRA con la configuración actual (es la miniatura de la pantalla y el «Ver
+    PDF de muestra»). Se compone al vuelo: siempre enseña lo que hay ahora."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        cfg = _invgen_config(session_db, concert)
+        ctx = _invgen_ticket_context(session_db, concert, cfg, sample=True)
+        pdf = _invgen_ticket_pdf_bytes(session_db, concert, cfg, ctx)
+        resp = Response(pdf, mimetype='application/pdf')
+        resp.headers['Content-Disposition'] = 'inline; filename="invitacion-muestra.pdf"'
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        return resp
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/generar/plantillas-condiciones/<template_id>.json', endpoint='invitation_gen_template_json')
+@admin_required
+def invitation_gen_template_json(template_id):
+    """Las cláusulas de una plantilla, para cargarlas en el editor del asistente."""
+    session_db = db()
+    try:
+        tpl = session_db.get(InvitationConditionsTemplate, _safe_uuid(template_id))
+        if tpl is None:
+            return jsonify({'ok': False, 'error': 'Esa plantilla ya no existe.'}), 404
+        return jsonify({'ok': True, 'id': str(tpl.id), 'name': tpl.name, 'builtin': bool(tpl.is_builtin),
+                        'clauses': _invgen_clauses(tpl)})
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/generar/plantillas-condiciones/<template_id>/eliminar', endpoint='invitation_gen_template_delete')
+@admin_required
+def invitation_gen_template_delete(template_id):
+    """Quita una plantilla de condiciones. Las actividades que la usaban conservan SUS condiciones (van
+    copiadas en su configuración); solo pierden el vínculo."""
+    session_db = db()
+    try:
+        tpl = session_db.get(InvitationConditionsTemplate, _safe_uuid(template_id))
+        if tpl is None:
+            return jsonify({'ok': False, 'error': 'Esa plantilla ya no existe.'}), 404
+        if tpl.is_builtin:
+            return jsonify({'ok': False, 'error': 'La plantilla de fábrica no se elimina: edítala si hace falta.'}), 400
+        session_db.delete(tpl)
+        session_db.commit()
+        return jsonify({'ok': True})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/generar/configurar', endpoint='invitation_gen_config_save')
+@admin_required
+def invitation_gen_config_save(concert_id):
+    """Guarda los DATOS DE LA ENTRADA (el asistente): horas, imagen, extras con sus instrucciones y las
+    condiciones de uso (con su plantilla: solo este evento, o la plantilla también, o una nueva)."""
+    session_db = db()
+    back = None
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        back = url_for('invitation_gen_view', concert_id=concert.id)
+        if not _invgen_can_generate(session_db, concert):
+            raise ValueError('Esta actividad no la promueve una empresa del grupo: no se generan invitaciones.')
+        form = request.form
+        now = _now_madrid()
+        cfg = _invgen_config(session_db, concert, create=True)
+        cfg.doors_time = _agenda_clean_time(form.get('doors_time')) or None
+        cfg.show_time = _agenda_clean_time(form.get('show_time')) or None
+
+        # --- Imagen ---
+        choice = (form.get('image_choice') or 'keep').strip()
+        if choice == 'remove':
+            cfg.image_url = None
+        elif choice == 'upload':
+            f = request.files.get('image_file')
+            if f is not None and (f.filename or '').strip():
+                try:
+                    url = upload_image(f, f'invitaciones/{concert.id}/entrada')
+                except ValueError as exc:
+                    raise ValueError(f'La imagen no se pudo subir: {exc}')
+                if url:
+                    cfg.image_url = url
+            elif not (cfg.image_url or '').strip():
+                # Se eligió «subir» sin archivo: se sigue con lo que haya (no es un error).
+                pass
+        elif choice.startswith('url:'):
+            cfg.image_url = choice[4:].strip() or None
+
+        # --- Extras (lo que llega ES la lista de activos; lo que no llega, se quita) ---
+        ids = form.getlist('extra_id[]')
+        preset_ids = form.getlist('extra_preset_id[]')
+        names = form.getlist('extra_name[]')
+        icons = form.getlist('extra_icon[]')
+        instr = form.getlist('extra_instructions[]')
+        to_catalog = form.getlist('extra_new_catalog[]')
+        n = max(len(names), len(ids), len(preset_ids))
+        existing = {str(x.id): x for x in (cfg.extras or [])}
+        presets = {str(p.id): p for p in _invgen_extra_presets(session_db)}
+        preset_keys = {p.key for p in presets.values()}
+        keep_ids = set()
+        vistos = set()
+        for i in range(n):
+            name = re.sub(r'\s+', ' ', (names[i] if i < len(names) else '') or '').strip()[:80]
+            if not name:
+                continue
+            k = _norm_text_key(name)
+            if k in vistos:
+                continue
+            vistos.add(k)
+            icon = (icons[i] if i < len(icons) else '') or 'fa-star'
+            if icon not in INVGEN_ICON_SET and not re.match(r'^fa-[a-z0-9-]+$', icon):
+                icon = 'fa-star'
+            texto = ((instr[i] if i < len(instr) else '') or '').strip()[:1200]
+            xid = (ids[i] if i < len(ids) else '') or ''
+            pid = (preset_ids[i] if i < len(preset_ids) else '') or ''
+            preset = presets.get(pid)
+            if preset is None and (to_catalog[i] if i < len(to_catalog) else '') == '1':
+                # Un extra nuevo que se quiere en el catálogo: se ofrece ya en el resto de eventos.
+                same = next((p for p in presets.values() if _norm_text_key(p.name) == k), None)
+                if same is None:
+                    same = InvitationExtraPreset(key=_invgen_preset_key(name, preset_keys), name=name, icon=icon,
+                                                 created_by_nick=_current_user_email())
+                    session_db.add(same)
+                    session_db.flush()
+                    presets[str(same.id)] = same
+                    preset_keys.add(same.key)
+                preset = same
+            row = existing.get(xid)
+            if row is None:
+                row = InvitationGenExtra(config_id=cfg.id)
+                session_db.add(row)
+                cfg.extras.append(row)
+            row.name = name
+            row.icon = icon
+            row.instructions = texto or None
+            row.preset_id = preset.id if preset is not None else None
+            row.sort_order = i
+            session_db.flush()
+            keep_ids.add(str(row.id))
+        for xid, row in list(existing.items()):
+            if xid not in keep_ids:
+                session_db.delete(row)
+
+        # --- Condiciones ---
+        clauses = _invgen_clean_clauses(form.getlist('cond_title[]'), form.getlist('cond_body[]'))
+        if not clauses:
+            raise ValueError('Pon al menos una condición de uso: es lo que se le enseña a quien recibe la invitación.')
+        tpl_id = (form.get('conditions_template_id') or '').strip()
+        scope = (form.get('template_scope') or 'ONLY').strip().upper()
+        new_name = re.sub(r'\s+', ' ', (form.get('save_template_name') or '')).strip()[:120]
+        tpl = session_db.get(InvitationConditionsTemplate, _safe_uuid(tpl_id)) if tpl_id else None
+        if new_name:
+            clash = (session_db.query(InvitationConditionsTemplate)
+                     .filter(func.lower(InvitationConditionsTemplate.name) == new_name.lower()).first())
+            if clash is not None:
+                raise ValueError(f'Ya hay una plantilla que se llama «{new_name}». Ponle otro nombre o elige esa.')
+            tpl = InvitationConditionsTemplate(name=new_name, clauses_json=clauses, created_by_nick=_current_user_email())
+            session_db.add(tpl)
+            session_db.flush()
+        elif tpl is not None and scope == 'UPDATE':
+            tpl.clauses_json = clauses
+            tpl.updated_at = now
+        cfg.conditions_template_id = tpl.id if tpl is not None else None
+        cfg.conditions_json = clauses
+        _invgen_ensure_conditions_token(cfg)
+        cfg.configured_at = now
+        cfg.configured_by_nick = _current_user_email()
+        cfg.updated_at = now
+        session_db.commit()
+        msg = 'Datos de la entrada guardados.'
+        if tpl is not None and new_name:
+            msg += f' Se ha creado la plantilla «{tpl.name}».'
+        elif tpl is not None and scope == 'UPDATE':
+            msg += f' La plantilla «{tpl.name}» también se ha actualizado.'
+        flash(msg, 'success')
+        return redirect(back)
+    except ValueError as exc:
+        session_db.rollback()
+        _flash_form_error(str(exc), abrir='invGenConfigModal')
+        return redirect(back or url_for('invitations_view', tab='gestionar'))
+    except Exception:
+        session_db.rollback()
+        app.logger.exception('[invgen] no se pudieron guardar los datos de la entrada')
+        _flash_form_error('No se pudieron guardar los datos de la entrada. Vuelve a intentarlo.', abrir='invGenConfigModal')
+        return redirect(back or url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/condiciones/<token>', endpoint='public_invitation_conditions')
+def public_invitation_conditions(token):
+    """La landing PÚBLICA de las condiciones de uso de una actividad (lo que enlaza la propia entrada):
+    el logo a la derecha, «Condiciones de uso» centrado y todas las cláusulas numeradas."""
+    session_db = db()
+    try:
+        tok = (token or '').strip()
+        cfg = session_db.query(InvitationGenConfig).filter(InvitationGenConfig.conditions_token == tok).first() if tok else None
+        if cfg is None or not cfg.concert:
+            return render_template('public_invitation_conditions.html', missing=True, hide_backoffice_nav=True), 404
+        concert = cfg.concert
+        title, subtitle = _invgen_title_parts(session_db, concert)
+        venue = _invgen_venue_info(concert)
+        doors, show = _invgen_times(concert, cfg)
+        og_desc = " · ".join([x for x in [subtitle, _vacation_long_date(concert.date) if concert.date else ""] if x])
+        return render_template(
+            'public_invitation_conditions.html',
+            missing=False,
+            hide_backoffice_nav=True,
+            title=title, subtitle=subtitle,
+            date_label=(_vacation_long_date(concert.date)[:1].upper() + _vacation_long_date(concert.date)[1:]) if concert.date else "",
+            venue=venue, doors=doors, show=show,
+            logo_url=_invgen_brand_logo_url(session_db, concert),
+            clauses=_invgen_clauses(cfg),
+            og_description=og_desc,
+            og_image_url=_external_url_for('public_concert_og_image', cid=concert.id) if 'public_concert_og_image' in app.view_functions else "",
+            issuer=(getattr(getattr(concert, 'billing_company', None) or getattr(concert, 'group_company', None), 'name', None) or ''),
+        )
     finally:
         session_db.close()
 

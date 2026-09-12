@@ -7832,6 +7832,56 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `Dockerfile.caldav`, `fly.toml`, y `CALDAV_PUBLIC_HOST` en Render para que la guía de `/caldav/guia`
   diga el host bueno). **Prueba de fuego**: `PROPFIND /caldav/` tiene que dar **207**, no 405.
 
+- ⚠️⚠️ **GENERAR INVITACIONES (entradas con QR que compone la APP) · lote 1: los datos de la entrada**
+  (sep 2026). «Gestionar invitaciones» trabaja con PDFs que se SUBEN; aquí se GENERAN. Solo en lo que
+  promueve una **empresa del grupo** (`_invgen_can_generate` → `_concert_is_group_promoted`): botón
+  **«Generar invitaciones»** delante de «Configurar» en la pestaña Invitaciones del evento
+  (`group_promoted`) → pantalla `invitation_gen_view` (`/invitaciones/evento/<id>/generar`,
+  `invitaciones_generar.html`): arriba los **DATOS DE LA ENTRADA** con la **vista previa** de la
+  entrada como miniatura a la derecha (PDF de muestra pintado con PDF.js, `static/js/invgen.js`), y
+  debajo las categorías generadas (lote 2).
+  · **Modelos** (`ensure_invitation_gen_schema`): `InvitationGenConfig` (una por actividad: horas,
+  imagen, `conditions_json`, `conditions_token` y `access_token`, tokens OPACOS y DISTINTOS) ·
+  `InvitationGenExtra` (los extras activos con sus instrucciones) · `InvitationExtraPreset` (el
+  **catálogo GLOBAL**: M&G, After Party y Parking de fábrica, y los que se creen quedan para otros
+  eventos) · `InvitationConditionsTemplate` (plantillas de condiciones con nombre; la de fábrica
+  `is_builtin` se resiembra si falta) · `InvitationGenCategory` / `InvitationGenSector` /
+  `InvitationVoidedCode` / `InvitationAccessLog` (lotes 2 y 3). Y en **`InvitationTicket`**:
+  `is_generated` · `qr_token` · `gen_category_id` · `gen_sector_id` · `door` · `map_key` ·
+  `code_version` · `access_entered_at` · `access_extras_json` (cada columna en su propia sentencia).
+  · **El asistente** (`_invgen_config_modal.html`, `step_wizard.js`): cabecera en el color
+  corporativo con un icono por paso (`[data-invgen-steps]`, que sincroniza el JS observando la clase
+  `.active` de los `.sw-step`: el motor no avisa) → Recinto (se coge de la actividad, con su
+  dirección) · Horarios (por defecto los de la actividad) · Extras (chips del catálogo + «Nuevo
+  extra» con su icono, e instrucciones por extra) · Imagen (las que ya tenemos, subir otra o sin
+  imagen) · Condiciones (plantilla → editor de cláusulas título+texto, reordenar, «guardar como
+  plantilla nueva») · Resumen. Endpoint `invitation_gen_config_save`.
+  ⚠️⚠️ **CAMBIAR UNA PLANTILLA SE PREGUNTA**: si las cláusulas cargadas de una plantilla se tocan, en
+  el resumen sale «¿solo para este evento o para la plantilla también?» (`template_scope` ONLY|UPDATE)
+  y **sin decidirlo no se guarda** (el guardián corta el `submit` y, como el LOADER global ya ha
+  saltado —escucha `submit` en `document` en captura y se registra antes—, lo apaga con
+  `appLoader.hide()`). Las actividades que usaban una plantilla que se borra **conservan sus
+  condiciones** (van copiadas en `conditions_json`; solo pierden el vínculo).
+  · **EL PDF** (`_invgen_ticket_pdf_bytes`, A4 vertical, punto único para la muestra y para las
+  entradas de verdad vía `_invgen_ticket_context`): **«INVITACIÓN» arriba a la IZQUIERDA** (lo pidió
+  Dani) y el logo a la derecha (`_invgen_brand_logo_url`: el del ciclo/festival nuestro → el del
+  evento → la empresa del grupo) · la imagen a lo ancho con recorte «cover» (`_invgen_image_reader`,
+  alfa sobre blanco) · título y subtítulo · los datos con sus iconos (PNG por `_fa_icon_png_path`) ·
+  el **QR** (`segno`, contenido = el código de 16 caracteres de `INVGEN_QR_ALPHABET`, sin 0/O/1/I) ·
+  la categoría con su butaca y su **puerta** en rojo · los extras con sus instrucciones · y el
+  **RESUMEN de las 3 primeras condiciones** con el enlace clicable a las completas. Lo de abajo va en
+  un `KeepInFrame` que se encoge: **una sola página siempre**.
+  ⚠️ El PDF de una entrada se compone **AL VUELO** (no se sube a Storage): así, al anular un código
+  la entrada vieja deja de valer sin tocar ningún fichero. Los PDF al vuelo van con `no-store`.
+  · **La landing pública de condiciones** `public_invitation_conditions`
+  (`/invitaciones/condiciones/<token>`, standalone con sus `og:`): logo a la derecha, «Condiciones de
+  uso» centrado y todas las cláusulas numeradas con el título en negrita y el texto justificado.
+  ⚠️ Los endpoints se llaman **`invitation_gen_*`**: caen en `invitaciones.gestionar` por el prefijo
+  `invitation_` en los DOS mapeos sin tocar nada; los públicos, en las listas de siempre.
+  · **Prueba de regresión: `/tmp/python/bin/python3 tools/check_invitaciones_generadas.py`** (65
+  comprobaciones con la app real; idempotente). Para ver el PDF en local, rasterizar con PyMuPDF
+  (`PYTHONPATH=/tmp/pf`): el panel del navegador lo descarga en vez de enseñarlo.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

@@ -1,0 +1,222 @@
+{# GENERACIÓN DE INVITACIONES · el asistente de los DATOS DE LA ENTRADA, por pantallas (step_wizard.js):
+   recinto · horarios · extras · imagen · condiciones · resumen. La cabecera va en el color corporativo
+   con un icono por paso (`[data-invgen-steps]`, que sincroniza invgen.js). Lo que llega al servidor:
+   `invitation_gen_config_save`. Cada EXTRA activo es una fila con sus ocultos DENTRO (así el orden
+   del DOM es el orden que se guarda) y cada CLÁUSULA igual (`cond_title[]` + `cond_body[]`). #}
+<div class="modal fade" id="invGenConfigModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('invitation_gen_config_save', concert_id=concert.id) }}"
+          id="invGenConfigForm" data-step-wizard data-check-manual="1" autocomplete="off" data-no-autosave
+          data-invgen-form data-template-url="{{ url_for('invitation_gen_template_json', template_id='__ID__') }}"
+          data-template-delete-url="{{ url_for('invitation_gen_template_delete', template_id='__ID__') }}"
+          data-template-id="{{ template.id if template else '' }}" data-template-name="{{ template.name if template else '' }}">
+      <div class="modal-header invgen-wiz-head">
+        <div class="invgen-wiz-title"><i class="fa fa-ticket"></i><span>Datos de la entrada</span></div>
+        <ol class="invgen-wiz-steps" data-invgen-steps>
+          <li data-for="1"><i class="fa fa-location-dot"></i><span>Recinto</span></li>
+          <li data-for="2"><i class="fa fa-clock"></i><span>Horarios</span></li>
+          <li data-for="3"><i class="fa fa-star"></i><span>Extras</span></li>
+          <li data-for="4"><i class="fa fa-image"></i><span>Imagen</span></li>
+          <li data-for="5"><i class="fa fa-file-contract"></i><span>Condiciones</span></li>
+          <li data-for="6"><i class="fa fa-check"></i><span>Resumen</span></li>
+        </ol>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div data-sw-progress></div>
+
+        {# ---- 1 · RECINTO (se coge de la actividad) ---- #}
+        <section class="sw-step" data-step="1" data-title="Recinto">
+          <div class="sw-step__q"><i class="fa fa-location-dot me-2 text-danger"></i>El recinto</div>
+          <div class="sw-step__h">Se coge de la actividad y sale en la entrada con su dirección. Si hay que cambiarlo, se cambia en la ficha de la actividad y aquí se refleja solo.</div>
+          <div class="invgen-venuecard">
+            <i class="fa fa-building"></i>
+            <div class="flex-grow-1">
+              <strong>{{ venue.name or 'Sin recinto' }}</strong>
+              <div class="text-muted small">{{ venue.address_line or 'Sin dirección' }}</div>
+            </div>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id) }}" target="_blank" rel="noopener"><i class="fa fa-up-right-from-square me-1"></i>Ficha de la actividad</a>
+          </div>
+          {% if not venue.name %}<div class="alert alert-warning small mt-3 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>La actividad no tiene recinto ni sitio escrito a mano: la entrada saldría sin él. Ponlo en la ficha antes de generar invitaciones.</div>
+          {% elif not venue.address_line %}<div class="alert alert-warning small mt-3 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>El recinto no tiene dirección: conviene ponérsela en su ficha para que salga en la entrada.</div>{% endif %}
+        </section>
+
+        {# ---- 2 · HORARIOS ---- #}
+        <section class="sw-step" data-step="2" data-title="Horarios">
+          <div class="sw-step__q"><i class="fa fa-clock me-2 text-danger"></i>Horarios</div>
+          <div class="sw-step__h">Por defecto son los de la actividad{% if doors_default or show_default %} ({{ doors_default or '—' }} · {{ show_default or '—' }}){% endif %}. Lo que se ponga aquí manda en la entrada.</div>
+          <div class="row g-3">
+            <div class="col-sm-6 col-md-4">
+              <label class="form-label small mb-1"><i class="fa fa-door-open me-1 text-danger"></i>Apertura de puertas</label>
+              <input type="time" class="form-control" name="doors_time" value="{{ doors }}" data-invgen-doors>
+            </div>
+            <div class="col-sm-6 col-md-4">
+              <label class="form-label small mb-1"><i class="fa fa-clock me-1 text-danger"></i>Comienzo</label>
+              <input type="time" class="form-control" name="show_time" value="{{ show }}" data-invgen-show>
+            </div>
+          </div>
+          <div class="small text-muted mt-2">Sin hora, la entrada dice «Por confirmar».</div>
+        </section>
+
+        {# ---- 3 · EXTRAS ---- #}
+        <section class="sw-step" data-step="3" data-title="Extras">
+          <div class="sw-step__q"><i class="fa fa-star me-2 text-danger"></i>Extras</div>
+          <div class="sw-step__h">Pincha los que lleva este evento. A cada uno se le pueden poner instrucciones, que salen en la entrada bajo su etiqueta. Los que no existan se crean aquí y quedan en el catálogo.</div>
+          <div class="invgen-presets" data-invgen-presets>
+            {% for p in presets %}
+            <button type="button" class="invgen-preset" data-preset-id="{{ p.id }}" data-name="{{ p.name }}" data-icon="{{ p.icon }}"><i class="fa {{ p.icon }}"></i><span>{{ p.name }}</span></button>
+            {% endfor %}
+            <button type="button" class="invgen-preset invgen-preset--new" data-invgen-new-toggle><i class="fa fa-plus"></i><span>Nuevo extra</span></button>
+          </div>
+          <div class="invgen-newextra d-none" data-invgen-new>
+            <div class="row g-2 align-items-end">
+              <div class="col-md-5">
+                <label class="form-label small mb-1">Nombre del extra</label>
+                <input type="text" class="form-control form-control-sm" data-new-name placeholder="Por ejemplo: Cena previa" maxlength="80">
+              </div>
+              <div class="col-md-7">
+                <label class="form-label small mb-1">Icono</label>
+                <div class="invgen-icon-grid" data-new-icons>
+                  {% for ic, lbl in icon_choices %}<button type="button" class="invgen-icon{% if loop.last %} is-on{% endif %}" data-icon="{{ ic }}" title="{{ lbl }}"><i class="fa {{ ic }}"></i></button>{% endfor %}
+                </div>
+              </div>
+              <div class="col-12 d-flex align-items-center gap-2 flex-wrap">
+                <label class="form-check small mb-0 d-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" data-new-catalog checked> Guardarlo en el catálogo para otros eventos</label>
+                <button type="button" class="btn btn-sm btn-danger ms-auto" data-invgen-new-add><i class="fa fa-plus me-1"></i>Añadir el extra</button>
+              </div>
+            </div>
+          </div>
+          <div class="invgen-extras mt-3" data-invgen-extras>
+            <template data-invgen-extra-tpl>
+              <div class="invgen-extra" data-invgen-extra>
+                <input type="hidden" name="extra_id[]" value="">
+                <input type="hidden" name="extra_preset_id[]" value="">
+                <input type="hidden" name="extra_name[]" value="">
+                <input type="hidden" name="extra_icon[]" value="">
+                <input type="hidden" name="extra_new_catalog[]" value="0">
+                <div class="invgen-extra__head"><i class="fa fa-star" data-x-icon></i><strong data-x-name></strong>
+                  <button type="button" class="btn btn-sm btn-link text-danger ms-auto p-0" data-invgen-extra-remove title="Quitar este extra"><i class="fa fa-xmark"></i></button></div>
+                <textarea class="form-control form-control-sm" name="extra_instructions[]" rows="2" placeholder="Instrucciones (opcional): salen en la entrada bajo la etiqueta del extra"></textarea>
+              </div>
+            </template>
+            {% for x in extras %}
+            <div class="invgen-extra" data-invgen-extra data-preset-id="{{ x.preset_id }}" data-name="{{ x.name }}">
+              <input type="hidden" name="extra_id[]" value="{{ x.id }}">
+              <input type="hidden" name="extra_preset_id[]" value="{{ x.preset_id }}">
+              <input type="hidden" name="extra_name[]" value="{{ x.name }}">
+              <input type="hidden" name="extra_icon[]" value="{{ x.icon }}">
+              <input type="hidden" name="extra_new_catalog[]" value="0">
+              <div class="invgen-extra__head"><i class="fa {{ x.icon }}" data-x-icon></i><strong data-x-name>{{ x.name }}</strong>
+                <button type="button" class="btn btn-sm btn-link text-danger ms-auto p-0" data-invgen-extra-remove title="Quitar este extra"><i class="fa fa-xmark"></i></button></div>
+              <textarea class="form-control form-control-sm" name="extra_instructions[]" rows="2" placeholder="Instrucciones (opcional): salen en la entrada bajo la etiqueta del extra">{{ x.instructions }}</textarea>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="text-muted small mt-2{% if extras %} d-none{% endif %}" data-invgen-extras-empty><i class="fa fa-circle-info me-1"></i>Sin extras: la entrada solo da acceso.</div>
+        </section>
+
+        {# ---- 4 · IMAGEN ---- #}
+        <section class="sw-step" data-step="4" data-title="Imagen">
+          <div class="sw-step__q"><i class="fa fa-image me-2 text-danger"></i>La imagen de la entrada</div>
+          <div class="sw-step__h">Va a lo ancho, arriba de la entrada. Se coge de lo que ya tenemos de la actividad o se sube otra.</div>
+          <div class="promo-pick-grid promo-pick-grid--wide" data-invgen-images>
+            {% if image_set %}
+            <label class="promo-pick"><input type="radio" name="image_choice" value="keep" checked><span class="promo-pick__box"><img src="{{ image_url }}" class="invgen-pick-img" alt=""><span class="promo-pick__name">La actual</span></span></label>
+            {% endif %}
+            {% for o in image_options %}
+            <label class="promo-pick"><input type="radio" name="image_choice" value="url:{{ o.url }}"{% if not image_set and loop.first %} checked{% endif %}><span class="promo-pick__box"><img src="{{ o.url }}" class="invgen-pick-img" alt=""><span class="promo-pick__name">{{ o.label }}</span></span></label>
+            {% endfor %}
+            <label class="promo-pick"><input type="radio" name="image_choice" value="upload"{% if not image_set and not image_options %} checked{% endif %}><span class="promo-pick__box"><i class="fa fa-upload"></i><span class="promo-pick__name">Subir otra imagen</span></span></label>
+            <label class="promo-pick"><input type="radio" name="image_choice" value="remove"><span class="promo-pick__box"><i class="fa fa-ban"></i><span class="promo-pick__name">Sin imagen</span></span></label>
+          </div>
+          <div class="mt-3{% if image_set or image_options %} d-none{% endif %}" data-invgen-upload>
+            <div class="decl-drop" role="button" tabindex="0" data-file-drop-for="[data-invgen-file]">
+              <i class="fa fa-cloud-arrow-up decl-drop__icon"></i>
+              Arrastra la imagen aquí o <label class="text-danger fw-semibold mb-0" style="cursor:pointer">elígela<input type="file" class="d-none" name="image_file" accept="image/*" data-invgen-file></label>
+              <div class="small text-muted mt-1">PNG, JPG o WEBP · en la entrada se recorta a lo ancho</div>
+            </div>
+            <img class="invgen-thumb mt-2 d-none" data-invgen-upload-preview alt="">
+          </div>
+        </section>
+
+        {# ---- 5 · CONDICIONES DE USO ---- #}
+        <section class="sw-step" data-step="5" data-title="Condiciones">
+          <div class="sw-step__q"><i class="fa fa-file-contract me-2 text-danger"></i>Condiciones de uso</div>
+          <div class="sw-step__h">Cláusulas numeradas, cada una con su título y su texto. Se carga una plantilla y se retoca lo que haga falta; en la entrada va un resumen de las primeras con el enlace a las completas.</div>
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col-md-7">
+              <label class="form-label small mb-1">Plantilla</label>
+              <select class="form-select form-select-sm" name="conditions_template_id" data-invgen-template>
+                <option value="">Sin plantilla (escribirlas aquí)</option>
+                {% for t in templates %}<option value="{{ t.id }}"{% if template and template.id == t.id %} selected{% endif %} data-builtin="{{ '1' if t.builtin else '0' }}">{{ t.name }} · {{ t.n }} cláusula{{ '' if t.n == 1 else 's' }}{% if t.builtin %} · de fábrica{% endif %}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-5 d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-invgen-template-load><i class="fa fa-download me-1"></i>Cargar la plantilla</button>
+              <button type="button" class="btn btn-sm btn-outline-danger d-none" data-invgen-template-delete title="Eliminar esta plantilla (las actividades que la usaban conservan sus condiciones)"><i class="fa fa-trash"></i></button>
+            </div>
+          </div>
+          <div class="small text-muted mb-2" data-invgen-cond-state></div>
+          <div class="invgen-clauses" data-invgen-clauses>
+            <template data-invgen-clause-tpl>
+              <div class="invgen-clause" data-invgen-clause>
+                <div class="invgen-clause__n" data-clause-n>1</div>
+                <div class="invgen-clause__body">
+                  <input type="text" class="form-control form-control-sm fw-semibold" name="cond_title[]" placeholder="Título de la cláusula" maxlength="160">
+                  <textarea class="form-control form-control-sm mt-1" name="cond_body[]" rows="2" placeholder="Texto de la cláusula"></textarea>
+                </div>
+                <div class="invgen-clause__acts">
+                  <button type="button" class="btn btn-sm btn-link p-0" data-clause-up title="Subir"><i class="fa fa-arrow-up"></i></button>
+                  <button type="button" class="btn btn-sm btn-link p-0" data-clause-down title="Bajar"><i class="fa fa-arrow-down"></i></button>
+                  <button type="button" class="btn btn-sm btn-link p-0 text-danger" data-clause-remove title="Quitar"><i class="fa fa-xmark"></i></button>
+                </div>
+              </div>
+            </template>
+            {% for c in clauses %}
+            <div class="invgen-clause" data-invgen-clause>
+              <div class="invgen-clause__n" data-clause-n>{{ loop.index }}</div>
+              <div class="invgen-clause__body">
+                <input type="text" class="form-control form-control-sm fw-semibold" name="cond_title[]" placeholder="Título de la cláusula" maxlength="160" value="{{ c.title }}">
+                <textarea class="form-control form-control-sm mt-1" name="cond_body[]" rows="2" placeholder="Texto de la cláusula">{{ c.body }}</textarea>
+              </div>
+              <div class="invgen-clause__acts">
+                <button type="button" class="btn btn-sm btn-link p-0" data-clause-up title="Subir"><i class="fa fa-arrow-up"></i></button>
+                <button type="button" class="btn btn-sm btn-link p-0" data-clause-down title="Bajar"><i class="fa fa-arrow-down"></i></button>
+                <button type="button" class="btn btn-sm btn-link p-0 text-danger" data-clause-remove title="Quitar"><i class="fa fa-xmark"></i></button>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-invgen-clause-add><i class="fa fa-plus me-1"></i>Añadir una cláusula</button>
+          <div class="invgen-saveas mt-3">
+            <label class="form-check small d-flex align-items-center gap-1 mb-0"><input type="checkbox" class="form-check-input mt-0" data-invgen-saveas-toggle> Guardar estas condiciones como una plantilla NUEVA</label>
+            <input type="text" class="form-control form-control-sm mt-1 d-none" name="save_template_name" placeholder="Nombre de la plantilla nueva" maxlength="120" data-invgen-saveas-name>
+          </div>
+          <input type="hidden" name="template_scope" value="ONLY" data-invgen-scope>
+        </section>
+
+        {# ---- 6 · RESUMEN ---- #}
+        <section class="sw-step" data-step="6" data-title="Resumen">
+          <div class="sw-step__q"><i class="fa fa-check me-2 text-danger"></i>Resumen</div>
+          <div class="sw-step__h">Repasa y guarda: la vista previa de la entrada se actualiza al guardar.</div>
+          <ul class="invgen-facts invgen-facts--compact" data-invgen-summary></ul>
+          <div class="invgen-scope d-none" data-invgen-scope-ask>
+            <div class="fw-semibold"><i class="fa fa-triangle-exclamation text-warning me-1"></i>Has cambiado las condiciones de la plantilla «<span data-scope-name></span>». ¿El cambio es…?</div>
+            <div class="d-flex gap-2 mt-2 flex-wrap">
+              <button type="button" class="btn btn-outline-secondary btn-sm" data-scope-pick="ONLY"><i class="fa fa-calendar-day me-1"></i>Solo para este evento</button>
+              <button type="button" class="btn btn-outline-danger btn-sm" data-scope-pick="UPDATE"><i class="fa fa-file-contract me-1"></i>Para este evento y para la plantilla</button>
+            </div>
+            <div class="small text-muted mt-1" data-scope-note>Elige una opción para poder guardar.</div>
+          </div>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-outline-secondary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button class="btn btn-danger" data-sw-submit><i class="fa fa-check me-1"></i>Guardar los datos de la entrada</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>

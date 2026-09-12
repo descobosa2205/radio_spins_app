@@ -1,0 +1,103 @@
+{# GENERACIÓN DE INVITACIONES · la pantalla de una actividad: arriba los DATOS DE LA ENTRADA (con la
+   vista previa de la entrada como miniatura a la derecha) y debajo las CATEGORÍAS generadas. Se abre
+   desde «Generar invitaciones» (pestaña Invitaciones del evento), solo en lo que promueve una empresa
+   del grupo. El asistente vive en `_invgen_config_modal.html`; el JS en `static/js/invgen.js`. #}
+{% extends "layout.html" %}
+{% block content %}
+<div class="container-fluid px-0">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <a class="btn btn-outline-secondary btn-sm btn-volver" data-no-smart-back href="{{ back_url }}"
+       title="Volver a las invitaciones de la actividad" aria-label="Volver a las invitaciones de la actividad"><i class="fa fa-arrow-left"></i></a>
+  </div>
+
+  <div class="card mb-3 invitation-event-header">
+    <div class="card-body">
+      <div class="d-flex justify-content-between gap-3 flex-wrap align-items-center">
+        <div class="d-flex align-items-center gap-3">
+          {% if image_url %}<img src="{{ image_url }}" class="invgen-hero-img" alt="">{% endif %}
+          <div>
+            <span class="badge text-bg-secondary mb-2">{{ event.type_label }}</span>
+            <h3 class="mb-1"><i class="fa fa-qrcode text-danger me-2"></i>Generar invitaciones</h3>
+            <div class="fw-semibold">{{ event.title }}</div>
+            <div class="text-muted">{{ event.date_label }}{% if venue.name %} · {{ venue.name }}{% endif %}{% if venue.place %} · {{ venue.place }}{% endif %}</div>
+            <div class="d-flex gap-1 flex-wrap mt-2">
+              {% for artist in event.artists %}<span class="artist-chip"{% if artist.id %} data-artist-link="{{ artist.id }}"{% endif %}><img src="{{ artist.photo_url }}" alt="">{{ artist.name }}</span>{% endfor %}
+            </div>
+          </div>
+        </div>
+        {% if logo_url %}<img src="{{ logo_url }}" class="invgen-brand-logo" alt="">{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ---------------- MÓDULO 1 · LOS DATOS DE LA ENTRADA ---------------- #}
+  <div class="card mb-3" id="invgen-datos">
+    <div class="card-header bg-white py-2 d-flex align-items-center gap-2 flex-wrap">
+      <span class="fw-semibold"><i class="fa fa-ticket text-danger me-1"></i>Datos de la entrada</span>
+      {% if configured %}<span class="badge text-bg-success">Configurados</span>{% else %}<span class="badge text-bg-warning">Sin configurar</span>{% endif %}
+      <div class="ms-auto d-flex gap-2 flex-wrap">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ preview_url }}" target="_blank" rel="noopener" data-no-doc-loader><i class="fa fa-file-pdf me-1"></i>Ver PDF de muestra</a>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#invGenConfigModal"><i class="fa fa-gear me-1"></i>{{ 'Editar los datos' if configured else 'Configurar' }}</button>
+      </div>
+    </div>
+    <div class="card-body">
+      {% if not configured %}
+      <div class="alert alert-warning py-2 small mb-3"><i class="fa fa-triangle-exclamation me-1"></i>Todavía no se han configurado los datos de la entrada. Mientras, la vista previa sale con lo que se sabe de la actividad y sin condiciones de uso.</div>
+      {% endif %}
+      <div class="row g-3">
+        <div class="col-lg-7">
+          <ul class="invgen-facts">
+            <li><i class="fa fa-location-dot"></i><div><small>Recinto</small><strong>{{ venue.name or '—' }}</strong>{% if venue.address_line %}<div class="text-muted small">{{ venue.address_line }}</div>{% endif %}</div></li>
+            <li><i class="fa fa-door-open"></i><div><small>Apertura de puertas</small><strong>{{ doors or 'Por confirmar' }}</strong></div></li>
+            <li><i class="fa fa-clock"></i><div><small>Comienzo</small><strong>{{ show or 'Por confirmar' }}</strong></div></li>
+            <li><i class="fa fa-star"></i><div><small>Extras</small>
+              {% if extras %}<div class="d-flex flex-wrap gap-1 mt-1">{% for x in extras %}<span class="invgen-chip" title="{{ x.instructions }}"><i class="fa {{ x.icon }}"></i>{{ x.name }}</span>{% endfor %}</div>
+              {% else %}<strong class="text-muted">Ninguno</strong>{% endif %}</div></li>
+            <li><i class="fa fa-image"></i><div><small>Imagen de la entrada</small>
+              {% if image_url %}<img src="{{ image_url }}" class="invgen-thumb mt-1" alt="">{% if not image_set %}<div class="text-muted small">La primera que tenemos de la actividad; se puede elegir otra.</div>{% endif %}
+              {% else %}<strong class="text-muted">Sin imagen</strong>{% endif %}</div></li>
+            <li><i class="fa fa-file-contract"></i><div><small>Condiciones de uso</small>
+              <strong>{{ clauses|length }} cláusula{{ '' if clauses|length == 1 else 's' }}</strong>{% if template %} <span class="text-muted">· plantilla «{{ template.name }}»</span>{% endif %}
+              {% if conditions_url %}<div class="small mt-1"><a href="{{ conditions_url }}" target="_blank" rel="noopener"><i class="fa fa-up-right-from-square me-1"></i>Ver la landing</a> · <button type="button" class="btn btn-link btn-sm p-0 align-baseline copy-link-btn" data-copy-url="{{ conditions_url }}"><i class="fa fa-link me-1"></i>Copiar enlace</button></div>{% endif %}
+              {% if clauses %}<ol class="invgen-clauses-mini mt-1">{% for c in clauses[:3] %}<li><b>{{ c.title }}</b></li>{% endfor %}{% if clauses|length > 3 %}<li class="text-muted">… y {{ clauses|length - 3 }} más</li>{% endif %}</ol>{% endif %}
+            </div></li>
+          </ul>
+        </div>
+        <div class="col-lg-5">
+          <div class="invgen-preview" data-invgen-preview data-pdf-url="{{ preview_url }}">
+            <a class="invgen-preview__canvas" href="{{ preview_url }}" target="_blank" rel="noopener" data-no-doc-loader title="Abrir el PDF de muestra">
+              <div class="text-muted small p-3"><i class="fa fa-spinner fa-spin me-1"></i>Preparando la vista previa…</div>
+            </a>
+            <div class="text-center small text-muted mt-2">Así se verá la entrada · las condiciones van resumidas y enlazan a las completas</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------------- MÓDULO 2 · LAS CATEGORÍAS GENERADAS ---------------- #}
+  <div class="card mb-3" id="invgen-categorias">
+    <div class="card-header bg-white py-2 d-flex align-items-center gap-2 flex-wrap">
+      <span class="fw-semibold"><i class="fa fa-layer-group text-danger me-1"></i>Categorías de invitación generadas</span>
+    </div>
+    <div class="card-body">
+      {% if gen_categories %}
+        <ul class="list-group list-group-flush">
+          {% for gc in gen_categories %}
+          <li class="list-group-item px-0"><strong>{{ gc.name }}</strong> <span class="text-muted small">· {{ gc.generated_count }} invitaciones</span></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-muted small"><i class="fa fa-circle-info me-1"></i>Todavía no hay categorías generadas. {% if not configured %}Configura primero los datos de la entrada.{% endif %}</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% include '_invgen_config_modal.html' %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="{{ url_for('static', filename='js/invgen.js', v=ASSET_V) }}"></script>
+{% endblock %}

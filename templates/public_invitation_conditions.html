@@ -1,0 +1,71 @@
+{# CONDICIONES DE USO de las invitaciones de una actividad · landing PÚBLICA (lo que enlaza la propia
+   entrada). Standalone a propósito: hace falta el juego de og: para la previsualización del enlace.
+   Estilo de casa: el logo a la derecha, «Condiciones de uso» centrado y debajo todas las cláusulas,
+   numeradas, con el título en negrita y el texto justificado. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Condiciones de uso{% if not missing and title %} · {{ title }}{% endif %}</title>
+  {% if not missing %}
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Condiciones de uso · {{ title }}">
+  {% if og_description %}<meta property="og:description" content="{{ og_description }}"><meta name="description" content="{{ og_description }}">{% endif %}
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}">
+    <meta property="og:image:secure_url" content="{{ og_image_url }}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:image" content="{{ og_image_url }}">
+    <meta name="twitter:card" content="summary_large_image">
+  {% endif %}
+  {% endif %}
+  <style>
+    body{ margin:0; background:#f5f7fb; font-family:Arial,Helvetica,sans-serif; color:#111827; }
+    .wrap{ max-width:760px; margin:24px auto; padding:0 14px 40px; }
+    .sheet{ background:#fff; border:1px solid #e6e8eb; border-radius:20px; box-shadow:0 18px 42px rgba(15,23,42,.08); padding:26px 28px 32px; }
+    @media(max-width:640px){ .sheet{ padding:18px 14px 22px; } }
+    .head{ display:flex; justify-content:flex-end; min-height:48px; }
+    .head img{ max-height:52px; max-width:190px; object-fit:contain; }
+    h1{ text-align:center; font-size:26px; margin:14px 0 6px; letter-spacing:.01em; }
+    .ev{ text-align:center; color:#374151; margin-bottom:22px; }
+    .ev__t{ font-size:19px; font-weight:800; color:#111827; }
+    .ev__s{ font-size:14px; color:#6b7683; margin-top:2px; }
+    .ev__m{ font-size:13px; color:#6b7683; margin-top:4px; }
+    ol.cl{ margin:0; padding:0 0 0 1.4em; }
+    ol.cl li{ margin:0 0 16px; }
+    ol.cl h3{ font-size:15px; margin:0 0 4px; font-weight:800; color:#111827; }
+    ol.cl p{ margin:0; text-align:justify; font-size:14px; line-height:1.55; color:#374151; }
+    .foot{ margin-top:26px; border-top:1px solid #e6e8eb; padding-top:12px; font-size:12px; color:#6b7683; text-align:center; }
+    .missing{ text-align:center; padding:40px 10px; color:#6b7683; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="sheet">
+      {% if missing %}
+        <div class="missing"><h1>Condiciones de uso</h1><p>Este enlace ya no está disponible.</p></div>
+      {% else %}
+        <div class="head">{% if logo_url %}<img src="{{ logo_url }}" alt="">{% endif %}</div>
+        <h1>Condiciones de uso</h1>
+        <div class="ev">
+          <div class="ev__t">{{ title }}</div>
+          {% if subtitle %}<div class="ev__s">{{ subtitle }}</div>{% endif %}
+          <div class="ev__m">{{ date_label }}{% if doors %} · Apertura de puertas {{ doors }}{% endif %}{% if show %} · Comienzo {{ show }}{% endif %}</div>
+          {% if venue.name %}<div class="ev__m">{{ venue.name }}{% if venue.address_line %} · {{ venue.address_line }}{% endif %}</div>{% endif %}
+        </div>
+        {% if clauses %}
+        <ol class="cl">
+          {% for c in clauses %}<li><h3>{{ c.title }}</h3><p>{{ c.body }}</p></li>{% endfor %}
+        </ol>
+        {% else %}
+        <p class="missing">Todavía no se han publicado las condiciones de uso de esta actividad.</p>
+        {% endif %}
+        <div class="foot">{% if issuer %}Invitaciones emitidas por {{ issuer }}. {% endif %}La invitación es personal y gratuita: al utilizarla se aceptan estas condiciones.</div>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

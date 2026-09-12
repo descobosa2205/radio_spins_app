@@ -5189,6 +5189,19 @@ class InvitationTicket(Base):
     printed_at = Column(DateTime(timezone=True))  # impresa en bloque (funciona como enviada, color naranja)
     print_reason = Column(Text)  # motivo de la impresión en bloque
     previous_assignment_warning = Column(Text)
+    # GENERADA por la app (no subida): su PDF se compone al vuelo y su código QR es `qr_token`
+    # (opaco; al recuperarla tras enviarla se ANULA y renace con otro). `map_key` es la butaca del
+    # formato del recinto ("sec|fila|slot") y `door` la puerta de acceso que sale en la entrada.
+    is_generated = Column(Boolean, nullable=False, server_default=text("false"))
+    qr_token = Column(Text)
+    gen_category_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_gen_categories.id", ondelete="SET NULL"))
+    gen_sector_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_gen_sectors.id", ondelete="SET NULL"))
+    door = Column(Text)
+    map_key = Column(Text)
+    code_version = Column(Integer, nullable=False, server_default=text("1"))
+    # Control de acceso (desnormalizado de `invitation_access_logs` para pintarlo sin cruces).
+    access_entered_at = Column(DateTime(timezone=True))
+    access_extras_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     uploaded_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     uploaded_by_nick = Column(Text)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -5199,12 +5212,15 @@ class InvitationTicket(Base):
     assigned_request = relationship("InvitationRequest")
     assigned_commitment = relationship("InvitationCommitment")
     uploaded_by = relationship("User")
+    gen_category = relationship("InvitationGenCategory")
+    gen_sector = relationship("InvitationGenSector")
 
     __table_args__ = (
         Index("idx_invitation_tickets_concert_category", "concert_id", "category_id", "status"),
         Index("idx_invitation_tickets_assigned_request", "assigned_request_id"),
         Index("idx_invitation_tickets_sha", "pdf_sha256"),
         UniqueConstraint("concert_id", "ticket_code", name="uq_invitation_tickets_concert_code"),
+        Index("idx_invitation_tickets_qr", "qr_token"),
     )
 
 
@@ -5279,6 +5295,202 @@ class InvitationManagerOptIn(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "concert_id", name="uq_invitation_manager_optins_user_concert"),
         Index("idx_invitation_manager_optins_user", "user_id"),
+    )
+
+
+class InvitationConditionsTemplate(Base):
+    """GENERACIÓN DE INVITACIONES · una PLANTILLA de condiciones de uso (con nombre): la lista de
+    cláusulas (título + texto) que se carga al configurar la entrada de una actividad. Al cambiar
+    las condiciones de un evento se pregunta si el cambio es solo de ese evento o también de la
+    plantilla."""
+
+    __tablename__ = "invitation_conditions_templates"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    clauses_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    is_builtin = Column(Boolean, nullable=False, server_default=text("false"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_invitation_conditions_templates_name"),
+    )
+
+
+class InvitationExtraPreset(Base):
+    """GENERACIÓN DE INVITACIONES · el CATÁLOGO de extras (Meet & Greet, After Party, Parking… y los
+    que se creen): es GLOBAL, así que un extra creado en un evento se ofrece ya en los siguientes."""
+
+    __tablename__ = "invitation_extra_presets"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    key = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    icon = Column(Text, nullable=False, server_default=text("'fa-star'"))
+    is_builtin = Column(Boolean, nullable=False, server_default=text("false"))
+    sort_order = Column(Integer, nullable=False, server_default=text("100"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("key", name="uq_invitation_extra_presets_key"),
+    )
+
+
+class InvitationGenConfig(Base):
+    """GENERACIÓN DE INVITACIONES · los DATOS DE LA ENTRADA de una actividad (una fila por actividad):
+    las horas (nacen de la actividad y se pueden fijar aquí), la imagen, las condiciones de uso y los
+    tokens OPACOS de sus enlaces públicos (las condiciones completas y el control de acceso)."""
+
+    __tablename__ = "invitation_gen_configs"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False, unique=True)
+    doors_time = Column(Text)
+    show_time = Column(Text)
+    image_url = Column(Text)
+    conditions_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    conditions_template_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_conditions_templates.id", ondelete="SET NULL"))
+    # Enlace público de las condiciones completas (se comparte en la propia entrada).
+    conditions_token = Column(Text, unique=True)
+    # Enlace del CONTROL DE ACCESO (otro token a propósito: quien controla la puerta no tiene por qué
+    # poder ver ni cambiar nada más). Se puede anular y volver a generar.
+    access_token = Column(Text, unique=True)
+    access_token_at = Column(DateTime(timezone=True))
+    configured_at = Column(DateTime(timezone=True))
+    configured_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert")
+    conditions_template = relationship("InvitationConditionsTemplate")
+    extras = relationship("InvitationGenExtra", cascade="all, delete-orphan",
+                          order_by="InvitationGenExtra.sort_order", back_populates="config")
+    gen_categories = relationship("InvitationGenCategory", cascade="all, delete-orphan",
+                                  order_by="InvitationGenCategory.created_at", back_populates="config")
+
+    __table_args__ = (
+        Index("idx_invitation_gen_configs_concert", "concert_id"),
+    )
+
+
+class InvitationGenExtra(Base):
+    """Un EXTRA activado en la entrada de una actividad (M&G, After Party, Parking…) con sus
+    instrucciones, que salen en la entrada bajo su etiqueta. Cuelga del catálogo si viene de él."""
+
+    __tablename__ = "invitation_gen_extras"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    config_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_gen_configs.id", ondelete="CASCADE"), nullable=False)
+    preset_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_extra_presets.id", ondelete="SET NULL"))
+    name = Column(Text, nullable=False)
+    icon = Column(Text, nullable=False, server_default=text("'fa-star'"))
+    instructions = Column(Text)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    config = relationship("InvitationGenConfig", back_populates="extras")
+    preset = relationship("InvitationExtraPreset")
+
+    __table_args__ = (
+        Index("idx_invitation_gen_extras_config", "config_id"),
+    )
+
+
+class InvitationGenCategory(Base):
+    """Una CATEGORÍA de invitaciones GENERADAS (con sus extras incluidos y sus sectores). Al generarla
+    se crea su `InvitationCategory` de siempre y una `InvitationTicket` por entrada, así que entran
+    en la gestión de invitaciones como si se hubieran subido."""
+
+    __tablename__ = "invitation_gen_categories"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    config_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_gen_configs.id", ondelete="CASCADE"), nullable=False)
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    invitation_category_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_categories.id", ondelete="SET NULL"))
+    name = Column(Text, nullable=False)
+    extras_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    generated_count = Column(Integer, nullable=False, server_default=text("0"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    config = relationship("InvitationGenConfig", back_populates="gen_categories")
+    invitation_category = relationship("InvitationCategory")
+    sectors = relationship("InvitationGenSector", cascade="all, delete-orphan",
+                           order_by="InvitationGenSector.sort_order", back_populates="gen_category")
+
+    __table_args__ = (
+        Index("idx_invitation_gen_categories_concert", "concert_id"),
+    )
+
+
+class InvitationGenSector(Base):
+    """Un SECTOR de una categoría generada: la sección del formato del recinto (o un sector a mano),
+    si va numerado (con sus butacas) o cuántas se generan, y su puerta de acceso."""
+
+    __tablename__ = "invitation_gen_sectors"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    gen_category_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_gen_categories.id", ondelete="CASCADE"), nullable=False)
+    section_key = Column(Text)
+    section_name = Column(Text, nullable=False)
+    numbered = Column(Boolean, nullable=False, server_default=text("false"))
+    qty = Column(Integer, nullable=False, server_default=text("0"))
+    seats_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    door = Column(Text)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    gen_category = relationship("InvitationGenCategory", back_populates="sectors")
+
+    __table_args__ = (
+        Index("idx_invitation_gen_sectors_category", "gen_category_id"),
+    )
+
+
+class InvitationVoidedCode(Base):
+    """Un código QR ANULADO: el de una invitación generada que se recuperó después de enviarla (renace
+    con otro código), se descartó o se eliminó. En el control de acceso ese código dice «anulada»."""
+
+    __tablename__ = "invitation_voided_codes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    ticket_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_tickets.id", ondelete="SET NULL"))
+    qr_token = Column(Text, nullable=False)
+    reason = Column(Text)
+    voided_at = Column(DateTime(timezone=True), server_default=func.now())
+    voided_by_nick = Column(Text)
+
+    __table_args__ = (
+        Index("idx_invitation_voided_codes_token", "qr_token"),
+        Index("idx_invitation_voided_codes_concert", "concert_id"),
+    )
+
+
+class InvitationAccessLog(Base):
+    """Cada LECTURA en el control de acceso: qué código, para qué control (la entrada o un extra) y
+    con qué resultado. Es la traza; lo que se enseña en caliente vive desnormalizado en la entrada
+    (`access_entered_at`, `access_extras_json`)."""
+
+    __tablename__ = "invitation_access_logs"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    ticket_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_tickets.id", ondelete="SET NULL"))
+    qr_token = Column(Text)
+    control_key = Column(Text, nullable=False)
+    result = Column(Text, nullable=False)
+    scanned_at = Column(DateTime(timezone=True), server_default=func.now())
+    device_label = Column(Text)
+    ip = Column(Text)
+    note = Column(Text)
+
+    __table_args__ = (
+        Index("idx_invitation_access_logs_concert", "concert_id", "control_key"),
+        Index("idx_invitation_access_logs_ticket", "ticket_id"),
     )
 
 
@@ -11685,6 +11897,152 @@ def ensure_invitation_schema():
         "CREATE INDEX IF NOT EXISTS idx_invitation_manager_optins_user ON invitation_manager_optins(user_id);",
     ]
     _exec_ddl_statements(stmts, "invitation_schema")
+
+
+def ensure_invitation_gen_schema():
+    """GENERACIÓN DE INVITACIONES (entradas con QR que compone la app) + CONTROL DE ACCESO. Idempotente.
+    ⚠️ Las columnas nuevas de `invitation_tickets` van CADA UNA en su propia sentencia (la regla de la
+    casa): dentro de un ALTER que ya existía podrían no ejecutarse nunca."""
+    _create_all_once()
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS invitation_conditions_templates (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            clauses_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            is_builtin boolean NOT NULL DEFAULT false,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_invitation_conditions_templates_name UNIQUE(name)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS invitation_extra_presets (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            key text NOT NULL,
+            name text NOT NULL,
+            icon text NOT NULL DEFAULT 'fa-star',
+            is_builtin boolean NOT NULL DEFAULT false,
+            sort_order integer NOT NULL DEFAULT 100,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_invitation_extra_presets_key UNIQUE(key)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS invitation_gen_configs (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL UNIQUE REFERENCES concerts(id) ON DELETE CASCADE,
+            doors_time text,
+            show_time text,
+            image_url text,
+            conditions_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            conditions_template_id uuid REFERENCES invitation_conditions_templates(id) ON DELETE SET NULL,
+            conditions_token text UNIQUE,
+            access_token text UNIQUE,
+            access_token_at timestamptz,
+            configured_at timestamptz,
+            configured_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_gen_configs_concert ON invitation_gen_configs(concert_id);",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_gen_extras (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            config_id uuid NOT NULL REFERENCES invitation_gen_configs(id) ON DELETE CASCADE,
+            preset_id uuid REFERENCES invitation_extra_presets(id) ON DELETE SET NULL,
+            name text NOT NULL,
+            icon text NOT NULL DEFAULT 'fa-star',
+            instructions text,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_gen_extras_config ON invitation_gen_extras(config_id);",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_gen_categories (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            config_id uuid NOT NULL REFERENCES invitation_gen_configs(id) ON DELETE CASCADE,
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            invitation_category_id uuid REFERENCES invitation_categories(id) ON DELETE SET NULL,
+            name text NOT NULL,
+            extras_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            generated_count integer NOT NULL DEFAULT 0,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_gen_categories_concert ON invitation_gen_categories(concert_id);",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_gen_sectors (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            gen_category_id uuid NOT NULL REFERENCES invitation_gen_categories(id) ON DELETE CASCADE,
+            section_key text,
+            section_name text NOT NULL,
+            numbered boolean NOT NULL DEFAULT false,
+            qty integer NOT NULL DEFAULT 0,
+            seats_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            door text,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_gen_sectors_category ON invitation_gen_sectors(gen_category_id);",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_voided_codes (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            ticket_id uuid REFERENCES invitation_tickets(id) ON DELETE SET NULL,
+            qr_token text NOT NULL,
+            reason text,
+            voided_at timestamptz DEFAULT now(),
+            voided_by_nick text
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_voided_codes_token ON invitation_voided_codes(qr_token);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_voided_codes_concert ON invitation_voided_codes(concert_id);",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_access_logs (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            ticket_id uuid REFERENCES invitation_tickets(id) ON DELETE SET NULL,
+            qr_token text,
+            control_key text NOT NULL,
+            result text NOT NULL,
+            scanned_at timestamptz DEFAULT now(),
+            device_label text,
+            ip text,
+            note text
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_access_logs_concert ON invitation_access_logs(concert_id, control_key);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_access_logs_ticket ON invitation_access_logs(ticket_id);",
+        # Columnas de la ENTRADA generada: cada una en su propia sentencia.
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS is_generated boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS qr_token text;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS gen_category_id uuid REFERENCES invitation_gen_categories(id) ON DELETE SET NULL;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS gen_sector_id uuid REFERENCES invitation_gen_sectors(id) ON DELETE SET NULL;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS door text;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS map_key text;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS code_version integer NOT NULL DEFAULT 1;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS access_entered_at timestamptz;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS access_extras_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_tickets_qr ON invitation_tickets(qr_token);",
+        # Los tres extras de fábrica (M&G, After Party, Parking). Solo se siembran si faltan.
+        """
+        INSERT INTO invitation_extra_presets(key, name, icon, is_builtin, sort_order)
+        VALUES
+          ('MEET_GREET', 'Meet & Greet', 'fa-handshake', true, 10),
+          ('AFTER_PARTY', 'After Party', 'fa-champagne-glasses', true, 20),
+          ('PARKING', 'Parking', 'fa-square-parking', true, 30)
+        ON CONFLICT (key) DO NOTHING;
+        """,
+    ]
+    _exec_ddl_statements(stmts, "invitation_gen_schema")
 
 
 def ensure_roadmap_onesheet_schema():

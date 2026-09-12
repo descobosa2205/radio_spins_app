@@ -17,11 +17,32 @@
   </div>
 </div>
 
-<p class="text-muted">
-  Los terceros y los artistas entran con <strong>su correo o su teléfono</strong> —los que ya estén
-  en su ficha— y un número de verificación que les llega {% if sms_ok %}por email o por SMS{% else %}a su correo{% endif %}.
-  No hay contraseñas y <strong>no pueden editar nada</strong> de la app: solo ven lo suyo.
-</p>
+{# ⚠️⚠️ LAS DOS VÍAS SON INDEPENDIENTES, y aquí solo se toca UNA. Se dice arriba del todo porque
+   el interruptor de cada tipo se entendía como «cerrarle la puerta a los de fuera», y lo que se
+   comparte (una hoja de ruta, unos carteles, una factura) NO pasa por aquí ni se cierra desde aquí. #}
+<div class="extp-vias mb-4">
+  <div class="extp-via">
+    <div class="extp-via__ico"><i class="fa fa-link"></i></div>
+    <div>
+      <div class="extp-via__t">Un enlace que se comparte</div>
+      <p class="extp-via__p">Se abre <strong>sin identificarse</strong> y solo se ve <strong>eso</strong>:
+      la hoja de ruta, los carteles, su factura, una liquidación… Quien lo recibe no entra en nada
+      más.</p>
+      <div class="extp-via__n"><i class="fa fa-circle-info me-1"></i>No se toca desde esta pantalla:
+      cada cosa se comparte desde donde está.</div>
+    </div>
+  </div>
+  <div class="extp-via is-here">
+    <div class="extp-via__ico"><i class="fa fa-door-open"></i></div>
+    <div>
+      <div class="extp-via__t">El acceso de externos <span class="badge text-bg-danger ms-1">esto</span></div>
+      <p class="extp-via__p">Entra con <strong>su correo o su teléfono</strong> —los que ya estén en
+      su ficha— y un número de verificación que le llega {% if sms_ok %}por email o por SMS{% else %}a su correo{% endif %},
+      y ve <strong>todo lo suyo</strong>. No hay contraseñas y <strong>no puede editar nada</strong> de la app.</p>
+      <div class="extp-via__n"><i class="fa fa-sliders me-1"></i>Es lo que se abre y se cierra aquí abajo.</div>
+    </div>
+  </div>
+</div>
 
 {# Una pestaña por TIPO de acceso. #}
 <ul class="nav nav-tabs contract-tabs mb-3">
@@ -64,17 +85,26 @@
           <input type="hidden" name="valor" value="{{ '0' if tipo in abiertos else '1' }}">
           {% if tipo == 'THIRD' %}
             <div class="alert alert-light border small mb-0">
-              <i class="fa fa-circle-info me-1"></i>Este es el acceso básico: sus documentos y aquello
-              en lo que se le incluye. No se cierra.
+              <i class="fa fa-circle-info me-1"></i>Este es el acceso básico del portal: sus documentos
+              y aquello en lo que se le incluye. No se cierra.
             </div>
           {% elif tipo in abiertos %}
             <button class="btn btn-outline-danger btn-sm" type="submit">
-              <i class="fa fa-ban me-1"></i>Cerrar este acceso para todos
+              <i class="fa fa-ban me-1"></i>Cerrar el portal para este tipo
             </button>
+            <div class="small text-muted mt-2">
+              <i class="fa fa-circle-info me-1"></i>Cierra <strong>solo el portal</strong>. Los
+              enlaces que ya se han compartido (hoja de ruta, carteles, facturas…) se siguen
+              abriendo igual.
+            </div>
           {% else %}
             <button class="btn btn-success btn-sm" type="submit">
-              <i class="fa fa-door-open me-1"></i>Abrir este acceso
+              <i class="fa fa-door-open me-1"></i>Abrir el portal para este tipo
             </button>
+            <div class="small text-muted mt-2">
+              <i class="fa fa-circle-info me-1"></i>Con el portal cerrado, lo que se le comparta por
+              un enlace lo sigue viendo igual: son dos cosas distintas.
+            </div>
           {% endif %}
         </form>
       </div>

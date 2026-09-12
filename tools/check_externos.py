@@ -361,6 +361,44 @@ def main():
         _c5, h5 = entrar("hola@promotora.com")
         check("al reabrirlo, vuelve", "Festival de Prueba EXT" in h5)
 
+    print("\n== 11 · LAS DOS VÍAS SON INDEPENDIENTES ==")
+    # ⚠️⚠️ Hay DOS formas de que alguien de fuera vea algo y no se tocan entre sí:
+    #   · un ENLACE QUE SE COMPARTE  → abierto, sin identificarse, y **solo se ve eso**;
+    #   · el PORTAL de externos      → identificándose, y ahí ve **todo lo suyo**.
+    # Cerrar el portal NO cierra lo compartido, y abrir un enlace compartido NO mete a nadie en el
+    # portal. Es una regla de DISEÑO, así que se comprueba: si un día alguien mete un enlace público
+    # por debajo del portal, esto se pone en rojo.
+    s = A.db()
+    c1 = s.get(Concert, A.to_uuid(c1_id))
+    with A.app.test_request_context("/"):
+        tok_ruta = A._ensure_roadmap_token(s, c1, "GENERAL")
+        tok_cart = A._ensure_concert_artwork_share_token(s, c1)
+    s.commit()
+    s.close()
+    anon = A.app.test_client()
+    guardado = A._get_app_setting(A.EXT_ACCESS_TYPES_SETTING, "")
+
+    A._set_app_setting(A.EXT_ACCESS_TYPES_SETTING, "NINGUNO")     # el portal, cerrado a cal y canto
+    check("con el portal cerrado, la hoja de ruta compartida se abre igual",
+          anon.get("/hoja-ruta/ver/%s" % tok_ruta).status_code == 200)
+    check("y la cartelería compartida también",
+          anon.get("/carteles/%s" % tok_cart).status_code == 200)
+    check("pero el portal pide identificarse",
+          anon.get("/externos/inicio", follow_redirects=False).status_code in (302, 303))
+
+    html = anon.get("/hoja-ruta/ver/%s" % tok_ruta).data.decode()
+    check("lo compartido no mete a nadie en el portal", "/externos/inicio" not in html)
+    check("ni da acceso a la ficha de dentro",
+          anon.get("/conciertos/%s" % c1_id, follow_redirects=False).status_code in (302, 303))
+    check("un token inventado no abre nada",
+          anon.get("/hoja-ruta/ver/%sxxx" % tok_ruta[:-3]).status_code == 404)
+
+    A._set_app_setting(A.EXT_ACCESS_TYPES_SETTING, "")            # y con el portal abierto, igual
+    check("con el portal abierto, lo compartido sigue siendo solo lo compartido",
+          anon.get("/hoja-ruta/ver/%s" % tok_ruta).status_code == 200
+          and anon.get("/externos/inicio", follow_redirects=False).status_code in (302, 303))
+    A._set_app_setting(A.EXT_ACCESS_TYPES_SETTING, guardado)
+
     print("\n%s   %d ok · %d fallos" % ("TODO OK" if not FALLOS else "⚠️  HAY FALLOS", OK, FALLOS))
     return 1 if FALLOS else 0
 

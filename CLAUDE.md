@@ -12816,6 +12816,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - ⚠️⚠️⚠️ **PORTAL DE EXTERNOS · los artistas y los terceros entran en `/externos`** (sep 2026). Un
   artista, un promotor, un autor o un técnico entra en **su propio espacio** del back office: ve lo
   suyo, contesta lo que se le pide y actualiza sus documentos. **No puede editar nada más.**
+  ⚠️⚠️⚠️ **HAY DOS VÍAS Y NO SE TOCAN ENTRE SÍ** (lo dejó dicho Dani, sep 2026):
+  · **UN ENLACE QUE SE COMPARTE** (una hoja de ruta, unos carteles, una factura, una liquidación)
+    **se abre SIN identificarse y solo se ve ESO**. Lo autoriza su TOKEN, no el portal.
+  · **EL PORTAL** (`/externos`): entra con su correo o su teléfono y ve **TODO lo suyo**.
+  Cerrar un tipo en «Acceso terceros» **cierra SOLO el portal**: los enlaces compartidos siguen
+  abriéndose igual. Y abrir un enlace compartido **no mete a nadie en el portal** ni da acceso a la
+  ficha de dentro. Amarrado en el apartado **11** de `tools/check_externos.py`.
+  ⚠️ Por eso un enlace público NUNCA se mete por debajo del portal (ni se le exige `_ext_required`):
+  lo compartido se comparte desde donde vive y se autoriza con su token, como siempre.
+  ⚠️ La pantalla **lo DICE arriba del todo** (`.extp-vias` en `acceso_terceros.html`): el interruptor
+  se leía como «cerrarle la puerta a los de fuera» y no es eso.
   · **CÓMO ENTRA**: escribe **su correo o su teléfono** —tienen que ser los que ya están en su ficha
   (`_ext_find_identity`, que mira el correo del tercero, sus `PromoterEmail`, su teléfono y sus
   `PromoterPhone`)— y le llega un **número de 6 cifras** que caduca en 10 minutos
@@ -12877,9 +12888,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   vez** (`_ext_group_identity`), así que ve lo suyo junto.
   ⚠️ El teléfono se busca con **LIKE en SQL** y se confirma con `_norm_phone_key`: traerse cuatro mil
   fichas a Python para compararlas una a una tardaba segundos en cada intento.
-  · **PRUEBA DE REGRESIÓN: `/tmp/python/bin/python3 tools/check_externos.py`** (58 comprobaciones
+  · **PRUEBA DE REGRESIÓN: `/tmp/python/bin/python3 tools/check_externos.py`** (65 comprobaciones
   con la app real: cómo entra, lo que ve cada tipo, que **no se cuela en el back office**, que solo
   ve lo suyo, que lo que se le pide desaparece al contestarlo por otro lado, sus documentos, la
-  sesión de 24 h y la pantalla de dirección). Es **idempotente**. Al tocar el portal, en verde.
+  sesión de 24 h, la pantalla de dirección y **que las dos vías son independientes**). Es
+  **idempotente**. Al tocar el portal, en verde.
   ⚠️ La prueba limpia el freno por IP entre entradas (`A._EXT_RATE.clear()`): trece entradas seguidas
   desde `127.0.0.1` lo disparan, que es justo lo que tiene que hacer — el freno se comprueba aparte.

@@ -7428,7 +7428,20 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
 .extp-work__pct{text-align:right;flex:0 0 auto;}
 
 /* ---- «Acceso terceros» (la pantalla de dirección) ---- */
-.extp-url{background:#f1f3f5;padding:.2rem .5rem;border-radius:6px;font-size:.82rem;}
+.extp-url{background:#f1f3f5;padding:.2rem .5rem;border-radius:6px;font-size:.82rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* LAS DOS VÍAS por las que alguien de fuera ve algo: un enlace compartido (abierto, solo eso) y el
+   PORTAL (identificado, todo lo suyo). Se pintan juntas arriba de «Acceso terceros» porque el
+   interruptor de abajo toca SOLO la segunda. */
+.extp-vias{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
+.extp-via{display:flex;gap:.85rem;align-items:flex-start;background:#fff;border:1px solid #e5e7eb;
+  border-radius:14px;padding:1rem 1.1rem;}
+.extp-via.is-here{border-color:rgba(227,61,72,.45);box-shadow:0 2px 10px rgba(227,61,72,.08);}
+.extp-via__ico{flex:0 0 auto;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;
+  background:rgba(227,61,72,.1);color:var(--brand-primary,#e33d48);font-size:1.05rem;}
+.extp-via__t{font-weight:700;margin-bottom:.25rem;}
+.extp-via__p{margin:0 0 .45rem;color:#4b5563;font-size:.92rem;}
+.extp-via__n{font-size:.82rem;color:#8a9199;}
+@media (max-width: 767.98px){ .extp-vias{grid-template-columns:1fr;} }
 .extp-mods{display:flex;flex-direction:column;gap:.65rem;}
 .extp-mod{display:flex;gap:.7rem;align-items:flex-start;}
 .extp-mod__ico{flex:0 0 auto;width:32px;height:32px;border-radius:9px;display:grid;place-items:center;

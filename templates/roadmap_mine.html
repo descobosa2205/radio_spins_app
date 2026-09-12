@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{# MI HOJA DE RUTA · la hoja tal como se ve cuando se comparte, pero DENTRO de la app: quien entra
+   aquí es de la casa (ve lo que no sale fuera) y al volver se va al INICIO, que es de donde viene
+   (el acceso rápido), no al paso anterior. #}
+{% block content %}
+<div class="mb-2">
+  <a class="btn-volver" href="{{ url_for('home') }}" title="Volver al inicio" data-no-smart-back>
+    <i class="fa fa-arrow-left"></i></a>
+</div>
+<div class="card">
+  <div class="card-body">
+    {% set roadmap_ctx = rm %}
+    {% include '_roadmap_panel.html' %}
+  </div>
+</div>
+{% endblock %}

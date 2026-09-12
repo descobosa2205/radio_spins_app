@@ -80267,17 +80267,20 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
     titulo = _roadmap_title(session_db, entity_type, row, artists)
     filas: list[dict] = []
 
-    def pon(icono, etiqueta, valor):
+    def pon(icono, etiqueta, valor, clave=""):
         valor = str(valor or "").strip()
         if valor:
-            filas.append({"icon": icono, "label": etiqueta, "value": valor})
+            filas.append({"icon": icono, "label": etiqueta, "value": valor, "key": clave})
 
     contactos: list[dict] = []
     duracion, formacion, descripcion = "", "", ""
     canta = False
     if isinstance(row, Concert):
         for icono, etiqueta, valor in _contract_sheet_hero_rows(row):
-            pon(icono, etiqueta, valor)
+            # ⚠️ El RECINTO se marca con su clave: en la cabecera se pincha y abre su pop-up (con la
+            # foto, cómo llegar y el acceso). Se marca aquí y no por el TEXTO de la etiqueta, que es
+            # lo que se enseña y puede cambiar.
+            pon(icono, etiqueta, valor, "venue" if etiqueta == "Recinto" else "")
         if getattr(row, "end_date", None) and row.end_date != getattr(row, "date", None):
             pon("fa-calendar-week", "Hasta", row.end_date.strftime("%d/%m/%Y"))
         if getattr(row, "show_time_tbc", False) and not getattr(row, "show_time", None):
@@ -80363,6 +80366,45 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
         "sings": bool(canta),
         "notes": (payload.get("activity_notes") or "").strip(),
     }
+
+
+def _roadmap_viewer_badge(session_db) -> dict:
+    """QUIÉN ESTÁ MIRANDO la hoja de ruta compartida, para el icono de la esquina.
+
+    Una hoja de ruta se abre por un enlace, así que quien la mira puede no haber entrado en ningún
+    sitio. El icono dice en qué situación está y a dónde va:
+    · **sin sesión** → el muñequito y las dos puertas (el equipo de la casa y el portal de fuera);
+    · **con sesión** → su FOTO, y al pincharla, sus funciones (su Inicio si es de la casa, su
+      portal si es un tercero).
+    ⚠️ Es *best-effort*: si algo falla, la hoja de ruta se pinta igual (solo se queda sin icono)."""
+    salida = {"logged": False, "kind": "", "name": "", "photo": _default_avatar_url(), "url": "",
+              "login_app": "/", "login_ext": url_for("externos_login")}
+    try:
+        salida["login_ext"] = url_for("externos_login", next=request.full_path)
+    except Exception:
+        pass
+    try:
+        uid = session.get("user_id")
+        if uid:
+            prof = session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(uid)).first()
+            usuario = session_db.get(User, to_uuid(uid))
+            salida.update({
+                "logged": True, "kind": "USER",
+                "name": ((getattr(prof, "nick", None) or getattr(usuario, "email", None) or "").strip()),
+                "photo": (getattr(prof, "photo_url", None) or _default_avatar_url()),
+                "url": url_for("home"),
+            })
+            return salida
+        if _ext_session_ids():
+            salida.update({
+                "logged": True, "kind": "EXT",
+                "name": (session.get("ext_name") or "").strip(),
+                "photo": (session.get("ext_photo") or _default_avatar_url()),
+                "url": url_for("externos_home"),
+            })
+    except Exception:
+        app.logger.exception("[hoja de ruta] no se pudo resolver quién la está mirando")
+    return salida
 
 
 def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
@@ -87235,6 +87277,39 @@ def roadmap_public_link(entity_type, entity_id):
         session_db.close()
 
 
+@app.get("/mi-hoja-de-ruta/<entity_type>/<entity_id>", endpoint="roadmap_mine")
+@admin_required
+def roadmap_mine(entity_type, entity_id):
+    """MI HOJA DE RUTA: verla DENTRO de la app, como se ve cuando se comparte.
+
+    Es el acceso rápido de quien ese día acompaña al artista o va en el personal: lo que necesita es
+    MIRARLA (los horarios, el hotel, quién va), no gestionarla, y casi siempre desde el móvil.
+    ⚠️ Va en modo lectura pero **con el payload COMPLETO**: quien entra es de la casa, así que ve lo
+    que no sale fuera (el número de habitación). Por eso no pasa por `_roadmap_payload_for_kind`.
+    ⚠️ La abre quien ESTÁ en ella (acompaña o va en el personal) o quien ya puede abrir la actividad
+    por su sección: verla no es gestionarla, pero tampoco es pública."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        estado = _current_user_state() or {}
+        yo = str(estado.get("user_id") or "")
+        mia = bool(yo) and (str(getattr(row, "escort_user_id", "") or "") == yo or yo in _roadmap_user_ids(row))
+        if not (mia or is_master() or has_access_key("produccion", include_descendants=True)
+                or has_access_key("contratacion", include_descendants=True)):
+            return forbid("produccion")
+        ctx = _roadmap_context(session_db, entity_type, row)
+        ctx["readonly"] = True
+        # La cabecera arriba del todo, igual que en la hoja compartida.
+        ctx["header_on_top"] = True
+        return render_template("roadmap_mine.html", rm=ctx,
+                               title=ctx.get("title") or "Hoja de ruta",
+                               artist_label=ctx.get("artist_label") or "")
+    finally:
+        session_db.close()
+
+
 @app.get('/hoja-ruta/ver/<token>', endpoint='public_roadmap_view')
 def public_roadmap_view(token):
     """Vista pública de solo lectura de la hoja de ruta (sin login). Permite ver toda la
@@ -87253,6 +87328,8 @@ def public_roadmap_view(token):
         ctx["payload"] = _roadmap_payload_for_kind(ctx.get("payload") or {}, roadmap_kind)
         ctx["days"] = _roadmap_days(row, ctx["payload"])
         ctx["readonly"] = True
+        # Quién la está mirando (el icono de la esquina): sin sesión, las dos puertas.
+        ctx["viewer"] = _roadmap_viewer_badge(session_db)
         ctx["kind"] = roadmap_kind
         ctx["kind_label"] = ROADMAP_KIND_LABELS.get(roadmap_kind, "Hoja de ruta")
         # Fuera de la app: la CABECERA de la actividad arriba del todo (la misma viñeta de la pestaña
@@ -87299,6 +87376,8 @@ def public_roadmap_view(token):
         return render_template(
             'public_roadmap_view.html',
             rm=ctx,
+            # Quién la está mirando (el icono de la esquina): la plantilla lo lee suelto.
+            viewer=ctx.get("viewer"),
             roadmap_kind=roadmap_kind,
             roadmap_kind_label=ROADMAP_KIND_LABELS.get(roadmap_kind, "Hoja de ruta"),
             og_title=og_title,
@@ -91256,6 +91335,115 @@ _HOME_QUICK_BY_DEPARTMENT = {
 _HOME_QUICK_DEFAULT = ["peticion", "invitaciones"]
 
 
+# ============================ LO QUE TENGO HOY (acceso rápido a mi hoja de ruta) =============
+# Cuánto se queda el botón después de que acabe todo: el rato justo para volver a mirar algo al
+# terminar (un transporte de vuelta, el hotel) sin que se quede ahí al día siguiente.
+HOME_ROADMAP_AFTER_HOURS = 2
+
+
+def _roadmap_end_moment(row, payload: dict):
+    """CUÁNDO ACABA todo lo de una actividad: la hora del ÚLTIMO punto de su hoja de ruta y, si no
+    hay ninguno con hora, el final de su último día.
+
+    ⚠️ Lo pidió así Dani: el acceso rápido no se va al acabar el concierto, sino dos horas después
+    de **lo último de la hoja de ruta** (que muchas veces es el transporte de vuelta)."""
+    ultimo = getattr(row, "end_date", None) or getattr(row, "date", None)
+    if ultimo is None:
+        return None
+    fin = datetime.combine(ultimo, dtime(23, 59))
+    mejor = None
+    for it in ((payload or {}).get("agenda") or []):
+        if not isinstance(it, dict) or it.get("cancelled"):
+            continue
+        try:
+            dia = datetime.strptime(str(it.get("day"))[:10], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        hora = _roadmap_clean_time(it.get("end_time") or "") or _roadmap_clean_time(it.get("start_time") or "")
+        if not hora:
+            continue
+        try:
+            momento = datetime.combine(dia, dtime(int(hora[:2]), int(hora[3:5])))
+        except Exception:
+            continue
+        if mejor is None or momento > mejor:
+            mejor = momento
+    return mejor or fin
+
+
+def _roadmap_mine_url(entity_type: str, entity_id: str) -> str:
+    """El enlace a «mi hoja de ruta» (con respaldo: `url_for` no vale fuera de una petición)."""
+    try:
+        return url_for("roadmap_mine", entity_type=entity_type, entity_id=entity_id)
+    except Exception:
+        return "/mi-hoja-de-ruta/%s/%s" % (entity_type, entity_id)
+
+
+def _home_roadmap_today() -> list[dict]:
+    """LO QUE TENGO HOY: las actividades en las que **acompaño al artista** o en las que estoy en el
+    **personal de su hoja de ruta**, para verla de un clic desde Inicio (es lo que se mira de camino
+    al sitio, casi siempre desde el móvil).
+
+    ⚠️ El botón se va **dos horas después de lo último de la hoja de ruta** (`_roadmap_end_moment`),
+    no al acabar el concierto.
+    ⚠️ Solo se consultan las actividades de hoy y ayer (el margen de las dos horas cruza la
+    medianoche), así que son cuatro filas: esto se calcula en cada carga de Inicio."""
+    estado = _current_user_state() or {}
+    yo = str(estado.get("user_id") or "")
+    if not yo:
+        return []
+    hoy = today_local()
+    ahora = datetime.now()
+    filas = []
+    session_db = db()
+    try:
+        candidatas = (session_db.query(Concert)
+                      .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                      .filter(Concert.date <= hoy,
+                              func.coalesce(Concert.end_date, Concert.date) >= hoy - timedelta(days=1))
+                      .all())
+        filas = _home_roadmap_today_rows(candidatas, yo, hoy, ahora)
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron leer las actividades de hoy")
+        return []
+    finally:
+        session_db.close()
+    return filas
+
+
+def _home_roadmap_today_rows(candidatas, yo, hoy, ahora) -> list[dict]:
+    """Las filas del acceso rápido (separado para que la sesión se cierre en su sitio)."""
+    filas = []
+    for c in candidatas:
+        if (getattr(c, "status", "") or "").upper() in ("CANCELADO", "APLAZADO"):
+            continue
+        mio = (str(getattr(c, "escort_user_id", "") or "") == yo) or (yo in _roadmap_user_ids(c))
+        if not mio:
+            continue
+        payload = _roadmap_load(c)
+        fin = _roadmap_end_moment(c, payload)
+        if fin is not None and ahora > fin + timedelta(hours=HOME_ROADMAP_AFTER_HOURS):
+            continue
+        artista = getattr(getattr(c, "artist", None), "name", None) or ""
+        filas.append({
+            "id": str(c.id),
+            "artist": artista,
+            "photo": (getattr(getattr(c, "artist", None), "photo_url", None) or _default_avatar_url()),
+            "kind": _roadmap_activity_word(c),
+            "title": (getattr(c, "festival_name", None) or _concert_venue_name(c)
+                      or _place_label(_concert_city(c) or "") or artista or "Actividad"),
+            "date": (c.date.strftime("%d/%m/%Y") if getattr(c, "date", None) else ""),
+            # ⚠️ `url_for` revienta fuera de una petición (un cron, un hilo): la ruta se compone a
+            # mano si hace falta, que es la regla de la casa para lo que puede leerse desde fuera.
+            "url": _roadmap_mine_url("concert", str(c.id)),
+            "orden": (getattr(c, "date", None) or hoy),
+        })
+    filas.sort(key=lambda r: r["orden"])
+    for r in filas:
+        r.pop("orden", None)
+    return filas
+
+
 def _build_home_quick_actions() -> list[dict]:
     state = _current_user_state()
     depts = [str(d).strip() for d in (state.get("departments") or []) if str(d).strip()]
@@ -93087,6 +93275,9 @@ def inject_personnel_globals():
         "NAV_MENU": _build_nav_menu() if session.get("user_id") else [],
         "HOME_QUICK_LINKS": [],
         "HOME_QUICK_ACTIONS": _build_home_quick_actions() if request.endpoint == "home" and session.get("user_id") else [],
+        # LO QUE TENGO HOY: la hoja de ruta de la actividad en la que voy hoy, de un clic (se va dos
+        # horas después de lo último). Solo en Inicio: recorre las actividades de hoy y de ayer.
+        "HOME_ROADMAP_TODAY": (_home_roadmap_today() if _home and "_home_roadmap_today" in globals() else []),
         "HOME_INVITATIONS": ([] if _dir else _myinv),
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if _dept and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         # MATERIALES ENTREGADOS por revisar: la tarea es de REGISTROS y del SELLO (dentro se
@@ -93531,6 +93722,10 @@ SUPPORT_ACTION_ENDPOINTS = {
     "booking_request_convert", "booking_request_close",
 }
 SUPPORT_READ_ENDPOINTS = {
+    # MI HOJA DE RUTA (el acceso rápido de Inicio): es una LECTURA —quien acompaña al artista
+    # puede no poder editar ninguna sección, así que no vale `SUPPORT_ACTION_ENDPOINTS`— y la
+    # puerta fina la pone el propio endpoint (va en ella, o ya puede abrir la actividad).
+    "roadmap_mine",
     # Consultar si cambiar la editorial de un autor es un cambio: es una LECTURA.
     "api_publisher_change",
     # ¿Ya existe una canción con ese nombre de ese artista? Es una BÚSQUEDA, y la hacen el alta de

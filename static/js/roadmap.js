@@ -349,10 +349,15 @@
       var foto = a.photo
         ? '<img class="rm-act__photo" src="' + esc(a.photo) + '" alt="" data-avatar="1">'
         : '<span class="rm-act__photo rm-act__photo--none"><i class="fa ' + esc(a.icon || 'fa-star') + '"></i></span>';
+      // ⚠️ EL RECINTO SE PINCHA (si lo hay): abre su pop-up con la foto, cómo llegar y el acceso.
       var datos = (a.rows || []).map(function (f) {
-        return '<div class="rm-act__fact"><i class="fa ' + esc(f.icon || 'fa-circle-info') + '"></i>'
+        var esVenue = (f.key === 'venue') && VENUE;
+        return '<' + (esVenue ? 'button type="button" data-venue-pop' : 'div') + ' class="rm-act__fact'
+          + (esVenue ? ' is-link" title="Ver el recinto"' : '"') + '>'
+          + '<i class="fa ' + esc(f.icon || 'fa-circle-info') + '"></i>'
           + '<span class="rm-act__lab">' + esc(f.label) + '</span>'
-          + '<b>' + esc(f.value) + '</b></div>';
+          + '<b>' + esc(f.value) + '</b>'
+          + (esVenue ? '<i class="fa fa-chevron-right rm-act__go"></i></button>' : '</div>');
       }).join('');
       return '<div class="rm-act">'
         + '<div class="rm-act__head">' + foto + '<div>'
@@ -363,6 +368,32 @@
         + (datos ? '<div class="rm-act__facts">' + datos + '</div>' : '')
         + '</div>';
     }
+    /* EL RECINTO EN UN POP-UP: la misma información que su viñeta (foto, dirección, aforo, cómo se
+       accede y los contactos) para poder verla desde cualquier pestaña, con cómo llegar. */
+    function abreVenuePop() {
+      var v = VENUE || {};
+      var lineas = [v.address, [v.postal_code, v.municipality].filter(Boolean).join(' '),
+                    [v.province, v.country].filter(Boolean).join(', ')].filter(Boolean);
+      var h = '';
+      if (v.photo_url) h += '<img class="rm-venue__photo mb-2" src="' + esc(v.photo_url) + '" alt="" onerror="this.remove()">';
+      if (lineas.length) h += '<div class="rm-sub">' + lineas.map(esc).join('<br>') + '</div>';
+      var kv = '';
+      if (v.covered === true) kv += '<span class="rm-act__fact"><i class="fa fa-umbrella"></i><b>Cubierto</b></span>';
+      else if (v.covered === false) kv += '<span class="rm-act__fact"><i class="fa fa-sun"></i><b>Al aire libre</b></span>';
+      if (v.capacity_label) kv += '<span class="rm-act__fact"><i class="fa fa-people-group"></i><span class="rm-act__lab">Aforo</span><b>' + esc(v.capacity_label) + '</b></span>';
+      if (kv) h += '<div class="rm-kv mt-2">' + kv + '</div>';
+      if (v.access_notes) h += '<div class="rm-acceso mt-2"><b>Acceso:</b> ' + esc(v.access_notes) + '</div>';
+      (v.contacts || []).forEach(function (c) { h += contactRow(c, c.relation || ''); });
+      if (v.maps_query) h += '<div class="rm-goto mt-3"><a class="btn btn-sm btn-outline-secondary rounded-pill" href="'
+        + esc(mapsUrl(v.maps_query)) + '" target="_blank" rel="noopener"><i class="fa fa-map-location-dot me-1"></i>Cómo llegar</a>'
+        + cabifyBtn(v.maps_query) + '</div>';
+      openModal('rmVenueModal', 'modal-md', v.name || 'Recinto', h,
+                [btn('Cerrar', 'btn-outline-secondary', function () { var i = bs('rmVenueModal'); if (i) i.hide(); })]);
+    }
+    document.addEventListener('click', function (ev) {
+      var b = ev.target.closest && ev.target.closest('[data-venue-pop]');
+      if (b && root.contains(b) && VENUE) { ev.preventDefault(); abreVenuePop(); }
+    }, true);
     function card(icon, title, body, right, cls) {
       return '<div class="rm-card' + (cls ? ' ' + cls : '') + '">'
         + '<div class="rm-card__head"><i class="fa ' + esc(icon) + '"></i><span>' + esc(title) + '</span>'
@@ -385,6 +416,56 @@
       return apple ? ('https://maps.apple.com/?q=' + encodeURIComponent(q))
                    : ('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q));
     }
+    /* ⚠️⚠️ PEDIR UN CABIFY A ESTA DIRECCIÓN. Cabify **no publica ningún enlace con destino**: su
+       app solo abre por enlace `/payment_methods` y `/loyalty_program` (comprobado en su propia
+       configuración de universal links), y su documentación de desarrollador no tiene deeplinks.
+       Así que lo que de verdad se puede hacer es **abrir la app con la dirección YA COPIADA** para
+       pegarla en el destino — que es el paso lento — y decirlo. Si algún día Cabify da un enlace
+       con destino, se cambia SOLO aquí.
+       ⚠️ El icono es `fa-car-side`, el MISMO con el que la hoja de ruta ya llama a «Cabify / VTC»
+       (`ROADMAP_TRANSPORT_MODES`), en el azul de la casa: no se dibuja el logotipo de la marca. */
+    var CABIFY_WEB = 'https://cabify.com/';
+    function cabifyBtn(dir, mini) {
+      if (!dir) return '';
+      var d = esc(dir);
+      if (mini) return '<a href="#" class="rm-cabify rm-cabify--mini" data-cabify="' + d + '" title="Pedir un Cabify a esta dirección" data-ext><i class="fa fa-car-side"></i></a>';
+      return '<button type="button" class="btn btn-sm rm-cabify mt-2" data-cabify="' + d + '">'
+        + '<i class="fa fa-car-side me-1"></i>Pedir un Cabify</button>';
+    }
+    function copiaTexto(t) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+      } catch (e) {}
+      try {   // respaldo para donde no hay portapapeles moderno (http, navegadores viejos)
+        var ta = document.createElement('textarea');
+        ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      } catch (e) {}
+      return Promise.resolve();
+    }
+    function pedirCabify(dir) {
+      var movil = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '');
+      Promise.resolve(copiaTexto(dir)).then(function () {
+        rmToast('Dirección copiada · pégala en el destino de Cabify');
+      });
+      if (!movil) { window.open(CABIFY_WEB, '_blank', 'noopener'); return; }
+      // En el móvil se intenta abrir la APP; si no está instalada, se cae a su web.
+      var ido = false;
+      var vuelta = setTimeout(function () { if (!ido && !document.hidden) window.location.href = CABIFY_WEB; }, 1400);
+      document.addEventListener('visibilitychange', function once() {
+        ido = true; clearTimeout(vuelta); document.removeEventListener('visibilitychange', once);
+      });
+      window.location.href = 'cabify://';
+    }
+    /* ⚠️⚠️ EN FASE DE CAPTURA: la fila de un punto de la agenda corta el burbujeo de los enlaces
+       `a[data-ext]` (`clickAparte`) para que un clic en el mapa no abra su detalle, así que un
+       handler en `document` por burbujeo NUNCA se ejecutaría (bug real: el botón no hacía nada). */
+    document.addEventListener('click', function (ev) {
+      var b = ev.target.closest && ev.target.closest('[data-cabify]');
+      if (!b || !root.contains(b)) return;
+      ev.preventDefault(); ev.stopPropagation();
+      pedirCabify(b.getAttribute('data-cabify') || '');
+    }, true);
     function contactActs(phone, email) {
       var h = '';
       if (phone) h += '<a href="tel:' + esc(phone) + '" title="Llamar" data-ext><i class="fa fa-phone"></i></a>'
@@ -470,7 +551,8 @@
         else if (v.covered === false) kv += '<span class="rm-act__fact"><i class="fa fa-sun"></i><b>Al aire libre</b></span>';
         if (v.capacity_label) kv += '<span class="rm-act__fact"><i class="fa fa-people-group"></i><span class="rm-act__lab">Aforo</span><b>' + esc(v.capacity_label) + '</b></span>';
         if (kv) b += '<div class="rm-kv mt-2">' + kv + '</div>';
-        if (v.maps_query) b += '<a class="btn btn-sm btn-outline-secondary rounded-pill mt-2" href="' + esc(mapsUrl(v.maps_query)) + '" target="_blank" rel="noopener"><i class="fa fa-map-location-dot me-1"></i>Abrir en Mapas</a>';
+        if (v.maps_query) b += '<div class="rm-goto mt-2"><a class="btn btn-sm btn-outline-secondary rounded-pill" href="' + esc(mapsUrl(v.maps_query)) + '" target="_blank" rel="noopener"><i class="fa fa-map-location-dot me-1"></i>Abrir en Mapas</a>'
+          + cabifyBtn(v.maps_query) + '</div>';
         if (v.lat && v.lng) b += '<div class="rm-map" data-rm-map></div>';
         if (v.access_notes) b += '<div class="rm-acceso mt-2"><b>Acceso:</b> ' + esc(v.access_notes) + '</div>';
         (v.contacts || []).forEach(function (c) { b += contactRow(c, c.relation || ''); });
@@ -828,7 +910,8 @@
       }
       var meta = '';
       // EL MAPA: con un sitio escrito, el icono abre la aplicación de mapas del móvil o del Mac.
-      if (it.location) meta += '<a href="' + esc(mapsUrl(it.location)) + '" target="_blank" rel="noopener" title="Abrir en Mapas" data-ext><i class="fa fa-map-location-dot"></i></a>';
+      if (it.location) meta += '<a href="' + esc(mapsUrl(it.location)) + '" target="_blank" rel="noopener" title="Abrir en Mapas" data-ext><i class="fa fa-map-location-dot"></i></a>'
+        + cabifyBtn(it.location, true);
       if ((it.attachments || []).length) meta += '<span title="Adjuntos"><i class="fa fa-paperclip"></i> ' + it.attachments.length + '</span>';
       if (it.note) meta += '<span title="Nota"><i class="fa fa-note-sticky"></i></span>';
       return '<div class="' + cls + '"' + (RO ? '' : ' draggable="true"') + ' data-item="' + esc(it.id) + '" style="--rm-line:' + esc(ki.color) + '">'
@@ -1291,7 +1374,7 @@
       if (!it.confirmed) h += '<div class="rm-tag tbc mb-2 d-inline-block">Provisional</div> ';
       if (!RO) { var shD = sheetsLabel(it); if (shD) h += '<div class="rm-tag sheet mb-2 d-inline-block"><i class="fa fa-share-nodes"></i> ' + esc(shD) + '</div> '; }
       if (it.cancelled) h += '<div class="rm-tag mb-2 d-inline-block">Cancelada</div>';
-      if (it.location) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(it.location) + ' <a class="ms-1" href="' + esc(mapsUrl(it.location)) + '" target="_blank" rel="noopener" title="Abrir en Mapas"><i class="fa fa-map-location-dot"></i></a></div>';
+      if (it.location) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(it.location) + ' <a class="ms-1" href="' + esc(mapsUrl(it.location)) + '" target="_blank" rel="noopener" title="Abrir en Mapas"><i class="fa fa-map-location-dot"></i></a>' + cabifyBtn(it.location, true) + '</div>';
       var audH = audienceHtml(it);
       h += '<div class="mb-1 rm-sub"><i class="fa fa-users"></i> ' + (audH ? 'Afecta a:' : 'Afecta a todos') + '</div>' + audH;
       if (itemSings(it) && !(it.kind === 'ENTREVISTA' && it.interview)) {
@@ -1646,6 +1729,9 @@
         });
       });
     }
+    function hotelDir(ho) {
+      return [ho.name, ho.address].filter(Boolean).join(', ');
+    }
     function newHotel() { return { id: '', name: '', stars: 0, photo_url: '', address: '', phone: '', email: '', days: [], for_all: true, assignee_ids: [], note: '', attachments: [] }; }
     // ---------- ROOMING LIST ----------
     function assignedRoomIds(exceptHotelId) {
@@ -1847,7 +1933,9 @@
       return '<div class="rm-hotel">'
         + '<img class="ph" src="' + esc(ho.photo_url || '') + '" onerror="this.style.visibility=\'hidden\'">'
         + '<div class="flex-grow-1"><div class="fw-bold">' + esc(ho.name || 'Hotel') + ' ' + stars + '</div>'
-        + (ho.address ? '<div class="rm-sub"><i class="fa fa-location-dot"></i> ' + esc(ho.address) + '</div>' : '')
+        + (ho.address ? '<div class="rm-sub"><i class="fa fa-location-dot"></i> ' + esc(ho.address)
+            + ' <a href="' + esc(mapsUrl(hotelDir(ho))) + '" target="_blank" rel="noopener" title="Abrir en Mapas"><i class="fa fa-map-location-dot"></i></a>'
+            + cabifyBtn(hotelDir(ho), true) + '</div>' : '')
         + ((ho.phone || ho.email) ? '<div class="rm-sub">' + [ho.phone, ho.email].filter(Boolean).map(esc).join(' · ') + '</div>' : '')
         + (daysTxt ? '<div class="rm-sub"><i class="fa fa-calendar"></i> ' + esc(daysTxt) + '</div>' : '')
         + (function () {   // cuántas habitaciones hay reservadas y cuántas se han puesto

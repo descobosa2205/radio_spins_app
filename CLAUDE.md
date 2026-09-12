@@ -8441,6 +8441,49 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   van como **PNG** (`_roadmap_pdf_icon` → `_fa_icon_png_path`): ReportLab no entiende la fuente de
   iconos, y un `<img>` dentro de un `<font backColor>` **no se dibuja**.
 
+- ⚠️⚠️ **HOJA DE RUTA · CÓMO LLEGAR, QUIÉN MIRA Y «LO QUE TENGO HOY»** (sep 2026):
+  · **PEDIR UN CABIFY** donde hay una dirección: el recinto, cada hotel y cada punto de la agenda
+  con lugar (`cabifyBtn` en `roadmap.js`), al lado del «Abrir en Mapas» de siempre. Icono
+  **`fa-car-side`** —el MISMO con el que la hoja de ruta ya llama a «Cabify / VTC»
+  (`ROADMAP_TRANSPORT_MODES`)— en el azul de la casa: no se dibuja el logotipo de la marca.
+  ⚠️⚠️ **CABIFY NO PUBLICA NINGÚN ENLACE CON DESTINO**: su app solo abre por enlace
+  `/payment_methods` y `/loyalty_program` (comprobado en su propio
+  `apple-app-site-association`) y su documentación de desarrollador no tiene deeplinks — al
+  contrario que Uber. Así que lo que se hace es **abrir la app con la dirección YA COPIADA** para
+  pegarla en el destino (que es el paso lento), y **se dice** con un aviso. Si algún día dan un
+  enlace con destino, se cambia SOLO en `pedirCabify`.
+  ⚠️⚠️ Su handler va **en fase de CAPTURA**: la fila de un punto de la agenda corta el burbujeo de
+  los `a[data-ext]` (`clickAparte`, para que un clic en el mapa no abra su detalle), así que un
+  handler en `document` por burbujeo **no se ejecuta nunca** (bug real: el botón no hacía nada).
+  · **EL RECINTO SE PINCHA EN LA CABECERA** y abre su pop-up (`abreVenuePop`): la foto, la
+  dirección, el aforo, cómo se accede, sus contactos y los botones de **Cómo llegar** y **Pedir un
+  Cabify**. La fila se reconoce por su **clave** (`key == 'venue'`, que pone
+  `_roadmap_activity_card`), no por el TEXTO de la etiqueta, que es lo que se enseña.
+  · **QUIÉN ESTÁ MIRANDO**, arriba a la derecha de la hoja compartida (`_roadmap_viewer_badge` →
+  `viewer`): **sin sesión**, el muñequito y un pop-up con las DOS puertas (el portal de fuera y la
+  app de la casa); **con sesión**, SU FOTO y, al pincharla, sus funciones (su Inicio si es de la
+  casa, su portal si es un tercero). Una hoja de ruta se abre por un enlace, así que quien la mira
+  puede no haber entrado en ningún sitio.
+  ⚠️ `DEFAULT_AVATAR_URL` **solo existe en las PLANTILLAS**: en Python es `_default_avatar_url()`
+  (bug real de este lote).
+  · **«LO QUE TENGO HOY»** (`_home_roadmap_today` → `HOME_ROADMAP_TODAY`, arriba de los accesos
+  rápidos de Inicio): a quien ese día **acompaña al artista** (`escort_user_id`) o va en el
+  **personal de la hoja de ruta** (`_roadmap_user_ids`, kind USER) le sale un botón con la foto del
+  artista, el tipo de actividad, su nombre y la fecha, que lleva a **VER su hoja de ruta**.
+  ⚠️ **Se va DOS HORAS después de LO ÚLTIMO de la hoja de ruta** (`_roadmap_end_moment` +
+  `HOME_ROADMAP_AFTER_HOURS`), no al acabar el concierto: lo último suele ser el transporte de
+  vuelta. Solo se consultan las actividades de hoy y de ayer (el margen cruza la medianoche).
+  · **MI HOJA DE RUTA** (`roadmap_mine`, `/mi-hoja-de-ruta/<tipo>/<id>`): la hoja **como se ve
+  cuando se comparte pero DENTRO de la app** —lo que hace falta es MIRARLA, no gestionarla— y el
+  **volver lleva al INICIO**, que es de donde se viene.
+  ⚠️ Va en modo lectura pero **con el payload COMPLETO**: quien entra es de la casa, así que ve lo
+  que no sale fuera (el número de habitación). Por eso **no** pasa por `_roadmap_payload_for_kind`.
+  ⚠️ Está en **`SUPPORT_READ_ENDPOINTS`**, no en `SUPPORT_ACTION_ENDPOINTS`: ese exige ser «actor»
+  y quien acompaña al artista puede no poder editar ninguna sección. La puerta fina la pone el
+  propio endpoint (va en ella, o ya puede abrir la actividad).
+  · **El DESAYUNO tachado se ve**: la barra va en un gris MÁS OSCURO que el icono apagado (con el
+  mismo gris no se distinguía de una taza «apagada» sin más).
+
 - **Hoja de ruta: GENERAL y TÉCNICA** (`ROADMAP_KINDS`, `_roadmap_kinds`/`_set_roadmap_kinds`): cada
   actividad tiene las dos activas por defecto (etiquetas en el alta) y **un enlace público por hoja**
   (`roadmap_public_token` para la general, `roadmap_payload['tech_token']` para la técnica;

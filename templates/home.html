@@ -18,6 +18,24 @@
 {# Acciones rápidas según el DEPARTAMENTO de la persona (contratación / sello / registros…):
    lo que hace a diario, de un clic y sin buscarlo por el menú. Mismo estilo que las tarjetas
    de sección. Se filtran por permisos en `_build_home_quick_actions`. #}
+{# LO QUE TENGO HOY · la hoja de ruta de la actividad en la que voy hoy (acompañando al artista o
+   en su personal), de un clic: es lo que se mira de camino al sitio, casi siempre desde el móvil.
+   Va ANTES de los accesos rápidos y se va dos horas después de lo último de la hoja de ruta. #}
+{% if HOME_ROADMAP_TODAY %}
+<div class="dash-today mb-3" data-home-fixed>
+  {% for r in HOME_ROADMAP_TODAY %}
+    <a class="dash-today__btn" href="{{ r.url }}" title="Ver la hoja de ruta">
+      <img class="dash-today__photo" src="{{ r.photo }}" alt="" data-avatar="1">
+      <span class="dash-today__body">
+        <span class="dash-today__artist">{{ r.artist or r.title }}</span>
+        <span class="dash-today__what">{{ r.kind }}{% if r.title and r.title != r.artist %} · {{ r.title }}{% endif %}</span>
+        <span class="dash-today__date"><i class="fa fa-calendar-day me-1"></i>{{ r.date }}</span>
+      </span>
+      <i class="fa fa-route dash-today__go"></i>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
 {% if HOME_QUICK_ACTIONS %}
 <div class="dash-quick mb-4" data-home-fixed>
   {% for qa in HOME_QUICK_ACTIONS %}

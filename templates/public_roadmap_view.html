@@ -22,7 +22,23 @@
 </head>
 <body class="public-invitation-page">
   <main class="container py-4 py-md-5">
-    <div class="public-invitation-shell">
+    <div class="public-invitation-shell position-relative">
+      {# ⚠️ QUIÉN LA ESTÁ MIRANDO, arriba a la derecha. Una hoja de ruta se abre por un enlace, así
+         que quien la ve puede no haber entrado en ningún sitio: sin sesión, el muñequito y las dos
+         puertas; con sesión, SU FOTO y, al pincharla, sus funciones (su Inicio si es de la casa, su
+         portal si es un tercero). #}
+      {% if viewer %}
+      <div class="rm-viewer">
+        {% if viewer.logged %}
+          <a class="rm-viewer__btn" href="{{ viewer.url }}" title="{{ viewer.name }} · ver mis funciones">
+            <img src="{{ viewer.photo }}" alt="" data-avatar="1">
+          </a>
+        {% else %}
+          <button type="button" class="rm-viewer__btn" data-bs-toggle="modal" data-bs-target="#rmEntrarModal"
+                  title="Entrar"><img src="{{ viewer.photo }}" alt="" data-avatar="1"></button>
+        {% endif %}
+      </div>
+      {% endif %}
       {# La CABECERA de la actividad va ARRIBA DEL TODO, dentro del panel (`rm.header_on_top`): la
          misma viñeta de la pestaña de la actividad. Sin iconos de «hoja de ruta general» ni de
          «solo lectura» (lo pidió Dani): quien la recibe no necesita saber cómo se llama por dentro.
@@ -40,5 +56,27 @@
       {% include '_roadmap_panel.html' %}
     </div>
   </main>
+  {% if viewer and not viewer.logged %}
+  {# Las DOS puertas: quien es de la casa entra en la app y ve sus funciones; quien es de fuera
+     entra en su portal. No se puede adivinar cuál es, así que se pregunta. #}
+  <div class="modal fade" id="rmEntrarModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Entrar</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body d-grid gap-2">
+          <a class="btn btn-outline-secondary text-start" href="{{ viewer.login_ext }}">
+            <i class="fa fa-user-group fa-fw me-2"></i>Soy del equipo de fuera
+            <span class="d-block small text-muted ms-4">Artista, promotor, técnico…</span></a>
+          <a class="btn btn-outline-primary text-start" href="{{ viewer.login_app }}">
+            <i class="fa fa-building fa-fw me-2"></i>Soy de 33 Producciones
+            <span class="d-block small text-muted ms-4">Entrar en la app</span></a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </body>
 </html>

@@ -770,9 +770,11 @@ img.img-error-pending{ visibility: hidden; }
 /* El DESAYUNO: la taza activa o TACHADA (no una taza medio borrosa, que no dice nada). */
 .rm-brk--on{ color:#07607e; }
 .rm-brk--off{ color:#aab2bb; position:relative; }
+/* ⚠️ La barra va MÁS OSCURA que el icono: con el mismo gris apenas se veía y no se distinguía de
+   una taza «apagada» sin más. */
 .rm-brk--off::after{
   content:''; position:absolute; left:-2px; right:-2px; top:50%;
-  border-top:1.5px solid currentColor; transform:rotate(-20deg);
+  border-top:2px solid #4b5563; transform:rotate(-20deg);
 }
 /* Compartir · Editar · ⋮ arriba a la derecha de la tarjeta del hotel.
    ⚠️ NO va en `position:absolute` (lo que hace `.rm-hotel .rm-menu`): con tres botones se montaba
@@ -1024,6 +1026,43 @@ label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !im
   .rm-nav button i{opacity:1;font-size:1.02rem;}
 }
 
+/* LO QUE TENGO HOY (Inicio): la hoja de ruta de la actividad en la que voy hoy. */
+.dash-today{ display:flex; flex-wrap:wrap; gap:.6rem; }
+.dash-today__btn{
+  display:flex; align-items:center; gap:.7rem; text-decoration:none; color:inherit;
+  border:1px solid var(--brand-accent,#007ca2); border-radius:14px; background:#f4fafd;
+  padding:.55rem .8rem .55rem .55rem; min-width:min(100%, 20rem); flex:1 1 20rem;
+}
+.dash-today__btn:hover{ background:#e8f4f9; }
+.dash-today__photo{ width:46px; height:46px; border-radius:50%; object-fit:cover; flex:0 0 auto; background:#e9ecef; }
+.dash-today__body{ display:flex; flex-direction:column; min-width:0; flex:1 1 auto; }
+.dash-today__artist{ font-weight:700; line-height:1.15; }
+.dash-today__what{ font-size:.82rem; color:#4b5563; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dash-today__date{ font-size:.78rem; color:#8c95a0; }
+.dash-today__go{ color:var(--brand-accent,#007ca2); flex:0 0 auto; }
+
+/* QUIÉN MIRA la hoja de ruta compartida: su foto (o el muñequito) arriba a la derecha. */
+.rm-viewer{ position:absolute; top:.6rem; right:.6rem; z-index:3; }
+.rm-viewer__btn{
+  display:inline-flex; padding:0; border:1px solid #e5e8ee; background:#fff; border-radius:50%;
+  width:38px; height:38px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.06);
+}
+.rm-viewer__btn img{ width:100%; height:100%; object-fit:cover; display:block; }
+.rm-viewer__btn:hover{ border-color:var(--brand-accent,#007ca2); }
+
+/* PEDIR UN CABIFY: el icono de «Cabify / VTC» de la hoja de ruta, en el azul de la casa (no se
+   dibuja el logotipo de la marca). */
+.rm-cabify{
+  border:1px solid var(--brand-accent,#007ca2); color:var(--brand-accent,#007ca2); background:#fff;
+  border-radius:999px; font-weight:600;
+}
+.rm-cabify:hover{ background:var(--brand-accent,#007ca2); color:#fff; }
+.rm-cabify--mini{
+  display:inline-flex; align-items:center; justify-content:center; width:1.5rem; height:1.5rem;
+  padding:0; margin-left:.15rem; border-width:1px; font-size:.78rem; text-decoration:none; vertical-align:middle;
+}
+.rm-goto{ display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+
 /* ===== La ACTIVIDAD (primera pestaña de la hoja de ruta) ===== */
 .rm-act{border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff;padding:.9rem 1rem;}
 .rm-act__head{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;}
@@ -1034,7 +1073,14 @@ label.is-check-bad, .activity-choice-card.is-check-bad{ border-color:#dc3545 !im
 .rm-act__facts{display:flex;flex-wrap:wrap;gap:.35rem .9rem;margin-top:.8rem;padding-top:.7rem;border-top:1px solid #eef1f4;}
 .rm-act__fact{display:flex;align-items:center;gap:.35rem;font-size:.88rem;min-width:0;}
 .rm-act__fact i{color:var(--brand-accent,#007ca2);width:1.05rem;text-align:center;flex:0 0 auto;}
-.rm-act__lab{color:#8c95a0;font-size:.78rem;}
+/* ⚠️ El rótulo NO se parte («Reci / nto»): lo que envuelve es el valor, que es lo largo. */
+.rm-act__lab{color:#8c95a0;font-size:.78rem;white-space:nowrap;flex:0 0 auto;}
+.rm-act__fact b{min-width:0;}
+/* El RECINTO de la cabecera se pincha (abre su pop-up): se ve que es pulsable, sin parecer un botón. */
+button.rm-act__fact{ background:none; border:0; padding:0; font:inherit; color:inherit; }
+.rm-act__fact.is-link{ cursor:pointer; }
+.rm-act__fact.is-link:hover b{ text-decoration:underline; }
+.rm-act__go{ color:#adb5bd; font-size:.7rem; margin-left:.1rem; }
 .rm-toolbar{display:flex;justify-content:space-between;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.8rem;}
 .rm-add{border:0;border-radius:999px;background:var(--brand-primary,#e33d48);color:#fff;font-weight:600;padding:.45rem .9rem;display:inline-flex;align-items:center;gap:.4rem;}
 .rm-add.sm{padding:.3rem .7rem;font-size:.85rem;}

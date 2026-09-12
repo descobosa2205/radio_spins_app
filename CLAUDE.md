@@ -12708,6 +12708,88 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la **campanita** (`_promo_alert_add` crea ya el `AppNotification`): vivían SOLO en su módulo de
   Inicio y al reunir las tareas se habrían perdido —`PromotionAlert` es su propia tabla—.
 
+- ⚠️⚠️ **HOJA DE RUTA · lo que ve cada uno, quién puede actualizarla y el repertorio** (sep 2026,
+  lo pidió Dani). Un solo motor (`roadmap.js` + los endpoints `/hoja-ruta/…`) para dentro, para el
+  enlace compartido y para el portal, y lo que cambia es QUIÉN mira:
+  · **EL ORDEN DE LAS PESTAÑAS**: **Horarios** la primera · Logística · Hoteles · Personal ·
+  **Repertorio** (solo cuando se canta, `rm.show_repertoire`) · y **la actividad la ÚLTIMA**,
+  llamada como lo que es (`rm.activity.word`). Vive en DOS sitios que hay que dejar iguales:
+  `_roadmap_panel.html` y `TABS` de `roadmap.js`.
+  · **FUERA DE LA APP la CABECERA de la actividad va ARRIBA DEL TODO** (`rm.header_on_top` → el
+  `#rmHeader` que pinta `actHeadHtml()`), y **fuera los iconos de «hoja de ruta general» y «solo
+  lectura»** (quien la recibe no necesita saber cómo se llama por dentro; el `<title>` dice «Hoja
+  de ruta · X»). En el portal, la cabecera es el `ficha-hero` que la página ya tiene.
+  · **LA ACTIVIDAD, POR VIÑETAS** (`renderActividad`, `.rm-card` con la cabecera en el color
+  corporativo —el bocadillo de las bolsas— y su icono): **Promotor** (`_roadmap_promoter_card`, del
+  punto único `_concert_promoter_display`) · **Recinto** (`_roadmap_venue_card`: foto, dirección,
+  cubierto o no, aforo, el **mapa** —Leaflet cargado al vuelo desde unpkg, con las coordenadas que
+  `_venue_coords` guarda en `Venue.lat/lng` geocodificando UNA vez con `geo_utils.geocode_address`—,
+  «Abrir en Mapas» —Apple Maps en un iPhone/iPad/Mac, Google en el resto: `mapsUrl()`— y la nota
+  **«Acceso:»** solo si existe, `Venue.access_notes`, que es DEL RECINTO y solo la toca la casa) ·
+  **la propia actividad** (duración de la ficha de contratación, formación, «se canta» y las notas
+  `payload['activity_notes']`) · **Contactos** agrupados por función (los de la actividad + los que
+  se AÑADEN aquí, `payload['contacts']`, con teléfono, correo y **WhatsApp** —`waLink()`—; sin
+  foto, el muñequito). ⚠️ El teléfono y el correo van **cada uno en su línea**: juntos con «·» se
+  partían mal en una viñeta estrecha.
+  · **CADA PUNTO DE LOS HORARIOS DICE A QUIÉN AFECTA** (`item['audience']`: `ALL` · `ROLES` · `PEOPLE`,
+  punto único `_roadmap_item_audience`): en la fila sale la etiqueta por función o los **nicks con su
+  cara** (`.rm-aud`, se deslizan si son varios); lo de TODOS no lleva nada. Y **se canta**
+  (`item['sings']` + `item['songs']`: la etiqueta «Canta · N temas» lleva a la pestaña Repertorio) e
+  **instrucciones de acceso** (`item['access_note']`). Con un sitio escrito, el **icono de mapa**.
+  ⚠️ Una ENTREVISTA guarda «canta» y sus canciones en `interview`: `_roadmap_item_from_json` los
+  ESPEJA al punto para que el repertorio lea todos igual (y al revés).
+  · **EL REPERTORIO** (`renderRepertorio`): arriba el set list de la ficha (`_roadmap_setlist_context`,
+  tal como está configurado, con su PDF —`roadmap_setlist_pdf` / `public_roadmap_setlist_pdf`— y el
+  enlace a la ficha para editarlo) y debajo **el de cada punto que canta** (`roadmap_item_songs`:
+  buscar en el repertorio del artista, arrastrar para ordenar, su PDF con `?item=`). Un punto que
+  canta y no tiene canciones es la tarea **«Configurar el repertorio de la hoja de ruta»** de
+  PRODUCCIÓN (`_roadmap_repertoire_pending`, en el tablero de la ficha y en Inicio,
+  `_home_roadmap_repertoire_pending`, buscando con el operador `@>` de JSONB).
+  ⚠️ El dibujo del PDF del set list está extraído en **`_setlist_pdf_bytes(header, items)`** (puro):
+  lo usan el de la ficha, el de la hoja de ruta y el compartido.
+  · ⚠️⚠️ **LOS EXTERNOS VEN SOLO LO QUE LES AFECTA** (el portal, `externos_activity` /
+  `externos_promotion`): `_roadmap_ext_person_info` (qué es esa persona en ESA hoja: sus filas del
+  personal, sus funciones, su marca) · `_roadmap_payload_shared` (solo lo marcado para alguna hoja)
+  · **`_roadmap_payload_for_person`** (sus horarios y traslados —un traslado con pasajeros solo a
+  quien va—, sus hoteles y **el número de habitación solo de la suya**). En el SERVIDOR: el payload
+  entero va en el HTML. El artista o el promotor (que no están en el personal) ven lo que sale de
+  casa.
+  · ⚠️⚠️ **«PUEDE ACTUALIZAR LA HOJA DE RUTA»** (`personnel[i]['can_edit']`, el interruptor del
+  editor de una persona —solo un tercero o un integrante, que son quienes entran por el portal— y la
+  etiqueta verde en su fila): esa persona, logueada en `/externos`, **edita los horarios, la
+  logística y el repertorio, baja el rooming y el personal con DNI y manda SMS**; los hoteles y el
+  personal los VE, y lo de la casa (compartir, configurar días, plantillas, la nota de acceso) no lo
+  toca. En el JS es `EXT` (`ext_editor`), con `HRO`/`PRO` (hoteles y personal en solo lectura) y
+  `CAN_ADMIN`/`CAN_CREATE`.
+  ⚠️⚠️ **LA PUERTA ES `_ext_roadmap_gate_ok()`**, un solo choke point con la lista blanca
+  `EXT_ROADMAP_EDITOR_ENDPOINTS` (+ `EXT_ROADMAP_VIEWER_ENDPOINTS`): comprueba la ruta, el endpoint,
+  la sesión externa (no bloqueada), que la actividad sea SUYA y su marca, y no deja pasar la
+  previsualización de dirección (`ext_preview`). Se llama desde **DOS sitios y hacen falta los dos**:
+  `_require_login_v2` (la compuerta de login corre ANTES que cualquier decorador: sin esto el externo
+  se comía un redirect al login) y `admin_required` (el decorador de los endpoints). Un endpoint que
+  no esté en la lista sigue pidiendo sesión de la casa.
+  ⚠️ `_roadmap_save` apunta en `updated_by` el nick de la casa, el `ext_name` del externo o
+  «sistema» fuera de una petición (`session` revienta desde un cron o un hilo).
+  · **SMS AL PERSONAL: AHORA O PROGRAMADO** (`RoadmapScheduledMessage`, `roadmap_message_send` con
+  `send_at` → PENDIENTE; `roadmap_message_cancel` → ANULADO; los manda **`_roadmap_scheduled_messages_sweep`**,
+  tarea `mensajes_personal` del cron único, cada minuto). El envío inmediato y el programado pasan
+  por el MISMO **`_roadmap_message_dispatch`** (UN mensaje por persona). Un fallo queda como ERROR y
+  **no se reintenta solo**: mandar dos veces el mismo SMS es peor que uno que no sale, y el pop-up
+  enseña el motivo para volver a programarlo.
+  · **EL «SÍ» DEL ARTISTA ES LA COMUNICACIÓN**: `_concert_notice_mark_from_confirmation` (desde
+  `_artist_confirmation_apply` con OK) sella `artist_notified_*` con `kind='CONFIRMACION'` y la
+  firma del momento, así la etiqueta pasa a verde y la tarea desaparece; **la etiqueta verde SE
+  PINCHA** para volver a notificarle. Arreglo puntual `_artist_confirmed_notified_backfill_once`
+  (marca `artist_confirmed_notified_v1`) para lo ya contestado.
+  · **UN AVISO PINCHADO SE DESACTIVA** (`notificaciones.js`): «Ir a resolverlo» navega justo después
+  de marcarlo leído y el navegador cancelaba la petición: el `fetch` va con **`keepalive: true`**.
+  · **QUIÉN VA CON EL ARTISTA**: solo el círculo de la foto (`.escort-av`), sin la viñeta
+  `ficha-hero__media` detrás.
+  · **Prueba de regresión: `/tmp/python/bin/python3 tools/check_hoja_ruta.py`** (53
+  comprobaciones con la app real). Y `tools/dev_server.py` gana `/entrar-externo/<promoter_id>` para
+  ver el portal como cualquiera, y arranca en el puerto que le den (`PORT`; `autoPort` en
+  `.claude/launch.json`): ⚠️ **lo que se defina DEBAJO de `app.run` no llega a registrarse**.
+
 - **HOJA DE RUTA · MANDARLE UN MENSAJE AL PERSONAL** (sep 2026). «Mañana el bus sale a las 8:30» hay
   que decírselo a los que van, y se hacía por fuera de la app (un grupo de WhatsApp, un correo a
   mano), con el riesgo de dejarse a alguien. Botón **«Mandar un mensaje»** en la barra de la pestaña

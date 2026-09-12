@@ -307,6 +307,8 @@ from models import (
     ensure_short_links_schema,
     VideoWebVersion,
     ensure_video_web_schema,
+    RoadmapScheduledMessage,
+    ensure_roadmap_extras_schema,
     ExternalProductionAccess,
     ensure_external_production_schema,
     ExternalAccess,
@@ -878,6 +880,13 @@ def admin_required(view):
     @wraps(view)
     def wrapper(*args, **kwargs):
         if not session.get("user_id"):
+            # ⚠️⚠️ PORTAL DE EXTERNOS · quien lleva en el personal de una hoja de ruta la marca «puede
+            # actualizarla» (el road manager de fuera) entra en los endpoints de la hoja de ruta de
+            # ESA actividad —y solo en los de una lista blanca— sin sesión de la casa. La puerta es
+            # `_ext_roadmap_gate_ok`, que lo comprueba TODO en el servidor (la sesión externa, la
+            # lista blanca, que la actividad sea la suya y que tenga la marca).
+            if _ext_roadmap_gate_ok():
+                return view(*args, **kwargs)
             nxt = request.full_path if request.query_string else request.path
             return redirect(url_for("admin_login", next=nxt))
         return view(*args, **kwargs)
@@ -54356,6 +54365,22 @@ def _concert_task_board(session_db, concert) -> dict:
                        hint=("Mientras no esté, las ventas se le piden al correo del promotor"
                              if _hay_correo else
                              "Sin un correo no se le puede pedir la actualización de ventas"))
+        # EL REPERTORIO de la hoja de ruta: un punto de los horarios en el que SE CANTA y todavía no
+        # tiene canciones es trabajo de PRODUCCIÓN (se configura en la pestaña Repertorio de la hoja
+        # de ruta). Mismo punto único que su módulo de Inicio (`_roadmap_repertoire_pending`).
+        try:
+            _rep = _roadmap_repertoire_pending(_roadmap_load(concert))
+        except Exception:
+            _rep = []
+        if _rep:
+            _cat = _roadmap_kind_catalog()
+            _nombres = " · ".join([((it.get("title") or "").strip()
+                                    or (_cat.get(it.get("kind") or "", {}) or {}).get("label") or "un punto")
+                                   for it in _rep[:3]])
+            suelta("repertorio", 9, "Configurar el repertorio de la hoja de ruta", "fa-music",
+                   url=(url_for("concert_detail_view", cid=concert.id, tab="produccion") + "#roadmapPanel"),
+                   area=CONCERT_TASK_AREA_PRODUCCION, action_label="Configurarlo",
+                   hint=("Se canta en %s y todavía no tiene canciones" % _nombres))
         # Si la actividad NO viene de una petición, sus dos tareas de siempre también salen aquí.
         if not pendientes and (r is None or not getattr(r, "accepted_at", None)):
             if _concert_production_pending(concert):
@@ -62522,6 +62547,107 @@ def _setlist_pdf_header(s, owner_type, owner_id):
     return {"artist": artist, "subtitle": subtitle}
 
 
+def _setlist_pdf_bytes(header: dict, items: list[dict]) -> bytes:
+    """El SET LIST en PDF (A4 fondo negro, títulos en MAYÚSCULAS numerados, letra lo más grande
+    posible; parones y comentarios; SIN duraciones) a partir de sus líneas como dicts {kind, title,
+    note}. Punto ÚNICO: lo usan la ficha (`setlist_pdf`) y la hoja de ruta (`roadmap_setlist_pdf`
+    y su versión compartida), así que el repertorio sale igual desde los tres sitios."""
+    from reportlab.pdfgen import canvas as _canvas
+    from reportlab.lib.pagesizes import A4
+    lines = []  # {t, type: song|break|note|comment, num}
+    n = 0
+    for it in items:
+        kind = (it.get("kind") or "SONG").upper()
+        if kind == "SONG":
+            n += 1
+            lines.append({"t": (it.get("title") or "").upper(), "type": "song", "num": n})
+            if (it.get("note") or "").strip():
+                lines.append({"t": (it.get("note") or "").strip(), "type": "comment"})
+        elif kind == "BREAK":
+            lines.append({"t": (it.get("title") or "").strip().upper(), "type": "break"})
+        else:
+            lines.append({"t": (it.get("title") or "").strip().upper(), "type": "note"})
+
+    buf = BytesIO()
+    W, H = A4
+    c = _canvas.Canvas(buf, pagesize=A4)
+    c.setFillColorRGB(0, 0, 0)
+    c.rect(0, 0, W, H, stroke=0, fill=1)  # fondo negro
+    margin = 34
+    usable_w = W - 2 * margin
+
+    # Cabecera: "SET LIST" + artista + (concierto / municipio·fecha)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 30)
+    y = H - margin - 30
+    c.drawCentredString(W / 2, y, "SET LIST")
+    if (header.get("artist") or "").strip():
+        y -= 24
+        c.setFont("Helvetica-Bold", 16)
+        c.drawCentredString(W / 2, y, header["artist"])
+    if (header.get("subtitle") or "").strip():
+        y -= 18
+        c.setFont("Helvetica", 12)
+        c.setFillColorRGB(0.8, 0.8, 0.8)
+        c.drawCentredString(W / 2, y, header["subtitle"])
+
+    content_top = y - 22
+    avail_h = content_top - margin
+    if not lines:
+        c.showPage(); c.save(); buf.seek(0)
+        return buf.getvalue()
+
+    units = sum(0.55 if ln["type"] == "comment" else 1.0 for ln in lines) or 1.0
+    line_h = avail_h / units
+    font_sz = min(line_h * 0.72, 64)
+
+    def widest(sz):
+        mw = 0
+        for ln in lines:
+            if ln["type"] == "comment":
+                continue
+            prefix = (f'{ln["num"]}. ' if ln["type"] == "song" else "")
+            mw = max(mw, c.stringWidth(prefix + ln["t"], "Helvetica-Bold", sz))
+        return mw
+    while font_sz > 9 and widest(font_sz) > usable_w:
+        font_sz -= 1
+    comment_sz = max(font_sz * 0.5, 8)
+
+    y = content_top - line_h
+    for ln in lines:
+        if ln["type"] == "comment":
+            c.setFont("Helvetica-Oblique", comment_sz)
+            c.setFillColorRGB(0.72, 0.72, 0.72)
+            c.drawString(margin + font_sz * 0.6, y + (line_h * 0.55 - comment_sz) / 2, ln["t"])
+            y -= line_h * 0.55
+            continue
+        baseline = y + (line_h - font_sz) / 2
+        if ln["type"] == "song":
+            c.setFillColorRGB(1, 1, 1)
+            c.setFont("Helvetica-Bold", font_sz)
+            c.drawString(margin, baseline, f'{ln["num"]}. {ln["t"]}')
+        elif ln["type"] == "break":
+            c.setStrokeColorRGB(0.55, 0.55, 0.55)
+            c.setLineWidth(max(1, font_sz * 0.04))
+            if ln["t"]:
+                c.setFillColorRGB(0.7, 0.7, 0.7)
+                c.setFont("Helvetica-Oblique", font_sz * 0.55)
+                c.drawCentredString(W / 2, baseline, ln["t"])
+            else:
+                mid = y + line_h / 2
+                c.line(margin, mid, W - margin, mid)
+        else:  # note / agradecimiento
+            c.setFillColorRGB(0.92, 0.86, 0.55)
+            c.setFont("Helvetica-Bold", font_sz * 0.8)
+            c.drawString(margin, baseline, ln["t"])
+        y -= line_h
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf.getvalue()
+
+
 @app.get("/setlist/pdf", endpoint="setlist_pdf")
 @admin_required
 def setlist_pdf():
@@ -62529,107 +62655,14 @@ def setlist_pdf():
     posible que quepa; incluye líneas de parón y comentarios; SIN duraciones."""
     if not REPORTLAB_AVAILABLE:
         abort(503)
-    from reportlab.pdfgen import canvas as _canvas
-    from reportlab.lib.pagesizes import A4
     s = db()
     try:
         owner_type = (request.args.get("owner_type") or "").strip().upper()
         owner_id = _sim_safe_uuid(request.args.get("owner_id"))
         t = _get_setlist(s, owner_type, owner_id)
         header = _setlist_pdf_header(s, owner_type, owner_id)
-        items = sorted((t.items or []) if t else [], key=lambda x: (x.sort_order or 0))
-
-        lines = []  # {t, type: song|break|note|comment, num}
-        n = 0
-        for it in items:
-            kind = (it.kind or "SONG").upper()
-            if kind == "SONG":
-                n += 1
-                lines.append({"t": (it.title or "").upper(), "type": "song", "num": n})
-                if (it.note or "").strip():
-                    lines.append({"t": (it.note or "").strip(), "type": "comment"})
-            elif kind == "BREAK":
-                lines.append({"t": (it.title or "").strip().upper(), "type": "break"})
-            else:
-                lines.append({"t": (it.title or "").strip().upper(), "type": "note"})
-
-        buf = BytesIO()
-        W, H = A4
-        c = _canvas.Canvas(buf, pagesize=A4)
-        c.setFillColorRGB(0, 0, 0)
-        c.rect(0, 0, W, H, stroke=0, fill=1)  # fondo negro
-        margin = 34
-        usable_w = W - 2 * margin
-
-        # Cabecera: "SET LIST" + artista + (concierto / municipio·fecha)
-        c.setFillColorRGB(1, 1, 1)
-        c.setFont("Helvetica-Bold", 30)
-        y = H - margin - 30
-        c.drawCentredString(W / 2, y, "SET LIST")
-        if (header.get("artist") or "").strip():
-            y -= 24
-            c.setFont("Helvetica-Bold", 16)
-            c.drawCentredString(W / 2, y, header["artist"])
-        if (header.get("subtitle") or "").strip():
-            y -= 18
-            c.setFont("Helvetica", 12)
-            c.setFillColorRGB(0.8, 0.8, 0.8)
-            c.drawCentredString(W / 2, y, header["subtitle"])
-
-        content_top = y - 22
-        avail_h = content_top - margin
-        if not lines:
-            c.showPage(); c.save(); buf.seek(0)
-            return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name="setlist.pdf")
-
-        units = sum(0.55 if ln["type"] == "comment" else 1.0 for ln in lines) or 1.0
-        line_h = avail_h / units
-        font_sz = min(line_h * 0.72, 64)
-
-        def widest(sz):
-            mw = 0
-            for ln in lines:
-                if ln["type"] == "comment":
-                    continue
-                prefix = (f'{ln["num"]}. ' if ln["type"] == "song" else "")
-                mw = max(mw, c.stringWidth(prefix + ln["t"], "Helvetica-Bold", sz))
-            return mw
-        while font_sz > 9 and widest(font_sz) > usable_w:
-            font_sz -= 1
-        comment_sz = max(font_sz * 0.5, 8)
-
-        y = content_top - line_h
-        for ln in lines:
-            if ln["type"] == "comment":
-                c.setFont("Helvetica-Oblique", comment_sz)
-                c.setFillColorRGB(0.72, 0.72, 0.72)
-                c.drawString(margin + font_sz * 0.6, y + (line_h * 0.55 - comment_sz) / 2, ln["t"])
-                y -= line_h * 0.55
-                continue
-            baseline = y + (line_h - font_sz) / 2
-            if ln["type"] == "song":
-                c.setFillColorRGB(1, 1, 1)
-                c.setFont("Helvetica-Bold", font_sz)
-                c.drawString(margin, baseline, f'{ln["num"]}. {ln["t"]}')
-            elif ln["type"] == "break":
-                c.setStrokeColorRGB(0.55, 0.55, 0.55)
-                c.setLineWidth(max(1, font_sz * 0.04))
-                if ln["t"]:
-                    c.setFillColorRGB(0.7, 0.7, 0.7)
-                    c.setFont("Helvetica-Oblique", font_sz * 0.55)
-                    c.drawCentredString(W / 2, baseline, ln["t"])
-                else:
-                    mid = y + line_h / 2
-                    c.line(margin, mid, W - margin, mid)
-            else:  # note / agradecimiento
-                c.setFillColorRGB(0.92, 0.86, 0.55)
-                c.setFont("Helvetica-Bold", font_sz * 0.8)
-                c.drawString(margin, baseline, ln["t"])
-            y -= line_h
-
-        c.showPage()
-        c.save()
-        buf.seek(0)
+        items = [_setlist_item_payload(it) for it in sorted((t.items or []) if t else [], key=lambda x: (x.sort_order or 0))]
+        buf = BytesIO(_setlist_pdf_bytes(header, items))
         return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name="setlist.pdf")
     finally:
         s.close()
@@ -79459,6 +79492,7 @@ def _bootstrap_schema_bg():
         (ensure_mail_accounts_schema, "ensure_mail_accounts_schema"),
         (ensure_short_links_schema, "ensure_short_links_schema"),
         (ensure_video_web_schema, "ensure_video_web_schema"),
+        (ensure_roadmap_extras_schema, "ensure_roadmap_extras_schema"),
         (ensure_artist_notifications_schema, "ensure_artist_notifications_schema"),
         (ensure_external_production_schema, "ensure_external_production_schema"),
         (ensure_external_access_schema, "ensure_external_access_schema"),
@@ -79492,6 +79526,7 @@ def _bootstrap_schema_bg():
     _safe_ensure(lambda: globals()["_event_mirrors_backfill_once"](), "_event_mirrors_backfill_once")
     _safe_ensure(lambda: globals()["_marketing_concert_bags_relink_once"](), "_marketing_concert_bags_relink_once")
     _safe_ensure(lambda: globals()["_empresa_promoter_backfill_once"](), "_empresa_promoter_backfill_once")
+    _safe_ensure(lambda: globals()["_artist_confirmed_notified_backfill_once"](), "_artist_confirmed_notified_backfill_once")
     # Los ISRC pasan a escribirse en seco (es con lo que se encuentran fuera).
     _safe_ensure(lambda: globals()["_isrc_dashes_backfill_once"](), "_isrc_dashes_backfill_once")
     # Las canciones marcadas como «no está en Chartmetric» por el fallo del array vuelven a la cola.
@@ -79611,6 +79646,10 @@ ROADMAP_ACTIVITY_KINDS = {k for k, _l, _i, _c in ROADMAP_ACTIVITY_TYPES}
 ROADMAP_ALL_KINDS = ROADMAP_ACTIVITY_KINDS | ROADMAP_TRANSPORT_KINDS
 ROADMAP_INTERVIEW_TYPES = ["Radio", "TV", "Prensa", "Digital", "Podcast", "Streaming", "Otros"]
 ROADMAP_PERSONNEL_KINDS = {"USER", "PROMOTER", "MEMBER", "MANUAL"}
+# A QUIÉN AFECTA un punto de los HORARIOS: a TODOS, a unas FUNCIONES (los técnicos, los músicos…) o
+# a unas PERSONAS concretas del personal. Es la etiqueta que sale en su fila y lo que decide qué ve
+# cada externo al entrar en su portal (`_roadmap_payload_for_person`).
+ROADMAP_AUDIENCE_MODES = ("ALL", "ROLES", "PEOPLE")
 
 
 def _roadmap_kind_catalog() -> dict:
@@ -79822,7 +79861,17 @@ def _roadmap_save(session_db, row, payload: dict) -> None:
     from sqlalchemy.orm.attributes import flag_modified
     payload["version"] = 2
     payload["updated_at"] = _now_madrid().isoformat()
-    payload["updated_by"] = _email_to_nick(_current_user_email() or "")
+    # Quien actualiza puede ser alguien de la casa o un EXTERNO con la marca «puede actualizarla»
+    # (el portal): ese no tiene correo de la casa, así que se apunta el nombre de su sesión.
+    # ⚠️ Y desde un cron o un hilo no hay sesión (`session` revienta fuera de una petición): ahí
+    # se apunta «sistema» en vez de tirar el guardado.
+    try:
+        if session.get("user_id"):
+            payload["updated_by"] = _email_to_nick(_current_user_email() or "")
+        else:
+            payload["updated_by"] = (session.get("ext_name") or "externo")[:80]
+    except RuntimeError:
+        payload["updated_by"] = "sistema"
     row.roadmap_payload = payload
     flag_modified(row, "roadmap_payload")
     if hasattr(row, "updated_at"):
@@ -80062,7 +80111,128 @@ def _roadmap_activity_word(row) -> str:
         return "Actividad"
 
 
-def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None) -> dict | None:
+def _roadmap_promoter_card(row) -> dict | None:
+    """QUIÉN PROMUEVE, para la viñeta «Promotor» de la hoja de ruta: nombre, logo, la sociedad con la
+    que factura y su contacto (teléfono y correo, para pinchar y llamar). Sale del punto único
+    `_concert_promoter_display`, así que dice lo mismo que la ficha."""
+    if not isinstance(row, Concert):
+        return None
+    promotor = _concert_promoter_display(row)
+    if not promotor:
+        return None
+    correo, telefono = "", ""
+    if promotor.get("kind") == "PROMOTER":
+        correo, telefono = _promoter_email_phone(getattr(row, "promoter", None))
+    return {"kind": promotor.get("kind") or "", "name": promotor.get("name") or "",
+            "logo": promotor.get("logo") or "", "note": promotor.get("note") or "",
+            "phone": (telefono or "").strip(), "email": (correo or "").strip()}
+
+
+def _venue_coords(session_db, venue) -> tuple:
+    """Las COORDENADAS del recinto para el mapa. Se geocodifican UNA vez a partir de su dirección
+    (`geo_utils.geocode_address`) y se guardan en `venues.lat/lng`; si no se encuentran, se apunta
+    el intento (`geocoded_at`) para no volver a preguntar en cada carga durante una semana.
+    ⚠️ Es una ayuda: si el proveedor falla, el mapa no se pinta y ya."""
+    if venue is None:
+        return None, None
+    lat, lng = getattr(venue, "lat", None), getattr(venue, "lng", None)
+    if lat is not None and lng is not None:
+        return float(lat), float(lng)
+    intento = getattr(venue, "geocoded_at", None)
+    try:
+        if intento is not None and (_now_madrid() - intento) < timedelta(days=7):
+            return None, None
+    except Exception:
+        pass
+    piezas = [getattr(venue, "address", None), getattr(venue, "postal_code", None),
+              getattr(venue, "municipality", None), getattr(venue, "province", None),
+              getattr(venue, "country", None) or "España"]
+    consulta = ", ".join([str(x).strip() for x in piezas if str(x or "").strip()])
+    if not (getattr(venue, "address", None) or "").strip() or len(consulta) < 6:
+        return None, None
+    # ⚠️ Esto corre AL PINTAR (la hoja de ruta, el enlace compartido, el portal): el tope de tiempo es
+    # corto y el intento se apunta TAMBIÉN si el proveedor falla, para que una caída de Photon no
+    # cueste segundos en cada carga durante una semana.
+    try:
+        import geo_utils
+        hit = geo_utils.geocode_address(consulta, timeout=3)
+    except Exception:
+        hit = None
+    try:
+        venue.geocoded_at = _now_madrid()
+        if hit:
+            venue.lat, venue.lng = hit["lat"], hit["lng"]
+        session_db.commit()
+    except Exception:
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+    if hit:
+        try:
+            return float(hit["lat"]), float(hit["lng"])
+        except Exception:
+            return None, None
+    return None, None
+
+
+def _roadmap_venue_card(session_db, row) -> dict | None:
+    """EL RECINTO tal como lo enseña la hoja de ruta: nombre, dirección (con lo que hace falta para
+    abrirla en la aplicación de mapas), su foto, si es cubierto, el aforo, la nota de ACCESO (solo si
+    existe) y las coordenadas del mapa. Con el recinto escrito A MANO, lo que haya."""
+    if isinstance(row, (ArtistTemplate, Promotion, DiscoProject)):
+        return None
+    venue = getattr(row, "venue", None)
+    nombre = (getattr(venue, "name", None) or getattr(row, "manual_venue_name", None) or "").strip()
+    direccion = (getattr(venue, "address", None) or getattr(row, "manual_venue_address", None) or "").strip()
+    municipio = (getattr(venue, "municipality", None) or getattr(row, "manual_municipality", None) or "").strip()
+    provincia = (getattr(venue, "province", None) or getattr(row, "manual_province", None) or "").strip()
+    cp = (getattr(venue, "postal_code", None) or getattr(row, "manual_postal_code", None) or "").strip()
+    pais = (getattr(venue, "country", None) or getattr(row, "manual_country", None) or "").strip()
+    if not (nombre or direccion or municipio):
+        return None
+    lugar = ""
+    try:
+        lugar = _place_label(municipio, provincia, pais)
+    except Exception:
+        lugar = ", ".join([x for x in [municipio, provincia] if x])
+    consulta_mapa = ", ".join([x for x in [nombre, direccion, cp, municipio, provincia, pais or "España"] if x])
+    aforo = ""
+    if getattr(row, "no_capacity", False):
+        aforo = "Libre"
+    elif getattr(row, "capacity", None):
+        try:
+            aforo = format_thousands(row.capacity)
+        except Exception:
+            aforo = str(row.capacity)
+    lat, lng = _venue_coords(session_db, venue) if venue is not None else (None, None)
+    contactos = []
+    if venue is not None:
+        # Las personas VINCULADAS al recinto (el director de la sala, su técnico), con su relación.
+        try:
+            for l in _entity_link_rows(session_db, "venue", venue.id):
+                otro = l.get("other") or {}
+                contactos.append({"name": otro.get("label") or otro.get("name") or "",
+                                  "relation": l.get("relation_title") or "",
+                                  "phone": otro.get("phone") or "", "email": otro.get("email") or "",
+                                  "photo": otro.get("logo_url") or otro.get("photo_url") or ""})
+        except Exception:
+            contactos = []
+    return {
+        "id": (str(venue.id) if venue is not None else ""),
+        "name": nombre, "address": direccion, "postal_code": cp, "municipality": municipio,
+        "province": provincia, "country": pais, "place_label": lugar,
+        "photo_url": (getattr(venue, "photo_url", None) or "") if venue is not None else "",
+        # ⚠️ Sin el dato NO se dice «al aire libre»: None es «no se sabe» y no se pinta nada.
+        "covered": ((bool(venue.covered) if getattr(venue, "covered", None) is not None else None)
+                    if venue is not None else None),
+        "access_notes": (getattr(venue, "access_notes", None) or "").strip() if venue is not None else "",
+        "capacity_label": aforo, "lat": lat, "lng": lng, "maps_query": consulta_mapa,
+        "contacts": [c for c in contactos if c.get("name")],
+    }
+
+
+def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None, payload=None) -> dict | None:
     """La ficha de LA ACTIVIDAD que abre la hoja de ruta: de quién es, cuándo, dónde y con quién se
     habla. Es lo primero que necesita quien la recibe (y lo que antes había que ir a buscar a la
     ficha), así que se ve también en la hoja de ruta compartida.
@@ -80071,9 +80241,13 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
     cabecera de la ficha) y `_concert_promoter_display`—: aquí no se calcula nada nuevo que se pueda
     desparejar de lo que dice la ficha.
     ⚠️ En una PLANTILLA no hay actividad (no tiene ni fecha ni sitio): devuelve None y su pestaña
-    no se pinta."""
+    no se pinta.
+    · Además de la cabecera trae lo que enseña la pestaña «Evento» por VIÑETAS: el `promoter`, la
+      `duration` y la `formation` (de la ficha de contratación y de lo que dijo el asistente), las
+      `notes` que se apunten aquí (`payload['activity_notes']`) y los `contacts` de la actividad."""
     if isinstance(row, ArtistTemplate):
         return None
+    payload = payload if isinstance(payload, dict) else {}
     artista = _artist_label_from_rows(artists)
     foto = ""
     for a in (artists or []):
@@ -80089,6 +80263,8 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
             filas.append({"icon": icono, "label": etiqueta, "value": valor})
 
     contactos: list[dict] = []
+    duracion, formacion, descripcion = "", "", ""
+    canta = False
     if isinstance(row, Concert):
         for icono, etiqueta, valor in _contract_sheet_hero_rows(row):
             pon(icono, etiqueta, valor)
@@ -80100,21 +80276,6 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
             pon("fa-door-open", "Puertas", str(row.doors_time)[:5])
         elif getattr(row, "doors_time_tbc", False):
             pon("fa-door-open", "Puertas", "Por confirmar")
-        venue = getattr(row, "venue", None)
-        direccion = (getattr(venue, "address", None) or getattr(row, "manual_venue_address", None) or "")
-        if direccion:
-            pon("fa-map-location-dot", "Dirección", direccion)
-        # ⚠️ `Venue` NO tiene teléfono (sus columnas son el nombre, la dirección y si es cubierto):
-        # lo que sí se sabe —y en producción importa para el montaje— es si se toca a cubierto.
-        if venue is not None:
-            pon("fa-warehouse", "Espacio", "Cubierto" if getattr(venue, "covered", False) else "Al aire libre")
-        promotor = _concert_promoter_display(row)
-        if promotor:
-            extra = ""
-            if promotor.get("kind") == "PROMOTER":
-                correo, telefono = _promoter_email_phone(getattr(row, "promoter", None))
-                extra = " · ".join([x for x in [telefono, correo] if x])
-            pon("fa-handshake", "Promotor", promotor.get("name") + (" · " + extra if extra else ""))
         # ⚠️ Se recorre `concert.contacts` a mano y no `_concert_contact_rows`: ese DESCARTA a quien
         # no tiene ninguna función marcada, y una persona sin etiqueta está igualmente en la
         # actividad (es la regla del selector de contactos) — en una hoja de ruta hay que verla.
@@ -80126,6 +80287,8 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
                 datos = _promoter_contact_payload(persona)
                 marcados = link.roles if isinstance(link.roles, list) else []
                 contactos.append({
+                    "id": "",
+                    "source": "concert",
                     "name": datos.get("name") or "",
                     "photo": datos.get("photo") or "",
                     "roles": " · ".join([CONCERT_CONTACT_ROLE_META[r]["label"]
@@ -80136,6 +80299,23 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
                 })
         except Exception:
             app.logger.exception("[hoja de ruta] no se pudieron leer los contactos de la actividad")
+        # DURACIÓN y FORMACIÓN: la duración la dice la ficha de contratación (`show_duration`) y la
+        # formación lo que se apuntó al crear la actividad (`contracting_payload.performance`).
+        try:
+            sheet = (session_db.query(ConcertContractSheet)
+                     .filter(ConcertContractSheet.concert_id == row.id).first())
+            datos_sheet = sheet.data if (sheet is not None and isinstance(sheet.data, dict)) else {}
+            duracion = (datos_sheet.get("show_duration") or "").strip()
+        except Exception:
+            duracion = ""
+        contracting = row.contracting_payload if isinstance(row.contracting_payload, dict) else {}
+        perf = contracting.get("performance") if isinstance(contracting.get("performance"), dict) else {}
+        formacion = _performance_formation_label(perf)
+        descripcion = (contracting.get("description") or "").strip()
+        try:
+            canta = _concert_has_singing(row)
+        except Exception:
+            canta = False
     else:
         # Promoción, acción o proyecto: lo que se sabe sin preguntar nada más son sus días (los que
         # ya ha resuelto la propia hoja de ruta) y lo que la identifica.
@@ -80148,6 +80328,16 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
         if fechas:
             primero, ultimo = _es(fechas[0]), _es(fechas[-1])
             pon("fa-calendar-day", "Fechas", primero if primero == ultimo else f"{primero} – {ultimo}")
+    # Los contactos AÑADIDOS en la propia hoja de ruta (cualquier tercero, con su función).
+    for c in (payload.get("contacts") or []):
+        if not isinstance(c, dict) or not (c.get("name") or "").strip():
+            continue
+        contactos.append({
+            "id": str(c.get("id") or ""), "source": "roadmap",
+            "name": (c.get("name") or "").strip(), "photo": (c.get("photo_url") or ""),
+            "roles": (c.get("role") or "").strip(),
+            "phone": (c.get("phone") or "").strip(), "email": (c.get("email") or "").strip(),
+        })
     return {
         "word": _roadmap_activity_word(row),
         "icon": "fa-star",
@@ -80156,6 +80346,12 @@ def _roadmap_activity_card(session_db, entity_type: str, row, artists, days=None
         "photo": foto,
         "rows": filas,
         "contacts": contactos,
+        "promoter": _roadmap_promoter_card(row),
+        "duration": duracion,
+        "formation": formacion,
+        "description": descripcion,
+        "sings": bool(canta),
+        "notes": (payload.get("activity_notes") or "").strip(),
     }
 
 
@@ -80175,7 +80371,20 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         # LA ACTIVIDAD: la primera pestaña de la hoja de ruta (de quién es, cuándo, dónde y con
         # quién se habla). None en una plantilla, que no es ninguna actividad.
         "activity": _roadmap_activity_card(session_db, entity_type, row, artists,
-                                           _roadmap_days(row, payload)),
+                                           _roadmap_days(row, payload), payload),
+        # EL RECINTO (con su mapa y su nota de acceso) y EL REPERTORIO (el set list de la ficha, tal
+        # como está configurado): las dos viñetas nuevas de la hoja de ruta.
+        "venue": _roadmap_venue_card(session_db, row),
+        "setlist": _roadmap_setlist_context(session_db, entity_type, row),
+        "show_repertoire": _roadmap_show_repertoire(entity_type, row, payload),
+        "setlist_pdf_url": _safe_url_for("roadmap_setlist_pdf", entity_type=entity_type,
+                                         entity_id=str(getattr(row, "id", ""))),
+        "setlist_edit_url": (_safe_url_for("concert_detail_view", cid=row.id, tab="repertorio")
+                             if isinstance(row, Concert) else ""),
+        # Lo que decide cómo se pinta FUERA: con la cabecera de la actividad arriba del todo (lo
+        # compartido y el portal) y si quien mira es un externo que PUEDE ACTUALIZARLA.
+        "header_on_top": False,
+        "ext_editor": False,
         "payload": payload,
         "days": _roadmap_days(row, payload),
         # Días "base" (del propio evento): no se pueden quitar desde el configurador de días.
@@ -80262,6 +80471,204 @@ def _roadmap_payload_for_kind(payload: dict, kind: str) -> dict:
     return out
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+#  HOJA DE RUTA · A QUIÉN AFECTA CADA PUNTO, QUÉ SE CANTA Y QUÉ VE CADA EXTERNO
+#  ---------------------------------------------------------------------------------------------
+#  · Cada punto de los HORARIOS dice a quién afecta (`audience`): a TODOS, a unas FUNCIONES o a unas
+#    PERSONAS concretas del personal. En la fila sale la etiqueta (las funciones, o los nicks) y al
+#    entrar un externo en su portal solo ve lo que le afecta (`_roadmap_payload_for_person`).
+#  · Un punto puede marcarse «SE CANTA» y llevar su REPERTORIO (`sings` + `songs`): la pestaña
+#    Repertorio los enseña y, mientras no tengan canciones, es una tarea de producción.
+#  ⚠️ Todo el filtrado va en el SERVIDOR: el payload entero viaja en el HTML de lo compartido.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+def _roadmap_item_audience(value) -> dict:
+    """A quién afecta un punto: `{"mode": ALL|ROLES|PEOPLE, "roles": [...], "ids": [...]}`.
+    Sin nada guardado (los puntos de antes), a TODOS; un modo sin nadie dentro también es «todos»."""
+    if not isinstance(value, dict):
+        return {"mode": "ALL", "roles": [], "ids": []}
+    mode = (str(value.get("mode") or "ALL")).strip().upper()
+    if mode not in ROADMAP_AUDIENCE_MODES:
+        mode = "ALL"
+    roles = [str(r).strip() for r in (value.get("roles") or []) if str(r or "").strip()][:40]
+    ids = [str(x).strip() for x in (value.get("ids") or []) if str(x or "").strip()][:200]
+    if mode == "ROLES" and not roles:
+        mode = "ALL"
+    if mode == "PEOPLE" and not ids:
+        mode = "ALL"
+    return {"mode": mode, "roles": roles, "ids": ids}
+
+
+def _roadmap_songs_from_json(rows) -> list[dict]:
+    """Las canciones de un repertorio (de un punto de los horarios), limpias y en su orden."""
+    out = []
+    for idx, sg in enumerate(rows or []):
+        if not isinstance(sg, dict):
+            continue
+        titulo = (sg.get("title") or "").strip()
+        sid = str(sg.get("song_id") or sg.get("id") or "").strip()
+        if not titulo and not sid:
+            continue
+        out.append({"song_id": sid, "title": titulo, "cover_url": (sg.get("cover_url") or ""),
+                    "order": idx})
+    return out
+
+
+def _roadmap_item_sings(item) -> bool:
+    """¿En este punto se canta? (el punto lo dice; en una entrevista también su `interview`)."""
+    if not isinstance(item, dict):
+        return False
+    iv = item.get("interview") if isinstance(item.get("interview"), dict) else {}
+    return bool(item.get("sings") or iv.get("sings"))
+
+
+def _roadmap_item_song_rows(item) -> list:
+    if not isinstance(item, dict):
+        return []
+    if item.get("songs"):
+        return list(item.get("songs") or [])
+    iv = item.get("interview") if isinstance(item.get("interview"), dict) else {}
+    return list(iv.get("songs") or [])
+
+
+def _roadmap_repertoire_pending(payload) -> list[dict]:
+    """Los puntos en los que SE CANTA y todavía no tienen repertorio: la tarea «Configurar el
+    repertorio» de producción. Un punto cancelado no reclama nada."""
+    return [it for it in ((payload or {}).get("agenda") or [])
+            if isinstance(it, dict) and _roadmap_item_sings(it) and not it.get("cancelled")
+            and not _roadmap_item_song_rows(it)]
+
+
+def _roadmap_show_repertoire(kind: str, row, payload) -> bool:
+    """¿Se pinta la pestaña REPERTORIO? Cuando se canta: en la propia actividad (un concierto
+    siempre; lo demás si el asistente dijo que canta) o en algún punto de los horarios."""
+    if any(_roadmap_item_sings(it) for it in ((payload or {}).get("agenda") or [])):
+        return True
+    if isinstance(row, Concert):
+        try:
+            return bool(_concert_has_singing(row))
+        except Exception:
+            return False
+    return False
+
+
+def _roadmap_setlist_context(session_db, kind: str, row) -> dict | None:
+    """EL SET LIST de la actividad (el de la pestaña «Repertorio» de su ficha), tal como está
+    configurado, para enseñarlo en la hoja de ruta. None donde no hay set list propio (una
+    promoción, un proyecto, una plantilla)."""
+    owner = {"concert": "CONCERT", "action": "ACTION"}.get((kind or "").lower())
+    if not owner or not getattr(row, "id", None):
+        return None
+    try:
+        t = _get_setlist(session_db, owner, row.id)
+    except Exception:
+        return None
+    if t is None:
+        return {"exists": False, "items": [], "count": 0, "total_label": "0:00", "owner_type": owner}
+    datos = _setlist_payload(t)
+    canciones = [it for it in datos["items"] if (it.get("kind") or "SONG").upper() == "SONG"]
+    return {"exists": bool(datos["items"]), "items": datos["items"], "count": len(canciones),
+            "total_label": datos["total_label"], "owner_type": owner}
+
+
+def _roadmap_ext_person_info(payload: dict, ext_ids) -> dict:
+    """Qué es esta persona DENTRO de esta hoja de ruta: sus filas del personal (puede tener más de
+    una ficha), sus ids de personal, sus FUNCIONES (normalizadas) y si puede ACTUALIZARLA."""
+    ids = {str(x) for x in (ext_ids or []) if x}
+    filas = [p for p in ((payload or {}).get("personnel") or [])
+             if isinstance(p, dict) and (p.get("kind") or "").upper() in ("PROMOTER", "MEMBER")
+             and str(p.get("ref_id") or "") in ids]
+    return {
+        "rows": filas,
+        "person_ids": [str(p.get("id") or "") for p in filas if p.get("id")],
+        "roles": {_norm_text_key(p.get("role") or "") for p in filas if (p.get("role") or "").strip()},
+        "can_edit": any(bool(p.get("can_edit")) for p in filas),
+        "in_personnel": bool(filas),
+    }
+
+
+def _roadmap_item_affects(item: dict, info: dict) -> bool:
+    """¿Le afecta este punto a esa persona? Lo de TODOS sí; un TRASLADO con pasajeros concretos
+    solo a quien va en él; lo de unas FUNCIONES a quien tenga alguna; lo de unas PERSONAS a ellas."""
+    mios = set(info.get("person_ids") or [])
+    aud = _roadmap_item_audience((item or {}).get("audience"))
+    if aud["mode"] == "ROLES":
+        return bool({_norm_text_key(r) for r in aud["roles"]} & set(info.get("roles") or set()))
+    if aud["mode"] == "PEOPLE":
+        return bool(set(aud["ids"]) & mios)
+    tr = (item or {}).get("transport") or {}
+    pasajeros = [str(p.get("personnel_id") or "") for p in (tr.get("passengers") or []) if isinstance(p, dict)]
+    pasajeros = [x for x in pasajeros if x]
+    if pasajeros:
+        return bool(set(pasajeros) & mios)
+    return True
+
+
+def _roadmap_payload_shared(payload: dict) -> dict:
+    """Lo que SALE de casa por el portal: los puntos marcados para alguna hoja de ruta (los que no
+    van en ninguna se quedan solo dentro)."""
+    out = dict(payload or {})
+    out["agenda"] = [it for it in ((payload or {}).get("agenda") or [])
+                     if any(_roadmap_item_sheets((it or {}).get("sheets")).values())]
+    return out
+
+
+def _roadmap_payload_for_person(payload: dict, info: dict) -> dict:
+    """Copia del payload con SOLO lo que le afecta a ESA persona (el portal de externos): los puntos
+    de los horarios y los traslados en los que va (o los de todos, o los que no se han especificado
+    para nadie), los hoteles que le tocan y **el número de habitación solo de la suya**."""
+    mios = set(info.get("person_ids") or [])
+    out = dict(payload or {})
+    out["agenda"] = [it for it in ((payload or {}).get("agenda") or []) if _roadmap_item_affects(it, info)]
+    hoteles = []
+    for h in ((payload or {}).get("hotels") or []):
+        h = dict(h or {})
+        asignados = [str(x) for x in (h.get("assignee_ids") or [])]
+        if not h.get("for_all") and asignados and not (set(asignados) & mios):
+            continue
+        cuartos = []
+        for r in (h.get("rooms") or []):
+            r = dict(r or {})
+            ocupantes = {str(x) for x in (r.get("occupant_ids") or [])}
+            if not (ocupantes & mios):
+                r.pop("room_number", None)
+            cuartos.append(r)
+        h["rooms"] = cuartos
+        hoteles.append(h)
+    out["hotels"] = hoteles
+    out["rooms_pool"] = [{k: v for k, v in (r or {}).items() if k != "room_number"}
+                         for r in ((payload or {}).get("rooms_pool") or [])]
+    return out
+
+
+def _roadmap_setlist_pdf_source(session_db, kind: str, row, item_id: str = "") -> tuple[dict, list[dict]]:
+    """(cabecera, líneas) para el PDF del repertorio: el de UN punto de los horarios (`item_id`) o
+    el set list de la actividad. Las líneas van como dicts {kind, title, note}."""
+    artistas = _artists_from_ids(session_db, _roadmap_artist_ids(row))
+    artista = _artist_label_from_rows(artistas) if artistas else ""
+    if item_id:
+        payload = _roadmap_load(row)
+        _idx, item = _roadmap_find(payload.get("agenda", []), item_id)
+        if item is None:
+            return {"artist": artista, "subtitle": ""}, []
+        etiqueta = (item.get("title") or _roadmap_kind_catalog().get(item.get("kind") or "", {}).get("label") or "")
+        dia = ""
+        try:
+            dia = datetime.strptime(str(item.get("day"))[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+        except Exception:
+            dia = ""
+        sub = " · ".join([x for x in [etiqueta, dia, (item.get("start_time") or "")] if x])
+        lineas = [{"kind": "SONG", "title": (sg.get("title") or ""), "note": ""}
+                  for sg in _roadmap_item_song_rows(item) if isinstance(sg, dict) and (sg.get("title") or "")]
+        return {"artist": artista, "subtitle": sub}, lineas
+    owner = {"concert": "CONCERT", "action": "ACTION"}.get((kind or "").lower())
+    if not owner:
+        return {"artist": artista, "subtitle": _roadmap_title(session_db, kind, row, artistas)}, []
+    t = _get_setlist(session_db, owner, row.id)
+    items = sorted((t.items or []) if t else [], key=lambda x: (x.sort_order or 0))
+    return _setlist_pdf_header(session_db, owner, row.id), [_setlist_item_payload(it) for it in items]
+
+
 def _roadmap_item_from_json(data: dict) -> dict:
     kind = (data.get("kind") or "OTROS").strip().upper()
     if kind not in ROADMAP_ALL_KINDS:
@@ -80282,17 +80689,16 @@ def _roadmap_item_from_json(data: dict) -> dict:
         "order": _roadmap_int(data.get("order"), 0),
         "contact": _roadmap_clean_contact(data.get("contact")),
         "attachments": [],
+        # A QUIÉN AFECTA (todos · unas funciones · unas personas), si SE CANTA en este punto y con
+        # qué repertorio, y las INSTRUCCIONES DE ACCESO (cómo se llega, por dónde se entra).
+        "audience": _roadmap_item_audience(data.get("audience")),
+        "sings": bool(data.get("sings")),
+        "songs": _roadmap_songs_from_json(data.get("songs")),
+        "access_note": (data.get("access_note") or "").strip(),
     }
     if kind == "ENTREVISTA":
         iv = data.get("interview") or {}
-        songs = []
-        for idx, sg in enumerate(iv.get("songs") or []):
-            songs.append({
-                "song_id": str(sg.get("song_id") or ""),
-                "title": (sg.get("title") or "").strip(),
-                "cover_url": (sg.get("cover_url") or ""),
-                "order": idx,
-            })
+        songs = _roadmap_songs_from_json(iv.get("songs"))
         item["interview"] = {
             "type": (iv.get("type") or "").strip(),
             "media_id": (iv.get("media_id") or "").strip(),
@@ -80301,6 +80707,15 @@ def _roadmap_item_from_json(data: dict) -> dict:
             "live": bool(iv.get("live")),
             "songs": songs,
         }
+        # Una entrevista guarda «canta» y sus canciones dentro de `interview` (el editor de siempre):
+        # aquí se ESPEJAN al punto para que la pestaña Repertorio y la etiqueta «x temas» lean todos
+        # los puntos igual, y al revés (lo que se edite en Repertorio vuelve a la entrevista).
+        item["sings"] = bool(item["sings"] or item["interview"]["sings"])
+        if not item["songs"] and songs:
+            item["songs"] = list(songs)
+        elif item["songs"]:
+            item["interview"]["songs"] = list(item["songs"])
+        item["interview"]["sings"] = item["sings"]
     if kind in ROADMAP_TRANSPORT_KINDS:
         tr = data.get("transport") or {}
         passengers = []
@@ -80369,6 +80784,11 @@ def _roadmap_personnel_from_json(data: dict) -> dict:
         "phone": (data.get("phone") or "").strip(),
         "email": (data.get("email") or "").strip(),
         "photo_url": (data.get("photo_url") or "").strip(),
+        # ⚠️ PUEDE ACTUALIZAR LA HOJA DE RUTA desde su acceso de externo (`/externos`): mover y
+        # añadir horarios, el repertorio, la logística, bajar el rooming y el personal con DNI y
+        # mandar SMS al personal. Solo tiene sentido en quien puede entrar por el portal (un
+        # tercero o un integrante), y lo comprueba `_ext_roadmap_gate_ok` en cada petición.
+        "can_edit": bool(data.get("can_edit")),
     }
 
 
@@ -80753,6 +81173,14 @@ def roadmap_item_save(entity_type, entity_id):
             # caché), se conservan las que ya tenía en vez de devolverlo a «las dos».
             if not isinstance(data.get("sheets"), dict):
                 item["sheets"] = _roadmap_item_sheets(current.get("sheets"))
+            # Lo que se edita EN OTRO SITIO (el repertorio del punto, en su pestaña) o que un
+            # navegador con el JS viejo no manda, se conserva en vez de perderse.
+            for clave in ("songs", "audience", "access_note", "sings"):
+                if clave not in data and current.get(clave) is not None:
+                    item[clave] = current.get(clave)
+            if item["kind"] == "ENTREVISTA" and "songs" not in data and isinstance(item.get("interview"), dict):
+                item["interview"]["songs"] = list(item.get("songs") or item["interview"].get("songs") or [])
+                item["interview"]["sings"] = bool(item.get("sings") or item["interview"].get("sings"))
             agenda[idx] = item
         else:
             agenda.append(item)
@@ -80838,6 +81266,186 @@ def roadmap_item_move(entity_type, entity_id):
     except Exception as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/item/repertorio', endpoint='roadmap_item_songs')
+@admin_required
+def roadmap_item_songs(entity_type, entity_id):
+    """EL REPERTORIO de un punto de los horarios en el que se canta (se edita en la pestaña
+    Repertorio): sus canciones en orden y si se canta. Solo toca eso del punto."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        _idx, item = _roadmap_find(payload.get("agenda", []), (data.get("id") or "").strip())
+        if item is None:
+            return jsonify({"ok": False, "error": "Ese punto ya no está en los horarios."}), 404
+        if "sings" in data:
+            item["sings"] = bool(data.get("sings"))
+        if "songs" in data:
+            item["songs"] = _roadmap_songs_from_json(data.get("songs"))
+        # Una ENTREVISTA guarda lo mismo dentro de `interview`: se espeja para que su editor de
+        # siempre y esta pestaña lean el mismo dato.
+        if isinstance(item.get("interview"), dict):
+            item["interview"]["songs"] = list(item.get("songs") or [])
+            item["interview"]["sings"] = bool(item.get("sings"))
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/contacto', endpoint='roadmap_contact_save')
+@admin_required
+def roadmap_contact_save(entity_type, entity_id):
+    """Un CONTACTO añadido en la propia hoja de ruta (cualquier tercero, con su función). Es la
+    misma forma que una persona del personal (`_roadmap_personnel_from_json`)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        contactos = payload.setdefault("contacts", [])
+        if not isinstance(contactos, list):
+            contactos = payload["contacts"] = []
+        persona = _roadmap_personnel_from_json(data)
+        persona.pop("can_edit", None)
+        if not persona["name"]:
+            return jsonify({"ok": False, "error": "Falta el nombre."}), 400
+        cid = (data.get("id") or "").strip()
+        idx, actual = _roadmap_find(contactos, cid) if cid else (-1, None)
+        if actual is not None:
+            persona["id"] = cid
+            contactos[idx] = persona
+        else:
+            # La misma persona vinculada no se pone dos veces (mismo kind + ref_id).
+            for ya in contactos:
+                if persona["ref_id"] and ya.get("kind") == persona["kind"] and str(ya.get("ref_id")) == persona["ref_id"]:
+                    persona["id"] = ya["id"]
+                    ya.update(persona)
+                    return _roadmap_ok(session_db, row, payload)
+            contactos.append(persona)
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/contacto/delete', endpoint='roadmap_contact_delete')
+@admin_required
+def roadmap_contact_delete(entity_type, entity_id):
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        cid = (data.get("id") or "").strip()
+        payload["contacts"] = [c for c in (payload.get("contacts") or []) if str(c.get("id")) != cid]
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/notas-actividad', endpoint='roadmap_activity_notes_save')
+@admin_required
+def roadmap_activity_notes_save(entity_type, entity_id):
+    """LAS NOTAS sobre la actividad que se apuntan en la hoja de ruta (la viñeta «Evento»)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        payload["activity_notes"] = (data.get("notes") or "").strip()[:4000]
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/recinto/acceso', endpoint='roadmap_venue_access_save')
+@admin_required
+def roadmap_venue_access_save(entity_type, entity_id):
+    """La nota de ACCESO del recinto (cómo se llega, por dónde se entra). ⚠️ Es un dato DEL RECINTO
+    (vale para todas sus actividades), así que solo lo toca la casa: un externo no."""
+    if not session.get("user_id"):
+        abort(403)
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        venue = getattr(row, "venue", None)
+        if venue is None:
+            return jsonify({"ok": False, "error": "Esta actividad no tiene recinto de la base: "
+                                                  "el acceso se apunta en las notas."}), 400
+        data = request.get_json(silent=True) or {}
+        venue.access_notes = (data.get("access_notes") or "").strip()[:4000] or None
+        session_db.commit()
+        return jsonify({"ok": True, "access_notes": venue.access_notes or ""})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/repertorio/pdf', endpoint='roadmap_setlist_pdf')
+@admin_required
+def roadmap_setlist_pdf(entity_type, entity_id):
+    """El REPERTORIO en PDF desde la hoja de ruta: el set list de la actividad o, con `?item=`, el de
+    un punto de los horarios en el que se canta (el mismo A4 negro del set list de la ficha)."""
+    if not REPORTLAB_AVAILABLE:
+        abort(503)
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        header, lineas = _roadmap_setlist_pdf_source(session_db, kind, row, (request.args.get("item") or "").strip())
+        return _pdf_al_vuelo_response(_setlist_pdf_bytes(header, lineas), "repertorio.pdf")
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/ver/<token>/repertorio.pdf', endpoint='public_roadmap_setlist_pdf')
+def public_roadmap_setlist_pdf(token):
+    """El repertorio en PDF desde la hoja de ruta COMPARTIDA (con su token, sin sesión)."""
+    if not REPORTLAB_AVAILABLE:
+        abort(503)
+    session_db = db()
+    try:
+        row, entity_type, roadmap_kind = _roadmap_by_token(session_db, token)
+        if not row or not _roadmap_kinds(row).get(roadmap_kind, True):
+            abort(404)
+        item_id = (request.args.get("item") or "").strip()
+        if item_id:
+            # Solo un punto que esa hoja de ruta ENSEÑA (la misma puerta que la página).
+            visibles = {str(it.get("id")) for it in
+                        _roadmap_payload_for_kind(_roadmap_load(row), roadmap_kind).get("agenda", [])}
+            if item_id not in visibles:
+                abort(404)
+        header, lineas = _roadmap_setlist_pdf_source(session_db, entity_type, row, item_id)
+        return _pdf_al_vuelo_response(_setlist_pdf_bytes(header, lineas), "repertorio.pdf")
     finally:
         session_db.close()
 
@@ -82185,6 +82793,8 @@ def _roadmap_message_context(session_db, kind: str, row) -> dict:
         "sms_gateway": _sms_available(),
         "channels": ROADMAP_MESSAGE_CHANNELS,
         "title": _roadmap_message_title(session_db, kind, row),
+        # Los que se han dejado PROGRAMADOS y todavía no han salido (se pueden anular).
+        "scheduled": _roadmap_scheduled_rows(session_db, kind, row),
     }
 
 
@@ -85215,11 +85825,103 @@ def roadmap_message_preview(entity_type, entity_id):
         session_db.close()
 
 
+def _roadmap_message_dispatch(session_db, kind: str, row, *, canal: str, ids, cuerpo: str,
+                              enlace: str = "", asunto: str = "", boton: str = "",
+                              uid=None, nick: str = "") -> dict:
+    """MANDA el mensaje al personal elegido —UNO por persona, nunca uno con todos en el «Para»— y
+    dice qué ha pasado: `{ok, sent, failed, message | error}`.
+
+    Punto ÚNICO: lo usan el envío INMEDIATO y el barrido de los mensajes PROGRAMADOS
+    (`_roadmap_scheduled_messages_sweep`), así que un SMS sale igual se mande ahora o mañana a las
+    ocho. Si no sale para nadie se DICE (no se da por mandado)."""
+    canal = (canal or "SMS").strip().upper()
+    cuerpo = (cuerpo or "").strip()
+    enlace = (enlace or "").strip()
+    if not cuerpo:
+        return {"ok": False, "error": "Escribe el mensaje.", "sent": 0, "failed": []}
+    personas = _roadmap_message_people(session_db, kind, row)
+    destinos = _roadmap_message_targets(personas, ids, canal)
+    if not destinos:
+        falta = "teléfono" if canal == "SMS" else "correo"
+        return {"ok": False, "sent": 0, "failed": [],
+                "error": "Nadie de los elegidos tiene %s. Complétalo en su ficha o en el personal "
+                         "de la hoja de ruta." % falta}
+    enviados, fallos = [], []
+    if canal == "SMS":
+        if not _sms_available():
+            return {"ok": False, "sent": 0, "failed": [],
+                    "error": "La pasarela de SMS no está configurada (Integraciones → SMS), así que "
+                             "ahora mismo no se puede mandar."}
+        texto = _shorten_links_in_text(session_db, "\n".join([x for x in (cuerpo, enlace) if x]),
+                                       kind="ROADMAP")
+        for pers in destinos:
+            ok, err = _send_optional_sms(session_db, pers["phone"], texto, kind="HOJA_RUTA",
+                                         user_id=uid, nick=nick)
+            (enviados if ok else fallos).append(pers["name"] + ("" if ok else " (%s)" % (err or "")))
+    else:
+        asunto = (asunto or "").strip() or _roadmap_message_title(session_db, kind, row)
+        html_correo = _roadmap_message_email_html(
+            session_db, kind, row, subject=asunto, body=cuerpo,
+            button_label=(boton or "").strip(), button_url=enlace)
+        for pers in destinos:
+            # ⚠️ UNO POR PERSONA (nunca todos en el «Para»): es la regla de la casa y además evita
+            # que cada uno vea el correo de los demás.
+            ok, err = _send_optional_email([pers["email"]], asunto, html_correo)
+            (enviados if ok else fallos).append(pers["name"] + ("" if ok else " (%s)" % (err or "")))
+    if not enviados:
+        return {"ok": False, "sent": 0, "failed": fallos,
+                "error": "No salió para nadie. " + " · ".join(fallos)}
+    return {"ok": True, "sent": len(enviados), "failed": fallos,
+            "message": ("Mandado a %d persona%s." % (len(enviados), "" if len(enviados) == 1 else "s"))}
+
+
+def _roadmap_message_send_at(valor):
+    """CUÁNDO se manda un mensaje PROGRAMADO: lo que llega del `datetime-local` («2026-09-14T08:00»),
+    que es hora de España. None si no viene o no se entiende."""
+    txt = str(valor or "").strip()
+    if not txt:
+        return None
+    try:
+        dt = datetime.fromisoformat(txt.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=TZ_MADRID)
+    return dt.astimezone(TZ_MADRID)
+
+
+def _roadmap_scheduled_rows(session_db, kind: str, row) -> list[dict]:
+    """Los mensajes PROGRAMADOS de esta hoja de ruta que aún no han salido (y los que fallaron, para
+    poder volver a programarlos)."""
+    if row is None or not getattr(row, "id", None):
+        return []
+    try:
+        filas = (session_db.query(RoadmapScheduledMessage)
+                 .filter(RoadmapScheduledMessage.entity_type == (kind or ""),
+                         RoadmapScheduledMessage.entity_id == row.id,
+                         RoadmapScheduledMessage.status.in_(["PENDIENTE", "ERROR"]))
+                 .order_by(RoadmapScheduledMessage.send_at.asc()).limit(40).all())
+    except Exception:
+        session_db.rollback()
+        return []
+    out = []
+    for f in filas:
+        resultado = f.result if isinstance(f.result, dict) else {}
+        out.append({
+            "id": str(f.id), "channel": (f.channel or "SMS"), "status": (f.status or "PENDIENTE"),
+            "send_at_label": (f.send_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if f.send_at else ""),
+            "count": len(f.person_ids or []), "body": (f.body or "")[:160],
+            "error": (resultado.get("error") or ""), "by": (f.created_by_nick or ""),
+        })
+    return out
+
+
 @app.post("/hoja-ruta/<entity_type>/<entity_id>/personal/mensaje/enviar",
           endpoint="roadmap_message_send")
 @admin_required
 def roadmap_message_send(entity_type, entity_id):
-    """Manda el mensaje al personal elegido. UNO por persona, nunca uno con todos en el «Para»."""
+    """Manda el mensaje al personal elegido —o lo deja PROGRAMADO (`send_at`), y lo manda el cron
+    único a su hora—. UNO por persona, nunca uno con todos en el «Para»."""
     datos = request.get_json(silent=True) or {}
     canal = (datos.get("channel") or "SMS").strip().upper()
     session_db = db()
@@ -85233,50 +85935,130 @@ def roadmap_message_send(entity_type, entity_id):
         if not cuerpo:
             return jsonify({"ok": False, "error": "Escribe el mensaje."}), 400
         enlace = (datos.get("link") or "").strip()
-        personas = _roadmap_message_people(session_db, kind, row)
-        destinos = _roadmap_message_targets(personas, datos.get("ids"), canal)
-        if not destinos:
-            falta = "teléfono" if canal == "SMS" else "correo"
-            return jsonify({"ok": False,
-                            "error": "Nadie de los elegidos tiene %s. Complétalo en su ficha o en "
-                                     "el personal de la hoja de ruta." % falta}), 400
-        estado = _current_user_state() or {}
+        ids = [str(x) for x in (datos.get("ids") or [])]
+        # Quien manda puede ser de la casa o un EXTERNO con la marca «puede actualizarla».
+        estado = _current_user_state() if session.get("user_id") else {}
         uid = to_uuid(estado.get("user_id") or "") or None
-        nick = estado.get("nick") or ""
-        enviados, fallos = [], []
-        if canal == "SMS":
-            if not _sms_available():
-                return jsonify({"ok": False,
-                                "error": "La pasarela de SMS no está configurada (Integraciones → "
-                                         "SMS), así que ahora mismo no se puede mandar."}), 400
-            texto = _shorten_links_in_text(session_db, "\n".join([x for x in (cuerpo, enlace) if x]),
-                                           kind="ROADMAP")
-            for p in destinos:
-                ok, err = _send_optional_sms(session_db, p["phone"], texto, kind="HOJA_RUTA",
-                                             user_id=uid, nick=nick)
-                (enviados if ok else fallos).append(p["name"] + ("" if ok else " (%s)" % (err or "")))
-        else:
-            asunto = (datos.get("subject") or "").strip() or _roadmap_message_title(session_db, kind, row)
-            html_correo = _roadmap_message_email_html(
-                session_db, kind, row, subject=asunto, body=cuerpo,
-                button_label=(datos.get("button_label") or "").strip(), button_url=enlace)
-            for p in destinos:
-                # ⚠️ UNO POR PERSONA (nunca todos en el «Para»): es la regla de la casa y además
-                # evita que cada uno vea el correo de los demás.
-                ok, err = _send_optional_email([p["email"]], asunto, html_correo)
-                (enviados if ok else fallos).append(p["name"] + ("" if ok else " (%s)" % (err or "")))
+        nick = (estado.get("nick") or session.get("ext_name") or "")
+        cuando = _roadmap_message_send_at(datos.get("send_at"))
+        if cuando is not None and cuando > _now_madrid() + timedelta(minutes=1):
+            # ── PROGRAMADO: se comprueba lo mismo que al mandar (a quién y por dónde) y se guarda.
+            personas = _roadmap_message_people(session_db, kind, row)
+            destinos = _roadmap_message_targets(personas, ids, canal)
+            if not destinos:
+                falta = "teléfono" if canal == "SMS" else "correo"
+                return jsonify({"ok": False, "error": "Nadie de los elegidos tiene %s." % falta}), 400
+            if canal == "SMS" and not _sms_available():
+                return jsonify({"ok": False, "error": "La pasarela de SMS no está configurada "
+                                                      "(Integraciones → SMS)."}), 400
+            fila = RoadmapScheduledMessage(
+                entity_type=kind, entity_id=row.id, channel=canal,
+                person_ids=[pers["id"] for pers in destinos], body=cuerpo, link=(enlace or None),
+                subject=((datos.get("subject") or "").strip() or None),
+                button_label=((datos.get("button_label") or "").strip() or None),
+                send_at=cuando, status="PENDIENTE",
+                created_by_user_id=uid, created_by_nick=(nick or None))
+            session_db.add(fila)
+            session_db.commit()
+            return jsonify({"ok": True, "scheduled": True, "sent": 0, "failed": [],
+                            "message": "Programado para el %s a %d persona%s." % (
+                                cuando.strftime("%d/%m/%Y a las %H:%M"), len(destinos),
+                                "" if len(destinos) == 1 else "s"),
+                            "scheduled_rows": _roadmap_scheduled_rows(session_db, kind, row)})
+        resultado = _roadmap_message_dispatch(
+            session_db, kind, row, canal=canal, ids=ids, cuerpo=cuerpo, enlace=enlace,
+            asunto=(datos.get("subject") or ""), boton=(datos.get("button_label") or ""),
+            uid=uid, nick=nick)
         session_db.commit()
-        if not enviados:
-            return jsonify({"ok": False, "error": "No salió para nadie. " + " · ".join(fallos)}), 400
-        return jsonify({"ok": True, "sent": len(enviados), "failed": fallos,
-                        "message": ("Mandado a %d persona%s." % (len(enviados),
-                                                                 "" if len(enviados) == 1 else "s"))})
+        if not resultado.get("ok"):
+            return jsonify(resultado), 400
+        return jsonify(resultado)
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("[hoja de ruta] no se pudo mandar el mensaje")
         return jsonify({"ok": False, "error": str(exc)}), 500
     finally:
         session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/personal/mensaje/anular",
+          endpoint="roadmap_message_cancel")
+@admin_required
+def roadmap_message_cancel(entity_type, entity_id):
+    """Anula un mensaje PROGRAMADO que todavía no ha salido."""
+    datos = request.get_json(silent=True) or {}
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            return jsonify({"ok": False, "error": "No se encuentra."}), 404
+        mid = _safe_uuid(str(datos.get("id") or ""))
+        fila = session_db.get(RoadmapScheduledMessage, mid) if mid else None
+        # ⚠️ Solo el de ESTA hoja de ruta (el id viaja en el formulario).
+        if fila is None or fila.entity_id != row.id or (fila.entity_type or "") != kind:
+            return jsonify({"ok": False, "error": "Ese mensaje no es de esta hoja de ruta."}), 404
+        if (fila.status or "") in ("PENDIENTE", "ERROR"):
+            fila.status = "ANULADO"
+            session_db.commit()
+        return jsonify({"ok": True, "scheduled_rows": _roadmap_scheduled_rows(session_db, kind, row)})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+def _roadmap_scheduled_messages_sweep(*, force: bool = False) -> dict:
+    """EL BARRIDO de los mensajes programados al personal (el cron único, cada minuto): manda los que
+    ya tocan y apunta el resultado en su fila.
+
+    ⚠️ Un fallo queda como ERROR y **no se reintenta solo**: mandar dos veces el mismo SMS es peor
+    que uno que no sale, y en el pop-up se ve el motivo y se puede volver a programar."""
+    s = db()
+    enviados = errores = 0
+    try:
+        ahora = _now_madrid()
+        pendientes = [f.id for f in (s.query(RoadmapScheduledMessage.id)
+                                     .filter(RoadmapScheduledMessage.status == "PENDIENTE",
+                                             RoadmapScheduledMessage.send_at <= ahora)
+                                     .order_by(RoadmapScheduledMessage.send_at.asc()).limit(50).all())]
+        for mid in pendientes:
+            try:
+                f = s.get(RoadmapScheduledMessage, mid)
+                if f is None or (f.status or "") != "PENDIENTE":
+                    continue
+                kind, row = _roadmap_entity(s, f.entity_type, f.entity_id)
+                if row is None:
+                    f.status, f.result = "ERROR", {"ok": False, "error": "La actividad ya no existe."}
+                    errores += 1
+                    s.commit()
+                    continue
+                res = _roadmap_message_dispatch(
+                    s, kind, row, canal=(f.channel or "SMS"), ids=list(f.person_ids or []),
+                    cuerpo=(f.body or ""), enlace=(f.link or ""), asunto=(f.subject or ""),
+                    boton=(f.button_label or ""), uid=f.created_by_user_id, nick=(f.created_by_nick or ""))
+                f.status = "ENVIADO" if res.get("ok") else "ERROR"
+                f.sent_at = _now_madrid()
+                f.result = {k: v for k, v in res.items() if k in ("ok", "sent", "failed", "error", "message")}
+                if res.get("ok"):
+                    enviados += 1
+                else:
+                    errores += 1
+                s.commit()
+            except Exception as exc:
+                s.rollback()
+                app.logger.exception("[hoja de ruta] no se pudo mandar un mensaje programado")
+                try:
+                    f = s.get(RoadmapScheduledMessage, mid)
+                    if f is not None:
+                        f.status, f.result = "ERROR", {"ok": False, "error": str(exc)[:300]}
+                        s.commit()
+                except Exception:
+                    s.rollback()
+                errores += 1
+        return {"enviados": enviados, "errores": errores}
+    finally:
+        s.close()
 
 
 @app.post("/hoja-ruta/<entity_type>/<entity_id>/personal/columnas", endpoint="roadmap_personnel_cols")
@@ -86463,6 +87245,12 @@ def public_roadmap_view(token):
         ctx["readonly"] = True
         ctx["kind"] = roadmap_kind
         ctx["kind_label"] = ROADMAP_KIND_LABELS.get(roadmap_kind, "Hoja de ruta")
+        # Fuera de la app: la CABECERA de la actividad arriba del todo (la misma viñeta de la pestaña
+        # «Evento») y el PDF del repertorio por su propio token (no hay sesión).
+        ctx["header_on_top"] = True
+        ctx["setlist_pdf_url"] = url_for("public_roadmap_setlist_pdf", token=token)
+        ctx["setlist_edit_url"] = ""
+        ctx["show_repertoire"] = _roadmap_show_repertoire(entity_type, row, ctx["payload"])
         artists = _artists_from_ids(session_db, _roadmap_artist_ids(row))
         title = ctx.get("title") or "Hoja de ruta"
         # Previsualización (og): cartel principal / foto del artista + 2ª fila con los detalles.
@@ -88112,7 +88900,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"externos_login", "externos_code", "externos_enter", "externos_exit", "externos_home", "externos_agenda_data", "externos_activity", "externos_promotion", "externos_profile", "externos_document_save", "externos_document_delete", "public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_press_release", "public_press_open", "public_press_og_image", "public_press_pdf", "public_press_audio", "public_press_video", "public_press_download", "public_press_photos", "public_press_photos_zip", "public_press_files", "public_press_file_download", "public_press_files_zip", "cron_press_releases", "public_afavor_liquidation", "public_afavor_update_data", "public_afavor_submit", "certification_icon_png", "public_song_label_copy_og_image", "public_album_label_copy_og_image", "logo_clean_png", "public_sync_song_download", "public_sync_repertoire", "brand_icon_png", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_vote", "public_playlist_vote_audio", "public_playlist_vote_save", "public_playlist_vote_submit", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_share", "public_demo_share_audio", "public_demo_share_download", "public_demo_share_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "cron_disco_plan_reminders", "cron_afavor", "cron_tick", "cron_sales_requests", "public_sales_update", "public_sales_update_save", "public_sales_derive", "public_sales_update_og_image", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_roadmap_setlist_pdf", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_pitch_idea", "public_disco_mix_upload", "public_disco_approval", "public_disco_creatives", "public_song_platform_ids", "public_disco_plan", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -91136,6 +91924,9 @@ HOME_TASK_SOURCES = [
      "label": "Montar la producción", "action": "Producirla", "note": ("venue",)},
     {"ctx": "HOME_ESCORT_PENDING", "kind": "ACTIVIDAD", "order": 3,
      "label_key": "what", "action": "Confirmarlo"},
+    {"ctx": "HOME_ROADMAP_REPERTOIRE", "kind": "ACTIVIDAD", "order": 3,
+     "label": "Configurar el repertorio de la hoja de ruta", "action": "Configurarlo",
+     "note": ("missing",)},
     {"ctx": "HOME_DISCO_LOGISTICS", "kind": "PROYECTO", "order": 3,
      "label": "Montar la logística", "action": "Montarla"},
     {"ctx": "HOME_BAG_CLOSE", "kind": "PROYECTO", "order": 4,
@@ -92365,6 +93156,10 @@ def inject_personnel_globals():
         # en el bloque de «lo suyo» y no depende de ningún permiso de sección.
         "HOME_ESCORT_PENDING": (_home_escort_pending()
                                 if _home and "_home_escort_pending" in globals() else []),
+        # EL REPERTORIO de la hoja de ruta: un punto de los horarios en el que se canta y todavía no
+        # tiene canciones. Es de quien lleva la PRODUCCIÓN de esa actividad, así que va con lo suyo.
+        "HOME_ROADMAP_REPERTOIRE": (_home_roadmap_repertoire_pending()
+                                    if _home and "_home_roadmap_repertoire_pending" in globals() else []),
         # NOTAS DE PRENSA pendientes: a promoción (redactarla y enviarla) y a diseño (el gráfico).
         "HOME_PRESS_TASKS": (_home_press_tasks()
                              if _home and "_home_press_tasks" in globals() else []),
@@ -92594,6 +93389,12 @@ def _require_login_v2():
     if request.endpoint == "static":
         return
     if session.get("user_id"):
+        return
+    # ⚠️⚠️ EL EDITOR EXTERNO DE LA HOJA DE RUTA (el portal, sin `user_id`): esta compuerta corre ANTES
+    # que `admin_required`, así que sin esto el externo con la marca «puede actualizarla» se comía un
+    # redirect al login en cada guardado. `_ext_roadmap_gate_ok` lo comprueba TODO (la ruta, la lista
+    # blanca de endpoints, su sesión, su actividad y su marca) y devuelve False en cualquier otra cosa.
+    if _ext_roadmap_gate_ok():
         return
     allowed = {"public_forecast_report", "public_forecast_report_pdf", "public_forecast_report_og_image", "public_rider_view", "public_rider_pdf", "public_rider_file", "public_rider_og_image", "public_sync_song", "public_sync_song_audio", "public_sync_song_og_image", "public_sync_open", "public_sync_listen", "public_sync_unsubscribe", "public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_buyer_unsubscribe", "public_press_embed_js", "public_activity_notice_view", "public_activity_notice_respond", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_dims", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "public_contract_sheet_draft", "public_contract_sheet_venues", "public_contract_sheet_venue_create", "concert_artwork_public_upload", "concert_artwork_public_submit", "concert_artwork_public_file", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
@@ -116478,6 +117279,56 @@ def public_activity_notice_view(token):
         )
 
 
+def _concert_notice_mark_from_confirmation(session_db, concert, aviso) -> None:
+    """EL «SÍ» DEL ARTISTA ES LA COMUNICACIÓN (lo pidió Dani, sep 2026): en cuanto confirma desde el
+    correo o la landing, la actividad queda NOTIFICADA a todos los efectos —la etiqueta pasa a
+    verde (con la opción de pincharla y volver a notificarle), la compuerta de CONFIRMADO se abre y
+    la tarea «Informar al artista» desaparece sola—.
+    ⚠️ Con la FIRMA de ese momento (`_concert_notice_signature`): un cambio gordo posterior (fecha,
+    hora, recinto o caché) vuelve a pedir aviso, como con cualquier otro."""
+    if concert is None:
+        return
+    destinos = aviso.recipients if (aviso is not None and isinstance(aviso.recipients, list)) else []
+    destinos = [d for d in destinos if isinstance(d, dict)]
+    concert.artist_notified_at = _now_madrid()
+    concert.artist_notified_by_user_id = None
+    concert.artist_notified_by_nick = "el artista (confirmó)"
+    concert.artist_notified_to = destinos or [{"name": "el artista", "confirmed": True}]
+    concert.artist_notified_signature = _concert_notice_signature(session_db, concert)
+    concert.artist_notified_kind = "CONFIRMACION"
+
+
+def _artist_confirmed_notified_backfill_once():
+    """Arreglo PUNTUAL (sep 2026): las actividades que el artista YA había confirmado desde su aviso
+    quedan notificadas (antes la confirmación no tocaba `artist_notified_at`, así que seguía
+    pidiendo el aviso y la etiqueta salía amarilla). A partir de ahora lo hace la propia respuesta."""
+    marca = "artist_confirmed_notified_v1"
+    s = db()
+    try:
+        if (_get_app_setting(marca) or "").strip():
+            return
+        tocados = 0
+        avisos = (s.query(ConcertArtistNotification)
+                  .filter(func.upper(func.coalesce(ConcertArtistNotification.kind, "")) == "CONFIRMAR",
+                          func.upper(func.coalesce(ConcertArtistNotification.response, "")) == "OK")
+                  .order_by(ConcertArtistNotification.responded_at.asc().nullslast()).all())
+        for aviso in avisos:
+            c = s.get(Concert, aviso.concert_id)
+            if c is None or getattr(c, "artist_notified_at", None):
+                continue
+            _concert_notice_mark_from_confirmation(s, c, aviso)
+            tocados += 1
+        s.commit()
+        _set_app_setting(marca, "ok")
+        if tocados:
+            app.logger.info("[aviso artista] %d actividades confirmadas por el artista quedan notificadas", tocados)
+    except Exception:
+        s.rollback()
+        app.logger.exception("[aviso artista] no se pudo aplicar la confirmación como aviso a lo ya contestado")
+    finally:
+        s.close()
+
+
 def _artist_confirmation_apply(session_db, aviso, concert, respuesta: str, nota: str = "") -> None:
     """Apunta lo que ha contestado el artista y lo propaga a donde se estaba esperando.
 
@@ -116488,6 +117339,10 @@ def _artist_confirmation_apply(session_db, aviso, concert, respuesta: str, nota:
     aviso.response = respuesta
     aviso.responded_at = ahora
     aviso.response_note = (nota or "").strip() or None
+    # ⚠️⚠️ SU «SÍ» ES LA COMUNICACIÓN: la actividad queda notificada a todos los efectos (con la
+    # opción de volver a notificarle desde la etiqueta verde).
+    if respuesta == "OK":
+        _concert_notice_mark_from_confirmation(session_db, concert, aviso)
 
     peticion = _peticion_of_concert(session_db, getattr(concert, "id", None))
     if respuesta == "OK" and peticion is not None and not getattr(peticion, "artist_agreed_at", None):
@@ -148931,6 +149786,72 @@ def _home_disco_logistics(limit: int = 12) -> list[dict]:
         session_db.close()
 
 
+def _home_roadmap_repertoire_pending(limit: int = 12) -> list[dict]:
+    """«CONFIGURAR EL REPERTORIO» · un punto de los HORARIOS de la hoja de ruta en el que SE CANTA
+    y todavía no tiene canciones.
+
+    Es de la persona de PRODUCCIÓN que lleva la actividad (y de quien tenga asignado ese artista en
+    producción); dirección lo ve todo. Se le pide por su nombre, así que va con LO SUYO de Inicio.
+    ⚠️ Los puntos viven en `roadmap_payload` (JSONB): las candidatas se buscan con el operador de
+    CONTENCIÓN de Postgres (`@>`), no recorriendo todas las actividades en Python."""
+    uid = session.get("user_id")
+    if not uid:
+        return []
+    s = db()
+    try:
+        yo = to_uuid(uid)
+        todo = (_current_user_state() or {}).get("role") == 10
+        q = (s.query(Concert)
+             .options(joinedload(Concert.artist), joinedload(Concert.venue))
+             .filter(or_(Concert.date.is_(None), Concert.date >= today_local()))
+             .filter(func.upper(func.coalesce(Concert.status, "")) != "CANCELADO")
+             .filter(text("(roadmap_payload -> 'agenda' @> CAST(:aguja1 AS jsonb) "
+                          "OR roadmap_payload -> 'agenda' @> CAST(:aguja2 AS jsonb))"))
+             .params(aguja1=json.dumps([{"sings": True}]),
+                     aguja2=json.dumps([{"interview": {"sings": True}}])))
+        if not todo:
+            prof = s.query(UserProfile).filter(UserProfile.user_id == yo).first()
+            asignados = [x for x in (to_uuid(a) for a in (getattr(prof, "assigned_artist_ids_produccion", None) or []) if a) if x]
+            condiciones = [Concert.production_owner_user_id == yo]
+            if asignados:
+                condiciones.append(Concert.artist_id.in_(asignados))
+            q = q.filter(or_(*condiciones))
+        cat = _roadmap_kind_catalog()
+        out = []
+        for c in q.order_by(Concert.date.asc().nullslast()).limit(80).all():
+            pend = _roadmap_repertoire_pending(_roadmap_load(c))
+            if not pend:
+                continue
+            nombres = " · ".join([((it.get("title") or "").strip()
+                                   or (cat.get(it.get("kind") or "", {}) or {}).get("label") or "un punto")
+                                  for it in pend[:3]])
+            lugar = ""
+            try:
+                lugar = _place_label(
+                    (getattr(getattr(c, "venue", None), "municipality", None) or getattr(c, "manual_municipality", None) or ""),
+                    (getattr(getattr(c, "venue", None), "province", None) or getattr(c, "manual_province", None) or ""))
+            except Exception:
+                lugar = ""
+            out.append({
+                "id": str(c.id),
+                "title": (getattr(c, "festival_name", None) or lugar or ""),
+                "artist_name": (c.artist.name if c.artist else ""),
+                "artist_photo": ((c.artist.photo_url or "") if c.artist else ""),
+                "date_label": (c.date.strftime("%d/%m/%Y") if c.date else ""),
+                "venue": (c.venue.name if c.venue else (c.manual_venue_name or "")),
+                "missing": "Se canta en %s y todavía no tiene canciones" % nombres,
+                "url": url_for("concert_detail_view", cid=c.id, tab="produccion") + "#roadmapPanel",
+            })
+            if len(out) >= limit:
+                break
+        return out
+    except Exception:
+        app.logger.exception("[inicio] no se pudo calcular el repertorio pendiente de la hoja de ruta")
+        return []
+    finally:
+        s.close()
+
+
 def _home_escort_pending(limit: int = 12) -> list[dict]:
     """«CONFIRMA QUIÉN VA CON EL ARTISTA» · lo que le espera a QUIEN LLEVA LA PRODUCCIÓN.
 
@@ -161429,6 +162350,8 @@ CRON_TASKS = [
     # ── cada minuto ────────────────────────────────────────────────────────────────────────
     {"key": "notas_prensa", "label": "Notas de prensa programadas", "every": 1,
      "fn": "_press_sweep", "icon": "fa-newspaper"},
+    {"key": "mensajes_personal", "label": "Mensajes programados al personal de una hoja de ruta",
+     "every": 1, "fn": "_roadmap_scheduled_messages_sweep", "icon": "fa-comment-sms"},
     # ── cada pocos minutos ─────────────────────────────────────────────────────────────────
     {"key": "publicaciones", "label": "Recordatorios de publicación (plan de lanzamiento)",
      "every": 5, "fn": "_disco_plan_reminder_sweep", "icon": "fa-bullhorn"},
@@ -161814,7 +162737,7 @@ EXT_PROFILE_MODULES = {
     "ARTIST": [
         ("fa-calendar-day", "Su calendario", "El de sus artistas, con los mismos filtros y los festivos."),
         ("fa-guitar", "Sus actividades y promociones", "Con el estado, si se puede anunciar y cómo va la venta."),
-        ("fa-route", "Hoja de ruta", "La general y la técnica de cada actividad, en solo lectura."),
+        ("fa-route", "Hoja de ruta", "La de cada actividad: lo que le afecta, y entera —y editable— si lleva la marca «puede actualizarla»."),
         ("fa-image", "Cartelería", "Los carteles aprobados, para verlos y descargarlos."),
         ("fa-bell", "Lo que se le pide", "Confirmar una actividad, aprobar una mezcla o una portada, entregar materiales…"),
         ("fa-id-card", "Su ficha y sus documentos", "Puede actualizarlos y subir los que falten."),
@@ -161822,7 +162745,7 @@ EXT_PROFILE_MODULES = {
     "PROMOTER": [
         ("fa-calendar-day", "Su calendario", "Las actividades que promueve."),
         ("fa-ticket", "Cómo va la venta", "Las entradas vendidas de cada actividad que promueve."),
-        ("fa-route", "Hoja de ruta", "La de las actividades que promueve, en solo lectura."),
+        ("fa-route", "Hoja de ruta", "La de las actividades que promueve."),
         ("fa-image", "Cartelería", "Los carteles aprobados, para verlos y descargarlos."),
         ("fa-bell", "Lo que se le pide", "Actualizar las ventas, la ficha de contratación, los carteles, su factura…"),
         ("fa-id-card", "Su ficha y sus documentos", "Puede actualizarlos y subir los que falten."),
@@ -161834,7 +162757,7 @@ EXT_PROFILE_MODULES = {
     ],
     "THIRD": [
         ("fa-calendar-day", "Su calendario", "Los días en los que se le ha incluido en una hoja de ruta."),
-        ("fa-list-check", "Dónde se le ha incluido", "Las actividades y su hoja de ruta. Sin ventas ni economía."),
+        ("fa-list-check", "Dónde se le ha incluido", "Las actividades y su hoja de ruta (solo lo que le afecta; entera si puede actualizarla). Sin ventas ni economía."),
         ("fa-bell", "Lo que se le pide", "Sus documentos, el alta y la PRL, su factura…"),
         ("fa-id-card", "Su ficha y sus documentos", "Puede actualizarlos y subir los que falten."),
     ],
@@ -162104,6 +163027,64 @@ def _ext_identity_payload(session_db, promoters) -> dict:
 
 
 # ---------- LA SESIÓN DEL PORTAL ----------
+# ⚠️⚠️ LA HOJA DE RUTA DESDE EL PORTAL. Quien lleva en el personal la marca «puede actualizarla» (el
+# road manager de fuera) usa estos endpoints —y SOLO estos— sin sesión de la casa: mover, añadir y
+# borrar horarios, el repertorio, la logística (con sus pasajeros), bajar el rooming y el personal
+# con DNI y mandar SMS al personal. Nada de hoteles, ni de quitar gente, ni de compartir enlaces.
+EXT_ROADMAP_EDITOR_ENDPOINTS = {
+    "roadmap_item_save", "roadmap_item_delete", "roadmap_item_toggle", "roadmap_item_move",
+    "roadmap_item_songs", "roadmap_attachment_upload", "roadmap_attachment_delete", "roadmap_days_save",
+    "roadmap_contact_save", "roadmap_contact_delete", "roadmap_activity_notes_save",
+    "roadmap_personnel_save", "roadmap_personnel_data", "roadmap_travel_json",
+    "roadmap_message_data", "roadmap_message_preview", "roadmap_message_send", "roadmap_message_cancel",
+    "roadmap_personnel_pdf", "roadmap_personnel_xlsx", "roadmap_rooming_pdf", "roadmap_rooming_xlsx",
+    "roadmap_setlist_pdf",
+}
+# Y lo que puede hacer CUALQUIER externo con acceso a la actividad (leer, no tocar).
+EXT_ROADMAP_VIEWER_ENDPOINTS = {"roadmap_setlist_pdf"}
+
+
+def _ext_roadmap_gate_ok() -> bool:
+    """La PUERTA de la hoja de ruta para una sesión del portal (sin `user_id`). La llama
+    `admin_required` antes de mandar a nadie al login. Lo comprueba TODO aquí: que sea un endpoint de
+    la lista blanca, que haya sesión externa (y no bloqueada), que la actividad sea SUYA y que lleve
+    la marca `can_edit` en el personal (para escribir) o que pueda verla (para leer).
+    ⚠️ La previsualización de dirección («Ver su portal») es de solo lectura: no edita nada."""
+    try:
+        if not (request.path or "").startswith("/hoja-ruta/"):
+            return False
+        ep = request.endpoint or ""
+        if ep not in EXT_ROADMAP_EDITOR_ENDPOINTS and ep not in EXT_ROADMAP_VIEWER_ENDPOINTS:
+            return False
+        ids = _ext_session_ids()
+        if not ids:
+            return False
+        va = request.view_args or {}
+        s = db()
+        try:
+            if _ext_blocked(s, ids):
+                return False
+            kind, row = _roadmap_entity(s, va.get("entity_type"), va.get("entity_id"))
+            if row is None or kind not in ("concert", "promotion"):
+                return False
+            info = _roadmap_ext_person_info(_roadmap_load(row), ids)
+            if ep in EXT_ROADMAP_EDITOR_ENDPOINTS and info["can_edit"] and not session.get("ext_preview"):
+                return True
+            if ep in EXT_ROADMAP_VIEWER_ENDPOINTS:
+                ctx = _ext_context(s)
+                if ctx is None:
+                    return False
+                if kind == "concert":
+                    return bool(_ext_can_see_concert(s, ctx, row))
+                return str(row.id) in [str(x) for x in _ext_promotion_ids(s, ctx)]
+            return False
+        finally:
+            s.close()
+    except Exception:
+        app.logger.exception("[externos] no se pudo decidir la puerta de la hoja de ruta")
+        return False
+
+
 def _ext_session_ids() -> list[str]:
     """Los terceros de ESTA sesión (vacío si no hay sesión externa o si ya ha caducado)."""
     ids = session.get("ext_ids") or []
@@ -163194,25 +164175,33 @@ def externos_activity(cid):
         except Exception:
             session_db.rollback()
             app.logger.exception("[externos] no se pudo leer la cartelería")
-        # La HOJA DE RUTA: la de verdad, en solo lectura (el mismo panel que el enlace público).
+        # La HOJA DE RUTA: la de verdad. Lo que ve cada uno lo decide el SERVIDOR:
+        #  · quien lleva la marca «puede actualizarla» la ve ENTERA y la edita (`ext_editor`);
+        #  · quien está en el personal ve SOLO lo que le afecta (`_roadmap_payload_for_person`:
+        #    sus horarios y traslados, sus hoteles y el número de habitación solo de la suya);
+        #  · el artista o el promotor (que no están en el personal) ven lo que sale de casa.
         hojas = []
         try:
-            activas = _roadmap_kinds(c)
-            for clave, etiqueta, icono in ROADMAP_KINDS:
-                if not activas.get(clave, True):
-                    continue
-                rm = _roadmap_context(session_db, "concert", c)
-                rm["payload"] = _roadmap_payload_for_kind(rm.get("payload") or {}, clave)
-                rm["days"] = _roadmap_days(c, rm["payload"])
+            rm = _roadmap_context(session_db, "concert", c)
+            info = _roadmap_ext_person_info(rm.get("payload") or {}, ctx["ids"])
+            editor = bool(info["can_edit"]) and not ctx.get("preview")
+            rm["setlist_edit_url"] = ""
+            rm["kind"] = "GENERAL"
+            if editor:
+                rm["readonly"] = False
+                rm["ext_editor"] = True
+            else:
+                payload = _roadmap_payload_shared(rm.get("payload") or {})
+                if info["in_personnel"]:
+                    payload = _roadmap_payload_for_person(payload, info)
+                rm["payload"] = payload
+                rm["days"] = _roadmap_days(c, payload)
                 rm["readonly"] = True
-                rm["kind"] = clave
-                # ⚠️ Solo se enseña la hoja que tiene ALGO suyo: los puntos de agenda se marcan
-                # para una hoja o para las dos, pero el personal y los hoteles son COMUNES, así que
-                # con ellos la TÉCNICA saldría siempre vacía.
-                tiene_puntos = bool(rm["payload"].get("agenda"))
-                comunes = bool(rm["payload"].get("personnel") or rm["payload"].get("hotels"))
-                if tiene_puntos or (clave == "GENERAL" and comunes):
-                    hojas.append({"key": clave, "label": etiqueta, "icon": icono, "rm": rm})
+                rm["show_repertoire"] = _roadmap_show_repertoire("concert", c, payload)
+            tiene = bool(rm["payload"].get("agenda") or rm["payload"].get("personnel") or rm["payload"].get("hotels"))
+            if tiene or editor:
+                hojas.append({"key": "GENERAL", "label": "Hoja de ruta", "icon": "fa-route", "rm": rm,
+                              "editor": editor})
         except Exception:
             app.logger.exception("[externos] no se pudo montar la hoja de ruta")
         return render_template(
@@ -163257,12 +164246,23 @@ def externos_promotion(promotion_id):
         hojas = []
         try:
             rm = _roadmap_context(session_db, "promotion", p)
-            rm["payload"] = _roadmap_payload_for_kind(rm.get("payload") or {}, "GENERAL")
-            rm["days"] = _roadmap_days(p, rm["payload"])
-            rm["readonly"] = True
+            info = _roadmap_ext_person_info(rm.get("payload") or {}, ctx["ids"])
+            editor = bool(info["can_edit"]) and not ctx.get("preview")
+            rm["setlist_edit_url"] = ""
             rm["kind"] = "GENERAL"
-            if rm["days"]:
-                hojas.append({"key": "GENERAL", "label": "Hoja de ruta", "icon": "fa-route", "rm": rm})
+            if editor:
+                rm["readonly"] = False
+                rm["ext_editor"] = True
+            else:
+                payload = _roadmap_payload_shared(rm.get("payload") or {})
+                if info["in_personnel"]:
+                    payload = _roadmap_payload_for_person(payload, info)
+                rm["payload"] = payload
+                rm["days"] = _roadmap_days(p, payload)
+                rm["readonly"] = True
+            if rm["days"] or editor:
+                hojas.append({"key": "GENERAL", "label": "Hoja de ruta", "icon": "fa-route", "rm": rm,
+                              "editor": editor})
         except Exception:
             app.logger.exception("[externos] no se pudo montar la hoja de ruta de la promoción")
         primera = next((a.activity_date for a in acts_raw if a.activity_date), None)

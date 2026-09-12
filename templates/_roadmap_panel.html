@@ -7,17 +7,29 @@
      {% if rm.readonly %}data-readonly="1" data-base=""{% else %}data-base="{{ url_for('roadmap_item_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"{% endif %}>
   <script type="application/json" id="roadmapData">{{ rm | tojson }}</script>
   {# Con `rm.tabs` (plantillas de artista) solo se enseñan las pestañas que tocan; sin él, todas.
-     ⚠️ LA ACTIVIDAD va la PRIMERA y se llama como lo que es (Concierto · Festival · Evento…):
-     `rm.activity.word`. En una PLANTILLA no hay actividad, así que `rm.activity` llega vacío.
+     EL ORDEN (lo pidió Dani, sep 2026): HORARIOS la primera · Logística · Hoteles · Personal ·
+     REPERTORIO (solo cuando se canta, `rm.show_repertoire`) · y LA ACTIVIDAD la ÚLTIMA, que se
+     llama como lo que es (Concierto · Festival · Evento…): `rm.activity.word`. En una PLANTILLA no
+     hay actividad, así que `rm.activity` llega vacío.
      ⚠️ El rótulo va en un <span>: en MÓVIL se esconde y quedan solo los iconos, para que las
-     secciones se vean todas seguidas en una fila. #}
+     secciones se vean todas seguidas en una fila.
+     ⚠️ El mismo orden vive en `TABS` de roadmap.js: si se toca uno, se toca el otro. #}
   {% set _tabs = rm.tabs or ['agenda', 'logistica', 'hoteles', 'personal'] %}
   {% set _defs = [('agenda','Horarios','fa-clock'), ('logistica','Logística','fa-route'),
                   ('hoteles','Hoteles','fa-hotel'), ('personal','Personal','fa-users')] %}
-  {% if rm.activity and not rm.tabs %}
-    {% set _tabs = ['actividad'] + _tabs %}
-    {% set _defs = [('actividad', rm.activity.word, rm.activity.icon or 'fa-star')] + _defs %}
+  {% if not rm.tabs %}
+    {% if rm.show_repertoire %}
+      {% set _tabs = _tabs + ['repertorio'] %}
+      {% set _defs = _defs + [('repertorio', 'Repertorio', 'fa-music')] %}
+    {% endif %}
+    {% if rm.activity %}
+      {% set _tabs = _tabs + ['actividad'] %}
+      {% set _defs = _defs + [('actividad', rm.activity.word, rm.activity.icon or 'fa-star')] %}
+    {% endif %}
   {% endif %}
+  {# FUERA DE LA APP (el enlace abierto): la CABECERA de la actividad arriba del todo, la misma
+     viñeta de la pestaña de la actividad. La pinta roadmap.js (`actHeadHtml`). #}
+  {% if rm.header_on_top and rm.activity %}<div id="rmHeader" class="rm-head"></div>{% endif %}
   <div class="rm-nav" role="tablist">
     {% for key, label, icon in _defs %}
       {% if key in _tabs %}
@@ -33,6 +45,7 @@
   {% set rm_msg_url_data = url_for('roadmap_message_data', entity_type=rm.entity_type, entity_id=rm.entity_id) %}
   {% set rm_msg_url_preview = url_for('roadmap_message_preview', entity_type=rm.entity_type, entity_id=rm.entity_id) %}
   {% set rm_msg_url_send = url_for('roadmap_message_send', entity_type=rm.entity_type, entity_id=rm.entity_id) %}
+  {% set rm_msg_url_cancel = url_for('roadmap_message_cancel', entity_type=rm.entity_type, entity_id=rm.entity_id) %}
   {% set rm_msg_title = rm.title or 'La actividad' %}
   {% include '_roadmap_message_modal.html' %}
 {% endif %}

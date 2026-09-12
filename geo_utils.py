@@ -211,3 +211,40 @@ def search_addresses(query: str, *, limit: int = 6, timeout: int = _TIMEOUT) -> 
         filas.append(fila)
     filas.sort(key=lambda f: 0 if f["country_code"] == "ES" else 1)
     return filas
+
+
+# ---------------------------------------------------------------------------------------------
+# GEOCODIFICAR UNA DIRECCIÓN (una vez, para el MAPA del recinto en la hoja de ruta)
+# ---------------------------------------------------------------------------------------------
+def geocode_address(query: str, *, timeout: int = _TIMEOUT) -> dict | None:
+    """Las COORDENADAS de una dirección: `{"lat", "lng", "label"}` o None si no se encuentra.
+
+    Es UNA consulta por recinto (la app guarda el resultado en `venues.lat/lng`, así que no se
+    vuelve a preguntar): para eso Photon vale igual que para las sugerencias. Se prueba primero con
+    el encuadre de España y, si no sale nada, sin él (un recinto fuera).
+    ⚠️ Es una AYUDA: si el proveedor falla, se devuelve None y el mapa simplemente no se pinta."""
+    q = " ".join((query or "").split())
+    if len(q) < 4:
+        return None
+    for params in ({"q": q, "limit": 1, "bbox": SPAIN_BBOX}, {"q": q, "limit": 1}):
+        url = PHOTON_URL + "?" + urllib.parse.urlencode(params)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                datos = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None
+        for feature in (datos.get("features") or []):
+            geom = (feature or {}).get("geometry") or {}
+            coords = geom.get("coordinates") or []
+            if len(coords) < 2:
+                continue
+            try:
+                lng, lat = float(coords[0]), float(coords[1])
+            except Exception:
+                continue
+            props = feature.get("properties") or {}
+            etiqueta = " ".join([x for x in [(props.get("name") or ""), (props.get("street") or ""),
+                                             (props.get("city") or "")] if x]).strip()
+            return {"lat": lat, "lng": lng, "label": etiqueta}
+    return None

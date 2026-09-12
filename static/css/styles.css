@@ -7528,3 +7528,67 @@ button.prl-stat:hover{ border-color:var(--brand-accent,#007CA2); }
   .extp-art__item{max-width:46%;}
   .extp-salesbig__num{font-size:1.8rem;}
 }
+
+/* ===== HOJA DE RUTA · la actividad por VIÑETAS, quién ve cada punto y el repertorio (sep 2026) =====
+   La cabecera de cada viñeta va en el color corporativo con su icono (el bocadillo de las bolsas). */
+.rm-head{margin-bottom:1rem;}
+.rm-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.8rem;margin-top:.8rem;}
+.rm-card{border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff;overflow:hidden;display:flex;flex-direction:column;min-width:0;}
+.rm-card--wide{grid-column:1 / -1;}
+.rm-card__head{display:flex;align-items:center;gap:.5rem;padding:.55rem .9rem;background:#fdECED;color:#E33D48;font-weight:700;}
+.rm-card__head > i{width:1.3rem;text-align:center;flex:0 0 auto;}
+.rm-card__acts{margin-left:auto;display:inline-flex;align-items:center;gap:.4rem;}
+.rm-card__acts .btn-link{color:#E33D48;}
+.rm-card__body{padding:.75rem .9rem;flex:1 1 auto;min-width:0;}
+.rm-kv{display:flex;flex-wrap:wrap;gap:.35rem .9rem;}
+.rm-logo{width:44px;height:44px;border-radius:10px;object-fit:contain;background:#fff;border:1px solid rgba(0,0,0,.06);flex:0 0 auto;}
+.rm-logo--none{display:grid;place-items:center;color:#adb5bd;background:#f1f3f5;}
+.rm-venue__photo{width:100%;max-height:170px;object-fit:cover;border-radius:12px;margin-bottom:.6rem;display:block;}
+.rm-map{height:190px;border-radius:12px;overflow:hidden;background:#eef1f4;margin-top:.6rem;}
+.rm-acceso{background:#fff8e6;border-left:4px solid #f0b429;border-radius:10px;padding:.5rem .7rem;white-space:pre-wrap;font-size:.9rem;}
+.rm-nota{background:#f8f9fa;border-radius:10px;padding:.5rem .7rem;white-space:pre-wrap;font-size:.9rem;}
+/* Un contacto: la foto en CÍRCULO (sin foto, el muñequito), el nombre, y a la derecha llamar ·
+   WhatsApp · escribir. */
+.rm-contact{display:flex;align-items:center;gap:.6rem;padding:.35rem 0;min-width:0;}
+.rm-contact + .rm-contact{border-top:1px solid #f1f3f5;}
+.rm-contact .av{width:38px;height:38px;border-radius:50%;overflow:hidden;flex:0 0 auto;background:#e9ecef;}
+.rm-contact .av img{width:100%;height:100%;object-fit:cover;display:block;}
+.rm-contact__body{display:flex;flex-direction:column;min-width:0;flex:1 1 auto;}
+.rm-contact__name{font-weight:600;overflow-wrap:anywhere;}
+.rm-contact__acts{margin-left:auto;display:inline-flex;gap:.35rem;flex:0 0 auto;}
+.rm-contact__acts a{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:#f1f3f5;color:#495057;text-decoration:none;font-size:.9rem;}
+.rm-contact__acts a:hover{background:#e2e6ea;color:#212529;}
+.rm-contact__acts a.wa{background:#e7f8ec;color:#1f9d55;}
+.rm-contact__acts a.wa:hover{background:#d3f1dc;}
+/* A QUIÉN AFECTA un punto de los horarios: por función (etiquetas) o los nicks de las personas
+   concretas, con su cara; si son varias se DESLIZAN. */
+.rm-aud{display:flex;gap:.3rem;overflow-x:auto;max-width:100%;margin-top:.3rem;padding-bottom:.15rem;scrollbar-width:thin;}
+.rm-aud .rm-tag{flex:0 0 auto;}
+.rm-nick{display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap;background:#eef4f7;border:1px solid #d5e6ec;border-radius:999px;padding:.05rem .5rem .05rem .1rem;font-size:.74rem;font-weight:600;color:#0b6e8f;flex:0 0 auto;}
+.rm-nick img,.rm-nick .noimg{width:20px;height:20px;border-radius:50%;object-fit:cover;background:#e9ecef;display:grid;place-items:center;color:#adb5bd;font-size:.65rem;}
+.rm-tag.access{background:#fff1e0;color:#a35a00;}
+.rm-tag.edit{background:#e9f7ef;color:#198754;text-transform:none;}
+.rm-tag.sing[data-goto-rep]{cursor:pointer;}
+.rm-tag.sing[data-goto-rep]:hover{background:#d6ebff;}
+.rm-item .rm-meta a{color:var(--brand-accent,#007ca2);}
+.rm-audpeople{display:flex;flex-direction:column;gap:.3rem;max-height:230px;overflow:auto;}
+.rm-audpeople label{display:flex;align-items:center;gap:.5rem;cursor:pointer;margin:0;}
+.rm-audpeople .av{width:26px;height:26px;border-radius:50%;overflow:hidden;background:#e9ecef;display:grid;place-items:center;color:#adb5bd;flex:0 0 auto;}
+.rm-audpeople .av img{width:100%;height:100%;object-fit:cover;}
+/* EL REPERTORIO: el set list de la ficha, numerado, con su duración. */
+.rm-setlist{list-style:none;margin:0;padding:0;}
+.rm-setlist li{display:flex;align-items:baseline;gap:.6rem;padding:.3rem 0;border-bottom:1px solid #f1f3f5;}
+.rm-setlist li .n{width:1.6rem;text-align:right;color:#adb5bd;font-weight:700;font-variant-numeric:tabular-nums;flex:0 0 auto;}
+.rm-setlist li .t{flex:1 1 auto;min-width:0;font-weight:600;}
+.rm-setlist li .d{color:#6c757d;font-variant-numeric:tabular-nums;font-size:.85rem;}
+.rm-setlist li.rm-setlist__sep{font-weight:700;color:#6c757d;text-transform:uppercase;font-size:.72rem;letter-spacing:.04em;padding-top:.6rem;border-bottom:0;}
+.rm-song .n{width:1.4rem;text-align:right;color:#adb5bd;font-weight:700;flex:0 0 auto;}
+/* QUIÉN VA CON EL ARTISTA: solo el círculo. */
+.escort-av{width:48px;height:48px;border-radius:50%;overflow:hidden;background:#e9ecef;display:grid;place-items:center;color:#adb5bd;font-size:1.1rem;}
+.escort-av img{width:100%;height:100%;object-fit:cover;display:block;}
+/* SMS AL PERSONAL · los programados */
+.rmmsg-sched{display:flex;align-items:flex-start;gap:.6rem;padding:.45rem .6rem;border:1px solid rgba(0,0,0,.08);border-radius:10px;background:#f8f9fa;margin-bottom:.35rem;font-size:.86rem;}
+.rmmsg-sched.is-error{border-color:#f5c2c7;background:#fff5f5;}
+.rmmsg-sched__body{flex:1 1 auto;min-width:0;}
+.rmmsg-sched .btn{flex:0 0 auto;}
+@media print{.rm-card__acts,.rm-contact__acts{display:none!important} .rm-card{break-inside:avoid;}}

@@ -78,4 +78,30 @@ def _dev_sms(session_db, to, text, *a, **k):
 app._send_optional_email = _dev_email
 app._send_optional_sms = _dev_sms
 
-app.app.run(host="127.0.0.1", port=5099, debug=False, use_reloader=False)
+
+
+# ⚠️ SOLO EN LOCAL: entrar en el PORTAL DE EXTERNOS como un tercero sin pedir el número
+# (`/entrar-externo/<promoter_id>`), para poder VER lo que ve —y lo que puede tocar— cada uno.
+app.PUBLIC_ENDPOINTS_EXTRA.add("dev_entrar_externo")
+
+
+@app.app.get("/entrar-externo/<pid>")
+def dev_entrar_externo(pid):
+    from flask import session, redirect, request
+    if (request.remote_addr or "") not in ("127.0.0.1", "::1"):
+        return "solo en local", 403
+    s = app.db()
+    try:
+        p = s.get(app.Promoter, app._safe_uuid(str(pid)))
+        if p is None:
+            return "no existe " + pid, 404
+        session.pop("user_id", None)
+        app._ext_session_start([p])
+        return redirect("/externos/inicio")
+    finally:
+        s.close()
+
+
+# ⚠️ El puerto lo puede dar el visor (`PORT`): si el 5099 está ocupado por otro servidor de pruebas, se
+# arranca en el que toque. Y `run` va AL FINAL: lo que se defina debajo de él no llega a registrarse.
+app.app.run(host="127.0.0.1", port=int(os.environ.get("PORT") or "5099"), debug=False, use_reloader=False)

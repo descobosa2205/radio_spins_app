@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ og_title or (roadmap_kind_label ~ ' · ' ~ title) }}</title>
+  {# ⚠️ Fuera de la app no se dice «general» ni «técnica»: quien la recibe no necesita saber cómo se
+     llama por dentro. En una PROMOCIÓN el título de la previa lo compone la vista. #}
+  <title>{{ og_title or ('Hoja de ruta · ' ~ title) }}</title>
   <meta property="og:type" content="website">
-  {# En una PROMOCIÓN el título de la previa lo compone la vista («Hoja de ruta Promoción · Artista»). #}
-  <meta property="og:title" content="{{ og_title or (roadmap_kind_label ~ ' · ' ~ title) }}">
-  <meta name="twitter:title" content="{{ og_title or (roadmap_kind_label ~ ' · ' ~ title) }}">
+  <meta property="og:title" content="{{ og_title or ('Hoja de ruta · ' ~ title) }}">
+  <meta name="twitter:title" content="{{ og_title or ('Hoja de ruta · ' ~ title) }}">
   {% if og and og.description %}<meta property="og:description" content="{{ og.description }}"><meta name="twitter:description" content="{{ og.description }}">{% endif %}
   {% set _og_img = (og.image if og else '') or artist_photo %}
   {# ⚠️ La imagen va con su TAMAÑO y su tipo: sin eso, WhatsApp (y el móvil que pinta la
@@ -22,18 +23,19 @@
 <body class="public-invitation-page">
   <main class="container py-4 py-md-5">
     <div class="public-invitation-shell">
-      <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
-        <div class="d-flex align-items-center gap-2">
-          {% if artist_photo %}<img src="{{ artist_photo }}" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;flex:0 0 auto;">{% endif %}
-          <div>
-            <h1 class="h3 mb-0">{{ title }}</h1>
-            {% if artist_label and artist_label != title %}<div class="text-muted">{{ artist_label }}</div>{% endif %}
-          </div>
+      {# La CABECERA de la actividad va ARRIBA DEL TODO, dentro del panel (`rm.header_on_top`): la
+         misma viñeta de la pestaña de la actividad. Sin iconos de «hoja de ruta general» ni de
+         «solo lectura» (lo pidió Dani): quien la recibe no necesita saber cómo se llama por dentro.
+         Sin actividad (una plantilla no llega aquí) se queda el título de siempre. #}
+      {% if not rm.activity %}
+      <div class="d-flex align-items-center gap-2 mb-3">
+        {% if artist_photo %}<img src="{{ artist_photo }}" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;flex:0 0 auto;">{% endif %}
+        <div>
+          <h1 class="h3 mb-0">{{ title }}</h1>
+          {% if artist_label and artist_label != title %}<div class="text-muted">{{ artist_label }}</div>{% endif %}
         </div>
-        <span class="badge text-bg-light border py-2"><i class="fa {{ "fa-sliders" if roadmap_kind == "TECNICA" else "fa-route" }} me-1 text-danger"></i>{{ roadmap_kind_label }}</span>
-        <span class="badge text-bg-light border py-2"><i class="fa fa-eye me-1 text-danger"></i>Solo lectura</span>
       </div>
-      <h2 class="text-center h5 mb-3 text-muted">Hoja de ruta</h2>
+      {% endif %}
       {% set roadmap_ctx = rm %}
       {% include '_roadmap_panel.html' %}
     </div>

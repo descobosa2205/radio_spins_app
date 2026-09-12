@@ -64,7 +64,7 @@
   <div class="card-body">
     <div class="d-flex align-items-center gap-2 mb-3">
       <i class="fa {{ h.icon }} text-danger"></i><h5 class="mb-0">{{ h.label }}</h5>
-      <span class="badge text-bg-light border ms-auto"><i class="fa fa-eye me-1"></i>Solo lectura</span>
+      {% if h.editor %}<span class="badge text-bg-success ms-auto"><i class="fa fa-pen-to-square me-1"></i>Puedes actualizarla</span>{% endif %}
     </div>
     {% set rm = h.rm %}
     {% set roadmap_ctx = h.rm %}

@@ -139,10 +139,14 @@
       {# ⚠️ YA ESTÁ INFORMADO: solo la etiqueta. El botón de volver a avisar SALE de los destacados
          (no hay nada que hacer) y se queda en la rueda, por si hiciera falta mandarlo otra vez. Si
          cambia algo gordo —fecha, hora, recinto o caché— el aviso deja de valer y vuelve solo. #}
-      <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
-            title="{% if artist_notice.manual %}Ya estaba informado (marcado a mano) el {{ artist_notice.at_label }}{% if artist_notice.by %} por {{ artist_notice.by }}{% endif %}{% else %}Avisado el {{ artist_notice.at_label }}{% if artist_notice.to_label %} a {{ artist_notice.to_label }}{% endif %}{% if artist_notice.by %} · lo mandó {{ artist_notice.by }}{% endif %}{% endif %}">
+      {# La etiqueta SE PINCHA para volver a notificarle (lo pidió Dani): ya está avisado a todos
+         los efectos —también cuando lo que hay es su «sí» desde el aviso—, y si hace falta mandarlo
+         otra vez se hace desde aquí. #}
+      <a class="badge text-bg-success align-self-center text-decoration-none" data-bs-toggle="tooltip"
+         href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}"
+         title="{% if artist_notice.kind == 'CONFIRMACION' %}El artista confirmó la actividad el {{ artist_notice.at_label }}{% elif artist_notice.manual %}Ya estaba informado (marcado a mano) el {{ artist_notice.at_label }}{% if artist_notice.by %} por {{ artist_notice.by }}{% endif %}{% else %}Avisado el {{ artist_notice.at_label }}{% if artist_notice.to_label %} a {{ artist_notice.to_label }}{% endif %}{% if artist_notice.by %} · lo mandó {{ artist_notice.by }}{% endif %}{% endif %} · pincha para volver a notificarle">
         <i class="fa fa-circle-check me-1"></i>Notificado{% if artist_notice.manual %} <span class="small">(a mano)</span>{% endif %}
-      </span>
+      </a>
     {% else %}
       <a class="btn btn-outline-warning btn-sm" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}">
         <i class="fa fa-bell me-1"></i>Notificar al artista

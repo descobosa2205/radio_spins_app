@@ -9,6 +9,7 @@ from sqlalchemy import (
     Text,
     Integer,
     BigInteger,
+    Float,
     ForeignKey,
     DateTime,
     Boolean,
@@ -2320,6 +2321,14 @@ class Venue(Base):
     postal_code = Column(Text)
     country = Column(Text)  # país (por defecto España en los formularios)
     photo_url = Column(Text)
+    # LO QUE HACE FALTA EN UNA HOJA DE RUTA: cómo se ACCEDE al recinto (la nota «Acceso», que solo se
+    # enseña si existe) y las COORDENADAS para pintar el mapa. Las coordenadas se geocodifican UNA
+    # vez a partir de la dirección (`_venue_coords` en app.py) y se guardan aquí; `geocoded_at` dice
+    # cuándo se intentó, para no volver a preguntar en cada carga si no se encontró.
+    access_notes = Column(Text)
+    lat = Column(Float)
+    lng = Column(Float)
+    geocoded_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -7219,6 +7228,72 @@ def ensure_video_web_schema():
         );
         """,
     ], "video_web_versions")
+
+
+# ---------------------------------------------------------------------------
+# HOJA DE RUTA · un mensaje al personal DEJADO PROGRAMADO
+# ---------------------------------------------------------------------------
+class RoadmapScheduledMessage(Base):
+    """Un SMS (o un correo) al personal de una hoja de ruta que se manda MÁS TARDE.
+
+    «Mañana a las 8 les mando el aviso del bus» se deja aquí escrito y el cron único lo manda a su
+    hora (`_roadmap_scheduled_messages_sweep`). Se guarda A QUIÉN (los ids del personal de la hoja
+    de ruta), QUÉ y CUÁNDO, y al salir queda el resultado (`result`): un envío que falla no puede ser
+    invisible. Se puede anular mientras esté pendiente."""
+
+    __tablename__ = "roadmap_scheduled_messages"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    entity_type = Column(Text, nullable=False)          # concert | action | promotion | project
+    entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    channel = Column(Text, nullable=False, server_default=text("'SMS'"))   # SMS | EMAIL
+    person_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    body = Column(Text, nullable=False)
+    link = Column(Text)
+    subject = Column(Text)
+    button_label = Column(Text)
+    send_at = Column(DateTime(timezone=True), nullable=False)
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE | ENVIADO | ERROR | ANULADO
+    sent_at = Column(DateTime(timezone=True))
+    result = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+def ensure_roadmap_extras_schema():
+    """Lo nuevo de la hoja de ruta (idempotente, sin Alembic): las columnas del RECINTO (el acceso y
+    las coordenadas del mapa) y la tabla de mensajes programados al personal.
+
+    ⚠️ Cada columna va en SU PROPIA sentencia: metida dentro de un ALTER que ya existía podría no
+    ejecutarse nunca (la trampa del `DO $$ … IF NOT EXISTS` que tumbó la app en septiembre)."""
+    _exec_ddl_statements([
+        "ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS access_notes text;",
+        "ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS lat double precision;",
+        "ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS lng double precision;",
+        "ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS geocoded_at timestamptz;",
+        """
+        CREATE TABLE IF NOT EXISTS roadmap_scheduled_messages (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            entity_type text NOT NULL,
+            entity_id uuid NOT NULL,
+            channel text NOT NULL DEFAULT 'SMS',
+            person_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            body text NOT NULL,
+            link text,
+            subject text,
+            button_label text,
+            send_at timestamptz NOT NULL,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            sent_at timestamptz,
+            result jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_roadmap_sched_msgs_due ON roadmap_scheduled_messages(status, send_at);",
+    ], "roadmap_extras")
 
 
 # ---------------------------------------------------------------------------

@@ -9,10 +9,47 @@
    ═══════════════════════════════════════════════════════════════════════════════════════════════ */
 (function () {
   var modal = null, datos = null, canal = 'SMS', elegidos = null, tPrev = null;
+  var cuando = 'now';   // AHORA, o PROGRAMADO (`later`): lo manda el cron único a su hora
 
   function raiz() { return document.querySelector('[data-rm-msg]'); }
   function q(sel) { var r = raiz(); return r ? r.querySelector(sel) : null; }
   function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : t; return d.innerHTML; }
+  function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? (m.getAttribute('content') || '') : ''; }
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  /* El valor por defecto al programar: mañana a las 9:00 (hora local, que es la de España). */
+  function defaultSendAt() {
+    var d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + 'T09:00';
+  }
+  /* Los mensajes que están PROGRAMADOS y todavía no han salido (y los que fallaron), con su anular. */
+  function pintaProgramados(filas) {
+    var box = q('[data-rm-msg-scheduled-box]'), z = q('[data-rm-msg-scheduled]');
+    if (!box || !z) return;
+    filas = filas || [];
+    box.classList.toggle('d-none', !filas.length);
+    z.innerHTML = filas.map(function (f) {
+      var err = f.status === 'ERROR';
+      return '<div class="rmmsg-sched' + (err ? ' is-error' : '') + '">'
+        + '<i class="fa ' + (f.channel === 'EMAIL' ? 'fa-envelope' : 'fa-comment-sms') + ' text-muted"></i>'
+        + '<span class="rmmsg-sched__body"><span class="fw-semibold">' + esc(f.send_at_label) + '</span> · ' + f.count + (f.count === 1 ? ' persona' : ' personas')
+        + (f.by ? ' · ' + esc(f.by) : '')
+        + (err ? '<span class="text-danger d-block small">No salió: ' + esc(f.error || 'error') + '</span>' : '')
+        + '<span class="d-block small text-muted">' + esc(f.body) + '</span></span>'
+        + '<button type="button" class="btn btn-sm btn-outline-danger py-0" data-rm-msg-cancel="' + esc(f.id) + '" title="Anular"><i class="fa fa-ban"></i></button>'
+        + '</div>';
+    }).join('');
+  }
+  function modosCuando() {
+    var box = q('[data-rm-msg-when-box]'); if (box) box.classList.toggle('d-none', cuando !== 'later');
+    var inp = q('[data-rm-msg-sendat]'); if (inp && cuando === 'later' && !inp.value) inp.value = defaultSendAt();
+    var b = q('[data-rm-msg-send]');
+    if (b) {
+      var n = alcanzables().filter(function (p) { return elegidos && elegidos.has(p.id); }).length;
+      b.innerHTML = cuando === 'later'
+        ? '<i class="fa fa-clock me-1"></i>Programar' + (n ? ' para ' + n : '')
+        : '<i class="fa fa-paper-plane me-1"></i>Enviar' + (n ? ' a ' + n : '');
+    }
+  }
 
   function alcanzables() {
     if (!datos) return [];
@@ -71,10 +108,8 @@
         + ': complétalo en su ficha o en el personal.') : '';
     }
     var b = q('[data-rm-msg-send]');
-    if (b) {
-      b.disabled = !n;
-      b.innerHTML = '<i class="fa fa-paper-plane me-1"></i>Enviar' + (n ? ' a ' + n : '');
-    }
+    if (b) b.disabled = !n;
+    modosCuando();
   }
 
   function modos() {
@@ -132,6 +167,7 @@
       if (!datos.sms_gateway) canal = 'EMAIL';      // sin pasarela, el SMS no se puede mandar
       elegidos = new Set(alcanzables().map(function (p) { return p.id; }));
       pintaCanales(); pintaRoles(); pintaGente(); modos(); previa();
+      pintaProgramados(datos.scheduled);
     }).catch(function () {});
   }
 
@@ -167,9 +203,23 @@
     }
     var envia = ev.target.closest('[data-rm-msg-send]');
     if (envia) { manda(envia); return; }
+    var anula = ev.target.closest('[data-rm-msg-cancel]');
+    if (anula) {
+      if (!confirm('¿Anular este mensaje programado? No se mandará.')) return;
+      fetch(raiz().getAttribute('data-url-cancel'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+        body: JSON.stringify({ id: anula.getAttribute('data-rm-msg-cancel') })
+      }).then(function (x) { return x.json(); }).then(function (d) {
+        if (d && d.ok) pintaProgramados(d.scheduled_rows);
+        else alert((d && d.error) || 'No se pudo anular.');
+      }).catch(function () { alert('No se pudo anular.'); });
+      return;
+    }
   });
 
   document.addEventListener('change', function (ev) {
+    var w = ev.target.closest('[data-rm-msg-when]');
+    if (w) { cuando = w.value === 'later' ? 'later' : 'now'; modosCuando(); return; }
     var p = ev.target.closest('[data-rm-msg-p]');
     if (!p || !elegidos) return;
     var id = p.getAttribute('data-rm-msg-p');
@@ -190,17 +240,24 @@
     if (!ids.length) return;
     var cuerpo = (q('[data-rm-msg-body]') || {}).value || '';
     if (!cuerpo.trim()) { alert('Escribe el mensaje.'); return; }
-    if (!confirm('Se va a mandar a ' + ids.length + (ids.length === 1 ? ' persona.' : ' personas.'))) return;
+    var sendAt = '';
+    if (cuando === 'later') {
+      sendAt = (q('[data-rm-msg-sendat]') || {}).value || '';
+      if (!sendAt) { alert('Di cuándo se manda.'); return; }
+      if (new Date(sendAt) <= new Date()) { alert('Esa hora ya ha pasado: elige una posterior o mándalo ahora.'); return; }
+      if (!confirm('Se dejará programado para ' + sendAt.replace('T', ' a las ') + ' a ' + ids.length + (ids.length === 1 ? ' persona.' : ' personas.'))) return;
+    } else if (!confirm('Se va a mandar a ' + ids.length + (ids.length === 1 ? ' persona.' : ' personas.'))) return;
     btn.disabled = true;
     var previo = btn.innerHTML;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + (sendAt ? 'Programando…' : 'Enviando…');
     fetch(r.getAttribute('data-url-send'), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
       body: JSON.stringify({
         channel: canal, ids: ids, body: cuerpo,
         link: (q('[data-rm-msg-link]') || {}).value || '',
         subject: (q('[data-rm-msg-subject]') || {}).value || '',
-        button_label: (q('[data-rm-msg-btnlabel]') || {}).value || ''
+        button_label: (q('[data-rm-msg-btnlabel]') || {}).value || '',
+        send_at: sendAt
       })
     }).then(function (x) { return x.json(); }).then(function (d) {
       btn.disabled = false; btn.innerHTML = previo;
@@ -213,6 +270,7 @@
         est.innerHTML = '<span class="text-success"><i class="fa fa-circle-check me-1"></i>' + esc(d.message) + '</span>'
           + ((d.failed && d.failed.length) ? ' <span class="text-danger">No salió para: ' + esc(d.failed.join(' · ')) + '</span>' : '');
       }
+      if (d.scheduled) pintaProgramados(d.scheduled_rows);
     }).catch(function () {
       btn.disabled = false; btn.innerHTML = previo;
       var est = q('[data-rm-msg-status]');

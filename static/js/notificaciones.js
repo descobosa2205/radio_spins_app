@@ -46,8 +46,11 @@
   function marcarLeido(id) {
     var fd = new FormData();
     if (id) fd.append('id', id);
+    /* ⚠️ `keepalive`: «Ir a resolverlo» NAVEGA justo después de marcar el aviso como leído, y sin
+       esto el navegador cancelaba la petición a medias — el aviso seguía sin leer al volver (bug
+       real: «pinchas, haces lo que toca y el aviso no se desactiva»). */
     return fetch(URL_READ, {
-      method: 'POST', body: fd,
+      method: 'POST', body: fd, keepalive: true,
       headers: {'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest'}
     }).catch(function () {});
   }

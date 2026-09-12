@@ -12,14 +12,33 @@
     <div class="modal-content" data-rm-msg
          data-url-data="{{ rm_msg_url_data }}"
          data-url-preview="{{ rm_msg_url_preview }}"
-         data-url-send="{{ rm_msg_url_send }}">
+         data-url-send="{{ rm_msg_url_send }}"
+         data-url-cancel="{{ rm_msg_url_cancel }}">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Mandar un mensaje al personal</h5>
+        <h5 class="modal-title"><i class="fa fa-comment-sms me-2 text-danger"></i>Enviar SMS al personal</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        {# ── POR DÓNDE ──────────────────────────────────────────────────────────────────── #}
-        <div class="rmmsg-channels mb-3" data-rm-msg-channels></div>
+        {# ── POR DÓNDE y CUÁNDO ─────────────────────────────────────────────────────────── #}
+        <div class="d-flex flex-wrap align-items-start gap-3 mb-3">
+          <div class="rmmsg-channels" data-rm-msg-channels></div>
+          {# Se manda AHORA o se deja PROGRAMADO: lo manda el cron único a su hora (hora de España). #}
+          <div class="ms-md-auto">
+            <div class="filter-chips">
+              <label class="filter-chip"><input type="radio" name="rmMsgWhen" value="now" checked data-rm-msg-when><i class="fa fa-paper-plane"></i>Ahora</label>
+              <label class="filter-chip"><input type="radio" name="rmMsgWhen" value="later" data-rm-msg-when><i class="fa fa-clock"></i>Programarlo</label>
+            </div>
+            <div class="mt-2 d-none" data-rm-msg-when-box>
+              <input type="datetime-local" class="form-control form-control-sm" data-rm-msg-sendat style="max-width:16rem;">
+              <div class="form-text">Hora de España. Sale solo a esa hora.</div>
+            </div>
+          </div>
+        </div>
+        {# Los que ya están PROGRAMADOS y todavía no han salido (se pueden anular). #}
+        <div class="rmmsg-scheduled mb-3 d-none" data-rm-msg-scheduled-box>
+          <div class="small fw-semibold mb-1"><i class="fa fa-clock me-1 text-muted"></i>Programados</div>
+          <div data-rm-msg-scheduled></div>
+        </div>
 
         <div class="row g-3">
           {# ── A QUIÉN ──────────────────────────────────────────────────────────────────── #}

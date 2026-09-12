@@ -90,13 +90,14 @@
 </div>
 {% endif %}
 
-{# ---------- La hoja de ruta (la de verdad, en solo lectura) ---------- #}
+{# ---------- La hoja de ruta (la de verdad). Lo que ve cada uno lo decide el SERVIDOR: quien
+     lleva la marca «puede actualizarla» la edita (`h.editor`); el resto ve lo que le afecta. ---------- #}
 {% for h in hojas %}
 <div class="card mb-4">
   <div class="card-body">
     <div class="d-flex align-items-center gap-2 mb-3">
       <i class="fa {{ h.icon }} text-danger"></i><h5 class="mb-0">{{ h.label }}</h5>
-      <span class="badge text-bg-light border ms-auto"><i class="fa fa-eye me-1"></i>Solo lectura</span>
+      {% if h.editor %}<span class="badge text-bg-success ms-auto"><i class="fa fa-pen-to-square me-1"></i>Puedes actualizarla</span>{% endif %}
     </div>
     {% set rm = h.rm %}
     {% set roadmap_ctx = h.rm %}

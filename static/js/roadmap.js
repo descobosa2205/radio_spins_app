@@ -35,8 +35,29 @@
     // Pestaña de arranque: la primera que exista (una plantilla de personal solo tiene «personal»).
     // ⚠️ LA ACTIVIDAD va la primera, y solo cuando la hay (una plantilla no es ninguna actividad).
     var ACTIVITY = CTX.activity || null;
-    var TABS = (CTX.tabs && CTX.tabs.length) ? CTX.tabs : ['agenda', 'logistica', 'hoteles', 'personal'];
-    if (ACTIVITY && !(CTX.tabs && CTX.tabs.length)) TABS = ['actividad'].concat(TABS);
+    var VENUE = CTX.venue || null;            // el recinto (con su mapa y su nota de acceso)
+    var SETLIST = CTX.setlist || null;        // el set list de la ficha, tal como está configurado
+    var SHOW_REP = !!CTX.show_repertoire;     // ¿se canta? → pestaña Repertorio
+    var SETLIST_PDF = CTX.setlist_pdf_url || '';
+    var SETLIST_EDIT = CTX.setlist_edit_url || '';
+    var HEADER_TOP = !!CTX.header_on_top;     // fuera de la app: la cabecera arriba del todo
+    /* ⚠️ EL EDITOR EXTERNO (`ext_editor`): alguien del personal con la marca «puede actualizarla»
+       entrando por el portal. Edita los HORARIOS, la LOGÍSTICA y el REPERTORIO; los hoteles y el
+       personal los ve (y baja el rooming y el listado, y manda SMS), y lo de la casa —compartir,
+       configurar días, plantillas, la nota de acceso del recinto— no lo toca. */
+    var EXT = !!CTX.ext_editor;
+    var HRO = RO || EXT;                      // hoteles y rooming: solo lectura para el externo
+    var PRO = RO || EXT;                      // personal: solo lectura para el externo
+    var CAN_ADMIN = !RO && !EXT;              // lo de la casa
+    var CAN_CREATE = !RO && !EXT;             // crear terceros al vuelo (sus endpoints piden sesión)
+    var AVATAR = (document.body.getAttribute('data-default-avatar-url') || '/static/img/avatar_placeholder.png');
+    /* EL ORDEN: Horarios · Logística · Hoteles · Personal · [Repertorio] · y la ACTIVIDAD la ÚLTIMA
+       (lo pidió Dani). Una plantilla trae las suyas (`CTX.tabs`) y no se toca. */
+    var TABS = (CTX.tabs && CTX.tabs.length) ? CTX.tabs.slice() : ['agenda', 'logistica', 'hoteles', 'personal'];
+    if (!(CTX.tabs && CTX.tabs.length)) {
+      if (SHOW_REP) TABS.push('repertorio');
+      if (ACTIVITY) TABS.push('actividad');
+    }
     var tab = TABS[0];
     var dragId = null;
 
@@ -145,7 +166,7 @@
     // ahora COMO plantilla del artista. En el editor de una plantilla el botón no sale (IS_TPL).
     var IS_TPL = !!CTX.is_template;
     function tplBtn(kind) {
-      if (RO || IS_TPL) return '';
+      if (RO || IS_TPL || EXT) return '';
       return '<button class="btn btn-sm btn-outline-secondary" data-tpl-open="' + kind + '" title="Plantillas del artista"><i class="fa fa-clone"></i> Plantillas</button>';
     }
     function rmToast(msg) {
@@ -317,10 +338,13 @@
     }
 
     /* ================================================================ LA ACTIVIDAD
-       De quién es, cuándo, dónde y con quién se habla: lo primero que necesita quien abre la hoja
-       de ruta. Los datos los compone el SERVIDOR (`_roadmap_activity_card`, que es la MISMA
-       cabecera de la ficha), aquí solo se pintan. */
-    function renderActividad() {
+       Se llama como lo que es (Concierto · Festival · Evento…) y va la ÚLTIMA. Fuera de la app
+       (`HEADER_TOP`) su cabecera —la MISMA viñeta— se pinta arriba del todo (#rmHeader).
+       Dentro va por VIÑETAS con la cabecera del color corporativo y su icono: PROMOTOR · RECINTO
+       (foto, mapa y la nota de ACCESO solo si existe) · la propia actividad (duración, formación y
+       las notas que se apunten) · CONTACTOS agrupados por función, con teléfono, correo y WhatsApp.
+       Los datos los compone el SERVIDOR (`_roadmap_activity_card`, `_roadmap_venue_card`). */
+    function actHeadHtml() {
       var a = ACTIVITY || {};
       var foto = a.photo
         ? '<img class="rm-act__photo" src="' + esc(a.photo) + '" alt="" data-avatar="1">'
@@ -330,38 +354,394 @@
           + '<span class="rm-act__lab">' + esc(f.label) + '</span>'
           + '<b>' + esc(f.value) + '</b></div>';
       }).join('');
-      var html = '<div class="rm-act">'
+      return '<div class="rm-act">'
         + '<div class="rm-act__head">' + foto + '<div>'
         + '<div class="rm-act__eyebrow">' + esc(a.word || 'Actividad') + '</div>'
         + '<div class="rm-act__title">' + esc(a.title || '') + '</div>'
         + (a.subtitle ? '<div class="rm-sub">' + esc(a.subtitle) + '</div>' : '')
         + '</div></div>'
-        + (datos ? '<div class="rm-act__facts">' + datos + '</div>' : '<div class="rm-empty">Sin datos todavía.</div>')
+        + (datos ? '<div class="rm-act__facts">' + datos + '</div>' : '')
         + '</div>';
-      var cont = (a.contacts || []).map(function (c) {
-        return '<div class="rm-person"><span class="av">' + avatar(c.photo, 'fa-user') + '</span><div class="flex-grow-1">'
-          + '<div class="fw-semibold">' + esc(c.name) + '</div>'
-          + (c.roles ? '<div class="rm-sub">' + esc(c.roles) + '</div>' : '')
-          + '</div><div class="rm-sub text-end">'
-          + (c.phone ? '<div><a href="tel:' + esc(c.phone) + '"><i class="fa fa-phone"></i> ' + esc(c.phone) + '</a></div>' : '')
-          + (c.email ? '<div><a href="mailto:' + esc(c.email) + '"><i class="fa fa-envelope"></i> ' + esc(c.email) + '</a></div>' : '')
-          + '</div></div>';
-      }).join('');
-      if (cont) html += '<div class="rm-group-title">Contactos de la actividad</div><div class="d-flex flex-column gap-2">' + cont + '</div>';
+    }
+    function card(icon, title, body, right, cls) {
+      return '<div class="rm-card' + (cls ? ' ' + cls : '') + '">'
+        + '<div class="rm-card__head"><i class="fa ' + esc(icon) + '"></i><span>' + esc(title) + '</span>'
+        + (right ? '<span class="rm-card__acts">' + right + '</span>' : '') + '</div>'
+        + '<div class="rm-card__body">' + body + '</div></div>';
+    }
+    /* Un teléfono para WhatsApp: solo dígitos y con el prefijo del país (un móvil español de 9
+       cifras se completa con el 34). */
+    function waLink(phone) {
+      var d = String(phone || '').replace(/[^\d+]/g, '');
+      if (d.indexOf('+') === 0) d = d.slice(1);
+      if (d.indexOf('00') === 0) d = d.slice(2);
+      if (d.length === 9 && /^[6789]/.test(d)) d = '34' + d;
+      return 'https://wa.me/' + d;
+    }
+    /* La aplicación de mapas del aparato: en un iPhone, un iPad o un Mac, Apple Maps; en el
+       resto, Google Maps. */
+    function mapsUrl(q) {
+      var apple = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent || '');
+      return apple ? ('https://maps.apple.com/?q=' + encodeURIComponent(q))
+                   : ('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q));
+    }
+    function contactActs(phone, email) {
+      var h = '';
+      if (phone) h += '<a href="tel:' + esc(phone) + '" title="Llamar" data-ext><i class="fa fa-phone"></i></a>'
+        + '<a class="wa" href="' + esc(waLink(phone)) + '" target="_blank" rel="noopener" title="WhatsApp" data-ext><i class="fa-brands fa-whatsapp"></i></a>';
+      if (email) h += '<a href="mailto:' + esc(email) + '" title="Escribir" data-ext><i class="fa fa-envelope"></i></a>';
+      return h ? '<span class="rm-contact__acts">' + h + '</span>' : '';
+    }
+    /* ⚠️ Sin foto, la imagen de «sin foto» de la casa (el muñequito), no el icono suelto. */
+    function contactRow(c, sub, extra) {
+      var img = c.photo || c.photo_url || AVATAR;
+      return '<div class="rm-contact"><span class="av"><img src="' + esc(img) + '" alt="" data-avatar="1"></span>'
+        + '<span class="rm-contact__body"><span class="rm-contact__name">' + esc(c.name || '') + '</span>'
+        + (sub ? '<span class="rm-sub">' + esc(sub) + '</span>' : '')
+        + (c.phone ? '<span class="rm-sub">' + esc(c.phone) + '</span>' : '')
+        + (c.email ? '<span class="rm-sub">' + esc(c.email) + '</span>' : '')
+        + '</span>' + contactActs(c.phone, c.email) + (extra || '') + '</div>';
+    }
+    /* Los contactos AÑADIDOS en la hoja de ruta viven en el payload: tras guardar uno se rehace la
+       lista que pinta la viñeta (los de la actividad los trae el servidor y no cambian aquí). */
+    function syncRoadmapContacts() {
+      if (!ACTIVITY) return;
+      var fijos = (ACTIVITY.contacts || []).filter(function (c) { return c.source !== 'roadmap'; });
+      var propios = (P.contacts || []).filter(function (c) { return c && (c.name || '').trim(); }).map(function (c) {
+        return { id: String(c.id || ''), source: 'roadmap', name: c.name, photo: c.photo_url || '', roles: c.role || '',
+                 phone: c.phone || '', email: c.email || '' };
+      });
+      ACTIVITY.contacts = fijos.concat(propios);
+    }
+    var LEAFLET_LOADING = null;
+    function ensureLeaflet(cb) {
+      if (window.L && window.L.map) { cb(); return; }
+      if (!LEAFLET_LOADING) {
+        LEAFLET_LOADING = new Promise(function (resolve) {
+          var css = document.createElement('link'); css.rel = 'stylesheet';
+          css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
+          var js = document.createElement('script'); js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+          js.onload = resolve; js.onerror = resolve; document.head.appendChild(js);
+        });
+      }
+      LEAFLET_LOADING.then(function () { if (window.L && window.L.map) cb(); });
+    }
+    function drawVenueMap() {
+      var box = view.querySelector('[data-rm-map]');
+      if (!box || !VENUE || !VENUE.lat || !VENUE.lng) return;
+      ensureLeaflet(function () {
+        if (!document.body.contains(box) || box.dataset.done) return;
+        box.dataset.done = '1';
+        try {
+          var map = L.map(box, { scrollWheelZoom: false }).setView([VENUE.lat, VENUE.lng], 15);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
+          L.marker([VENUE.lat, VENUE.lng]).addTo(map);
+          setTimeout(function () { try { map.invalidateSize(); } catch (_) {} }, 250);
+        } catch (_) {}
+      });
+    }
+    function renderActividad() {
+      var a = ACTIVITY || {};
+      syncRoadmapContacts();
+      var html = HEADER_TOP ? '' : actHeadHtml();
+      var tarjetas = '';
+      // ── PROMOTOR
+      var pr = a.promoter;
+      if (pr && pr.name) {
+        var logo = pr.logo ? '<img class="rm-logo" src="' + esc(pr.logo) + '" alt="">' : '<span class="rm-logo rm-logo--none"><i class="fa fa-building"></i></span>';
+        // El teléfono y el correo, cada uno en su línea: juntos con un «·» se partían mal en una
+        // viñeta estrecha (visto en pantalla).
+        tarjetas += card('fa-handshake', 'Promotor',
+          '<div class="rm-contact">' + logo + '<span class="rm-contact__body"><span class="rm-contact__name">' + esc(pr.name) + '</span>'
+          + (pr.note ? '<span class="rm-sub">' + esc(pr.note) + '</span>' : '')
+          + (pr.phone ? '<span class="rm-sub">' + esc(pr.phone) + '</span>' : '')
+          + (pr.email ? '<span class="rm-sub">' + esc(pr.email) + '</span>' : '')
+          + '</span>' + contactActs(pr.phone, pr.email) + '</div>');
+      }
+      // ── RECINTO
+      if (VENUE) {
+        var v = VENUE, b = '';
+        if (v.photo_url) b += '<img class="rm-venue__photo" src="' + esc(v.photo_url) + '" alt="" onerror="this.remove()">';
+        b += '<div class="fw-bold">' + esc(v.name || 'Recinto') + '</div>';
+        var lineas = [v.address, [v.postal_code, v.municipality].filter(Boolean).join(' '), [v.province, v.country].filter(Boolean).join(', ')].filter(Boolean);
+        if (lineas.length) b += '<div class="rm-sub">' + lineas.map(esc).join('<br>') + '</div>';
+        var kv = '';
+        if (v.covered === true) kv += '<span class="rm-act__fact"><i class="fa fa-umbrella"></i><b>Cubierto</b></span>';
+        else if (v.covered === false) kv += '<span class="rm-act__fact"><i class="fa fa-sun"></i><b>Al aire libre</b></span>';
+        if (v.capacity_label) kv += '<span class="rm-act__fact"><i class="fa fa-people-group"></i><span class="rm-act__lab">Aforo</span><b>' + esc(v.capacity_label) + '</b></span>';
+        if (kv) b += '<div class="rm-kv mt-2">' + kv + '</div>';
+        if (v.maps_query) b += '<a class="btn btn-sm btn-outline-secondary rounded-pill mt-2" href="' + esc(mapsUrl(v.maps_query)) + '" target="_blank" rel="noopener"><i class="fa fa-map-location-dot me-1"></i>Abrir en Mapas</a>';
+        if (v.lat && v.lng) b += '<div class="rm-map" data-rm-map></div>';
+        if (v.access_notes) b += '<div class="rm-acceso mt-2"><b>Acceso:</b> ' + esc(v.access_notes) + '</div>';
+        (v.contacts || []).forEach(function (c) { b += contactRow(c, c.relation || ''); });
+        var acc = (CAN_ADMIN && v.id) ? '<button type="button" class="btn btn-sm btn-link p-0" data-venue-access title="' + (v.access_notes ? 'Cambiar la nota de acceso' : 'Añadir cómo se accede') + '"><i class="fa fa-door-open"></i></button>' : '';
+        tarjetas += card('fa-location-dot', 'Recinto', b, acc);
+      }
+      // ── LA PROPIA ACTIVIDAD (se llama como lo que es)
+      var e = '';
+      if (a.duration) e += '<span class="rm-act__fact"><i class="fa fa-hourglass-half"></i><span class="rm-act__lab">Duración</span><b>' + esc(a.duration) + '</b></span>';
+      if (a.formation) e += '<span class="rm-act__fact"><i class="fa fa-users-line"></i><span class="rm-act__lab">Formación</span><b>' + esc(a.formation) + '</b></span>';
+      if (a.sings) e += '<span class="rm-act__fact"><i class="fa fa-music"></i><b>Se canta</b></span>';
+      var eb = (e ? '<div class="rm-kv">' + e + '</div>' : '')
+        + (a.description ? '<div class="rm-sub mt-2" style="white-space:pre-wrap;">' + esc(a.description) + '</div>' : '')
+        + (a.notes ? '<div class="rm-nota mt-2"><i class="fa fa-note-sticky me-1"></i>' + esc(a.notes) + '</div>' : '');
+      if (eb || CAN_ADMIN) {
+        var edN = CAN_ADMIN ? '<button type="button" class="btn btn-sm btn-link p-0" data-act-notes title="' + (a.notes ? 'Cambiar las notas' : 'Añadir notas sobre la actividad') + '"><i class="fa fa-pen"></i></button>' : '';
+        tarjetas += card(a.icon || 'fa-star', a.word || 'Actividad', eb || '<div class="rm-sub">Sin duración, formación ni notas todavía.</div>', edN);
+      }
+      // ── CONTACTOS, agrupados por función
+      var cont = a.contacts || [];
+      if (cont.length || CAN_ADMIN) {
+        var grupos = {}, orden = [];
+        cont.forEach(function (c) {
+          var g = (c.roles || '').trim() || 'Sin función';
+          if (!grupos[g]) { grupos[g] = []; orden.push(g); }
+          grupos[g].push(c);
+        });
+        var cb = '';
+        orden.forEach(function (g) {
+          cb += '<div class="rm-group-title">' + esc(g) + '</div>';
+          grupos[g].forEach(function (c) {
+            var del = (CAN_ADMIN && c.source === 'roadmap' && c.id)
+              ? '<button type="button" class="btn btn-sm btn-link text-danger p-0 ms-1" data-contact-del="' + esc(c.id) + '" title="Quitar"><i class="fa fa-xmark"></i></button>' : '';
+            cb += contactRow(c, '', del);
+          });
+        });
+        if (!cont.length) cb = '<div class="rm-sub">Todavía no hay contactos. Añade a quien haga falta: el promotor, la sala, el técnico de la casa…</div>';
+        var addC = CAN_ADMIN ? '<button type="button" class="btn btn-sm btn-link p-0" data-contact-add title="Añadir un contacto"><i class="fa fa-plus"></i></button>' : '';
+        tarjetas += card('fa-address-book', 'Contactos', cb, addC, 'rm-card--wide');
+      }
+      html += tarjetas ? '<div class="rm-cards">' + tarjetas + '</div>' : (HEADER_TOP ? '<div class="rm-empty">Sin más datos de la actividad.</div>' : '');
       view.innerHTML = html;
+      drawVenueMap();
+      if (!CAN_ADMIN) return;
+      var bA = view.querySelector('[data-venue-access]');
+      if (bA) bA.addEventListener('click', openVenueAccess);
+      var bN = view.querySelector('[data-act-notes]');
+      if (bN) bN.addEventListener('click', openActivityNotes);
+      var bC = view.querySelector('[data-contact-add]');
+      if (bC) bC.addEventListener('click', openContactEditor);
+      view.querySelectorAll('[data-contact-del]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (!confirm('¿Quitar este contacto de la hoja de ruta?')) return;
+          postJson(ep('/contacto/delete'), { id: b.getAttribute('data-contact-del') }).then(function (r) { if (apply(r)) syncRoadmapContacts(); });
+        });
+      });
+    }
+    /* La nota de ACCESO es un dato del RECINTO (vale para todas sus actividades). */
+    function openVenueAccess() {
+      var h = '<label class="form-label">Cómo se accede al recinto</label>'
+        + '<textarea class="form-control" rows="4" data-acc placeholder="Por dónde entra el equipo, dónde aparca el camión, a quién preguntar…">' + esc(VENUE.access_notes || '') + '</textarea>'
+        + '<div class="form-text">Se guarda en la ficha del recinto: vale para todas las actividades que se hagan aquí.</div>';
+      var m = openModal('rmAccessModal', 'modal-md', 'Acceso · ' + (VENUE.name || 'Recinto'), h, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmAccessModal'); if (i) i.hide(); }),
+        btn('Guardar', 'btn-primary', function () {
+          var txt = m.querySelector('[data-acc]').value.trim();
+          postJson(ep('/recinto/acceso'), { access_notes: txt }).then(function (r) {
+            if (!r || !r.ok) { alert((r && r.error) || 'No se pudo guardar.'); return; }
+            VENUE.access_notes = r.access_notes || '';
+            var i = bs('rmAccessModal'); if (i) i.hide();
+            renderActividad();
+          });
+        }),
+      ]);
+    }
+    function openActivityNotes() {
+      var h = '<label class="form-label">Notas sobre ' + esc((ACTIVITY.word || 'la actividad').toLowerCase()) + '</label>'
+        + '<textarea class="form-control" rows="4" data-notes>' + esc(ACTIVITY.notes || '') + '</textarea>'
+        + '<div class="form-text">Lo que haga falta saber: se ve aquí y en la hoja de ruta que se comparte.</div>';
+      var m = openModal('rmActNotesModal', 'modal-md', 'Notas', h, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmActNotesModal'); if (i) i.hide(); }),
+        btn('Guardar', 'btn-primary', function () {
+          var txt = m.querySelector('[data-notes]').value.trim();
+          postJson(ep('/notas-actividad'), { notes: txt }).then(function (r) {
+            if (!apply(r)) return;
+            ACTIVITY.notes = (P.activity_notes || '');
+            var i = bs('rmActNotesModal'); if (i) i.hide();
+            renderActividad();
+          });
+        }),
+      ]);
+    }
+    /* Añadir un CONTACTO: cualquier tercero de la base (con su foto) y su función; lo que no esté
+       se crea al vuelo. Es la misma forma que una persona del personal. */
+    function openContactEditor() {
+      var c = { kind: 'MANUAL', ref_id: '', name: '', role: '', phone: '', email: '', photo_url: '' };
+      var h = '<div class="mb-2"><label class="form-label">Buscar el contacto</label>'
+        + '<div class="rm-psearch"><input class="form-control" placeholder="Escribe un nombre…" data-csearch>'
+        + (CAN_CREATE ? '<button type="button" class="btn btn-outline-secondary" data-cnew title="Crear un tercero con lo escrito"><i class="fa fa-plus"></i></button>' : '') + '</div>'
+        + '<div class="list-group position-absolute d-none" style="z-index:5" data-cresults></div></div>'
+        + '<div class="rm-ppick d-none" data-cpick></div>'
+        + '<div class="row g-2">'
+        + '<div class="col-md-7"><label class="form-label">Nombre</label><input class="form-control" data-c2="name"></div>'
+        + '<div class="col-md-5"><label class="form-label">Función</label><input class="form-control" list="rmRolesList2" data-c2="role" placeholder="Producción local, sala, seguridad…"></div>'
+        + '<div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" data-c2="phone"></div>'
+        + '<div class="col-md-6"><label class="form-label">Email</label><input class="form-control" data-c2="email"></div>'
+        + '</div><datalist id="rmRolesList2">' + PERSON_ROLES.map(function (r) { return '<option value="' + esc(r) + '">'; }).join('') + '</datalist>';
+      var m = openModal('rmContactModal', 'modal-md', 'Añadir un contacto', h, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmContactModal'); if (i) i.hide(); }),
+        btn('Guardar', 'btn-primary', function () {
+          ['name', 'role', 'phone', 'email'].forEach(function (k) { c[k] = m.querySelector('[data-c2="' + k + '"]').value.trim(); });
+          if (!c.name) { alert('Falta el nombre.'); return; }
+          postJson(ep('/contacto'), c).then(function (r) {
+            if (!apply(r)) return;
+            var i = bs('rmContactModal'); if (i) i.hide();
+            syncRoadmapContacts(); renderActividad();
+          });
+        }),
+      ]);
+      var pick = m.querySelector('[data-cpick]');
+      function elegido(r) {
+        c.kind = 'PROMOTER'; c.ref_id = r.id; c.photo_url = r.logo_url || '';
+        m.querySelector('[data-c2="name"]').value = r.label || '';
+        if (r.phone) m.querySelector('[data-c2="phone"]').value = r.phone;
+        if (r.email) m.querySelector('[data-c2="email"]').value = r.email;
+        pick.innerHTML = '<span class="av">' + avatar(r.logo_url) + '</span><div><div class="fw-semibold">' + esc(r.label || '') + '</div>'
+          + (r.sub ? '<div class="rm-sub">' + esc(r.sub) + '</div>' : '') + '</div>'
+          + '<button type="button" class="btn btn-sm btn-light ms-auto" data-cclear title="Quitar"><i class="fa fa-xmark"></i></button>';
+        pick.classList.remove('d-none');
+        pick.querySelector('[data-cclear]').addEventListener('click', function () { c.kind = 'MANUAL'; c.ref_id = ''; c.photo_url = ''; pick.classList.add('d-none'); });
+      }
+      function crear(q) {
+        if (!q) { alert('Escribe antes el nombre.'); return; }
+        createPromoter(q).then(function (r) {
+          if (r && r.id) elegido({ id: r.id, label: r.label || q, logo_url: r.logo_url || '', sub: 'Tercero nuevo' });
+          else alert((r && r.error) || 'No se pudo crear el tercero.');
+        });
+      }
+      attachSearch(m.querySelector('[data-csearch]'), m.querySelector('[data-cresults]'), searchPromoters, elegido, CAN_CREATE ? { onCreate: crear } : {});
+      var bn = m.querySelector('[data-cnew]');
+      if (bn) bn.addEventListener('click', function () { crear((m.querySelector('[data-csearch]').value || '').trim()); });
+    }
+
+    /* ================================================================ REPERTORIO
+       Cuando SE CANTA. Arriba el set list de la ficha (tal como está configurado, con su PDF) y
+       debajo el de cada punto de los horarios en el que se canta: sus canciones en orden (se buscan
+       en el repertorio del artista, se arrastran para ordenar) y su PDF. Un punto que canta y no
+       tiene canciones es la tarea pendiente de producción «Configurar el repertorio». */
+    function itemSings(it) {
+      return !!(it && (it.sings || (it.interview && it.interview.sings) || (it.promo_meta && it.promo_meta.sings)));
+    }
+    function itemSongs(it) {
+      if (!it) return [];
+      if ((it.songs || []).length) return it.songs;
+      if (it.interview && (it.interview.songs || []).length) return it.interview.songs;
+      return [];
+    }
+    function fmtDur(sec) {
+      sec = parseInt(sec, 10) || 0;
+      if (!sec) return '';
+      var m = Math.floor(sec / 60), s2 = sec % 60;
+      return m + ':' + (s2 < 10 ? '0' : '') + s2;
+    }
+    function pdfLink(url, title) {
+      if (!url) return '';
+      return '<a class="btn btn-sm btn-link p-0" href="' + esc(url) + '" target="_blank" rel="noopener" title="' + esc(title || 'Descargar en PDF') + '" data-ext><i class="fa fa-file-pdf"></i></a>';
+    }
+    function setlistRows(items) {
+      var n = 0, h = '<ol class="rm-setlist">';
+      (items || []).forEach(function (it) {
+        var kind = String(it.kind || 'SONG').toUpperCase();
+        if (kind !== 'SONG') { h += '<li class="rm-setlist__sep">' + esc(it.title || '') + '</li>'; return; }
+        n++;
+        h += '<li><span class="n">' + n + '</span><span class="t">' + esc(it.title || '') + (it.note ? ' <span class="rm-sub">' + esc(it.note) + '</span>' : '') + '</span>'
+          + (it.duration_seconds ? '<span class="d">' + fmtDur(it.duration_seconds) + '</span>' : '') + '</li>';
+      });
+      return h + '</ol>';
+    }
+    function renderRepertorio() {
+      var html = '<div class="rm-toolbar"><div class="text-muted small">Lo que se canta</div></div>';
+      var tarjetas = '';
+      if (SETLIST) {
+        var right = (SETLIST.exists ? pdfLink(SETLIST_PDF, 'Descargar el repertorio en PDF') : '')
+          + (CAN_ADMIN && SETLIST_EDIT ? '<a class="btn btn-sm btn-link p-0 ms-2" href="' + esc(SETLIST_EDIT) + '" title="Se configura en la pestaña Repertorio de la ficha"><i class="fa fa-pen"></i></a>' : '');
+        var body = SETLIST.exists
+          ? setlistRows(SETLIST.items) + '<div class="rm-sub mt-1">' + SETLIST.count + ' tema' + (SETLIST.count === 1 ? '' : 's') + (SETLIST.total_label && SETLIST.total_label !== '0:00' ? ' · ' + esc(SETLIST.total_label) : '') + '</div>'
+          : '<div class="rm-sub">Todavía no está configurado el repertorio de la actividad.' + (CAN_ADMIN && SETLIST_EDIT ? ' <a href="' + esc(SETLIST_EDIT) + '">Configurarlo en la ficha</a>.' : '') + '</div>';
+        tarjetas += card('fa-music', 'Repertorio de ' + ((ACTIVITY && ACTIVITY.word) ? ACTIVITY.word.toLowerCase() : 'la actividad'), body, right, 'rm-card--wide');
+      }
+      var cantan = (P.agenda || []).filter(function (it) { return itemSings(it) && !it.cancelled; });
+      cantan.sort(function (a, b2) { if (a.day !== b2.day) return a.day < b2.day ? -1 : 1; return (a.start_time || '99') < (b2.start_time || '99') ? -1 : 1; });
+      cantan.forEach(function (it) {
+        var ki = kindInfo(it.kind);
+        var songs = itemSongs(it);
+        var pdf = (songs.length && SETLIST_PDF) ? pdfLink(SETLIST_PDF + (SETLIST_PDF.indexOf('?') >= 0 ? '&' : '?') + 'item=' + encodeURIComponent(it.id), 'Descargar este repertorio en PDF') : '';
+        var titulo = (it.title || ki.label) + ' · ' + dayLabel(it.day) + (it.start_time ? ' ' + it.start_time : '');
+        tarjetas += card(ki.icon || 'fa-music', titulo, '<div data-rsongs="' + esc(it.id) + '"></div>', pdf, 'rm-card--wide');
+      });
+      if (!tarjetas) tarjetas = '<div class="rm-empty">Aquí se verá el repertorio en cuanto en algún punto de los horarios se marque que se canta.</div>';
+      else tarjetas = '<div class="rm-cards">' + tarjetas + '</div>';
+      view.innerHTML = html + tarjetas;
+      cantan.forEach(function (it) { var box = view.querySelector('[data-rsongs="' + it.id + '"]'); if (box) itemSongsEditor(box, it); });
+    }
+    function itemSongsEditor(box, it) {
+      var songs = JSON.parse(JSON.stringify(itemSongs(it)));
+      var editable = !RO;
+      function guarda() {
+        return postJson(ep('/item/repertorio'), { id: it.id, songs: songs }).then(function (resp) {
+          if (resp && resp.ok) { P = resp.payload || P; P.agenda = P.agenda || []; DAYS = resp.days || DAYS; var x = agendaItem(it.id); if (x) it = x; }
+          else alert((resp && resp.error) || 'No se pudo guardar el repertorio.');
+        });
+      }
+      function pinta() {
+        var h = '';
+        if (!songs.length) h += '<div class="rm-sub' + (editable ? ' text-warning-emphasis' : '') + '"><i class="fa fa-triangle-exclamation me-1"></i>'
+          + (editable ? 'Se canta y todavía no tiene canciones: añádelas aquí (es la tarea pendiente de producción).' : 'Repertorio sin configurar.') + '</div>';
+        h += '<div class="d-flex flex-column gap-1 mt-1" data-rlist></div>';
+        if (editable) {
+          h += '<div class="position-relative mt-2"><input class="form-control form-control-sm" placeholder="Buscar canción del repertorio…" data-rsearch>'
+            + '<div class="list-group position-absolute d-none w-100" style="z-index:5" data-rresults></div></div>'
+            + (SONGS.length ? '' : '<div class="rm-sub mt-1">El artista no tiene canciones en el repertorio de la app.</div>');
+        }
+        box.innerHTML = h;
+        var list = box.querySelector('[data-rlist]');
+        songs.forEach(function (sg, i) {
+          var row = el('<div class="rm-song"' + (editable ? ' draggable="true"' : '') + ' data-idx="' + i + '">'
+            + (editable ? '<span class="h"><i class="fa fa-grip-vertical"></i></span>' : '<span class="n">' + (i + 1) + '</span>')
+            + (sg.cover_url ? '<img src="' + esc(sg.cover_url) + '" alt="">' : '')
+            + '<div class="flex-grow-1">' + esc(sg.title) + '</div>'
+            + (editable ? '<button type="button" class="btn-close btn-sm"></button>' : '') + '</div>');
+          if (editable) {
+            row.querySelector('.btn-close').addEventListener('click', function () { songs.splice(i, 1); guarda().then(pinta); });
+            row.addEventListener('dragstart', function (e) { row.classList.add('dragging'); try { e.dataTransfer.setData('text/plain', String(i)); } catch (_) {} });
+            row.addEventListener('dragend', function () { row.classList.remove('dragging'); });
+            row.addEventListener('dragover', function (e) { e.preventDefault(); });
+            row.addEventListener('drop', function (e) {
+              e.preventDefault();
+              var from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+              if (isNaN(from) || from === i) return;
+              var mv = songs.splice(from, 1)[0]; songs.splice(i, 0, mv);
+              guarda().then(pinta);
+            });
+          }
+          list.appendChild(row);
+        });
+        if (editable) {
+          attachSearch(box.querySelector('[data-rsearch]'), box.querySelector('[data-rresults]'), function (q) {
+            var lo = normText(q);
+            return Promise.resolve(SONGS.filter(function (sg) { return normText(sg.title || '').indexOf(lo) >= 0; })
+              .map(function (sg) { return { id: sg.id, label: sg.title, logo_url: sg.cover_url }; }));
+          }, function (r) {
+            if (songs.some(function (sg) { return String(sg.song_id) === String(r.id); })) return;
+            songs.push({ song_id: r.id, title: r.label, cover_url: r.logo_url || '' });
+            guarda().then(pinta);
+          });
+        }
+      }
+      pinta();
     }
 
     function renderAgenda() {
       var map = agendaByDay();
-      var tools = RO ? '' : '<div class="ms-auto d-flex gap-1">' + tplBtn('ROADMAP') + '<button class="btn btn-sm btn-outline-secondary" data-share title="Compartir (solo lectura)"><i class="fa fa-share-nodes"></i></button><button class="btn btn-sm btn-outline-secondary" data-cfg title="Configurar días"><i class="fa fa-gear"></i></button></div>';
+      var tools = (RO || EXT) ? '' : '<div class="ms-auto d-flex gap-1">' + tplBtn('ROADMAP') + '<button class="btn btn-sm btn-outline-secondary" data-share title="Compartir (solo lectura)"><i class="fa fa-share-nodes"></i></button><button class="btn btn-sm btn-outline-secondary" data-cfg title="Configurar días"><i class="fa fa-gear"></i></button></div>';
       var vistos = diasVisibles();
-      var html = '<div class="rm-toolbar"><div class="text-muted small">Calendario de la actividad</div>' + tools + '</div>'
+      var html = '<div class="rm-toolbar"><div class="text-muted small">Horarios de la actividad</div>' + tools + '</div>'
         + dayFilter()
         + '<div class="rm-agenda' + ((DAYS || []).length < 2 ? ' rm-agenda--single' : '') + '">';
       vistos.forEach(function (d) { html += dayBlock(d, map[d.date] || []); });
       html += '</div>';
       view.innerHTML = html;
-      if (!RO) {
+      if (!RO && !EXT) {
         var shareBtn = view.querySelector('[data-share]'); if (shareBtn) shareBtn.addEventListener('click', openShareModal);
         var cfgBtn = view.querySelector('[data-cfg]'); if (cfgBtn) cfgBtn.addEventListener('click', openDaysConfig);
       }
@@ -390,6 +770,29 @@
       body += '</div>';
       return '<div class="rm-dayblock">' + head + body + '</div>';
     }
+    /* A QUIÉN AFECTA un punto, como etiqueta: por FUNCIONES, o los NICKS de las personas concretas
+       (con su cara; si son varias se deslizan). Lo que es para TODOS no lleva nada. */
+    function audienceHtml(it) {
+      var aud = (it && it.audience) || {};
+      var mode = String(aud.mode || 'ALL').toUpperCase();
+      if (mode === 'ROLES' && (aud.roles || []).length) {
+        return '<div class="rm-aud">' + aud.roles.map(function (r) { return '<span class="rm-tag"><i class="fa fa-user-tag"></i> ' + esc(r) + '</span>'; }).join('') + '</div>';
+      }
+      if (mode === 'PEOPLE' && (aud.ids || []).length) {
+        var chips = aud.ids.map(function (id) {
+          var p = personById(id); if (!p) return '';
+          return '<span class="rm-nick" title="' + esc(p.name) + (p.role ? ' · ' + esc(p.role) : '') + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
+        }).filter(Boolean).join('');
+        return chips ? '<div class="rm-aud">' + chips + '</div>' : '';
+      }
+      return '';
+    }
+    function singTag(it) {
+      if (!itemSings(it)) return '';
+      var n = itemSongs(it).length;
+      return '<span class="rm-tag sing" data-goto-rep title="Ver el repertorio"><i class="fa fa-music"></i> Canta · '
+        + (n ? (n + ' tema' + (n === 1 ? '' : 's')) : (RO ? 'sin repertorio' : 'configurar el repertorio')) + '</span>';
+    }
     function itemRow(it) {
       var ki = kindInfo(it.kind);
       var cls = 'rm-item' + (!it.confirmed ? ' provisional' : '') + (it.cancelled ? ' cancelled' : '');
@@ -400,20 +803,21 @@
       if (it.kind === 'ENTREVISTA' && it.interview) {
         if (it.interview.type) tags += '<span class="rm-tag">' + esc(it.interview.type) + '</span>';
         if (it.interview.live) tags += '<span class="rm-tag live">Directo</span>';
-        if (it.interview.sings) tags += '<span class="rm-tag sing">Canta</span>';
         if (it.interview.media_name) sub = esc(it.interview.media_name);
       }
       // Punto que viene de una PROMOCIÓN de prensa: se pinta con sus iconos (tipo de medio, cómo se
-      // hace, si canta y si es en directo) para leer la hoja de un vistazo.
+      // hace y si es en directo) para leer la hoja de un vistazo.
       if (it.promo_meta) {
         var pm = it.promo_meta;
         if (pm.media_type) tags += '<span class="rm-tag"><i class="fa ' + esc(pm.media_icon || 'fa-bullhorn') + '"></i> ' + esc(pm.media_type) + '</span>';
         if (pm.modality_label) tags += '<span class="rm-tag"><i class="fa ' + esc(pm.modality_icon || 'fa-video') + '"></i> ' + esc(pm.modality_label) + '</span>';
-        if (pm.sings) tags += '<span class="rm-tag sing"><i class="fa fa-music"></i> Canta</span>';
         if (pm.is_live) tags += '<span class="rm-tag live"><i class="fa fa-guitar"></i> En directo</span>';
         else if (pm.formation_label) tags += '<span class="rm-tag">' + esc(pm.formation_label) + '</span>';
         if (!sub && pm.media_name) sub = esc(pm.media_name);
       }
+      // SE CANTA (con cuántos temas: pinchando se va al Repertorio) y las INSTRUCCIONES DE ACCESO.
+      tags += singTag(it);
+      if (it.access_note) tags += '<span class="rm-tag access" title="' + esc(it.access_note) + '"><i class="fa fa-door-open"></i> Acceso</span>';
       var transLine = '';
       if (ki.transport && it.transport) {
         var t = it.transport;
@@ -423,18 +827,33 @@
         if (t.ends_next_day) tags += '<span class="rm-tag plus1">Fin +1</span>';
       }
       var meta = '';
+      // EL MAPA: con un sitio escrito, el icono abre la aplicación de mapas del móvil o del Mac.
+      if (it.location) meta += '<a href="' + esc(mapsUrl(it.location)) + '" target="_blank" rel="noopener" title="Abrir en Mapas" data-ext><i class="fa fa-map-location-dot"></i></a>';
       if ((it.attachments || []).length) meta += '<span title="Adjuntos"><i class="fa fa-paperclip"></i> ' + it.attachments.length + '</span>';
       if (it.note) meta += '<span title="Nota"><i class="fa fa-note-sticky"></i></span>';
       return '<div class="' + cls + '"' + (RO ? '' : ' draggable="true"') + ' data-item="' + esc(it.id) + '" style="--rm-line:' + esc(ki.color) + '">'
         + '<div class="rm-ico" style="background:' + esc(ki.color) + '"><i class="fa ' + esc(ki.icon) + '"></i></div>'
-        + '<div><div class="rm-time">' + timeLabel(it) + '</div><div class="rm-title">' + esc(it.title || ki.label) + '</div>'
+        + '<div class="min-w-0"><div class="rm-time">' + timeLabel(it) + '</div><div class="rm-title">' + esc(it.title || ki.label) + '</div>'
         + (it.location ? '<div class="rm-sub">' + esc(it.location) + '</div>' : '') + (sub ? '<div class="rm-sub">' + sub + '</div>' : '') + transLine
-        + (tags ? '<div class="rm-tags">' + tags + '</div>' : '') + '</div>'
+        + (tags ? '<div class="rm-tags">' + tags + '</div>' : '') + audienceHtml(it) + '</div>'
         + '<div class="rm-meta">' + meta + '</div></div>';
+    }
+    /* Un clic dentro de la fila que NO es abrir el detalle: la etiqueta de «canta» (va al
+       Repertorio) y los enlaces al mapa o al teléfono (`data-ext`). */
+    function clickAparte(e) {
+      if (e.target.closest('[data-goto-rep]')) { e.stopPropagation(); goTab('repertorio'); return true; }
+      if (e.target.closest('a[data-ext]')) { e.stopPropagation(); return true; }
+      return false;
+    }
+    function goTab(name) {
+      if (TABS.indexOf(name) < 0) return;
+      tab = name;
+      root.querySelectorAll('[data-rm-tab]').forEach(function (x) { x.classList.toggle('active', x.getAttribute('data-rm-tab') === name); });
+      render();
     }
     function bindAgenda() {
       view.querySelectorAll('[data-item]').forEach(function (node) {
-        node.addEventListener('click', function () { if (node.classList.contains('dragging')) return; var it = agendaItem(node.getAttribute('data-item')); if (it) openDetail(it); });
+        node.addEventListener('click', function (e) { if (clickAparte(e)) return; if (node.classList.contains('dragging')) return; var it = agendaItem(node.getAttribute('data-item')); if (it) openDetail(it); });
         if (RO) return;
         node.addEventListener('dragstart', function (e) { dragId = node.getAttribute('data-item'); node.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragId); } catch (_) {} });
         node.addEventListener('dragend', function () { node.classList.remove('dragging'); dragId = null; view.querySelectorAll('.rm-dragover').forEach(function (x) { x.classList.remove('rm-dragover'); }); });
@@ -493,7 +912,8 @@
       return 'Solo ' + on[0].label.toLowerCase();
     }
     function newDraft(kind, day) {
-      var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, attachments: [], sheets: { GENERAL: true, TECNICA: true } };
+      var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, attachments: [], sheets: { GENERAL: true, TECNICA: true },
+                audience: { mode: 'ALL', roles: [], ids: [] }, sings: false, songs: [], access_note: '' };
       // La ficha ya dice a qué hora abren las puertas: se precumplimenta (se puede cambiar, y se
       // pueden añadir varias aperturas en la misma actividad).
       if (kind === 'APERTURA_PUERTAS' && DOORS) d.start_time = DOORS;
@@ -521,6 +941,33 @@
       h += '<div class="col-12"><div class="filter-label"><i class="fa fa-share-nodes"></i>¿En qué hoja de ruta se ve?</div><div class="filter-chips">'
         + SHEETS.map(function (sN) { return '<label class="filter-chip"><input type="checkbox" data-sheet="' + sN.key + '"' + (dsh[sN.key] ? ' checked' : '') + '><i class="fa ' + sN.icon + '"></i>' + sN.label + '</label>'; }).join('')
         + '</div><div class="filter-hint">Las dos van marcadas. Si quitas una, este punto no sale en el enlace de esa hoja de ruta (si quitas las dos, se queda solo aquí dentro).</div></div>';
+      // ¿A QUIÉN AFECTA? A todos · por función · personas concretas (lo que ve cada uno en el portal).
+      var aud = draft.audience || { mode: 'ALL', roles: [], ids: [] };
+      var roles = personnelRoles();
+      h += '<div class="col-12"><div class="filter-label"><i class="fa fa-users"></i>¿A quién afecta?</div><div class="filter-chips">'
+        + [['ALL', 'A todos', 'fa-globe'], ['ROLES', 'Por función', 'fa-user-tag'], ['PEOPLE', 'Personas concretas', 'fa-user-check']].map(function (o) {
+            return '<label class="filter-chip"><input type="radio" name="rmAudMode" value="' + o[0] + '"' + (String(aud.mode || 'ALL') === o[0] ? ' checked' : '') + ' data-aud-mode><i class="fa ' + o[2] + '"></i>' + o[1] + '</label>';
+          }).join('')
+        + '</div>'
+        + '<div class="filter-chips mt-2' + (aud.mode === 'ROLES' ? '' : ' d-none') + '" data-aud-roles>'
+        + (roles.length ? roles.map(function (r) { return '<label class="filter-chip"><input type="checkbox" value="' + esc(r) + '"' + ((aud.roles || []).some(function (x) { return normText(x) === normText(r); }) ? ' checked' : '') + ' data-aud-role><i class="fa fa-user-tag"></i>' + esc(r) + '</label>'; }).join('')
+                        : '<span class="filter-hint">Añade antes el personal con su función.</span>')
+        + '</div>'
+        + '<div class="rm-audpeople mt-2' + (aud.mode === 'PEOPLE' ? '' : ' d-none') + '" data-aud-people>'
+        + ((P.personnel || []).length ? (P.personnel || []).map(function (p) {
+            return '<label><input class="form-check-input" type="checkbox" value="' + esc(p.id) + '"' + ((aud.ids || []).indexOf(String(p.id)) >= 0 ? ' checked' : '') + ' data-aud-person>'
+              + '<span class="av">' + avatar(p.photo_url) + '</span><span>' + esc(p.name) + (p.role ? ' <span class="rm-sub">· ' + esc(p.role) + '</span>' : '') + '</span></label>';
+          }).join('') : '<span class="filter-hint">Añade antes el personal.</span>')
+        + '</div>'
+        + '<div class="filter-hint">Quien entra por su acceso de externo ve solo lo que le afecta (lo de todos, siempre).</div></div>';
+      // SE CANTA (en una entrevista lo dice su propio bloque) → el repertorio se configura en su pestaña.
+      if (draft.kind !== 'ENTREVISTA' && !ki.transport) {
+        h += '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-f="sings" id="rmSingsIt"' + (draft.sings ? ' checked' : '') + '><label class="form-check-label" for="rmSingsIt"><i class="fa fa-music me-1"></i>Se canta</label></div>'
+          + '<div class="filter-hint">Al marcarlo aparece en la pestaña Repertorio, donde se ponen las canciones.</div></div>';
+      }
+      // INSTRUCCIONES DE ACCESO (cómo se llega, por dónde se entra).
+      h += '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-f="access_on" id="rmAccOn"' + (draft.access_note ? ' checked' : '') + '><label class="form-check-label" for="rmAccOn"><i class="fa fa-door-open me-1"></i>Instrucciones de acceso</label></div></div>'
+        + '<div class="col-12' + (draft.access_note ? '' : ' d-none') + '" data-access-wrap><textarea class="form-control" rows="2" data-f="access_note" placeholder="Por dónde se entra, a quién preguntar, dónde se aparca…">' + esc(draft.access_note || '') + '</textarea></div>';
       h += '</div>';
 
       // Entrevista
@@ -571,6 +1018,8 @@
       var save = btn('Guardar', 'btn-primary', function () { saveItem(draft, m); });
       var m = openModal('rmItemModal', 'modal-lg', (editing ? 'Editar' : 'Nueva') + ' · ' + ki.label, h, [btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmItemModal'); if (i) i.hide(); }), save]);
 
+      // wire a quién afecta + acceso
+      wireAudience(m);
       // wire contacto
       var cChip = m.querySelector('[data-contact-chip]'), cName = m.querySelector('[data-contact-name]');
       function setContact(c) {
@@ -583,7 +1032,7 @@
       m.rmSetContact = setContact;
       attachSearch(m.querySelector('[data-contact-search]'), m.querySelector('[data-contact-results]'), searchPromoters, function (r) {
         setContact({ name: r.label, phone: r.phone || '', email: r.email || '', promoter_id: r.id });
-      }, { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) setContact({ name: r.label || q, promoter_id: r.id, phone: r.contact_phone || '', email: r.contact_email || '' }); }); } });
+      }, CAN_CREATE ? { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) setContact({ name: r.label || q, promoter_id: r.id, phone: r.contact_phone || '', email: r.contact_email || '' }); }); } } : {});
       m.querySelector('[data-contact-clear]').addEventListener('click', function () { setContact({}); });
 
       // wire entrevista
@@ -592,6 +1041,36 @@
       if (ki.transport) wireTransport(m, draft);
       // wire adjuntos
       if (editing) { renderItemAtts(m, draft); m.querySelector('[data-attin]').addEventListener('change', function (e) { var f = e.target.files[0]; if (!f) return; var fd = new FormData(); fd.append('scope', 'item'); fd.append('id', draft.id); fd.append('file', f); postForm(ep('/adjunto'), fd).then(function (resp) { if (resp && resp.ok) { var it = null; (resp.payload.agenda || []).forEach(function (x) { if (x.id === draft.id) it = x; }); if (it) { draft.attachments = it.attachments || []; renderItemAtts(m, draft); } P = resp.payload; DAYS = resp.days || DAYS; } }); }); }
+    }
+    /* Las FUNCIONES que hay en el personal de esta hoja de ruta (sin repetir), para el «por función». */
+    function personnelRoles() {
+      var vistos = {}, out = [];
+      (P.personnel || []).forEach(function (p) {
+        var r = (p.role || '').trim(); if (!r) return;
+        var k = normText(r); if (vistos[k]) return;
+        vistos[k] = 1; out.push(r);
+      });
+      return out;
+    }
+    function wireAudience(m) {
+      var rolesBox = m.querySelector('[data-aud-roles]'), peopleBox = m.querySelector('[data-aud-people]');
+      m.querySelectorAll('[data-aud-mode]').forEach(function (r) {
+        r.addEventListener('change', function () {
+          if (rolesBox) rolesBox.classList.toggle('d-none', r.value !== 'ROLES');
+          if (peopleBox) peopleBox.classList.toggle('d-none', r.value !== 'PEOPLE');
+        });
+      });
+      var on = m.querySelector('[data-f="access_on"]'), wrap = m.querySelector('[data-access-wrap]');
+      if (on && wrap) on.addEventListener('change', function () { wrap.classList.toggle('d-none', !on.checked); if (on.checked) { var ta = wrap.querySelector('textarea'); if (ta) ta.focus(); } });
+    }
+    function readAudience(m) {
+      var mode = 'ALL';
+      m.querySelectorAll('[data-aud-mode]').forEach(function (r) { if (r.checked) mode = r.value; });
+      var roles = [].map.call(m.querySelectorAll('[data-aud-role]:checked'), function (c) { return c.value; });
+      var ids = [].map.call(m.querySelectorAll('[data-aud-person]:checked'), function (c) { return c.value; });
+      if (mode === 'ROLES' && !roles.length) mode = 'ALL';
+      if (mode === 'PEOPLE' && !ids.length) mode = 'ALL';
+      return { mode: mode, roles: mode === 'ROLES' ? roles : [], ids: mode === 'PEOPLE' ? ids : [] };
     }
     function wireInterview(m, draft) {
       m.querySelector('[data-iv="type"]').addEventListener('change', function (e) { draft.interview.type = e.target.value; });
@@ -703,7 +1182,7 @@
         + '<div class="text-muted small flex-grow-1">Personal de la hoja de ruta</div>'
         + '<div class="filter-chips m-0" data-passbulk></div></div>'
         + '<div data-passlist></div>'
-        + '<hr><div class="text-muted small mb-1">Añadir tercero nuevo</div><input class="form-control" placeholder="Buscar tercero…" data-newsearch><div class="list-group position-absolute d-none" style="z-index:5" data-newresults></div>'
+        + (CAN_CREATE ? '<hr><div class="text-muted small mb-1">Añadir tercero nuevo</div><input class="form-control" placeholder="Buscar tercero…" data-newsearch><div class="list-group position-absolute d-none" style="z-index:5" data-newresults></div>' : '<hr>')
         + '<div class="mt-2"><input class="form-control form-control-sm mb-1" data-mname placeholder="…o nombre manual"><input class="form-control form-control-sm mb-1" data-mrole placeholder="Función"><button type="button" class="btn btn-outline-primary btn-sm" data-maddmanual>Añadir manual</button></div>';
 
       var bAdd = btn('Añadir', 'btn-primary', function () { addSeleccionados(); });
@@ -751,7 +1230,7 @@
         if (yaVan[String(pid)]) { alert('Esa persona ya va en este traslado.'); return; }
         sel[String(pid)] = true; pinta();
       }
-      attachSearch(m2.querySelector('[data-newsearch]'), m2.querySelector('[data-newresults]'), searchPromoters, function (r) {
+      if (CAN_CREATE) attachSearch(m2.querySelector('[data-newsearch]'), m2.querySelector('[data-newresults]'), searchPromoters, function (r) {
         savePerson({ kind: 'PROMOTER', ref_id: r.id, name: r.label, phone: r.phone || '', email: r.email || '', photo_url: r.logo_url || '' }).then(marcaNueva);
       }, { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) savePerson({ kind: 'PROMOTER', ref_id: r.id, name: r.label || q }).then(marcaNueva); }); } });
       m2.querySelector('[data-maddmanual]').addEventListener('click', function () {
@@ -786,6 +1265,12 @@
       m.querySelectorAll('[data-sheet]').forEach(function (cb) { draft.sheets[cb.getAttribute('data-sheet')] = cb.checked; });
       draft.location = m.querySelector('[data-f="location"]').value.trim();
       draft.note = m.querySelector('[data-f="note"]').value.trim();
+      draft.audience = readAudience(m);
+      var singsEl = m.querySelector('[data-f="sings"]');
+      if (singsEl) draft.sings = singsEl.checked;
+      else if (draft.interview) draft.sings = !!draft.interview.sings;
+      var accOn = m.querySelector('[data-f="access_on"]');
+      draft.access_note = (accOn && accOn.checked) ? (m.querySelector('[data-f="access_note"]').value.trim()) : '';
       draft.contact = draft.contact || {};
       draft.contact.phone = m.querySelector('[data-c="phone"]').value.trim();
       draft.contact.email = m.querySelector('[data-c="email"]').value.trim();
@@ -806,7 +1291,14 @@
       if (!it.confirmed) h += '<div class="rm-tag tbc mb-2 d-inline-block">Provisional</div> ';
       if (!RO) { var shD = sheetsLabel(it); if (shD) h += '<div class="rm-tag sheet mb-2 d-inline-block"><i class="fa fa-share-nodes"></i> ' + esc(shD) + '</div> '; }
       if (it.cancelled) h += '<div class="rm-tag mb-2 d-inline-block">Cancelada</div>';
-      if (it.location) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(it.location) + '</div>';
+      if (it.location) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(it.location) + ' <a class="ms-1" href="' + esc(mapsUrl(it.location)) + '" target="_blank" rel="noopener" title="Abrir en Mapas"><i class="fa fa-map-location-dot"></i></a></div>';
+      var audH = audienceHtml(it);
+      h += '<div class="mb-1 rm-sub"><i class="fa fa-users"></i> ' + (audH ? 'Afecta a:' : 'Afecta a todos') + '</div>' + audH;
+      if (itemSings(it) && !(it.kind === 'ENTREVISTA' && it.interview)) {
+        var sgs = itemSongs(it);
+        h += '<div class="mb-1"><span class="rm-tag sing"><i class="fa fa-music"></i> Canta</span>'
+          + (sgs.length ? '<div class="rm-sub">Repertorio: ' + sgs.map(function (s2) { return esc(s2.title); }).join(', ') + '</div>' : '<div class="rm-sub">Sin repertorio todavía (se configura en la pestaña Repertorio).</div>') + '</div>';
+      }
       if (it.kind === 'ENTREVISTA' && it.interview) {
         h += '<div class="mb-1">';
         if (it.interview.media_name) h += '<span class="rm-tag">' + esc(it.interview.media_name) + '</span> ';
@@ -833,6 +1325,7 @@
         (t.passengers || []).forEach(function (p) { var per = personById(p.personnel_id); h += '<div class="rm-sub"><i class="fa fa-user"></i> ' + esc(per ? per.name : '—') + (p.locator || t.locator_all ? ' · Loc: ' + esc(t.same_locator ? t.locator_all : p.locator) : '') + (p.ticket_url ? ' · <a href="' + esc(p.ticket_url) + '" target="_blank">Billete</a>' : '') + '</div>'; });
       }
       if (it.contact && (it.contact.name || it.contact.phone || it.contact.email)) h += '<div class="mt-2 rm-sub"><i class="fa fa-address-card"></i> ' + [it.contact.name, it.contact.phone, it.contact.email].filter(Boolean).map(esc).join(' · ') + '</div>';
+      if (it.access_note) h += '<div class="rm-acceso mt-2"><b>Acceso:</b> ' + esc(it.access_note) + '</div>';
       if (it.note) h += '<div class="alert alert-warning mt-2 mb-0 py-2"><i class="fa fa-note-sticky"></i> ' + esc(it.note) + '</div>';
       if ((it.attachments || []).length) { h += '<div class="mt-2">'; it.attachments.forEach(function (a) { h += '<a class="rm-att" href="' + esc(a.url) + '" target="_blank"><i class="fa fa-download"></i> ' + esc(a.name) + '</a>'; }); h += '</div>'; }
 
@@ -858,7 +1351,7 @@
       html += '</div>';
       view.innerHTML = html;
       if (!RO) view.querySelectorAll('[data-mode]').forEach(function (c) { c.addEventListener('click', function () { openItemEditor(newDraft(c.getAttribute('data-mode'), DAYS[0] ? DAYS[0].date : '')); }); });
-      view.querySelectorAll('.rm-item').forEach(function (node) { node.addEventListener('click', function () { var host = node.closest('[data-item]'); var it = agendaItem(host.getAttribute('data-item')); if (it) openDetail(it); }); });
+      view.querySelectorAll('.rm-item').forEach(function (node) { node.addEventListener('click', function (e) { if (clickAparte(e)) return; var host = node.closest('[data-item]'); var it = agendaItem(host.getAttribute('data-item')); if (it) openDetail(it); }); });
     }
 
     // ================================================================ HOTELES
@@ -886,7 +1379,7 @@
     }
     function repartoBlock() {
       var pool = roomsPool();
-      if (RO || !pool.length) return '';
+      if (HRO || !pool.length) return '';
       var cols = (P.hotels || []).map(function (ho) {
         var cap = hotelCap(ho);
         var cont = cap.reserved
@@ -915,7 +1408,7 @@
       return (P.personnel || []).filter(function (p) { return !dentro[String(p.id)] && !p.no_room; });
     }
     function pendientesBlock() {
-      if (RO || !(P.hotels || []).length) return '';
+      if (HRO || !(P.hotels || []).length) return '';
       var falta = sinHabitacion();
       var noNecesitan = (P.personnel || []).filter(function (p) { return p.no_room; });
       if (!falta.length && !noNecesitan.length) return '';
@@ -939,7 +1432,7 @@
         + '</div>';
     }
     function renderHoteles() {
-      var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir hotel</button>';
+      var addBtn = HRO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir hotel</button>';
       var html = '<div class="rm-toolbar"><div class="text-muted small">Alojamientos</div><span class="ms-auto d-flex gap-1 align-items-center">' + tplBtn('ROOMING') + addBtn + '</span></div>';
       html += repartoBlock() + pendientesBlock();
       html += '<div class="d-flex flex-column gap-2">';
@@ -947,7 +1440,7 @@
       P.hotels.forEach(function (ho) { html += hotelCard(ho); });
       html += '</div>';
       view.innerHTML = html;
-      if (RO) return;
+      if (HRO) return;
       view.querySelector('[data-add]').addEventListener('click', function () { openHotelEditor(newHotel()); });
       view.querySelectorAll('[data-hedit]').forEach(function (b) { b.addEventListener('click', function () { openHotelEditor(JSON.parse(JSON.stringify(hotelById(b.getAttribute('data-hedit'))))); }); });
       view.querySelectorAll('[data-hdel]').forEach(function (b) { b.addEventListener('click', function () { if (!confirm('¿Eliminar este hotel?')) return; postJson(ep('/hotel/delete'), { id: b.getAttribute('data-hdel') }).then(apply); }); });
@@ -1106,7 +1599,7 @@
           }
         });
       });
-      if (RO) return;
+      if (HRO) return;
       /* EL NÚMERO QUE DA EL HOTEL: se escribe en la propia tarjeta y se guarda al salir del campo
          (o con Enter), por su propio endpoint — así no se toca nada más de la rooming list. */
       view.querySelectorAll('[data-room-number]').forEach(function (inp) {
@@ -1204,12 +1697,12 @@
     function roomMiniCard(ho, r, ri) {
       var occ = (r.occupant_ids || []).map(function (id) {
         var p = personById(id); if (!p) return '';
-        return '<span class="rm-occ" draggable="' + (RO ? 'false' : 'true') + '" data-occ="' + esc(id) + '" data-occ-hotel="' + esc(ho.id) + '" data-occ-room="' + esc(r.id) + '" title="' + esc(p.name) + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
+        return '<span class="rm-occ" draggable="' + (HRO ? 'false' : 'true') + '" data-occ="' + esc(id) + '" data-occ-hotel="' + esc(ho.id) + '" data-occ-room="' + esc(r.id) + '" title="' + esc(p.name) + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
       }).join('');
       var n = ri || roomOrder(ho, r);
       /* ⚠️ EL NÚMERO QUE DA EL HOTEL (214) es de la CASA: se ve y se escribe dentro de la app, y NO
          se pinta en solo lectura (la hoja de ruta que se comparte y el portal de externos). */
-      var numero = RO
+      var numero = HRO
         ? (r.room_number ? '<span class="rm-room__num is-set"><i class="fa fa-door-closed"></i>' + esc(r.room_number) + '</span>' : '')
         : '<label class="rm-room__num' + (r.room_number ? ' is-set' : '') + '" title="Número de habitación del hotel">'
           + '<i class="fa fa-door-closed"></i>'
@@ -1220,7 +1713,7 @@
         + '<span class="rm-sub d-inline-flex align-items-center gap-1">' + brkIcon(r.breakfast) + '</span></div>'
         + '<div class="rm-room__meta"><span class="rm-room__type">' + roomTypeLabel((r.occupant_ids || []).length, r.bed) + '</span>' + numero + '</div>'
         // ⚠️ En solo lectura no se arrastra nada: ahí el texto sería un botón que no existe.
-        + (occ || '<div class="rm-sub">' + (RO ? 'Sin ocupantes' : 'Arrastra personas aquí') + '</div>')
+        + (occ || '<div class="rm-sub">' + (HRO ? 'Sin ocupantes' : 'Arrastra personas aquí') + '</div>')
         + '</div>';
     }
     function roomingBlock(ho) {
@@ -1233,7 +1726,7 @@
       // (`hotelCard` → `roomingActions`): aquí solo queda el rótulo.
       html += '<div class="rm-sub fw-semibold mb-1"><i class="fa fa-bed"></i> Rooming list'
         + (rooms.length ? ' · ' + rooms.length + ' hab.' : '') + '</div>';
-      if (!rooms.length) html += '<div class="rm-sub">Sin habitaciones. ' + (RO ? '' : 'Pulsa «Editar rooming» para configurarlas.') + '</div>';
+      if (!rooms.length) html += '<div class="rm-sub">Sin habitaciones. ' + (HRO ? '' : 'Pulsa «Editar rooming» para configurarlas.') + '</div>';
       Object.keys(groups).forEach(function (k) {
         html += '<div class="rm-sub fw-semibold mt-1">' + esc(k) + '</div><div class="rm-rooms-grid">';
         groups[k].forEach(function (r) { html += roomMiniCard(ho, r, 0); });
@@ -1360,7 +1853,7 @@
         + (function () {   // cuántas habitaciones hay reservadas y cuántas se han puesto
             var cap = hotelCap(ho);
             if (!cap.reserved && !(ho.rooms || []).length) return '';
-            if (!cap.reserved) return RO ? '' : '<div class="rm-sub"><i class="fa fa-bed"></i> '
+            if (!cap.reserved) return HRO ? '' : '<div class="rm-sub"><i class="fa fa-bed"></i> '
               + (ho.rooms || []).length + ' hab. · <a href="#" data-room-reserve="' + esc(ho.id) + '">decir cuántas hay reservadas</a></div>';
             var sobran = cap.spare
               ? (cap.spare === 1 ? 'Sobra 1 habitación reservada' : 'Sobran ' + cap.spare + ' habitaciones reservadas')
@@ -1370,7 +1863,7 @@
               + '"' + (sobran ? ' title="' + esc(sobran + ': o se usan o se cambia la reserva') + '"' : '') + '>'
               + cap.used + '/' + cap.reserved + ' hab. reservadas</span>'
               + (sobran ? ' <span class="rmr-spare">' + esc(sobran) + '</span>' : '')
-              + (RO ? '' : ' <a href="#" data-room-reserve="' + esc(ho.id) + '">cambiar</a>') + '</div>';
+              + (HRO ? '' : ' <a href="#" data-room-reserve="' + esc(ho.id) + '">cambiar</a>') + '</div>';
           })()
         + '<div class="rm-sub"><i class="fa fa-users"></i> ' + esc(whoNames || '—') + '</div>'
         + (ho.note ? '<div class="rm-sub"><i class="fa fa-note-sticky"></i> ' + esc(ho.note) + '</div>' : '')
@@ -1393,7 +1886,7 @@
         + '<li><button class="dropdown-item" data-rshare="wa" data-rhotel="' + esc(ho.id) + '"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
         + '<li><button class="dropdown-item" data-rshare="sms" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>'
         + '</ul></div>';
-      if (RO) return '<div class="rm-menu rm-hotel__acts">' + compartir + '</div>';
+      if (HRO) return '<div class="rm-menu rm-hotel__acts">' + compartir + '</div>';
       return '<div class="rm-menu rm-hotel__acts">' + compartir
         + '<button class="btn btn-sm btn-outline-primary" data-rooming-edit="' + esc(ho.id) + '" title="Editar la rooming list">'
         + '<i class="fa fa-pen"></i> <span class="d-none d-md-inline">Editar</span></button>'
@@ -1452,7 +1945,7 @@
     // ================================================================ PERSONAL
     var psub = 'list'; // subpestaña del Personal: 'list' | 'prl'
     function personalSubtabs() {
-      if (RO) return '';  // el enlace público de la hoja de ruta no enseña el PRL
+      if (PRO) return '';  // ni el enlace público ni el externo que actualiza enseñan el PRL ni el viaje
       return '<ul class="nav nav-pills nav-sm mb-2" data-psub-bar>'
         + '<li class="nav-item"><button type="button" class="nav-link py-1 px-3' + (psub === 'list' ? ' active' : '') + '" data-psub="list"><i class="fa fa-users me-1"></i>Personal</button></li>'
         + '<li class="nav-item"><button type="button" class="nav-link py-1 px-3' + (psub === 'prl' ? ' active' : '') + '" data-psub="prl"><i class="fa fa-helmet-safety me-1"></i>PRL</button></li>'
@@ -1631,8 +2124,8 @@
       if (psub === 'prl') { renderPrl(); return; }
       if (psub === 'viaje') { renderViaje(); return; }
       var rows = personRowsNow().filter(personMatches);
-      var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir</button>';
-      var colsBtn = RO ? '' : '<button class="btn btn-sm btn-outline-secondary py-0 me-1" data-pcols><i class="fa fa-table-columns me-1"></i>Qué datos se ven</button>';
+      var addBtn = PRO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir</button>';
+      var colsBtn = PRO ? '' : '<button class="btn btn-sm btn-outline-secondary py-0 me-1" data-pcols><i class="fa fa-table-columns me-1"></i>Qué datos se ven</button>';
       var ordenBtn = '<button class="btn btn-sm btn-outline-secondary py-0 me-1" data-porden title="Cambiar el orden">'
         + '<i class="fa ' + (pOrden === 'rol' ? 'fa-user-tag' : 'fa-arrow-down-a-z') + ' me-1"></i>'
         + (pOrden === 'rol' ? 'Por función' : 'Alfabético') + '</button>';
@@ -1651,7 +2144,7 @@
       /* MANDARLE UN MENSAJE a los que van (SMS o correo), a todos o por función. El pop-up y su
          motor viven aparte (`roadmap_message.js`), enganchados por delegación. */
       var msgBtn = RO ? '' : '<button class="btn btn-sm btn-outline-primary py-0 me-1" data-rm-msg-open>'
-        + '<i class="fa fa-paper-plane me-1"></i>Mandar un mensaje</button>';
+        + '<i class="fa fa-comment-sms me-1"></i>Enviar SMS</button>';
       var html = personalSubtabs()
         + '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div>'
         + '<span>' + ordenBtn + colsBtn + msgBtn + exportBtns + tplBtn('PERSONNEL') + addBtn + '</span></div>'
@@ -1660,20 +2153,23 @@
       else if (!rows.length) html += '<div class="rm-empty">Nadie casa con lo que se está buscando.</div>';
 
       function fila(r) {
-        var menu = RO ? '' : '<div class="dropdown ms-2"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>'
+        var menu = PRO ? '' : '<div class="dropdown ms-2"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>'
           + '<ul class="dropdown-menu dropdown-menu-end">'
           + '<li><button class="dropdown-item" data-pedit="' + esc(r.id) + '">Editar</button></li>'
           + (r.has_ficha ? '<li><button class="dropdown-item" data-pfill="' + esc(r.id) + '">Completar sus datos</button></li>' : '')
           + (r.ficha_url ? '<li><a class="dropdown-item" href="' + esc(r.ficha_url) + '" target="_blank">Ver su ficha</a></li>' : '')
           + '<li><button class="dropdown-item text-danger" data-pdel="' + esc(r.id) + '">Eliminar</button></li></ul></div>';
         var faltan = personFaltan(r);
-        var aviso = (faltan.length && !RO)
+        var aviso = (faltan.length && !PRO)
           ? '<div class="rm-pfalta"><i class="fa fa-triangle-exclamation"></i> Falta '
             + faltan.map(personFieldLabel).join(' · ')
             + ' <button type="button" class="btn btn-sm btn-outline-warning py-0 ms-1" data-pfill="' + esc(r.id) + '">Completar</button></div>'
           : '';
+        // PUEDE ACTUALIZAR LA HOJA DE RUTA desde su acceso de externo: se ve en su fila.
+        var pp = personById(r.id);
+        var puede = (pp && pp.can_edit) ? '<span class="rm-tag edit ms-1" title="Puede actualizar la hoja de ruta desde su acceso de externo"><i class="fa fa-pen-to-square"></i> Puede actualizarla</span>' : '';
         return '<div class="rm-person"><span class="av">' + avatar(r.photo_url) + '</span>'
-          + '<div class="flex-grow-1"><div class="nm">' + esc(r.name) + '</div>'
+          + '<div class="flex-grow-1"><div class="nm">' + esc(r.name) + puede + '</div>'
           + (personColOn('role') && r.role ? '<div class="rl">' + esc(r.role) + '</div>' : '')
           + personDatos(r) + personViaje(r) + personDoc(r) + aviso
           + '</div>' + menu + '</div>';
@@ -1705,7 +2201,7 @@
       view.querySelectorAll('[data-pexp]').forEach(function (b) {
         b.addEventListener('click', function () { exportarPersonal(b.getAttribute('data-pexp')); });
       });
-      if (RO) return;
+      if (PRO) return;
       var cb = view.querySelector('[data-pcols]');
       if (cb) cb.addEventListener('click', openPersonCols);
       view.querySelector('[data-add]').addEventListener('click', function () { openPersonEditor({ id: '', kind: 'MANUAL', ref_id: '', name: '', role: '', phone: '', email: '', photo_url: '' }); });
@@ -2007,6 +2503,15 @@
       h += '<div class="col-md-5"><label class="form-label">Función</label><input class="form-control" list="rmRolesList" data-p="role" value="' + esc(p.role) + '" placeholder="Músico, Tour manager…"></div>';
       h += '<div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" data-p="phone" value="' + esc(p.phone) + '"></div>';
       h += '<div class="col-md-6"><label class="form-label">Email</label><input class="form-control" data-p="email" value="' + esc(p.email) + '"></div>';
+      /* PUEDE ACTUALIZAR LA HOJA DE RUTA: entrando por su acceso de externo (/externos) podrá mover,
+         añadir y borrar horarios, editar el repertorio y la logística, bajar el rooming y el
+         personal con DNI y mandar SMS al personal. Solo tiene sentido en un tercero o un
+         integrante (los que pueden entrar por el portal). */
+      var puedeEd = (p.kind === 'PROMOTER' || p.kind === 'MEMBER');
+      h += '<div class="col-12' + (puedeEd ? '' : ' d-none') + '" data-canedit-wrap><div class="form-check form-switch">'
+        + '<input class="form-check-input" type="checkbox" data-p="can_edit" id="rmCanEdit"' + (p.can_edit ? ' checked' : '') + '>'
+        + '<label class="form-check-label" for="rmCanEdit"><i class="fa fa-pen-to-square me-1"></i>Puede actualizar la hoja de ruta</label></div>'
+        + '<div class="form-text">Desde su acceso de externo podrá mover, añadir y borrar horarios, editar el repertorio y la logística, bajar el rooming y el personal con DNI y mandar SMS al personal.</div></div>';
       h += '</div>';
       h += '<datalist id="rmRolesList">' + PERSON_ROLES.map(function (r) { return '<option value="' + esc(r) + '">'; }).join('') + '</datalist>';
       var m = openModal('rmPersonModal', 'modal-md', (editing ? 'Editar' : 'Nuevo') + ' personal', h, [
@@ -2017,6 +2522,7 @@
       var pick = m.querySelector('[data-ppick]');
       function elegido(r) {
         p.kind = r.kind || 'PROMOTER'; p.ref_id = r.id; p.photo_url = r.logo_url || '';
+        var cw = m.querySelector('[data-canedit-wrap]'); if (cw) cw.classList.toggle('d-none', !(p.kind === 'PROMOTER' || p.kind === 'MEMBER'));
         m.querySelector('[data-p="name"]').value = r.label || '';
         if (r.phone) m.querySelector('[data-p="phone"]').value = r.phone;
         if (r.email) m.querySelector('[data-p="email"]').value = r.email;
@@ -2026,6 +2532,7 @@
         pick.classList.remove('d-none');
         pick.querySelector('[data-pclear]').addEventListener('click', function () {
           p.kind = 'MANUAL'; p.ref_id = ''; p.photo_url = '';
+          var cw2 = m.querySelector('[data-canedit-wrap]'); if (cw2) cw2.classList.add('d-none');
           pick.classList.add('d-none'); pick.innerHTML = '';
         });
       }
@@ -2047,6 +2554,8 @@
       p.role = m.querySelector('[data-p="role"]').value.trim();
       p.phone = m.querySelector('[data-p="phone"]').value.trim();
       p.email = m.querySelector('[data-p="email"]').value.trim();
+      var ce = m.querySelector('[data-p="can_edit"]');
+      p.can_edit = !!(ce && ce.checked && (p.kind === 'PROMOTER' || p.kind === 'MEMBER'));
       if (!p.name) { alert('Falta el nombre.'); return; }
       var i = bs('rmPersonModal'); if (i) i.hide();
       PERS_ROWS = null;   // sus datos de ficha se vuelven a pedir
@@ -2066,7 +2575,7 @@
           '<div class="text-muted">Esta actividad no tiene ninguna hoja de ruta activada. Actívala en la ficha para poder compartirla.</div>', []);
         return;
       }
-      var html = '<div class="text-muted small mb-2">Enlace de <strong>solo lectura</strong>: se pueden descargar los adjuntos, sin poder editar nada. Cada hoja de ruta muestra <strong>los puntos de la agenda marcados con su etiqueta</strong> (por defecto, todos).</div>';
+      var html = '<div class="text-muted small mb-2">Enlace de <strong>solo lectura</strong>: se pueden descargar los adjuntos, sin poder editar nada. Cada hoja de ruta muestra <strong>los puntos de los horarios marcados con su etiqueta</strong> (por defecto, todos).</div>';
       disponibles.forEach(function (k) {
         html += '<div class="border rounded p-2 mb-2" data-share-kind="' + k[0] + '">'
           + '<div class="fw-semibold small mb-1"><i class="fa ' + k[2] + ' me-1"></i>' + esc(k[1]) + '</div>'
@@ -2143,8 +2652,11 @@
     }
 
     // ---------------------------------------------------------------- init
-    function render() { if (tab === 'actividad') renderActividad(); else if (tab === 'agenda') renderAgenda(); else if (tab === 'logistica') renderLogistica(); else if (tab === 'hoteles') renderHoteles(); else renderPersonal(); }
+    function render() { if (tab === 'actividad') renderActividad(); else if (tab === 'agenda') renderAgenda(); else if (tab === 'logistica') renderLogistica(); else if (tab === 'hoteles') renderHoteles(); else if (tab === 'repertorio') renderRepertorio(); else renderPersonal(); }
     root.querySelectorAll('[data-rm-tab]').forEach(function (b) { b.addEventListener('click', function () { tab = b.getAttribute('data-rm-tab'); root.querySelectorAll('[data-rm-tab]').forEach(function (x) { x.classList.toggle('active', x === b); }); render(); }); });
+    // FUERA DE LA APP la cabecera de la actividad va ARRIBA DEL TODO (la misma viñeta de «Evento»).
+    var headBox = document.getElementById('rmHeader');
+    if (headBox && ACTIVITY && HEADER_TOP) headBox.innerHTML = actHeadHtml();
     render();
   }
 

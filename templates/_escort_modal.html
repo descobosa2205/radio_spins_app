@@ -22,12 +22,13 @@
     {% endif %}
   </div>
   <div class="card-body d-flex align-items-center gap-3 flex-wrap">
-    <span class="ficha-hero__media" style="flex:0 0 auto;">
+    {# ⚠️ Solo el CÍRCULO de la foto, como en el resto de la app: envuelta en `.ficha-hero__media`
+       salía una viñeta grande detrás con la foto pequeña dentro (visto en pantalla). #}
+    <span class="escort-av" style="flex:0 0 auto;">
       {% if escort.photo_url %}
-        <img src="{{ escort.photo_url }}" alt="" data-avatar="1"
-             style="width:48px;height:48px;border-radius:50%;object-fit:cover;">
+        <img src="{{ escort.photo_url }}" alt="" data-avatar="1">
       {% else %}
-        <span class="oa-row__icon"><i class="fa {{ escort.icon }} fa-lg text-muted"></i></span>
+        <i class="fa {{ escort.icon }}"></i>
       {% endif %}
     </span>
     <span class="flex-grow-1" style="min-width:12rem;">

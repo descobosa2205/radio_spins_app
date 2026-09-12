@@ -80,6 +80,17 @@
   </script>
 {% endif %}
 
+{# ⚠️ `?open=contacto-ticketing` abre el pop-up de A QUIÉN se le piden las ventas: es a donde lleva
+   la etiqueta roja «Solicitud automática no configurada» de «Actualizar ventas», para configurarla
+   donde se configura (aquí) sin duplicar el pop-up en la otra pantalla. #}
+{% if request.args.get('open') == 'contacto-ticketing' %}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.app33AutoOpenModal) window.app33AutoOpenModal('ticketingContactModal');
+    });
+  </script>
+{% endif %}
+
 <div class="ficha-quick mb-0">
   {% if CAN_EDIT_CONCERTS and tab == 'general' %}
     {# Pone TODA la ficha en modo edición inline (todas las secciones con todos los campos,

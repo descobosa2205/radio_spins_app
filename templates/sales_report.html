@@ -109,6 +109,9 @@
   {% set updated_last = last_map.get(c.id) %}
   {% set is_today = (updated_last == day) %}
   {% set soldout = c.sold_out or (c.capacity and total >= c.capacity) %}
+  {# ⚠️⚠️ LA RECAUDACIÓN SOLO ES NUESTRA si la promueve (o participa) una empresa del grupo: lo que
+     promueve un tercero no tiene ni recaudación bruta ni neta (la taquilla es suya). #}
+  {% set has_money = (revenue_map.get(c.id, True) if revenue_map is defined else True) %}
   {% set subject = (c.artist.name if c.artist else '') or (c.festival_name or '—') %}
   {% set muni = (c.venue.municipality if c.venue else None) or c.manual_municipality or '' %}
   {% set venue_name = (c.venue.name if c.venue else None) or c.manual_venue_name or '' %}
@@ -210,7 +213,13 @@
         <div class="metric"><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total|k }}</div></div>
         <div class="metric"><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
         <div class="metric"><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
-        {% if CAN_VIEW_ECON %}
+        {% if CAN_VIEW_ECON and not has_money %}
+          <div class="metric" title="{{ no_revenue_hint if no_revenue_hint is defined else '' }}">
+            <small class="text-muted d-block">Recaudación</small>
+            <div class="fw-semibold text-muted"><i class="fa fa-circle-info me-1"></i>{{ no_revenue_label if no_revenue_label is defined else 'Taquilla del promotor' }}</div>
+          </div>
+        {% endif %}
+        {% if CAN_VIEW_ECON and has_money %}
           {# ⚠️ En lo que vendemos NOSOTROS con Enterticket, la recaudación neta es la de verdad:
              el bruto SIN el IVA (10%) ni la SGAE (7,6%). Y se enseñan los ingresos totales y los
              gastos de distribución, como en el resumen de la ticketera. Sale del punto único

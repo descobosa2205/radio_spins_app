@@ -370,23 +370,29 @@ button.song-status-item:focus {
   padding: .5rem .65rem;
 }
 
-/* === Ventas: resaltado de estado en listado === */
-.sales-card-updated {
+/* === Ventas: resaltado de estado en listado ===
+   ⚠️ Van con `.card` delante a propósito: en este mismo fichero hay más abajo un `.card { border: … }`
+   (misma especificidad, gana el último) que se comía la RAYA de color de la izquierda — el fondo sí
+   se veía y el borde no, así que el estado se leía a medias. */
+.card.sales-card-updated {
   background-color: #ffffff;
   border-left: 4px solid #2ecc71;
 }
 
-.sales-card-pending {
+.card.sales-card-pending {
   background-color: #fff8d6; /* amarillo clarito */
   border-left: 4px solid #f0c419;
 }
 
-.sales-card-never {
+/* AZUL = todavía no está en marcha: sin ningún dato, o —si la vende un tercero— sin configurar
+   la solicitud automática de ventas. `sales-card-never` es el nombre viejo del mismo estado. */
+.card.sales-card-never,
+.card.sales-card-setup {
   background-color: #e8f1ff; /* azul clarito */
   border-left: 4px solid #0d6efd;
 }
 
-.sales-card-soldout {
+.card.sales-card-soldout {
   background-color: #fde8e8; /* rojo clarito */
   border-left: 4px solid #dc3545;
 }

@@ -12758,3 +12758,57 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   falta un contexto de **PETICIÓN**, no solo de aplicación — con solo `app_context` el correo sale pero
   **el aviso de la campanita no llega a nadie** y el `except` se lo traga (la trampa que ya costó el
   Sold Out).
+
+- ⚠️⚠️ **LA RECAUDACIÓN SOLO ES NUESTRA SI LA PROMUEVE (o participa) UNA EMPRESA DEL GRUPO**
+  (sep 2026). En lo que promueve un **TERCERO** la taquilla es **SUYA** —nosotros cobramos un
+  caché—, así que en **«Actualizar ventas»** y en el **«Reporte de ventas»** esa actividad **no
+  tiene recaudación, ni bruta ni neta**: enseñar un importe que no ingresamos es peor que no
+  enseñar nada. Lo que **sí se ve siempre** es cómo va la venta (vendidas, aforo, %, pendientes,
+  sold out), que es lo que se sigue.
+  · Puntos únicos **`_concert_has_revenue`** / **`_concerts_have_revenue_map`** (el criterio es el
+  de siempre, `_concert_is_group_promoted`) + **`_sales_zero_out_revenue`**, que pone el dinero
+  **a CERO en el CONTEXTO**: así **ningún total** (los KPIs del reporte, las sumas por sección del
+  correo) se lleva por delante una recaudación ajena. Quien PINTA el importe mira además
+  `revenue_map` y escribe **«Taquilla del promotor»** (`NO_REVENUE_LABEL`) en vez de un 0,00 € que
+  parecería un dato.
+  · Aplicado en los CINCO sitios: `/ventas` (las métricas y el pop-up de actualizar) · el
+  **reporte** (pantalla, **A4**, **correo** —con su columna «—»—) · el **A4 de /ventas** y el
+  **informe por concierto**, que lo dice arriba en un aviso.
+  ⚠️ `_concerts_group_promoted_map` se alineó con `_concert_is_group_promoted` (le faltaba «a
+  EMPRESA con empresa que factura»): con dos criterios distintos, la misma fecha salía como del
+  grupo en un sitio y de un tercero en otro.
+
+- ⚠️⚠️ **ACTUALIZAR VENTAS · EL COLOR DE CADA TARJETA DICE SI HAY TRABAJO Y DE QUÉ TIPO**
+  (sep 2026, punto único **`_sales_update_cards`** → `card_map`):
+  · **VERDE** — al día: **CONECTADA** (Enterticket la actualiza sola, así que **NUNCA sale como
+    pendiente**) o **actualizada hoy** a mano.
+  · **AZUL** (`sales-card-setup`, el azul que ya existía como `sales-card-never`) — todavía no está
+    en marcha: **sin ningún dato** (nadie ha actualizado nunca) o, si la vende un tercero, **sin
+    configurar la solicitud automática**. Es lo que hay que dejar montado, no el olvido de un día.
+  · **AMARILLO** — pendiente: hay datos y hoy no se han actualizado.
+  · **ROJO** — SOLD OUT (manda sobre el resto, como siempre).
+  · **LAS CONECTADAS** llevan la etiqueta **«Conectada · hoy 12:31»** y el botón **«Actualizar
+    ahora»** (`concert_et_sync`, que ahora **vuelve a donde se pulsa**: `safe_next_or`).
+  · **LAS QUE VENDE UN TERCERO** llevan, además: la etiqueta de **cuándo se le pidió** («Solicitada:
+    …» / «Todavía no se le ha pedido») y el botón **«Solicitar actualización»**; y si la solicitud
+    automática **no está configurada**, la etiqueta **ROJA «Solicitud automática no configurada»**,
+    que lleva a la ficha con **`?tab=ticketing&open=contacto-ticketing`** — el pop-up de siempre se
+    abre solo. No se duplica ese pop-up en /ventas: depende de UNA actividad (ids fijos) y se
+    configura donde se configura.
+  ⚠️⚠️ **PEDIRLA A MANO ES ADICIONAL: NO TOCA EL RELOJ DEL AUTOMÁTICO.**
+  `_sales_request_send(..., auto=False)` apunta el envío en el historial y en el contador pero **no
+  mueve `sales_request_last_at`**, que es lo que mira `_sales_request_due` para los lunes y los
+  jueves. Lo usan el botón nuevo (**`concert_sales_request_now`**) y el envío a mano de la ficha.
+  ⚠️ Por eso «la última solicitud» sale del HISTORIAL (**`_sales_request_last_label`**): mirando solo
+  la columna, lo que se acaba de mandar no se vería en ninguna parte.
+  ⚠️⚠️ **ENTERTICKET ES TRABAJO DE TICKETING** y sus rutas cuelgan de `/conciertos/…`, así que el gate
+  las resolvía a `contratacion.conciertos` **con edición**: quien tenía que traer las ventas se comía
+  un **403 al pulsar «Actualizar ahora»** (en la ficha y aquí). `concert_et_sync` · `_link` ·
+  `_unlink` · `_dismiss` · `_config_apply` van en **`SUPPORT_ACTION_ENDPOINTS`** y sus lecturas
+  (`_status`, `_series`, `_config_preview`) en `SUPPORT_READ_ENDPOINTS`, con la puerta fina DENTRO
+  (`can_set_concert_onsale()`). ⚠️ **Volcar la configuración** sigue exigiendo `can_edit_concerts()`:
+  cambia los tipos de entrada y el aforo, y eso es de contratación.
+  ⚠️ Lo lista `/ventas` desde el día que **sale a la venta** hasta el de la actividad, sin lo
+  GRATUITO ni el FESTIVAL de un tercero (`_concerts_need_sales_report_map`, el punto único de
+  siempre), y **todas** —las venda quien las venda— conservan el pop-up de **actualizar a mano**
+  (se escribe el TOTAL y la app calcula la diferencia).

@@ -5885,6 +5885,53 @@ def _concert_needs_sales_report(session_db, concert, *, group_promoted=None) -> 
     return True
 
 
+# =================================================================================================
+# ¿DE QUIÉN ES LA TAQUILLA? · PUNTO ÚNICO
+# -------------------------------------------------------------------------------------------------
+# ⚠️⚠️ LA RECAUDACIÓN SOLO ES NUESTRA SI LA PROMUEVE —o PARTICIPA— UNA EMPRESA DEL GRUPO. En lo
+# que promueve un TERCERO la taquilla es SUYA (nosotros cobramos un caché), así que en «Actualizar
+# ventas» y en el «Reporte de ventas» esa actividad **no tiene recaudación, ni bruta ni neta**:
+# enseñar un importe que no ingresamos es peor que no enseñar nada.
+# ⚠️ Lo que SÍ se ve siempre es CÓMO VA LA VENTA (vendidas, aforo, %, pendientes, sold out): eso es
+# lo que se sigue en las dos pantallas, sea de quien sea la taquilla.
+# Mismo criterio que cartelería e invitaciones: `_concert_is_group_promoted`.
+def _concert_has_revenue(session_db, concert, *, group_promoted=None) -> bool:
+    """¿Es NUESTRA la recaudación de esta actividad?"""
+    if concert is None:
+        return False
+    if group_promoted is None:
+        group_promoted = _concert_is_group_promoted(session_db, concert)
+    return bool(group_promoted)
+
+
+def _concerts_have_revenue_map(session_db, concerts) -> dict:
+    """`_concert_has_revenue` EN BLOQUE (una sola consulta), para los listados de ventas."""
+    grupo = _concerts_group_promoted_map(session_db, concerts)
+    return {c.id: bool(grupo.get(c.id))
+            for c in (concerts or []) if c is not None and getattr(c, "id", None)}
+
+
+# Lo que se dice DONDE iría el importe: un hueco vacío no explica nada.
+NO_REVENUE_LABEL = "Taquilla del promotor"
+NO_REVENUE_HINT = ("La promueve un tercero: la recaudación es suya, así que aquí no hay "
+                   "recaudación bruta ni neta.")
+
+
+def _sales_zero_out_revenue(revenue_map: dict, *mapas) -> None:
+    """Pone a CERO el dinero de las actividades cuya taquilla NO es nuestra.
+
+    ⚠️ Se hace en el CONTEXTO, no en cada plantilla: así ningún total (los KPIs del reporte, las
+    sumas por sección del correo) se lleva por delante una recaudación que no ingresamos. Quien
+    PINTA cada importe mira además `revenue_map` para escribir `NO_REVENUE_LABEL` en vez de un
+    0,00 € que parecería un dato."""
+    for m in mapas:
+        if not isinstance(m, dict):
+            continue
+        for cid in list(m.keys()):
+            if not revenue_map.get(cid, True):
+                m[cid] = 0.0
+
+
 CONCERT_CAPACITY_LABEL = "Aforo a la venta"
 CONCERT_CAPACITY_LABEL_FREE = "Aforo"
 
@@ -69753,6 +69800,70 @@ def _sync_concert_capacity_from_ticket_types(session_db, concert_id) -> None:
         # No rompemos la operación principal si esto falla.
         return
 
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+#  ACTUALIZAR VENTAS · EL COLOR DE CADA TARJETA · PUNTO ÚNICO
+#
+#  ⚠️⚠️ Lo que dice el color es SI HAY TRABAJO Y DE QUÉ TIPO:
+#    · VERDE   — al día: **CONECTADA** (Enterticket la actualiza sola, así que NUNCA sale como
+#                pendiente) o actualizada HOY a mano.
+#    · AZUL    — todavía no está en marcha: **sin ningún dato** (nadie ha actualizado nunca) o, si
+#                la vende un tercero, **sin configurar la solicitud automática** (no hay a quién
+#                pedírsela). Es lo que hay que dejar montado, no un olvido del día.
+#    · AMARILLO — pendiente: hay datos y hoy no se han actualizado.
+#    · ROJO     — SOLD OUT (lo de siempre, manda sobre el resto).
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+
+SALES_CARD_CSS = {"connected": "sales-card-updated", "updated": "sales-card-updated",
+                  "setup": "sales-card-setup", "pending": "sales-card-pending"}
+
+
+def _sales_update_cards(session_db, concerts, day, last_map, et_map) -> dict:
+    """El estado de cada fila de «Actualizar ventas»: color, conexión y solicitud al promotor.
+
+    ⚠️ En BLOQUE: ¿quién promueve? se resuelve de una vez (`_concerts_group_promoted_map`) y se le
+    pasa a los puntos únicos, que si no harían una consulta por actividad en cada carga."""
+    grupo = _concerts_group_promoted_map(session_db, concerts)
+    salida = {}
+    for c in (concerts or []):
+        et = (et_map or {}).get(c.id) or {}
+        conectada = bool(et)
+        sincronizada = bool(et.get("synced"))
+        al_dia = bool(et.get("is_today")) or (last_map.get(c.id) == day)
+        sin_datos = (last_map.get(c.id) is None) and not sincronizada
+        try:
+            tercero = _concert_sales_request_applies(session_db, c, group_promoted=grupo.get(c.id))
+        except Exception:
+            app.logger.exception("[ventas] no se pudo mirar a quién pedirle las ventas")
+            tercero = False
+        contacto = _concert_ticketing_contact(session_db, c) if tercero else {}
+        # «Configurada» = se ha dicho A MANO a quién se le piden (en la actividad o por defecto en el
+        # tercero). Caer en el correo de la ficha del promotor es el respaldo, no una decisión.
+        auto_ok = bool(tercero and (contacto.get("source") or "").upper()
+                       in ("CONCERT", "PROMOTER_DEFAULT"))
+        if conectada and sincronizada:
+            estado = "connected"
+        elif al_dia:
+            estado = "updated"
+        elif sin_datos or (tercero and not auto_ok):
+            estado = "setup"
+        else:
+            estado = "pending"
+        salida[c.id] = {
+            "state": estado,
+            "css": SALES_CARD_CSS.get(estado, "sales-card-pending"),
+            "connected": conectada,
+            "et_synced": sincronizada,
+            "et_label": (("hoy " + et.get("time", "")) if et.get("is_today")
+                         else ((et.get("date", "") + " " + et.get("time", "")).strip())),
+            "third": tercero,
+            "auto_ok": auto_ok,
+            "contact_name": (contacto.get("name") or contacto.get("email") or ""),
+            "requested_label": _sales_request_last_label(c) if tercero else "",
+            "no_data": sin_datos,
+        }
+    return salida
+
+
 @app.route("/ventas")
 @admin_required
 def sales_update_view():
@@ -70029,6 +70140,13 @@ def sales_update_view():
 
             rebate_net_map[cid2] = total_rebate_net
 
+        # ⚠️⚠️ LA RECAUDACIÓN SOLO ES NUESTRA SI PROMUEVE (o participa) UNA EMPRESA DEL GRUPO: lo
+        # que promueve un tercero no tiene ni bruto ni neto que enseñar (punto único).
+        revenue_map = _concerts_have_revenue_map(session_db, concerts)
+        _sales_zero_out_revenue(revenue_map, gross_map, net_map, rebate_net_map, vat_amount_map,
+                                sgae_amount_map, base_no_vat_map, potential_gross_map,
+                                remaining_gross_map)
+
         # ticketeras globales (para selector)
         all_ticketers = session_db.query(Ticketer).order_by(Ticketer.name.asc()).all()
 
@@ -70043,6 +70161,29 @@ def sales_update_view():
                 }
         except Exception:
             et_linked_concert_ids = set()
+
+        # LAS CONECTADAS se actualizan solas: al abrir la pantalla se dispara el sync de las que
+        # estén viejas (en 2º plano, con guarda) y de aquí sale su etiqueta «Conectada · hora».
+        et_map = {}
+        if concert_ids and et_api.enterticket_configured():
+            try:
+                for _ev in (session_db.query(EnterticketEvent)
+                            .filter(EnterticketEvent.concert_id.in_(concert_ids)).all()):
+                    _et_maybe_sync_event(_ev, max_age_min=5)
+                    _last = _ev.last_synced_at
+                    if _last is not None and _last.tzinfo is not None:
+                        _last = _last.astimezone(TZ_MADRID)
+                    et_map[_ev.concert_id] = {
+                        "time": _last.strftime("%H:%M") if _last else "",
+                        "date": _last.strftime("%d/%m/%Y") if _last else "",
+                        "is_today": bool(_last and _last.date() == today_local()),
+                        "synced": bool(_ev.last_synced_at)}
+            except Exception:
+                app.logger.exception("[ventas] no se pudo leer el estado de Enterticket")
+                et_map = {}
+
+        # El COLOR y las etiquetas de cada fila (punto único).
+        card_map = _sales_update_cards(session_db, concerts, day, last_map, et_map)
 
         # Agrupar por secciones (igual que reporte)
         sections = {k: [] for k in SALES_SECTION_ORDER}
@@ -70087,6 +70228,11 @@ def sales_update_view():
             rebate_net_map=rebate_net_map,
             rebate_net_by_ticketer_map=rebate_net_by_ticketer_map,
             et_linked_concert_ids=et_linked_concert_ids,
+            et_map=et_map,
+            card_map=card_map,
+            revenue_map=revenue_map,
+            no_revenue_label=NO_REVENUE_LABEL,
+            no_revenue_hint=NO_REVENUE_HINT,
             vat_amount_map=vat_amount_map,
             sgae_amount_map=sgae_amount_map,
             base_no_vat_map=base_no_vat_map,
@@ -71022,6 +71168,16 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
 
             rebate_net_map[cid2] = total_rebate_net
 
+        # ⚠️⚠️ LA RECAUDACIÓN SOLO ES NUESTRA SI PROMUEVE (o participa) UNA EMPRESA DEL GRUPO. Lo
+        # que promueve un tercero no tiene ni recaudación bruta ni neta: se pone a cero aquí para
+        # que ningún total (los KPIs, las sumas por sección del correo) la cuente, y quien la pinta
+        # mira `revenue_map` para decir de quién es la taquilla en vez de escribir 0,00 €.
+        revenue_map = _concerts_have_revenue_map(session, concerts)
+        _sales_zero_out_revenue(revenue_map, gross_map, net_map, rebate_net_map)
+        for _cid, _et in (et_map or {}).items():
+            if not revenue_map.get(_cid, True):
+                _et["money"] = {}
+
         sections = {k: [] for k in SALES_SECTION_ORDER}
         for c in concerts:
             if c.sale_type in sections:
@@ -71111,6 +71267,9 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
             rebate_net_map=rebate_net_map,
             et_map=et_map,
             et_stamp=et_stamp,
+            revenue_map=revenue_map,
+            no_revenue_label=NO_REVENUE_LABEL,
+            no_revenue_hint=NO_REVENUE_HINT,
             kpis=kpis,
             rows=rows,
             updated_map=updated_map,
@@ -71286,6 +71445,7 @@ def _sales_report_email_html(ctx: dict, *, include_econ: bool, note: str = "") -
     today_map = ctx.get("today_map") or {}
     gross_map = ctx.get("gross_map") or {}
     net_map = ctx.get("net_map") or {}
+    revenue_map = ctx.get("revenue_map") or {}
     et_map = ctx.get("et_map") or {}
     for key in ctx.get("order") or []:
         lista = (ctx.get("sections") or {}).get(key) or []
@@ -71311,7 +71471,12 @@ def _sales_report_email_html(ctx: dict, *, include_econ: bool, note: str = "") -
                    f'<td {tdr}>{nfmt(hoy)}</td><td {tdr}>{nfmt(total)}</td>'
                    f'<td {tdr}>{nfmt(c.capacity)}</td><td {tdr}>{pct:.1f}%</td>')
             if include_econ:
-                row += f'<td {tdr}>{eur(gross_map.get(c.id, 0))}</td><td {tdr}>{eur(net_map.get(c.id, 0))}</td>'
+                # ⚠️ Sin taquilla nuestra no se escribe un importe: se dice de quién es.
+                if revenue_map.get(c.id, True):
+                    row += f'<td {tdr}>{eur(gross_map.get(c.id, 0))}</td><td {tdr}>{eur(net_map.get(c.id, 0))}</td>'
+                else:
+                    row += (f'<td {tdr} colspan="2"><span style="font-size:11px;color:#8b95a1">'
+                            f'{esc(NO_REVENUE_LABEL)}</span></td>')
             row += "</tr>"
             rows_html.append(row)
             sec_today += hoy
@@ -71569,6 +71734,7 @@ def sales_report_pdf():
     last_map = ctx.get("last_map", {})
     gross_map = ctx.get("gross_map", {})
     net_map = ctx.get("net_map", {})
+    revenue_map = ctx.get("revenue_map", {})
     sections = ctx.get("sections", {})
     titles = ctx.get("titles", {})
 
@@ -71716,10 +71882,16 @@ def sales_report_pdf():
                 _cell(updated_str, 10),
             ]
             if show_econ:
-                row += [
-                    Paragraph(_xml_escape(_fmt_money_eur(float(gross_map.get(cid, 0.0) or 0.0))), body_style),
-                    Paragraph(_xml_escape(_fmt_money_eur(float(net_map.get(cid, 0.0) or 0.0))), body_style),
-                ]
+                # ⚠️ La promueve un tercero: la taquilla es SUYA, así que no hay recaudación que
+                # imprimir (un 0,00 € parecería un dato).
+                if revenue_map.get(cid, True):
+                    row += [
+                        Paragraph(_xml_escape(_fmt_money_eur(float(gross_map.get(cid, 0.0) or 0.0))), body_style),
+                        Paragraph(_xml_escape(_fmt_money_eur(float(net_map.get(cid, 0.0) or 0.0))), body_style),
+                    ]
+                else:
+                    _sin = Paragraph(_xml_escape("—"), body_style)
+                    row += [_sin, _sin]
             data.append(row)
 
         table = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
@@ -71898,6 +72070,11 @@ def sales_update_report_pdf():
             for c in concerts
         }
 
+        # ⚠️⚠️ LA RECAUDACIÓN SOLO ES NUESTRA SI PROMUEVE (o participa) UNA EMPRESA DEL GRUPO: el
+        # A4 imprime lo mismo que se ve en pantalla, así que en lo de un tercero no hay importes.
+        revenue_map = _concerts_have_revenue_map(session_db, concerts)
+        _sales_zero_out_revenue(revenue_map, gross_map, net_map, rebate_net_map)
+
         sections = {k: [] for k in SALES_SECTION_ORDER}
         for c in concerts:
             if c.sale_type in sections:
@@ -71930,9 +72107,12 @@ def sales_update_report_pdf():
             "capacity": ("Aforo", lambda c: str(int(capacity_map.get(c.id, c.capacity or 0) or 0))),
             "pct": ("% venta", lambda c: f"{_pct_for(c):.1f}%"),
             "pending": ("Pendientes", lambda c: str(_pending_for(c))),
-            "gross": ("Bruto", lambda c: _fmt_money_eur(float(gross_map.get(c.id, 0.0) or 0.0))),
-            "net": ("Neto", lambda c: _fmt_money_eur(float(net_map.get(c.id, 0.0) or 0.0))),
-            "rebate_net": ("Rebate neto", lambda c: (_fmt_money_eur(float(rebate_net_map.get(c.id, 0.0) or 0.0)) if rebate_cfg_map.get(c.id) else "")),
+            "gross": ("Bruto", lambda c: (_fmt_money_eur(float(gross_map.get(c.id, 0.0) or 0.0))
+                                          if revenue_map.get(c.id, True) else "—")),
+            "net": ("Neto", lambda c: (_fmt_money_eur(float(net_map.get(c.id, 0.0) or 0.0))
+                                       if revenue_map.get(c.id, True) else "—")),
+            "rebate_net": ("Rebate neto", lambda c: (_fmt_money_eur(float(rebate_net_map.get(c.id, 0.0) or 0.0))
+                                                     if (rebate_cfg_map.get(c.id) and revenue_map.get(c.id, True)) else "")),
             "updated": ("Actualizado", lambda c: _updated_for(c)),
         }
 
@@ -72375,6 +72555,10 @@ def sales_event_report_view(cid):
             concert=c,
             emit_date=emit_date,
             report_updated_today=report_updated_today,
+            # ⚠️ Si la promueve un tercero la TAQUILLA ES SUYA: el informe sigue enseñando cómo va
+            # la venta, pero se dice que esa recaudación no la ingresamos nosotros.
+            has_revenue=_concert_has_revenue(session_db, c),
+            no_revenue_hint=NO_REVENUE_HINT,
             report_company_logo=report_company_logo,
             has_v2=has_v2,
             vat_pct=vat,
@@ -92170,7 +92354,14 @@ SUPPORT_ACTION_ENDPOINTS = {
     # ACTUALIZACIÓN DE VENTAS del promotor de fuera: configurar su contacto de ticketing y mandarle
     # (o previsualizar) la solicitud es trabajo de TICKETING. Mismo motivo que arriba.
     "concert_ticketing_contact_save", "concert_sales_request_preview",
-    "concert_sales_request_send", "concert_sale_seller_save", "concert_sales_own_request",
+    "concert_sales_request_send", "concert_sales_request_now",
+    # ⚠️⚠️ ENTERTICKET es trabajo de TICKETING, y sus rutas cuelgan de `/conciertos/…`, así que el
+    # gate las resolvía a `contratacion.conciertos` CON EDICIÓN: quien tiene que traer las ventas
+    # se comía un 403 al pulsar «Actualizar ahora» (en la ficha y en «Actualizar ventas»). La
+    # puerta fina la pone cada endpoint con `can_set_concert_onsale()`.
+    "concert_et_sync", "concert_et_link", "concert_et_unlink", "concert_et_dismiss",
+    "concert_et_config_apply",
+    "concert_sale_seller_save", "concert_sales_own_request",
     # CARTEL DE SOLD OUT: se pide solo al 90%, y a mano lo puede pedir (o retirar) contratación,
     # ticketing o el propio diseño. El permiso fino lo comprueba el endpoint.
     "concert_soldout_request",
@@ -92259,6 +92450,9 @@ SUPPORT_READ_ENDPOINTS = {
     "booking_request_detail_view",
     # Vista previa del aviso de salida a la venta (la abre Ticketing; el endpoint comprueba quién).
     "concert_sale_notice_view",
+    # El panel de Enterticket de la pestaña Ticketing: su estado y su serie diaria son LECTURAS
+    # (el polling de esa pestaña, que sin esto se comía un 403 y no se refrescaba nunca).
+    "concert_et_status", "concert_et_series", "concert_et_config_preview",
     "roadmap_templates_list",
     "api_media_artist_activities",
     "api_sync_promoter_search",
@@ -101016,6 +101210,8 @@ def concert_et_config_apply(cid):
     aforo; los `ConcertTicketType` de Enterticket los mantiene al día el propio espejo de ventas.
     ⚠️ Las invitaciones pactadas por categoría NO vienen de Enterticket (su API solo da las ya
     emitidas), así que se CONSERVAN las que hubiera en la ficha."""
+    # ⚠️ VOLCAR la configuración cambia los tipos de entrada y el aforo de la actividad: eso sigue
+    # siendo de contratación (el resto del panel de Enterticket es de ticketing).
     if not can_edit_concerts():
         return forbid("No tienes permisos para editar el ticketing de una actividad.")
     next_url = safe_next_or(request.form.get("next") or url_for("concert_detail_view", cid=cid, tab="ticketing"))
@@ -118561,7 +118757,19 @@ def _concerts_group_promoted_map(session_db, concerts) -> dict:
                      .filter(ConcertCompanyShare.concert_id.in_(ids)).all()}
     except Exception:
         app.logger.exception("[ventas] no se pudieron leer las participaciones del grupo")
-    return {c.id: bool(getattr(c, "group_company_id", None)) or (c.id in con_share) for c in filas}
+    def _uno(c):
+        # ⚠️ Las MISMAS tres vías que `_concert_is_group_promoted`: su empresa del grupo, «a
+        # empresa» con empresa que factura (lo organiza la casa) y la participación. Con dos
+        # criterios distintos, la misma fecha salía como del grupo en un sitio y de un tercero en
+        # otro.
+        if getattr(c, "group_company_id", None):
+            return True
+        if ((getattr(c, "sale_type", None) or "").strip().upper() == "EMPRESA"
+                and getattr(c, "billing_company_id", None)):
+            return True
+        return c.id in con_share
+
+    return {c.id: _uno(c) for c in filas}
 
 
 def _concerts_need_sales_report_map(session_db, concerts) -> dict:
@@ -119087,6 +119295,25 @@ def _sales_request_log_rows(concert) -> list[dict]:
     return filas
 
 
+def _sales_request_last_label(concert) -> str:
+    """CUÁNDO se le pidió la actualización por última vez (automática **o** a mano).
+
+    ⚠️⚠️ Sale del HISTORIAL, no de `sales_request_last_at`: esa columna es **el reloj del
+    automático** y una solicitud mandada a mano no lo mueve a propósito (es ADICIONAL, no cambia
+    el ritmo de los lunes y los jueves). Si solo se mirara la columna, lo que se acaba de mandar no
+    se vería por ninguna parte."""
+    if concert is None:
+        return ""
+    filas = _sales_request_log_rows(concert)
+    if filas and filas[0].get("at_label"):
+        return filas[0]["at_label"]
+    ultimo = getattr(concert, "sales_request_last_at", None)
+    try:
+        return ultimo.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if ultimo else ""
+    except Exception:
+        return ""
+
+
 def _ensure_concert_sales_request_token(session_db, concert) -> str:
     """El token OPACO del enlace de actualizar ventas. Se crea CON COMMIT.
 
@@ -119592,9 +119819,9 @@ def _concert_sales_request_ficha(session_db, concert, tab: str) -> dict:
                            or (_concert_city(x) or "").strip()),
                  "is_this": str(x.id) == str(concert.id)}
                 for x in hermanas]
-        ultimo = getattr(concert, "sales_request_last_at", None)
-        datos["last_label"] = (ultimo.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
-                               if ultimo else "")
+        # ⚠️ La última solicitud sale del HISTORIAL (punto único): una mandada a mano no mueve
+        # `sales_request_last_at`, que es el reloj del automático.
+        datos["last_label"] = _sales_request_last_label(concert)
         datos["count"] = int(getattr(concert, "sales_request_count", 0) or 0)
         err_at = getattr(concert, "sales_request_error_at", None)
         datos["error"] = (getattr(concert, "sales_request_error", None) or "") if err_at else ""
@@ -119706,11 +119933,15 @@ def _sales_request_candidates(session_db, *, hoy=None) -> list:
 
 
 def _sales_request_send(session_db, contacto: dict, concerts: list, *, note: str = "",
-                        reply_to=None) -> tuple[bool, str]:
+                        reply_to=None, auto: bool = True) -> tuple[bool, str]:
     """Manda UNA solicitud con todas las actividades de ese destinatario.
 
     ⚠️ Solo se apunta como pedida si el correo SALIÓ: `_send_optional_email` devuelve `(ok, error)`
-    y tratarla como un booleano daría por enviado lo que el SMTP rechazó."""
+    y tratarla como un booleano daría por enviado lo que el SMTP rechazó.
+    ⚠️⚠️ `auto=False` = la ha mandado una PERSONA (el botón «Solicitar actualización»): queda
+    apuntada en el historial y en el contador, pero **NO mueve `sales_request_last_at`**, que es el
+    reloj del automático — pedirla a mano es ADICIONAL y no puede retrasar la comunicación que
+    toca el lunes o el jueves."""
     correo = (contacto or {}).get("email") or ""
     if not correo or "@" not in correo:
         return False, "Sin correo de ticketing."
@@ -119727,7 +119958,8 @@ def _sales_request_send(session_db, contacto: dict, concerts: list, *, note: str
         return False, (error or "No se pudo enviar el correo.")
     ahora = _now_madrid()
     for c in filas:
-        c.sales_request_last_at = ahora
+        if auto:
+            c.sales_request_last_at = ahora   # el reloj del AUTOMÁTICO (ver `auto=`)
         c.sales_request_error_at = None
         c.sales_request_error = None
         try:
@@ -120170,6 +120402,49 @@ def concert_sales_own_request(cid):
     return redirect(safe_next_or(volver))
 
 
+@app.post("/conciertos/<cid>/actualizar-ventas/pedir", endpoint="concert_sales_request_now")
+@admin_required
+def concert_sales_request_now(cid):
+    """Pide AHORA la actualización de ventas al contacto de ticketing. Un solo clic, sin pop-up.
+
+    Es el botón de «Actualizar ventas» (y de la ficha): manda EL MISMO correo que el automático,
+    pero es **ADICIONAL** — `auto=False`, así que **no toca el reloj** de las comunicaciones de los
+    lunes y los jueves."""
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    volver = url_for("concert_detail_view", cid=cid, tab="ticketing")
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(safe_next_or(url_for("concerts_view")))
+        if not _concert_sales_request_applies(session_db, concert):
+            flash("Las entradas de esta actividad no las vende un tercero: no hay a quién "
+                  "pedírselas.", "warning")
+            return redirect(safe_next_or(volver))
+        contacto = _concert_ticketing_contact(session_db, concert)
+        if not (contacto.get("email") or ""):
+            flash("No hay a quién pedírselo: configura antes el responsable de ticketing.",
+                  "warning")
+            return redirect(safe_next_or(volver))
+        ok, error = _sales_request_send(session_db, contacto, [concert], auto=False)
+        if not ok:
+            session_db.rollback()
+            flash(error or "No se pudo mandar la solicitud.", "danger")
+            return redirect(safe_next_or(volver))
+        session_db.commit()
+        flash("Solicitud de actualización enviada a %s." %
+              (contacto.get("name") or contacto.get("email")), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[ventas] no se pudo pedir la actualización")
+        flash("No se pudo mandar la solicitud: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(volver))
+
+
 @app.post("/conciertos/<cid>/actualizar-ventas/enviar", endpoint="concert_sales_request_send")
 @admin_required
 def concert_sales_request_send(cid):
@@ -120196,7 +120471,7 @@ def concert_sales_request_send(cid):
         primero = (contacto if (contacto.get("email") or "").lower() == correos[0].lower()
                    else {"email": correos[0]})
         ok, error = _sales_request_send(session_db, primero, elegidas,
-                                        note=(datos.get("note") or ""))
+                                        note=(datos.get("note") or ""), auto=False)
         if not ok:
             session_db.rollback()
             return jsonify({"ok": False, "error": error}), 400
@@ -152357,6 +152632,8 @@ def concert_et_series(cid):
 @app.post("/conciertos/<cid>/ticketing/et/vincular", endpoint="concert_et_link")
 @admin_required
 def concert_et_link(cid):
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos para tocar el ticketing de esta actividad.")
     s = db()
     try:
         c = s.get(Concert, to_uuid(cid))
@@ -152388,6 +152665,8 @@ def concert_et_link(cid):
 def concert_et_dismiss(cid):
     """Descarta una sugerencia de vinculación: el evento de ET queda IGNORED y no se vuelve a
     sugerir (ni aquí ni en otras actividades). Se puede recuperar en Integraciones."""
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos para tocar el ticketing de esta actividad.")
     s = db()
     try:
         ev = s.get(EnterticketEvent, to_uuid(request.form.get("et_event_pk") or "") or uuid.uuid4())
@@ -152409,6 +152688,8 @@ def concert_et_dismiss(cid):
 @app.post("/conciertos/<cid>/ticketing/et/desvincular", endpoint="concert_et_unlink")
 @admin_required
 def concert_et_unlink(cid):
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos para tocar el ticketing de esta actividad.")
     s = db()
     try:
         ev = _et_concert_event(s, to_uuid(cid))
@@ -152425,6 +152706,8 @@ def concert_et_unlink(cid):
 @admin_required
 def concert_et_sync(cid):
     """«Actualizar ahora»: sincroniza EN LÍNEA (al recargar ya se ven los datos nuevos)."""
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos para tocar el ticketing de esta actividad.")
     s = db()
     try:
         ev = _et_concert_event(s, to_uuid(cid))
@@ -152442,7 +152725,8 @@ def concert_et_sync(cid):
         flash(f"No se pudo actualizar desde Enterticket: {e}", "danger")
     finally:
         s.close()
-    return redirect(url_for("concert_detail_view", cid=cid, tab="ticketing"))
+    # ⚠️ Se vuelve a DONDE se pulse: el botón está en la ficha y también en «Actualizar ventas».
+    return redirect(safe_next_or(url_for("concert_detail_view", cid=cid, tab="ticketing")))
 
 
 @app.get("/ventas/et/estado", endpoint="sales_et_status")

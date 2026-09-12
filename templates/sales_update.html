@@ -44,7 +44,13 @@
         {% set pending = (cap - sold_total) if cap and cap > 0 else 0 %}
         {% set updated_last = last_map.get(c.id) %}
         {% set soldout = c.sold_out or (cap and sold_total >= cap) %}
-        {% set card_state = "sales-card-soldout" if soldout else ("sales-card-updated" if updated_last == day else ("sales-card-pending" if updated_last else "sales-card-never")) %}
+        {# El COLOR y las etiquetas los decide el servidor (punto único `_sales_update_cards`):
+           verde = al día o CONECTADA · azul = sin datos o sin configurar la solicitud automática ·
+           amarillo = pendiente. El SOLD OUT manda sobre todos, como siempre. #}
+        {% set st = (card_map.get(c.id) if card_map is defined else None) or {} %}
+        {% set card_state = "sales-card-soldout" if soldout else (st.css or "sales-card-pending") %}
+        {# ⚠️⚠️ La RECAUDACIÓN solo es nuestra si la promueve (o participa) una empresa del grupo. #}
+        {% set has_money = (revenue_map.get(c.id, True) if revenue_map is defined else True) %}
         {% set has_rebate_cfg = (c.ticketers|selectattr('rebate_mode')|list|length) > 0 %}
 
 <div class="col-12">
@@ -70,6 +76,29 @@
         </div>
 
         <div class="d-flex align-items-center gap-1">
+          {# CONECTADA: se actualiza sola, pero se puede traer el dato de AHORA a mano. #}
+          {% if st.connected %}
+            <form method="post" action="{{ url_for('concert_et_sync', cid=c.id) }}" class="m-0">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button class="btn btn-sm btn-outline-success" type="submit"
+                      title="Traer ahora mismo las ventas de Enterticket">
+                <i class="fa fa-rotate me-1"></i> Actualizar ahora
+              </button>
+            </form>
+          {% endif %}
+
+          {# LA VENDE UN TERCERO y ya se sabe a quién pedírsela: se le puede pedir AHORA (adicional:
+             no cambia el ritmo de las solicitudes automáticas). #}
+          {% if st.third and st.auto_ok and CAN_SET_ONSALE %}
+            <form method="post" action="{{ url_for('concert_sales_request_now', cid=c.id) }}" class="m-0">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit"
+                      title="Pedírsela ahora a {{ st.contact_name }} (además de la automática)">
+                <i class="fa fa-paper-plane me-1"></i> Solicitar actualización
+              </button>
+            </form>
+          {% endif %}
+
           <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#salesUpdateModal-{{ c.id }}">
             <i class="fa-solid fa-pen-to-square me-1"></i> Actualizar ventas
           </button>
@@ -103,12 +132,35 @@
 
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2" id="soldout-zone-{{ c.id }}" data-inline-zone>
         <div class="d-flex flex-wrap gap-2">
-          {% if updated_last == day %}
+          {# ⚠️ Una CONECTADA no sale nunca como «pendiente»: la actualiza la conexión. #}
+          {% if st.connected %}
+            <span class="badge text-bg-success" title="Integrada con Enterticket: las ventas, los cupos y los precios se actualizan solos">
+              <i class="fa fa-plug me-1"></i>Conectada{% if st.et_label %} · {{ st.et_label }}{% endif %}
+            </span>
+          {% elif updated_last == day %}
             <span class="badge text-bg-success">Actualizado hoy</span>
           {% elif updated_last %}
             <span class="badge text-bg-warning text-dark">Pendiente (última: {{ updated_last.strftime('%d/%m/%Y') }})</span>
           {% else %}
             <span class="badge badge-status-no-data">Sin datos</span>
+          {% endif %}
+
+          {# LA VENDE UN TERCERO: se dice si la solicitud automática está puesta y cuándo se le pidió.
+             Sin configurar, la etiqueta es ROJA y se pincha para configurarla. #}
+          {% if st.third %}
+            {% if st.auto_ok %}
+              <span class="badge text-bg-light border"
+                    title="Se le piden solas los lunes y los jueves a {{ st.contact_name }}">
+                <i class="fa fa-paper-plane me-1 text-muted"></i>
+                {% if st.requested_label %}Solicitada: {{ st.requested_label }}{% else %}Todavía no se le ha pedido{% endif %}
+              </span>
+            {% else %}
+              <a class="badge text-bg-danger text-decoration-none"
+                 href="{{ url_for('concert_detail_view', cid=c.id, tab='ticketing', open='contacto-ticketing') }}"
+                 title="Di a quién se le piden las ventas y se le pedirán solas los lunes y los jueves">
+                <i class="fa fa-triangle-exclamation me-1"></i>Solicitud automática no configurada
+              </a>
+            {% endif %}
           {% endif %}
 
           {% if c.sale_start_date %}
@@ -151,18 +203,26 @@
         </div>
 
         {% if CAN_VIEW_ECON %}
-          <div class="metric">
-            <small class="text-muted d-block">Bruto</small>
-            <div class="fw-semibold">{{ (gross_map.get(c.id, 0.0) or 0.0)|eur }}</div>
-          </div>
-          <div class="metric">
-            <small class="text-muted d-block">Neto</small>
-            <div class="fw-semibold">{{ (net_map.get(c.id, 0.0) or 0.0)|eur }}</div>
-          </div>
-          {% if has_rebate_cfg %}
+          {% if has_money %}
             <div class="metric">
-              <small class="text-muted d-block">Rebate neto</small>
-              <div class="fw-semibold">{{ (rebate_net_map.get(c.id, 0.0) or 0.0)|eur }}</div>
+              <small class="text-muted d-block">Bruto</small>
+              <div class="fw-semibold">{{ (gross_map.get(c.id, 0.0) or 0.0)|eur }}</div>
+            </div>
+            <div class="metric">
+              <small class="text-muted d-block">Neto</small>
+              <div class="fw-semibold">{{ (net_map.get(c.id, 0.0) or 0.0)|eur }}</div>
+            </div>
+            {% if has_rebate_cfg %}
+              <div class="metric">
+                <small class="text-muted d-block">Rebate neto</small>
+                <div class="fw-semibold">{{ (rebate_net_map.get(c.id, 0.0) or 0.0)|eur }}</div>
+              </div>
+            {% endif %}
+          {% else %}
+            {# La promueve un tercero: la taquilla es suya, así que aquí no hay recaudación. #}
+            <div class="metric" title="{{ no_revenue_hint }}">
+              <small class="text-muted d-block">Recaudación</small>
+              <div class="fw-semibold text-muted"><i class="fa fa-circle-info me-1"></i>{{ no_revenue_label }}</div>
             </div>
           {% endif %}
         {% endif %}
@@ -227,11 +287,16 @@
                       <div><strong>IVA:</strong> {{ (c.sales_config.vat_pct if c.sales_config else 0) or 0 }}%</div>
                       <div><strong>SGAE:</strong> {{ (c.sales_config.sgae_pct if c.sales_config else 0) or 0 }}%</div>
                       {% if CAN_VIEW_ECON %}
-                        <div class="ms-auto"><strong>Bruto:</strong> {{ "%.2f"|format(gross_map.get(c.id, 0.0) or 0.0) }} €</div>
-                        <div><strong>Neto:</strong> {{ "%.2f"|format(net_map.get(c.id, 0.0) or 0.0) }} €</div>
-                        {% if has_rebate_cfg %}
-                        <div><strong>Rebate neto:</strong> {{ "%.2f"|format(rebate_net_map.get(c.id, 0.0) or 0.0) }} €</div>
-                      {% endif %}
+                        {% if has_money %}
+                          <div class="ms-auto"><strong>Bruto:</strong> {{ "%.2f"|format(gross_map.get(c.id, 0.0) or 0.0) }} €</div>
+                          <div><strong>Neto:</strong> {{ "%.2f"|format(net_map.get(c.id, 0.0) or 0.0) }} €</div>
+                          {% if has_rebate_cfg %}
+                            <div><strong>Rebate neto:</strong> {{ "%.2f"|format(rebate_net_map.get(c.id, 0.0) or 0.0) }} €</div>
+                          {% endif %}
+                        {% else %}
+                          <div class="ms-auto text-muted" title="{{ no_revenue_hint }}">
+                            <i class="fa fa-circle-info me-1"></i>{{ no_revenue_label }}</div>
+                        {% endif %}
                       {% endif %}
                     </div>
                   </div>
@@ -252,7 +317,7 @@
                           {% if ct.ticketer %}{{ linked_mini('ticketer', ct.ticketer.id) }}{% endif %}
                         </div>
                         <div class="d-flex gap-2 align-items-center">
-                          {% if CAN_VIEW_ECON %}
+                          {% if CAN_VIEW_ECON and has_money %}
                             <span class="text-muted small">
                               Bruto (acum): {{ "%.2f"|format(ticketer_totals_map.get(c.id, {}).get(tid, {}).get('gross', 0.0) or 0.0) }} €
                               {% if ct.rebate_mode %}· Rebate neto: {{ "%.2f"|format(rebate_net_by_ticketer_map.get(c.id, {}).get(tid, 0.0) or 0.0) }} €{% endif %}
